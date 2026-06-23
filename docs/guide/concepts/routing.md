@@ -34,7 +34,11 @@ Read these three moves and you've read the whole framework's idea of routing. Ev
 (rf/dispatch [:rf.route/navigate :app/article {:id "intro"}])
 
 ;; 3. The root view reads the active route through an ordinary subscription.
-;;    (reg-view injects lexical `dispatch`/`subscribe` bound to the frame.)
+;;    Inside reg-view, you call `subscribe` and `dispatch` unprefixed: the macro
+;;    binds them for you to this view's frame. (Outside a view — like moves 1 and
+;;    2 above — you reach through the `rf/` facade: `rf/subscribe`, `rf/dispatch`.)
+;;    The leading `@` deref-es the subscription to its current value and registers
+;;    this view to re-render when that value changes — see the Subscriptions page.
 (rf/reg-view article-page []
   (let [{:keys [id]} @(subscribe [:rf.route/params])]
     [:h1 "Article " id]))
@@ -50,7 +54,7 @@ Move 1 is a couple of registry rows. Move 2 is a dispatch — the same verb you 
 
 ## Move 1: a route is a registry entry
 
-`reg-route` registers a route the same way `reg-event` registers an event: an id, a metadata map, and — in the third slot — the path. The path grammar is deliberately small enough to parse in your head: literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`). Five productions, no more.
+`reg-route` registers a route the same way `reg-event` registers an event: an id, a metadata map, and — in the third slot — the path. The path grammar is deliberately small enough to parse in your head. There are exactly five kinds of thing a path can be made of, and no more: literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`).
 
 The `:params` and `:query` keys take [schemas](../how-to/validate-with-schemas.md), which validate *and coerce* for you, so `?page=2` arrives as the integer `2`, not the string `"2"`. That coercion is the part everyone forgets to do by hand — so let the schema own it:
 
@@ -101,7 +105,7 @@ Because routes are registry entries, the route table is *queryable data* — and
 
 ### The metadata map, in full
 
-You've now met the keys you'll reach for daily. The metadata map has eleven reserved keys in total — the largest registration shape in re-frame2 — but you never learn them as a flat list. They cluster into four groups by *what they control*; pick the group first, then the key. The rest of this page introduces the remaining keys in context, so you can treat this table as a map of where you're going.
+You've now met the keys you'll reach for daily. The metadata map has thirteen reserved keys in total — the largest registration shape in re-frame2 — but you never learn them as a flat list. They cluster into four groups by *what they control*; pick the group first, then the key. The rest of this page introduces the remaining keys in context, so you can treat this table as a map of where you're going.
 
 | Group | Keys | What it controls |
 |---|---|---|
@@ -251,7 +255,7 @@ The default is `:top` for forward navigation and `:restore` for back/forward (po
 
 ## Loaders: declaring a page's data
 
-A route can declare what loads when it becomes active, so a page's data needs live next to its URL instead of scattered through `componentDidMount`s. The simplest form is `:on-match`: a vector of ordinary event vectors the runtime dispatches, in order, whenever the route activates — *including* when the same route re-activates with **changed** params. Identical params don't re-fire, so you never get accidental double-loads from a no-op navigation.
+A route can declare what data to load when it becomes active, so a page's data-needs live next to its URL instead of scattered through a dozen `componentDidMount`s. The simplest form is `:on-match`: a vector of ordinary event vectors the runtime dispatches, in order, whenever the route activates — *including* when the same route re-activates with **changed** params. Identical params don't re-fire, so you never get accidental double-loads from a no-op navigation.
 
 ```clojure
 (rf/reg-route :app/cart
@@ -260,7 +264,7 @@ A route can declare what loads when it becomes active, so a page's data needs li
   "/cart")
 ```
 
-`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through cofx or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
+`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](events-and-the-cascade.md) (an input injected into an event handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
 
 > **Coming from React Router or Remix?** `:on-match` *is* the route loader — but as a list of event vectors, not a function. Because it's data, you can read it, test it, and draw a dependency graph from it without running it. And it runs on the server through the exact same vector, so there's no separate "server loader" to keep in sync.
 

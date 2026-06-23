@@ -10,11 +10,13 @@ You don't need this page to *write* an app. [Where should this value live?](wher
 
 The anchor here is a spreadsheet. Every cell is either an entered value or a formula over other cells, and the engine recalculates exactly the cells downstream of an edit. That's the whole idea: a value declares its inputs, and it recomputes when those inputs move.
 
-re-frame2's [subscriptions](concepts/subscriptions.md) — the read side of your app, pure derivations over your state — are exactly spreadsheet cells. You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
+re-frame2's [subscriptions](concepts/subscriptions.md) are exactly spreadsheet cells. (A subscription is the read side of your app: a *derivation* — a value computed from other values by a pure function, which is all "derivation" means anywhere on this page.) You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
 
 > **For JavaScript developers.** The JS world rediscovered the spreadsheet as the **signals graph** — Solid's `createMemo`, Vue's `computed`, Preact signals — where a derived value declares its inputs and recomputes when those inputs move. A re-frame2 subscription is one of those derived signals. If you've reached for `useMemo` to avoid recomputing a value on every render, you already have the intuition: declare the inputs, let the framework decide when to recompute.
 
-This page adds one bigger claim, and it's the deliberate divergence from the signals world: **flows, resources, route state, and machines are nodes in the same graph.** A flow is a cell that writes its result back into the sheet. A resource is a cell whose authoritative value lives on a server — locally you hold a copy that can go stale. A machine is a cell with memory, where its next value depends on its current one. The signals ecosystem never wrote that unification down as one model; re-frame2 does. It's called the **derivation/process algebra**, and its normative contract is [`spec/Derivations.md`](../../spec/Derivations.md). This page is the tour.
+This page adds one bigger claim, and it's the deliberate divergence from the signals world: **flows, resources, route state, and machines are nodes in the same graph.** A flow is a cell that writes its result back into the sheet. A resource is a cell whose authoritative value lives on a server — locally you hold a copy that can go stale. A machine is a cell with memory, where its next value depends on its current one. The signals ecosystem never wrote that unification down as one model; re-frame2 does.
+
+re-frame2 calls this model the **derivation/process algebra**. Don't let "algebra" summon high-school equations — here it just means *a small fixed set of node kinds plus rules for how they combine into a graph*, the same sense in which a "relational algebra" is the handful of operations you compose into a SQL query. The payoff is that one vocabulary describes every node. Its normative contract is [`spec/Derivations.md`](../../spec/Derivations.md); this page is the tour.
 
 ## The keystone: one function, two policies
 
@@ -65,7 +67,9 @@ Every declared fact in re-frame2 — subscription, flow, resource read, route fa
 
 The cart keystone, in this vocabulary: the subscription is `:ephemeral` / `:on-demand` / cache-entry; the flow is `:app-db` / `:after-event` / frame. Same `:inputs`, same math — three policy fields differ.
 
-That's the whole vocabulary. The five source forms you actually write — `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine` — each **lower** to this one shape, called the node's **algebra view**.
+The four `:storage` classes are just the four places a value can sit, and you'll meet each one in context below: **`:ephemeral`** — nowhere durable, recomputed on demand (a subscription); **`:app-db`** — in your app's state map (a flow); **`:runtime-db`** — in the framework-managed state map beside app-db, where route and machine state and the local copies of server data live; and **`:host-transient`** — outside durable state entirely, for things that can't be serialized like an in-flight request handle or a timer. For now just register that the column has four values; the resource and machine sections give each one a home.
+
+That's the whole vocabulary. The five source forms you actually write — `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine` — each **lower** to this one shape, called the node's **algebra view**. ("Lower" is borrowed from compilers: a higher-level form you wrote is translated down into a simpler, uniform shape a machine can reason about — here, the five questions above.)
 
 > **You never write the algebra view.** There is no `reg-fact` and no `reg-derivation`. The view is *derived* from the registration you already wrote, and that's the point: a tool can answer "where does this value come from, when does it run, where does it live, who owns it?" without reading your function bodies. The source forms stay the things humans write; the algebra view is what a tool reads.
 
@@ -97,7 +101,7 @@ Three fields earn a comment:
 
 - **`:kind`** is one of exactly two closed superkinds — `:derivation` or `:process`. A tool that understands only those two can still classify every node.
 - **`:refinement`** carries the finer labels you'll meet below (`:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector`). They never live in `:kind`, so a refinement always refines its node's superkind and never invents a third one.
-- **`:derive`** is an opaque token. The graph contract is about dependencies, storage, evaluation, and ownership; it never requires serializing your functions.
+- **`:derive`** is an opaque token. (`#'app.cart/sum-cart` is Clojure's var-quote — a reference *to* the function named `sum-cart`, not the function's source code.) The graph contract is about dependencies, storage, evaluation, and ownership; it never requires serializing your functions.
 
 The trailing fields — `:schema` (the output's Malli schema), `:source` (namespace / file / line), plus a doc string — are the **diagnostic dressing**. They're optional; a node with none of them is still a complete node. But a good graph carries them, because "where is this defined and what shape does it produce?" is exactly the question a reader of an unfamiliar app asks first.
 
@@ -140,7 +144,7 @@ A resource is a fact whose authoritative value lives on a server, with a local c
  :storage     :runtime-db                     ;; the LOCAL cache lives here
  :authority   {:kind :remote :system :server  ;; the truth lives elsewhere
                :transport :rf.http/managed}
- :evaluation  #{:on-route :on-reply :scheduled :manual}   ;; a multi-trigger process
+ :evaluation  #{:on-route :on-reply :scheduled :manual}   ;; a set (#{…}) — this process has many triggers
  :lifecycle   :scoped-resource-key
  :materialized? true
  :selectors   [:rf.resource/state :rf.resource/data :rf.resource/status
@@ -175,7 +179,7 @@ The lesson generalizes, and it's the trade the whole algebra makes:
 
 ### Machines: a node with memory
 
-A machine is the algebra's canonical process — a stateful node whose *next* value depends on its *current* one. It's the surface that motivates the `:process` superkind at all. Its snapshot is durable runtime-db state, written only by its own transitions.
+A machine is the algebra's canonical process — a stateful node whose *next* value depends on its *current* one. It's the feature that motivates the `:process` superkind in the first place: a pure derivation can't depend on its own previous value, so a machine simply isn't expressible as one. Its snapshot is durable runtime-db state, written only by its own transitions.
 
 The view, side by side with one of its selectors:
 

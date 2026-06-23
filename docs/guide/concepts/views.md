@@ -30,7 +30,7 @@ The important word is *data*. Not "data-like" — these are actual vectors, maps
 (into [:ul] (for [item items] [:li (:name item)]))
 ```
 
-Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure hiccup-to-HTML emitter can run on the JVM — which is how [server-side rendering](ssr.md) renders the *same* views without a browser.
+Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure function that walks hiccup and emits an HTML string can run on the server (Clojure runs on the JVM there, not in a browser) — which is how [server-side rendering](ssr.md) renders the *same* views without a browser.
 
 > **For JavaScript developers.** Template strings can do none of this. They don't compose, they don't diff, and string-built markup is where injection bugs come from. Hiccup is closer in spirit to React's `createElement` calls — a tree of data describing the UI — except it's plain literals you can map, filter, and pass around, with no build-time transform.
 
@@ -112,7 +112,7 @@ The cell above writes the view as a plain `defn`, and that genuinely *is* a view
 
 A `reg-view` and a `defn` define the **same render function**. `reg-view` adds exactly two things on top:
 
-1. **A registry entry.** The view is registered under an auto-derived id — `(keyword *ns* 'counter)`, e.g. `:my.app/counter` — so tooling can list it, jump to its source, and resolve a rendered DOM node back to the view that produced it.
+1. **A registry entry.** The view is registered under an auto-derived id — `(keyword *ns* 'counter)`, which pairs the current namespace (`*ns*` is Clojure's name for "the file you're in") with the symbol, giving e.g. `:my.app/counter` — so tooling can list it, jump to its source, and resolve a rendered DOM node back to the view that produced it.
 
 2. **Frame-aware injection.** Inside the body, the unqualified `dispatch` and `subscribe` are locals, bound to the [frame](frames.md) — the isolated re-frame2 world — that the view renders under. That binding is what lets the same view mount in several isolated frames at once, each reading and writing only its own world.
 
@@ -136,7 +136,9 @@ So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and
   [:tr [:td (:name item)] [:td (:qty item)]])
 
 ;; 3. With an explicit id via metadata — when the symbol shouldn't drive the id
-;;    (a stable id across rename, or matching an external contract)
+;;    (a stable id across rename, or matching an external contract).
+;;    The ^{...} prefix is Clojure's reader syntax for attaching metadata to
+;;    the next form — here, pinning the registry id onto the cart-line symbol.
 (rf/reg-view ^{:rf/id :cart/line} cart-line [item]
   [:tr [:td (:name item)] [:td (:qty item)]])
 ```
@@ -149,7 +151,7 @@ In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]`
 
 ### Plain `defn` views, and when they break
 
-A plain `defn` view still works — but only when it renders *inside* a frame scope it can read. The qualified `rf/dispatch` / `rf/subscribe` resolve their frame from the surrounding React context, and a mounted app's frame-provider hands a frame only to **registered** views. An unregistered `defn` that derefs `rf/subscribe` under a non-default provider fails loudly with `:rf.error/no-frame-context`.
+A plain `defn` view still works — but only when it renders *inside* a frame scope it can read. The qualified `rf/dispatch` / `rf/subscribe` resolve their frame from the surrounding React context, and a mounted app's *frame-provider* — the bit of React context that broadcasts "the frame to render under" to the views inside it — hands that frame only to **registered** views. An unregistered `defn` that derefs `rf/subscribe` under a non-default provider fails loudly with `:rf.error/no-frame-context`.
 
 So the reverse rewrite — turning a `reg-view` into a `defn` — is not free. If a view genuinely must stay an unregistered plain fn, it captures a `(rf/frame-handle)` at render time and uses its bound ops instead. The full rule is in [spec 004](../../../spec/004-Views.md).
 
@@ -232,7 +234,7 @@ Ask the "after" view what it does: all it does is walk the list and emit `<li>`s
 
 ## The trap: imperative listeners lose the frame
 
-Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the whole synthetic-event surface — are wrapped by the substrate at render time, so a `dispatch` inside them is routed to the right [frame](frames.md) automatically. Anything you attach *imperatively* from a render body is **not** wrapped, though. It fires later, on a fresh stack, with no frame in scope, and the dispatch fails loudly with `:rf.error/no-frame-context`:
+Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the whole synthetic-event surface — are wrapped by the *substrate* (the rendering library underneath the view — React, by way of Reagent, UIx, or Helix; "The substrate seam" below covers it) at render time, so a `dispatch` inside them is routed to the right [frame](frames.md) automatically. Anything you attach *imperatively* from a render body is **not** wrapped, though. It fires later, on a fresh stack, with no frame in scope, and the dispatch fails loudly with `:rf.error/no-frame-context`:
 
 ```clojure
 ;; WRONG — imperative listener: the callback fires on a fresh stack with no

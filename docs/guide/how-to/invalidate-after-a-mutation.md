@@ -39,6 +39,8 @@ Tags name *facts*, not resources. `[:article "welcome"]` and `[:article-list]` a
 
 Two reads, sharing tags on purpose. The detail read tags itself with its own identity *and* the list identity. The list read tags itself with the list identity *and* one `[:article slug]` per article it currently holds — so a write to a single article can reach any list showing that article. That overlap is the whole point: shared tags are how one write finds every read it touches.
 
+(You'll see `:scope :rf.scope/global` on every registration here. A **scope** is the boundary within which tags are matched — `:rf.scope/global` means "the one cache everyone shares." It mostly stays out of your way; it earns a full treatment, and one sharp footgun, in [the scope section](#the-scope-footgun-and-how-to-disarm-it) at the end. Take it as "the global cache" until then.)
+
 > **A tag is a vector, and `:tags` is a function of `(params data)`.** Each tag is a *structured name* — `[:article slug]`, `[:article-list]` — and the `:tags` fn receives the resource's params and its decoded data, so the list above can tag itself with one entry per article it actually holds. Returning a tag set that depends on `data` is the trick that lets a list be reached through any article it contains. The `:tags` key is optional; a resource with no tags simply can't be reached by tag invalidation (you can still `:rf.resource/refetch` it by exact key).
 
 ## 2. Declare what the write breaks
@@ -57,9 +59,11 @@ A mutation is a managed server-state *write* — the write counterpart to a reso
      :decode  :json}))
 ```
 
-That's it — one key, naming the same `[:article slug]` and `[:article-list]` tags the reads carry. On success, the engine finds every cached entry whose tags intersect and marks it stale. The entries something still owns — a mounted route, a live machine — refetch immediately; unowned ones simply go stale and wait until their next ensure. So you don't get a refetch storm for data nothing is watching, which is exactly the behavior you want.
+That's it — one key, naming the same `[:article slug]` and `[:article-list]` tags the reads carry. On success, the engine finds every cached entry whose tags intersect and marks it stale.
 
-> **Note the callback signature.** `:invalidates` is a function of `(params result)` — the accepted params, and the decoded reply value. There is deliberately no `db` / `ctx` argument: a cache-consequence plan returns *data* (a tag set, or the descriptors below), and any db-derived scope is reached through a named `{:from-db …}` resolver inside a descriptor, never by reading the db inside the callback. That keeps the dependency visible and the descriptor inspectable in tooling.
+What happens next depends on whether anything is still *using* that entry. A read is **owned** while something on screen depends on it — a mounted route showing the article, a running state machine that asked for it. An **unowned** entry is one whose last reader has gone away, but whose value is still sitting in the cache. Owned entries refetch immediately, because something is waiting to display the fresh value; unowned ones just get marked stale and wait until the next time someone asks for them (their next *ensure* — the read path's "make sure this is loaded" call). So you don't get a refetch storm for data nothing is watching, which is exactly the behavior you want.
+
+> **Note the callback signature.** `:invalidates` is a function of `(params result)` — the accepted params, and the decoded reply value. Notably, there is *no* `db` / `ctx` argument, and that's deliberate: a cache-consequence plan returns *data* (a tag set, or the descriptors we'll meet later). When a plan genuinely needs a value out of `app-db` — say, to pick a scope — it names a resolver to fetch it (the `{:from-db …}` form you'll see in [the scope section](#the-scope-footgun-and-how-to-disarm-it)) rather than reaching into the db directly inside the callback. That keeps the dependency visible and the plan inspectable in tooling, instead of buried in opaque callback code.
 
 > **Gotcha: the lone-vector-tag footgun.** A tag is a vector, so a *tag set* is a set of vectors. If you return a single bare vector — `:invalidates (fn [_ _] [:article slug])` — the framework reads it as the **one tag** `#{[:article slug]}`, *not* as the scalar set `#{:article slug}` (which would name nothing and silently match nothing). The same normalization governs the `:tags` value of a direct `:rf.resource/invalidate-tags` event, so a lone vector tag has exactly one meaning everywhere. When in doubt, wrap it: `#{[:article slug]}`.
 
@@ -67,10 +71,9 @@ That's it — one key, naming the same `[:article slug]` and `[:article-list]` t
 
 You have a write that knows what it breaks. Now fire it from a view and watch its progress.
 
+Two pieces of vocabulary before the code, so it reads clean. A **subscription** is a read-only view into derived state — you call `subscribe` to get one and deref it (`@`) to read its current value. A **dispatch** sends an *event* — a request for something to happen — into the system; here, the event that fires the write. The view below uses `subscribe` and `dispatch` rather than the fully-qualified `rf/subscribe` / `rf/dispatch` because `reg-view` injects those two as frame-bound locals — a [frame](../concepts/frames.md) is one isolated running instance of your app, and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected `dispatch` carries that context for you.
+
 ```cljs-rf2
-;; `subscribe` / `dispatch` are the frame-bound locals reg-view injects —
-;; the click callback fires outside render, where a bare rf/dispatch has
-;; no frame context.
 (rf/reg-view article-editor [article]
   (let [save @(subscribe [:rf.mutation/state
                           {:instance [:article-save (:slug article)]}])]
@@ -86,7 +89,7 @@ You have a write that knows what it breaks. Now fire it from a view and watch it
      (when (:error? save) [save-error (:error save)])]))
 ```
 
-A quick tour. A subscription is a read-only view into derived state, and `dispatch` sends an event — a request for something to happen — into the system. The `[:rf.mutation/state {:instance …}]` sub is a passive read of one instance's lifecycle: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. The per-slug `:instance` id keeps two concurrent submissions from clobbering each other. (`editor-fields` and `save-error` are your own child views.)
+A quick tour of what that view is doing. The `[:rf.mutation/state {:instance …}]` subscription is a passive read of one write's lifecycle — it never fires the write, it just watches it — and it yields a map: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. That's what the button reads to flip its label to "Saving…" and disable itself. The `:instance` id — `[:article-save (:slug article)]` — is per-slug on purpose: it keeps two articles being saved at once from clobbering each other's pending/success/error state. (`editor-fields` and `save-error` are your own child views.)
 
 Now notice what's *absent*: the view never dispatches an invalidate, never refetches a list, and never touches `app-db` — your app's single state map. It doesn't have to, because the registration in §2 already declared which reads this write breaks. That absence is the payoff of doing the work once, at registration.
 
@@ -137,7 +140,7 @@ That's the complete simple path: tag the reads, declare what the write breaks, f
 | `:patches` | `(fn [params result] -> {target (fn [old result] new)})` | Transforms an **existing** exact entry in place. Patch targets an exact key only — never tags. |
 | `:removes` | `(fn [params result] -> [target …])` | Drops exact entries — the cache half of a delete write (the key is dissociated, its in-flight attempt best-effort aborted). |
 
-The ordering at settle time is fixed and worth knowing: **patches → populates → removes run first, then `:invalidates` runs last.** So an entry you patch or populate is already at its new value *before* the invalidation pass decides what to refetch — which is exactly why a populated key is exempt from the same mutation's refetch ([§5](#5-optional-seed-the-cache-from-the-reply)). A `:removes` arm is the one you reach for on a delete:
+All four arms run at *settle* — the moment the write finishes and its outcome (success or failure) is final. The ordering among them at settle time is fixed and worth knowing: **patches → populates → removes run first, then `:invalidates` runs last.** So an entry you patch or populate is already at its new value *before* the invalidation pass decides what to refetch — which is exactly why a populated key is exempt from the same mutation's refetch ([§5](#5-optional-seed-the-cache-from-the-reply)). A `:removes` arm is the one you reach for on a delete:
 
 ```clojure
 (rf/reg-mutation :article/delete
@@ -232,7 +235,7 @@ Sometimes the write needs to cause something the cache plan can't express — sh
   :reply-to [:editor/save-replied]}]
 ```
 
-When the reply is *accepted as current*, the runtime dispatches `:reply-to` with **one reply map appended as the final argument** — so your handler reads `[:editor/save-replied reply]`. The reply map is the same canonical shape every managed-async family produces, plus the mutation facts a continuation needs: `:status` (`:ok` / `:error` / `:cancelled`), `:value` (the decoded value, on `:ok`), `:error` (on `:error`), `:mutation`, `:instance`, `:params`, `:scope`, `:affected-keys`, and `:cause [:mutation <id> <instance>]`.
+When the reply is *accepted as current*, the runtime dispatches `:reply-to` with **one reply map appended as the final argument** — so your handler reads `[:editor/save-replied reply]`. The reply map is the same canonical shape every managed-async operation in re-frame2 hands back (resources, mutations, and the rest all speak it), plus the extra mutation facts a continuation needs: `:status` (`:ok` / `:error` / `:cancelled`), `:value` (the decoded value, on `:ok`), `:error` (on `:error`), `:mutation`, `:instance`, `:params`, `:scope`, `:affected-keys`, and `:cause [:mutation <id> <instance>]`.
 
 ```clojure
 (rf/reg-event :editor/save-replied

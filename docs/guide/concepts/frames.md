@@ -12,17 +12,21 @@ A frame is one running instance of your app. It owns the runtime state of that i
 - its **event queue** — the dispatches waiting to run against this instance,
 - its **subscription cache** — the memoised graph of derived values computed over this instance's state.
 
-A frame deliberately does *not* own the handlers — the functions you register with `reg-event` / `reg-sub` / `reg-view`. Those live in an **image**: the set of registrations a frame resolves against, lifted into a value. By default every `reg-*` in your program projects into one shared image, so two frames running `[:counter/inc]` run the *same handler function* against *different app-dbs*. That's the whole trick.
+A frame deliberately does *not* own the handlers — the functions you register with `reg-event` / `reg-sub` / `reg-view`. Those are shared. By default every `reg-*` in your program registers into one common pool that all frames draw from, so two frames both running `[:counter/inc]` run the *same handler function* against *different app-dbs*. That's the whole trick: shared code, separate state.
+
+(That shared pool of registrations has a name — the **image** — but you can park that word for now. It only earns its keep in the rare case where you want two frames to run *different* handlers, which we get to at the very end. Until then, "the handlers are shared" is the whole story.)
 
 A frame isolates **state, not behaviour**. You write the app once; the frame decides which copy of the state it runs against. That division is why "show two of them side by side" never forces a rewrite: you mount the same app twice, each mount in its own frame, and isolation is total.
 
-> **For JavaScript developers.** A frame is the *instance* of your app's state; the image is the *code* that runs against it. Nothing in React or Redux forces you to keep those separate — re-frame2 does, and that separation is what lets you spin up a second copy for free.
+> **For JavaScript developers.** A frame is the *instance* of your app's state; the handlers are the *code* that runs against it, and they're shared across every instance. Nothing in React or Redux forces you to keep those two things separate — re-frame2 does, and that separation is what lets you spin up a second copy for free.
 
 > **Coming from Redux?** A frame is a store instance and the frame provider is `<Provider store={...}>`. Creating a second store gives you a second state tree but the same reducers; frames work exactly that way — handlers are registered once, state is per-frame. The divergence: there is no default store. A dispatch that can't trace which frame it belongs to fails loudly instead of landing somewhere conventional. (More on that below — it's the whole design.)
 
 ## The normal case: one app, one frame
 
-Almost every app is a one-frame app, and stays one. You register a frame at boot, establish it at the root of your view tree, and never name it again:
+Almost every app is a one-frame app, and stays one. You register a frame at boot, establish it at the root of your view tree, and never name it again.
+
+Two pieces of syntax show up in the view below, so here they are up front: inside a `reg-view`, `dispatch` and `subscribe` arrive as injected functions — `dispatch` sends an event into the queue, `subscribe` reads a derived value (both detailed on the [views](views.md) page). And `@` is Clojure's deref — `@(subscribe [:screen])` reads the *current value* out of the reactive subscription. Both quietly target whichever frame this view is rendering under; you'll see how in a moment.
 
 ```clojure
 (ns my-app.core
@@ -52,7 +56,7 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
 
 Three lines do the work. `init!` installs the substrate adapter — and creates *no* frame. `reg-frame` then creates the `:app` frame explicitly and runs its `:initial-events`. Finally `frame-provider-existing` scopes that frame for everything underneath it, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without ever naming it.
 
-That last point is the payoff: the frame is **invisible inside its own scope**. Your views and handlers never mention `:app`, which is exactly what lets you go multi-frame later without touching a line of app code. (`dispatch` sends an event into the queue; `subscribe` reads a derived value — both injected into your [registered views](views.md).)
+That last point is the payoff: the frame is **invisible inside its own scope**. Your views and handlers never mention `:app` — that's why the injected `dispatch` and `subscribe` in `main-view` above just *worked* without naming a frame, and it's exactly what lets you go multi-frame later without touching a line of app code.
 
 > **For JavaScript developers.** This is `ReactDOM.render(<Provider store={store}><App/></Provider>)` — establish the store at the root, and every component below reads it through context. The difference: `init!` doesn't secretly create a store for you. Nothing is implicit about which frame your root uses; you say so, once, at the root.
 
@@ -70,7 +74,7 @@ Notice there's no place to hand `reg-frame` an initial app-db. That's on purpose
 >
 > Keeping initialisation on the dispatch path means the same pipeline that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
 
-`:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:todo/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:todo/add "milk"] :opts {…}}`). Each step is dispatched synchronously and drained to fixed point before the next, so by the time `reg-frame` returns, the whole setup cascade has settled.
+`:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:todo/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:todo/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — "to completion" meaning that if a setup event triggers further events (re-frame events can dispatch more events), those all finish too. So by the time `reg-frame` returns, the entire setup cascade is done and the frame is fully booted.
 
 ### The rest of `reg-frame`'s config
 
@@ -299,6 +303,6 @@ Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it r
 
 - **Not component-local state.** A frame carries a full app-db, queue, and sub cache; it is heavyweight by design. A dropdown's open flag or a form's draft text goes in the current frame's app-db like always — see [Where should this value live?](../where-state-lives.md).
 - **Not routing.** Navigating changes *which slice of app-db matters*, not which frame is running. One frame, many routes.
-- **Not micro-frontends.** Frames are N instances of *one* app, each resolving against its image. Two surfaces with disjoint images can share a page ([Images](images.md)), but genuinely different *apps* on one page want iframes — a wall, not a scalpel.
+- **Not micro-frontends.** Frames are N instances of *one* app, each running the same shared handlers. Two surfaces with genuinely *different* handler sets can share a page (that's the [Images](images.md) story), but two genuinely different *apps* on one page want iframes — a wall, not a scalpel.
 
-> **Going deeper — when two frames resolve the same id differently.** Everything on this page assumed the default: one shared image, so every frame runs the same handlers against different app-dbs. The exception is when you need two frames to resolve `[:counter/inc]` to *different* handlers — two examples on one page, a tool beside its target. Then you give them different images, and the frame's reference to its resolved image is what decides behaviour. That's the [Images](images.md) story; you can ignore it until you hit a case that needs it, which most apps never do.
+> **Going deeper — when two frames resolve the same id differently.** Everything on this page assumed the default: all frames draw their handlers from one shared pool, so every frame runs the same handlers against different app-dbs. That shared pool has a name — the **image** — and 99% of the time you never need to think about it. The 1% is when you want two frames to resolve `[:counter/inc]` to *different* handlers: two examples on one page, or an inspection tool sitting beside the app it inspects. Then you give those frames *different* images, and which image a frame points at is what decides its behaviour. That's the [Images](images.md) story; ignore it until you hit a case that needs it, which most apps never do.

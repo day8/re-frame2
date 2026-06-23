@@ -2,7 +2,7 @@
 
 You clicked a button and the app is now subtly wrong. You want to know one thing: what did that click actually *do*? Which handler ran, what changed in app-db (your app's single state map), which subscriptions recomputed, which views re-rendered, what effects escaped. In most frontends that question has no clean answer, because causality is smeared across a hundred components, each mutating its own little corner of state.
 
-re-frame2 has a clean answer. Every event walks the same fixed pipeline — [the cascade](events-and-the-cascade.md), the ordered run from dispatched event through handler, db update, and effects — so there's a single place to stand and watch the runtime go past. As it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream**, and it's the whole foundation. The fancy panels you'll meet at the end — Xray, Story, the pair MCP — are all just *readers* of it.
+re-frame2 has a clean answer. Every event walks the same fixed pipeline — [the cascade](events-and-the-cascade.md), the ordered run from dispatched event through handler, db update, and effects — so there's a single place to stand and watch the runtime go past. As it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream**, and it's the whole foundation. The fancy panels you'll meet at the end — Xray (a devtools inspector), Story (a component workbench), the pair MCP (a bridge that lets an AI inspect the running app) — are all just *readers* of it.
 
 This page builds up from the smallest piece. First the shape of a single trace event. Then the buffer that remembers recent ones. Then a listener you can write in eight lines. Then what survives into production. Then the tools sitting on top.
 
@@ -25,7 +25,7 @@ A trace event is just a map. The runtime emits one every time something worth no
              ,,,}}                      ;; the open bag of specifics
 ```
 
-You never construct these — the runtime emits them, and your job (far more often a tool's job) is just to read them. Two fields carry the routing, and it helps to know which is which.
+You never construct these — the runtime emits them, and your job (more often a tool's job) is just to read them. Two fields carry the routing, and it helps to know which is which.
 
 `:op-type` is the coarse one: a small closed vocabulary you branch on to grab a slice of the stream. The families you'll meet most:
 
@@ -52,7 +52,7 @@ Both of these are designed to grow without breaking anyone. New `:op-type` value
 
 **Delivery is synchronous.** When the runtime emits, every registered listener runs *right then*, mid-cascade, on the same call stack — no queue, no batching, no reordering. That gives you perfect fidelity, which comes with an obligation: a listener has to be cheap. Grab the event, stash it, and return; defer anything expensive to a timer you own, so you never stretch out the cascade you're watching.
 
-**Cascades are correlated, not inferred.** Every trace event emitted inside one event's cascade carries the same `:rf.trace/dispatch-id` in its tags. So "everything that click did" is a filter, not a guess. When a handler's effects dispatch a child event, the child cascade's opening `:rf.event/dispatched` carries `:rf.trace/parent-dispatch-id` pointing back at its cause. Walk those links and you have the causal tree: *this* dispatch happened because *that* one did. One dispatch = one cascade = one [epoch](events-and-the-cascade.md) — the same unit seen from three vantage points.
+**Cascades are correlated, not inferred.** Every trace event emitted inside one event's cascade carries the same `:rf.trace/dispatch-id` in its tags. So "everything that click did" is a filter, not a guess. When a handler's effects dispatch a child event, the child cascade's opening `:rf.event/dispatched` carries `:rf.trace/parent-dispatch-id` pointing back at its cause. Walk those links and you have the causal tree: *this* dispatch happened because *that* one did. One dispatch = one cascade = one [epoch](events-and-the-cascade.md) — three names for the same unit of work, seen from three vantage points. (*Epoch* is just the name for the before-and-after state record that one cascade leaves behind; we get to it [below](#the-epoch-history-what-the-app-was).)
 
 > **You can put your own events on the wire.** If a tool you're writing wants its own milestones in the same stream the framework emits to, call `(rf/emit-trace-event! op-type operation tags)`. The runtime stamps `:id` and `:time`, routes it into the in-flight frame's history, and fans it out to every listener — exactly like a framework emit. Stay in your own namespace for `:op-type` and the tag keys (the `:rf.*` namespaces are framework-owned, per [Conventions](../../../spec/Conventions.md)). Like every other trace emit, the call compiles away in production.
 
@@ -176,7 +176,7 @@ The same verb drives three more streams, distinguished by that leading keyword. 
              "/" (count (:sub-runs epoch-record)) "sub-runs")))
 ```
 
-One subtlety the cascade-shaped view buys you: the `:epoch` callback fires once per *dequeued event*, not once per drain. If a handler's `:fx` dispatched a child event, the parent and the child are two epochs, and your callback fires twice — once each. A machine's internal `:raise` sub-events and `:always` microsteps ride *inside* the triggering event's epoch, so they don't fire it separately.
+One subtlety the cascade-shaped view buys you: the `:epoch` callback fires once per *dequeued event*, not once per drain. If a handler's `:fx` dispatched a child event, the parent and the child are two separate epochs, and your callback fires twice — once each. The exception is work a [state machine](machines.md) does to itself: when a transition fires its own follow-up steps (an internal event it raises, or an automatic transition it takes immediately), those ride *inside* the triggering event's epoch rather than firing the callback again. So one user event stays one epoch, however much internal machinery it kicked off.
 
 > **Halted cascades show up here too.** The `:epoch` stream is the devtools surface for *failed* cascades, not just clean ones — so the callback fires for halted drains as well, and each record's `:outcome` field tells you how it ended: `:ok` for a clean settle, `:halted-depth` if the cascade hit the re-entrancy depth guard, `:halted-destroy` if the frame was torn down mid-cascade. A partial record still carries whatever the runtime captured up to the halt, plus a `:halt-reason` descriptor. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of the callback — and remember `restore-epoch!` refuses anything that isn't `:ok`.
 
@@ -186,7 +186,7 @@ The remaining two streams — `:events` and `:errors` — are different in kind:
 
 ## Production: the wire disappears — errors don't
 
-Everything above is development machinery, and none of it ships. The entire dev trace surface — the `:trace` and `:epoch` streams, the rings, the epoch history, the listener registries behind them — sits behind one compile-time flag (`goog.DEBUG`). In an `:advanced` production build the Closure compiler constant-folds that gate and dead-code-eliminates everything behind it. The emit calls don't just become no-ops; they evaporate, so production bundles carry zero trace code and zero trace cost.
+Everything above is development machinery, and none of it ships. The entire dev trace surface — the `:trace` and `:epoch` streams, the rings, the epoch history, the listener registries behind them — sits behind one compile-time flag (`goog.DEBUG`, a constant the ClojureScript toolchain sets to `false` for production). In an `:advanced` production build, the Closure compiler — the optimising compiler ClojureScript ships through — sees that the flag is constantly `false`, so it deletes every branch guarded by it. The emit calls don't just become no-ops; they evaporate, so production bundles carry zero trace code and zero trace cost.
 
 > **Gotcha — JVM builds default the gate on.** There's no Closure compiler on the JVM, so the same gate defaults *on* there — which is right for tests and the REPL, but means a production JVM process, an SSR host especially, must set `-Dre-frame.debug=false` explicitly. The flag also reads the `RE_FRAME_DEBUG` environment variable, and accepts the usual false-y vocabulary (`false`, `0`, `no`, `off`, empty) case-insensitively. See [configure dev and production builds](../how-to/configure-dev-and-prod.md).
 

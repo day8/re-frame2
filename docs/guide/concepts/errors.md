@@ -17,10 +17,12 @@ When something breaks, the runtime already has an event (a dispatched `[:id ...]
  :recovery  :no-recovery                    ;; what the runtime did next
  :time      1781078400456                   ;; emit time
  :source    :ui                             ;; what triggered the cascade
- :rf.trace/trigger-handler                  ;; the in-scope handler, with its
- {:kind         :event                      ;; registration-site coordinates
-  :id           :cart/add-item
+ :rf.trace/trigger-handler                  ;; the in-scope handler — its value is
+ {:kind         :event                      ;; the map below, holding the handler's
+  :id           :cart/add-item              ;; registration-site coordinates
   :source-coord {:ns myapp.cart :file "src/myapp/cart.cljs" :line 142}}
+ :rf.trace/call-site                        ;; where the `dispatch` was written
+ {:file "src/myapp/cart_view.cljs" :line 88}
  :tags      {:category          :rf.error/handler-exception
              :failing-id        :cart/add-item
              :handler-id        :cart/add-item

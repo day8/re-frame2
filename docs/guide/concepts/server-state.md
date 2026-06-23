@@ -2,11 +2,11 @@
 
 Your app shows articles, feeds, profiles. That data's real home is a server, so what you hold on the client is only ever a copy — and that copy starts going stale the moment it arrives. **Server state is the state your app doesn't own — hold it as a declared, inspectable cache, not a private fetch.**
 
-This page builds that idea up one step at a time. We'll register a single server read, cause it to fetch from a route, read it passively from a view, and render the five statuses it can be in. Once that loop is solid, we'll layer on the harder questions — whose cache is this, what happens at logout, how a write keeps reads honest — each with a small example first. By the end you'll have the model behind [Part 2 of the tutorial](../tutorial/02-server-data.md).
+This page builds that idea up one step at a time. We'll register a single server read, trigger a fetch from a route, read the result passively from a view, and render the five statuses the read can be in. Once that loop is solid, we'll layer on the harder questions — whose cache is this, what happens at logout, how a write keeps reads honest — each with a small example first. By the end you'll have the model behind [Part 2 of the tutorial](../tutorial/02-server-data.md).
 
 > **For JavaScript developers.** If you've used TanStack Query, you already know the shape: a keyed cache of server reads with staleness, request deduplication, invalidation, and garbage collection. (RTK Query and SWR are the same family.) Keep that mental model — it carries you most of the way. Three deliberate differences are flagged as `> **Coming from TanStack Query?**` callouts as we go: views never fetch, scope is a required key segment, and invalidation is causal rather than an imperative call you remember to make.
 
-> **Resources are optional — don't reach for them on day one.** Resources are an optional artefact (`day8/re-frame2-resources`, required once at boot as `re-frame.resources`). An app with one or two reads is perfectly fine with [a managed HTTP request](http.md) and a small app-db slice, and that's the simpler choice. Reach for resources when cached server reads start multiplying; [Where should this value live?](../where-state-lives.md) has the decision table.
+> **Resources are optional — don't reach for them on day one.** Resources ship as a separate, opt-in library (the Maven coordinate `day8/re-frame2-resources`; you switch it on by requiring `re-frame.resources` once at boot). An app with one or two reads is perfectly fine with [a managed HTTP request](http.md) and a small app-db slice, and that's the simpler choice. Reach for resources when cached server reads start multiplying; [Where should this value live?](../where-state-lives.md) has the decision table.
 
 ## The cache you don't own
 
@@ -20,7 +20,7 @@ That cache lives in the framework-owned *runtime partition* of frame state — t
 
 ## Your first resource: register it
 
-A resource is *a sub you read and a cause you fire.* That one sentence is the whole model, and the simplest possible version fits on a screen. You register the read once, at boot:
+A resource is *a subscription you read and a cause you fire.* That one sentence is the whole model. (A **cause** is just an event that triggers a fetch — a route entry, a click, a write. We say "cause" rather than "trigger" because re-frame2 records *why* every fetch happened; more on that later.) And the simplest possible version of a resource fits on a screen — you register the read once, at boot:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/resources.cljs
@@ -62,7 +62,7 @@ The cleanest cause is the page itself, because a page already knows what data it
 
 On entry, the runtime ensures the resource with the route as its **owner** — the thing keeping the cache entry alive. On leave, or on a superseding navigation, it releases it. `:blocking? true` holds the route transition until that read settles (which also gives server-side rendering a natural wait point); a non-blocking resource fetches in the background instead.
 
-Navigate to an article page with Xray open and you can watch the whole loop: the route-entry event row shows the ensure it caused, and the Resources panel shows the entry move from `:idle` through `:loading` to `:loaded`. Visit the same article a second time and you get a cache hit — no network row at all.
+Navigate to an article page with Xray (re-frame2's in-browser inspector) open and you can watch the whole loop: the route-entry event row shows the ensure it caused, and the Resources panel shows the entry move from `:idle` through `:loading` to `:loaded`. Visit the same article a second time and you get a cache hit — no network row at all.
 
 > **Coming from TanStack Query?** Difference one of three: **views never fetch.** With `useQuery`, the component fetches on mount. Here a *route entry or event* causes the fetch; the view only reads. That separation is what lets the same view render on the server, in a test, or after a cache hit with no network at all — the render never has a side effect hiding in it.
 
@@ -70,7 +70,7 @@ Navigate to an article page with Xray open and you can watch the whole loop: the
 
 ## Read it from a view
 
-A **view** reads the entry passively, through an ordinary subscription, and never fetches. The `:rf.resource/state` subscription projects one view-model that carries everything the view needs:
+A **view** reads the entry passively, through an ordinary subscription, and never fetches. The `:rf.resource/state` subscription hands you a single ready-to-render map — a *view-model* carrying everything the view needs to decide what to show:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/views.cljs
@@ -180,7 +180,7 @@ So far our resource has stayed fresh forever, refetching only when something for
     {:request {:method :get :url (str "/api/articles/" slug)} :decode :json}))
 ```
 
-`:stale-after-ms` is the freshness window — after it elapses, the next *ensure* refetches; absent, the entry stays fresh until explicitly invalidated. `:gc-after-ms` is the lifetime once the entry goes *owner-free* — absent, it lingers unowned until something re-leases or removes it. And `:tags` *name the facts the data carries* (a tag is a vector, like `[:article slug]`), so a later write can invalidate exactly the reads it broke — that's the machinery the "Writes invalidate by tag" section builds on.
+`:stale-after-ms` is the freshness window — after it elapses, the next *ensure* refetches; absent, the entry stays fresh until explicitly invalidated. `:gc-after-ms` is the lifetime once the entry goes *owner-free* — absent, it lingers unowned until something re-leases or removes it. And `:tags` *label what this data is about*: a tag is a vector like `[:article slug]`, read as "this entry holds article `slug`." Those labels are how a later write says "I changed article `slug`" and refreshes exactly the reads that showed it — the machinery the "Writes invalidate by tag" section builds on.
 
 The full **registration metadata** is small and worth knowing in one glance. These are the keys `reg-resource`'s middle slot accepts:
 
@@ -244,7 +244,7 @@ There's one honest consequence of "subscriptions are passive": a re-keyed subscr
 
 ## Logout is one causal event
 
-The classic cross-session leak — user B sees user A's dashboard — has a structural fix here. Every session-scoped entry lives under A's scope, and logout clears that scope. One subtlety is worth pausing on: resolve the *old* scope from the handler's coeffect db (which still carries the logging-out user) *before* you remove the auth slice:
+The classic cross-session leak — user B sees user A's dashboard — has a structural fix here. Every session-scoped entry lives under A's scope, and logout clears that scope. One subtlety is worth pausing on: resolve the *old* scope from the `db` the handler received (which still carries the logging-out user) *before* you remove the auth slice — otherwise you've thrown away the very identity you need to name the scope:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/auth.cljs
@@ -381,7 +381,7 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
 
 ### Running a mutation and reading its state
 
-`reg-mutation` only *registers* the write — same register-vs-project split as resources. You **run** it with `:rf.mutation/execute` and **read** it through the passive `:rf.mutation/*` subs, both keyed by an **instance** id (not the mutation id), so two concurrent submissions of the same mutation never clobber each other's pending/result state:
+`reg-mutation` only *registers* the write — the same register / cause / read split you saw for resources. You **run** it (the cause) with `:rf.mutation/execute` and **read** its progress through the passive `:rf.mutation/*` subs. Both the run and the read are keyed by an **instance** id rather than the mutation id — an instance is one particular submission of the write — so two concurrent submissions of the same mutation never clobber each other's pending/result state:
 
 ```clojure
 ;; In a form-submit event handler:

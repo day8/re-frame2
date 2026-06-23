@@ -12,7 +12,9 @@ You never patch `js/Date`. You never intercept `fetch`. You never replace a modu
 
 ## 1. Set up the JVM test runner
 
-re-frame2's core is `.cljc`, which means the same artefact your browser build uses also loads on the JVM — where tests run in milliseconds with no DOM. Your registration namespaces from Parts 1–4 (events, subs, the auth machine, resources, mutations) contain no browser code, so they're portable too. If you created them as `.cljs`, rename them to `.cljc`. Views — the components that render app-db, your app's single state map, into UI — stay in `.cljs`, because they require React, and nothing on this page needs them.
+A quick fact about Clojure file extensions, because the whole testing strategy rests on it. A `.cljs` file is ClojureScript — it compiles to JavaScript and runs in a browser. A `.clj` file is Clojure — it runs on the JVM. A `.cljc` file is *portable*: the same source compiles to both. re-frame2's core is `.cljc`, so the very artefact your browser build uses also loads on the JVM — where tests run in milliseconds with no browser and no DOM in sight.
+
+That portability extends to your own code. Your registration namespaces from Parts 1–4 (events, subs, the auth machine, resources, mutations) contain no browser code, so they're portable too — if you created them as `.cljs`, rename them to `.cljc` so the JVM can load them. Only your views need to stay `.cljs`: views are the components that render app-db (your app's single state map) into UI, and rendering pulls in React, which is browser-only. Nothing on this page touches a view through React, so that's fine — none of these tests need a browser.
 
 Add a `:test` alias to your `deps.edn`. Your re-frame2 deps are already there from [the setup](index.md); the only addition is a runner:
 
@@ -48,7 +50,7 @@ Then create the test namespace. One fixture resets the whole runtime — registr
 
 ## 2. Test a handler: it's a function, so call it
 
-Start with the smallest possible test. An event handler is a pure function from the coeffects (the facts handed in — `:db`, the current state, is one) and the event (a vector naming what happened) to an effects map. Give the simplest one a coeffects map and the event, and it returns `{:db next-state}`. Pull it out of the registry with `handler-meta` and call it:
+Start with the smallest possible test. An event handler is a pure function. It takes two arguments — the **coeffects** (the facts handed in; `:db`, the current state, is the one you'll always see) and the **event** (a vector naming what happened, like `[:auth.login-form/edit-field :email "ada@…"]`) — and it returns an **effects map** describing what should change (most simply, `{:db next-state}`). Nothing else: no globals read, no side effects performed. So to test the simplest handler, hand it a coeffects map and an event and check what comes back. Pull the handler out of the registry with `handler-meta` and call it directly:
 
 ```clojure
 (deftest edit-field-updates-the-draft
@@ -60,7 +62,7 @@ Start with the smallest possible test. An event handler is a pure function from 
 
 No frame, no dispatch, no runtime. A coeffects map went in — `:db` holds the current state. You assert on the effects map that came out: its `:db` is the next state. That's a unit test in the truest sense — a function, an input, an output — and you didn't have to build a single piece of scaffolding to write it.
 
-Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT is a fact from outside the event, so it's registered as a **provided recordable coeffect** — a coeffect being one of those facts-from-the-world a handler reads in. The boot site reads localStorage once and stamps the value onto the dispatch. The handler **declares** it:
+Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT (a token from a previous login, kept in `localStorage`) is a fact from outside the event — so it's a coeffect too, just one that doesn't arrive for free the way `:db` does. It's registered as a **provided recordable coeffect**: *provided* means the app supplies it explicitly at the boundary, *recordable* means it's durable causal data that survives into the trace and the release build. The boot site reads `localStorage` once and stamps the value onto the dispatch; the handler simply **declares** that it needs it:
 
 ```clojure
 ;; src/conduit/auth.cljc — from Part 3 (abridged)
@@ -109,11 +111,16 @@ Whatever appears there is what your literal map (or your dispatch, below) suppli
 
 ## 3. Test the cascade: one dispatch, end to end
 
-Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hits the machine, the machine fires a managed HTTP request, the reply re-enters as another event, the session lands in `app-db`. You want to test that as one piece, the way it actually runs. Drive a real dispatch through a real frame — an isolated, self-contained runtime instance — and bend only the edges:
+Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hits the machine, the machine fires a managed HTTP request, the reply re-enters as another event, the session lands in `app-db`. You want to test that as one piece, the way it actually runs.
+
+To do that you'll drive a real dispatch through a real **frame** — an isolated, self-contained runtime instance, the thing your app mounts into — and redirect only the handful of points where it touches the outside world. (Call those points the **edges**; you'll meet all four in a moment.) Here's the happy path: a cold boot that finds a saved token and lands the user authenticated.
 
 ```clojure
 (deftest cold-boot-with-saved-token-lands-authed
-  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]  ;; :preset is record-config — rides re-frame.frame/make-frame, not rf/make-frame
+  ;; make-frame here takes a config map, so we call re-frame.frame/make-frame
+  ;; (the config-taking form) rather than the plain rf/make-frame used elsewhere.
+  ;; :preset :test is one of its config keys — see the bullets below.
+  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]
     (rf/with-managed-request-stubs
       {[:get "https://api.realworld.io/api/user"]          ;; the URL Part 3's restore requests
        {:reply {:ok {:user {:username "ada"
@@ -125,7 +132,7 @@ Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hit
     (is (= "ada"   (get-in (rf/app-db-value f) [:auth :user :username])))))
 ```
 
-Four things do the work. Each is an **edge** the test bends — not a mechanism it swaps:
+Four things do the work — those four edges. Each one redirects a value at a boundary, not a mechanism the test swaps out:
 
 - **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` declares intent: it redirects `:rf.http/managed` to its canned-success stub, so a request you forgot to stub can never escape to the wire.
 - **`{:rf.cofx {...}}` on the dispatch** supplies the declared fact. This is the same surface the boot site uses in production — the test isn't faking the coeffect machinery, it's *being* the boundary that stamps the value.
@@ -136,7 +143,7 @@ The unhappy path — the one your users will actually hit — is the same shape 
 
 ```clojure
 (deftest wrong-password-shows-the-error
-  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]  ;; :preset is record-config — rides re-frame.frame/make-frame
+  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]  ;; same config-taking make-frame as above
     (rf/with-managed-request-stubs
       {[:post "https://api.realworld.io/api/users/login"]
        {:reply {:failure {:kind :rf.http/http-4xx :status 422}}}}
@@ -171,7 +178,7 @@ Your views read app-db through subscriptions — Part 3's `:auth.login-form/can-
 
 There's a partition wrinkle the cascade tests above already leaned on. They read `:auth/state` with `(rf/frame-state-value f)`, not `(rf/app-db-value f)`:
 
-> **Gotcha. App-db subs vs machine-backed subs.** `:auth/state` is **machine-backed** — its value lives in the frame's *runtime-db* partition, not in app-db. The rule is simple: app-db subs take `app-db-value`; subs that touch machine snapshots (or any runtime-db state, like the mutation status in section 5) take `frame-state-value`. `frame-state-value` returns the coherent both-partitions projection `{:rf.db/app … :rf.db/runtime …}`, and `compute-sub` reads whichever partition each sub belongs to. Since `frame-state-value` always works, when in doubt reach for it.
+> **Gotcha. App-db subs vs machine-backed subs.** A frame holds state in *two* partitions: **app-db**, your application's data, and **runtime-db**, framework-managed state like machine snapshots and in-flight mutation status. Most subs read app-db, so `app-db-value` feeds them. But `:auth/state` is **machine-backed** — its value lives in runtime-db, so feeding it a bare `app-db-value` would find nothing. The rule is simple: app-db subs take `app-db-value`; subs that touch machine snapshots (or any runtime-db state, like the mutation status in section 5) take `frame-state-value`. `frame-state-value` returns *both* partitions as one projection — `{:rf.db/app … :rf.db/runtime …}` — and `compute-sub` reads whichever partition each sub belongs to. Since it always works, when in doubt reach for `frame-state-value`.
 
 > **Going deeper. Layered subs come along for free.** That `:auth.login-form/can-submit?` sub is **layered** — it's defined `:<- [:auth.login-form/slice]`, so it reads through another sub. `compute-sub` resolves the chain transitively: it computes the input sub against `db` first, depth-first, then runs the outer body against that value — all without spinning up the cache. Same for a parametric `input-fn` sub. You test the top sub and the whole derivation underneath it comes along, exactly as the running app composes it. The cache the live app uses is an *optimisation* layered over this pure composition, not part of its meaning — which is precisely why you can drop it on the JVM and still get the right answer.
 
@@ -179,7 +186,7 @@ There's a partition wrinkle the cascade tests above already leaned on. They read
 
 ## 5. Test the view, not just the state
 
-Everything so far asserts on *state*. But two bugs live in the gap between correct state and a correct screen: the handler writes the right value, the sub computes it, and the view still reads the wrong path, or wires `:on-click` into the wrong frame. State assertions stay green; the user sees a broken page. You catch both on the JVM — no JSDOM, no React, no `act()` — because a view-fn is just a function and the hiccup it returns is just data.
+Everything so far asserts on *state*. But two bugs live in the gap between correct state and a correct screen: the handler writes the right value, the sub computes it, and the view still reads the wrong path, or wires `:on-click` to dispatch into the wrong frame. State assertions stay green; the user sees a broken page. You catch both on the JVM — no JSDOM, no React, no `act()` — because a view-fn is just a function, and what it returns is just **hiccup**: plain Clojure vectors describing the markup (`[:button {…} "Save"]` is a `<button>`). Data you can walk and assert on, no rendering required.
 
 To address a node from a test, give it a stable handle. The `testid` helper builds an attrs map carrying a `:data-testid` — a one-line change at the view's call site, and it dead-code-eliminates from production. Part 4's `favorite-button` grows one attribute:
 
@@ -249,7 +256,7 @@ Now cut the production bundle — same build id you've been running with `watch`
 npx shadow-cljs release app
 ```
 
-`release` compiles with `:advanced` optimizations and `goog.DEBUG` set to `false`. That flag is the hinge of re-frame2's production story. Everything diagnostic is gated behind it, so the Closure compiler constant-folds the gate and dead-code-eliminates what's behind it. **What's gone from the file you just built:**
+`release` compiles with `:advanced` optimizations and sets `goog.DEBUG` to `false`. `goog.DEBUG` is a compile-time boolean from the Google Closure compiler (the optimizer under shadow-cljs); in a release build it's a known-false constant, not a runtime variable. That single constant is the hinge of re-frame2's production story. Everything diagnostic sits behind an `if goog.DEBUG` gate, so when the constant is false the compiler folds the gate to "always skip" and then deletes the now-unreachable code entirely — *dead-code elimination*. **What's gone from the file you just built:**
 
 - **Every schema check.** The validations that screamed at you in dev compile out entirely. Zero hot-path cost — which is precisely *why* you could afford to write them everywhere. You don't ration safety to pay for speed; you get both.
 - **The entire trace channel.** The epoch ledger you scrolled in Xray, the per-frame trace ring, every emit site. Not switched off — *absent*. Open Xray against the release build and there's nothing for it to attach to. That silence is your verification that the elision is real.

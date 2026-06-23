@@ -2,9 +2,11 @@
 
 You're adopting re-frame2, but your team writes React function components in UIx or Helix, not Reagent's hiccup. Or you're already on Reagent and the shipped bundle has grown too big for comfort. Either way, this page shows you how to run the same app on a different **substrate** — the React-rendering layer underneath your views — without touching events, subscriptions, effects, or `app-db`.
 
+A word on the term *substrate*, since the rest of the page leans on it. A re-frame2 app is two layers stacked. On top sits your **dataflow** — events, subscriptions, effects, and the `app-db` map they all read and write — and it's plain Clojure data and functions, with no idea that React exists. Underneath sits the **substrate**: the thin layer that actually drives a React renderer, turning your views into pixels. Reagent is one such substrate; UIx, Helix, and reagent-slim are three more. The whole trick of this page is that you can swap the bottom layer and the top layer never notices.
+
 We'll build up one step at a time: first the single line that picks a substrate, then a working UIx view, then how its callbacks dispatch, then how you mount and scope it, and finally how Helix and reagent-slim fit the same mould. By the end you'll be able to boot one app on any of four substrates, write UIx/Helix views that read subs and dispatch correctly, and recognise the handful of errors the framework throws when you get the boundary wrong.
 
-> **Same app, four substrates — the only line that changes is `init!`.** Events, subscriptions, effects, and `app-db` never learn which React wrapper renders them. The boot call names the substrate. Only the view bodies speak its notation. That's the whole story; the rest of this page is detail.
+> **Same app, four substrates — the only line that changes is `init!`.** Events, subscriptions, effects, and `app-db` never learn which React wrapper renders them. The boot call (`init!`) names the substrate. Only the view bodies speak its notation. That's the whole story; the rest of this page is detail.
 
 > **Coming from Redux?** The adapter plays react-redux's role — `frame-provider` is `<Provider>`, `use-subscribe` is `useSelector` — with two differences. The binding is a value you pass explicitly at boot rather than a package you import, and exactly one is ever installed per runtime. No hidden default, no autowiring.
 
@@ -22,7 +24,7 @@ Start with the boot shape from the [quick start](../quickstart.md). The substrat
   )
 ```
 
-That's it. To switch substrates, you change that one argument. Each adapter namespace exports an `adapter` Var; require the namespace and pass the Var to `init!`:
+That's it. To switch substrates, you change that one argument. Each adapter lives in its own namespace and exports a single binding named `adapter` — a plain value. Require the namespace and pass that value to `init!`:
 
 ```clojure
 ;; Reagent — the canonical pick
@@ -93,9 +95,13 @@ Three rules govern every UIx and Helix component, and once they click you won't 
 
 ## Step 3 — Why callbacks dispatch off the handle
 
-Look again at that second rule. Here's the catch worth understanding. The click fires *later*, outside render, where no frame context exists. But the handle captured the frame back when the component rendered, so the closed-over `dispatch` still targets the right one. That's why you grab it during render and never reach for a bare `rf/dispatch` inside a callback — a bare `dispatch` has no frame to aim at by the time the user clicks.
+Step 2's second rule said: grab `dispatch` off `(rf/frame-handle)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason.
 
-And `(rf/frame-handle)` isn't *just* a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
+Recall that a re-frame2 app can have many **frames** — independent app-db instances, each its own little world (see [Frames](../concepts/frames.md) for the full story). So whenever you dispatch, *something* has to say which frame the event lands in. During render, the surrounding provider supplies that answer ambiently — but a click handler doesn't fire during render. It fires *later*, after render has long finished, with that ambient frame context gone. A bare `rf/dispatch` reaching for the frame at click time finds nothing to aim at.
+
+`(rf/frame-handle)`, called during render, solves this by *capturing* the current frame right then and there and closing over it. The `dispatch` you pull out of it carries that frame with it across the async gap, so when the click finally fires, it still lands in the right world. That's the whole reason for the dance: grab the handle while the frame is in scope, and the callback inherits it.
+
+And `(rf/frame-handle)` gives you more than just a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
 
 ```clojure
 (rf/frame-handle)
@@ -106,7 +112,7 @@ And `(rf/frame-handle)` isn't *just* a dispatch function — it's a small map of
  :subscribe     (fn [query-v])}                 ;; one-shot read (not reactive — see below)
 ```
 
-You'll most often destructure `:dispatch`, but all four entries are there:
+You'll most often pull `:dispatch` straight off that map (that's what `(:dispatch (rf/frame-handle))` in the view above is doing), but all four entries are there:
 
 - `:dispatch-sync` is the one you want when an event must settle before the next line runs (initialisation, a confirm-then-read flow).
 - `:subscribe` is a plain frame-locked *read* of a sub's current value — handy inside a callback where you need to peek at state without making the component reactive on it. (For *reactive* reads that re-render the component, use the `use-subscribe` hook from Step 2, not the handle's `:subscribe`.)
@@ -118,6 +124,7 @@ The no-arg `(rf/frame-handle)` captures the *ambient* frame at call time, which 
 ```clojure
 ;; A WebSocket handler fires long after render, outside any frame scope.
 ;; Lock a handle to the frame by name at setup time, then dispatch from it.
+;; ({:keys [dispatch]} just pulls the :dispatch entry out of the handle map.)
 (let [{:keys [dispatch]} (rf/frame-handle :rf/default)]
   (ws/on-message (fn [msg] (dispatch [:ws/incoming msg]))))
 ```
@@ -126,7 +133,9 @@ The no-arg `(rf/frame-handle)` captures the *ambient* frame at call time, which 
 
 ## Step 4 — Mount it: scope a frame into the subtree
 
-Now mount the root inside the adapter's `frame-provider-existing`, which scopes the already-registered frame for the subtree, using idiomatic `$` trailing children:
+Step 3 said the surrounding provider supplies a view's ambient frame. This is that provider. `frame-provider-existing` wraps a chunk of your React tree and declares "everything rendered below me reads from *this* frame" — so the `use-subscribe` hooks underneath it know which world to read, and the `frame-handle` captures underneath it know which world to dispatch into. (It's the React-context counterpart to the lexical `rf/with-frame` you may have met elsewhere: same idea, scoped through the component tree instead of through a `let`.)
+
+So the last move is to mount the root inside it. The provider takes a `:frame` opt naming an already-registered frame, with the subtree as idiomatic `$` trailing children:
 
 ```clojure
 ;; react-root is your (uix-dom/create-root (js/document.getElementById "app"))
@@ -149,7 +158,7 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
 `frame-provider-existing` scopes a frame that already exists. Sometimes a subtree should *own* a frame outright — a modal, a tab, a per-tenant panel that creates its frame on mount and cleans up after itself on unmount. That's the *other* member of the provider family, and picking the wrong one is the most common mount-time stumble. They differ in one word: **ownership**.
 
 - **`frame-provider-existing`** — *scope only* (Step 4). The frame already exists; this provider merely makes its id available to the subtree. It creates nothing, destroys nothing. It takes exactly one opt: `:frame` (a required keyword id). This is the scope-into-React counterpart to the lexical `rf/with-frame`.
-- **`frame-provider`** — *own the lifetime*. It **creates** a frame on mount, **provides** its id to descendants, and **destroys** it on unmount. It takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images`, and `:initial-events` (the ordered setup events dispatched synchronously right after creation).
+- **`frame-provider`** — *own the lifetime*. It **creates** a frame on mount, **provides** its id to descendants, and **destroys** it on unmount. It takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the handler registrations — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation).
 
 ```clojure
 ;; OWN a frame's lifetime: create on mount, run its setup, destroy on unmount.

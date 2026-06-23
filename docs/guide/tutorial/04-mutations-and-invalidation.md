@@ -12,17 +12,21 @@ This part lands three things, one at a time:
 
 > **Coming from RTK Query or TanStack Query?** A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences: invalidation is declared once on the write's *registration*, not per call site; every invalidation is **scoped** — your feed and another user's feed are different cache entries, and a write names which scopes it touches; and the post-write continuation is a dispatched **event**, not an `onSuccess` callback.
 
-The idea to hold onto as you read:
+One phrase to file away now and watch pay off by the end — it won't fully land until the **Publish** section, and that's fine:
 
-**A mutation's `:reply-to` is the continuation — on the record, inspectable, replayable.**
+**A mutation's continuation — "and *then* do this next" — is itself a piece of data, not a callback. Which makes it inspectable, testable, and replayable.**
 
 ## The reads, ready to be broken
 
 Before a write can invalidate a read, the reads have to be *labelled* so a write can name them without naming each one by hand. We did that labelling back in Part 2.
 
-Each resource declared `:tags` on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. Those tags are the join key between writes and reads — they let a write say "I just made these tags stale" without pointing at a single read.
+Each resource declared `:tags` on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. Those tags are the shared vocabulary between writes and reads: a read says "my data is tagged `[:article slug]`," and later a write can say "I just made `[:article slug]` stale" — and the runtime matches the two up, no read named directly. Tags are how a write breaks a read it has never heard of.
 
-One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose, because what it returns depends on *who is asking*, so its cache has to be keyed per user. To key a cache per user you need a way to compute that key — a **named scope resolver**, a small function that turns app-db (your app's single state map) into a cache scope:
+One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose, because what it returns depends on *who is asking* — your feed and another user's feed are different data, even though both come from the same URL. So its cache can't be one shared entry; it has to be keyed per user.
+
+This is what a **scope** is: a namespace for cache entries. The resources in Part 2 all lived in one shared scope, `:rf.scope/global` — one entry per resource, the same for everybody. The feed needs a *different* scope per signed-in user, so each user's feed is cached separately and nobody ever sees anybody else's.
+
+To key a cache per user, the runtime needs a way to compute the per-user key from your state. That's a **named scope resolver**: a small function that reads app-db (re-frame2's single state map — see [Part 1](01-pages-and-state.md)) and returns a scope value, or `nil`:
 
 ```clojure
 ;; src/conduit/scope.cljs
@@ -34,7 +38,9 @@ One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 
               (when username [:rf.scope/session {:username username}]))})
 ```
 
-Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` instead of `:rf.scope/global`. Its cache entries are keyed by the signed-in username, so each user gets their own. And here's the payoff of fail-closed: signed out, the scope resolves to `nil` and the read fails closed. It never silently serves the previous user's feed.
+Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` (meaning "resolve my scope through the `:conduit/session` resolver") instead of the default `:rf.scope/global`. Its cache entries are keyed by the signed-in username, so each user gets their own.
+
+And here's the payoff of returning `nil` when logged out — what re-frame2 calls **fail-closed**: signed out, the resolver returns `nil`, the scope can't be computed, and the read simply *fails* rather than falling back to some default entry. It never silently serves the previous user's feed. (You'll see the term "fail-closed" recur on the write side too — same idea: when an identity can't be resolved, do nothing rather than guess.)
 
 That's the whole setup. The reads are tagged; the feed is scoped. Now let's write.
 
@@ -77,9 +83,9 @@ A mutation is the write-side counterpart of a resource. Where a resource describ
 
 Three things do the work:
 
-- **The request fn** (the third positional arg) describes the HTTP write the way a resource describes its read. It must *not* supply `:on-success` / `:on-failure` / `:request-id` — the runtime owns reply addressing, and that ownership is what makes the stale-reply suppression below possible.
-- **`:invalidates`** declares which tags the write makes stale on success. Favoriting breaks reads in *two* scopes: the article and lists are global, while your feed is keyed by session. So it returns a vector of descriptors, each naming its own scope. The second resolves through the `:conduit/session` resolver above, at settle time. One write, both scopes, declared once.
-- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry. The populated value must be the resource's stored shape — the same `{:article …}` envelope a normal load produces, which is why we pass `result` whole. A populated entry counts as freshly loaded, so this mutation's own invalidation won't turn around and refetch the key it just learned.
+- **The request fn** (the third positional argument) describes the HTTP write the way a resource describes its read. It must *not* supply `:on-success` / `:on-failure` / `:request-id` — the runtime decides where the reply goes, deliberately, not you. Handing that ownership to the runtime is what lets it later throw away a *stale* reply (a slow response to a write the user already superseded) before it can do any damage — a guarantee we cash in further down.
+- **`:invalidates`** declares which tags the write makes stale on success. Favoriting breaks reads in *two* scopes: the article and lists are global, while your feed is keyed by session. So it returns a vector of *descriptors* — one per scope, each a map naming a scope and the tags it stales there. The second descriptor's scope is computed by running the `:conduit/session` resolver from earlier, at *settle time* (the moment the write's reply comes back and its consequences are applied). One write, both scopes, declared once.
+- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry — skipping a refetch entirely. One catch: the value you populate has to be in the *same shape the resource stores*. A normal load of `:conduit/article` caches the whole `{:article …}` map the server sent, so we hand `:populates` that same whole map (`result`), not just the article inside it. A populated entry counts as freshly loaded, so this mutation's own invalidation won't turn around and refetch the key it just learned.
 
 Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface lives in [Spec 016](../../../spec/016-Resources.md).
 
@@ -91,7 +97,7 @@ That's a complete, working favorite write. The next section fires it; the deeper
 
 ## Fire it, watch the instance
 
-A resource is "a sub you read and a cause you fire." A mutation is the mirror image: **a cause you fire and an instance you watch.** The UI never calls the mutation directly. Instead it dispatches `:rf.mutation/execute` — `dispatch` being how every event enters the system:
+A resource is "a subscription you read and an event you fire" (a *subscription* is a read of derived state; an *event* is something you `dispatch`). A mutation is the mirror image: **an event you fire and an instance you watch.** The UI never calls the mutation directly. Instead it dispatches `:rf.mutation/execute` — `dispatch` being how every event enters the system:
 
 ```clojure
 ;; src/conduit/views.cljs
@@ -120,7 +126,7 @@ A resource is "a sub you read and a cause you fire." A mutation is the mirror im
 
 Pause on the `:instance` id, because this is where people get tripped up. Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, which means you can click hearts on three cards in quick succession and they can never clobber each other.
 
-The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` sub — a subscription being a read of derived state — which returns the durable facts plus derived booleans, computed for you:
+The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` subscription, which returns the durable facts plus some derived booleans, computed for you:
 
 ```clojure
 {:status :idle      ;; :idle | :pending | :success | :error
@@ -138,7 +144,7 @@ Notice what the view *doesn't* do: it never invalidates anything. Add this butto
 
 ### Watch it happen
 
-Run the app, sign in, and click a heart. The count changes immediately — that's `:populates` landing. A moment later the list and your feed have refetched. Now open Xray, click another heart, and read the causal chain off the trace: the `:ui/favorite` dispatch, then `:rf.mutation/started`, the HTTP request, then `succeeded` carrying the per-descriptor invalidation evidence (which tags, in which scopes), then the refetches of the reads a route still owns. Every step names its cause. When a list refreshes "by itself" six months from now, this trace is how you'll know which write did it.
+Run the app, sign in, and click a heart. The count changes immediately — that's `:populates` landing. A moment later the list and your feed have refetched. Now open Xray (the inspection tool from earlier parts) and click another heart: the trace shows the whole causal chain, step by step. The `:ui/favorite` dispatch fires; then `:rf.mutation/started`; then the HTTP request; then `succeeded`, carrying the invalidation evidence (which tags went stale, in which scopes); and finally the refetches of any stale reads still on screen. Every step names its cause. When a list refreshes "by itself" six months from now, this trace is how you'll know which write did it.
 
 ### The full execute payload
 
@@ -309,7 +315,7 @@ Three things make this safe, and none of them are your job:
 
 - **The runtime records the inverse.** You write only the *forward* `:patch` (`favorite-patch` toggles the flag and steps the count, handling both the detail's `{:article …}` and a list's `{:articles […]}` shape). The runtime snapshots each touched entry's prior value, so a rollback restores exactly what was there — never a reconstruction that can drift from the forward patch.
 - **The reply settles deterministically.** An `:ok` reply **commits** (the `:populates` seed overwrites the optimistic value with the server's exact count, then `:invalidates` reconciles the lists). An `:error` reply **rolls back** — the heart flips back everywhere, verbatim. No `:on-failure` handler, no `app-db` undo flag.
-- **A contested rollback refetches, it doesn't clobber.** If a *concurrent* write moved a touched entry while yours was in flight, `:on-conflict :invalidate` (the default) marks that entry stale and lets the read path fetch the authoritative value, rather than restoring a now-stale snapshot. This is re-frame2's deliberate divergence from TanStack/SWR's unconditional context restore — on a contested rollback, the read path is the recovery authority.
+- **A contested rollback refetches, it doesn't clobber.** Suppose your optimistic write fails, so it's time to roll back — but in the meantime *another* write already changed one of the entries you touched. Blindly restoring your snapshot would clobber that newer change with stale data. So `:on-conflict :invalidate` (the default) doesn't restore the snapshot for a contested entry: it marks the entry stale and lets the read path go fetch the authoritative value from the server. (This is a deliberate divergence from TanStack/SWR, which on rollback unconditionally restore the snapshot they captured. Here, on a contested rollback, the read path is the recovery authority.)
 
 The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user already sees their change, so don't block the button — and optionally read the derived **`:optimistic?`** flag (`(:optimistic? fav)`, true while the optimistic value is showing and unconfirmed) for a subtle in-flight cue.
 

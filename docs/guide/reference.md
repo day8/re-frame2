@@ -57,12 +57,12 @@ Want the same surface on *one* page — every signature, status, and tier in a s
 
 ## Looking up a failure mode
 
-The intro promised "the full failure list," so here's where it lives. re-frame2 fails *loud* and *structured* — when something goes wrong the runtime emits a record keyed by a reserved `:rf.error/<kebab-id>` keyword, never a bare string — so "what does this error mean and what does the framework do next?" is a *lookup*, not a guess.
+The intro promised "the full failure list," so here's where it lives. re-frame2 fails *loud* and *structured*: when something goes wrong the runtime doesn't throw a bare string — it emits a record keyed by a reserved `:rf.error/<kebab-id>` keyword (think of the keyword as a stable error code you can match on). Because every failure has a known code, "what does this error mean and what does the framework do next?" becomes a *lookup*, not a guess.
 
 Two documents own that lookup, and they split along the same Conventions-vs-009 seam as everything else:
 
 - [Conventions §Error and warning ids](../../spec/Conventions.md) *reserves* the namespaces — `:rf.error/*` and `:rf.warning/*` follow the `:rf.<prefix>/<category>` shape, single-segment kebab-case under the reserved sub-namespace.
-- [009-Instrumentation §Error namespace convention](../../spec/009-Instrumentation.md#error-namespace-convention--five-prefix-shapes) and its [Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue-single-source-of-truth) own the *grammar*: the closed set of categories, what each one means, the trace `:operation` it maps to, and — crucially — the **default recovery per category** (does the cascade roll back? is it logged-and-skipped? a benign no-op?). That catalogue is the single source of truth; the per-domain specs reference it rather than redefining it.
+- [009-Instrumentation §Error namespace convention](../../spec/009-Instrumentation.md#error-namespace-convention--five-prefix-shapes) and its [Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue-single-source-of-truth) own the *grammar*: the closed set of categories, what each one means, and the trace `:operation` it maps to. Crucially, the catalogue also names the **default recovery per category** — what the framework does after the failure. Does it roll back the whole event run (the cascade of effects that event triggered)? Log the problem and skip the offending step? Treat it as a benign no-op? That catalogue is the single source of truth; the per-domain specs reference it rather than redefining it.
 
 So a `:rf.error/set-db-bad-value` (you passed `[:rf/set-db]` a non-map), a `:rf.error/image-zero-match` (a `:select-ns :include` glob matched no loaded namespace), or a `:rf.error/invalid-image` (an image carrying a retired key) all resolve to one row in that catalogue.
 
@@ -74,7 +74,7 @@ There are three test namespaces, and the trick to remembering which to require i
 
 | Namespace | Asserts against | Representative helpers |
 |---|---|---|
-| `re-frame.test-support` | Runtime state — frames, the registrar, app-db, the dispatch drain | `with-fresh-registrar`, `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals` / `assert-db-equals`, `poll-until` |
+| `re-frame.test-support` | Runtime state — frames, the registrar, app-db, the dispatch queue draining to quiescence | `with-fresh-registrar`, `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals` / `assert-db-equals`, `poll-until` |
 | `re-frame.test-helpers` | The view tree — hiccup data, `:data-testid` selectors, attached handlers | the `find-by-testid` family, `text-content`, `extract-handler` / `invoke-handler`, the `with-app-fixture` / `expect-text` / `wait-until` trio, `testid` |
 | `re-frame.http.test-support` | The HTTP boundary | canned-reply stub fxs, `with-managed-request-stubs` |
 
@@ -90,7 +90,7 @@ One model carries the whole composition story: **`image → frame → event stre
 
 An **image** is a *value* naming a set of registrations (events, subs, fx, …) — built with `rf/image`, either by selecting registrations from loaded namespaces (`:select-ns`) or by listing them inline (`:registrations`). Think of it as the recipe: what's in the app, but not yet running.
 
-A **frame** is the live, isolated execution context — the running dish. It owns the app state, the subscription cache, the trace surface, the adapter binding, and one resolved image generation. You build a frame from images with `rf/make-frame`:
+A **frame** is the live, isolated execution context — the running dish. It owns the app state, the subscription cache, the trace surface, the adapter binding, and the resolved set of registrations its images add up to (re-frame2 calls one such resolved set a *generation* — hot-reload an image and you get a new generation, like a new build of the recipe). You build a frame from images with `rf/make-frame`:
 
 ```clojure
 (rf/make-frame {:id      :app/main
@@ -98,9 +98,9 @@ A **frame** is the live, isolated execution context — the running dish. It own
                 :adapter :reagent})
 ```
 
-A frame *is* the natural unit for hermetic tests and multi-frame inspection: each frame runs its own *sealed* registration set, so two frames can hold different handlers for the same id without collision. When a later image shadows an earlier one, composition records it — read the report with `rf/frame-shadows`.
+A frame *is* the natural unit for sealed-off tests and multi-frame inspection: each frame runs its own *isolated* registration set, so two frames can hold different handlers for the same id without collision. And when you stack images, a later one can *shadow* an earlier one — register over the same id, so its handler wins. That's not silently lost: composition records each shadowed id, and you read the report with `rf/frame-shadows`.
 
-Most apps never touch any of this by hand. A single-app process just `reg-*`s into the global registrar and the runtime assembles the standard image for it. You reach for explicit images and `make-frame` when you want isolation: a test that needs a clean slate, a tool inspecting several frames at once, or a hot-reloaded image generation.
+Most apps never touch any of this by hand. A single-app process just `reg-*`s into the global registrar and the runtime assembles the standard image for it. You reach for explicit images and `make-frame` when you want isolation: a test that needs a clean slate, a tool inspecting several frames at once, or a hot-reloaded image generation (a fresh build of the recipe swapped into a running frame).
 
 > **The address is always the frame id.** There is no public container constructor and no container-scoped dispatch option in the `image → frame → event stream` model. You target a frame by its id (or, in tests and tools, by the frame *value* `make-frame` returns — read its id back with `frame-value->id`), never by some enclosing substrate.
 

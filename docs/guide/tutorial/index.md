@@ -2,7 +2,7 @@
 
 The [quickstart](../quickstart.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part the quickstart hid). Budget five minutes from `npm install` to pixels.
 
-Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time, running the same do → observe → explain loop you ran in the quickstart.**
+Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. (That **do → observe → explain** loop is the spine of this whole tutorial; the *observe* step is where Xray, the inspector you'll set up below, earns its keep.)
 
 > **Haven't done the quickstart?** [Do that first.](../quickstart.md) It teaches the loop — events → app-db → subs → views — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
 
@@ -54,7 +54,7 @@ conduit/
  {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-`thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray is the inspector you'll keep open for the whole tutorial — a live window into what your app is doing. It lives in a `:dev` alias because it's a tool, not application code, which keeps it out of your shipped bundle automatically.
+`thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray is the inspector you'll keep open for the whole tutorial — a live window into what your app is doing. It lives under `:aliases {:dev …}` — an **alias** in `deps.edn` is just a named bundle of *extra* dependencies you opt into on demand, the way an npm `devDependency` is pulled in only when you ask for it. Xray sits in the `:dev` alias because it's a tool, not application code, and a release build that never activates `:dev` never sees it — so it stays out of your shipped bundle automatically.
 
 > **For JavaScript developers.** Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. You'll lean on it constantly. Like DevTools, it ships only in dev builds; the `:dev` alias is what makes that automatic.
 
@@ -178,7 +178,12 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
      [shell]]))
 ```
 
-The events, subs, and views here are just the quickstart's loop again — an event updates app-db (your app's single state map), a subscription reads from it, and a view renders that read. What's genuinely new is the **boot**, the part the quickstart's browser cells quietly did on your behalf. It's four moves, in order, each one short:
+The events, subs, and views here are just the quickstart's loop again — an event updates app-db (your app's single state map), a subscription reads from it, and a view renders that read. Two bits of syntax look new only because the browser cells smoothed them over:
+
+- **`reg-view`** is a macro (that's why it's `:require-macros`'d at the top, not plain `:require`'d). It defines a view *and* wires its body to the current frame, so inside `header` you can write a bare `subscribe` / `dispatch` and it just finds the right app-db — no frame argument to thread through. The functions-only browser cells couldn't run macros, so the quickstart used plain `defn` views with an explicit `rf/subscribe`; on the real toolchain `reg-view` is the idiomatic shape.
+- **`@(subscribe …)`** — a subscription doesn't hand you a value, it hands you a *reactive reference* that re-runs the view whenever its slice of app-db changes. The leading `@` (Clojure's deref) reads the current value out of it. Read `@(subscribe [:session/user])` as "the live value of who's signed in."
+
+What's genuinely new beyond syntax is the **boot**, the part the quickstart's browser cells quietly did on your behalf. It's four moves, in order, each one short:
 
 **Move 1 — `(rf/init! reagent-adapter/adapter)` installs the substrate.** The substrate is the view library's reactivity that your subscriptions wire into, and this line tells the runtime which one you're using. It's idempotent, so hot reload is safe — calling it twice does nothing. It creates *no* frame; that's the next move's job. To swap substrates later you change one require and this one Var ([Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md)).
 
@@ -251,7 +256,7 @@ Xray auto-opened with the app, and `Ctrl+Shift+C` toggles it. Take a moment to l
 - **The event spine** shows one row: `:app/initialise`. That's not a log line you wrote — it's the runtime's own record of the only thing that has happened so far.
 - **app-db** shows `{:session {:user nil}}` — exactly the value the boot event returned.
 
-One event, one state, nothing else. **Keep Xray open for the whole tutorial.** Every part runs the rhythm *do → observe → explain*, and Xray is the observe step — so when something misbehaves, you won't reach for print statements, you'll just read what the app actually did. [Debug with Xray](../how-to/debug-with-xray.md) is the deeper tour when you want it.
+One event, one state, nothing else. **Keep Xray open for the whole tutorial.** This is the *observe* step of the do → observe → explain loop in the flesh — so when something misbehaves later, you won't reach for print statements, you'll just read what the app actually did. [Debug with Xray](../how-to/debug-with-xray.md) is the deeper tour when you want it.
 
 **You can now:**
 

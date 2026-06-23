@@ -1,12 +1,12 @@
 # Keep secrets and large things out of traces
 
-Your login form just dispatched `[:auth/sign-in {:password "hunter2"}]`. In re-frame2 an event is *just data* — a vector describing something that happened — so that password is now plain data sitting in your system. And re-frame2 is unusually observable: events, snapshots of `app-db`, and HTTP records all travel one wire that feeds Xray, the epoch ledger, and any production shipper you wire up ([one wire, every tool](../concepts/observability.md)).
+Your login form just dispatched `[:auth/sign-in {:password "hunter2"}]`. In re-frame2 an event is *just data* — a vector describing something that happened — so that password is now plain data sitting in your system. And re-frame2 is unusually observable: events, snapshots of `app-db`, and HTTP records all flow down a single internal stream — call it **the wire** — and every tool drinks from that one wire ([one wire, every tool](../concepts/observability.md)). Xray (the dev inspector) reads it live; the **epoch history** (a saved before/after record of every event, for time-travel debugging) keeps it; and any **shipper** — a function you register to forward records to a hosted monitor like Datadog or Sentry — can carry it off-box.
 
 That is a feature most of the time and a problem exactly once: when the data on the wire is a password, a token, or a 5MB upload. This page is the short list of declarations that keep those off the wire — **without ever hiding them from your own handler code**.
 
-The whole idea fits in one sentence: **you name a *path* as sensitive once, where the data is defined, and the framework redacts whatever lives at that path everywhere it crosses an observation boundary.** That's it. We'll build it up one declaration at a time.
+Whenever a value leaves the wire for somewhere it can be *observed* — a dev panel, the saved epoch history, an off-box monitor — it crosses what we'll call an **observation boundary** (or just *egress*, the point where data exits the runtime to be looked at). The whole idea of this page fits in one sentence: **you name a *path* as sensitive once, where the data is defined, and the framework redacts whatever lives at that path everywhere it crosses an observation boundary.** That's it. We'll build it up one declaration at a time.
 
-> **This is hygiene, not a security boundary — and it is fail-open.** The framework keeps secrets off its *own* observability wire; your app still owns auth, encryption, and transport. And the contract is **fail-open**: a path you never classify ships raw. That's the bargain — convenient leak-prevention, not a guarantee. There's no taint-tracking, so a secret you copy to a new path (a re-keyed value, a rendered field) ships raw until you classify *that* path too.
+> **This is hygiene, not a security boundary — and it is fail-open.** The framework keeps secrets off its *own* observability wire; your app still owns auth, encryption, and transport. And the contract is **fail-open**: a path you never classify ships raw. That's the bargain — convenient leak-prevention, not a guarantee. The framework does no *taint-tracking* (it never follows a secret value around to redact every copy of it), so a secret you copy to a new path — a re-keyed value, a rendered field — ships raw until you classify *that* path too.
 
 > **Coming from Sentry?** The instinct is `beforeSend`: a scrub function you write into each consumer, run just before shipping. re-frame2 does the opposite. You classify data **once, at the owner of its shape**, and the framework applies it at every boundary it owns. There's no `beforeSend` to write — which means there's no Nth consumer left to forget one.
 
@@ -21,11 +21,11 @@ Start with the most common case: a token that *lives* in `app-db` at a path you 
      :sensitive [[:auth :token] [:auth :refresh-token]]}))
 ```
 
-What just happened: `:sensitive` takes a vector of paths and marks each one. From now on, whatever value comes to rest at `[:auth :token]` is redacted to `:rf/redacted` everywhere it would cross an observation boundary — the App-DB panel in Xray, the epoch ledger, your off-box shipper. Your handlers still read the real token. Only the *observable shadow* is projected.
+What just happened: `:sensitive` takes a vector of paths and marks each one. From now on, whatever value comes to rest at `[:auth :token]` is redacted to `:rf/redacted` everywhere it would cross an observation boundary — the App-DB panel in Xray, the saved epoch history, your off-box shipper. Your handlers still read the real token. What gets redacted is only the *observable shadow* of your data: the copy the framework projects onto the wire for tools to look at, which is separate from the live value your code actually runs on.
 
 Notice we classified the path **before any token exists there** — `:auth/init` just seeds an empty map. That's the safe, common pattern: a classification over an absent path is a harmless no-op that quietly redacts whatever later occupies the path. You don't re-classify on every write.
 
-Wire `:auth/init` to run at frame creation with `:initial-events`, so the classification is in place before any egress can happen:
+Wire `:auth/init` to run at frame creation with `:initial-events`, so the classification is in place before any value can reach an observation boundary:
 
 ```clojure
 (rf/reg-frame :app/main
@@ -74,7 +74,7 @@ You reach for `:clear-*` rarely — when a value disappears its redaction effect
 
 ## Classify a transient payload on the registration
 
-Not every secret lives in `app-db`. Some *flow through* the cascade — event args, fx/cofx values, a subscription's output — and never come to rest at an app-db path. These are owned by the **registration** that introduces their shape. Declare the sensitive paths right there, in the registration map, relative to the payload:
+Not every secret lives in `app-db`. Some *flow through* the [cascade](../concepts/events-and-the-cascade.md) — the chain of steps an event sets off as it's processed — passing through event args, fx/cofx values, or a subscription's output, and never coming to rest at an app-db path. These are owned by the **registration** that introduces their shape. Declare the sensitive paths right there, in the registration map, relative to the payload:
 
 ```clojure
 (rf/reg-event :auth/sign-in
@@ -94,6 +94,8 @@ Not every secret lives in `app-db`. Some *flow through* the cascade — event ar
 ```
 
 The handler body still sees `password` verbatim — handlers need real values to work. Only the *observable shadow* is projected: the dispatched-event trace and the HTTP record ship `:password` as `:rf/redacted`. Paths index into the registration's primary shape (here the event arg-map); an empty path `[[]]` marks the whole shape, and a mark at a missing slot is a silent no-op (payload shapes evolve; the mark waits patiently for the slot to reappear).
+
+(That phrase "the registration's primary shape" means the main payload each kind of registration introduces: for an event it's the arg-map — the second element of the event vector, the `{…}` after the event id — and for the others it's the value they produce, as the next examples show.)
 
 The same `:sensitive` metadata key works on **every** registration that introduces a payload shape — not just events:
 
@@ -141,7 +143,7 @@ Carriers are **process-global** (one registration, not per-frame), and a malform
 
 ## Classify subsystem data on the subsystem
 
-Some data lives *inside* a runtime subsystem — a machine's `:data`, a resource's fetched data or params, a route's query string. You don't own its absolute storage path (the subsystem mints that, per instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. The framework lowers your declaration into the registry per instance (at spawn / fetch) and drops it on teardown:
+Some data lives *inside* a runtime subsystem — a machine's `:data`, a resource's fetched data or params, a route's query string. You don't own its absolute storage path (the subsystem mints that fresh for each instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. Each time an instance is created (a machine spawns, a resource fetches), the framework translates your shape-relative declaration into a concrete path in the classification registry for that instance, and removes it again when the instance is torn down:
 
 ```clojure
 (rf/reg-machine :checkout/payment
@@ -156,9 +158,9 @@ Some data lives *inside* a runtime subsystem — a machine's `:data`, a resource
 
 That `[:data :payment :token]` slot now redacts in **every** machine trace — the before/after of a transition, snapshots, guard inputs — for every spawned actor instance, with zero per-instance author code. Rename the slot in the declaration and the classification moves with it. One declaration on the *type*, applied to every instance: that's the payoff for declaring at the definition site rather than at each egress.
 
-The same shape covers **four** subsystems, each with its own projection root. The framework re-roots your projection-relative path to that instance's absolute runtime path and drops the declaration on teardown:
+The same shape covers **four** subsystems. Each has its own **projection root** — the spot inside one instance that your path is measured *from*, so you only ever write the part of the path you own. The framework joins your relative path onto that instance's real runtime location, and drops the declaration when the instance goes away:
 
-| Subsystem | Projection root (what your path is relative to) | Lowered at | Dropped at |
+| Subsystem | Projection root (what your path is relative to) | Translated to a real path at | Dropped at |
 |---|---|---|---|
 | `reg-machine` | one actor snapshot's `:data` | actor spawn / first-boot | actor destroy (any cause) |
 | `reg-resource` | the entry's `:params` / `:data` | params at scoped-key mint; data when the fetch lands | entry eviction |
@@ -195,7 +197,7 @@ Three durable owners, no overlap. When you have a secret, this is the table to w
 
 ## Wire an off-box shipper
 
-Now route the production records off-box. Production observation routes by the frame's `:observability` policy. There are **two** streams — `:handled-events` (one production-safe record per event processed) and `:errors` (production-survivable error records). Name a sink id and the boundary's profile for each, then register the concrete function:
+Now send the production records off-box — to Datadog, Sentry, wherever you watch prod. You set this up per frame, under an `:observability` key. There are **two** streams you can route: `:handled-events` (one production-safe record per event processed) and `:errors` (production-survivable error records). For each, you name a **sink** (an id for the destination), the **profile** (which boundary it's crossing — more on profiles just below), then register the concrete function that does the sending:
 
 ```clojure
 (rf/reg-frame :app/main
@@ -226,7 +228,7 @@ To retire a sink — at teardown, or when swapping implementations — there's `
 
 ### Choosing a profile
 
-`:rf.egress/profile` names the *boundary*, not a remembered set of booleans. It takes a value from a **closed six-member enum**. The two off-box profiles are the ones a shipper cares about; the rest cover dev panels, trusted-local reveal, SSR, and server error responses:
+A profile names the *boundary* the data is crossing — *who is about to look at this?* — rather than making you remember the right combination of on/off flags for each destination. You pick one value from a **closed set of six** (closed meaning the framework defines them all; you can't invent a new one). The two off-box profiles are the ones a shipper cares about; the rest cover dev panels, trusted-local reveal, SSR, and server error responses:
 
 | Profile | Boundary |
 |---|---|
@@ -243,7 +245,7 @@ The profile matrix is in [Spec 015](../../../spec/015-Data-Classification.md#pro
 
 ### Two things to verify before the first record ships
 
-**Direct reads are not auto-projected.** A reach into live state that bypasses the trace pipeline — `rf/app-db-value`, `rf/sub-cache`, an MCP `get-path` — does *not* get projected for you. If you ship the result off-box, run it through `rf/project-egress` yourself, naming the frame:
+**Direct reads are not auto-projected.** Everything so far has relied on the framework *projecting* your data — applying the classifications to produce a safe copy — automatically as it crosses a boundary. But a direct grab of live state that sidesteps the normal observation path — `rf/app-db-value`, `rf/sub-cache`, an MCP `get-path` — hands you the raw value, with no projection applied. If you ship that result off-box yourself, run it through `rf/project-egress` first, naming the frame so it knows whose classifications to apply:
 
 ```clojure
 (rf/project-egress (rf/app-db-value :app/main [:auth])

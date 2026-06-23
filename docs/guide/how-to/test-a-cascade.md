@@ -1,6 +1,6 @@
 # Test a full cascade
 
-You have an event handler — the function that decides how state changes in response to something happening — and it does real work. It stamps state, fires an HTTP request, gets the reply back as another event, and folds the result in along with follow-up dispatches. What you want to test is the whole journey: an event goes in, and settled `app-db` (your app's single state map) comes out the other side. This recipe tests that journey on the JVM. No browser, no mock library, milliseconds per test.
+You have an event handler — the function that decides how state changes in response to something happening — and it does real work. It writes some state, fires an HTTP request, gets the reply back (which arrives as *another* event), and that reply handler writes more state and maybe kicks off still more events. One original event thus sets off a whole chain of follow-on events — that chain is what this page means by a **cascade**. What you want to test is the whole journey end to end: an event goes in, and the final, settled `app-db` (your app's single state map) comes out the other side. This recipe tests that journey on the JVM. No browser, no mock library, milliseconds per test.
 
 The trick that makes it fast is one idea: **you don't mock, you redirect.** The handler under test runs unmodified and produces the same effect data it produces in production — an effect is just a description of work, returned as plain data. The test changes only *who answers* that effect. No service worker, no patched `fetch`, no module-mock hoisting.
 
@@ -21,7 +21,7 @@ Start with the simplest possible version. Every cascade test is the same three m
     (is (= 2 (:count (rf/app-db-value f))))))
 ```
 
-`with-new-frame` gives the test its own isolated frame and destroys it on exit, so nothing leaks between tests. `dispatch-sync` **drains to fixed point**: the event settles, every follow-up `:dispatch` its handlers queue settles, and (as you'll see below) every stubbed HTTP reply settles too — all before the call returns. So the assertion on the next line reads committed state. No `act()`, no fake timer to advance, nothing to `await`.
+`with-new-frame` gives the test its own isolated frame and destroys it on exit, so nothing leaks between tests. `dispatch-sync` does the heavy lifting: it doesn't return until the cascade has fully stopped moving. The event settles, every follow-up `:dispatch` its handlers queue settles, and (as you'll see below) every stubbed HTTP reply settles too — all before the call returns. (The term for "keep going until nothing changes any more" is **draining to fixed point**, and that's exactly what it does.) So the assertion on the next line reads committed state. No `act()`, no fake timer to advance, nothing to `await`.
 
 If instead you want to test one handler as the pure function it is, see [Test an event handler](test-an-event-handler.md). This page is for when the interesting behaviour is the chain itself.
 
@@ -31,7 +31,7 @@ If instead you want to test one handler as the pure function it is, see [Test an
 
 ## A real cascade: the code under test
 
-The counter was a warm-up. Now a real chain — a RealWorld-style login that stamps state, fires a request, and folds the reply back in. The handlers live in a `.cljc` file so the JVM test can load them — same code, both platforms.
+The counter was a warm-up. Now a real chain — a RealWorld-style login that stamps state, fires a request, and folds the reply back in. The handlers live in a `.cljc` file. (Clojure has three source extensions: `.clj` compiles for the JVM, `.cljs` for the browser, and `.cljc` for *both*. Putting the handlers in `.cljc` means this one file loads in the browser at runtime **and** on the JVM under test — same code, no duplication.)
 
 ```clojure
 ;; src/my_app/session.cljc
@@ -63,7 +63,7 @@ The counter was a warm-up. Now a real chain — a RealWorld-style login that sta
                    :session/error  (:kind failure))}))
 ```
 
-Both seams the test will use are already visible in that code. First, the handler **declares** the clock with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a coeffect, an input the world hands the handler — instead of calling the host directly. That's what lets a test hand it an exact value. Second, the HTTP request is an **effect description** in the returned map, which is what lets a test answer it without a network. The model behind both is [Effects and coeffects](../concepts/effects-and-coeffects.md).
+The two *seams* the test will use are already visible in that code — a "seam" being a spot where the test can step in and substitute a value without editing the handler. First, the handler **declares** the clock with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a coeffect, an input the world hands the handler — instead of calling the host directly. That's the seam that lets a test hand it an exact value. Second, the HTTP request is an **effect description** in the returned map — a plain-data instruction, not a live connection — which is the seam that lets a test answer it without a network. The model behind both is [Effects and coeffects](../concepts/effects-and-coeffects.md).
 
 > **Where do `:value` and `:failure` come from?** A managed-HTTP reply is appended to the named `:on-success` / `:on-failure` event vector as a single map — `{:kind :success :value <decoded-body>}` on the success path, `{:kind :failure :failure <failure-map>}` on the failure path. That's why `:session/login-ok` destructures `:value` and `:session/login-failed` destructures `:failure`. The `:failure` map carries `:kind` (one of the eight `:rf.http/*` categories) plus kind-specific tags — `:status`, `:status-text`, `:body`, `:headers` for an HTTP 4xx; `:message` / `:cause` for a transport error; `:elapsed-ms` / `:limit-ms` for a timeout. See [014-HTTPRequests](../../../spec/014-HTTPRequests.md) for the full envelope and the closed failure-category set.
 
@@ -107,9 +107,9 @@ Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover
 
 `:rf/time-ms` is stamped onto every dispatch automatically, which is why the second test runs fine without ever mentioning it. But left alone its value would be the live clock, and an assertion on `:session/attempted-at` would flake. So the first test pins it. Facts supplied under `:rf.cofx` in the dispatch opts **win**: the runtime fills only what's missing and never overwrites. With the clock supplied there's no ambient time left to read, which means the test gives the same answer at 14:00 and at 23:59:59.
 
-Delivery is declared-only — the clock included. A handler receives exactly the facts its `:rf.cofx/requires` names, flat in the coeffects map, and nothing else. So that `requires` vector is effectively the test's **fixture checklist**; you can read it off `(rf/handler-meta :event :session/login)`. This part trips people up, so it's worth saying plainly: a declared fact the runtime can't satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note that this is the same `reg-event` as a pure state handler — declaring a world fact is metadata, not a different registration form.
+A handler only ever receives the facts it asked for. It gets exactly the ones its `:rf.cofx/requires` vector names — handed over flat in the coeffects map — and nothing else, the clock included. So that `requires` vector is effectively the test's **fixture checklist**; you can read it off `(rf/handler-meta :event :session/login)`. This part trips people up, so it's worth saying plainly: a declared fact the runtime can't satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note that this is the same `reg-event` as a pure state handler — declaring a world fact is metadata, not a different registration form.
 
-> **The `:rf/time-ms` exception, and why generated facts are stricter.** `:rf/time-ms` is special: the router stamps it on every dispatch, so it's always satisfied even when you don't supply it. *Generated* recordable facts — a `reg-cofx` that mints a fresh id, a seeded random source, a read of browser location — are not stamped. Under a test frame's default **strict mint policy** (below), a handler that declares such a fact but for which the token carries no supplied value is **`:rf.error/missing-required-cofx`** — the generator does *not* fire a fresh per-run value. That's deliberate: a silently-minted id would make a green test that minted a *different* value than production will. Either supply the fact in `:rf.cofx`, or opt back into live generation with `{:rf.cofx/mint-policy :explicit-live}` (a per-call dispatch opt) when a fresh value per run is genuinely what you want.
+> **The `:rf/time-ms` exception, and why generated facts are stricter.** `:rf/time-ms` is special: the router stamps it on every dispatch, so it's always satisfied even when you don't supply it. *Generated* recordable facts — a `reg-cofx` that mints a fresh id, a seeded random source, a read of browser location — are not stamped. A test frame defaults to a **strict mint policy** — "mint" being the act of a generator producing a fresh value, and "strict" meaning it refuses to do so silently. Under that policy, a handler that declares such a fact but for which the dispatch carried no supplied value fails with **`:rf.error/missing-required-cofx`** — the generator does *not* fire a fresh per-run value. That's deliberate: a silently-minted id would make a green test that minted a *different* value than production will. Either supply the fact in `:rf.cofx`, or opt back into live generation with `{:rf.cofx/mint-policy :explicit-live}` (a per-call dispatch opt) when a fresh value per run is genuinely what you want.
 
 ### Answer the HTTP: canned replies by method + URL
 
@@ -149,7 +149,7 @@ Both tests above assert the *settled* state — the reply has already folded in 
       (is (= :authed (:session/status (rf/app-db-value f)))))))
 ```
 
-`ts/poll-until` (from `re-frame.test-support`) is the **settle** primitive — it polls a predicate against a bounded deadline (defaults: `:timeout-ms 2000`, `:interval-ms 5`) and fails fast if the condition never holds, so a genuinely stuck cascade surfaces as a timeout rather than a hang. On the JVM it's synchronous and returns the truthy value; on CLJS it returns a `js/Promise` you compose under `cljs.test/async`. Reach for it whenever a reply or a scheduled event drains *past* `dispatch-sync` (a deferred reply, a machine `:after` transition, a `:dispatch-later`). Do **not** reach for it to wait out a timer window — a grace period, a debounce — that's a `Thread/sleep` whose duration *is* the contract; annotate it `;; Timer-semantics sleep: ...` so audits leave it alone.
+That last test reaches for `ts/poll-until` — here `ts` is the conventional alias for `re-frame.test-support`, the test-only helper namespace (`[re-frame.test-support :as ts]` in your require block; you'll see the full block in the regression-test section below). `poll-until` is the **settle** primitive — it polls a predicate against a bounded deadline (defaults: `:timeout-ms 2000`, `:interval-ms 5`) and fails fast if the condition never holds, so a genuinely stuck cascade surfaces as a timeout rather than a hang. On the JVM it's synchronous and returns the truthy value; on CLJS it returns a `js/Promise` you compose under `cljs.test/async`. Reach for it whenever a reply or a scheduled event drains *past* `dispatch-sync` (a deferred reply, a machine `:after` transition, a `:dispatch-later`). Do **not** reach for it to wait out a timer window — a grace period, a debounce — that's a `Thread/sleep` whose duration *is* the contract; annotate it `;; Timer-semantics sleep: ...` so audits leave it alone.
 
 ### Redirect anything: `:fx-overrides`
 
@@ -184,13 +184,12 @@ This is redirect-not-mock in a single frame. The override receives the **exact a
 
 ### The `:test` preset — deterministic defaults in one key
 
-The two seams above — redirect HTTP to a stub, make generated facts strict — are exactly what most test frames want by default. Rather than spell them out per test, declare the intent with `{:preset :test}` and the frame mints with the deterministic defaults:
+The two seams above — redirect HTTP to a stub, make generated facts strict — are exactly what most test frames want by default. Rather than spell them out per test, declare the intent with `{:preset :test}` and the frame is born with the deterministic defaults already in place. It's the same `rf/make-frame` you've used all along; you just hand its config map one extra key:
 
 ```clojure
 ;; A test frame that never reaches the network and fails loud on an
-;; unsupplied generated cofx — :preset is a record-config key, so it rides
-;; the advanced record-config constructor, not the bare object form.
-(rf/with-new-frame [f (re-frame.frame/make-frame
+;; unsupplied generated cofx — :preset bundles both behaviours.
+(rf/with-new-frame [f (rf/make-frame
                         {:preset :test
                          :initial-events [[:session/init]]})]
   (rf/dispatch-sync [:session/login {:email "a@b.c" :password "x"}]
@@ -198,7 +197,7 @@ The two seams above — redirect HTTP to a stub, make generated facts strict —
   (is (= :authed (:session/status (rf/app-db-value f)))))
 ```
 
-The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (every `:rf.http/managed` is redirected to its canned-success stub, so a test frame can never accidentally reach the network), `:drain-depth 100` (the framework default, surfaced so tooling reads "this is a test frame"), and `:rf.cofx/mint-policy :strict` (the strict-mint behaviour described above). Your own keys win over the preset expansion, so you can still pin a different HTTP stub or opt into `:explicit-live` per dispatch. Use the preset when you want the defaults everywhere; reach for the explicit `with-managed-request-stubs` table when a test needs route-by-route control over the replies.
+The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (every `:rf.http/managed` is redirected to its canned-success stub, so a test frame can never accidentally reach the network), `:drain-depth 100` (the cap on how many cascade steps a single dispatch will drain before it bails out — set to the framework default here, surfaced explicitly so tooling can read "this is a test frame"), and `:rf.cofx/mint-policy :strict` (the strict-mint behaviour described above). Your own keys win over the preset expansion, so you can still pin a different HTTP stub or opt into `:explicit-live` per dispatch. Use the preset when you want the defaults everywhere; reach for the explicit `with-managed-request-stubs` table when a test needs route-by-route control over the replies.
 
 ## Asserting on what would dispatch — without running the cascade
 
@@ -235,7 +234,7 @@ Keys are interceptor *references* — a bare keyword matches that registered int
 
 ## Replay a bug as a regression test
 
-A user reports: "I favorited an article, then unfavorited it, and the count stuck." Here's the thing — that description **is an event-ledger excerpt**. Because `app-db` is the fold of the events, a fresh frame fed the same rows lands in the same state. If Xray was open when it happened, don't reconstruct from prose; read the exact event rows (and each one's `:rf.cofx` facts) off the epoch ledger and paste them in. The test is just that excerpt replayed with the right answer pinned:
+A user reports: "I favorited an article, then unfavorited it, and the count stuck." Here's the thing — that description is really just a *list of events in order*: favorite, then unfavorite. And in re-frame2 the current `app-db` is nothing more than what you get by starting from the initial state and applying each event in turn — replaying that exact list rebuilds the exact state, bug and all. (This "current state is the running total of all the events" property is the **fold** the closing callout makes precise; for now, take it as: same events in, same state out.) So a bug report **is a replayable event sequence in disguise**. If Xray — re-frame2's time-travel debugger — was open when the bug happened, don't even reconstruct the sequence from prose: read the exact event rows (and each one's `:rf.cofx` facts) straight off its recorded ledger and paste them in. The test is just that sequence replayed with the right answer pinned:
 
 ```clojure
 (ns my-app.regression-test
@@ -312,9 +311,9 @@ The test is unchanged in shape — stub the route, dispatch, assert the settled 
 
 ## Opts bend the edges, never the middle
 
-The dispatch opts this page used aren't a grab-bag. They're the complete set of legal bends, and they share a boundary:
+The dispatch opts this page used aren't a grab-bag. Picture a handler as having an **edge** — the inputs flowing in and the effects flowing out — and a **middle** — the logic that turns one into the other. Every opt on the list touches only the edge; none can reach the middle. That's the whole pattern, and here's the complete set:
 
-| Opt | Edge |
+| Opt | Which edge it bends |
 |---|---|
 | `:frame` | **where** the event runs |
 | `:rf.cofx` | **inputs** — what the world said |
@@ -322,7 +321,7 @@ The dispatch opts this page used aren't a grab-bag. They're the complete set of 
 | `:fx-overrides` | **outputs** — who answers the effects |
 | `:interceptor-overrides` | **chain** — which interceptors are removed or replaced for this dispatch |
 
-What dispatch opts can never touch is the **middle**: the handler and its interceptor chain's *logic*. The middle is the program under test. And because the middle can't be bent, a green test means the production step function — fed those inputs, asked for those outputs — really behaves that way.
+That middle — the handler and its interceptor chain's *logic* — is the program under test, and no opt can bend it. That's exactly why the test is worth anything: because the logic can't be faked, a green test means the production step function, fed those inputs and asked for those outputs, really behaves that way.
 
 > **Going deeper.** The edges/middle split is the algebraic reason replay is trustworthy. An event handler is a pure step function `(db, event, coeffects) → (db', effects)`; `app-db` is the left fold of that step over the event ledger, seeded by the initial db. The dispatch opts only ever re-bind the *boundary* of the fold — its inputs (`:rf.cofx`) and the interpretation of its outputs (`:fx-overrides`) — never the step function itself. So "same program plus recorded inputs" is *definitionally* the same fold, and your cascade test is simply that fold's definition run on demand. A green replay isn't evidence the behaviour matches production; under this structure it *is* the production behaviour, evaluated with pinned inputs.
 

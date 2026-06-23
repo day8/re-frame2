@@ -19,7 +19,7 @@ src/conduit/core.cljs       ; routes, the root view, boot
 
 All of your app's state lives in **app-db**, your app's single state map. A feature claims one top-level key in that map and keeps everything it owns under that key. We call that a **slice** — one feature's corner of the state map. Articles get the `:articles` key.
 
-State only ever changes one way here. An **event** — a named record that something happened — is dispatched, and its registered **handler** — the function that runs in response — computes the next value of app-db. So even seeding canned data is an event:
+State only ever changes one way here. An **event** is a small piece of data announcing that something happened — at its simplest a vector like `[:app/initialise]`, a keyword id plus any payload. You **dispatch** an event to fire it, and its registered **handler** — the function that runs in response — computes the next value of app-db. That's the whole rule: views dispatch events, handlers compute new state. So even seeding canned data is an event:
 
 ```clojure
 ;; src/conduit/articles.cljs
@@ -59,9 +59,18 @@ State only ever changes one way here. An **event** — a named record that somet
                      :error  nil}}}))
 ```
 
-`reg-event` registers an event handler: a pure function from the **coeffects** (the facts it's handed — `:db`, the current app-db, is one) and the event, to a map describing what should happen next. That map's `:db` key is the new app-db. Read it as *"the next state, and anything else to do"* — this handler only seeds state, so it returns `{:db …}` and nothing else. It ignores both arguments and hands back the whole initial map, which is all an initialise event really is. Notice that nothing here touches the DOM, the network, or a clock. A handler that needs the outside world adds a line of metadata to declare it — same `reg-event`, you'll meet that in Part 2.
+`reg-event` registers an event handler: a pure function with two arguments in and one map out.
 
-The return map is a small, **closed** vocabulary: `:db` (the next app-db) and `:fx` (a vector of effects to run — dispatches, HTTP, navigation, anything that reaches the outside world). This handler uses only `:db`; you'll meet `:fx` in Part 2 when the feed starts loading from a server. Returning a key outside that set is a fail-loud error, not a silent no-op, so a typo in an effect key surfaces immediately rather than vanishing.
+The two arguments in are the **coeffects** and the event. Coeffects are the facts the handler is handed to do its job — and the one you'll reach for constantly is `:db`, the current app-db. (This handler ignores both arguments, written `_cofx` and `_event`; a leading underscore is the Clojure convention for "I'm declaring this parameter but not using it.")
+
+The one map out describes what should happen next. Read it as *"the next state, and anything else to do."* Its `:db` key is the new app-db; that's the only key this handler needs, so it returns `{:db …}` and hands back the whole initial map — which is all an initialise event really is.
+
+That return map is a small, **closed** vocabulary — just two keys:
+
+- `:db` — the next app-db.
+- `:fx` — a vector of effects to run: dispatches, HTTP, navigation, anything that reaches the outside world.
+
+This handler uses only `:db`, because seeding canned data touches nothing outside the map — no DOM, no network, no clock. You'll meet `:fx` in Part 2, when the feed starts loading from a server and the handler does need the outside world. Returning a key outside that two-key set is a fail-loud error, not a silent no-op, so a typo in an effect key surfaces immediately rather than vanishing.
 
 This replaces the placeholder `:app/initialise` that setup put in `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
 
@@ -105,7 +114,7 @@ Views never reach into app-db directly. Instead they ask **subscriptions** — n
 
 The first reads straight from app-db. The other two use `:<-` to declare an *input subscription*: `:articles/data` derives from `:articles/slice`, and `:articles/by-slug` derives from `:articles/data`. Subscriptions form a graph, and that graph is what makes them cheap — a sub recomputes only when its inputs actually change, and a view re-renders only when the sub it reads produces a new value.
 
-`:articles/by-slug` takes an argument, and the argument rides along in the query vector. A view asks for `[:articles/by-slug "welcome-to-conduit"]`, and the computation function receives that whole vector, destructured here as `[_ slug]`. (The first element is the sub-id itself — `:articles/by-slug` — which is why it's discarded as `_`; everything after is your argument.)
+`:articles/by-slug` takes an argument. A view asks for a subscription with a vector — a sub-id followed by any arguments, exactly the shape an event has — so to ask for one article it writes `[:articles/by-slug "welcome-to-conduit"]`. The computation function receives that whole vector, destructured here as `[_ slug]`: the first element is the sub-id itself (`:articles/by-slug`), discarded as `_` because the function already knows which sub it is, and everything after is your argument.
 
 The two-layer split is a habit worth forming. The top sub (`:articles/slice`) reads the raw slice; the layers below it (`:articles/data`, `:articles/by-slug`) shape that slice into exactly what one view needs. Keeping the raw read in its own sub means the lifecycle fields (`:status`, `:error`) are one cheap subscription away when Part 2 needs them, and the derived subs never re-run just because some *unrelated* corner of app-db changed.
 
@@ -119,7 +128,17 @@ The two-layer split is a habit worth forming. The top sub (`:articles/slice`) re
 
 ## Step 3 — views: the feed, rendered
 
-A **view** is a pure function from subscription values to hiccup — the data that describes your UI. Register them with `reg-view`, still in `articles.cljs`:
+A **view** is a pure function from subscription values to hiccup — the data that describes your UI. Hiccup is just nested Clojure vectors: a vector whose first element is a keyword is one DOM element, and it reads like the tag it builds:
+
+```clojure
+[:h1.logo-font "conduit"]
+;; → <h1 class="logo-font">conduit</h1>
+;;   :h1        the tag
+;;   .logo-font a CSS class, glued on with a dot (you can chain .a.b)
+;;   "conduit"  a child — strings, and more vectors, follow the tag
+```
+
+An optional map right after the tag carries attributes — `[:a {:href "/"} "home"]`. That's the whole notation. Register views with `reg-view`, still in `articles.cljs`:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/articles.cljs
@@ -164,6 +183,8 @@ A **view** is a pure function from subscription values to hiccup — the data th
       [:div.container.page
        [:p "There's no article called " [:code slug] " here."]])))
 ```
+
+(One unfamiliar form appears in there: `rf/route-link` renders a clickable link to another page. Treat it as a black box for now — Step 4 builds the routes it points at and explains it fully.)
 
 Three things are worth pointing out, because they trip people up at first:
 
@@ -233,7 +254,7 @@ Now for `core.cljs`. You're replacing the whole file from setup: the placeholder
 
 A route is a registry entry, exactly like an event or a sub: data, not components. `reg-route` has a fixed three-slot shape — `(reg-route id metadata path)` — and the **path is the third positional argument, a value, not a metadata key**. The middle slot is pure description: `:doc`, the `:params` schema, and (when you need them) `:query`, `:on-match`, and a handful of others you'll meet later. The path (`"/"`, `"/article/:slug"`) is a pattern, `:slug` is a named segment, and whatever it captures arrives in the `:rf.route/params` sub your article page already reads.
 
-> **Gotcha — `:path` is not a metadata key, and unknown keys throw.** Two adjacent mistakes both fail loud at registration, which is exactly when you want to hear about them. Tucking the path *inside* the metadata map — `(reg-route :conduit/home {:path "/"})` — raises `:rf.error/invalid-route-metadata`; the path is the third value, not a key. And because `reg-route` carries the largest metadata shape in the framework, a typo in a reserved key (`:querey` for `:query`, `:on-matched` for `:on-match`) would otherwise sit silently until it failed at navigation time — so a *bare* (unqualified) key outside the reserved set is rejected at registration with the same `:rf.error/invalid-route-metadata`, naming the offending key and listing the valid vocabulary. Your own namespaced keys (`:myapp/layout`) are always welcome; it's only bare typos that get caught.
+> **Gotcha — `:path` is not a metadata key, and unknown keys throw.** Two adjacent mistakes both fail loud at registration, which is exactly when you want to hear about them. The first: tucking the path *inside* the metadata map — `(reg-route :conduit/home {:path "/"})` — raises `:rf.error/invalid-route-metadata`, because the path is the third value, not a key. The second: a typo in a reserved metadata key, like `:querey` for `:query` or `:on-matched` for `:on-match`. `reg-route` carries the largest metadata shape in the framework, so a misspelled key would otherwise sit silently until it failed at navigation time. To stop that, any *bare* (unqualified) key outside the reserved set is rejected right at registration with the same `:rf.error/invalid-route-metadata`, naming the offending key and listing the valid vocabulary. Your own namespaced keys (`:myapp/layout`) are always welcome; it's only bare typos that get caught.
 
 The `:params` schema names the capture's shape. Enforcement is opt-in: once the schemas artefact joins the classpath ([Validate with schemas](../how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as unmatched instead of limping through your views half-parsed. Until then the schema is checked-later documentation, and a single `:string` slug has nothing to fail anyway.
 

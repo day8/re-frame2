@@ -23,17 +23,17 @@ Here is ordinary re-frame2. No image in sight:
   (fn [db _] (:count db 0)))
 ```
 
-Those `reg-*` forms don't *run* anything. They write entries into a **registration source store** — a record of every registration you've authored, each tagged with the namespace it was written in. Nothing has executed yet; you've just filled a catalogue.
+Those `reg-*` forms don't *run* anything. They write entries into a **registration source store** — think of it as a catalogue: a record of every registration you've authored, each tagged with the namespace it was written in. Nothing has executed yet; you've just filled the catalogue.
 
-When you then create a frame *without* naming an image, the runtime takes that whole catalogue, projects it into one sealed set, and hands it to the frame. That projection is the **default image**: the implicit "everything I've registered" selector.
+When you then create a frame *without* naming an image, the runtime takes that whole catalogue, projects it into one sealed set, and hands it to the frame. That projection is the **default image**: the implicit "everything I've registered" selector. So an image, at its simplest, is just a *selection from the catalogue* — and the default selects all of it.
 
-So the common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
+The common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
 
 > **From re-frame v1.** In v1 there was exactly one global registry, and every `reg-*` wrote straight into it — last write wins, no provenance. v2 splits that in two: `reg-*` writes a *source store* (a catalogue, with the authoring namespace remembered), and a *frame* resolves a selected slice of that catalogue at creation. For everyday code you feel no difference — the default image gives you v1's "see everything" behaviour. The new power only shows up when you want more than one slice.
 
 > **For JavaScript developers.** Think of the source store as your full set of module exports, and the default image as `import * from` everything. You don't normally think about it — until two modules export the same name and you need to be explicit about which one a particular consumer gets.
 
-> **Heads-up.** "Default image" is a runtime projection, not a value you author. Don't reach for `rf/image` to get the default — plain `reg-*` already gives it to you. In code the default is simply *a frame created with no `:images` key*. (Implementation note you can safely ignore: the omit→default-image projection is still being wired in the reference implementation, `rf2-59orj0`. Until it lands, a frame created without `:images` runs as an ordinary configured frame resolving against the shared registrar — the same observable behaviour. Nothing you write changes when it lands.)
+> **Heads-up.** "Default image" is a runtime projection, not a value you author. Don't reach for `rf/image` to get the default — plain `reg-*` already gives it to you. In code, the default image is simply *a frame created with no `:images` key*. You never write the word "image" to get it.
 
 ## When two registrations collide, it fails loud
 
@@ -45,7 +45,7 @@ That refusal is a feature. The source store kept *both* descriptors, and assembl
 
 ## Naming an image: `rf/image`
 
-When you do need to be explicit, `rf/image` builds an image *value*. It's pure data — no registrar, no side effect — and you hand it to a frame through `:images`:
+When you do need to be explicit, `rf/image` builds an image *value*. Building one registers nothing and runs nothing — it just produces a plain data description of "which registrations to select" — and you hand it to a frame through `:images`:
 
 ```clojure
 (def counter-image
@@ -85,7 +85,7 @@ An image with neither `:select-ns` nor `:registrations` is valid but empty — u
                                    "docs.shared.widgets.*"]}}))
 ```
 
-You reach for `:exclude` when a recursive glob sweeps in siblings a frame must not load — classically a feature's own `*-test` namespaces, which in a dev build re-register the same ids the production sources do (selecting both would collide):
+You reach for `:exclude` when a recursive glob (`**`) sweeps in sibling namespaces a frame must not load. The classic case is a feature's own `*-test` namespaces: in a dev build those *are* loaded, and they often re-register the same ids the production sources do (so they can exercise them). Selecting both at once would be exactly the collision we saw earlier — so you `:include` the feature broadly and `:exclude` its tests back out:
 
 ```clojure
 (rf/image {:select-ns {:include ["day8.re-frame2-xray.**"]
@@ -93,13 +93,22 @@ You reach for `:exclude` when a recursive glob sweeps in siblings a frame must n
                                  "day8.re-frame2-xray.test-helpers.**"]}})
 ```
 
-> **Going deeper.** The glob grammar is small and case-sensitive. A literal segment matches itself; `*` matches exactly one dot-free segment; `**` matches zero or more segments. A segment may also carry an intra-segment `*` matching zero or more characters *within* one segment (never crossing a `.`), so `*-cljs-test` matches the leaf of `app.feature.mount-cljs-test`. Thus `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` or `docs.shared.widgets.forms.input`; `docs.shared.**` matches all three. The two legs are asymmetric on purpose: an `:include` that matches *nothing* is an assembly error (`:rf.error/image-zero-match`) — a typo, a forgotten `require`, or a dead-code-eliminated namespace becomes a loud failure rather than a silently-incomplete frame. An `:exclude` that matches nothing is a harmless no-op, so a production build that never loads the excluded namespaces is unaffected while the dev build gets its collision-free narrowing. `:exclude` applies only to glob-selected registrations, never to inline `:registrations`.
+> **Going deeper.** The glob grammar is small and case-sensitive, and works on the dotted namespace path:
+>
+> - a literal segment matches itself;
+> - `*` matches exactly one dot-free segment;
+> - `**` matches zero or more segments;
+> - a `*` *inside* a segment matches zero or more characters within that one segment, never crossing a `.` — so `*-cljs-test` matches the leaf of `app.feature.mount-cljs-test`.
+>
+> Worked through: `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` (no leaf) or `docs.shared.widgets.forms.input` (two leaves); `docs.shared.**` matches all three.
+>
+> The two legs — `:include` and `:exclude` — are deliberately asymmetric about matching *nothing*. An `:include` that matches nothing is an assembly error (`:rf.error/image-zero-match`): a typo, a forgotten `require`, or a dead-code-eliminated namespace becomes a loud failure rather than a silently-incomplete frame. An `:exclude` that matches nothing is a harmless no-op — so a production build that never loads the excluded test namespaces is unaffected, while the dev build still gets its collision-free narrowing. (`:exclude` applies only to glob-selected registrations, never to inline `:registrations`.)
 
 > **From re-frame v1.** If you've seen an *older* image spec using `:include-ns` / `:exclude-ns` as sibling top-level keys, or `:replace` / `:replace-standard` to declare an override winner, those are **retired** (EP-0026) — and they don't degrade gracefully. An `rf/image` carrying any of them fails loud (`:rf.error/invalid-image`) with a migration diagnostic. The mapping: `:include-ns` + `:exclude-ns` collapse into the one `:select-ns {:include … :exclude …}` map; `:replace` becomes "put the winner in a later image and read `rf/frame-shadows`" (the override story below); and `:replace-standard` is simply gone — framework standards are protected, and no app image may shadow them.
 
 ### Defining registrations inline: `:registrations`
 
-Most human-authored code should stay with ordinary `reg-*` forms and select by provenance. But for generated code, tests, or library packaging — where authoring a whole namespace is overkill — you can define registrations *inline*. The section keys mirror the `reg-*` names, and each entry is a call-shaped tuple:
+Most human-authored code should stay with ordinary `reg-*` forms and select by provenance. But for generated code, tests, or library packaging — where standing up a whole namespace just to register one fake is overkill — you can define registrations *inline*, right inside the image value. The keys mirror the `reg-*` names (`:reg-event`, `:reg-sub`, …), and each registration is written as a vector holding the same arguments you'd pass to that `reg-*` call — the id, an optional metadata map, and the handler fn:
 
 ```clojure
 (def small-image
@@ -145,7 +154,7 @@ The reader sees one small vocabulary evolve across lessons instead of `:counter-
 
 ## The shape of every image decision
 
-The recurring shapes are all the same single move — *different behaviour ⇒ different image; same behaviour, different history ⇒ same image, different frames:*
+Every situation on this page reduces to one decision. An image holds *behaviour* (the registrations); a frame holds *state and history* (its own app-db, evolving as events run). So: **different behaviour means a different image; the same behaviour with a different lived history means the same image, just a different frame.** Watch that one rule produce every shape:
 
 - **Two surfaces on one page.** A todo surface and a counter surface that both want simple local ids (`:boot/init`, `:item/add`). Give each its own image with disjoint `:select-ns` selectors; each frame resolves only its own.
 - **An inspection tool beside its target.** Xray is itself a running surface with its own events, subs, and app-db paths. Run it in its own image and frame, and let it inspect the target frame *as data* — the tool never has to coordinate ids with the thing it inspects.

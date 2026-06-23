@@ -29,7 +29,7 @@ The guide comes in tiers, ordered by how much you need to read before you can do
 | Tier | Its job | Entry |
 |---|---|---|
 | **Quickstart** | Pixels in five minutes; nothing explained yet | [Quickstart](quickstart.md) |
-| **Core concepts: the loop** | The mental model — events, app-db, subscriptions, views, effects — one page per domino, on the counter | [The model: six dominoes, one loop](concepts/index.md) |
+| **Core concepts: the loop** | The mental model — events, app-db, subscriptions, views, effects — taught as a chain of six steps where each one knocks into the next, like dominoes, one page per step, on the counter | [The model: six dominoes, one loop](concepts/index.md) |
 | **Tutorial** | Build RealWorld — pages, server data, auth, writes, tests — one app, end to end | [Build RealWorld](tutorial/index.md) |
 | **More concepts** | Everything built *on* the loop — interceptors, frames, images, flows, machines, HTTP, resources, routing, SSR, errors, observability | [Interceptors](concepts/interceptors.md) |
 | **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |
@@ -39,8 +39,8 @@ The guide comes in tiers, ordered by how much you need to read before you can do
 
 Two things about that order are deliberate, because they shape how you read it:
 
-- **The loop comes before the tutorial.** Core concepts — the [six dominoes](concepts/index.md), app-db, subscriptions, views, effects — sit *before* RealWorld on purpose. You meet the one-way loop on a counter first, so that when the tutorial throws a real domain at you, the shape is already familiar and you're learning the app, not the framework. The deeper, feature-level concepts (frames, machines, resources, and the rest) come *after* the tutorial, once you've felt where they fit.
-- **Two design questions get their own pages, not recipes.** Some questions sit a step before "how do I…": [Where should this value live?](where-state-lives.md) (db, sub, flow, resource, or machine) and [One graph: derivations and algebra views](derivations-and-algebra-views.md). They're placement decisions, not tasks, so they live on the explanation shelf where you can read them without a task in hand.
+- **The loop comes before the tutorial.** Core concepts — the [six dominoes](concepts/index.md) (the six steps that pass data one way around the loop), app-db, subscriptions, views, effects — sit *before* RealWorld on purpose. You meet the one-way loop on a counter first, so that when the tutorial throws a real domain at you, the shape is already familiar and you're learning the app, not the framework. The deeper, feature-level concepts (frames, machines, resources, and the rest) come *after* the tutorial, once you've felt where they fit.
+- **Two design questions get their own pages, not recipes.** Some questions sit a step before "how do I…": [Where should this value live?](where-state-lives.md) (db, sub, flow, resource, or machine) and [One graph: derivations and algebra views](derivations-and-algebra-views.md) (how all your derived state — subscriptions and more — forms a single dependency graph). They're placement decisions, not tasks, so they live on the explanation shelf where you can read them without a task in hand.
 
 Two habits run through every tier, and they're worth knowing up front because they shape how the pages read:
 

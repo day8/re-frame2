@@ -6,9 +6,15 @@ We'll build up in three moves. First, the good news and the tool that drives the
 
 ## The good news first
 
-The bones are identical. The six dominoes are still the six dominoes. Events — the data describing what happened — are still data. Handlers are still pure functions of state. Subscriptions, the read side, are still derivations off a single `app-db` (your app's whole state, held in one map). The opinionated stance hasn't moved: one source of truth, data over APIs over syntax, immutable values and stable contracts. v2 is v1's architecture with new capabilities grown on top.
+The bones are identical. v1's signature shape — the *six dominoes*, the one-way loop where a dispatched event falls through event handling, effects, coeffects, the `app-db` update, and back out to the subscriptions that views read — is the same shape in v2. Walk it piece by piece and nothing has moved:
 
-That's why your v1 code reads as v2 code on the first pass. A `reg-sub` is a `reg-sub`. A hiccup view is a hiccup view. The migration is not a rewrite — it's a *sweep*: a bounded set of mechanical renames, a smaller set of judgment calls, and a few new shapes you choose to adopt. The framework counts "40-plus rules," and that number sounds alarming, but the vast majority are find-and-replace, and a tool does them for you.
+- Events — the data describing what happened — are still data.
+- Handlers are still pure functions of state.
+- Subscriptions, the read side, are still derivations off a single `app-db` (your app's whole state, held in one map).
+
+The opinionated stance hasn't moved either: one source of truth, data over APIs over syntax, immutable values and stable contracts. v2 is v1's architecture with new capabilities grown on top.
+
+That's why your v1 code reads as v2 code on the first pass. A `reg-sub` is a `reg-sub`. A hiccup view — Clojure's vectors-as-HTML notation, `[:div ...]` — is still a hiccup view. The migration is not a rewrite — it's a *sweep*: a bounded set of mechanical renames, a smaller set of judgment calls, and a few new shapes you choose to adopt. The framework counts "40-plus rules," and that number sounds alarming, but the vast majority are find-and-replace, and a tool does them for you.
 
 > **For JavaScript developers.** Think of this less like the React 17→18 concurrent-rendering migration — where runtime behaviour shifted under you — and more like flipping on TypeScript's `strict` flag. The semantics you relied on are intact; v2 mostly stops *silently swallowing* things v1 let slide (an ambient frame, an unrecorded clock read) and asks you to say them out loud. Strictness, not rearchitecture.
 
@@ -46,7 +52,9 @@ These are the broad shapes of breakage — the high-volume, deterministic rewrit
 
 ### One event registration form
 
-This is the highest-volume rewrite, because `reg-event-db` is the most common registration in nearly every v1 app — and v2 doesn't have it. v2 collapses v1's three public registrars (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) to a single **`reg-event`**, semantically v1's `reg-event-fx`: every handler takes the coeffects map and returns the closed effects map (`{:db … :fx […]}`). The win is that there's no longer a db-only form that breaks the moment a handler needs an effect or a coeffect — adding the world becomes adding a key to a map you already return, not converting to a different registration.
+This is the highest-volume rewrite, because `reg-event-db` is the most common registration in nearly every v1 app — and v2 doesn't have it. v1 gave you three ways to register an event handler: `reg-event-db` (the handler takes the current db and returns the new db), `reg-event-fx` (the handler takes a *coeffects* map — inputs the runtime gathered for you, the db among them — and returns an *effects* map describing what should happen), and `reg-event-ctx` (the raw interceptor context). v2 collapses all three to a single **`reg-event`**, shaped exactly like the old `reg-event-fx`: every handler takes the coeffects map and returns the closed effects map (`{:db … :fx […]}`).
+
+The win is that there's no longer a db-only form that breaks the moment a handler needs an effect or a coeffect — adding the world becomes adding a key to a map you already return, not converting to a different registration.
 
 The mapping is deterministic, which is why it's codemod-able:
 
@@ -78,7 +86,7 @@ Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` shorthands fold into t
 
 ### Subscription input functions
 
-The two-function `reg-sub` form changes shape, not spirit. A v1 signal function returned live signals — `(rf/subscribe ...)` calls. A v2 input function returns plain **query vectors** (a vector of query vectors), and the runtime does the subscribing. That keeps the input function pure and the subscription graph inspectable without running the app. The mechanical tell is the bracket count on the single-input case: v2 wants `[[:item/by-id id]]`, not `[:item/by-id id]`. [Chapter 05](concepts/subscriptions.md) carries the full grammar and the why. The migration skill rewrites the common shapes and flags the rest.
+The two-function `reg-sub` form changes shape, not spirit. The first function declares what this subscription depends on. In v1 it *returned live signals* — it called `(rf/subscribe ...)` itself and handed back the running subscriptions. In v2 it instead returns plain data: a vector listing the **query vectors** it wants (each query vector being a `[:sub-id arg …]` request), and the runtime does the actual subscribing. That keeps the input function pure and the subscription graph inspectable without running the app. The mechanical tell is the bracket count on the single-input case: v2 wants `[[:item/by-id id]]` — a one-element vector *containing* the query vector — not the bare `[:item/by-id id]`. [Chapter 05](concepts/subscriptions.md) carries the full grammar and the why. The migration skill rewrites the common shapes and flags the rest.
 
 > **Going deeper.** In v1 the signal fn *ran* the subscription and handed back a live `Reaction` — it had to execute to produce its result. In v2 it hands back *data describing* which subscriptions it wants, and the runtime resolves them. A pure function returning a vector-of-vectors can be read, diffed, and graphed without ever mounting the app — which is exactly how the Xray dependency view draws the subscription DAG. The extra bracket pair is the seam where "do it" became "describe it."
 
@@ -119,7 +127,7 @@ Inside that tree, every bare `dispatch` / `subscribe` you already wrote works un
 
 ### The async-callback fix: capture a frame handle
 
-The capture is one line, and it's worth seeing concretely because it's the most common Type B fix in a real codebase. `(rf/frame-handle)` snapshots the *current* frame and hands back a small bundle — `{:frame :dispatch :dispatch-sync :subscribe}` — whose `dispatch` always targets the frame it captured, even after the render scope that produced it has unwound. So you grab the handle while the scope is still live (during render, or inside an event handler), close over it, and call its `:dispatch` from the callback:
+The capture is one line, and it's worth seeing concretely because it's the most common Type B fix in a real codebase. `(rf/frame-handle)` snapshots the *current* frame and hands back a small bundle — a map with the keys `:frame`, `:dispatch`, `:dispatch-sync`, and `:subscribe` — whose `dispatch` always targets the frame it captured, even after the render scope that produced it has unwound. So you grab the handle while the scope is still live (during render, or inside an event handler), close over it, and call its `:dispatch` from the callback:
 
 ```clojure
 ;; WRONG in v2 — the bare dispatch fires after the scope unwound → :rf.error/no-frame-context
@@ -154,9 +162,11 @@ There's no automated rewrite for the cache-key habit. It's a judgement call abou
 
 ## The deepest change: ambient world reads in durable handlers
 
-This is the one category v2's fold model genuinely *tightens*, and a v1 codebase trips it everywhere — so it's worth slowing down for. v1 let a handler reach straight into the world for a fact and write the result into state: `(js/Date.)` for a `:created-at`, `(random-uuid)` for an id, a v1 `:now` cofx injected via an interceptor entry, a boot handler reading `localStorage` to seed session state.
+First, the idea that makes this section make sense. re-frame2 keeps an ordered *ledger* of every event dispatched, and it guarantees that replaying that ledger from the start rebuilds the *exact same* app-db — like re-running a list of transactions to recover a bank balance. That replay is what powers time-travel debugging, SSR hydration, and replaying a user's bug report on your own machine. It only holds if a handler is a clean fold over the ledger: state-in, state-out, no peeking at the outside world. (A *fold* here is the functional-programming sense — `reduce` over the event stream, each event folded into the running app-db.)
 
-v2 draws a bright line: **a fact that decides a durable write must be a fact the ledger recorded** ([chapter 07 — recordable coeffects](concepts/effects-and-coeffects.md)). Every world fact a handler consumes is now declared with `:rf.cofx/requires` and delivered flat under its own owner-qualified id. The declaration's *grade* — recordable vs ambient — decides replay. The mapping is mechanical:
+This is the one category that genuinely *tightens* to protect that guarantee, and a v1 codebase trips it everywhere — so it's worth slowing down for. v1 let a handler reach straight into the world for a fact and write the result into state: `(js/Date.)` for a `:created-at`, `(random-uuid)` for an id, a v1 `:now` cofx injected via an interceptor entry, a boot handler reading `localStorage` to seed session state. Each of those is a peek at the outside world — and the outside world doesn't replay the same way twice.
+
+So v2 draws a bright line: **a fact that decides a durable write must be a fact the ledger recorded** ([chapter 07 — recordable coeffects](concepts/effects-and-coeffects.md)). Every world fact a handler consumes is now declared with `:rf.cofx/requires` and delivered flat under its own owner-qualified id. The declaration's *grade* — recordable (the runtime captures the value into the ledger, so replay re-feeds it) versus ambient (re-read fresh on every replay) — decides what happens on replay. The mapping is mechanical:
 
 - **Durable clock reads** — `js/Date.now`, `(.now js/Date)`, an `interop/now-ms` — become a declared `:rf/time-ms`: add `:rf.cofx/requires [:rf/time-ms]` to the handler and read the flat `time-ms` key. The runtime stamps `:rf/time-ms` on every dispatch envelope and records it.
 - **Generated ids** — `random-uuid` / host UUID calls feeding durable state — move to the event payload (mint at the dispatch site, `[:todo/add {:id (random-uuid)}]`, the preferred route) or, for ids minted inside the fold, become a declared recordable cofx whose app-registered supplier generates the value.
@@ -194,7 +204,7 @@ One mechanical rewrite touches *every* `reg-cofx` a v1 app wrote, ambient or rec
 
 The signature change is *unconditional* — it applies whether or not the fact is recordable, and whether the supplier takes call-site arguments (`(fn [k] v)`, declared `[[:viewport k]]`) or none. A cofx that only measures a diagnostic or transient fact (a viewport width, a non-durable display preference) stays **ambient**: register it without `:recordable?` and it simply re-runs on replay. The `:recordable?` grade bites only when the value feeds a *durable* write.
 
-> **Why this matters.** This is the deepest "why" on the page. re-frame2 promises that a recorded event ledger replays to the *exact same* app-db — that's what makes time-travel honest, SSR hydration match the server, and a bug report replay on your machine. A handler that secretly reads `(js/Date.)` and writes it to state breaks the promise the instant you replay: the clock moved. So v2 draws the bright line — a fact that decides a *durable* write must come through a *recorded* coeffect, never an ambient host read. A diagnostic read that never lands in durable state stays ambient and re-runs freely. The skill flags these for review rather than rewriting blind, because "does this read decide durable state?" is a judgement about your code's intent, not something a tool can read off the syntax — the cardinal rule again, doing the things it's sure of and asking about the rest.
+> **Why this matters.** This is the deepest "why" on the page, and it's the replay promise from the top of this section, made concrete. A handler that secretly reads `(js/Date.)` and writes it to state breaks that promise the instant you replay: the clock moved, so the rebuilt app-db no longer matches. The bright line — a fact that decides a *durable* write must come through a *recorded* coeffect, never an ambient host read — is exactly what keeps the replay faithful. A diagnostic read that never lands in durable state stays ambient and re-runs freely; it can't poison anything. The skill flags these for review rather than rewriting blind, because "does this read decide durable state?" is a judgement about your code's intent, not something a tool can read off the syntax — the cardinal rule again, doing the things it's sure of and asking about the rest.
 
 ## Two changes worth understanding in depth
 
@@ -231,7 +241,7 @@ The skill applies steps 1–4 unprompted and stops at an optional step 5 (collap
 
 ### `on-changes` becomes flows
 
-This is the one v1 concept that maps onto something with a genuinely new name and a slightly different shape. v1's `on-changes` interceptor said "when these in-paths change, compute and write to that out-path." v2's **flows** say the same thing — same compute-on-input-change semantics — but lifted out of the per-event interceptor chain and into the runtime. A flow is registered once, evaluated automatically right after the event handler (as the outermost `:after`, transforming the pending `:db` effect before it installs), and toggleable at runtime.
+This is the one v1 concept that maps onto something with a genuinely new name and a slightly different shape. v1's `on-changes` interceptor said "when these in-paths change, compute and write to that out-path." v2's **flows** say the same thing — same compute-on-input-change semantics — but the wiring moves. In v1 you bolted `on-changes` onto each event's interceptor chain by hand; in v2 you register a flow once with the runtime, and it runs the derivation automatically after *every* event handler, before the new `:db` lands. It's also toggleable at runtime, which `on-changes` never was.
 
 ```clojure
 (rf/reg-flow
