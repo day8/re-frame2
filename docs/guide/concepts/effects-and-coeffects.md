@@ -10,7 +10,16 @@ The trick is to move impurity to the edges. Side-effects leave as data on the wa
 
 A pure function can't *perform* a side-effect — but it can *return a description of one* and let the runtime do the dirty work. Computing a description is pure; doing the thing is not.
 
-You've already relied on this. When a handler returns `{:db new-db}` — the next value of `app-db`, your app's single state map — it didn't mutate anything. The runtime read that `:db` effect and swapped it in. Here's a handler that does the same trick for an HTTP request:
+You've already relied on this. When a handler returns `{:db new-db}` — the next value of `app-db`, your app's single state map — it didn't mutate anything. The runtime read that `:db` effect and swapped it in.
+
+The same trick covers *every* side-effect, not just state. A handler returns a map with two top-level keys, and that's the *entire* grammar:
+
+| Key | Meaning |
+|---|---|
+| `:db` | Replace `app-db` with this value. |
+| `:fx` | A vector of `[fx-id args]` rows — each row names a registered effect by id and hands it one argument. *Every* other effect rides here: a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself. |
+
+So an HTTP POST is just one `[fx-id args]` row under `:fx` — here the fx-id is `:rf.http/managed` and its argument is the request map:
 
 ```clojure
 (rf/reg-event :counter/save
@@ -24,14 +33,7 @@ You've already relied on this. When a handler returns `{:db new-db}` — the nex
 
 That's a state change *and* an HTTP POST — and the handler is still a pure function. It built a map and returned it. The runtime applies `:db`, then runs the effect named in `:fx`. You test it by asserting on the map it returns; nothing was sent during the test.
 
-A handler returns a map with two top-level keys, and that's the *entire* grammar:
-
-| Key | Meaning |
-|---|---|
-| `:db` | Replace `app-db` with this value. |
-| `:fx` | A vector of `[fx-id args]` rows — each row names a registered effect by id and hands it one argument. *Every* other effect rides here: a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself. |
-
-So a richer save reads like a to-do list of side-effects:
+Because `:fx` is just a vector, you keep adding rows. A richer save reads like a to-do list of side-effects:
 
 ```clojure
 (rf/reg-event :counter/save
@@ -77,7 +79,7 @@ The `:platforms #{:client}` declaration says where the effect may run. During [s
 
 The handler you pass `reg-fx` takes two arguments. The first, the *context map*, is the same one the originating event handler received — `:db`, `:event`, `:frame`, plus any coeffects. The second is the row's argument.
 
-**Frame-aware effects read `(:frame m)`** so a follow-up dispatch lands in the right `app-db` rather than the default frame. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
+That `:frame` entry matters once an effect needs to dispatch back. A [frame](frames.md) is a single isolated app instance — its own `app-db` — and a page can run several at once. So when an effect fires a follow-up dispatch, *which* `app-db` should it land in? The answer is `(:frame m)`: the frame the originating event ran in. **Frame-aware effects read `(:frame m)`** so the reply lands in the right `app-db` instead of guessing at a default. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
 
 ```clojure
 (rf/reg-fx :my-app/save
@@ -92,7 +94,9 @@ The handler you pass `reg-fx` takes two arguments. The first, the *context map*,
 
 > **Why pass `:frame` back in the callback?** Outside a synchronous dispatch there is no ambient frame scope, so a bare `(rf/dispatch …)` in a `.then` raises `:rf.error/no-frame-context`. Capturing `(:frame m)` and threading it through keeps the reply addressed to the frame that started the work — see [reactive state per frame](frames.md). (You can `:dispatch`/`:dispatch-later`/`:rf.http/managed` instead of hand-rolling fetch; this example exists only to show the closure rule for fx you write yourself.)
 
-How does a plain map become action? Your handler returns, the [interceptor chain](interceptors.md) completes, the runtime commits `:db`, then it walks `:fx` in source order, invoking each entry by id: `:dispatch`, `:rf.http/managed`, your `:localstorage/set`, all in one registry, run by one interpreter loop. Periodic and delayed work goes through the same door — the 7GUIs timer example (`examples/reagent/seven_guis/timer/`) drives its ticks with `[:dispatch-later {:ms 100 :event [:timer/tick gen]}]` rows, so there's no `js/setInterval` in app code. Every tick is an ordinary recorded event that carries its frame.
+So how does a plain map become action? In one pass: your handler returns, the [interceptor chain](interceptors.md) completes, the runtime commits `:db`, then it walks `:fx` in source order and invokes each row by id. `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — all in one registry, run by one interpreter loop.
+
+Periodic and delayed work goes through that same door. The 7GUIs timer example (`examples/reagent/seven_guis/timer/`) drives its ticks with `[:dispatch-later {:ms 100 :event [:timer/tick gen]}]` rows, so there's no `js/setInterval` in app code — every tick is an ordinary recorded event that carries its frame.
 
 ## The way in: a handler reads only what was recorded
 
@@ -175,7 +179,7 @@ Child dispatches each get their own fresh stamp, because every event is its own 
 
 The `[id arg]` form supplies the supplier's argument, so one `:ui/local-theme` registration serves every handler and each handler declares which key it reads. Ambient is the *right* grade here: if replay re-reads the theme, nothing durable drifts. A storage value that *does* feed a durable write — a session token you `assoc` into `:db` — must instead enter as recorded data: a `:recordable? true` registration, the event payload, or a supplied value on the dispatch.
 
-A third shape is **provided** — `{:recordable? true :provided? true}` registers a recordable fact with *no supplier*. Its value is stamped onto the event by an owner: a subsystem, or the dispatch boundary. The registration exists to give the fact a `:doc`, a `:schema`, and a home, and to make a typo'd requirement distinguishable from a genuinely missing value. `:rf/time-ms` itself is just the framework's own provided entry, and today the only shipped one.
+There's one more shape — not a third grade, but a recordable with the supplier left off. A **provided** fact — `{:recordable? true :provided? true}` — registers a recordable that nobody computes; its value is *stamped onto the event by an owner* instead, a subsystem or the dispatch boundary. Why register a fact with no supplier? To give it a `:doc`, a `:schema`, and a home — and so a typo'd requirement reads differently from a genuinely missing value (the failure cases below lean on exactly that distinction). `:rf/time-ms` itself is just the framework's own provided entry, and today the only shipped one.
 
 One rule, no exceptions: a cofx supplier must return its value **synchronously**. A coeffect is assembled into the handler's input map *before* the handler runs, so a value that isn't ready yet has nowhere to go. If the world can only answer asynchronously — a fetch, a socket round-trip — it was never a coeffect. It's a managed effect whose completion comes back as a reply *event* ([HTTP](http.md) is the worked example).
 

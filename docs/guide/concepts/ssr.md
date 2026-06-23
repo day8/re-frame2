@@ -1,6 +1,6 @@
 # Server-side rendering
 
-You want real HTML on the wire before a single byte of JavaScript loads — so crawlers and link unfurlers can read it, and the first paint lands fast. Then you want it to hydrate into the live app without a flash. And you want all of that *without* maintaining a second, server-flavoured copy of your application. That last clause is where most stacks quietly buckle.
+You want real HTML on the wire before a single byte of JavaScript loads — so crawlers and link unfurlers can read it, and the first paint lands fast. Then, once the JavaScript *does* load, you want it to **hydrate**: take over that already-painted HTML and wake it into the live, interactive app — adopting the existing DOM in place rather than throwing it away and re-rendering, so the user sees no flash. And you want all of that *without* maintaining a second, server-flavoured copy of your application. That last clause is where most stacks quietly buckle.
 
 re-frame2 gets you there by running the same handlers (the functions that respond to events), the same subscriptions (the queries that read state), and the same views (the functions that return your markup) on the JVM, against a per-request [frame](frames.md) — one isolated instance of your app. The only difference is the output: a string instead of a DOM. **There's one app. It runs twice.**
 
@@ -28,7 +28,7 @@ Before wiring anything, here's the shape of a single request. The host adapter r
 
 1. An HTTP request arrives. The host adapter creates a **frame for this request** and stashes the request map where handlers can read it.
 2. The frame's `:initial-events` fire in order: read the session, set the route, start data fetches.
-3. The runtime drains to a fixed point. State settles.
+3. The runtime **drains**: it keeps processing events until no more are queued — every dispatch one of those events triggered runs, and every dispatch *those* triggered, until the cascade settles and app-db stops changing. (We call that settled point a *fixed point*.)
 4. The root view renders to hiccup; `render-to-string` turns it into HTML.
 5. The server ships the HTML **plus** a serialised state payload.
 6. The client boots, dispatches `:rf/hydrate` with that payload, and renders. Its first render matches the server's HTML, so the existing DOM is adopted, not replaced.
@@ -88,7 +88,9 @@ Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arriv
 
     `:rf/server-init` is a pattern-reserved name the framework documents and you supply the body for. It is not licence to register your own events under the reserved `:rf/*` root.
 
-> **Going deeper — the request read is *ambient*, and replay cares.** The request coeffect reads the per-request slot the host stashed, and — like reading `localStorage` or the wall clock — its value is **never recorded**. The framework calls this an *ambient* coeffect. The rule is precise: an ambient read is fine for a **non-durable** decision (branch on `:request-method`, peek at a header to pick a code path) but **not** for a value you fold into durable state. Replay re-runs the live supplier instead of re-presenting the value the recorded run saw — and after the per-request frame is torn down, that supplier reads `nil`. So `(assoc db :session-user (-> request :session :user))` directly off the ambient read makes a *durable write whose input was never recorded*, and a replay (or an [epoch](observability.md) restore) reconstructs a different app-db.
+> **Going deeper — the request read is *ambient*, and replay cares.** First, why this needs care at all: re-frame2 can *replay* a recorded run of your app — re-fire the same events to reconstruct the same app-db (that's what powers time-travel and [epoch](observability.md) restore). Replay only works if every input a handler used was captured in the recording. The request coeffect is the exception. It reads the per-request slot the host stashed, and — like reading `localStorage` or the wall clock — its value is **never recorded**. The framework calls a read like that an *ambient* coeffect.
+>
+> So the rule is precise: an ambient read is fine for a **non-durable** decision (branch on `:request-method`, peek at a header to pick a code path) but **not** for a value you fold into durable state. Here's why the second case breaks: on replay the framework re-runs the live supplier rather than re-presenting the value the recorded run saw — and after the per-request frame is torn down, that supplier reads `nil`. So `(assoc db :session-user (-> request :session :user))` directly off the ambient read makes a *durable write whose input was never recorded*, and a replay reconstructs a different app-db.
 >
 > The fix is to make the durable fact **recordable** — move the sanitised projection (never the whole request map, which carries `Cookie` / `Authorization` / raw bodies) onto the dispatch itself. Two shapes are legal:
 >
@@ -272,7 +274,12 @@ Crawlers and link-unfurlers don't run JS, so the head metadata has to land on th
    :head :head/article})            ;; the route declares which head to use
 ```
 
-The head fn has the exact shape and discipline of a sub — `(db, route) → head-model`, pure, subs inside it evaluate against the static app-db. The emitter writes the head in canonical order (`<title>`, then `<meta>`, `<link>`, `<script>`, JSON-LD), and `:html-attrs` / `:body-attrs` populate `<html>`/`<body>`. There's one head per route in v1 (no parent/child composition); routes share head logic by naming the same id. Routes with no `:head` get a sensible default (`<title>` from frame metadata, `charset` + `viewport`). The head rides the same render-tree hash as the body, so a head mismatch surfaces through the same detector — and on the client the head recomputes from the hydrated app-db plus the route slice, so an SPA that routes post-load keeps it current.
+The head fn has the exact shape and discipline of a sub — `(db, route) → head-model`, pure, with any subs inside it evaluating against the static app-db. A handful of details round it out:
+
+- **Output order is canonical.** The emitter writes the head in a fixed order (`<title>`, then `<meta>`, `<link>`, `<script>`, JSON-LD); `:html-attrs` / `:body-attrs` populate `<html>` / `<body>`.
+- **One head per route, shared by id.** There's no parent/child head composition in v1 — routes that want the same metadata just name the same head id.
+- **No `:head` is fine.** Routes without one get a sensible default: `<title>` from frame metadata, plus `charset` and `viewport`.
+- **It's covered by the mismatch detector, on both sides.** The head rides the same render-tree hash as the body, so a head mismatch surfaces through the same detector you met above. And on the client the head recomputes from the hydrated app-db plus the route slice — so an SPA that changes routes after load keeps its `<title>` and `<meta>` current.
 
 > **Gotcha — JSON-LD escaping is handled for you.** String values inlined into a `<script type="application/ld+json">` body have every `<` re-encoded so an attacker-supplied product title can't close the script tag and pivot into HTML. You write data; the emitter applies the position-correct escape at every leaf.
 

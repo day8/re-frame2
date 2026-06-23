@@ -12,7 +12,7 @@ We'll start there — the bare function call — and add exactly one idea at a t
 
 A handler is just a function. When you register one, it lands in a registry — a process-wide table that maps an event id to your function. So the simplest possible test is: get the function back, call it, check the answer.
 
-Start with the simplest handler — one that only touches state. Under the one event form, every handler is a plain **two-arg function**: it takes the **coeffects** (the facts it's handed; `:db`, the current app-db, is one) and the event vector, and returns an effects map whose `:db` is the next state:
+Start with the simplest handler — one that only touches state. Every re-frame2 event handler has the same shape: it's a plain **two-arg function**. The first argument is the **coeffects** — the bundle of facts the handler is handed to do its job (`:db`, the current app-db, is one of them). The second is the **event vector** — the `[:some/id ...args]` that was dispatched. And it returns an **effects map**, a description of what should change, whose `:db` key is the next state:
 
 ```clojure
 ;; my-app/articles.cljs
@@ -101,7 +101,7 @@ Look at what didn't happen here, because this is the part that trips people up. 
 
 ## 3. When you want the runtime: a fresh frame per test
 
-The pure call from the last section tests the handler's logic, and most of the time that's all you need. But sometimes you want to go one notch up: to prove the registration actually wires in, drive a real `dispatch` — the call that sends an event into the system — and read the state that gets committed as a result.
+The pure call from the last section tests the handler's *logic* — but it skips the runtime entirely. It plucks the function out of the registry and calls it directly, so it never checks that dispatching `[:articles/refresh]` actually finds and runs that handler, nor that the `:db` it returns really lands in app-db. Most of the time you don't need to check that — the wiring is the framework's job, not yours. But sometimes you want the extra confidence. For that, you go one notch up: drive a real `dispatch` — the call that sends an event into the system the way your app does — and read the state that ends up committed.
 
 For that you give the test its own **frame**: an isolated runtime context with its own app-db, so tests can't leak state into each other ([Frames](../concepts/frames.md)). `with-new-frame` creates one, makes it current for the body, and tears it down on the way out — whether the body succeeds or throws.
 
@@ -119,7 +119,7 @@ For that you give the test its own **frame**: an isolated runtime context with i
 
 Two dispatch options do the work that the literal coeffects map did back in step 2:
 
-- **`:rf.cofx`** supplies recordable facts on the dispatch — the same surface SSR hydration and replay use. Supplied values win; the runtime fills in only what's missing. Without it, the enqueue stamp hands the handler the real wall clock and your assertion chases the wall.
+- **`:rf.cofx`** supplies world facts on the dispatch — it plays the role the literal coeffects map played in step 2, except now you hand the values to the dispatch and the runtime threads them into the handler. Supplied values win; the runtime fills in only what's missing. Without it, the clock here would be the real wall clock the runtime stamps on the event, and your assertion would be chasing a moving target.
 - **`:fx-overrides`** redirects an effect for this one dispatch. Here it swallows the HTTP request, because this test only cares about the stamp. Answering the request with a canned reply and asserting the whole chain is the next page's job: [Test a full cascade](test-a-cascade.md).
 
 > **Going deeper — naming the frame yourself.** A third option, `{:frame f}`, says *which* frame to dispatch into. Inside a `with-new-frame` body you can skip it — the macro pins `f` as the current frame for the body — but outside one (e.g. when you keep a frame in a `let` and tear it down yourself), pass `:frame` explicitly. There is no ambient default frame; the target is always either carried by scope or named on the opts map.
@@ -128,7 +128,7 @@ Two dispatch options do the work that the literal coeffects map did back in step
 
 There's a failure mode here that catches people, and it's a *feature*. If a handler **declares** a recordable coeffect that the framework can't mint for you, and the dispatch doesn't supply it, the dispatch fails loudly with `:rf.error/missing-required-cofx` rather than quietly minting a value your test didn't choose.
 
-`:rf/time-ms` is the exception that always succeeds — the router stamps every event with an enqueue time, so the clock is never *missing*. The strict failure fires for a *generator-backed* fact you declared but didn't supply — say a fresh id from a `reg-cofx` generator:
+`:rf/time-ms` is the exception that always succeeds — the router stamps every event with an enqueue time when it's dispatched, so the clock is never *missing*; the runtime can always mint it for you. The strict failure fires for a fact the runtime *can't* safely mint on its own — typically one backed by a **generator**: a function you registered with `reg-cofx` that produces a fresh value each time (a new id, a random number). The framework won't run that generator behind your test's back, because the value it makes is one your test didn't choose. So if you declare such a fact and don't supply it, the dispatch refuses to proceed:
 
 ```clojure
 (rf/reg-event :todo/create
@@ -145,7 +145,7 @@ There's a failure mode here that catches people, and it's a *feature*. If a hand
 
 This is exactly the trap you want sprung: a silently-minted random value would make the test green against a state production will never produce. The fix is always one of two moves — supply the fact in `:rf.cofx` (the deterministic path, almost always what you want), or, when you genuinely want a fresh value per run, opt back into live minting with `{:rf.cofx/mint-policy :explicit-live}` as a dispatch opt.
 
-> **The `:test` frame preset bundles the deterministic defaults.** `(rf/reg-frame :my-test {:preset :test})` (or `:preset :test` on the advanced `re-frame.frame/make-frame`) expands to three fixed entries: it redirects `:rf.http/managed` to its canned-success stub so a test frame never reaches the network, surfaces the default `:drain-depth 100` so tooling can read "this is a test frame", and sets `:rf.cofx/mint-policy :strict` — the strict-mint behaviour above. Reach for it when you want those defaults without spelling each one out.
+> **The `:test` frame preset bundles the deterministic defaults.** Rather than spell out each test-friendly setting on every frame, you can ask for the bundle: `(rf/reg-frame :my-test {:preset :test})` (or `:preset :test` on the advanced `re-frame.frame/make-frame`) expands to three fixed entries. It redirects `:rf.http/managed` to a canned-success stub, so a test frame never reaches the network; it sets `:rf.cofx/mint-policy :strict`, the strict-mint behaviour above; and it marks the frame with the default `:drain-depth 100`, a value tooling reads as "this is a test frame". Reach for the preset when you want those defaults without naming them one by one.
 
 ### Seeding multiple events, and ergonomic state assertions
 

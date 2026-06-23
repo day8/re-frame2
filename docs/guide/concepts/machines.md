@@ -107,7 +107,9 @@ Here's that exact flow, written down as one piece of data. Read it top to bottom
     :locked-out {:meta {:terminal? true}}}})
 ```
 
-Five states. `:idle` starts. Submit takes `:idle` to `:submitting`. From there, success goes to `:authed`, failure goes to `:error-shown` *if* the `:under-retry-limit` guard passes, and otherwise to `:locked-out`. Guards and actions are referenced by id — a guard being a yes/no test that gates a transition, an action being the side work a transition performs — and their implementations live once, up top.
+Five states. `:idle` starts. Submit takes `:idle` to `:submitting`. From there, success goes to `:authed`, failure goes to `:error-shown` *if* the `:under-retry-limit` guard passes, and otherwise to `:locked-out`.
+
+Two new words there. A **guard** is a yes/no test that gates a transition — `:under-retry-limit` answers "have we still got attempts left?". An **action** is the side work a transition performs — `:issue-request` fires the HTTP call. Both are referenced from the table by id (`:under-retry-limit`, `:issue-request`), and their implementations live once, up top in the `:guards` and `:actions` maps. The transition arrows name them; the functions sit in one place.
 
 Now watch the three problems disappear. The transition rules are all in one place. The retry limit lives in exactly one guard. Adding `:two-factor` is one new state node plus the arrows in and out, so the existing nodes don't move. The whole flow is *one piece of data*, which means you can pretty-print it, render it as a diagram, or hand it to an AI with "add a two-factor state" — the AI gets the entire context in one form, instead of having to chase logic across files.
 
@@ -121,7 +123,7 @@ Registering the table is one line:
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-And this is where people sometimes brace for a new runtime concept. There isn't one. **A machine *is* an event handler.** `reg-machine` is sugar over `reg-event` whose body interprets the transition table: look up the snapshot, compute the transition, write it back, return the action's effects. The line above is exactly equivalent to:
+And this is where people sometimes brace for a new runtime concept. There isn't one. **A machine *is* an event handler.** A machine's live state at any moment — which state it's in plus its `:data` — is one small map called its **snapshot**. `reg-machine` is sugar over `reg-event` whose body interprets the transition table: look up the current snapshot, compute the transition, write the new snapshot back, return the action's effects. The line above is exactly equivalent to:
 
 ```clojure
 ;; machines/make-machine-handler lives in re-frame.machines
@@ -153,7 +155,9 @@ That's the whole loop: register the table, dispatch wrapped events into it, subs
 
 ### Composing with async effects
 
-It's worth pausing on the async wiring in `:issue-request`. `:on-success [:auth.login/flow [:auth.login/success]]` is a two-element template. The HTTP effect appends its reply payload and the runtime folds it onto the *inner* event, so `:store-session` sees `[:auth.login/success {:kind :success :value v}]` — exactly the payload [managed HTTP](http.md) sends. Machines and async effects compose with no adapter layer in between.
+It's worth pausing on the async wiring in `:issue-request`. The point is that an HTTP reply lands back *inside* the machine as just another event, with no glue code in between.
+
+Look at the `:on-success` value: `[:auth.login/flow [:auth.login/success]]`. That's the same wrapped shape you dispatch by hand — the machine id `:auth.login/flow` on the outside, the inner event `[:auth.login/success]` on the inside — but written one element short on purpose. When the request returns, [managed HTTP](http.md) *appends* its reply payload to that inner event, so what actually arrives is `[:auth.login/success {:kind :success :value v}]`. That's exactly the event `:store-session` destructures. Machines and async effects compose with no adapter layer in between.
 
 > **Do, then observe.** Dispatch one event with Xray open. The transition shows up as an ordinary event row, snapshot before and after, riding the same trace stream as everything else — see [Debug with Xray](../how-to/debug-with-xray.md).
 
@@ -196,7 +200,7 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 
 ### One thing that *won't* throw: the unhandled event
 
-If the current state has no transition for an event, it's a **silent no-op** — nothing throws. (You just saw this: pushing while `:unlocked`'s `:push` exists, but try dispatching an event no state handles.) The runtime emits a benign `:rf.machine.event/unhandled-no-op` trace so a debugger can still show the event arrived and was ignored.
+If the current state has no transition for an event, it's a **silent no-op** — nothing throws, the snapshot doesn't move. Try it in the turnstile above: dispatch `[:turnstile/flow [:wat]]`, an event no state handles, and the machine simply ignores it. (This is different from the `:push`-while-`:locked` case earlier: that state *does* declare a `:push` transition, so the action ran — here there's no transition at all.) The runtime still emits a benign `:rf.machine.event/unhandled-no-op` trace so a debugger can show the event arrived and was ignored.
 
 > **For JavaScript developers.** This matches XState, which dropped strict mode in v5 and keeps it dropped in the v6 direction. An unknown event is a no-op, not a crash. Almost everything *else* that's wrong (a guard referencing an undefined name, a target naming a missing state) fails loud — but at registration time, not on the unlucky dispatch. More on that fail-loud / silent-no-op split below.
 
@@ -204,7 +208,11 @@ If the current state has no transition for an event, it's a **silent no-op** —
 
 You've now seen the core loop. The next four keys cover the day-to-day grammar — guards, actions, tags, and the declarative timer.
 
-**Guards and actions receive one context map** — `{:data :event :state :meta}` — and destructure what they need. A guard returns a boolean. An action returns `{:data ...}` (merged into the data slot — last write wins per key; an explicit `nil` *sets* the key to `nil` rather than removing it), `:fx` (effects), both, or `nil` — the same contract as a `reg-event` return. Each slot takes one fn or one keyword reference into the machine's own `:guards` / `:actions` map. There's deliberately no `{:and ...}` combinator DSL — compound logic is a named function instead, because the *name* is what a visualiser or an AI reads on the transition arrow.
+**Guards and actions receive one context map** — `{:data :event :state :meta}` — and destructure whichever keys they need.
+
+A guard returns a boolean: yes, take this transition, or no, don't. An action returns the same data-shaped map a `reg-event` handler returns — `{:data ...}`, `:fx` (effects), both, or `nil` (do nothing). The `:data` you return is *merged* into the snapshot's data slot, key by key, last write wins; returning a key as an explicit `nil` *sets* that key to `nil` rather than removing it.
+
+A transition's `:guard` and `:action` slot each take exactly one thing: a keyword referencing the machine's own `:guards` / `:actions` map (the usual form), or a bare inline fn. There's deliberately no `{:and ...}` combinator DSL for stringing guards together — compound logic goes in one named function instead, because the *name* is what a visualiser or an AI reads off the transition arrow. A nameless `{:and ...}` blob would render as noise.
 
 **Tags answer the any-of-many question.** Once a machine has several "loading-ish" states, views stop asking "which exact state?" and start asking a predicate: *is it busy?* A state declares `:tags #{:auth/busy}` (as `:submitting` does above), and at every transition the runtime stamps the union of active states' tags onto the snapshot. The framework ships a derived predicate sub for the containment question — `[:rf/machine-has-tag? <machine-id> <tag>]` — that re-renders only when *this* tag's membership bit flips:
 
@@ -215,7 +223,7 @@ You've now seen the core loop. The next four keys cover the day-to-day grammar �
 
 Add a fifth busy state later and it's one `:tags` entry on the new node — zero view changes. Reach for a plain `case` on `:state` when the question really is "which exact state?".
 
-**`:after` is the declarative timer.** A state-node key maps a delay to a transition: enter the state, the timer arms; leave it, the timer cancels (stale timers from a prior visit are epoch-detected and ignored). So there's no `dispatch-later` to wire and no cancellation flag to remember:
+**`:after` is the declarative timer.** A state-node key maps a delay to a transition: enter the state, the timer arms; leave it, the timer cancels. (And if a timer from an earlier visit happens to fire late, after you've already left and come back, the runtime tags each visit and ignores the stale one — so you never get a ghost transition from a previous trip through the state.) So there's no `dispatch-later` to wire and no cancellation flag to remember:
 
 ```clojure
 :reconnecting {:after {5000 {:target :connecting}}     ;; retry in 5s
@@ -315,7 +323,7 @@ When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to th
 
 ## Validating a machine's `:data`
 
-A machine's `:data` is just a map, and a typo there (`:cirles` for `:circles`) is the same silent rot any app-db shape is prone to. So a machine spec may declare a machine-level **`:schemas`** map whose **`:data`** entry — a Malli schema (the same machinery [reg-event](../../../spec/010-Schemas.md) and subscriptions use) — validates the `:data` slot. The `:schemas` map is the single home for a machine's schema declarations; `:data` is the live, wired category:
+A machine's `:data` is just a map, and a typo there (`:cirles` for `:circles`) is the same silent rot any app-db shape is prone to. So a machine spec may declare a machine-level **`:schemas`** map whose **`:data`** entry — a Malli schema (the same machinery [reg-event](../../../spec/010-Schemas.md) and subscriptions use) — validates the `:data` slot. The `:schemas` map is the single home for all of a machine's schema declarations, and `:data` is the first of them that's actually wired up to run:
 
 ```clojure
 (rf/reg-machine :drawer/editor
@@ -340,7 +348,7 @@ To *also* validate the inbound event vector, use the three-argument `reg-machine
    :states  {...}})
 ```
 
-The `:schemas` map's sub-keys are a closed set — `:data` and `:output` are the live, wired categories; `:events`, `:tags`, and `:meta` are accepted as declaration-only surfaces for now — so a typo'd or not-yet-adopted sub-key fails loud at registration rather than silently validating nothing.
+The `:schemas` map's sub-keys are a closed set. Two of them — `:data` and `:output` — are wired up to actually run a check (you've now seen both). The other three — `:events`, `:tags`, and `:meta` — are accepted so you can declare them today, but they don't validate anything yet; they're reserved for future wiring. Either way, a sub-key *outside* this set (a typo, or one you hoped was live but isn't) fails loud at registration rather than silently validating nothing.
 
 > **For JavaScript developers — TypeScript can't do this.** The `:schemas` map follows the XState v6 direction, which replaces v5's `types` with a broader `schemas` section. But there's a runtime guarantee XState's typed context *can't* give you: TypeScript's types are erased before the machine ever runs, whereas `[:schemas :data]` is an *actually-running* validation in dev (opt-in at production boundaries) that rolls a bad transition back. Same declaration, plus the runtime check the type-erased layer leaves out.
 

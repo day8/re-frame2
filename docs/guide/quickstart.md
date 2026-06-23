@@ -19,9 +19,10 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
 (defn inc-value [db] (update db :counter/value inc))
 (defn dec-value [db] (update db :counter/value dec))
 
-;; EVENTS — the only way state changes. A handler takes the coeffects (the
-;; facts it's given — :db is one) and returns a map: the next state under
-;; :db, plus anything else to do. Here the only thing to do is update state.
+;; EVENTS — the only way state changes. A handler is handed a map of the
+;; facts it gets to see (:db, the current state, is one) and returns a map:
+;; the next state under :db, plus anything else to do. Here the only thing
+;; to do is update state.
 (rf/reg-event :counter/initialise
   (fn [_cofx _event] {:db {:counter/value 0}}))
 
@@ -35,8 +36,8 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
 (rf/reg-sub :counter/value
   (fn [db _query] (:counter/value db)))
 
-;; VIEW — reg-view injects `dispatch` and `subscribe`, already bound to
-;; the frame this component renders inside.
+;; VIEW — reg-view hands the component a ready-to-use `dispatch` and
+;; `subscribe`, so you don't import or wire them yourself.
 (reg-view counter-app []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "−"]
@@ -44,7 +45,14 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 ```
 
-A few words on the moving parts. An **event** is a plain-data message describing something that happened — here, `[:counter/inc]`. To **dispatch** is to drop that message onto the queue. A **handler** is the pure function that receives it and returns a map describing what should happen next: `{:db next-state}` here, where `:db` is the new value of app-db. Read that map as *"the next state, and anything else to do"* — for the counter there's nothing else, so it's just `:db`, but the same shape grows to carry an HTTP request or a follow-up event without changing the handler's signature. The **app-db** is your app's single state map, the one place all state lives. A **subscription** is a named, derived read of that state, and a **view** is a component that renders from subscriptions and dispatches events back.
+A few words on the moving parts — five nouns and one verb, and they're the whole vocabulary you need to read the rest of this page.
+
+- An **event** is a plain-data message describing something that happened — here, `[:counter/inc]`. To **dispatch** is to drop that message onto a queue.
+- The **app-db** is your app's single state map: the one place all state lives. (`db` is short for database, and it really is the whole database — one map.)
+- A **handler** is the pure function that receives an event and returns a map describing what should happen next: `{:db next-state}` here, where `:db` is the new value of app-db. Read that map as *"the next state, and anything else to do."* For the counter there's nothing else, so it's just `:db` — but the same shape grows to carry an HTTP request or a follow-up event without changing the handler's signature.
+- A **subscription** is a named, derived read of app-db, and a **view** is a component that renders from subscriptions and dispatches events back.
+
+(That last line — `reg-view` — needs the `:require-macros` form at the top because `reg-view` is a macro; a plain `:require` covers everything else. Don't sweat the distinction; it's the one piece of Clojure boilerplate on the page.)
 
 That returned map is the handler's **effects map**, and its keys are a small, closed set: for application handlers, just `:db` (replace app-db) and `:fx` (an ordered vector of further effects to run — dispatch another event, fire an HTTP request, write to local storage). Anything else in that set is reserved for the framework. Returning a key the framework doesn't recognise is a loud error rather than a silent no-op — there's no "I'll quietly ignore the typo" mode. (`:fx` is the subject of [Effects and coeffects](concepts/effects-and-coeffects.md); for the counter, `:db` alone is the whole story.)
 
@@ -93,7 +101,7 @@ Now click a button and watch what happens. The loop you just ran is this: **a vi
 [counter]
 ```
 
-> **From re-frame v1.** So far it's identical, except `reg-view` replaces bare form-1 components — it injects `dispatch`/`subscribe` pre-bound to the frame in scope, which is why the same component will later run in two isolated frames side by side, unchanged.
+> **From re-frame v1.** So far it's identical, except `reg-view` replaces a bare form-1 component (a plain `(defn [] hiccup)` that closed over the global `dispatch`/`subscribe`) — `reg-view` injects them pre-bound to the frame in scope instead, which is why the same component will later run in two isolated frames side by side, unchanged.
 
 ## Beat 2 — derive, don't store
 
@@ -118,7 +126,7 @@ You've now met two of the three ways `reg-sub` produces its inputs, and it's wor
 
 - **App-db reader** — `(reg-sub id (fn [db query-v] …))`. No upstream subscriptions; the computation reads app-db directly. This is `:counter/value` — a *layer-1* subscription, the leaves of the graph that touch the raw state.
 - **Static inputs** — `(reg-sub id :<- [:a] :<- [:b] (fn [[a b] query-v] …))`. One or more `:<-` lines name input subscriptions known at registration; the computation receives their values, never app-db. This is `:counter/parity`. Chain as many `:<-` lines as you need — the computation fn receives the inputs in order (a single input arrives bare, multiple arrive as a vector to destructure).
-- **Parametric inputs** — `(reg-sub id (fn [query-v] [[:item (second query-v)]]) (fn [item query-v] …))`. When *which* subscription you depend on is computed from the query vector itself — `[:counter/by-id 7]` reading item 7 — an **input-fn** (the optional first function) maps the outer `query-v` to the vector of input query-vectors. You won't need this for the counter; reach for it the day a subscription is parameterised.
+- **Parametric inputs** — for when *which* subscription you depend on is computed from the query vector itself. Picture `[:counter/by-id 7]`, where the `7` selects which item to read: the input you need (`[:item 7]`) isn't known until query time. So you supply an **input-fn** — an optional first function that maps the outer query-vector to the vector of input query-vectors to subscribe to: `(reg-sub id (fn [query-v] [[:item (second query-v)]]) (fn [item query-v] …))`. You won't need this for the counter; reach for it the day a subscription takes a parameter.
 
 > **Coming from React?** This is `useMemo` / Reselect, except you never pass a dependency array and never wire the selectors together by hand. The `:<-` *is* the dependency edge, declared once at registration; the framework caches each node and invalidates downstream only along edges that actually changed. Derived state that can't drift out of sync with its source, for free — which is the bug `useMemo` exists to paper over and `:<-` makes structurally impossible.
 

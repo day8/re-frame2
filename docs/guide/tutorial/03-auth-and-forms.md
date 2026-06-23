@@ -20,21 +20,9 @@ re-frame2 ships no forms library and no auth plugin on purpose — you'll see wh
 
 ## The form slice: one shape, seven keys
 
-Start with the simplest working thing: a slice of app-db for the login form, and an event that seeds it clean.
+Start with the simplest working thing: a *slice* — a form's own little corner of app-db (your app's single state map) — and an event that seeds it clean. Every form in the app lives at one app-db path with this one standard shape.
 
-Add two routes first. Each `:on-match` seeds its form's slice — its little corner of app-db, your app's single state map — whenever the route matches, so the form always starts fresh:
-
-```clojure
-(rf/reg-route :conduit.auth/login
-  {:on-match [[:auth.login-form/initialise]]}
-  "/login")
-
-(rf/reg-route :conduit.auth/register
-  {:on-match [[:auth.register-form/initialise]]}
-  "/register")
-```
-
-Every form lives at one app-db path with one standard shape. The initialise event — an event being just a named thing-that-happened your app reacts to — doubles as its own documentation:
+Here's the event that seeds it. An *event* in re-frame2 is just a named thing-that-happened that your app reacts to; this one, `:auth.login-form/initialise`, builds the empty form slice, and it doubles as its own documentation:
 
 ```clojure
 (rf/reg-event :auth.login-form/initialise
@@ -49,9 +37,21 @@ Every form lives at one app-db path with one standard shape. The initialise even
                     :submit-error      nil})}))  ;; transport failure (network down)
 ```
 
-A quick tour of the seven keys, because each earns its place. `:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — they can be client- or server-produced, and the view won't care which. `:_form` is reserved for complaints that no single field owns. `:submit-error` stays separate, because a transport failure has nothing field-shaped to render. And `:submitted` holds the last server-accepted draft, which is what `dirty?` compares against — more on that in a moment.
+A quick tour of the seven keys, because each earns its place. `:draft` is what's being typed right now. `:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — they can be client- or server-produced, and the view won't care which. `:_form` is reserved for complaints that no single field owns. `:submit-error` stays separate, because a transport failure has nothing field-shaped to render. And `:submitted` holds the last server-accepted draft — that's what we'll compare against to tell whether the form has unsaved changes (the `dirty?` sub, a section from now).
 
 This shape is the whole convention; it's specified in full at [Pattern-Forms](../../../spec/Pattern-Forms.md).
+
+Now wire the event up so it actually fires. Each form gets a route, and each route's `:on-match` runs the initialise event whenever that route matches — so navigating to `/login` always lands you on a fresh form:
+
+```clojure
+(rf/reg-route :conduit.auth/login
+  {:on-match [[:auth.login-form/initialise]]}
+  "/login")
+
+(rf/reg-route :conduit.auth/register
+  {:on-match [[:auth.register-form/initialise]]}
+  "/register")
+```
 
 > **`:on-match` runs every time the route activates, on both hosts.** It's a vector of event vectors the runtime dispatches when the route becomes active — client-side *and* during SSR — so the seed is a normal event, not a special hook. If two visits land on the *identical* URL the runtime won't re-fire (it dedupes on the matched route+params), so a stale draft can survive a same-URL bounce; seeding from `:on-match` is the reliable reset because login navigations always come from a *different* URL.
 
@@ -134,7 +134,7 @@ Here's a register-form validator showing both a per-field error and a cross-fiel
 
 ## Submit: one managed request, no retry
 
-Login is a one-shot command, not cached server state. So it's a plain managed request, not one of Part 2's resources. The shape is: validate the draft; if it's clean, flip to `:submitting` and hand the round-trip to `:rf.http/managed`:
+Part 2 fetched *cached server state* — data the app reads repeatedly and wants to hold onto, so it wrapped those in resources. Login is the opposite: a one-shot command you fire once and don't cache. So it skips the resource machinery and uses a plain *managed request* — a single HTTP round-trip the framework runs as an effect, handing you back the reply as a normal event. The shape is: validate the draft; if it's clean, flip `:status` to `:submitting` and hand the round-trip to `:rf.http/managed`:
 
 ```clojure
 (def api "https://api.realworld.io/api")
@@ -167,7 +167,7 @@ Login is a one-shot command, not cached server state. So it's a plain managed re
 
 The `:submit-attempted?` latch flips on *every* submit click, valid or not — that's what arms the visibility rule from the last section. Notice there's no `:retry`: a submit is one click, one attempt. Silently re-posting credentials after a 5xx isn't what the user asked for, so we don't.
 
-The reply comes back as the last argument of the event you named, either `{:kind :success :value <decoded-body>}` or `{:kind :failure :failure <failure-map>}`. Those two outer shapes are the whole contract — and they're what the two handlers in the next section branch on.
+When the round-trip finishes, the framework dispatches the event you named in `:on-success` or `:on-failure`, with the reply tacked on as that event's last argument. A success arrives as `{:kind :success :value <decoded-body>}`; a failure as `{:kind :failure :failure <failure-map>}`. Those two outer shapes are the whole contract — the two handlers in the next section just pull `:value` or `:failure` out of that last argument and go from there.
 
 A few of the args-map slots are doing real work here, and a couple more are worth knowing about:
 
@@ -354,7 +354,9 @@ Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/req
 
 ### The header — one interceptor for every request
 
-Every authenticated request needs `Authorization: Token <jwt>`, and threading that through forty request maps by hand is exactly what Axios request-interceptors exist to prevent. Same move here: one HTTP interceptor on the frame — a frame being one isolated app instance with its own app-db — decorates every managed request. That includes the `/user` restore above, because `:db` commits before `:fx` runs, so the token is already in app-db when the request leaves:
+Every authenticated request needs `Authorization: Token <jwt>`, and threading that through forty request maps by hand is exactly what Axios request-interceptors exist to prevent. Same move here: one HTTP interceptor on the frame — a frame being one isolated app instance with its own app-db — decorates every managed request. That includes the `/user` restore above, because `:db` commits before `:fx` runs, so the token is already in app-db when the request leaves.
+
+The interceptor is a plain function. It reads the current token out of app-db with `rf/app-db-value` — the plain, non-reactive way to read a snapshot of app-db from inside an fx, handler, or interceptor body (subscriptions are the *reactive* way; this isn't that) — and, if there is one, stamps the header on:
 
 ```clojure
 (defn bearer-auth [ctx]
@@ -364,7 +366,7 @@ Every authenticated request needs `Authorization: Token <jwt>`, and threading th
                       (str "Token " token)))))
 ```
 
-Wire it at boot with `reg-http-interceptor` (below). The interceptor reads `app-db-value` per request — the non-reactive snapshot read for fx/handler/interceptor bodies — so it always sees the *current* token, with nothing to invalidate when the token changes.
+Wire it at boot with `reg-http-interceptor` (below). Because it reads `app-db-value` afresh on every request, it always sees the *current* token — there's nothing to invalidate or re-wire when the token changes.
 
 > **Coming from Axios?** This is your request interceptor, near-identically. The difference is that re-frame2's interceptor reads from app-db at call time rather than closing over a mutable module-level token, so logout (clearing app-db) silently disarms it — no interceptor to detach.
 
@@ -420,7 +422,9 @@ First tag the routes that need a user (extending Part 1's registrations). `:tags
 
 There's one trap here, and it's the kind that passes every casual test. Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf/url-requested`, fired by `route-link`), and the URL bar or back-button (`:rf.route/handle-url-change`, the popstate/initial-load handler).
 
-> **Gotcha — gate all three entry points, not just one.** If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. The fix is to normalise all three navigation events to one shape, then gate once. (`match-url` is the URL codec from `re-frame.routing` — `(:require [re-frame.routing :as routing])` — **not** the `rf/` front porch; it's a pure fn, `url → {:route-id :params :query :fragment :validation-failed?}` or `nil`, runnable on both hosts.)
+> **Gotcha — gate all three entry points, not just one.** If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. The fix is to normalise all three navigation events to one shape, then gate once.
+
+That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id, so it leans on `routing/match-url` to turn that URL back into a route:
 
 ```clojure
 (defn- nav-target
@@ -458,6 +462,7 @@ There's one trap here, and it's the kind that passes every casual test. Navigati
 
 You register the guard once, under the id `:conduit/auth-guard` — exactly like registering an event or a sub — and then the frame's chain *references* that id. A few pieces are doing precise work:
 
+- **`routing/match-url`** is the URL codec from `re-frame.routing` (`(:require [re-frame.routing :as routing])`) — **not** the `rf/` front porch. It's a pure function, `url → {:route-id :params :query :fragment :validation-failed?}` (or `nil` for a URL that matches nothing), and it runs on both hosts. `nav-target` uses it for the two cases that arrive as a raw URL string.
 - **`rf/handler-meta :route id`** reads the route's registration metadata — including its `:tags` — without activating it. It's the introspection seam pair tools use too, so the guard asks the registry the same question Xray would.
 - **`:rf/skip-handler? true`** tells the runtime to skip the event's own handler. For a navigation that means the protected route never commits and its `:on-match` loads (`[:settings/load]`) never fire — a signed-out user can't even trigger the route's data fetch.
 - **The stash** lands the destination at `[:auth :return-to]` — the same spot `submit-success` read earlier — and the guard dispatches the login navigation instead.

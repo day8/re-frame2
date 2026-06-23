@@ -2,11 +2,11 @@
 
 A click hitches. Typing stutters. Some view — a function that turns your data into the on-screen elements — is doing too much work, and you want to find it and stop it, without sprinkling memoisation everywhere and hoping.
 
-Here is the good news up front, and it's the whole reason this page is short. The [equality gate](../concepts/subscriptions.md) already memoises every node of your derivation graph for you. So nearly every slow view is the *same* mistake wearing a different costume: expensive work on the wrong side of that gate. You don't add caching — you move work to the side of the cache that already exists.
+Here is the good news up front, and it's the whole reason this page is short. In re-frame2 your views read from *subscriptions* — cached, derived views of your state — and those subscriptions chain into each other, each one feeding the next. That chain is your **derivation graph**, and the [equality gate](../concepts/subscriptions.md) already memoises every node of it for you. So nearly every slow view is the *same* mistake wearing a different costume: expensive work on the wrong side of that gate. You don't add caching — you move work to the side of the cache that already exists.
 
 > **Put expensive work after the circuit breaker, not before it.**
 
-The hunt is a ladder, and you climb it in cost order — cheapest-to-spot first. Most hunts end on the first two rungs, so don't brace for all four:
+The hunt is a ladder, and you climb it in order of *how cheaply you can spot the problem* — easiest-to-see first, not most-impactful first. Most hunts end on the first two rungs, so don't brace for all four:
 
 1. **Observe** the shape of the slow.
 2. **Move the work behind the gate.** Ends most hunts.
@@ -38,9 +38,11 @@ If the dev build feels fine and only production is slow, jump straight to rung 4
 
 ## 2 — Move the work behind the equality gate
 
-Here is the mechanism in three sentences. When `app-db` — your app's single state map — changes, every layer-1 extractor re-runs to check its slice, and the new result is compared with the old by `=`. If the slice didn't change, propagation stops: downstream subs keep their cached values, and views don't re-render. That `=` check is the circuit breaker, and it can only save you work that sits *behind* it.
+First, the two words this whole section turns on. Subscriptions come in *layers*. A **layer-1** sub — also called an **extractor** — reads `app-db` directly and just pulls out a slice; it does no real computing. A **layer-2** sub reads from *other subscriptions* rather than from `app-db`, and it's where derived work (sorting, filtering, formatting) belongs. The equality gate sits between the two, and the whole game is putting expensive work on the layer-2 side of it. ([Subscriptions](../concepts/subscriptions.md) has the full layering grammar.)
 
-So the first question is always: **is there computation in a layer-1 sub?** An extractor — a plain layer-1 sub that just pulls a slice out of `app-db` — runs on every `app-db` change, because running is how it checks its gate. That means every keystroke in every unrelated form:
+With those words in hand, here is the mechanism in three sentences. When `app-db` — your app's single state map — changes, every layer-1 extractor re-runs to check its slice, and the new result is compared with the old by `=`. If the slice didn't change, propagation stops: downstream subs keep their cached values, and views don't re-render. That `=` check is the circuit breaker, and it can only save you work that sits *behind* it.
+
+So the first question is always: **is there computation in a layer-1 sub?** Remember, an extractor runs on *every* `app-db` change — running is how it checks its gate. So any computing you put in one runs on every keystroke in every unrelated form:
 
 ```clojure
 ;; Slow — the sort sits BEFORE the gate. Extractors re-run on every
@@ -53,7 +55,7 @@ So the first question is always: **is there computation in a layer-1 sub?** An e
          (mapv :slug))))
 ```
 
-Split it. A tiny extractor decides *whether* anything changed, and a layer-2 sub — one that derives from other subs rather than from `app-db` directly — does the thinking only when it did.
+Split it. A tiny extractor decides *whether* anything changed, and a layer-2 sub does the thinking only when it did.
 
 ```clojure
 ;; Fast — same code, other side of the gate.
@@ -68,9 +70,9 @@ Split it. A tiny extractor decides *whether* anything changed, and a layer-2 sub
          (mapv :slug))))
 ```
 
-The `:<-` arrow reads as "this sub's input comes from"; `:feed/slugs` now derives from the *value* `:articles/all` extracted, not from `db`. When some other key in `app-db` changes, `:articles/all` re-runs, returns an `=` map, the gate closes, and `:feed/slugs` never wakes — the sort doesn't run. ([Subscriptions](../concepts/subscriptions.md) has the full layering grammar.)
+The `:<-` arrow reads as "this sub's input comes from"; `:feed/slugs` now derives from the *value* `:articles/all` extracted, not from `db`. When some other key in `app-db` changes, `:articles/all` re-runs, returns an `=` map, the gate closes, and `:feed/slugs` never wakes — the sort doesn't run.
 
-The same misplacement happens one level up, and it trips people up. Computation in a **view body** runs on every render of that view, including renders caused by ancestors. Sorting, filtering, and formatting belong in a layer-2 sub; there they run once per input change and are shared by every consumer. Views just walk data and emit hiccup ([Views: pure functions of data](../concepts/views.md)).
+The same misplacement happens one level up, and it trips people up. Computation in a **view body** runs on every render of that view, including renders caused by ancestors. Sorting, filtering, and formatting belong in a layer-2 sub; there they run once per input change and are shared by every consumer. Views just walk data and emit hiccup — the `[:div ...]` vector form re-frame2 uses to describe markup ([Views: pure functions of data](../concepts/views.md)).
 
 Now observe the fix. Dispatch the same event with the Views tab open, and the sub's drill shows it returning its cached value: the gate closed, and the sort never ran. Unrelated typing no longer wakes the feed at all.
 
@@ -136,7 +138,9 @@ Second, the inline `#(dispatch …)` on the button is correct as written: on a D
 
 Every render that writes `#(dispatch [:article/toggle-favorite slug])` mints a fresh function object. It's behaviourally identical to last render's, but `=` between two anonymous fns is `false`, so a *component* receiving it as a prop sees a change and re-renders for nothing. This is invisible on a cheap child. It matters only when the Views tab shows an **expensive** child re-rendering whose data didn't change: the callback prop is the churn.
 
-The naive fix is to hoist the fn into an outer `let`, but that captures the mount-time `slug` forever and goes stale if the instance is ever handed a different one. The robust shape keeps one stable function object and feeds it fresh args each render:
+The naive fix is to hoist the fn into an outer `let`, but that captures the mount-time `slug` forever and goes stale if the instance is ever handed a different one. We need both things at once: *one* function object that never changes identity, yet always acts on the *current* render's args.
+
+The trick is to split those two concerns. Build, once per row, a single long-lived callback object — that's the stable identity the child compares against. Each render, instead of making a *new* function, just write this render's args into an atom that the stable callback reads from when it eventually fires. Stable object on the outside, fresh args on the inside. Because that's a function (the stable callback) built by a function (the per-render setter) built by a function (the one-per-row setup), the helper is named `callback-factory-factory` — a factory that makes factories:
 
 ```clojure
 (defn callback-factory-factory
@@ -178,7 +182,7 @@ The naive fix is to hoist the fn into an outer `let`, but that captures the moun
 
 ## 4 — Only slow in production: the `rf:` timing channel
 
-Xray rides the dev trace, which is compiled out of production builds, so it can't see a slowness that only happens live. For that there is a second, narrower channel built for production. The runtime brackets its **four** hot paths with the browser's User Timing API (`performance.mark` / `performance.measure`), and entries are named `rf:<bucket>:<id>`:
+Xray rides the dev trace, which is compiled out of production builds, so it can't see a slowness that only happens live. For that there is a second, narrower channel built for production. The runtime brackets its **four** hot paths with the browser's User Timing API (`performance.mark` / `performance.measure`), and entries are named `rf:<bucket>:<id>`. Two of the four buckets name things worth a quick gloss: an *effect* is a described side-effect the framework carries out for you, and a *handler* is the function that runs in response to an event.
 
 | Bucket | Fires on | Entry name |
 |---|---|---|
@@ -187,7 +191,7 @@ Xray rides the dev trace, which is compiled out of production builds, so it can'
 | `fx` | one effect executed (including reserved fx like `:dispatch` and managed http) | `rf:fx:rf.http/managed` |
 | `render` | a `reg-view` rendered | `rf:render:my.app/article-row` |
 
-The id keeps its full namespace, so you can split on the second `:` for a per-bucket view. (An effect, by the way, is a described side-effect the framework carries out for you; a handler is the function that runs in response to an event.) Note that only `reg-view` views show up under `rf:render:` — a plain `defn` view has no registered id to bracket, which is one more reason to register the views you care about measuring.
+The id keeps its full namespace, so you can split on the second `:` for a per-bucket view. Note that only `reg-view` views show up under `rf:render:` — a plain `defn` view has no registered id to bracket, which is one more reason to register the views you care about measuring.
 
 The channel is off by default. It is gated on its own compile-time flag, independent of `goog.DEBUG`:
 

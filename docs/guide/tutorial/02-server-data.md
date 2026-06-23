@@ -16,7 +16,7 @@ That is the whole trick. The route *causes* the fetch, a subscription *reads* th
 
 ## Step 1 — add the resources artefact and point at an API
 
-Resources ship as their own optional artefact, the way routing did in Part 1 — you only pay for the machinery you use. Add it, plus the managed-HTTP transport it lowers onto. Add both deps and restart `npm run dev`:
+Resources ship as their own optional artefact, the way routing did in Part 1 — you only pay for the machinery you use. Add it, plus the managed-HTTP transport it sits on top of (the piece that actually talks to the network). Add both deps and restart `npm run dev`:
 
 ```clojure
 {:deps {day8/re-frame2              {:local/root "../re-frame2/implementation/core"}
@@ -36,7 +36,7 @@ Now a tiny namespace that says where the API is:
 
 The Conduit API answers `GET /articles` with `{:articles [...] :articlesCount N}` and `GET /articles/:slug` with `{:article {...}}`. A resource stores whatever the request decodes — verbatim, no reshaping — so you'll reach into `(:articles data)` and `(:article data)` when you render. The data keeps the shape the server gave it.
 
-That managed-HTTP transport is the piece that actually talks to the network, which lets resources stay a level above it: a resource describes *what* to read and *how fresh* it must be, and the transport worries about sockets and retries.
+One word from Step 1 is worth pinning down before we go further: *transport*. The two deps you added are two layers, on purpose. The transport handles the network — sockets, retries, the raw request — and the resource sits a level above it, describing *what* to read and *how fresh* it must be. The resource never touches a socket; it hands the transport a request and gets a decoded value back.
 
 > **Want to run offline?** Install the in-repo demo stub instead of pointing at the hosted Conduit — see `examples/reagent/realworld_resources/http.cljs` for the canned-response override, which serves the same routes without a network.
 
@@ -87,7 +87,7 @@ Two reads, declared. Now let's unpack what you just wrote.
 
 ### The shape of a `reg-resource` call
 
-`reg-resource` follows the re-frame2 **three-slot** registrar grammar you'll see everywhere — `(rf/reg-resource id metadata request-fn)`:
+`reg-resource` follows the same **three-slot** shape every `reg-*` registration form in re-frame2 uses — an id, a config map, and a function — `(rf/reg-resource id metadata request-fn)`:
 
 ```clojure
 (rf/reg-resource <resource-id>     ; 1. the name
@@ -129,7 +129,7 @@ Most of the config map is optional knobs you reach for later. Four keys carry th
     | **`:poll-interval-ms`** | re-read every N ms while the entry has an active owner and the tab is visible — `refetchInterval`, but owner-driven. Covered in [Server state: resources](../concepts/server-state.md). |
     | **`:tags`** | `(fn [params data] → #{tag …})` — names the facts the data contains, so a write can invalidate exactly the reads it broke (Part 4). |
     | **`:data-schema`** | optional Malli schema for the *decoded response*. When present, the data is shape-validated; when absent, it isn't. Validation only — it does **not** drive caching or privacy. |
-    | **`:transport`** | which transport to lower onto. The only built-in is `:rf.http/managed`, which is also the default — you'll rarely write this. |
+    | **`:transport`** | which transport the read runs on. The only built-in is `:rf.http/managed`, which is also the default — you'll rarely write this. |
     | **`:doc`** | a docstring the registry and Xray surface. |
     | **`:sensitive` / `:large`** | privacy/size classification — vectors of paths into the entry (e.g. `[[:data :ssn]]`) marking fields to redact or summarise at every egress boundary (trace, Xray, SSR). The whole-entry shorthands are `:sensitive?` / `:large?`. |
 
@@ -201,7 +201,7 @@ Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`,
 
 ## Step 4 — read the read, and handle every state it can be in
 
-The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf.resource/state` subscription — a subscription being a read-only view into state that recomputes when that state changes — which projects one view-model.
+The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf.resource/state` subscription — a subscription being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale).
 
 Here's the rewritten home page. Read the resource, branch on its state:
 

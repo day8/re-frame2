@@ -2,7 +2,7 @@
 
 You already know one way to derive a value: a [subscription](subscriptions.md) — a query that computes something from app-db (your app's single state map) and hands it to a view. Keep that as your reflex; most derived values are subscriptions.
 
-But a subscription's answer lives on the *render* side of the loop, in the view-facing cache. An event handler — the pure function that runs when an event is dispatched and returns the next app-db — can't reach it. Neither can a schema, another derivation, or anything else that wants plain data instead of a rendered view.
+But there's a catch in *where* a subscription keeps its answer. It lives in a view-facing cache — a place built for views to read on the way to rendering, and only views. An event handler — the pure function that runs when an event is dispatched and returns the next app-db — can't reach into that cache. Neither can a schema, another derivation, or anything else that wants the answer as plain data rather than as something a view will render.
 
 Sometimes a derived value needs to be *state*: plain data sitting in app-db that the rest of your program reads. For that you want a **flow** — a registered rule that says *"when these paths change, run this pure function and write the result into app-db."* The framework keeps the answer fresh, so you never write it by hand.
 
@@ -10,7 +10,7 @@ This page builds flows up one step at a time: first the smallest possible flow, 
 
 ## Your first flow
 
-The fastest way to *see* a flow is to take a derivation you already understand and move it across the loop. [The quickstart](../quickstart.md) derived a counter's odd/even label as a subscription — a formula cell over the `:counter/value` fact:
+The fastest way to *see* a flow is to take a derivation you already understand and move its answer from the view-cache into app-db. [The quickstart](../quickstart.md) derived a counter's odd/even label as a subscription — a formula cell over the `:counter/value` fact:
 
 ```clojure
 (rf/reg-sub :counter/parity
@@ -21,7 +21,7 @@ The fastest way to *see* a flow is to take a derivation you already understand a
 Here is the *same* label as a flow. Same pure function, no new domain:
 
 ```clojure
-;; Flows ship as their own artefact: (:require [re-frame.flows]) once in your app.
+;; Flows live in their own namespace: (:require [re-frame.flows]) once, somewhere in your app.
 (rf/reg-flow
   {:id     :counter/parity
    :doc    "Whether the count is odd or even, materialised into app-db."
@@ -32,16 +32,16 @@ Here is the *same* label as a flow. Same pure function, no new domain:
 
 Read it top to bottom and the shape is a sentence: *watch `[:counter/value]`; when it changes, run `(fn [n] …)`; write the result to `[:counter/parity]`.* That's the whole idea. The input values arrive at `:derive` positionally — one input here, so `:derive` takes one argument — and the result lands at the app-db `:output-path`.
 
-From now on, every event that changes `:counter/value` also recomputes `:counter/parity`. And here's the part worth pausing on: the recompute is part of the *same commit*. A flow runs immediately after the event's handler, so each event still makes exactly one app-db write, carrying the handler's change and the fresh flow output together. Views never see a half-updated state where the counter ticked but the label hasn't caught up.
+From now on, every event that changes `:counter/value` also recomputes `:counter/parity`. And here's the part worth pausing on: the recompute is part of the *same write*. An event in re-frame2 doesn't dribble out a sequence of little app-db mutations; it gathers up everything it wants to change and installs it as one all-or-nothing write (we'll lean on that word **commit** for it from here on). A flow runs immediately after the event's handler and *before* that commit, so the handler's change and the fresh flow output land together, in a single commit. Views never see a half-updated state where the counter ticked but the label hasn't caught up.
 
-The flow also skips recomputing when its inputs didn't actually change value — write the same `:counter/value` back and the flow stays quiet, which keeps the cost honest.
+The flow also skips recomputing when its inputs didn't actually change value — write the same `:counter/value` back and the flow stays quiet, which keeps the cost honest. (This input-changed test is the flow's **dirty-check**, a name worth remembering — it comes back later.)
 
 > **A flow is a derivation whose answer your handlers can read.** Same pure function as a subscription; the only difference is *where the answer lives*.
 
 ### What changed, and what didn't
 
 - **The view doesn't change.** It still reads `@(subscribe [:counter/parity])`. Only the sub's body changes, from *computing* the answer to *reading* it: `(rf/reg-sub :counter/parity (fn [db _query] (:counter/parity db)))`. Flows publish no special subscription ids — the output path *is* the contract, and anything that reads app-db can read it.
-- **Handlers can now read it.** Any event handler can ask `(:counter/parity db)` as plain data. With the sub version that answer lived on the wrong side of the loop — visible to views, invisible to handlers. A handler always sees the output as of the last completed event; if the handler itself changes an input, the recompute happens right after it, inside that same event's single commit.
+- **Handlers can now read it.** Any event handler can ask `(:counter/parity db)` as plain data. With the sub version that answer was stranded in the view-cache — visible to views, invisible to handlers. A handler always sees the output as of the last completed event; if the handler itself changes an input, the recompute happens right after it, inside that same event's single commit.
 - **You never write the output path.** You keep writing `:counter/value` through ordinary handlers. The runtime is the sole author of `[:counter/parity]`.
 
 > **From re-frame v1.** A flow is `on-changes` grown up: the same compute-on-input-change semantics, but registered against the runtime instead of wired into specific events' interceptor chains. That re-registration is what makes a flow toggleable at runtime — see [Toggling a derivation at runtime](#toggling-a-derivation-at-runtime). The old `[:rf.runtime/…]` bare-path scheme for runtime state never existed for flows; runtime inputs use `[:rf.db/runtime …]` (below).
@@ -171,7 +171,7 @@ A flow is a producer, and producers can have bugs. The optional `:schema` key de
 
 This is **observational, not a rollback** — and that distinction matters. A `:schema` violation does *not* throw and does *not* unwind the write. The flow computed a value successfully; it just failed its declared shape. So the value *is* written, the cascade proceeds normally, and the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event — carrying the flow id, the `:output-path`, the offending value, and Malli's explanation. It is there to surface a producer bug early, not to repair state.
 
-> **Why not roll back?** By the time a violation could be observed, a downstream flow in the same drain may already have read the value as its own input. Retroactively yanking the write back would leave the pending state inconsistent — so the framework reports the bug rather than corrupting the cascade. Contrast this gentle, non-fatal check with a `:derive` function that *throws*, which aborts the entire event — see [What happens when a derive throws](#what-happens-when-a-derive-throws).
+> **Why not roll back?** Recall that flows may read each other's outputs, so a single event can set off a small cascade of recomputes before it commits — re-frame2 calls that one settling pass a **drain**. By the time a schema violation could be observed, a downstream flow in the same drain may already have read the offending value as its own input. Retroactively yanking the write back would leave the half-settled state inconsistent — so the framework reports the bug rather than corrupting the cascade. Contrast this gentle, non-fatal check with a `:derive` function that *throws*, which aborts the entire event — see [What happens when a derive throws](#what-happens-when-a-derive-throws).
 
 Like the rest of the validation surface, this is dev-only: it sits behind the framework's debug gate and is compile-time eliminated from production builds. It also leans on the [schemas](../how-to/validate-with-schemas.md) artefact — if your app doesn't include schemas (or registers no validator), the check soft-passes and costs nothing.
 

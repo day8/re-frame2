@@ -18,7 +18,9 @@ Here is the smallest useful thing in re-frame2: a handler that bumps a counter.
     {:db (update db :counter/value inc)}))
 ```
 
-That's a complete, working piece of an app. You register a handler with `reg-event`, give it an id (`:counter/inc`), and the handler is a **pure function**: it takes the current state and returns a map describing what should change. Here the map says only one thing — `:db`, the next state.
+That's a complete, working piece of an app. You register a handler with `reg-event`, give it an id (`:counter/inc` — a keyword; the `counter/` part is just a namespace to keep ids from colliding), and the handler is a **pure function**.
+
+The handler takes two arguments and returns a map. Don't let the Clojure shorthand throw you: `{:keys [db]}` is destructuring — it reaches into the first argument and pulls out its `:db` key as a local named `db` (that first argument carries everything from the outside world the handler is allowed to see; for now it's just the current state). The second argument is the event itself, and the leading `_` in `_event` is the Clojure convention for "I'm not using this one." The handler returns a map describing what should change — here it says only one thing, `:db`, the next state.
 
 Somewhere a button does this:
 
@@ -89,7 +91,7 @@ The counter handler only touched `:db`. But most real handlers need the world to
             :on-failure [:feed/load-failed]}]]}))
 ```
 
-Same registration, same signature, still pure. The db update is the effect `{:db …}`; everything else rides in `:fx` beside it. An **effect** is just a data entry — a request for the world to do something. Returning a `[:rf.http/managed …]` entry no more fires an HTTP request than returning the string `"rm -rf /"` deletes your disk. It's a value until domino 4 chooses to run it.
+Same registration, same signature, still pure. The db update is the effect `{:db …}`; everything else rides in `:fx` beside it — a vector of effects, each one a little `[effect-id, config]` pair (hence the double brackets: the outer vector is the list, each inner vector is one effect). An **effect** is just such a data entry — a request for the world to do something. Returning a `[:rf.http/managed …]` entry no more fires an HTTP request than returning the string `"rm -rf /"` deletes your disk. It's a value until domino 4 chooses to run it.
 
 The reply comes back as a *new* event — `[:feed/loaded …]` — which walks the same six dominoes itself. And the world coming *in* is symmetric: a handler that needs a fact from the world (the current time, a stored token) declares it with `:rf.cofx/requires` and receives it as an input — a **coeffect** — rather than reaching out mid-function. Both directions live in [Effects and coeffects](effects-and-coeffects.md).
 

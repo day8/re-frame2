@@ -5,7 +5,7 @@ You have a list with more rows than you want to fetch at once. There are two pag
 - **Numbered pages** — page 2 *replaces* page 1 on screen. Think search results, an admin table, a "1 2 3 … 29" pager.
 - **Load more** — page 2 *appends* to what's already there, the way a social feed grows.
 
-Both ride on resources — a resource being a declared, cached server query, like the one [Server state: resources](../concepts/server-state.md) sets up. We'll build the numbered shape first, then the load-more shape. By the end you'll have both wired with *no pagination state in app-db at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append reducer.
+Both ride on **resources**. A resource is a declared, cached server query — you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness for you; views just subscribe to its current state. [Server state: resources](../concepts/server-state.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then the load-more shape. By the end you'll have both wired with *no pagination state in app-db at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append reducer. (`app-db` is the one ordinary map that holds your app's own state; the whole point here is that pagination doesn't add anything to it.)
 
 > **The one idea to hold onto.** A numbered page is part of the resource's *identity* — page 7 is its own separately-cached value. An infinite feed is *one* identity that *grows* — page 1, then 1+2, then 1+2+3, kept together as a single reactive value. Almost everything below follows from that one distinction.
 
@@ -34,7 +34,7 @@ Here's the one rule that makes resources work: every variable that changes the s
      :decode  :json}))
 ```
 
-Three keys are the registration gate, and they're all here: `:params-schema` (the identity — the page is in it), `:scope` (the leak boundary), and the `:request` fn (the third value slot). The server replies `{:articles [...] :total 290}` — adapt the field names to yours.
+Every `reg-resource` requires exactly three things, and they're all here: `:params-schema` (the resource's *identity* — which inputs distinguish one cached answer from another; the page is one of them), `:scope` (the cache's visibility boundary — more on this in the gotcha below), and the request function (the last argument to `reg-resource`, returning the HTTP call). Leave any one out and registration fails loudly. The server replies `{:articles [...] :total 290}` — adapt the field names to yours.
 
 That's the minimum. A real list usually tunes a few more optional keys:
 
@@ -76,7 +76,7 @@ The route validates the `?page=` query param, feeds it into the resource's param
   "/")
 ```
 
-Now route entry loads the right page, *owns* it while you're there, and releases it when you leave. Once a page is unowned it falls back to the normal staleness and GC policy — so nothing leaks, and you wrote no cleanup code to make that true.
+A word on *owning*, since it's the mechanism doing the cleanup. A cached page sticks around as long as something **owns** it — holds a live claim on it. Route entry takes that claim, so the page you're looking at can't be garbage-collected out from under you; route leave drops it. Once a page is unowned it falls back to the normal staleness and GC policy, and eventually gets dropped — so nothing leaks, and you wrote no cleanup code to make that true. (You'll see "owner" again later, contrasted with "cause", when we get to load-more.)
 
 Each `:resources` entry is a small declaration. The four keys above: `:resource` names the registered resource; `:params` is a pure `(fn [route] …)` computing its params from the route match; `:blocking?` keeps the route transition pending (and gives SSR a wait point) until this resource's first load lands; `:keep-previous?` is the no-flicker key from step 3.
 
@@ -120,7 +120,7 @@ The filter then joins the resource's `:params-schema` and the route's `:query` s
 
 ### 4. Show the old page while the new one loads
 
-This is the part that makes pagination feel smooth instead of janky. With `:keep-previous?`, while page 2 is first-loading, its state carries `:previous? true` and `:previous-data` — page 1's rows, *projected* across, never inserted into page 2's entry. Render those instead of a blank skeleton:
+This is the part that makes pagination feel smooth instead of janky. With `:keep-previous?`, while page 2 is first-loading, its state carries `:previous? true` and `:previous-data`. That `:previous-data` is page 1's rows shown *through* page 2's loading state — borrowed for display only, never copied into page 2's own cache entry, so when page 2's real data lands it isn't polluted. Render those borrowed rows instead of a blank skeleton:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/views.cljs
@@ -150,7 +150,7 @@ This is the part that makes pagination feel smooth instead of janky. With `:keep
                     p])))]))))
 ```
 
-(Here `dispatch` and `subscribe` are the frame-bound bindings `reg-view` injects, and `list-skeleton`, `list-error`, and `article-row` are your own views.)
+(Here `dispatch` and `subscribe` are bindings that `reg-view` injects into the view's body, already wired to the *frame* this view is rendering in — a frame being one isolated instance of your app's state and event loop, so these are the same `dispatch`/`subscribe` you'd reach for via `rf/`, just pre-targeted. `list-skeleton`, `list-error`, and `article-row` are your own views.)
 
 Now watch it work. Click through to page 2 with Xray open: the navigation event row shows the `ensure` it caused under the `{:page 2}` key, and the entry walks `:loading` → `:loaded`. Click *back* to page 1 and you'll see the same `{:page 1}` key, still fresh — a cache hit, no network request. That's the payoff of treating pages as identity: back-navigation is free, because you never threw page 1 away. You just stopped looking at it.
 
@@ -188,7 +188,9 @@ A load-more feed is a deliberately *different* shape, so it's worth a minute on 
 
 ### 1. Register the feed with `:infinite true`
 
-An infinite resource is an *ordinary* resource — identity, scope, request — plus two additions: `:infinite true` (which makes `:next-page-param` required), and a pure `:next-page-param` derivation. The page cursor is **not** a params key; it's internal sequencing state the runtime threads for you, riding the request's reserved second argument:
+An infinite resource is an *ordinary* resource — identity, scope, request — plus two additions: `:infinite true` (which makes `:next-page-param` required), and a pure `:next-page-param` function that, given the last page you loaded, returns the cursor for the *next* one.
+
+The key thing to internalise: the page cursor is **not** a params key. If it were, every page would be its own cache entry (the numbered case) — but a feed is *one* growing entry, so the cursor can't be part of its identity. Instead it's internal sequencing state the runtime tracks for you and hands to your request function as a *second argument* (the request function below takes `(params ctx)` — `ctx` is where the current page's cursor arrives):
 
 ```clojure
 ;; Adapted from examples/reagent/infinite_feed/core.cljs
@@ -232,7 +234,12 @@ A few things just happened, so let's name them:
 - The **first page** is fetched with `:page-param nil` (override it with `:initial-page-param` if your API's first page wants a real cursor). Each load-more passes the cursor your `:next-page-param` derived from the tail.
 - **Two `load-more` calls don't make two cache keys** — they extend *one* entry. Only the identity params (filter, sort, search) name the feed. Change those and you get a different feed instance; the per-page cursor never touches the cache key.
 
-Beyond `:next-page-param` (required) and `:page->items`, an infinite resource also accepts a handful of optional keys you'll reach for as feeds get real: `:prev-page-param` (the bidirectional mirror — see the prepend callout at the end), `:initial-page-param` (the first page's cursor, default `nil`), `:refetch` (the refetch-window policy — see [Refetch and reset](#refetch-and-reset)), and `:page-data-schema` — which validates **one page** (the decode target) and is the per-page egress/classification contract, applied per page so a sensitive field inside a page is classified even though the accumulated value is a framework-owned vector. (Note `:page-data-schema`, not `:data-schema`: the accumulated `:data` is the page *sequence*, so the per-page schema is the right grain.)
+Beyond `:next-page-param` (required) and `:page->items`, an infinite resource also accepts a handful of optional keys you'll reach for as feeds get real:
+
+- `:prev-page-param` — the bidirectional mirror, for prepending older pages (see the prepend callout at the end).
+- `:initial-page-param` — the first page's cursor (default `nil`).
+- `:refetch` — the refetch-window policy (see [Refetch and reset](#refetch-and-reset)).
+- `:page-data-schema` — a schema that validates **one page** (the thing your request decodes). This is the grain that matters: the resource's accumulated `:data` is the *sequence* of pages, so a whole-feed `:data-schema` would be wrong — you want to validate (and, where a page carries sensitive fields, classify on egress) one page at a time. That's why it's `:page-data-schema`, not `:data-schema`.
 
 > **Coming from TanStack Query?** Map it straight across: `:next-page-param` is `getNextPageParam`, `:initial-page-param` is `initialPageParam`, `:page->items` is the accessor you'd write inline when flattening `data.pages`. The first page's `nil` param is TanStack's defaulted `initialPageParam`. The one re-frame2 addition: a derived `:has-next-page?` so a view never re-derives the terminal itself.
 
@@ -354,7 +361,7 @@ Tag invalidation reaches a feed the same way it reaches any resource: a write th
 
 Resetting on a filter change needs **no code at all** — and this falls straight out of the identity model. A different filter is a different *identity params* value, so it's a different feed instance that first-loads page 0 on its own. The old accumulation is a separate, GC-eligible entry; you don't clear it, you just stop owning it. And because the feed is a real scoped resource, a per-user feed (a scope resolver instead of `:rf.scope/global`) is dropped wholesale on `clear-scope` at logout — coherence a hand-rolled app-db slice simply can't buy.
 
-> **Going deeper — infinite scroll instead of a button.** Want the feed to load as the user nears the bottom? Wire an `IntersectionObserver` to a sentinel `div`. One catch: the observer callback fires *outside frame context* — a frame being one isolated instance of your app's state and event loop — so a bare `rf/dispatch` there raises `:rf.error/no-frame-context`. Capture a frame handle where context still exists (render or mount) and dispatch through it:
+> **Going deeper — infinite scroll instead of a button.** Want the feed to load as the user nears the bottom? Wire an `IntersectionObserver` to a sentinel `div`. One catch: the observer callback fires *outside frame context* — the browser calls it directly, not as part of your app's render or event loop — so a bare `rf/dispatch` there has no frame to target and raises `:rf.error/no-frame-context`. The fix is to capture a frame handle while you *are* still in frame context (during render or mount) and dispatch through that:
 >
 > ```clojure
 > ;; Create at mount (Form-3), observe a sentinel div, disconnect on unmount.

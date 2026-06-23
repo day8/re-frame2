@@ -4,9 +4,11 @@ It's 11pm and the app is wrong. A value that should be `3` is `7`, or a button i
 
 > **Your app's state isn't a mystery to reconstruct from console.log; it's a ledger you can read.**
 
-This page teaches Xray as a tutorial: first get it open, then walk the ledger backwards to the event that broke your state, then meet the rest of the lenses one at a time. A beginner who reads only the main text gets a smooth, productive path. The callouts off to the side are for when you want more — a JavaScript analogy, a note for re-frame v1 veterans, or the deeper mechanics.
+Read it straight through and you get a smooth, productive path: first get Xray open, then walk the ledger backwards to the event that broke your state, then meet the rest of the panels one at a time. The callouts off to the side are optional extras — a JavaScript analogy, a note for re-frame v1 veterans, or the deeper mechanics — there when you want them, skippable when you don't.
 
-A quick glossary, so the rest of the page reads cleanly. An **event** is the data describing something that happened — a click, a response arriving — that your app dispatches to update state. A **handler** is the function that runs an event and returns effects. An **effect** is a description of a side effect to perform — an HTTP call, a navigation. A **subscription** is a query that derives a value from app-db (your app's single state map). A **view** is the component that renders it. A **frame** is one isolated instance of your app — its own app-db and registrations.
+A quick glossary first, so the rest of the page reads cleanly. An **event** is the data describing something that happened — a click, a response arriving — that your app dispatches to update state. A **handler** is the function that runs an event and returns effects. An **effect** is a description of a side effect to perform — an HTTP call, a navigation. A **subscription** is a query that derives a value from app-db (your app's single state map). A **view** is the component that renders it. A **frame** is one isolated instance of your app — its own app-db and registrations.
+
+Two more terms you'll meet as you read. Dispatching one event sets off a chain — the handler runs, effects fire, subscriptions recompute, views re-render. That whole chain is a **cascade**, and the before/after step it represents in your app's history is an **epoch**. So "event", "epoch", and "cascade" are three angles on one moment: the event is *what arrived*, the epoch is *the moment in the timeline*, the cascade is *everything that happened in response*. Xray is built around them.
 
 > **For JavaScript developers.** If you know Redux DevTools, Xray is that same idea: an action ledger, a state diff, time travel. What Xray adds is the rest of the cascade — not just "which action, what state", but which effects fired, which subscriptions recomputed, which views re-rendered, and which line of *your* code each one came from.
 
@@ -21,7 +23,7 @@ Xray ships as a dev-build preload. Add it to your dev build only:
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload registers Xray's trace and epoch listeners, installs the keyboard listener and the browser API, then auto-opens once `rf/init!` has installed a substrate adapter.
+The preload registers Xray's trace and epoch listeners, installs the keyboard listener and the browser API, then auto-opens once your app boots — specifically, once `rf/init!` has wired up the rendering substrate (Reagent, UIx, or Helix).
 
 Xray mounts inline into a page element you mark with `data-rf-xray-host`. This is a normal flex column in your layout — not an overlay, not a body-padding dock. Drop one `<aside>` into your shell:
 
@@ -66,7 +68,7 @@ None of this exists in production, which is by design. Xray and the trace machin
 
 ## Step 2: the one mental model — one event in, full insight out
 
-Before you debug anything, internalise the single idea the whole tool is built on. The shell has four layers stacked top to bottom: a **ribbon** (scope + nav controls), the **event list** (the ledger), a **tab bar**, and a **detail panel**. You select one event in the list, and every tab rebinds to it. Each tab is just a different *lens* on that one event.
+Before you debug anything, internalise the single idea the whole tool is built on. The shell has four layers stacked top to bottom: a **ribbon** (scope + nav controls), the **event list** (the ledger), a **tab bar**, and a **detail panel**. You select one event in the list, and every tab rebinds to it. Each tab is just a different *lens* — a different view — on that one event: one shows the state diff, one shows the effects, one shows the renders, and so on.
 
 > **One event in, full insight out.** This is the whole thing. There is no "current state" view floating free of an event — every panel is bound to the *one focused event* in the list. Move the focus and the whole shell re-points at that moment. Once that clicks, the rest of Xray is just choosing which lens (tab) you want on the moment you've focused.
 
@@ -78,8 +80,8 @@ You're staring at bad state, and you don't yet know which event put it there. He
 
 1. **Open Xray** (`Ctrl+Shift+C`). It lands on the latest event. Press `Space` to pause the live feed so new dispatches stop moving the list out from under you.
 2. **Press `a`** for the App-db tab. You'll see the diff this one event made — app-db before against app-db after. Each event shows only its own delta, never a cumulative pile, so the change is easy to read.
-3. **Walk backwards** with `j` (the previous event in the list; `k` steps forward — or use the ribbon's `◀` `▶` nav buttons), watching the diff. Ask one small question per step: *did this event write the bad value?*
-4. **Stop at the first epoch where the bad value appears.** That's your culprit. Press `e` for the Epoch tab, which gives you the full cascade as a numbered pipeline: dispatch site, event vector, coeffects, handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
+3. **Walk backwards in time** with `j` (it steps to the older event; `k` steps back toward the newest — or use the ribbon's `◀` `▶` nav buttons), watching the diff. Ask one small question per step: *did this event write the bad value?*
+4. **Stop at the first event where the bad value appears.** That's your culprit — the epoch that wrote it. Press `e` for the Epoch tab, which gives you the full cascade as a numbered pipeline: dispatch site, event vector, coeffects, handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
 
 That's it. Four keys — `Space`, `a`, `j`, `e` — find most bugs.
 
@@ -130,9 +132,9 @@ Each tab is the same one-event-bound lens: focus an event, press the letter, rea
 
 ## Step 6: rewind to the bad epoch
 
-Everything so far is **passive** — selecting an old event rebases the panels to show that moment, but your running app doesn't move. Sometimes you want the app *itself* back in the bad state — so you can poke at it live, retry the click, or show a colleague. That's what rewind is for.
+Everything so far is **passive** — selecting an old event rebases the panels to show that moment, but your running app doesn't move. Sometimes you want the app *itself* back at that moment — so you can poke at it live, retry the click that triggered the bug, or show a colleague. That's what rewind is for.
 
-Focus the epoch and press `r` while the event list has focus (or click the epoch's reset control). That's a real write: the frame's state is restored atomically to that point — app-db and the runtime's own state, machine snapshots and route included. Subscriptions recompute, and the UI repaints as it was. A rewind that can't be performed — because the epoch has aged out of the buffer, for instance — is refused with a stated reason rather than silently doing nothing.
+Focus the bad epoch and press `r` while the event list has focus (or click the epoch's reset control). This rewinds the live app to the state *just before* that epoch ran — so you're poised to re-trigger the event and watch it misbehave. It's a real write: the frame's state is restored atomically to that point — app-db and the runtime's own state, machine snapshots and route included. Subscriptions recompute, and the UI repaints as it was. A rewind that can't be performed — because the epoch has aged out of the buffer, for instance — is refused with a stated reason rather than silently doing nothing.
 
 > **Rewind vs re-dispatch.** `r` rewinds *state* to before an epoch. Its capital sibling, `R`, **re-dispatches** the focused event — it runs that same event vector again *now*, against current state, appending a fresh cascade to the ledger. Use `r` to get back to a moment; use `R` to re-run a single event and watch its cascade afresh (handy after a hot-swap of the handler). Pinning a cascade you want to keep referring to is `*`.
 
@@ -171,7 +173,7 @@ For most setups this Just Works with no configuration. There are two ways the ju
 
 ## Static mode: inspect the registry without an event
 
-Everything above is *dynamic* mode — Xray reading the live event stream. Sometimes you don't have a bug in flight; you just want to ask "what's actually *registered* right now?" — which events, subs, fx, machines, routes the running app knows about, independent of any cascade.
+Everything above is *dynamic* mode — Xray reading the live event stream. Sometimes you don't have a bug in flight; you just want to ask "what's actually *registered* right now?" — which events, subscriptions, effects, machines, and routes the running app knows about, independent of any cascade.
 
 That's **Static mode**. Toggle it with `Cmd/Ctrl+Shift+M`, or pick it from the `Dynamic / Static ▾` dropdown in the ribbon. The shell swaps to registry-browse surfaces: a catalogue of every registration, a machine explorer you can step through interactively, and the schema timeline. There's no event list here — you're browsing the app's wiring, not its history. (Static mode is always available; the mode choice persists across reloads, unlike filters.)
 
@@ -183,7 +185,7 @@ Xray is keyboard-first, but you only need a handful of keys for everything above
 |---|---|---|
 | `Ctrl+Shift+C` | global | Show / hide the Xray shell |
 | `Space` | event list | Pause / resume the live feed |
-| `j` / `k` | event list | Focus the previous / next event |
+| `j` / `k` | event list | Step to the older / newer event |
 | `L` or `G` | event list | Snap back to live (follow the head) |
 | `a` / `e` / `v` | tab bar | Jump to App-db / Epoch / Views |
 | `t` / `m` / `r` | tab bar | Jump to Trace / Machine / Routes |

@@ -10,7 +10,7 @@ This page builds up from the simplest useful thing — a schema on one app-db pa
 
 ## Your first schema: a slice of app-db
 
-Start with the most common case — pin the shape of one slice of app-db. `reg-app-schema` points a schema at a `get-in`-shaped path:
+Start with the most common case — pin the shape of one slice of app-db. `reg-app-schema` points a schema at a path, where a path is just the vector of keys you'd hand to `get-in` to reach that slice:
 
 ```clojure
 (ns myapp.schema
@@ -26,17 +26,23 @@ Start with the most common case — pin the shape of one slice of app-db. `reg-a
   (rf/reg-app-schema [:auth] {:schema AuthSlice}))
 ```
 
-That's the whole setup. From now on, after every event handler runs, the runtime validates whatever the new app-db holds at `[:auth]` *before* installing it. If a write doesn't conform, three things happen: the runtime emits a structured error (`:rf.error/schema-validation-failure`), the bad write **never lands** — app-db keeps its pre-event value — and the dispatch is treated as failed. So you debug a named handler and a printed value, not a half-corrupted app-db.
+Before we read what that does, two pieces of that snippet are new and worth naming up front, because they'll recur on every example below.
 
-Two small things in that snippet are doing real work. The schema is just a **vector of plain data** — `[:map [:user ...] [:token ...]]` — not a builder chain; that's [Malli](https://github.com/metosin/malli), the default schema language. And `reg-app-schema` runs inside a frame scope (`with-frame`), because schemas register per-[frame](../concepts/frames.md) — one isolated instance of your app's state and machinery. That's the same `with-frame` your boot dispatches already run in, so there's nothing new to set up.
+The schema itself — `AuthSlice` — is just a **vector of plain data**: `[:map [:user ...] [:token ...]]`, no builder chain, no class to instantiate. That's [Malli](https://github.com/metosin/malli), the default schema language; we'll learn its handful of shapes in a moment.
 
-> **One require wires the validator.** On the CLJS reference, *requiring* `re-frame.schemas` is what turns a registered schema into a live check — the artefact installs the Malli validator under the hood. So **schema implies validation**: a `reg-app-schema` is never a silent no-op. Leave the artefact out and your registrations still *record* (tools can read them) but never *fire* — that's the soft-pass default, and it exists so a first-time reader isn't blocked by a missing optional dep. In a real app you require it once at boot and forget about it.
+And the registration runs inside `with-frame`. A [frame](../concepts/frames.md) is one isolated instance of your app's state and machinery — app-db plus its registered handlers — and schemas register *per frame*, so the registration has to name which one. `:rf/default` is the frame your app boots into, and `with-frame` is the same wrapper your boot dispatches already run in, so this isn't new ceremony — it's where registration code lives.
+
+Now, what the registration buys you. From this point on, after every event handler runs, the runtime validates whatever the new app-db holds at `[:auth]` *before* installing it. If a write doesn't conform, three things happen at once: the runtime emits a structured error (`:rf.error/schema-validation-failure`), the bad write **never lands** — app-db keeps its pre-event value — and the dispatch is treated as failed. So you debug a named handler and a printed value, not a half-corrupted app-db three screens away.
+
+> **One require wires the validator.** Why did the snippet `require` `re-frame.schemas` with no alias and never call it? Because the *require itself* is the wiring: pulling that artefact in installs the Malli validator under the hood, which is what turns a registered schema into a live check. So a registration is never a silent no-op — once the artefact is loaded, **a schema you register is a schema that fires.** Leave the artefact out and your registrations still *record* (tools can read them) but never *check* anything — that's the deliberate soft-pass default, so a first-time reader isn't blocked by a missing optional dependency. In a real app you require it once at boot and never think about it again.
 
 > **From re-frame v1.** The `check-spec-interceptor` you hand-rolled from the todomvc example is built in now — and the vocabulary is `:schema` everywhere, not `:spec`. v1's `:spec` metadata key, the `:rf.spec/*` namespace, and the `:spec/at-boundary` interceptor are all gone with no back-compat alias; the framework no longer accepts `:spec` on `reg-*` metadata.
 
 ## Watch one catch a bug
 
 Theory's cheap; here's a schema doing its job — live. This counter's count must never go below zero. The rule appears **twice**, on purpose. The handler *guards* (`pos?` — real behaviour that ships to production). The schema *declares* (`[:int {:min 0}]` — the dev tripwire). The cell runs in the playground's frame, so no `with-frame` is needed. Click in and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then drive it with the buttons.
+
+The piece to watch is the `[:int {:min 0}]` on the `[:howto.schema/counter]` slice — that's the app-db schema from the last section. (Each `reg-event` *also* carries a small `{:schema [:cat ...]}` map describing its event vector; ignore those for now — they're event schemas, and we cover them a few sections down.)
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
@@ -96,7 +102,7 @@ Click `-` down to `0` and keep clicking: nothing happens, because the `pos?` gua
 
 ## The shapes you'll actually write
 
-A Malli schema is a vector. The first element names the kind, optionally followed by a properties map, then its children. Seven shapes cover the overwhelming majority of app-db:
+A Malli schema is a vector, and it always reads in the same order: the first element is a keyword naming the *kind* of shape (`:map`, `:int`, `:enum`, …), then an optional properties map that tunes it (`{:min 0}`), then the nested schemas it's built from — Malli calls those its *children*. Seven shapes cover the overwhelming majority of app-db:
 
 ```clojure
 [:map [:email :string] [:password :string]]   ;; a map with these keys
@@ -131,7 +137,7 @@ A single feature usually owns several slices. `reg-app-schemas` (plural) takes a
 
 Paths nest and overlap freely, which is more useful than it first sounds: a write under `[:auth :login-form]` is checked against *that* schema **and** the surrounding `[:auth]` one. The empty path `[]` schemas the whole map. [The RealWorld example](../../../examples/reagent/realworld/) registers nineteen paths this way — every slice that holds server data, every form draft.
 
-`reg-app-schemas` is last-write-wins on a duplicate path and returns the vector of paths it registered. It's the right shape for a feature module declaring 5–20 slices under a shared prefix. Reach for the singular `reg-app-schema` instead when a feature spans only a path or two, or when you need deterministic registration order (the plural form follows map-iteration order, which small literals preserve but large hash-maps don't).
+`reg-app-schemas` is last-write-wins on a duplicate path and returns the vector of paths it registered. It's the right shape for a feature module declaring 5–20 slices under a shared prefix. Reach for the singular `reg-app-schema` instead when a feature spans only a path or two, or when you need a *guaranteed* registration order. (The plural form registers in the order it iterates the map you hand it. A small map literal like the one above iterates in the order you wrote it, but Clojure promotes large maps to hash-maps, whose iteration order isn't the insertion order — so for a big batch where order matters, register the ordered paths one at a time.)
 
 These paths address *your* data only — the framework's [runtime-db partition next door](../concepts/app-db.md) validates through its own machinery, and reaching into it is an error (see the callout below).
 
@@ -183,9 +189,9 @@ Each one fails differently, on purpose:
 
 - **Sub return** (`:where :sub-return`) — the failure is reported and the sub yields `nil` to its consumer (`:replaced-with-default`). Views see no value rather than a bad one; the cascade isn't aborted.
 - **Fx args** (`:where :fx-args`) — the *offending fx is skipped*, and its siblings in the same `:fx` vector still run. A typo in one `:url` shouldn't take down the rest of an event's effects, so the recovery is "skip the one, continue the rest." The trace names the failing fx.
-- **Recordable coeffect** — the exception to "always the same trace." A coeffect your handler `:rf.cofx/requires` (a *recordable* world-input — the deterministic kind that replays, not a raw `:now-wall` clock read) is validated as it's satisfied, and a mismatch is a **production hard error**: it emits `:rf.error/cofx-value-invalid` and **throws**, halting the cascade.
+- **Recordable coeffect** — the exception to "always the same trace," and it needs one extra concept. A coeffect injects a piece of the outside world into a handler — the current time, a random seed, a value read from storage. Most are injected freely. But a coeffect a handler declares with `:rf.cofx/requires` is a **recordable** input: the framework saves the exact value it injected, so the cascade can be replayed later from that saved value and produce the identical result. Because that saved value is data the replay machinery depends on, its schema is validated when the value is injected, and a mismatch is a **production hard error** — it emits `:rf.error/cofx-value-invalid` and **throws**, halting the cascade.
 
-> **Gotcha — cofx is the asymmetric one.** Every other `:schema` is a dev-only advisory that elides in production. The recordable-coeffect check is a real, production, throwing guard on the data your event sourcing replays from — folding an out-of-contract value into the durable causal ledger is corrupt state, so this check fires in production too. If you see `:rf.error/cofx-value-invalid` in a production trace, that's by design: the framework refused to record a value that would corrupt replay.
+> **Gotcha — cofx is the asymmetric one.** Every other `:schema` on this page is a dev-only advisory that vanishes in production. The recordable-coeffect check is the lone real, production, throwing guard — because it protects the recorded values your app would later replay from. Folding an out-of-contract value into that saved record means a future replay reconstructs corrupt state, so the framework refuses it on the spot, in production too. If you see `:rf.error/cofx-value-invalid` in a production trace, that's working as designed: the framework declined to record a value that would have poisoned a replay.
 
 ## Read the failure trace
 
@@ -213,7 +219,7 @@ In **Xray**, these don't pile up in a footnote: the four runtime boundaries (`:e
 
 Register one schema and it does three jobs at once: the runtime checks it, it documents the slice, and tools and AI agents can *query* it — "what shape lives at `[:auth]`?" — which is a real, public API you'll use yourself when an agent maintains a slice or you write a test fixture.
 
-The introspection functions live on the **`re-frame.schemas`** namespace, not the `rf/` facade. (The *registration* macros `reg-app-schema` / `reg-app-schemas` are on `rf/`; the *readers* are on the artefact.) So require it directly:
+There's one wrinkle in where these live. The *registration* macros you've used so far — `reg-app-schema` / `reg-app-schemas` — sit on the `rf/` namespace (`re-frame.core`, the main entry point you alias as `rf`). The *reader* functions sit one layer down, on the `re-frame.schemas` namespace — the same artefact whose require wired up validation at the top of the page. So to query schemas you require that namespace directly:
 
 ```clojure
 (require '[re-frame.schemas :as schemas])
@@ -237,7 +243,7 @@ The introspection functions live on the **`re-frame.schemas`** namespace, not th
 
 Each reader takes an optional `{:frame frame-id}` (or a bare frame-id), defaulting to the active frame; outside any frame scope it raises `:rf.error/no-frame-context`. Event/sub/fx schemas come back through the registrar query API instead — `(rf/handler-meta :event :auth/login)` returns `{:schema [:cat ...] :doc ... :ns ...}`.
 
-The digest is the quiet workhorse: because it's a deterministic, cross-runtime hash of the registered `{path → schema}` set, SSR hydration ships the server's digest and the client compares its own on hydrate — a mismatch (`:rf.ssr/schema-digest-mismatch`) catches the deploy-drift bug where the server bundle's schemas have moved ahead of the client's. Agents read these surfaces to know what shape to write *before* they dispatch, generators (Malli's `mg/generate`) turn them into test data, and pair-tools warn when the runtime's schema set has shifted under an attached REPL.
+The digest is the quiet workhorse. It's a single deterministic hash of a frame's whole `{path → schema}` set — same input, same hash, on any runtime — which makes it a cheap fingerprint for "are these two builds describing the same shapes?" The headline use is catching a deploy mismatch: when a server-rendered page hydrates in the browser, it carries the server's digest, and the client compares it against its own. If they differ (`:rf.ssr/schema-digest-mismatch`), the server bundle and the client bundle have drifted out of sync — exactly the deploy bug that's otherwise invisible until something renders wrong. The same readers serve other consumers too: AI agents read these surfaces to learn what shape to write *before* they dispatch, generators (Malli's `mg/generate`) turn a schema into test data, and pair-tools warn you when the running app's schema set has shifted under a REPL you're attached to.
 
 ## Keep a failing value out of the trace
 
@@ -259,7 +265,7 @@ A validation failure ships the failing value verbatim — that's what makes it d
 
 Dev builds check every registered schema at every validation point. That's the whole idea, and the cost is fine for dev. Production builds eliminate every validation site **at compile time** — under an `:advanced` build with `goog.DEBUG` set false ([Configure dev and production builds](configure-dev-and-prod.md) shows the flags), the compiler removes the validator calls, the error strings, the redaction code, all of it, from the bundle. Not skipped — *absent*. So write schemas freely; there's no hot-path bill. They stay *registered*, so tools and agents can still introspect them; they're just never *checked*. (The recordable-coeffect check from earlier is the lone exception — it's a real production guard.)
 
-One place else does want production validation: untrusted data crossing a system boundary — an HTTP response, a websocket message, a `postMessage` payload. For those handlers, reference the framework's boundary interceptor in the chain, which forces the handler's own `:schema` check regardless of the build flags. It's a registered interceptor like any other, so the chain carries its id — `:rf.schema/at-boundary` — not an inline value:
+One place else does want production validation: untrusted data crossing a system boundary — an HTTP response, a websocket message, a `postMessage` payload. For those handlers, add the framework's boundary [interceptor](../concepts/interceptors.md) to the event's chain — an interceptor is a named step that wraps a handler — and it forces the handler's own `:schema` check to run regardless of the build flags. You add it by its id, `:rf.schema/at-boundary`, the same way you'd add any other interceptor:
 
 ```clojure
 (rf/reg-event :api/tags-received
@@ -269,7 +275,7 @@ One place else does want production validation: untrusted data crossing a system
     {:db (assoc db :tags (:tags body))}))
 ```
 
-The interceptor doesn't introduce a second schema — it re-uses the handler's existing `:schema` and only *forces* the check past the elision flag. In dev it adds nothing, since the check already runs; in production it's the one check that survives. Two things to know: putting it on a handler with **no `:schema`** is rejected at registration (`:rf.error/at-boundary-missing-schema`) — it's structurally meaningless without one — and you reference it by the bare keyword id, never by dropping the `validate-at-boundary-interceptor` value Var into the chain (under EP-0022 a public `:interceptors` chain carries refs, not inline values). The result: payloads you didn't produce get checked everywhere, and the other ninety-nine percent of your handlers stay zero-cost.
+The interceptor doesn't introduce a second schema — it re-uses the handler's existing `:schema` and only *forces* that check to survive past the production elision flag. In dev it adds nothing, since the check already runs; in production it's the one check that survives. Two things to know: putting it on a handler with **no `:schema`** is rejected at registration (`:rf.error/at-boundary-missing-schema`) — it has no check to force, so it's meaningless there — and you always reference it by the bare keyword id `:rf.schema/at-boundary`, never by reaching for the underlying interceptor value directly (a public `:interceptors` chain carries id references, not inline interceptor values). The result: payloads you didn't produce get checked even in production, while the other ninety-nine percent of your handlers stay zero-cost.
 
 > **Coming from TanStack Query?** You probably validate API responses with a parser at the fetch boundary — `schema.parse(await res.json())`. `:rf.schema/at-boundary` is that idea, framework-native: the validation lives on the *handler* that receives the payload, survives production elision, and emits the same structured failure trace as every other check — so an untrusted-response shape error reads identically to an internal one in your tooling.
 

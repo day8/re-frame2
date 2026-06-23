@@ -20,7 +20,7 @@ A view reads the current value by deref-ing the subscription:
 @(rf/subscribe [:feed/tag-filter])
 ```
 
-The vector `[:feed/tag-filter]` is the **query vector**: the id plus any arguments. `[:article/by-slug "intro"]` carries one argument. The whole vector arrives as the computation function's second argument, ignored above as `_query`.
+The vector `[:feed/tag-filter]` is the **query vector**: the id plus any arguments. `[:article/by-slug "intro"]` carries one argument. The whole vector arrives as the computation function's second argument — named `_query` above, where the leading underscore is the Clojure convention for "a parameter I'm deliberately ignoring." This sub takes no arguments, so it ignores the query vector entirely.
 
 That little `@` is doing two jobs at once. It unwraps the reactive reference to a plain value, and it registers the deref-ing view as a dependent, so the view re-renders when — and only when — that value changes. The view declared a dependency and walked away. It never polls, and it never listens to a store-wide "something changed" firehose.
 
@@ -39,7 +39,7 @@ A subscription's input doesn't have to be app-db. It can be **another subscripti
 
 | Layer | What it reads | Its one job | Recomputes when |
 |---|---|---|---|
-| **Layer 1 — extractors** | app-db directly | Pluck out a raw slice. No computation. | Every app-db change (to check its gate — see below). |
+| **Layer 1 — extractors** | app-db directly | Pluck out a raw slice. No computation. | Every app-db change (to re-check whether their slice moved — see [The equality gate](#the-equality-gate)). |
 | **Layer 2 — derivations** | Other subs, via `:<-` | Sort, filter, join, shape. | An input sub's value changes by `=`. |
 | **Layer 3+ — compositions** | Other subs, some of them layer 2 | Compose derivations of derivations. | An input sub's value changes by `=`. |
 
@@ -95,7 +95,9 @@ The gate scales further than you'd guess. The [Cells spreadsheet example](../../
 
 ## Watch it prune
 
-Reading about a circuit breaker is one thing; watching one branch stay silent while its neighbour fires is better. Drop this into your app. It's self-contained: two independent app-db slices, one extractor and one derivation per branch, one view reading both. (`rf/reg-view` registers the view and injects the frame-aware `dispatch` / `subscribe` locals its body uses — [Views](views.md) tells that story.)
+Reading about a circuit breaker is one thing; watching one branch stay silent while its neighbour fires is better. Drop this into your app. It's self-contained: two independent app-db slices, one extractor and one derivation per branch, one view reading both.
+
+A few names appear in the code below that this is the first page to use, so here they are in one breath. An **event** is a message you `dispatch` to change state; a **`reg-event`** registers the handler — the function that processes that message and returns the next app-db. **`reg-view`** registers a view component, and injects the frame-aware `dispatch` and `subscribe` locals its body calls (that's why they appear unqualified inside the `reg-view` body — [Views](views.md) tells that story). None of these are the subject of this page; they're just the scaffolding that lets you watch the gate work.
 
 ```clojure
 (rf/reg-event :pulse/initialise
@@ -127,7 +129,7 @@ Reading about a circuit breaker is one thing; watching one branch stay silent wh
    [:button {:on-click #(dispatch [:pulse/tick])} "tick"]])
 ```
 
-Seed it once at boot — `(rf/dispatch-sync [:pulse/initialise])` next to your app's existing init — and mount `[pulse-panel]` somewhere visible. An event is a message you `dispatch` to change state; an event handler is the function that processes it, and `dispatch-sync` runs one immediately so app-db is ready before the first paint.
+Seed it once at boot — `(rf/dispatch-sync [:pulse/initialise])` next to your app's existing init — and mount `[pulse-panel]` somewhere visible. (`dispatch-sync` is the synchronous sibling of `dispatch`: it runs the event immediately rather than enqueuing it, so app-db is seeded before the first paint.)
 
 Now **observe**. With Xray attached (the one-line setup is in [Debug with Xray](../how-to/debug-with-xray.md)), click **tick** a few times, select the newest event row, and open the **Views** tab. It lists each view that re-rendered in that cascade, and under it the subscriptions the view read:
 
@@ -268,9 +270,11 @@ There's a sharper, more robust variant when the `db` shape matters. Instead of h
 
 ```clojure
 (deftest pending-todos-after-events
-  (let [f (rf/make-frame {:id :test})]
-    (rf/dispatch-sync :test [:add-todo {:text "milk"}])
-    (rf/dispatch-sync :test [:add-todo {:text "eggs"}])
+  (rf/with-new-frame [f (rf/make-frame {})]
+    ;; with-new-frame pins f as the current frame for the body, so the
+    ;; dispatches below land in f without naming it each time.
+    (rf/dispatch-sync [:add-todo {:text "milk"}])
+    (rf/dispatch-sync [:add-todo {:text "eggs"}])
     (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/app-db-value f)))))))
 ```
 

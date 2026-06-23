@@ -6,6 +6,8 @@ The whole essay compresses to one sentence:
 
 > **Your language of choice should be Turing complete; your architecture shouldn't be.**
 
+The first half is uncontroversial — of course the language you compute in should be able to express anything. The surprising half is the second: deliberately *withholding* that full power from the shape your app's behaviour flows through, and getting something valuable back in return. That trade is the whole argument, and we'll earn it slowly rather than assert it.
+
 The rest of this page unpacks it — one idea at a time, each building on the last. We start with the problem the inversion solves, state the inversion itself, then cash out what it buys and what it honestly costs.
 
 ## The gravity well: ten years of React state management
@@ -26,9 +28,9 @@ The inversion is one idea. Everything else on this page is a consequence of it.
 
 There is exactly one container of application state: **app-db** (your app's single immutable state map). Something happens — a click, a server reply, a timer fires — and it becomes an **event** (a small vector of data describing what happened). A pure **event handler** (a function from current state plus event to next state) computes the new state. **Subscriptions** — derivations over app-db — recompute the slices views care about. Then, last of all, **views** (render functions that turn subscription values into UI) re-render to match.
 
-Notice what dissolves. There is no "lifting state up," because state was never down in the components in the first place — there is nothing to lift. A view is a render function over subscription values, and that is its entire job. It isn't causal. It doesn't fetch. It doesn't own anything. It's derived from state rather than being the home of state.
+Notice what dissolves. There is no "lifting state up," because state was never down in the components in the first place — there is nothing to lift. A view is a render function over subscription values, and that is its entire job. It doesn't start anything. It doesn't fetch. It doesn't own anything. Nothing *originates* in a view — it's derived from state rather than being the home of state.
 
-> **For JavaScript developers.** Map the loop onto what you already run in your head. The **event** is your action object. The **event handler** is your reducer — but with effects pulled out of it. The **subscription** is your selector. The **view** is your component, minus everything except the `return`. The unfamiliar move isn't any one of those pieces; it's that re-frame2 takes the pieces that normally live *inside* the component — the dispatch wiring, the selectors, the data-fetching effect — and lifts every one of them *out*, so the component is left with nothing to do but render. The instance below makes the analogy precise for Redux users.
+> **For JavaScript developers.** Map the loop onto what you already run in your head. The **event** is your action object. The **event handler** is your reducer — but with effects pulled out of it. The **subscription** is your selector. The **view** is your component, minus everything except the `return`. The unfamiliar move isn't any one of those pieces; it's that re-frame2 takes the pieces that normally live *inside* the component — the dispatch wiring, the selectors, the data-fetching effect — and lifts every one of them *out*, so the component is left with nothing to do but render. The callout below makes the analogy precise for Redux users.
 
 > **Coming from Redux?** You already believe most of this. Redux moved state into one store and made reducers pure — re-frame2 keeps that and finishes the job. The difference is what happens *around* the store. In Redux, `useSelector`, `useDispatch`, and your data-fetching middleware still live inside the component, so the component is still where state, effects, and rendering meet. re-frame2 pulls every one of those out: subscriptions, effects, and the dispatch path all live outside the view, and the view is left with nothing to do but render. Redux got the store right and stopped at the component door; the inversion walks through it.
 
@@ -40,7 +42,7 @@ This is the part that surprises every React-shaped brain on first contact, so do
 
 The reason this matters: a boring view can't be the source of a state bug, because it's downstream of everything and decides nothing. So when the screen is wrong, the cause is in an event handler or a subscription — and those are pure functions you can test with plain data, no DOM required.
 
-That last sentence is the whole payoff, so it's worth making concrete rather than leaving as a promise. Here is the entire causal machinery behind a counter that increments:
+That last sentence is the whole payoff, so it's worth making concrete rather than leaving as a promise. Here is the entire causal machinery behind a counter that increments. Two pieces of vocabulary it leans on, defined once so the code reads clean: a handler receives a **coeffects** map — the inputs it's allowed to see, with the current app-db under `:db` — and returns an **effect map** — a description of what should change, with the next app-db under `:db`. In short: data in, data out, and the runtime does the actual mutating.
 
 ```clojure
 ;; The event handler: (coeffects, event) → effect map. Pure.
@@ -101,7 +103,7 @@ Full power in the language, where you compute things. Minimum power in the archi
 
 ## The ceremony is real
 
-Now the honest part, because it's only fair to put it plainly. A counter in plain React is `useState(5)` and two `onClick`s — six lines. The same counter in re-frame2 is about thirty: three event registrations, a subscription, namespaced ids, a seed dispatch.
+Now the honest part, because it's only fair to put it plainly. A counter in plain React is `useState(5)` and two `onClick`s — six lines. The same counter in re-frame2 is about thirty: three event registrations, a subscription, namespaced ids, and a seed dispatch (one event fired at startup to put the counter's initial value into app-db, since app-db — not the view — is where state lives).
 
 > **If your whole app is a counter, use `useState`.** At counter scale the ceremony is pure overhead, and no framework essay should talk you out of the simpler tool. Godspeed.
 

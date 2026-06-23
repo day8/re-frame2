@@ -22,7 +22,9 @@ Nested maps, vectors, sets, keywords. Ordinary data, no imposed schema. And exac
     {:db (update-in db [:cart :items] conj item)}))
 ```
 
-Read that carefully, because it is the whole immutability story in four lines. The handler does not *change* app-db. `db` — handed in via the coeffects map — is a value, not a mutable cell, so the handler computes a new map from the old one and returns it as the `:db` effect rather than editing in place. The runtime then atomically swaps which value app-db points at. The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy, so the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
+Read that carefully, because it is the whole immutability story in four lines. The handler receives the current map as `db` (pulled out of the argument map by `{:keys [db]}`, Clojure's way of saying "bind the `:db` key to a local named `db`"). It does not *change* that map. `update-in` doesn't edit `db`; it returns a *new* map with one nested spot updated — here, `conj` (add an element) appended onto the items vector. The handler hands that new map back as its `:db` effect rather than editing anything in place.
+
+Then the runtime does the only mutable step in the whole story. The map itself is immutable, but the name `app-db` is a cell that *points* at a map, and the runtime atomically swaps which map it points at — old value out, new value in, in one indivisible move. The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy, so the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
 
 That is the entire shape of state in re-frame2: **structured data in one map; events in, new map out.** You can hold that and start writing apps. The rest of this page is what follows from it.
 
@@ -32,7 +34,7 @@ That is the entire shape of state in re-frame2: **structured data in one map; ev
 
 ### Where the first value comes from
 
-If a handler only ever *transforms* app-db, what hands it the very first one? Every [frame](frames.md) starts with `app-db` equal to the empty map `{}` — there is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same pipeline as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
+If a handler only ever *transforms* app-db, what hands it the very first one? Every [frame](frames.md) — one isolated, independently-running instance of your app, the thing app-db belongs to — starts with `app-db` equal to the empty map `{}`. There is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same pipeline as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
 
 ```clojure
 (rf/reg-frame :app
@@ -86,7 +88,7 @@ A bare `get` can't tell them apart, and the framework preserves the difference w
 
 ## Paths, in five lines
 
-A **path** names a place inside app-db. It is the same vector you already hand to `get-in`:
+A **path** names a place inside app-db. It is the same vector you hand to `get-in` — Clojure's built-in for reaching into a nested map, `(get-in m [:a :b])` being the data-structure cousin of `m.a.b`:
 
 1. A path is a vector of segments: `[:cart :items 0 :qty]`. Vectors are the canonical form.
 2. The empty path `[]` is the root — it addresses the entire map.
@@ -99,7 +101,7 @@ A **path** names a place inside app-db. It is the same vector you already hand t
 
 So far app-db has been the *only* state in the app, and for everything you write that is true: app-db holds your data, events change it, subscriptions read it. You can stop here and be productive. This section is the one piece of the picture you've been promised but not yet seen — and it is worth knowing, because it's the reason your data stays clean.
 
-There is exactly one category of state in a running re-frame2 app that is *not* yours: the bookkeeping the framework keeps for running processes. A state machine's snapshot, the current route, the resource cache and its in-flight work ledger. This is real, per-[frame](frames.md) state — a frame being one isolated, independently-running copy of your app — and it must time-travel and survive the wire like everything else. But it is not application data, and hand-editing it corrupts the process that owns it.
+There is exactly one category of state in a running re-frame2 app that is *not* yours: the bookkeeping the framework keeps for running processes. A state machine's snapshot, the current route, the resource cache and its in-flight work ledger. This is real, per-[frame](frames.md) state — it belongs to a frame just as app-db does — and it must time-travel and survive the wire like everything else. But it is not application data, and hand-editing it corrupts the process that owns it.
 
 So it doesn't live in app-db at all. A frame holds **two partitions**:
 
@@ -128,7 +130,9 @@ The two partitions compose into one **frame-state** value — `{:rf.db/app <app-
 
 ## Classifying a path you own
 
-app-db is *your* data, which means you are also the one who knows when a piece of it is a secret. A path holding an auth token, a session cookie, or scanned PII should not leak into a trace dump, an SSR payload, or a bug report a teammate pastes into chat. re-frame2 lets you mark such a path, and — because the marker is a fact about a path in app-db — you declare it from the same handler that owns the moment the path's meaning is fixed, returning a **classification effect** beside your `:db` write:
+app-db is *your* data, which means you are also the one who knows when a piece of it is a secret. A path holding an auth token, a session cookie, or scanned PII should not leak into a trace dump, an SSR payload, or a bug report a teammate pastes into chat.
+
+So re-frame2 lets you mark such a path as sensitive. Marking is a fact *about* a path in app-db, so you declare it where you already own that path — in the handler, returning a **classification effect** right beside the handler's `:db` write:
 
 ```clojure
 ;; a known secret, classified the moment the frame initialises
@@ -144,7 +148,7 @@ app-db is *your* data, which means you are also the one who knows when a piece o
       (contains-pii? raw) (assoc :sensitive [[:docs doc-id :body]]))))
 ```
 
-There are four of these commit-plane effects, each taking a **vector of paths**:
+There are four of these classification effects — they ride along with the `:db` write at commit time, hence "commit-plane" — each taking a **vector of paths**:
 
 - `:sensitive` — redact each path's value at egress (traces, SSR, tool projections see a marker, never the value)
 - `:large` — flag each path as too big to ship inline; egress carries a size marker instead

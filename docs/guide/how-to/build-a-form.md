@@ -1,12 +1,14 @@
 # Build a form
 
-You're adding a form — a login, a signup, a settings panel, an editor. What you want is a draft the user types into, validation, a submit round-trip, and server rejections shown next to the right fields. This page is the recipe for that whole lifecycle, so you don't have to reinvent it every time: one app-db slice shape, seven events, and one rule for when errors become visible. (app-db is your app's single state map; an event is a named record of something that happened, like a keystroke or a submit.)
+You're adding a form — a login, a signup, a settings panel, an editor. What you want is a draft the user types into, validation, a submit round-trip, and server rejections shown next to the right fields. This page is the recipe for that whole lifecycle, so you don't have to reinvent it every time: one state shape, seven events, and one rule for when errors become visible.
+
+Three words up front, because the rest of the page leans on them. **app-db** is your app's single state map — everything the app knows lives in there. A **slice** is just the corner of that map a feature owns (this form's slice is the corner under `[:auth :login]`). And an **event** is a named record of something that happened — a keystroke, a blur, a submit — that you dispatch into the framework to change state. Those three carry the whole page.
 
 Here's the thing about forms: they look trivial and turn out to be one of the buggier corners of any UI. When does an error appear — on the first keystroke, on blur, on submit? Where do *server* validation failures show up versus client ones? What makes the submit button live? Get these wrong and you ship a form that yells "required!" at a user who hasn't typed a single character. So before any code, one rule carries the whole page, and everything else is just plumbing around it:
 
 > **A field's errors show when the field is touched OR a submit was attempted — one rule, one one-way latch, encoded in exactly one sub.**
 
-We'll build the simplest thing that works first — a login form that validates the whole draft when you press submit — and only then layer on the trimmings (cross-field rules, per-field and async validation, server rejections). The running example lives at `[:auth :login]`. A form slice always lives under its feature's key, which keeps the whole feature's state in one inspectable place.
+We'll build the simplest thing that works first — a login form that validates the whole draft when you press submit — and only then layer on the trimmings (cross-field rules, per-field and async validation, server rejections). The running example lives at `[:auth :login]` — that vector is a *path* into app-db, the same way `["auth"]["login"]` would be in a nested object. A form's slice always lives under its feature's key like this, which keeps the whole feature's state in one inspectable place.
 
 > **From re-frame v1.** v1 shipped no forms library, and neither does v2 — a form was, and still is, hand-rolled from the same primitives as everything else. What's new is that the hand-rolling now follows a *named convention* (this slice shape), the writes are *schema-guarded* so a malformed draft fails at the handler that wrote it, and handlers take the effects-map shape — `(fn [{:keys [db]} _] {:db ...})` instead of v1's `reg-event-db` `(fn [db _] ...)`. If you wrote forms in v1, you already know the moves; this page just gives them a standard skeleton.
 
@@ -73,7 +75,7 @@ With those bound, a `:status` outside the enum, or a malformed draft, now fails 
 
 ## 2. Register the events
 
-Everything that can happen to a form is one of seven events. That's not arbitrary minimalism — it's the full lifecycle, and naming each step means every transition is a discrete, inspectable row in the trace rather than a tangle of `setState` calls:
+Everything that can happen to a form is one of seven events. That's not arbitrary minimalism — it's the full lifecycle, and naming each step means every transition is a discrete row in *the trace* (the framework's running log of every event that fired, which you can scrub through in the Xray dev tool) rather than a tangle of `setState` calls:
 
 | Event | Job |
 |---|---|
@@ -118,7 +120,7 @@ Before submit, we need a validator. The convention fixes only the *result* shape
 
 ### Submit validates and latches
 
-Only when the draft is clean does submit fire the request through [managed HTTP](../concepts/http.md) — an effect that performs the network call for you and dispatches a result event when it returns. (An effect is a description of a side-effect the framework runs on your behalf, which keeps your handler pure and easy to test.)
+The submit handler stays a pure function — `db` in, a map out — even though submitting clearly *does* something to the outside world. The trick is that the handler doesn't make the network call; it *describes* one. An **effect** is exactly that: a piece of data describing a side-effect you want the framework to run on your behalf, which is what keeps the handler pure and easy to test. So only when the draft is clean does submit ask for the [managed HTTP](../concepts/http.md) effect — which performs the network call for you and dispatches a result event when it returns:
 
 ```clojure
 (rf/reg-event :form.login/submit
@@ -141,11 +143,13 @@ Only when the draft is clean does submit fire the request through [managed HTTP]
         {:db (assoc-in db' [:auth :login :errors] errors)}))))
 ```
 
+The map this handler returns has two keys worth naming: `:db` is the new app-db, and `:fx` is the list of effects to run — here, one `:rf.http/managed` request. (The clean branch returns both; the invalid branch returns only `:db`, because there's nothing to send.)
+
 Read the latch line carefully: `:submit-attempted?` flips to `true` on the way into *both* branches, valid or not. That's the whole trick behind the visibility rule in step 3 — the moment the user first presses submit, every invalid field is allowed to speak, whether or not they ever visited it.
 
 ### The success reply
 
-When the call succeeds, the reply arrives as the event's last argument, shaped `{:kind :success :value <decoded body>}`:
+When the call succeeds, the reply arrives as the event's last argument, a map shaped `{:kind :success :value <decoded body>}`. The handler's argument list `[_ {:keys [value]}]` is Clojure destructuring: `_` ignores the event id, and `{:keys [value]}` pulls the `:value` key straight out of that reply map into a local named `value`.
 
 ```clojure
 (rf/reg-event :form.login/submit-success
@@ -164,7 +168,11 @@ Snapshotting `:draft` into `:submitted` here is what makes `:dirty?` work later:
 
 ### The failure reply — the validation-vs-transport split
 
-The failure handler has to sort two genuinely different kinds of failure, and this is the second load-bearing rule: **structured server rejections land in `:errors`, rendered by the same subs and markup as client-side validation; transport failures land in `:submit-error` as one opaque "couldn't reach the server" value.** The failure reply is shaped `{:kind :failure :failure {...}}`, and the inner failure map carries a `:kind` drawn from the closed `:rf.http/*` category set — `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. A 4xx carries the raw response text under `:body`, because managed HTTP skips decoding on a non-2xx response — so parsing the server's validation body is one line of glue.
+The failure handler has to sort two genuinely different kinds of failure, and this is the second load-bearing rule: **structured server rejections land in `:errors`, rendered by the same subs and markup as client-side validation; transport failures land in `:submit-error` as one opaque "couldn't reach the server" value.**
+
+So the handler needs to tell those two apart. The failure reply is shaped `{:kind :failure :failure {...}}`, and the inner failure map carries a `:kind` drawn from a *closed* set of `:rf.http/*` categories — `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. That `:kind` is the discriminator: a 4xx with a parseable validation body is the structured case; everything else is transport.
+
+One detail makes the structured case easy: a 4xx carries the raw response text under `:body`, because managed HTTP skips decoding on a non-2xx response. So parsing the server's validation body is one line of glue.
 
 ```clojure
 (defn server-field-errors
@@ -316,7 +324,7 @@ The visibility rule lives in `:field-error` and nowhere else, which means it can
 
 ## 4. Write the view — which is almost nothing
 
-A view is the function that renders UI from subscriptions. `reg-view` injects frame-bound `dispatch` and `subscribe` as lexical bindings — `dispatch` sends an event, `subscribe` reads a sub — so the view body just uses them bare:
+A view is the function that renders UI from subscriptions. `reg-view` hands the view body two functions ready to use, already wired to this view's frame: `dispatch` sends an event, and `subscribe` reads a sub. The leading `@` you'll see on every `@(subscribe ...)` is Clojure's *deref* — `subscribe` returns a live, reactive reference, and `@` reads its current value (and quietly re-renders the view whenever that value changes). So `@(subscribe [:form.login/draft])` means "give me the current draft, and keep this view in sync with it":
 
 ```clojure
 (rf/reg-view login-form []
@@ -365,7 +373,7 @@ Run this list on any form before you call it done (the normative card in [Patter
 - Submit button disabled when `:can-submit?` is false.
 - Server-side validation mirrors the client schema where it applies.
 
-Want a worked audit target? Read RealWorld's [auth.cljs](../../../examples/reagent/realworld/). Its login and register forms follow this recipe, with submit handed off to an auth state machine.
+Want a worked audit target? Read RealWorld's [auth.cljs](../../../examples/reagent/realworld/auth.cljs). Its login and register forms follow this recipe, with submit handed off to an auth state machine.
 
 ## When a form slice is wrong
 

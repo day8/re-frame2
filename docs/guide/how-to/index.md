@@ -4,13 +4,13 @@ You've got a working app and one specific task in front of you. Each page here i
 
 > **Find the task, follow the recipe, link down for the contract.**
 
-These recipes assume you've already built something — the [quick start](../quickstart.md) is enough to get you there — and that you can read the loop at a glance. [The model](../concepts/index.md) covers that in a single page, and it's worth the few minutes, because every recipe leans on the same six-step shape. Each recipe ends with links *down*: to the concept page for *why* it's built this way, and to the spec for *every* option when you need them.
+These recipes assume you've already built something — the [quick start](../quickstart.md) is enough to get you there — and that the re-frame2 loop is familiar to you. By *the loop* we mean the six-step cycle every re-frame2 app runs on: an event is dispatched, a handler turns it into a new state and a set of effects, those effects run, and subscriptions push the changed state back to the view. [The model](../concepts/index.md) walks through all six steps in a single page, and it's worth the few minutes, because every recipe below is just one of those steps filled in for a real feature. Each recipe ends with links *down*: to the concept page for *why* it's built this way, and to the spec for *every* option when you need them.
 
 The recipes are grouped by where they sit in the life of an app — **build it**, then **test it**, then, when something's off, **debug it**, and finally **ship it** to production. You don't read them in order; you drop into the one group that matches what's in front of you right now. Each recipe is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
 
 ## Build it
 
-This is where most of your time goes: turning a feature request into the loop's six dominoes. Each recipe takes one common feature — a form, a paginated feed, a write that has to refresh the right reads — and shows the complete slice: the events, the subs, the effects, and the view, with nothing left as an exercise.
+This is where most of your time goes: turning a feature request into the steps of the loop. Each recipe takes one common feature — a form, a paginated feed, a write that has to refresh the right reads — and shows the complete slice: the events, the subs, the effects, and the view, with nothing left as an exercise.
 
 | I want to… | Recipe |
 |---|---|
@@ -22,7 +22,7 @@ This is where most of your time goes: turning a feature request into the loop's 
 
 ## Test it
 
-re-frame2's payoff at test time is that the interesting parts of your app are pure functions, so you can test them as functions — no browser, no DOM, no mocking framework standing between you and the assertion. The two recipes here climb one rung at a time: first the smallest unit (a single handler), then the whole cascade (state, effects, and the events one dispatch fans out into).
+re-frame2's payoff at test time is that the interesting parts of your app are pure functions, so you can test them as functions — no browser, no DOM, no mocking framework standing between you and the assertion. The two recipes here climb one rung at a time: first the smallest unit (a single handler), then the *whole cascade* — the new state, the effects, and any further events that one dispatch sets off, all checked together.
 
 | I want to… | Recipe |
 |---|---|
@@ -31,7 +31,7 @@ re-frame2's payoff at test time is that the interesting parts of your app are pu
 
 ## Debug it
 
-When the app does something you didn't ask for, you don't reach for `println` — you read the one wire every event already crosses. These recipes are how: replaying *why* a change happened, and tracking down a view that recomputes more than it should.
+When the app does something you didn't ask for, you don't reach for `println` — you read the trace. Because every event flows through the same loop, re-frame2 records each one on a single timeline, so the whole story of *why* a change happened is already written down, waiting to be replayed. These recipes are how: replaying that timeline, and tracking down a view that recomputes more than it should.
 
 | I want to… | Recipe |
 |---|---|

@@ -28,13 +28,13 @@ Here's a complete, registered interceptor. It logs each event on the way in, and
 
 You register an interceptor the same way you register an event or a sub: give it a **qualified keyword id** (`:my-app/logger`), an optional metadata map (`{:doc ...}`), and then its behaviour — a **descriptor** map carrying a `:before` function, an `:after` function, or both. `:before` runs on the way in; `:after` runs on the way out.
 
-Each function takes one argument, `ctx` — the **context** — and returns it (possibly modified). That single value is the only channel an interceptor has: `:before` here stashes the start time under a namespaced key, and its own `:after` reads it back. No closures, no side atoms.
+Each function takes one argument, `ctx` — the **context** — and returns it (possibly modified). That single value is the only channel an interceptor has: `:before` here stashes the start time on the context, and its own `:after` reads it back. (That `::started-at` key, with the double colon, is just Clojure shorthand for a keyword namespaced to the current file — a safe place to park scratch data without colliding with anyone else's keys.) No closures, no side atoms.
 
 Three small things trip people up the first time:
 
 - **The context is the only channel.** Each dispatch gets its own fresh context map, which is why the same interceptor is safe even on events that overlap in time.
 - **The id is the handle.** Once registered, `:my-app/logger` *is* the interceptor everywhere — chains reference it by id, the trace stream and Xray name it by id, overrides find it by id. There is no anonymous interceptor to lose track of.
-- **Both slots must return the context.** A slot that returns `nil` reads as "unchanged". That works by accident in a log-only slot — right up until you also `assoc` something and the accident becomes a heisenbug. Always end with `ctx`.
+- **Both slots must return the context.** ("Slot" is just a handy name for one of the two functions — the `:before` or the `:after`.) A slot that returns `nil` reads as "unchanged". That works by accident in a log-only slot — right up until you also `assoc` something and the accident becomes a heisenbug. Always end with `ctx`.
 
 > **For JavaScript developers.** If you've written Express or Koa middleware, you have most of the picture: layers around one core action, each touching things on the way in and on the way out — Koa's "onion". Three things differ. There's no `next()` — the chain isn't control flow you thread by hand; it's a fixed vector the runtime sweeps forward then backward. What flows through isn't a mutable request/response object — it's an immutable map you return a new version of. And Express middleware *does* things (writes headers, ends responses); a re-frame2 interceptor *describes* things and lets the runtime do them. That last difference is the rule at the top of this page.
 
@@ -42,7 +42,7 @@ Three small things trip people up the first time:
 
 ## Attaching it to a handler
 
-Registering an interceptor doesn't run it — you have to put it in a handler's chain. A chain is the `:interceptors` key in an event's metadata, and it carries interceptor **references**, not interceptor values:
+Registering an interceptor doesn't run it — you have to put it in a handler's **chain**. A chain is the `:interceptors` key in the event's registration map, and it carries interceptor **references**, not interceptor values:
 
 ```clojure
 (rf/reg-event :cart.item/add
@@ -64,7 +64,7 @@ We've been reaching into `ctx` with `get-in [:coeffects :event]`. Time to look a
 
 | Key | Holds | Filled by |
 |---|---|---|
-| `:coeffects` | The handler's **inputs**: `:event`, `:db`, plus each world fact the handler declared with `:rf.cofx/requires` — flat, under its own id | The runtime — completely, *before* the chain runs |
+| `:coeffects` | The handler's **inputs**: `:event`, `:db`, plus each world fact the handler declared with [`:rf.cofx/requires`](effects-and-coeffects.md) — flat, under its own id | The runtime — completely, *before* the chain runs |
 | `:effects` | The handler's **outputs**: the new `:db`, the `:fx` vector | The handler; then decorated by `:after` stages on the way out |
 
 Caught mid-pipeline, just after the handler has run, the map looks like this:
@@ -143,7 +143,7 @@ That second point hides the real reason `path` is a *framework* interceptor and 
 
 ### Parameterized interceptors: the `:factory` descriptor
 
-`path` is the standard parameterized interceptor, but the mechanism is open — you can register your own parameterized family with a fourth descriptor shape, `{:factory f}`. A `:factory` function receives the reference's **one** `arg` and returns a static descriptor built for it:
+`path` is the standard parameterized interceptor, but the mechanism is open — you can register your own parameterized family too. So far a descriptor has been one of three shapes: `:before`, `:after`, or both. There's a fourth, `{:factory f}`. A `:factory` function receives the reference's **one** `arg` and returns one of those plain `:before`/`:after` descriptors, built for that arg:
 
 ```clojure
 ;; A stamp factory: each reference configures WHICH metadata key gets stamped
@@ -202,7 +202,7 @@ Because the id is the handle, a test can silence or swap one interceptor without
 
 Matching is by the *full* reference, so a parameterized entry is named in full — `{[:rf.interceptor/path [:cart]] nil}` removes only *that* `path`, leaving a sibling `[:rf.interceptor/path [:cart :items]]` untouched. The override values are references too, never inline values, which keeps story, test, SSR, and tool override state serializable and inspectable.
 
-When both a frame and a dispatch supply overrides, they **merge, and the per-call one wins** (frame overrides `<` dispatch-opts overrides). A frame might swap your auth guard for a permissive stub by default, and one test dispatch can still re-swap it for that single call. A malformed override — a key or replacement that isn't a valid reference — is rejected loudly with `:rf.error/interceptor-override-invalid`.
+When both a frame and a dispatch supply overrides, they **merge, and on any key they both touch the per-call one wins** — the frame sets the default, the dispatch gets the last word. A frame might swap your auth guard for a permissive stub by default, and one test dispatch can still re-swap it for that single call. A malformed override — a key or replacement that isn't a valid reference — is rejected loudly with `:rf.error/interceptor-override-invalid`.
 
 > **From re-frame v1.** Per-dispatch *additive* `:interceptors` is gone. Authored behaviour has exactly two homes — event metadata and frame metadata — and per-call variation is expressed by *overriding a named reference*, not by appending an anonymous one. That keeps the per-call surface serializable too.
 

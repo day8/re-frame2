@@ -48,6 +48,8 @@ This is the first load-bearing idea, and it's the one that trips people up comin
 
 It runs as a pure function: the coeffects (the facts it's handed — `:db` among them) and the event in, an **effect map** out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../how-to/test-an-event-handler.md) is exactly this).
 
+> **New to Clojure?** A few bits of syntax to read that handler. The first argument `{:keys [db]}` is *destructuring* — it pulls the `:db` entry out of the incoming coeffects map and binds it to a local named `db`, so you don't write `(:db cofx)` by hand. The second argument is named `_event`: a leading underscore is the Clojure convention for "an argument I'm required to accept but don't use here." And `(update db :counter/value inc)` returns a *new* map, a copy of `db` with `:counter/value` run through `inc` (increment) — it never mutates the original. Returning a fresh value rather than editing in place is the move that keeps the handler pure.
+
 **3 — Effects come out, as data.** The handler returned an **effect map** — a description of what should happen, expressed as data:
 
 ```clojure
@@ -67,7 +69,7 @@ Pause here, because it reframes what a handler is. Even our trivially pure handl
 
 It computes `6`, which differs from its previous `5`, so everything watching it is marked for re-render. Had the value come out unchanged, nothing downstream would run at all. That economy is [the subscription graph's](subscriptions.md) whole subject.
 
-**6 — The view re-renders.** The view — the function that turns subscribed values into the markup on screen — deref's `@(rf/subscribe [:counter/value])` and re-runs. It produces new hiccup with a `6` where the `5` was. The substrate diffs and patches that one DOM node. The screen shows `6`.
+**6 — The view re-renders.** The view — the function that turns subscribed values into the markup on screen — reads its subscription with `@(rf/subscribe [:counter/value])` and re-runs. (`@` is Clojure's *deref*: a subscription is a live reference to a derived value, and `@` reads its current value. When that value changes, the view re-runs.) The view produces fresh **hiccup** — Clojure's plain-data notation for markup, where `[:button {...} "+"]` stands for a `<button>` element — now with a `6` where the `5` was. The **substrate** — the React-family renderer underneath (Reagent, UIx, or Helix) — diffs the old hiccup against the new and patches just that one DOM node. The screen shows `6`.
 
 One event, six steps. The same path runs under every event your app will ever process: a login, a websocket message, a route change. The machine doesn't grow new paths as the app grows. You just register more handlers.
 
@@ -135,6 +137,8 @@ Here is the same load, written so the handler stays pure. An effect, here, is a 
              (assoc :article/load-error failure))}))
 ```
 
+(One more piece of syntax in those last two handlers: `(-> db (assoc :a 1) (assoc :b 2))` is the *thread-first* macro. It reads top-to-bottom — take `db`, hand it to the first `assoc`, hand *that* result to the next — so it's a pipeline of "return a copy of the map with this key set," each step feeding the next. Same purity rule as before: every `assoc` produces a new map; nothing is mutated.)
+
 The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a managed HTTP request, on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` effect handler, and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
 
 The runtime appends one uniform **reply map** as the event's last argument. On success it carries `{:kind :success :value <decoded-body>}`; on failure `{:kind :failure :failure <failure-map>}`, where that inner `:failure` map carries its own `:kind` naming the failure category. So a success handler reaches for `:value`, a failure handler for `:failure`. Every managed async surface (HTTP, resources, route loaders, machine work) replies in that one shape, so you learn it once.
@@ -156,7 +160,7 @@ The `:rf.http/managed` effect takes a single args map. Beyond the four keys abov
 
 The full reference card — every slot, its default, and which failure category a bad value classifies into — lives in [Spec 014 §The args map](../../../spec/014-HTTPRequests.md#the-args-map).
 
-> **The co-located form.** If a request and its reply genuinely belong together, you can *omit* `:on-success` / `:on-failure`. Then the reply routes back to the originating event id, with the payload merged under an `:rf/reply` key, and one handler branches on `(:rf/reply event)` to play both roles. Two explicit targets is the recommended default — it makes the failure path impossible to overlook — but the co-located form is there when the split would only scatter related code.
+> **The co-located form.** If a request and its reply genuinely belong together, you can *omit* `:on-success` / `:on-failure`. Then the reply routes back to the originating event id, with the payload merged under an `:rf/reply` key on the appended message argument, and one handler branches on `(:rf/reply msg)` to play both roles. Two explicit targets is the recommended default — it makes the failure path impossible to overlook — but the co-located form is there when the split would only scatter related code.
 
 Two notes before moving on:
 
