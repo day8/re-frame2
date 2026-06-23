@@ -1,0 +1,87 @@
+;; Conformance fixture: machine/output-schema-validates
+;;
+;; Per [005 §Completion-output validation](../../005-StateMachines.md#completion-output-validation)
+;; and EP-0029 A8 (rf2-kgr3kk). A machine may declare a `[:schemas :output]`
+;; schema on its `:schemas` map. It validates the COMPLETION-OUTPUT payload —
+;; the `result` the finishing machine selects from its final state's `:data`
+;; via `:output-key` (the value the parent's `:on-done` receives). There is
+;; no long-lived `:output` snapshot slot: completion is an event, so the
+;; payload is validated AT FINALIZE TIME, when the value is computed and
+;; before it rides the `:rf.machine/done` trace.
+;;
+;; Best-effort fail-loud: the machine has ALREADY reached its final state
+;; when output is validated, so a violation emits the boundary trace LOUDLY
+;; but the completion STILL FLOWS — nothing to roll back (`:rollback? false`).
+;; A schema typo on a completion payload surfaces the mismatch; it never
+;; deadlocks a finishing machine.
+;;
+;; The boundary reuses the existing `:rf.error/schema-validation-failure` op
+;; with the `:where :machine-output` value and `:phase :completion` — the
+;; same op the `:where :machine-data` boundary extends. Validation routes
+;; entirely through the optional late-bound `:schemas/validate-with-
+;; registered-fn` adapter (machine core requires no schema library); a host
+;; with no registered validator pays zero cost and emits no trace.
+;;
+;; Dynamic-host only — statically typed hosts catch the shape mismatch at
+;; compile time and produce no runtime trace. Static-host harnesses skip
+;; this fixture.
+
+{:fixture/id           :machine/output-schema-validates
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/final-states :core/error
+                         :core/trace :schemas/runtime}
+ :fixture/doc          "A singleton machine declaring [:schemas :output] [:int] reaches a :final? leaf whose :output-key payload is a string (violates [:int]). At finalize time the runtime emits :rf.error/schema-validation-failure with :where :machine-output, :phase :completion, the offending :value, and :rollback? false — and the machine STILL finishes (best-effort fail-loud). A conforming output (an int) emits no such trace."
+ :fixture/dynamic-host-only? true
+
+ :fixture/registry
+ {:event {:out/finish-bad  {:doc "Machine-as-event-handler; its final-state :output-key payload violates [:schemas :output]."}}
+  :machine-action
+  {:out/store-bad {:doc "Transition action writes a STRING into the :output-key :data slot (violates [:int])."}}
+  ;; The machine spec is registered via re-frame.machines/reg-machine. Its
+  ;; [:schemas :output] schema validates the COMPLETION-OUTPUT payload (the
+  ;; :output-key :result slot), NOT the whole :data map. The runner merges
+  ;; the realised :machine-action body into the spec's :actions slot.
+  :machine
+  {:out/finish-bad {:initial :running
+                    :data    {:result 0}
+                    :schemas {:output [:int]}
+                    :states  {:running {:on {:finish {:target :done
+                                                      :action :out/store-bad}}}
+                              :done    {:final?     true
+                                        :output-key :result}}}}}
+
+ :fixture/handlers
+ ;; Action signature (Spec 005 §Actions): (fn [{:keys [data event]}] {:data …}).
+ ;; [:set [:result] "nope"] writes a string into the :output-key slot, so the
+ ;; completion-output payload "nope" violates the declared [:schemas :output]
+ ;; [:int].
+ {:machine-action
+  {:out/store-bad [[:set [:result] "nope"]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ ;; The outer event [:out/finish-bad [:finish]] yields inner-event [:finish]
+ ;; inside the handler, triggering the :running → :done transition whose
+ ;; action writes the violating "nope" into :result. Entering the :final?
+ ;; :done leaf finalizes the singleton: the runtime reads the :output-key
+ ;; payload ("nope") and validates it against [:schemas :output] [:int].
+ [[:out/finish-bad [:finish]]]
+
+ :fixture/expect
+ ;; The completion-output violation emits exactly one
+ ;; :rf.error/schema-validation-failure with :where :machine-output and
+ ;; :phase :completion, carrying the offending payload and :rollback? false.
+ ;; The matcher partial-matches the trace by its named keys and matches the
+ ;; map-valued :tags one level deep.
+ {:trace-emissions
+  [{:operation :rf.error/schema-validation-failure
+    :op-type   :error
+    :tags      {:category   :rf.error/schema-validation-failure
+                :where      :machine-output
+                :machine-id :out/finish-bad
+                :failing-id :out/finish-bad
+                :phase      :completion
+                :value      "nope"
+                :rollback?  false}
+    :recovery  :no-recovery}]}}

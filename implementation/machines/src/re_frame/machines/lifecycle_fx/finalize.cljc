@@ -37,6 +37,7 @@
   call-sites."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.machines.classification :as classification]
+            [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.resource-release :as resource-release]
             [re-frame.machines.lifecycle-fx.spawn-error :as spawn-error]
@@ -259,6 +260,25 @@
                       parallel?                   (parallel-output-key machine (:state next-snapshot) frame-id machine-id)
                       :else                       (:output-key error-node))
         result      (when output-key (get child-data output-key))
+        ;; EP-0029 A8 — validate the COMPLETION-OUTPUT payload against the
+        ;; finishing machine's `[:schemas :output]` schema, if declared. The
+        ;; `result` selected from the final state's `:data` via `:output-key`
+        ;; IS the completion-event payload (the value the parent's `:on-done`
+        ;; receives) — there is no long-lived `:output` snapshot slot, so the
+        ;; validation happens HERE at finalize time, when the value is
+        ;; computed and BEFORE it rides the `:rf.machine/done` trace / the
+        ;; parent `:on-done` callback below. Best-effort fail-loud: the
+        ;; machine has already finished (post-completion observation), so a
+        ;; violation emits the `:where :machine-output` boundary trace but the
+        ;; completion still flows — nothing to roll back (`:rollback? false`).
+        ;; Routes through the SAME late-bound `:schemas/validate-with-
+        ;; registered-fn` adapter the `:where :machine-data` boundary uses; an
+        ;; app with no schema adapter pays zero cost. `machine` is the
+        ;; finishing actor's runtime-stamped spec held directly by this
+        ;; cascade, so the `[:schemas :output]` schema resolves off it without
+        ;; a registrar / snapshot lookup. Production-elided
+        ;; (`interop/debug-enabled?`-gated inside the validator).
+        _           (data-validation/validate-completion-output! machine-id machine result)
         ;; Per Spec 005 §Final states §`:on-error` (XState v5 invoke
         ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a
         ;; designated ERROR terminal. When a `:spawn`-spawned child finishes

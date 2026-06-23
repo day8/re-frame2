@@ -503,11 +503,11 @@ a machine spec MAY declare a machine-level **`:schemas`** map (EP-0029 A3). The 
 |---|---|---|
 | `:data` | **live, wired** | the machine's working memory — exactly the data-context schema, validated at the `:where :machine-data` boundary (this section). |
 | `:events` | declaration-only | machine event payloads. A machine-local home because machine events are handled by the machine's own `:on` table and dispatched as `[:machine-id [:inner-event ...]]` — `reg-event`'s `:schema` validates registered top-level events and cannot reach a machine's internal event vocabulary, so `[:schemas :events]` is additive, not a synonym for it. |
-| `:output` | declaration-only | the completion payload selected from a final state's `:data` via `:output-key` (the `result` the parent's `:on-done` receives — see [§Final states](#final-states-final--on-done--output-key)). |
+| `:output` | **live, wired** | the completion-output payload selected from a final state's `:data` via `:output-key` (the `result` the parent's `:on-done` receives — see [§Final states](#final-states-final--on-done--output-key)), validated at the `:where :machine-output` boundary (see [§Completion-output validation](#completion-output-validation) below). |
 | `:tags` | declaration-only | the machine's closed tag vocabulary. |
 | `:meta` | declaration-only | state/machine metadata shape. |
 
-The **declaration-only** categories are accepted as part of the single-home machine contract — their `<schema>` values stay abstract — but carry **no wired behaviour** this wave. (The `[:schemas :output]` → completion-payload binding lands in a later EP-0029 wave.) Any **unknown** sub-key fails loud at registration with `:rf.error/machine-bad-schemas-key`; a **non-map** `:schemas` fails with `:rf.error/machine-bad-schemas`. `[:schemas :input]` is **not** accepted — state input is not adopted (a future addition would re-open it), so declaring it fails loud rather than no-opping.
+The **declaration-only** categories (`:events` / `:tags` / `:meta`) are accepted as part of the single-home machine contract — their `<schema>` values stay abstract — but carry **no wired behaviour** yet. `:data` (this section) and `:output` ([§Completion-output validation](#completion-output-validation)) are wired. Any **unknown** sub-key fails loud at registration with `:rf.error/machine-bad-schemas-key`; a **non-map** `:schemas` fails with `:rf.error/machine-bad-schemas`. `[:schemas :input]` is **not** accepted — state input is not adopted (a future addition would re-open it), so declaring it fails loud rather than no-opping.
 
 **Schema-library-agnostic — validation is optional.** A `<schema>` value is **opaque**: machine core never interprets it and requires **neither Malli nor JavaScript Standard Schema**. `[:schemas :data]` validation runs entirely through an OPTIONAL late-bound validator adapter — the registered `:schemas/validate-with-registered-fn` hook. A Malli adapter (the framework default) interprets Malli values; a project with no schema adapter still uses the `:schemas` grammar, paying zero validation cost (the hot path short-circuits when no validator is registered). The declaration grammar and the optional validator adapter are fully decoupled.
 
@@ -545,6 +545,41 @@ Consumers route on `:where` — the existing Issues triage, Xray projections, sc
 **Production builds.** Per [010 §Production builds](010-Schemas.md#production-builds), the validation site is gated by `re-frame.interop/debug-enabled?` and DCEs to a no-op under `:advanced` + `goog.DEBUG=false`. The boundary is dev-only by default; apps needing production validation at system boundaries reach for the `:rf.schema/at-boundary` interceptor on the specific events that ingest untrusted machine `:data` (e.g. an SSR-hydrate that restores machine snapshots from the wire).
 
 **Cross-reference.** Per [010 §Per-step recovery row 7](010-Schemas.md#per-step-recovery), this boundary is row 7 of the per-step recovery table; the `:where :machine-data` value is the closed-set extension to [Spec-Schemas §`SchemaValidationTags`](Spec-Schemas.md#per-category-tags-schemas). The two paragraphs at [§Where snapshots live](#where-snapshots-live) (schema composition) and in §What the Single Store gives us for free (the Schema-validation bullet) describe this surface as fact.
+
+<a id="completion-output-validation"></a>
+
+#### Completion-output validation (`[:schemas :output]` → the `:where :machine-output` boundary)
+
+`[:schemas :output]` (EP-0029 A8) schemas the machine's **completion-output payload** — the `result` a finishing machine selects from its final state's `:data` via [`:output-key`](#final-states-final--on-done--output-key) and delivers to the spawning parent's `:on-done` callback. re-frame2 keeps **no long-lived `:output` snapshot slot** (deliberately unlike XState v6's `snapshot.output` — see [§Final states](#final-states-final--on-done--output-key)): completion is an event, so the output **flows as the completion-event payload**. The schema therefore validates that payload **at finalize time** — when the `result` is computed, immediately before it rides the `:rf.machine/done` trace and drives the parent's `:on-done`.
+
+**The payload, not a snapshot field.** `[:schemas :output]` validates the `result` value — `(get-in child-snapshot [:data <output-key>])` — NOT the whole `:data` map (that is `[:schemas :data]`'s job) and NOT a persistent field. A machine with no `:output-key` on its final state produces a `nil` `result`; a `[:schemas :output]` schema that admits `nil` (or no `[:schemas :output]` schema at all) passes that vacuously.
+
+**Best-effort fail-loud — no rollback.** The machine has **already reached its final state** when output is computed; the auto-destroy cascade is already running. A `[:schemas :output]` violation is therefore a **post-completion observation**: it emits the boundary trace loudly (so a mismatched completion payload surfaces as a bug in dev), but the completion **still flows** — the `:on-done` payload and the `:rf.machine/done` trace are unchanged, and there is **nothing to roll back** (`:rollback? false`). This is the post-commit best-effort asymmetry (parity with the [FX-atomicity posture](009-Instrumentation.md) — pre-commit transactional, post-commit best-effort): a schema typo on a completion payload must not be able to *deadlock* a finishing machine, only to *surface* the mismatch.
+
+**Schema-library-agnostic, same adapter.** Validation routes ENTIRELY through the same optional late-bound `:schemas/validate-with-registered-fn` adapter the `:where :machine-data` boundary uses — `[:schemas :output]`'s `<schema>` value is opaque, machine core interprets nothing, and an app with no schema adapter pays zero cost (the hot path short-circuits when no validator is registered).
+
+**Failure trace.** The boundary reuses the existing `:rf.error/schema-validation-failure` op with the `:where :machine-output` value and `:phase :completion`:
+
+```clojure
+{:op   :rf.error/schema-validation-failure
+ :tags {:where      :machine-output
+        :failing-id <machine-id>
+        :machine-id <machine-id>
+        :phase      :completion                  ;; the one machine-output phase
+        :value      <failing-output-payload>     ;; the :output-key result; redactable per Spec 010 §`:sensitive?`
+        :received   <failing-output-payload>
+        :schema     <the registered [:schemas :output] schema verbatim>
+        :explain    <validator's explainer output>
+        :rollback?  false                        ;; the machine already finished — nothing to roll back
+        :recovery   :no-recovery
+        :reason     "Machine <id> completion output (the :output-key payload) failed schema..."}}
+```
+
+The value-bearing slots (`:value` / `:received` / `:explain`) route through the same `:schemas/redact-validation-tags` seam, so a `[:schemas :output]` schema that marks an output slot `:sensitive?` scrubs it before the trace fires.
+
+**Production builds.** Per [010 §Production builds](010-Schemas.md#production-builds), the validation site is `re-frame.interop/debug-enabled?`-gated and DCEs to a no-op under `:advanced` + `goog.DEBUG=false` — parity with the `:where :machine-data` boundaries (dev-only by default, zero production cost).
+
+**Parallel machines.** A parallel machine's `:output-key` may live on any region's final leaf (the cross-region scan — see [§Final states](#final-states-final--on-done--output-key)); the resolved `result` is validated against the one machine-level `[:schemas :output]` schema regardless of which region designated it.
 
 #### `[:schemas :data]` is the re-frame2 analog of XState typed context
 
