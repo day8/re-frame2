@@ -29,7 +29,8 @@
   top-level dispatch."
   (:require [re-frame.error :as error]
             [re-frame.machines.grammar :as grammar]
-            [re-frame.machines.parallel :as parallel]))
+            [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.timeout :as timeout]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -91,30 +92,30 @@
       :else                  false)))
 
 (defn- validate-no-spawn-timeout-ms!
-  "Per Spec 005 §Wall-clock timeouts on :spawn — `:timeout-ms` /
-  `:on-timeout` on `:spawn` / `:spawn-all` are rejected: registration throws
-  `:rf.error/spawn-timeout-ms-removed`. Express a wall-clock spawn timeout
-  via the parent state's `:after` slot instead."
+  "Per Spec 005 §`:timeout` / `:on-timeout` — the legacy `:timeout-ms` slot
+  on `:spawn` / `:spawn-all` is REMOVED: registration throws
+  `:rf.error/spawn-timeout-ms-removed`. The wall-clock-spawn-timeout fact is
+  now expressed by the EP-0029 A4 spawn-level `:timeout` / `:on-timeout`
+  grammar (validated by `timeout/validate-timeouts!`); `:timeout-ms` was the
+  pre-EP draft spelling and never shipped. (`:on-timeout` is NO LONGER
+  rejected here — it is part of the accepted A4 spawn-timeout grammar.)"
   [state-key state-node]
   (doseq [[slot-key spec]
           [[:spawn     (:spawn state-node)]
            [:spawn-all (:spawn-all state-node)]]]
     (when (map? spec)
-      (let [t  (:timeout-ms spec)
-            ot (:on-timeout spec)]
-        (when (or (some? t) (some? ot))
-          (throw (validation-error
-                   :rf.error/spawn-timeout-ms-removed
-                   (str ":timeout-ms / :on-timeout on " slot-key
-                        " were dropped. Use the parent state's :after slot "
-                        "for wall-clock guards. See "
-                        "migration/from-re-frame-v1/README.md §M-44 for the "
-                        "rewrite recipe.")
-                   {:state      state-key
-                    :slot       slot-key
-                    :timeout-ms t
-                    :on-timeout ot
-                    :migration  "migration/from-re-frame-v1/README.md §M-44"})))))))
+      (when (some? (:timeout-ms spec))
+        (throw (validation-error
+                 :rf.error/spawn-timeout-ms-removed
+                 (str "the legacy :timeout-ms slot on " slot-key
+                      " was removed. Express a wall-clock spawn timeout via "
+                      "the EP-0029 A4 spawn-level :timeout / :on-timeout "
+                      "grammar (a positive-integer ms or an ISO-8601 "
+                      "duration), e.g. {:spawn {:machine-id … :timeout 30000 "
+                      ":on-timeout {:target :timed-out}}}.")
+                 {:state      state-key
+                  :slot       slot-key
+                  :timeout-ms (:timeout-ms spec)}))))))
 
 (defn- spawn-id-xor-definition-error
   "The XOR check shared by single `:spawn` and each `:spawn-all` child:
@@ -1205,6 +1206,18 @@
   gated at registration rather than degrading to an fx-time
   `:rf.warning/no-clock-configured` no-op."
   [machine]
+  ;; EP-0029 A4 — validate the `:timeout` / `:on-timeout` grammar on the RAW
+  ;; spec FIRST, so diagnostics name the `:timeout` / `:on-timeout` keys the
+  ;; author wrote (timeout-requires-on-timeout pairing, the integer-ms /
+  ;; ISO-8601-only duration rule rejecting the "5s"/"10ms" shorthand, and
+  ;; the :after-collision guard). Then DESUGAR the spec so every subsequent
+  ;; structural validator (transition targets, final-state shape, after
+  ;; delays) sees the lowered `:after` form — the `:on-timeout` transition
+  ;; target flows through the same target-resolution check `:after` uses, a
+  ;; `:final?` state carrying a `:timeout` is rejected as it would be for an
+  ;; `:after`, and the desugared form is exactly what the runtime drives.
+  (timeout/validate-timeouts! machine)
+  (let [machine (timeout/desugar-timeouts machine)]
   (validate-history! machine)
   (validate-parallel! machine)
   ;; The machine-level `:schemas` map (EP-0029 A3) — closed sub-key set; an
@@ -1321,4 +1334,4 @@
     ;; resolve at registration. (`walk-state-nodes` yields per-region nodes,
     ;; not the parallel root itself, so this is validated explicitly.)
     (when (parallel/parallel? machine)
-      (check-transition! (:on-done machine) :rf/root))))
+      (check-transition! (:on-done machine) :rf/root)))))

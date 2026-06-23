@@ -1,0 +1,90 @@
+;; Conformance fixture: machine/reg-error-timeout
+;;
+;; EP-0029 A4 — the registration-error taxonomy for the :timeout /
+;; :on-timeout grammar (Spec 009 §The thrown-error shape). Mode-B
+;; :reg-machine calls pin each fail-loud discriminator; controls pin the
+;; well-formed cases that must NOT throw.
+;;
+;; DIVERGENCE (operator-ruled): a :timeout duration is integer-ms OR
+;; ISO-8601 ONLY. The XState "5s"/"10ms" readable shorthand is REJECTED with
+;; :rf.error/machine-bad-timeout-duration. A :timeout requires an
+;; :on-timeout and vice-versa.
+;;
+;; Per [005 §`:timeout` / `:on-timeout`]
+;; (../../005-StateMachines.md#timeout--on-timeout-state--spawn) and
+;; [docs/EP/EP-0029 §A4] + [docs/EP/EP-0029 §Backwards Compatibility].
+
+{:fixture/id           :machine/reg-error-timeout
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/timeout :fsm/registration-validation}
+ :fixture/doc          "The :timeout / :on-timeout registration-error taxonomy: a :timeout requires an :on-timeout (and vice-versa); the duration is integer-ms OR ISO-8601 only (the XState \"5s\"/\"10ms\" shorthand is rejected); a desugared-timeout ms colliding with an explicit :after delay-key is rejected. Controls: a valid integer / ISO / spawn-level timeout registers cleanly."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) Valid integer-ms state timeout — registers cleanly (control).
+  {:call       :reg-machine
+   :definition {:initial :w
+                :states  {:w {:timeout 5000 :on-timeout {:target :d}}
+                          :d {}}}}
+
+  ;; (2) Valid ISO-8601 state timeout — registers cleanly (control).
+  {:call       :reg-machine
+   :definition {:initial :w
+                :states  {:w {:timeout "PT5S" :on-timeout :d}
+                          :d {}}}}
+
+  ;; (3) Valid spawn-level timeout — registers cleanly (control).
+  {:call       :reg-machine
+   :definition {:initial :l
+                :states  {:l {:spawn {:machine-id :child
+                                      :timeout 10000
+                                      :on-timeout {:target :to}}}
+                          :to {}}}}
+
+  ;; (4) :timeout without :on-timeout — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :w
+                  :states  {:w {:timeout 5000} :d {}}}
+   :expect-error :rf.error/machine-timeout-without-on-timeout}
+
+  ;; (5) :on-timeout without :timeout — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :w
+                  :states  {:w {:on-timeout :d} :d {}}}
+   :expect-error :rf.error/machine-on-timeout-without-timeout}
+
+  ;; (6) The XState "5s" shorthand duration — rejected (DIVERGENCE).
+  {:call         :reg-machine
+   :definition   {:initial :w
+                  :states  {:w {:timeout "5s" :on-timeout :d} :d {}}}
+   :expect-error :rf.error/machine-bad-timeout-duration}
+
+  ;; (7) The "10ms" shorthand duration — rejected (DIVERGENCE).
+  {:call         :reg-machine
+   :definition   {:initial :w
+                  :states  {:w {:timeout "10ms" :on-timeout :d} :d {}}}
+   :expect-error :rf.error/machine-bad-timeout-duration}
+
+  ;; (8) A non-positive integer duration — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :w
+                  :states  {:w {:timeout 0 :on-timeout :d} :d {}}}
+   :expect-error :rf.error/machine-bad-timeout-duration}
+
+  ;; (9) A spawn-level "5s" shorthand — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :l
+                  :states  {:l {:spawn {:machine-id :child
+                                        :timeout "5s" :on-timeout :to}}
+                            :to {}}}
+   :expect-error :rf.error/machine-bad-timeout-duration}
+
+  ;; (10) A timeout ms colliding with an explicit :after delay-key — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :w
+                  :states  {:w {:after {5000 {:target :x}}
+                                :timeout 5000 :on-timeout {:target :d}}
+                            :x {} :d {}}}
+   :expect-error :rf.error/machine-timeout-after-collision}]}

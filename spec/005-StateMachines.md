@@ -221,6 +221,8 @@ Every state in `:states` is a map. The complete state-node grammar — every key
 {:on      {<event-id> <transition>, ...}    ;; event-driven transitions
  :always  [<guarded-transition>, ...]        ;; eventless transitions (see §Eventless `:always`)
  :after   {<delay> <transition>, ...}        ;; delayed transitions (see §Delayed `:after`)
+ :timeout <duration>                         ;; this state must finish before <duration> (see §`:timeout` / `:on-timeout`); requires :on-timeout
+ :on-timeout <transition>                    ;; transition fired when :timeout elapses
  :tags    #{<keyword>, ...}                  ;; runtime-projected onto snapshot's :tags (see §State tags)
  :entry   <fn-or-keyword>                    ;; ran on entering this state; keyword resolves into :actions map
  :exit    <fn-or-keyword>                    ;; ran on exiting this state; keyword resolves into :actions map
@@ -2344,6 +2346,61 @@ External observers see one machine event per externally-visible transition; the 
 - **Pause / resume.** No built-in pause; users pause by transitioning the snapshot out of the state (which makes the timers stale) and back in (which re-schedules with a fresh epoch). The `:rf/after-epoch` mechanism makes the round-trip idempotent.
 - **A `:cancel-dispatch-later` fx.** The epoch mechanism replaces explicit cancellation; the runtime never needs to forget a scheduled timer, only to reject stale ones at expiry.
 
+## `:timeout` / `:on-timeout` (state + spawn)
+
+A state — or a `:spawn` spec — may declare a `:timeout` duration plus an `:on-timeout` transition that fires when the machine sits in that state (or its spawned child runs) past the duration. This is the EP-0029 A4 grammar: a named "this state / child must finish before this time" fact, distinct from the general `:after` table.
+
+```clojure
+{:states
+ {:waiting
+  {:timeout    "PT5S"
+   :on-timeout {:target :timed-out}}
+
+  :loading
+  {:spawn {:machine-id :fetch-user
+           :timeout    "PT10S"
+           :on-timeout {:target :timed-out}}}}}
+```
+
+### Distinct intent, one mechanism
+
+`:timeout` and `:after` express **different intent** and **may coexist** on the same state node:
+
+- `:after` is the general delayed-transition table (`{ms → transition}`, possibly several entries, with literal / subscription-vector / fn delays). It answers "after N ms in this state, *consider* a transition."
+- `:timeout` names the single deadline fact: "this state (or its child) must finish before this time." `:timeout` **requires** `:on-timeout`; an `:on-timeout` with no `:timeout` is meaningless.
+
+re-frame2 keeps **ONE timer mechanism**. `:timeout` / `:on-timeout` **desugars** — at registration / transition normalisation time — into an `:after` entry keyed by the resolved-ms duration, mapping to the `:on-timeout` transition. The whole `:after` machinery (scheduling, per-decl-path `:rf/after-epoch` staleness, cancel-on-exit, the `:rf.machine.timer/*` traces) then drives it unchanged. So:
+
+- **Entering** the state arms the timeout timer (as a desugared `:after`);
+- **Leaving** the state cancels it (the standard exit cascade advances the epoch and emits `:rf.machine/after-cancel`);
+- **Child completion** (for a spawn timeout) exits the spawn-bearing state, which cancels the timeout — the timer is anchored to the spawn-bearing state's entry, so it bounds the child's whole lifetime (spanning any internal retries), and when it fires the standard exit cascade tears the child down.
+
+The grammar (separate keys, separate validation, separate duration rules) is what the **author** writes; the `:after` table is what the **engine** drives. A `:final?` state cannot declare `:timeout` (final means final — symmetric with the `:after` rule). A desugared-timeout ms must not collide with an explicit `:after` delay-key on the same node (`:rf.error/machine-timeout-after-collision`) — a silent merge would drop one of the two authored intents.
+
+### Duration grammar — integer-ms OR ISO-8601 only
+
+A `:timeout` / spawn-`:timeout` duration is **exactly one of**:
+
+- a **positive integer** — literal milliseconds (`5000`);
+- an **ISO-8601 duration string** — `"PT5S"`, `"PT2M"`, `"PT1H30M"`, `"PT0.5S"`, `"P1D"`, … (the `PnYnMnWnDTnHnMnS` form; case-insensitive; fractional seconds allowed; year / month use the fixed 365-day / 30-day convention).
+
+**Divergence from XState (operator-ruled, EP-0029 A4).** XState v6 also accepts a readable shorthand such as `"10ms"` / `"5s"`. re-frame2 **REJECTS** that shorthand: a `"5s"` / `"10ms"` string (or any other malformed duration — a non-positive integer, a fn, a vector, the bare `"P"`) fails **loud** at registration with `:rf.error/machine-bad-timeout-duration`. Unlike `:after`, a `:timeout` does **not** admit subscription-vector / fn dynamic delays — a timeout is a fixed wall-clock deadline.
+
+### Registration validation (fail-loud)
+
+`reg-machine` rejects a malformed timeout at construction time (per [Spec 009 §The thrown-error shape](009-Instrumentation.md)):
+
+| Violation | Error id |
+| --- | --- |
+| `:timeout` declared without `:on-timeout` (state or spawn) | `:rf.error/machine-timeout-without-on-timeout` |
+| `:on-timeout` declared without `:timeout` (state or spawn) | `:rf.error/machine-on-timeout-without-timeout` |
+| `:timeout` duration is neither a positive integer nor a valid ISO-8601 string (incl. the `"5s"` / `"10ms"` shorthand) | `:rf.error/machine-bad-timeout-duration` |
+| a desugared-timeout ms collides with an explicit `:after` delay-key on the same node | `:rf.error/machine-timeout-after-collision` |
+
+The `:on-timeout` transition target is resolved through the **same** target-resolution check `:after` uses (it desugars to `:after`), so an `:on-timeout` naming a non-existent state fails registration with `:rf.error/machine-unresolved-target`.
+
+The pre-EP draft `:timeout-ms` slot on `:spawn` / `:spawn-all` was never shipped and stays removed (`:rf.error/spawn-timeout-ms-removed`); use the A4 `:timeout` / `:on-timeout` grammar above.
+
 ## Spawning — dynamic actors
 
 If machines are event handlers and actors are machines, then **a spawned actor is addressable as an event handler whose id is the actor's address** — but, per [§Liveness is derived from runtime-db](#liveness-is-derived-from-runtime-db), that handler is NOT a per-instance registrar entry. It is *resolved on demand* from the actor's snapshot. The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
@@ -3253,22 +3310,23 @@ History states are claimed as **`:fsm/history`** in the v1 CLJS reference per [�
 
 ## Wall-clock timeouts on `:spawn` — use parent state's `:after`
 
-`:spawn` and `:spawn-all` do **not** carry their own `:timeout-ms` slot. Wall-clock timeouts on a state hosting a `:spawn` are expressed by adding an `:after` entry on the **parent state**: when the timer fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy` and the parent transitions to whichever target the `:after` entry names. `:after` is the **single canonical primitive** for "after N ms in this state, do X"; no second mechanism is needed for the `:spawn`-bearing case.
+> **Updated (EP-0029 A4).** This section is retained at its original anchor for stable cross-references; the spawn wall-clock timeout is now declared with the first-class **`:timeout` / `:on-timeout`** grammar below (which lowers onto the same parent-state `:after` timer the prior design used). The "one mechanism" principle is unchanged — `:timeout` is the named-intent spelling, `:after` is the general primitive, and both drive one timer.
 
-### Why one primitive, not two
-
-An earlier draft of this spec carried a `:timeout-ms` slot on `:spawn` / `:spawn-all` for "the whole spawned actor must terminate within N ms (spanning retries)." That slot is **dropped**. The motivating use case — a boot machine wanting "the auth phase completes in 30 s total, including retries" — is fully served by the parent state's `:after` map (per [§Whichever fires first wins](#whichever-fires-first-wins) and the cancellation cascade). Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. Per the boot-as-state-machine §M3 follow-up, the M3 finding's resolution is now "use the parent state's `:after`."
+A wall-clock timeout on a `:spawn`-bearing state is declared with the EP-0029 A4 spawn-level **`:timeout` / `:on-timeout`** grammar (per [§`:timeout` / `:on-timeout`](#timeout--on-timeout-state--spawn)). The spawn `:timeout` is anchored to the spawn-bearing state's **entry** and bounds the child's whole lifetime (spanning any internal retries); when it fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy` and the parent transitions to whichever target `:on-timeout` names. The spawn timeout **lowers onto the same `:after` timer mechanism** — there is still ONE timer primitive; `:timeout` is the named-intent grammar that desugars onto `:after`.
 
 ```clojure
 {:authenticating
- {:spawn {:machine-id :auth-flow}
-  :after  {30000 :auth-failed}                 ;; wall-clock guard — spans retries inside the child
-  :on     {:auth/succeeded :authenticated}}}
+ {:spawn {:machine-id :auth-flow
+          :timeout    "PT30S"                  ;; wall-clock guard — spans retries inside the child
+          :on-timeout {:target :auth-failed}}
+  :on    {:auth/succeeded :authenticated}}}
 ```
 
-When the 30000 ms `:after` timer fires, the parent's exit cascade destroys the `:auth-flow` child (which itself cascades any in-flight `:rf.http/managed` aborts per the [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) contract), and the machine transitions to `:auth-failed`. The wall-clock spans the child's retries because the timer is anchored to **state entry** of `:authenticating`, not to any individual HTTP attempt; the child's internal retry behaviour does not affect the parent's `:after` countdown.
+When the 30-second timeout fires, the parent's exit cascade destroys the `:auth-flow` child (which itself cascades any in-flight `:rf.http/managed` aborts per the [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) contract), and the machine transitions to `:auth-failed`. The wall-clock spans the child's retries because the timer is anchored to **state entry** of `:authenticating`, not to any individual HTTP attempt; the child's internal retry behaviour does not affect the timeout countdown.
 
-Symmetric for `:spawn-all`:
+You can equally express the same guard with an explicit `:after` on the parent state — `:timeout` is the named-intent spelling and `:after` is the general primitive; both lower to the same timer, and they may coexist on the node.
+
+For `:spawn-all`, declare the whole-join wall-clock guard with an `:after` (or a state-level `:timeout`) on the `:spawn-all`-bearing state:
 
 ```clojure
 {:hydrating
@@ -3282,24 +3340,24 @@ Symmetric for `:spawn-all`:
    :on-child-error   :asset/failed
    :on-all-complete  [:hydrate/done]
    :on-any-failed    [:hydrate/failed]}
-  :after {60000 :hydrate/timed-out}             ;; whole-join wall-clock guard
-  :on   {:hydrate/done       :ready
-         :hydrate/failed     :error
-         :hydrate/timed-out  :degraded}}}
+  :timeout    "PT1M"                            ;; whole-join wall-clock guard
+  :on-timeout {:target :degraded}
+  :on   {:hydrate/done   :ready
+         :hydrate/failed :error}}}
 ```
 
-The 60000 ms `:after` fires if the join hasn't resolved by the deadline; the standard exit cascade cancels every surviving child (the `:spawn-all` desugared `:exit` action handles per-child cleanup, same as cancel-on-decision per [§Cancel-on-decision](#cancel-on-decision-default-true)), and the parent transitions to `:degraded`. No `:timeout-ms` slot, no `:on-timeout` slot, no `:rf.machine.spawn/timed-out` trace — the standard `:after` machinery covers everything the dropped `:timeout-ms` slot used to.
+The 60-second timeout fires if the join hasn't resolved by the deadline; the standard exit cascade cancels every surviving child (the `:spawn-all` desugared `:exit` action handles per-child cleanup, same as cancel-on-decision per [§Cancel-on-decision](#cancel-on-decision-default-true)), and the parent transitions to `:degraded`.
 
 ### Partial-progress is not preserved
 
-A `:after`-driven cascade out of the `:spawn`-bearing state destroys any spawned child and clears the runtime spawn-registry slots; the parent's transition handler may not assume any of the child's partial state has flushed back into the parent's `:data`. For `:spawn-all`, the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` is destroyed alongside the children — the parent cannot read which children had completed at the moment of timeout. Apps that need "take whatever loaded by the deadline" semantics declare a separate `:always` on the parent state that fires `:on-some-complete` when a partial-success guard becomes true, per the `:after` + partial-success idiom documented under [§Spawn-and-join via `:spawn-all` §Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after).
+A timeout-driven cascade out of the `:spawn`-bearing state destroys any spawned child and clears the runtime spawn-registry slots; the parent's transition handler may not assume any of the child's partial state has flushed back into the parent's `:data`. For `:spawn-all`, the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` is destroyed alongside the children — the parent cannot read which children had completed at the moment of timeout. Apps that need "take whatever loaded by the deadline" semantics declare a separate `:always` on the parent state that fires `:on-some-complete` when a partial-success guard becomes true, per the `:after` + partial-success idiom documented under [§Spawn-and-join via `:spawn-all` §Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after).
 
 ### Cross-references
 
-- [§Whichever fires first wins](#whichever-fires-first-wins) — the cancellation cascade that an `:after` firing triggers is the same cascade as a parent-destroys-child shutdown.
-- [§Delayed `:after` transitions](#delayed-after-transitions) — the canonical primitive's full grammar and semantics.
-- Boot-as-state-machine §M3 — the boot-machine use case that originally motivated `:timeout-ms`; the M3 finding's resolution is now "use the parent state's `:after`."
-- [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) — pre-1.0 spec lock; the dropped-slot record.
+- [§`:timeout` / `:on-timeout`](#timeout--on-timeout-state--spawn) — the named-intent timeout grammar (state + spawn), its duration rules (integer-ms / ISO-8601 only), and how it lowers onto `:after`.
+- [§Whichever fires first wins](#whichever-fires-first-wins) — the cancellation cascade a timeout firing triggers is the same cascade as a parent-destroys-child shutdown.
+- [§Delayed `:after` transitions](#delayed-after-transitions) — the underlying timer primitive's full grammar and semantics.
+- The pre-EP draft `:timeout-ms` slot was never shipped and stays removed (`:rf.error/spawn-timeout-ms-removed`); the A4 `:timeout` / `:on-timeout` grammar replaces it.
 
 ## Cancellation cascade — in-flight `:rf.http/managed` aborts
 
@@ -4271,14 +4329,14 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
 - Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/started`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list and [§Trace events — guard evaluations and action runs](#trace-events--guard-evaluations-and-action-runs) for the guard/action payload contract).
-- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-bad-target`, `:rf.error/machine-unresolved-target`, `:rf.error/machine-spawn-all-bad-shape`, `:rf.error/machine-spawn-all-duplicate-id`, and `:rf.error/machine-spawn-all-with-spawn` error categories. (The `:rf.error/machine-spawn-timeout-*` categories are retired alongside `:timeout-ms` itself; per [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after).) Per [Spec-Schemas §TransitionTarget](Spec-Schemas.md#rfstate-node), every transition slot's `:target` (`:on` / `:after` / `:always` / a compound's `:on-done` / a `:spawn`-bearing state's `:spawn :on-error`) is validated at registration: a malformed-shape target (not a keyword / non-empty vector / the `:same-state` sentinel) raises `:rf.error/machine-bad-target`, and a keyword / vector target that resolves to no declared state (or `:type :history` pseudo-state) raises `:rf.error/machine-unresolved-target`. A keyword target names a SIBLING (a direct child of the declaring state's parent compound); a vector target is an absolute path from the (region) root.
+- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-bad-target`, `:rf.error/machine-unresolved-target`, `:rf.error/machine-spawn-all-bad-shape`, `:rf.error/machine-spawn-all-duplicate-id`, and `:rf.error/machine-spawn-all-with-spawn` error categories. (The `:timeout` / `:on-timeout` registration categories — `:rf.error/machine-timeout-without-on-timeout`, `:rf.error/machine-on-timeout-without-timeout`, `:rf.error/machine-bad-timeout-duration`, `:rf.error/machine-timeout-after-collision` — are catalogued under [§`:timeout` / `:on-timeout`](#timeout--on-timeout-state--spawn); the pre-EP draft `:timeout-ms` slot stays removed via `:rf.error/spawn-timeout-ms-removed`.) Per [Spec-Schemas §TransitionTarget](Spec-Schemas.md#rfstate-node), every transition slot's `:target` (`:on` / `:after` / `:always` / a compound's `:on-done` / a `:spawn`-bearing state's `:spawn :on-error`) is validated at registration: a malformed-shape target (not a keyword / non-empty vector / the `:same-state` sentinel) raises `:rf.error/machine-bad-target`, and a keyword / vector target that resolves to no declared state (or `:type :history` pseudo-state) raises `:rf.error/machine-unresolved-target`. A keyword target names a SIBLING (a direct child of the declaring state's parent compound); a vector target is an absolute path from the (region) root.
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.
 - The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{<delay> → <transition-spec>}` where `<delay>` is `pos-int?`, a subscription vector (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [§Dynamic delay re-resolution](#dynamic-delay-re-resolution)), or `(fn [snapshot] ms)`. Epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/cancelled` (with `:reason` closed set) / `:rf.machine.timer/skipped-on-server` trace events. The whichever-fires-first cancellation cascade (per [§Whichever fires first wins](#whichever-fires-first-wins)) composes with the in-flight `:rf.http/managed` abort contract per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts).
 - The state-tags capability per [§State tags](#state-tags): state-node `:tags <set-of-keywords>` slot; runtime maintains the active-configuration tag union at `[:rf.runtime/machines :snapshots <id> :tags]` recomputed on every transition (including `:always` microsteps); framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar; empty-union elision per snapshot-size optimisation; reserved framework namespace (`:rf/*` / `:rf.*/*`). Per (Nine States Stage 1).
 - The spawn-and-join `:spawn-all` capability per [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all): state-node `:spawn-all` slot accepting a vector of child invoke-specs plus `:join` / `:on-child-done` / `:on-child-error` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed` / `:cancel-on-decision?` keys, runtime join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` (direct-map shape — `:children` + `:done` + `:failed` + `:resolved?` + `:spec` co-mingled at the root, NO nested `:join` sub-map), cancel-on-decision = `true` by default, and the `:rf.machine.spawn-all/started` / `:rf.machine.spawn-all/all-completed` / `:rf.machine.spawn-all/some-completed` / `:rf.machine.spawn-all/any-failed` / `:rf.machine.spawn/cancelled-on-join-resolution` trace events. New error categories `:rf.error/machine-spawn-all-bad-shape`, `:rf.error/machine-spawn-all-duplicate-id`, `:rf.error/machine-spawn-all-with-spawn`.
 - The history-states capability per [§History states](#history-states-type-history--shallow--deep--default-target): a `:type :history` pseudo-state under a compound's `:states` carrying `:deep?` (default shallow) and optional `:default-target` (default the compound's `:initial`); record-on-exit of the compound's last-active configuration into the revertible snapshot-root slot `:rf/history` (a map keyed by compound declaration path, region-qualified under `:type :parallel`); restore-on-re-entry via the existing LCA / entry-cascade machinery (deep = full leaf path, shallow = recorded direct child then `:initial` descent, never-entered = `:default-target` / `:initial`); dangling-recorded-path fallback after hot reload. Capability axis `:fsm/history`.
-- ~~The wall-clock `:timeout-ms` capability~~ — DROPPED. State-level `:after` is the canonical wall-clock-timeout primitive on `:spawn` / `:spawn-all`-bearing states. See [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after).
+- The `:timeout` / `:on-timeout` capability per [§`:timeout` / `:on-timeout`](#timeout--on-timeout-state--spawn) (EP-0029 A4): state-level and spawn-level `:timeout` (a positive-integer ms or an ISO-8601 duration string — the XState `"5s"` / `"10ms"` shorthand is REJECTED) + `:on-timeout` transition, lowering onto the `:after` timer mechanism (distinct authoring intent, one mechanism — `:timeout` and `:after` coexist). Registration fail-loud categories `:rf.error/machine-timeout-without-on-timeout`, `:rf.error/machine-on-timeout-without-timeout`, `:rf.error/machine-bad-timeout-duration`, `:rf.error/machine-timeout-after-collision`. Capability axis `:fsm/timeout`. (The pre-EP draft `:timeout-ms` slot was never shipped; `:rf.error/spawn-timeout-ms-removed` still rejects it.)
 - The cancellation cascade for in-flight `:rf.http/managed` requests per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts): the `:rf.machine/destroy` path aborts every in-flight `:rf.http/managed` request the destroyed actor had issued, via the `:http/abort-on-actor-destroy` late-bind hook. Triggers include parent state exit, parent's `:after` firing, `:spawn-all` cancel-on-decision, frame destroy, and imperative `[:rf.machine/destroy <actor-id>]`. Each abort emits `:rf.http/aborted-on-actor-destroy` per [Spec 009 §Trace events](009-Instrumentation.md). Direct dispatches from event handlers (no spawned-actor envelope) are NOT subject to the cascade — apps that want HTTP-tied-to-state-occupancy lifetimes spawn child machines.
 
 ### Post-v1 — the `re-frame.machines` library

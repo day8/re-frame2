@@ -998,7 +998,12 @@
     {:keys [fenced? header-comment?]
      :or   {fenced?         true
             header-comment? true}}]
-   (let [parallel? (parallel-definition? definition)]
+   ;; EP-0029 A4 — lower `:timeout` / `:on-timeout` to `:after` before
+   ;; rendering so a timeout surfaces as an `after / …` edge label. Bind
+   ;; once so BOTH the validation block and the render below see the
+   ;; lowered form.
+   (let [definition (g/desugar-timeouts definition)
+         parallel?  (parallel-definition? definition)]
      (when-not (if parallel?
                  (valid-parallel-definition? definition)
                  (valid-state-tree? definition))
@@ -1014,10 +1019,10 @@
          {:recovery :supply-a-valid-definition
           ;; rf2-8nzxib — value-FREE; never the raw definition (its
           ;; :data slot can hold live runtime values).
-          :extra    {:definition-summary (definition-summary definition)}})))
-   (let [body (if (parallel-definition? definition)
-                (render-parallel-body definition header-comment?)
-                (render-flat-or-compound-body definition header-comment?))]
-     (if fenced?
-       (str "```mermaid\n" body "\n```")
-       body))))
+          :extra    {:definition-summary (definition-summary definition)}}))
+     (let [body (if parallel?
+                  (render-parallel-body definition header-comment?)
+                  (render-flat-or-compound-body definition header-comment?))]
+       (if fenced?
+         (str "```mermaid\n" body "\n```")
+         body)))))

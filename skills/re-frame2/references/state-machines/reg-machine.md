@@ -30,6 +30,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **tags** (`tags: [...]`) | `:tags #{...}` on a state node + `machine-has-tag?` | Convergence. See `tags.md`. |
 | **eventless / always transitions** | `:always [{:guard ... :target ...} ...]` | Convergence (re-frame2's term for xstate/SCXML transient transitions). |
 | **delayed transitions** (`after`) | `:after {<ms> transition-spec}` | Convergence on the name. No recurring timers / pause-resume in v1. |
+| **state / actor timeouts** (`timeout` / `onTimeout`) | `:timeout <ms-or-ISO-8601>` + `:on-timeout <transition>` on a state, or on a `:spawn` spec | Convergence on the concept (a named deadline that lowers onto `:after`). **Divergence:** the duration is integer-ms **or** an ISO-8601 string (`"PT5S"`); the XState `"5s"`/`"10ms"` readable shorthand is **rejected**. |
 | **`raise` (self-event)** | `:raise` inside an action's `:fx` | **Divergence:** sugar for atomic self-dispatch — there is no per-actor mailbox to insert in front of. |
 | **`sendTo` / `sender` (reply to a request)** | include the reply event in the request vector | **Divergence:** no new API; the event vector carries its own reply target. |
 | **`ActorRef` runtime objects** | snapshots at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `(subscribe [:rf/machine <id>])`. |
@@ -105,6 +106,7 @@ Every state node is a map. Recognised slots (see the `re-frame.machines` façade
 - `:entry` / `:exit` — singular action references or fns, fired on entering / leaving the node.
 - `:always` — eventless microstep table (`:always [{:guard ... :target ...} ...]`).
 - `:after` — delayed transition table, `:after {<ms-or-sub-vec-or-fn> <transition-spec>}`.
+- `:timeout` / `:on-timeout` — a named wall-clock deadline (a positive-integer ms **or** an ISO-8601 duration string such as `"PT5S"` — the XState `"5s"`/`"10ms"` shorthand is rejected). `:timeout` requires `:on-timeout`; it lowers onto the `:after` timer (distinct intent, one mechanism — `:timeout` and `:after` coexist). A `:spawn` spec may carry its own `:timeout` / `:on-timeout` to bound the child's lifetime.
 - `:spawn` — declarative child spawn (see `spawn.md`).
 - `:spawn-all` — spawn-and-join sugar (see `spawn.md`).
 - `:tags` — a set of keywords describing this state's per-axis intent (see `tags.md`).

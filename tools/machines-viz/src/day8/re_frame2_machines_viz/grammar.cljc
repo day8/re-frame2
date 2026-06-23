@@ -75,6 +75,104 @@
     (vector? spec)      (mapcat transition-candidates spec)
     :else               []))
 
+;; ---------------------------------------------------------------------------
+;; `:timeout` / `:on-timeout` → `:after` desugar (EP-0029 A4)
+;; ---------------------------------------------------------------------------
+;;
+;; A state (or a `:spawn` spec) may declare a `:timeout` duration + an
+;; `:on-timeout` transition (EP-0029 A4). The runtime LOWERS this onto the
+;; existing `:after` timer mechanism — `:timeout` is a distinct authoring
+;; concept that desugars to an `:after` entry keyed by the resolved ms. The
+;; three emitters render the lowered `:after` (clock glyph / `after / …`
+;; label / SCXML `<transition>`), so they desugar at their ingestion
+;; boundary via `desugar-timeouts` below.
+;;
+;; machines-viz is bundle-isolated from the runtime `machines` artefact
+;; (its deps.edn deliberately drops that dependency for DCE), so the
+;; duration resolver + desugar are re-stated here rather than required from
+;; `re-frame.machines.timeout`. The SEMANTICS mirror that namespace exactly
+;; (integer-ms OR ISO-8601 only — the XState "5s"/"10ms" shorthand is NOT a
+;; valid duration); the runtime's `validate-timeouts!` already rejected a
+;; bad duration at registration, so by the time a spec reaches an emitter
+;; the duration resolves.
+
+(def ^:private iso-duration-re
+  #"(?i)^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$")
+
+(defn- pl [s] (if (nil? s) 0 #?(:clj (Long/parseLong s) :cljs (js/parseInt s 10))))
+(defn- pd [s] (if (nil? s) 0.0 #?(:clj (Double/parseDouble s) :cljs (js/parseFloat s))))
+
+(defn resolve-timeout-ms
+  "Resolve a `:timeout` duration to a positive-integer ms (a positive
+  integer literal, or an ISO-8601 duration string), or nil if it is not a
+  valid duration. Mirrors `re-frame.machines.timeout/resolve-duration-ms`.
+  Year / month use the fixed 365-day / 30-day convention."
+  [duration]
+  (cond
+    (and (integer? duration) (pos? duration)) (long duration)
+    (string? duration)
+    (when-let [m (re-matches iso-duration-re duration)]
+      (let [[_ y mo w d h mi sec] m]
+        (when (some some? [y mo w d h mi sec])
+          (let [ms (+ (* (pl y)  (* 365 24 60 60 1000))
+                      (* (pl mo) (* 30 24 60 60 1000))
+                      (* (pl w)  (* 7 24 60 60 1000))
+                      (* (pl d)  (* 24 60 60 1000))
+                      (* (pl h)  (* 60 60 1000))
+                      (* (pl mi) (* 60 1000))
+                      (Math/round (* (pd sec) 1000.0)))]
+            (when (pos? ms) (long ms))))))
+    :else nil))
+
+(defn- desugar-node-timeouts
+  "Desugar one state-node's state-level AND spawn-level `:timeout` /
+  `:on-timeout` into `:after` entries on the node, dropping the timeout
+  keys. A node with neither is returned unchanged."
+  [node]
+  (if-not (map? node)
+    node
+    (let [st-ms   (when (contains? node :timeout) (resolve-timeout-ms (:timeout node)))
+          spawn   (:spawn node)
+          sp-ms   (when (and (map? spawn) (contains? spawn :timeout))
+                    (resolve-timeout-ms (:timeout spawn)))
+          node    (cond-> (dissoc node :timeout :on-timeout)
+                    st-ms (update :after #(merge {st-ms (:on-timeout node)} %)))]
+      (cond-> node
+        (map? spawn) (assoc :spawn (dissoc spawn :timeout :on-timeout))
+        sp-ms        (update :after #(merge {sp-ms (:on-timeout spawn)} %))))))
+
+(defn- walk-states-timeouts [states]
+  (when states
+    (reduce-kv
+      (fn [acc k node]
+        (assoc acc k (let [n (desugar-node-timeouts node)]
+                       (cond-> n (:states n) (update :states walk-states-timeouts)))))
+      {} states)))
+
+(defn desugar-timeouts
+  "Rewrite a whole machine definition so every state-level / spawn-level /
+  root-level `:timeout` / `:on-timeout` (EP-0029 A4) is lowered into the
+  equivalent `:after` entry, leaving no `:timeout` keys for an emitter to
+  see. Pure; idempotent; nil-safe (a non-map → unchanged). Handles flat /
+  compound (`:states`), parallel (`:regions`), and the root node."
+  [definition]
+  (if-not (map? definition)
+    definition
+    (let [root' (desugar-node-timeouts (dissoc definition :states :regions))
+          def'  (cond-> (dissoc definition :timeout :on-timeout)
+                  (contains? root' :after) (assoc :after (:after root')))]
+      (cond-> def'
+        (:states def')  (update :states walk-states-timeouts)
+        (:regions def') (update :regions
+                                (fn [regions]
+                                  (reduce-kv
+                                    (fn [acc rn body]
+                                      (assoc acc rn
+                                             (cond-> (desugar-node-timeouts (dissoc body :states))
+                                               (:states body)
+                                               (assoc :states (walk-states-timeouts (:states body))))))
+                                    {} regions)))))))
+
 (defn parent-path
   "The parent path of `path` (its `pop`); `[]` for an empty/top-level
   path."

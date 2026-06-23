@@ -160,6 +160,7 @@
     :fsm/eventless-always
     :fsm/hierarchical
     :fsm/delayed-after
+    :fsm/timeout                                      ;; EP-0029 A4 — state + spawn :timeout / :on-timeout (lowers onto :after)
     :fsm/tags                                         ;; rf2-ee0d (Nine States Stage 1)
     :fsm/parallel-regions                             ;; rf2-l67o (Nine States Stage 2)
     :fsm/final-states                                 ;; rf2-gn80 — :final? + :on-done + :output-key
