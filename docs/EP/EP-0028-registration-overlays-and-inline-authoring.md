@@ -1,7 +1,9 @@
 # EP-0028: Registration Overlays and Inline Image Authoring
 
-Status: proposal
+Status: deferred
 Type: standards-track
+
+> **Deferred 2026-06-24** (operator ruling): parked pending completion of the document. The override/overlay vocabulary and the `rf/image` source-stamping macro this EP carries are its contested, replay-sensitive surfaces; they wait here, kept per EP-0009, until the design is settled.
 
 > This EP carries the override/overlay vocabulary and the `rf/image`
 > source-stamping authoring macro that were split out of EP-0026 on 2026-06-22.

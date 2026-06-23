@@ -1,7 +1,9 @@
 # EP-0029: XState v6 Machine Parity
 
-Status: accepted
+Status: final
 Type: standards-track
+
+> **Graduated 2026-06-24** into [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md) (plus the machine implementation docs and the guide's `concepts/machines.md`); the EP-0029 waves landed complete with no open beads. Per EP-0009 the spec now governs where it and this EP differ.
 
 > This EP proposes how re-frame2 should retarget its state-machine comparison
 > from XState v5 to the XState v6 alpha direction. If accepted, the normative
@@ -1049,17 +1051,18 @@ Guide-impact assessment:
 
 ## Open Issues
 
+**At graduation (2026-06-24): all dispositioned** — Issues 1, 2 and 3 are resolved (below); Issues 4 and 5 are deferred to the **For Later Consideration - but Probably not** section (default disposition: *not adopted*). None ship silently open (EP-0009).
+
 1. **Schema spelling — RESOLVED** (see Resolved Decisions): `:data-schema` is
    retired; the machine data schema is `[:schemas :data]` (clean pre-alpha break,
    no shorthand).
-2. **Validator adapter shape:** how should optional schema validators be plugged
-   in without making Malli mandatory?
-3. **Duration grammar:** should v1 accept only `"10ms"` / `"5s"` style strings,
-   or also ISO durations such as `"PT2M"`?
-4. **State input:** does a concrete real machine justify adding state-entry
-   input later?
-5. **Durable workflow steps:** does re-frame2 need workflow-step persistence in
-   managed effects, or is that outside the SPA-focused scope?
+2. **Validator adapter shape — RESOLVED:** schema validation is **library-agnostic** and optional, routed through a late-bound validator adapter (`:schemas/validate-with-registered-fn`); Malli is the default adapter but is not mandatory, and an app with no adapter pays zero validation cost. See `spec/005-StateMachines.md` §Schema validation.
+3. **Duration grammar — RESOLVED:** state and spawn `:timeout` accept an **integer of milliseconds or an ISO-8601 duration string** (`"PT5S"`, `"PT2M"`, …); the XState `"5s"` / `"10ms"` shorthand is rejected and fails loud (`:rf.error/machine-bad-timeout-duration`). See `spec/005-StateMachines.md` §Duration grammar.
+4. **State input — DEFERRED** (For Later Consideration, B1): does a concrete real
+   machine justify adding state-entry input later? Default: not adopted.
+5. **Durable workflow steps — DEFERRED** (For Later Consideration, B2): does
+   re-frame2 need workflow-step persistence in managed effects, or is that outside
+   the SPA-focused scope? Default: not adopted.
 
 ## Resolved Decisions
 
