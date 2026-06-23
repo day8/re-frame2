@@ -1,8 +1,8 @@
 # Subscriptions: the derivation graph
 
-**App-db stores facts; subscriptions derive conclusions.** App-db is your app's single state map, and your views never read it directly. Instead they ask, by name, for a conclusion: "the visible articles", "can this form submit?", "the current user's name". A subscription — a named, cached derivation that turns state into a value a view wants — is that question answered. Those derivations form a graph rooted at [app-db](app-db.md), with your views hanging off the leaves. The nice part is that re-frame2 recomputes only along the paths where values actually changed. This page walks that graph end to end: how to build it, why it's fast with no tuning from you, how to test it, and how to watch it prune work in Xray.
+**App-db stores facts; subscriptions derive conclusions.** App-db is your app's single state map, and your views never read it directly. Instead they ask, by name, for a conclusion: "the visible articles", "can this form submit?", "the current user's name". A subscription — a named, cached derivation that turns state into a value a view wants — is that question answered. Those derivations form a graph rooted at [app-db](app-db.md), with your views hanging off the leaves. The nice part is that re-frame2 recomputes only along the paths where values actually changed.
 
-> **Coming from Redux?** A subscription is a selector — Reselect's `createSelector` with the memoisation built in. **Coming from Solid or Jotai?** It's a derived signal / derived atom. Three deliberate divergences from both: subscriptions are named by keyword in a registry, so tools can draw the whole graph without running your app; change detection is deep value equality (`=`), never reference identity, so there is no "don't allocate a new object or you'll bust the memo" dance; and dependencies are declared as data, not discovered by tracking a function run.
+This page builds that graph one concept at a time: a single named derivation first, then chaining derivations into a graph, then the one rule that makes it fast, then parametric inputs, metadata, testing, and lifecycle. By the end you'll be able to read a subscription's registration and know exactly when it recomputes.
 
 ## A subscription is a named derivation
 
@@ -20,7 +20,9 @@ A view reads the current value by deref-ing the subscription:
 @(rf/subscribe [:feed/tag-filter])
 ```
 
-The vector `[:feed/tag-filter]` is the **query vector**: the id plus any arguments. `[:article/by-slug "intro"]` carries one argument. The whole vector arrives as the computation function's second argument, ignored above as `_query`. That little `@` is doing two jobs at once. It unwraps the reactive reference to a plain value, and it registers the deref-ing view as a dependent, so the view re-renders when — and only when — that value changes. The view declared a dependency and walked away. It never polls, and it never listens to a store-wide "something changed" firehose.
+The vector `[:feed/tag-filter]` is the **query vector**: the id plus any arguments. `[:article/by-slug "intro"]` carries one argument. The whole vector arrives as the computation function's second argument, ignored above as `_query`.
+
+That little `@` is doing two jobs at once. It unwraps the reactive reference to a plain value, and it registers the deref-ing view as a dependent, so the view re-renders when — and only when — that value changes. The view declared a dependency and walked away. It never polls, and it never listens to a store-wide "something changed" firehose.
 
 So why name a derivation this trivial instead of just writing `(:feed/tag-filter db)` in the view? Two reasons, and they recur everywhere in this framework:
 
@@ -28,6 +30,8 @@ So why name a derivation this trivial instead of just writing `(:feed/tag-filter
 - **Sharing.** Every view asking for `[:feed/tag-filter]` reads the *same* cached node. The subscription cache is keyed by query vector (per [frame](frames.md) — an isolated app-db-plus-handlers world; for now, read that as "per app"), so a computation runs once per change no matter how many views consume it. Adding the forty-first reader costs nothing.
 
 Both reasons get stronger the moment derivations start feeding each other, which is the actual design.
+
+> **Coming from Redux?** A subscription is a selector — Reselect's `createSelector` with the memoisation built in. **Coming from Solid or Jotai?** It's a derived signal / derived atom. Three deliberate divergences from both: subscriptions are named by keyword in a registry, so tools can draw the whole graph without running your app; change detection is deep value equality (`=`), never reference identity, so there is no "don't allocate a new object or you'll bust the memo" dance; and dependencies are declared as data, not discovered by tracking a function run.
 
 ## Three layers, one graph
 
@@ -69,6 +73,8 @@ The `:<-` arrow reads as "this sub's input comes from". Notice what changed betw
 
 Here's the part worth pausing on: the shape of the registration *is* the topology. `(fn [db _] ...)` makes an extractor by construction; `:<-` makes a composer by construction. The framework reads the registry and knows the whole graph as data. That is how [Xray](../how-to/debug-with-xray.md) can draw your subscription topology without executing a single computation function. (The tool that exposes the static graph to debuggers is `re-frame.subs.tooling/sub-topology`, a literal projection of the registry — it never runs your bodies.)
 
+> **Going deeper.** That "the registration *is* the topology" property is what lets the whole subscription layer be treated as data rather than as opaque closures. Each `:<-` edge is a static arrow in a DAG; the layer of a node is just the longest path back to app-db. Because the edges are declared rather than discovered at run time, the graph is a *value* you can analyse, draw, diff, and reason about without evaluation — the same move that makes [flows, resources, route facts, and machine selectors](../derivations-and-algebra-views.md) compose on one shared graph with one shared algebra. The whole derivation family is one essay; this page is the subscriptions-shaped slice of it.
+
 ## The equality gate
 
 I said the graph is fast without tuning. Here is the entire mechanism, one rule:
@@ -79,7 +85,7 @@ When app-db changes, the layer-1 extractors re-run. They read app-db, so every c
 
 That makes layer 1 a **circuit breaker** for everything behind it. Change `:feed/tag-filter` and the `:articles/all` extractor re-runs, sees its slice is `=` to last time, and shuts the gate — so the sort in `:articles/by-date` never executes. The same gate sits at every node. A layer-2 sub that recomputes but produces an `=` result stops propagation to *its* dependents too. You wrote zero `memo` and zero dependency arrays; you declared what each sub reads and got memoisation at every node for free. It works in reverse, too: a no-op write — a handler that assocs a key to the value it already has — produces an app-db that is `=` to the old one, so *nothing* recomputes anywhere. You cannot cause a render storm by writing state that didn't change.
 
-> **Why this matters.** In Reselect you carry the discipline yourself: a selector memoises on *reference* identity, so the moment a reducer returns a freshly-allocated array that's element-wise identical to the old one, every downstream selector and component recomputes anyway. The fix is to never allocate unless something changed — a rule you must hold in your head at every reducer. re-frame2 compares by value (`=`), so that whole category of "I accidentally busted the memo" bug doesn't exist. Equal values are equal, however they were allocated.
+> **Coming from Redux?** In Reselect you carry the memoisation discipline yourself: a selector memoises on *reference* identity, so the moment a reducer returns a freshly-allocated array that's element-wise identical to the old one, every downstream selector and component recomputes anyway. The fix is to never allocate unless something changed — a rule you must hold in your head at every reducer. re-frame2 compares by value (`=`), so that whole category of "I accidentally busted the memo" bug doesn't exist. Equal values are equal, however they were allocated.
 
 One practical rule falls out of all this, and it's the one to carry away:
 
@@ -156,9 +162,27 @@ For that case `reg-sub` takes **two functions**: an *input function* and the com
 
 The input function answers *what does this sub depend on?* Here, three subscriptions, two of them parameterised by the `article-id` plucked from the query vector. The computation function answers *what does it compute?* It receives the resolved input values as a vector, in the order the input function listed them. (Always a vector in this form, even for a single input.)
 
+The choice between the two forms is sharp: **use `:<-` for static inputs; reach for an input function only when the upstream query vectors need values from the outer query vector.** `:<-` is exactly a constant input function with the boilerplate removed, and its edges are statically drawable. The two-function form trades that for parametricity, so spend it only where you need it.
+
 A few things keep this form predictable. The first one trips people up, so it leads:
 
 > **Gotcha.** The input function returns query vectors — plain data — never live subscriptions. It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape errors loudly rather than guessing; the full return grammar and error ids live in the [API reference](../../../spec/API.md#reg-sub-input-production-modes).
+
+The other two predictability rules are gentler:
+
+- **It is not on the hot path.** It runs once, when a concrete query vector like `[:article/page :a1]` is first materialised. From then on that entry is an ordinary cached node, and `[:article/page :a2]` is a separate entry with its own inputs.
+- **Dependencies cannot come from app-db.** A sub whose edges changed with state would break disposal, hot reload, and Xray's topology view. So when the parameter you need lives in app-db, read it at the call site and thread it through the query vector:
+
+```clojure
+(rf/reg-view article-pane []
+  (let [article-id @(subscribe [:current-route/article-id])
+        page       @(subscribe [:article/page article-id])]
+    ...))
+```
+
+The dynamism lives at the view boundary, where component mount and unmount already manage subscription lifecycle. Each concrete cache entry keeps the same edges for its whole life.
+
+> **From re-frame v1.** Your signal functions returned live `(rf/subscribe ...)` calls — v2 input functions return query vectors as plain data instead, and the single-input and map-returning v1 shapes need rewriting. [From re-frame v1](../25-from-re-frame-v1.md) has the mechanical recipes.
 
 ### The exact return grammar — what's accepted, what's rejected
 
@@ -184,24 +208,6 @@ These aren't silent coercions — they fail loudly so a typo can't quietly produ
 - A **throw inside the input function** signals `:rf.error/sub-input-fn-exception`.
 
 All three are catalogued in [Errors and recovery](errors.md) and the spec's [error-event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). When something computes the wrong thing, that's where to look first.
-
-The other two predictability rules are gentler:
-
-- **It is not on the hot path.** It runs once, when a concrete query vector like `[:article/page :a1]` is first materialised. From then on that entry is an ordinary cached node, and `[:article/page :a2]` is a separate entry with its own inputs.
-- **Dependencies cannot come from app-db.** A sub whose edges changed with state would break disposal, hot reload, and Xray's topology view. So when the parameter you need lives in app-db, read it at the call site and thread it through the query vector:
-
-```clojure
-(rf/reg-view article-pane []
-  (let [article-id @(subscribe [:current-route/article-id])
-        page       @(subscribe [:article/page article-id])]
-    ...))
-```
-
-The dynamism lives at the view boundary, where component mount and unmount already manage subscription lifecycle. Each concrete cache entry keeps the same edges for its whole life.
-
-The choice between the two forms is sharp: **use `:<-` for static inputs; reach for an input function only when the upstream query vectors need values from the outer query vector.** `:<-` is exactly a constant input function with the boilerplate removed, and its edges are statically drawable. The two-function form trades that for parametricity, so spend it only where you need it.
-
-> **Coming from re-frame v1?** Your signal functions returned live `(rf/subscribe ...)` calls — v2 input functions return query vectors as plain data, and the single-input and map-returning v1 shapes need rewriting; [From re-frame v1](../25-from-re-frame-v1.md) has the mechanical recipes.
 
 ## Registration metadata: docs, schema, and classification
 
@@ -270,6 +276,8 @@ There's a sharper, more robust variant when the `db` shape matters. Instead of h
 
 > **Two styles, one rule of thumb.** `compute-sub` against a literal `db` is the escape hatch for very simple readers where the dispatch path adds nothing. For anything that depends on the *shape* events produce, dispatch real events into a frame and read `(rf/app-db-value f)` — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter. The full testing matrix is in [Test an event handler](../how-to/test-an-event-handler.md) and [Spec 008 §Sub testing](../../../spec/008-Testing.md#sub-testing--compute-sub-vs-dispatch-sync--app-db-value).
 
+> **For JavaScript developers.** This is the payoff of computation functions being pure. There is no React Testing Library, no `renderHook`, no jsdom, no provider wrapper to set up — a subscription test is a plain function call asserting on a plain value, and it runs on the JVM at unit-test speed. The reactive runtime exists only to *cache and notify* in a live app; the *logic* is just data in, data out, testable in isolation.
+
 ## Lifecycle: a sub exists only while something watches it
 
 A subscription node isn't a permanent fixture in the cache — it's reference-counted. When a view derefs `[:articles/visible]`, the cache materialises the node (computing the whole input chain) and bumps a ref-count. A second view sharing the same query vector bumps it again and reads the same cached value. When a view unmounts, its dependency is released, and on the **last** release — ref-count hits zero — the cache slot is disposed **synchronously, in the same tick**: the reaction is torn down, its input ref-counts are released (which can cascade disposal up the chain), and the slot is removed. A `:rf.sub/dispose` trace event marks the eviction.
@@ -304,17 +312,6 @@ Subscriptions are view-facing and pull-based: a node exists in the cache only wh
 > - **The value crosses frames.** A subscription must not reach into another [frame](frames.md)'s state; frames are isolated worlds by design.
 > - **Unsure where a value belongs at all?** [Where should this value live?](../where-state-lives.md) sorts a value into a sub, flow, resource, or machine with four questions.
 
+> **Coming from TanStack Query?** Note the split: TanStack Query gives you *one* hook (`useQuery`) that both fetches server state and derives over it. re-frame2 keeps those concerns apart — [resources](server-state.md) own the fetch-cache-invalidate lifecycle for server-owned data, and subscriptions are the pure derivation layer that computes *over* whatever's already in app-db (resource state included). When you want to fetch, that's a resource; when you want to shape what's already there, that's a sub.
+
 Subscriptions are also one face of a larger family — flows, resources, route facts, and machine selectors all live on one derivation graph; [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) is the essay-length tour.
-
----
-
-You can now:
-
-- register a layer-1 extractor and chain derivations off it with `:<-`
-- predict which subscriptions recompute after an event — and verify the pruning in Xray's Views tab
-- keep extractors tiny so the equality gate cuts work off at the root
-- write a parametric subscription whose inputs are computed from the query vector, thread state-derived parameters through the call site, and recognise the input-fn return shapes that error loudly
-- attach `:doc`, `:schema`, and `:sensitive`/`:large` metadata to a registration
-- test what a subscription computes with `compute-sub`, no browser required
-- reason about subscription lifecycle — ref-counted disposal, `subscribe-once`, hot-reload safety
-- tell when a derivation belongs in a sub versus a flow or a resource

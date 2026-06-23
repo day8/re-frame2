@@ -61,11 +61,11 @@ State only ever changes one way here. An **event** — a named record that somet
 
 `reg-event` registers an event handler: a pure function from the **coeffects** (the facts it's handed — `:db`, the current app-db, is one) and the event, to a map describing what should happen next. That map's `:db` key is the new app-db. Read it as *"the next state, and anything else to do"* — this handler only seeds state, so it returns `{:db …}` and nothing else. It ignores both arguments and hands back the whole initial map, which is all an initialise event really is. Notice that nothing here touches the DOM, the network, or a clock. A handler that needs the outside world adds a line of metadata to declare it — same `reg-event`, you'll meet that in Part 2.
 
-> **One registrar, not three.** If you've used re-frame v1 you'll reach for `reg-event-db` or `reg-event-fx` out of muscle memory. There's just `reg-event` now: the same shape — coeffects in, an effect map out — under the bare name. The old names aren't quiet aliases; calling `reg-event-db` raises a loud `:rf.error/reg-event-db-removed` that names `reg-event` as the replacement, so the migration is a rename, not a guessing game.
-
 The return map is a small, **closed** vocabulary: `:db` (the next app-db) and `:fx` (a vector of effects to run — dispatches, HTTP, navigation, anything that reaches the outside world). This handler uses only `:db`; you'll meet `:fx` in Part 2 when the feed starts loading from a server. Returning a key outside that set is a fail-loud error, not a silent no-op, so a typo in an effect key surfaces immediately rather than vanishing.
 
 This replaces the placeholder `:app/initialise` that setup put in `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
+
+> **From re-frame v1.** If you've used re-frame v1 you'll reach for `reg-event-db` or `reg-event-fx` out of muscle memory. There's just `reg-event` now: the same shape — coeffects in, an effect map out — under the bare name. A pure state change returns `{:db …}`; one that reaches the outside world adds `:fx`. The old names aren't quiet aliases; calling `reg-event-db` raises a loud `:rf.error/reg-event-db-removed` that names `reg-event` as the replacement, so the migration is a rename, not a guessing game.
 
 > **Gotcha — re-registering an id replaces it.** Registries are last-write-wins. If both `core.cljs` and `articles.cljs` register `:app/initialise`, whichever namespace loads last silently wins, and the other body never runs. That's why you delete the placeholder rather than leaving it: a duplicate id doesn't error, it just quietly shadows. (The dev build does emit a `:rf.registry/handler-replaced` trace so a tool like Xray can show you the swap — but your eyes won't catch it in the source.)
 
@@ -110,6 +110,8 @@ The first reads straight from app-db. The other two use `:<-` to declare an *inp
 The two-layer split is a habit worth forming. The top sub (`:articles/slice`) reads the raw slice; the layers below it (`:articles/data`, `:articles/by-slug`) shape that slice into exactly what one view needs. Keeping the raw read in its own sub means the lifecycle fields (`:status`, `:error`) are one cheap subscription away when Part 2 needs them, and the derived subs never re-run just because some *unrelated* corner of app-db changed.
 
 > **Gotcha — a sub with no registration fails loud.** Dereference a sub-id you never registered (a typo: `@(subscribe [:articles/dat])`) and you get a `:rf.error/no-such-handler`, not a silent `nil`. The same goes for an input vector pointing at an unregistered sub. The error names the missing id, so a fat-fingered keyword is a one-line fix rather than a mysteriously blank screen.
+
+> **Going deeper.** The subscription layers form a directed acyclic graph, and re-frame2 walks it the way a build tool walks a dependency tree: each node caches its last value and only recomputes when an input it actually reads produces a *new* value (compared by `=`). That's the same insight behind spreadsheet recalculation and incremental-computation libraries like Adapton — minimise re-work by tracking exactly which downstream values a change can reach. The two-layer habit (raw read on top, view-shaping below) is just you placing the cache boundaries where they pay off. See [Subscriptions: the derivation graph](../concepts/subscriptions.md) for how recomputation actually propagates.
 
 ??? note "The full derivation-graph story"
 
@@ -177,6 +179,8 @@ Two more things about hiccup that the listing above quietly relies on, since bot
 - **Every element in a `for`-generated list needs a `^{:key …}` metadata tag.** The `^{:key (:slug article)}` on each preview and `^{:key tag}` on each tag isn't decoration — it's how the renderer tells one list item from another across re-renders. Forget it and React falls back to index-based reconciliation, which produces subtle bugs when the list reorders (and a console warning). Use a stable, unique field from the data (a slug, an id), never the loop index.
 
 Those `rf/route-link`s point at a route id that doesn't exist yet. We add it next.
+
+> **Going deeper.** "Pure function of data to hiccup" is more than a slogan — it's what makes a view *referentially transparent*: the same sub values always produce the same hiccup, so the view has no hidden state and no order-dependence. That property is exactly what lets the framework memoise aggressively (re-render only when an input value changes) and what lets you test a view by calling it with a map and comparing the returned data — no DOM, no mount. Effects (dispatching, navigating) live on the *other* side of the loop, in handlers; the view only ever *describes*. See [Views: pure functions of data](../concepts/views.md) for where the line is drawn.
 
 ??? note "Why views stay pure"
 
@@ -293,6 +297,8 @@ To navigate from code — after a successful form submit, say — it's an event 
 
 One verb, `dispatch`, whether the user clicked a link, pressed Back, or your handler decided to move. Every path funnels into the same state change, which is why there's only ever one place to look when something goes wrong.
 
+> **From re-frame v1.** There was no routing in re-frame v1 — you reached for an external library (`reitit`, `secretary`, `bidi`) and glued its match events into your event handlers yourself. Routing now ships as a first-class re-frame2 artefact: the route table is a registry like events and subs, the current route is an ordinary subscription, and navigation is a dispatch. Nothing here is a foreign object you bridge into the loop — it *is* the loop.
+
 ??? note "URLs both ways — the pure helpers"
 
     The route table is bidirectional, and that fact is exposed as two **pure** functions you can call anywhere — in a handler, in a test, on the JVM during server rendering. They live in `re-frame.routing`, not on the `rf/` facade:
@@ -331,6 +337,8 @@ Reading it top to bottom:
 3. `dispatch-sync` runs the seed event synchronously, before the first render, so the feed never renders against an empty db. `with-frame` says which frame the dispatch targets.
 4. `rf/install-history-listener!` does the initial URL→state sync, so deep links work from the very first paint. It also turns the browser's Back/Forward into the same kind of route-change event a link click produces.
 5. `frame-provider-existing` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it.
+
+> **From re-frame v1.** In re-frame v1 there was no frame: app-db was one global atom, and `re-frame.core/dispatch` always hit it. re-frame2 wraps app-db, the registries, and the subscription graph into a **frame** — a named, isolated world — so you can run two independent apps on one page, or mount the same app twice without them sharing state. A single-app boot like this one declares one frame, names it `:rf/default`, and scopes the tree to it; for everyday code that mostly means an explicit `with-frame` at boot and a `frame-provider-existing` around your root view. The everything-is-global model is gone, and with it the class of bugs where two parts of a page quietly clobbered each other's state.
 
 > **An equivalent shape: `:initial-events`.** This boot seeds app-db with a `dispatch-sync` *after* `reg-frame`, which keeps the two steps visible side by side. A frame can also carry its setup *declaratively*, as an ordered `:initial-events` vector the runtime dispatches synchronously the moment the frame is created:
 >

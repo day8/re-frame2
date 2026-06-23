@@ -54,6 +54,8 @@ Now click a button and watch what happens. The loop you just ran is this: **a vi
 
 > **`dispatch` vs `dispatch-sync`.** `dispatch` is the one you almost always want: it *queues* the event and returns immediately, so the handler runs on the next tick of the event loop. That asynchrony is deliberate — it keeps a click handler from blocking the browser and lets the framework batch a burst of dispatches into one render. `dispatch-sync` runs the handler *right now*, before it returns, and you reach for it in exactly two places: seeding app-db before the very first paint (so the first render has state to read), and inside tests (so the assertion can run on the next line). Default to `dispatch`; use `dispatch-sync` only at those boundaries.
 
+> **Going deeper.** That one-way loop is a *fold*. If you squint, app-db is an accumulator and your handlers are the reducing function: `db' = (handler db event)`, threaded over the stream of dispatched events — `(reduce step initial-db events)`, spread out over wall-clock time. Most of re-frame2's nicer properties are corollaries of that framing. Time travel is just keeping the intermediate accumulator values instead of throwing them away (Beat 4). The handler returning a *map* of effects rather than a bare `db` is the reducing function lifted into a command structure: it *describes* the next state and the other things to do, and a separate interpreter runs them — the same move a free monad makes, trading "do the effect" for "return a value that names the effect". You never need this vocabulary to use the framework, but if reductions and effect-as-data already live in your head, that's the shape you're looking at.
+
 **Try it.** Here's that same counter, running live in your browser — click the buttons, or edit the code and watch it re-render. (Live cells use plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`, because the in-browser environment is functions-only; the shape is otherwise identical to the version above.)
 
 ```cljs-rf2
@@ -91,7 +93,7 @@ Now click a button and watch what happens. The loop you just ran is this: **a vi
 [counter]
 ```
 
-> **Coming from re-frame v1?** So far it's identical, except `reg-view` replaces bare form-1 components — it injects `dispatch`/`subscribe` pre-bound to the frame in scope, which is why the same component will later run in two isolated frames side by side, unchanged.
+> **From re-frame v1.** So far it's identical, except `reg-view` replaces bare form-1 components — it injects `dispatch`/`subscribe` pre-bound to the frame in scope, which is why the same component will later run in two isolated frames side by side, unchanged.
 
 ## Beat 2 — derive, don't store
 
@@ -119,6 +121,8 @@ You've now met two of the three ways `reg-sub` produces its inputs, and it's wor
 - **Parametric inputs** — `(reg-sub id (fn [query-v] [[:item (second query-v)]]) (fn [item query-v] …))`. When *which* subscription you depend on is computed from the query vector itself — `[:counter/by-id 7]` reading item 7 — an **input-fn** (the optional first function) maps the outer `query-v` to the vector of input query-vectors. You won't need this for the counter; reach for it the day a subscription is parameterised.
 
 > **Coming from React?** This is `useMemo` / Reselect, except you never pass a dependency array and never wire the selectors together by hand. The `:<-` *is* the dependency edge, declared once at registration; the framework caches each node and invalidates downstream only along edges that actually changed. Derived state that can't drift out of sync with its source, for free — which is the bug `useMemo` exists to paper over and `:<-` makes structurally impossible.
+
+> **Going deeper.** The subscription graph is a *directed acyclic graph of pure functions over a single source cell*, evaluated lazily and memoised at every node — the classic shape of incremental/self-adjusting computation. `:counter/value` is a function of app-db; `:counter/parity` is a function of `:counter/value`; nothing is a function of anything it didn't declare. Because the only mutable input is app-db, and every node downstream is pure, a change propagates exactly as far as values actually differ and no further — equality at a node short-circuits the whole subtree above it. That's why "clicking 2 → 4 doesn't re-render the parity view" isn't an optimisation you opted into; it's a theorem about a graph of pure functions with memoised edges.
 
 > **Gotcha — subscribe to something that isn't registered, and you'll know.** `@(subscribe [:counter/typo])` doesn't silently hand back `nil`; an unregistered query id is a loud error. The same goes for `dispatch` — drop an event whose id has no handler and the framework tells you, rather than swallowing the click. This is the framework's standing posture: fail loud at the boundary, never paper over a typo with a quiet `nil`. The full catalogue of these errors and how to read them lives in [Errors](concepts/errors.md).
 
@@ -159,7 +163,7 @@ The first argument, the `{:keys [db]}` you've been destructuring all along, is t
 
 > **Gotcha — declare what you read.** Delivery is declared-only, so `:rf/time-ms` shows up in the coeffects map *only* because the handler asked for it. Read `(:rf/time-ms cofx)` without the `:rf.cofx/requires` line and you'll get `nil` — the fact wasn't delivered. And declaring a coeffect that nothing registered (a typo like `:rf/time-msc`) is a loud error, not a silent miss: the framework distinguishes "you required a fact that doesn't exist" (`:rf.error/unregistered-cofx`) from "a registered fact wasn't supplied" (`:rf.error/missing-required-cofx`), so a typo'd requirement dies early and obviously.
 
-> **Coming from re-frame v1?** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee. (And there's no `reg-event-db`/`reg-event-fx` fork to navigate any more — `reg-event` is the one form, with `:db` returned in the effects map. The old names aren't soft-deprecated either; a stale `reg-event-db` call raises a loud error that names `reg-event` and shows the two-line conversion.)
+> **From re-frame v1.** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee. (And there's no `reg-event-db`/`reg-event-fx` fork to navigate any more — `reg-event` is the one form, with `:db` returned in the effects map. The old names aren't soft-deprecated either; a stale `reg-event-db` call raises a loud error that names `reg-event` and shows the two-line conversion.)
 
 ## Beat 4 — open the inspector: your app has a history
 

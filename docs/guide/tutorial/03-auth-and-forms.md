@@ -1,10 +1,10 @@
 # Part 3: auth — login, register, and the guard
 
-In [Part 2](02-server-data.md) Conduit learned to read server data. Now it learns who you are. You'll add a sign-in page, a sign-up page, a session that survives reload, routes that refuse to open while signed out, and a clean sign-out. Most of it lands in one new namespace, `conduit/auth.cljs`.
+In [Part 2](02-server-data.md) Conduit learned to read server data. Now it learns *who you are*. You'll add a sign-in page, a sign-up page, a session that survives reload, routes that refuse to open while signed out, and a clean sign-out. Most of it lands in one new namespace, `conduit/auth.cljs`.
 
-Coming from React, this is React Hook Form territory (the forms) and Axios-interceptor territory (the token, the guard). re-frame2 ships neither — no forms library, no auth plugin. The reasoning is worth a sentence: shared form components tend to drown in props chasing every project's slightly-different needs, so instead you get a convention. One map shape, a small event lifecycle, one error-visibility rule. It's built from the same events and subscriptions as everything else, so nothing here is a new kind of thing to learn.
+Here's the idea the whole part rests on. **A form is a tiny state machine wearing a trenchcoat.** Strip away the inputs and login is `idle → submitting → submitted | error`, plus a draft and an error map. Build that *once*, and every later form is a fill-in-the-blanks job.
 
-Here's the idea the whole part rests on. **A form is a tiny state machine wearing a trenchcoat.** Strip away the inputs and login is `idle → submitting → submitted | error`, plus a draft and an error map. Build that once, and every later form is a fill-in-the-blanks job.
+re-frame2 ships no forms library and no auth plugin on purpose — you'll see why in a moment. What it gives you instead is a convention: one map shape, a small event lifecycle, one error-visibility rule. It's built from the same events and subscriptions as everything else, so nothing here is a new *kind* of thing to learn.
 
 ```clojure
 (ns conduit.auth
@@ -14,11 +14,15 @@ Here's the idea the whole part rests on. **A form is a tiny state machine wearin
   (:require-macros [re-frame.core :refer [reg-view]]))
 ```
 
+> **For JavaScript developers.** This part covers two things React reaches for libraries to do: the forms (React Hook Form territory) and the token-plus-guard plumbing (Axios-interceptor territory). re-frame2 ships neither. The reasoning is worth a sentence: shared form components tend to drown in props chasing every project's slightly-different needs, so instead you get a convention you own outright — a few events and subscriptions, no library to fight.
+
 > **The condensed version.** This part walks the whole flow end to end as Conduit. If you want the recipe stripped of narrative — slice, guard, teardown, in numbered steps — [Add authentication](../how-to/add-auth.md) is the how-to sibling, and [Build a form](../how-to/build-a-form.md) is the form half on its own.
 
-## The form slice: seven keys, no library
+## The form slice: one shape, seven keys
 
-Add two routes first. Each `:on-match` seeds its form's slice — its little corner of app-db, your app's single state map — whenever the route matches, so the form always starts clean:
+Start with the simplest working thing: a slice of app-db for the login form, and an event that seeds it clean.
+
+Add two routes first. Each `:on-match` seeds its form's slice — its little corner of app-db, your app's single state map — whenever the route matches, so the form always starts fresh:
 
 ```clojure
 (rf/reg-route :conduit.auth/login
@@ -29,8 +33,6 @@ Add two routes first. Each `:on-match` seeds its form's slice — its little cor
   {:on-match [[:auth.register-form/initialise]]}
   "/register")
 ```
-
-> **`:on-match` runs every time the route activates, on both hosts.** It's a vector of event vectors the runtime dispatches when the route becomes active — client-side *and* during SSR — so the seed is a normal event, not a special hook. If two visits to `/login` land on the identical URL the runtime won't re-fire (it dedupes on the matched route+params), so a stale draft can survive a same-URL bounce; seeding from `:on-match` is the reliable reset because login navigations always come from a *different* URL.
 
 Every form lives at one app-db path with one standard shape. The initialise event — an event being just a named thing-that-happened your app reacts to — doubles as its own documentation:
 
@@ -47,9 +49,15 @@ Every form lives at one app-db path with one standard shape. The initialise even
                     :submit-error      nil})}))  ;; transport failure (network down)
 ```
 
-A quick tour of the seven keys, because each earns its place. `:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — they can be client- or server-produced, and the view won't care which. `:_form` is reserved for complaints that no single field owns. And `:submit-error` stays separate, because a transport failure has nothing field-shaped to render. `:submitted` holds the last server-accepted draft, which is what `dirty?` compares against — more on that in a moment.
+A quick tour of the seven keys, because each earns its place. `:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — they can be client- or server-produced, and the view won't care which. `:_form` is reserved for complaints that no single field owns. `:submit-error` stays separate, because a transport failure has nothing field-shaped to render. And `:submitted` holds the last server-accepted draft, which is what `dirty?` compares against — more on that in a moment.
 
-Every keystroke is one event. It updates the draft and marks the field touched in one step:
+This shape is the whole convention; it's specified in full at [Pattern-Forms](../../../spec/Pattern-Forms.md).
+
+> **`:on-match` runs every time the route activates, on both hosts.** It's a vector of event vectors the runtime dispatches when the route becomes active — client-side *and* during SSR — so the seed is a normal event, not a special hook. If two visits land on the *identical* URL the runtime won't re-fire (it dedupes on the matched route+params), so a stale draft can survive a same-URL bounce; seeding from `:on-match` is the reliable reset because login navigations always come from a *different* URL.
+
+### Editing: every keystroke is one event
+
+Editing a field updates the draft and marks the field touched, in one step:
 
 ```clojure
 (rf/reg-event :auth.login-form/edit-field
@@ -60,9 +68,15 @@ Every keystroke is one event. It updates the draft and marks the field touched i
              (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 ```
 
-> **Coming from React Hook Form?** `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events you own outright. No hook to call in the right order, no ref to wire up — the draft is just data in app-db, and editing it is just an event like any other.
+That's all login needs to capture input. The draft is just data in app-db; editing it is just an event like any other.
 
-Login needs only this much. The full seven-event convention adds `blur-field` (the per-field "you left this input" event, used for async checks) and a `reset` event, plus a couple of convenience subs. Both are part of the convention spelled out in [Pattern-Forms](../../../spec/Pattern-Forms.md); [build a form](../how-to/build-a-form.md) is the condensed recipe. Two convenience subs earn their keep on almost every form:
+> **Coming from React Hook Form?** `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events you own outright. No hook to call in the right order, no ref to wire up — the draft is data, editing it is an event, and reading it back is a subscription.
+
+The full seven-event convention adds `blur-field` (the per-field "you left this input" event, used for async checks) and a `reset` event — both spelled out in [Pattern-Forms](../../../spec/Pattern-Forms.md); [build a form](../how-to/build-a-form.md) is the condensed recipe. Login doesn't need them yet.
+
+### Two convenience subs
+
+Two derived reads earn their keep on almost every form:
 
 ```clojure
 ;; can-submit? — no outstanding errors AND not mid-flight. Drive the button's :disabled with it.
@@ -107,8 +121,9 @@ Because the rule lives in the subscription and not in the view, every field rend
 
 > **Cross-field errors go in `:_form`, not in a field.** "Passwords don't match" doesn't belong to either password input — it belongs to the *pair*. The convention reserves `:_form` for exactly this: cross-field validation outcomes and high-level submit-time messages. Compute them in `validate-*`, write them under `:_form`, and they render through `form-errors` above. A field id must never collide with `:_form`; the form-errors sub ignores `:touched` and shows them whenever they exist.
 
+Here's a register-form validator showing both a per-field error and a cross-field `:_form` one:
+
 ```clojure
-;; register-form validation, showing both a per-field error and a cross-field :_form one
 (defn validate-register [{:keys [username email password password-confirm]}]
   (cond-> {}
     (str/blank? username)            (assoc :username ["can't be blank"])
@@ -150,7 +165,11 @@ Login is a one-shot command, not cached server state. So it's a plain managed re
         {:db (assoc-in db' [:auth :login-form :errors] errors)}))))
 ```
 
-The `:submit-attempted?` latch flips on *every* submit click, valid or not — that's what arms the visibility rule from the last section. A few of the args-map slots are doing real work here, and a couple more are worth knowing about:
+The `:submit-attempted?` latch flips on *every* submit click, valid or not — that's what arms the visibility rule from the last section. Notice there's no `:retry`: a submit is one click, one attempt. Silently re-posting credentials after a 5xx isn't what the user asked for, so we don't.
+
+The reply comes back as the last argument of the event you named, either `{:kind :success :value <decoded-body>}` or `{:kind :failure :failure <failure-map>}`. Those two outer shapes are the whole contract — and they're what the two handlers in the next section branch on.
+
+A few of the args-map slots are doing real work here, and a couple more are worth knowing about:
 
 | Slot | What it does here | Worth knowing |
 |---|---|---|
@@ -158,13 +177,15 @@ The `:submit-attempted?` latch flips on *every* submit click, valid or not — t
 | `:decode` | `:json` parses a 2xx body. | Defaults to `:auto` (sniffs the response `Content-Type`). Decode runs **only on 2xx** — a 4xx/5xx body arrives raw, undecoded. Pass a Malli schema instead of `:json` to validate the reply shape. |
 | `:on-success` / `:on-failure` | Name the reply targets. | Omit both and the reply routes back to *this* event under `:rf/reply` (the co-located form) — fine for trivial flows, but two named handlers keep each one single-purpose. |
 
-Notice there's no `:retry`: a submit is one click, one attempt. Silently re-posting credentials after a 5xx isn't what the user asked for, so we don't. (`:retry` is for transport faults that a re-issue can fix — a `429`/`503` on a GET, say — and its `:on` set is closed to the retryable `:rf.http/*` categories; a typo there fails loud at dispatch with `:rf.error/http-bad-retry-on` rather than silently disabling retry. Credentials aren't that shape.)
-
-The reply comes back as the last argument of the event you named, either `{:kind :success :value <decoded-body>}` or `{:kind :failure :failure <failure-map>}`. Those two outer shapes are the whole contract. Inside a failure, `:failure` is a framework-classified map carrying its own `:kind` from the closed `:rf.http/*` set — `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/transport`, `:rf.http/timeout`, and a few more — and that inner `:kind` is exactly what the failure handler branches on below. [HTTP: the managed request](../concepts/http.md) has the full set.
+> **Why no `:retry` here.** `:retry` is for transport faults that a re-issue can fix — a `429`/`503` on a GET, say — and its `:on` set is closed to the retryable `:rf.http/*` categories; a typo there fails loud at dispatch with `:rf.error/http-bad-retry-on` rather than silently disabling retry. Credentials aren't that shape: re-posting them isn't a safe automatic recovery. [HTTP: the managed request](../concepts/http.md) has the full set of categories.
 
 ## The two endings: token in, errors back
 
-On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler — the plain function that runs when an event fires — stores the session, snapshots the draft, persists the token, and sends the user on. Where to? To wherever the guard intercepted them (the stash is below), or home if nothing was stashed:
+The submit produced one of two outcomes. Each gets its own handler — a handler being the plain function that runs when an event fires — and each is single-purpose.
+
+### Success: store the session, send the user on
+
+On success Conduit replies `{:user {... :token "<jwt>"}}`. The success handler stores the session, snapshots the draft, persists the token, and sends the user on. Where to? To wherever the guard intercepted them (the stash is below), or home if nothing was stashed:
 
 ```clojure
 (rf/reg-event :auth.login-form/submit-success
@@ -191,9 +212,11 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler — the p
                          [:rf.route/navigate :conduit/home nil {:replace? true}])]]})))
 ```
 
-> **Mind the `navigate` arity — params is 2nd, opts is 3rd.** `[:rf.route/navigate target params opts]`: path-params go in the second slot, options (`:replace?`, `:scroll`, `:fragment`) in the third. Slipping an opts key like `:replace?` into the *params* slot of a route that doesn't declare it as a path-param is the classic swap, and the runtime rejects it fail-loud with `:rf.error/navigate-arity-misuse` rather than navigating somewhere surprising. When a route takes no path-params, pass `nil` in the second slot (as `:conduit/home` does above) to reach the third.
+> **Mind the `navigate` arity — params is 2nd, opts is 3rd.** `[:rf.route/navigate target params opts]`: path-params go in the second slot, options (`:replace?`, `:scroll`, `:fragment`) in the third. Slipping an opts key like `:replace?` into the *params* slot is the classic swap, and the runtime rejects it fail-loud with `:rf.error/navigate-arity-misuse` rather than navigating somewhere surprising. When a route takes no path-params, pass `nil` in the second slot (as `:conduit/home` does above) to reach the third.
 
-Failure sorts into two shapes, and here's the second rule the part leans on. **Structured server validation lands in `:errors`, rendered by the same view code as client errors; only unstructured transport failure lands in `:submit-error`.** Conduit's 422 body is `{"errors": {"email or password": ["is invalid"]}}`. Keys naming a real field go per-field; the rest joins `:_form`. The failure map's `:kind` (the inner `:rf.http/*` one) is how we tell "the server answered with a structured rejection" apart from "the server never answered":
+### Failure: structured errors back into the same view
+
+Failure sorts into two shapes, and here's the second rule the part leans on. **Structured server validation lands in `:errors`, rendered by the same view code as client errors; only unstructured transport failure lands in `:submit-error`.** Conduit's 422 body is `{"errors": {"email or password": ["is invalid"]}}`. Keys naming a real field go per-field; the rest joins `:_form`. The failure map's `:kind` is how we tell "the server answered with a structured rejection" apart from "the server never answered":
 
 ```clojure
 (defn failure->form-errors
@@ -220,6 +243,8 @@ Failure sorts into two shapes, and here's the second rule the part leans on. **S
 ```
 
 The reason this reads cleanly is the framework's classification order. On a 4xx the body is surfaced **raw** at `:body` (decode is skipped on non-2xx), so `failure->form-errors` gets exactly the bytes the server sent and decides what to do with them. A `:rf.http/transport` failure — the network was down, the server never answered — carries no `:body` to parse, so it falls through to the generic `:submit-error` string. The payoff is that the view never grows a branch for "is this a server error or a client error?" — both validation kinds arrive as `:errors`, both render through the same `field-error` subscription. Only the genuinely shapeless failure gets its own plain string.
+
+> **Going deeper.** The inner `:kind` you branch on comes from a *closed* set, `:rf.http/*` — `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/transport`, `:rf.http/timeout`, and a few more. Treating failures as a small closed sum type (rather than an open grab-bag of HTTP status integers) is what lets the handler be a total `case` over a finite alphabet: every failure is exactly one of these, so there's no "unhandled status" hole to forget. [HTTP: the managed request](../concepts/http.md) enumerates the full set.
 
 > **Gotcha — a 5xx with an HTML error page is *not* a decode failure.** If you'd reached for `:decode (schema …)` expecting the failure handler to see a decode error, note that the runtime classifies by status *before* it touches the body: a 503 with a CloudFront HTML page classifies as `:rf.http/http-5xx` with the HTML at `:body`, never as `:rf.http/decode-failure`. The HTTP status is the load-bearing fact; surfacing a decode error there would hide it. Decode-failure only ever describes a malformed *2xx* body.
 
@@ -256,17 +281,19 @@ The rules already live in subs and handlers, which means the view — the functi
 
 Notice what the view does *not* do: no validation, no error-visibility logic, no "am I allowed to show this yet" anywhere. It reads three subscriptions and dispatches two events. Every decision was made upstream, in data, where you can test it without rendering a single pixel.
 
-> **The blur-field upgrade, when you need it.** Login validates on submit, which is plenty. The day you want "is this username taken?" the moment the user leaves the field, that's the convention's `blur-field` event — wire `:on-blur #(dispatch [:auth.register-form/blur-field :username])` on the input, have that event fire an async check (an fx per [Pattern-AsyncEffect](../../../spec/Pattern-AsyncEffect.md)), and write the result back into `:errors` under the same `:username` key. The `field-error` sub reads the merged map without caring whether a sync or async validator produced the entry — so the view doesn't change at all. Carry the current draft value on the dispatch and ignore stale replies, or a slow check for an old value can clobber a newer one.
+Now try it, then watch it. Type a bad email and click *Sign in*. Both errors appear — including the password field you never touched, which is the latch doing its job. Open Xray: the submit's event row shows the validation branch, and no request left the building. Fix and resubmit. The epoch ledger shows the submit, then the reply arriving as its own event. The async gap is two inspectable rows, not a mystery hidden inside a promise.
 
 The register page is the same shape plus `:username` and a `:password-confirm` field (the cross-field `:_form` rule from earlier). It uses a `[:auth :register-form]` slice, the same events posting to `/users`, and the same subs. Write it as your first fill-in-the-blanks form, or crib the finished pair from [the example's `auth.cljs`](../../../examples/reagent/realworld/).
 
-Now try it, then watch it. Type a bad email and click *Sign in*. Both errors appear — including the password field you never touched, which is the latch doing its job. Open Xray: the submit's event row shows the validation branch, and no request left the building. Fix and resubmit. The epoch ledger shows the submit, then the reply arriving as its own event. The async gap is two inspectable rows, not a mystery hidden inside a promise.
+> **The blur-field upgrade, when you need it.** Login validates on submit, which is plenty. The day you want "is this username taken?" the moment the user leaves the field, that's the convention's `blur-field` event — wire `:on-blur #(dispatch [:auth.register-form/blur-field :username])` on the input, have that event fire an async check (an fx per [Pattern-AsyncEffect](../../../spec/Pattern-AsyncEffect.md)), and write the result back into `:errors` under the same `:username` key. The `field-error` sub reads the merged map without caring whether a sync or async validator produced the entry — so the view doesn't change at all. Carry the current draft value on the dispatch and ignore stale replies, or a slow check for an old value can clobber a newer one.
 
 ## The session: persist, restore, attach
 
-A login that evaporates on reload isn't really a session. You need three pieces: a write, a read, and a header.
+A login that evaporates on reload isn't really a session. You need three pieces: a write, a read, and a header. We'll add them in that order.
 
-**The write** is an effect — a description of a side effect the framework performs for you, so your handler stays a pure function. localStorage is the outside world, so it sits behind `reg-fx`. The `:platforms #{:client}` line makes a server render skip it, which is what you want, because there's no localStorage on the server:
+### The write — an effect
+
+localStorage is the outside world, so it sits behind an **effect** — a description of a side effect the framework performs for you, so your handler stays a pure function. The `:platforms #{:client}` line makes a server render skip it, which is what you want, because there's no localStorage on the server:
 
 ```clojure
 (rf/reg-fx :auth.session/persist
@@ -279,7 +306,9 @@ A login that evaporates on reload isn't really a session. You need three pieces:
         (.removeItem ls "jwtToken")))))
 ```
 
-**The read** happens at boot. Reading the world is a *coeffect* — the input mirror image of an effect: a fact from outside, delivered into a handler. Register a supplier for the fact, and the boot handler declares that it requires it. The value then arrives flat in the handler's first argument, beside `:db`:
+### The read — a coeffect
+
+The read happens at boot. Reading the world is a **coeffect** — the mirror image of an effect: a fact from outside, delivered *into* a handler. Register a supplier for the fact, and the boot handler declares that it requires it. The value then arrives flat in the handler's first argument, beside `:db`:
 
 ```clojure
 (rf/reg-cofx :auth.session/token
@@ -315,13 +344,17 @@ A login that evaporates on reload isn't really a session. You need three pieces:
      :fx [[:auth.session/persist {:token nil}]]}))
 ```
 
-Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect) rides every dispatch, but a handler must declare it to read it. One detail worth knowing: this token read registers as an *ambient* coeffect (the default grade), meaning it's re-read live, never recorded, and tests stub it by re-registering the supplier. Ambient is safe here only because the read runs once at boot, before any epoch you'd replay. A fact folded into durable state mid-session would instead register `:recordable? true`, so replay re-presents the recorded value rather than re-reading the world. One more thing about the registration: declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event` — the same form every handler uses — so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`.
+Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect) rides every dispatch, but a handler must declare it to read it. Declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event`, so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`.
 
 > **Coming from re-frame v1?** The `inject-cofx` interceptor is gone — declare `:rf.cofx/requires` on the registration and the runtime assembles the value before the handler runs. No interceptor to thread, no order to get right: the dependency is data on the registration, and the runtime reads it.
 
+> **Going deeper — ambient vs recordable coeffects.** This token read registers as an *ambient* coeffect (the default grade), meaning it's re-read live, never recorded, and tests stub it by re-registering the supplier. Ambient is safe here only because the read runs once at boot, before any epoch you'd replay. A fact folded into durable state *mid-session* would instead register `:recordable? true`, so a time-travel replay re-presents the *recorded* value rather than re-reading the world — the difference between "re-observe reality now" and "reconstruct the reality that was observed then." Picking the grade is choosing whether the fact is part of the replayable history or outside it.
+
 > **Two failure paths at boot, not one.** `:auth/initialise` fires the `/user` request *only when a token was found* (the `cond->`), so a fresh visitor never makes the call. When a token exists but the server rejects it, `:on-failure` routes to `:auth/session-expired`, which clears `:user`/`:token` and wipes the saved JWT — the stored credential was stale, and now the app knows it. A network blip during restore lands on the same handler; if you'd rather distinguish "token rejected" (a real 401 — clear it) from "couldn't reach the server" (transient — keep the token and retry later), branch on the failure's `:kind` exactly as the login handler does.
 
-**The header.** Every authenticated request needs `Authorization: Token <jwt>`, and threading that through forty request maps by hand is exactly what Axios request-interceptors exist to prevent. Same move here: one HTTP interceptor on the frame — a frame being one isolated app instance with its own app-db — decorates every managed request. That includes the `/user` restore above, because `:db` commits before `:fx` runs, so the token is already in app-db when the request leaves:
+### The header — one interceptor for every request
+
+Every authenticated request needs `Authorization: Token <jwt>`, and threading that through forty request maps by hand is exactly what Axios request-interceptors exist to prevent. Same move here: one HTTP interceptor on the frame — a frame being one isolated app instance with its own app-db — decorates every managed request. That includes the `/user` restore above, because `:db` commits before `:fx` runs, so the token is already in app-db when the request leaves:
 
 ```clojure
 (defn bearer-auth [ctx]
@@ -333,7 +366,9 @@ Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/req
 
 Wire it at boot with `reg-http-interceptor` (below). The interceptor reads `app-db-value` per request — the non-reactive snapshot read for fx/handler/interceptor bodies — so it always sees the *current* token, with nothing to invalidate when the token changes.
 
-### Two surfaces, two protections — keeping the JWT redacted
+> **Coming from Axios?** This is your request interceptor, near-identically. The difference is that re-frame2's interceptor reads from app-db at call time rather than closing over a mutable module-level token, so logout (clearing app-db) silently disarms it — no interceptor to detach.
+
+### Keeping the JWT redacted on both surfaces
 
 The token now lives in two distinct places, and each has its own redaction surface. It's worth being precise about which protection covers which, because they're easy to conflate:
 
@@ -352,13 +387,15 @@ The point is that classifying the app-db path does *not* by itself redact the re
 >
 > See [keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) for the full classification surface, and confirm in Xray: after signing in, the App-db tab shows `:rf/redacted` at `[:auth :token]`, and a request row shows the `Authorization` header redacted too.
 
+### Wiring it at boot
+
 ```clojure
 ;; core.cljs — additions to Part 1's boot
 (rf/reg-frame :rf/default
   {:doc          "The Conduit app frame."
    :url-bound?   true                          ;; the frame's routing tracks the browser URL
    :interceptors [:conduit/auth-guard]})       ;; reference the guard registered in the next section
-                                               ;; :auth/initialise (below) classifies [:auth :token]
+                                               ;; :auth/initialise (above) classifies [:auth :token]
 
 (rf/with-frame :rf/default
   (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth})
@@ -370,7 +407,9 @@ The point is that classifying the app-db path does *not* by itself redact the re
 
 ## The guard
 
-Settings and the editor should refuse to open while signed out. Route protection is an ordinary event interceptor, because every way of *reaching* a route is an event. First tag the routes that need a user (extending Part 1's registrations). `:tags` is a free-form set of keywords on the route, read by interceptors — the framework attaches no meaning to `:requires-auth`; *you* do, in the guard:
+Settings and the editor should refuse to open while signed out. Route protection is an ordinary event interceptor, because every way of *reaching* a route is an event.
+
+First tag the routes that need a user (extending Part 1's registrations). `:tags` is a free-form set of keywords on the route, read by interceptors — the framework attaches no meaning to `:requires-auth`; *you* do, in the guard:
 
 ```clojure
 (rf/reg-route :conduit.user/settings
@@ -425,7 +464,7 @@ You register the guard once, under the id `:conduit/auth-guard` — exactly like
 
 Attached frame-wide, the guard wraps every event and quietly stands aside (returns `ctx` untouched) for everything `nav-target` returns `nil` for — which is every event that isn't a navigation. [Interceptors](../concepts/interceptors.md) is the deeper model.
 
-> **Coming from Axios?** Your request interceptor became `reg-http-interceptor` (the bearer header above); your redirect-on-401 *response* interceptor became this event interceptor, one layer up — it stops the navigation *before* any request exists. You don't wait for the server to say no; the guard already knows there's no user.
+> **Coming from Axios?** Your redirect-on-401 *response* interceptor became this event interceptor, one layer up — it stops the navigation *before* any request exists. You don't wait for the server to say no; the guard already knows there's no user.
 
 Watch it fire. Signed out, click *Settings*. In Xray the navigation's event row shows the guard short-circuiting the handler (`:rf/skip-handler?`), and the next row is the redirect dispatch to the login route. Sign in, and the ledger shows the bounce back to `/settings` — the stash paying off.
 
@@ -469,12 +508,3 @@ Nothing else to unhook, which is the nice part. The bearer interceptor reads app
 An honest closing note. This part hand-rolled the `:status` transitions, and at this size that's the right call.
 
 > **When to reach for a real state machine.** The shipped example implements this same flow as an explicit state machine. Once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling — you lose track of which transitions are legal. The slice stays identical; only the transition logic moves into a machine that names every legal edge. The same boundary draws the line on *retry*: transport retry (back off and re-issue on a 5xx) belongs in `:rf.http/managed`'s `:retry` slot, but *semantic* retry — "refresh the token on a 401, then replay the original request" — is a state-machine transition, not a config map. When you feel that pull, [State machines](../concepts/machines.md) is the step up, and the example's [`auth.cljs`](../../../examples/reagent/realworld/) shows the finished machine.
-
-**You can now:**
-
-- Build any form as a seven-key slice with one error-visibility rule — no forms library — and read `can-submit?` / `dirty?` straight off the slice.
-- Submit over `:rf.http/managed` and sort the reply on its `:kind`: structured validation into `:errors` (per-field and cross-field `:_form`), transport failure into `:submit-error`.
-- Store a session token and keep it redacted on *both* surfaces — the durable app-db path via a `:sensitive` classification effect, the request header via the built-in HTTP carrier denylist — persist it via an fx, and restore it at boot with a declared coeffect.
-- Attach the token to every request with one frame-wide HTTP interceptor that reads app-db per request.
-- Protect routes with a guard that gates all three navigation entry points and bounces users back after sign-in, and protect *leaving* a dirty form with a `:can-leave` sub.
-- Tear the session down with one logout event.

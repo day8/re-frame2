@@ -2,13 +2,13 @@
 
 You have an event handler — the function that decides how state changes in response to something happening — and it does real work. It stamps state, fires an HTTP request, gets the reply back as another event, and folds the result in along with follow-up dispatches. What you want to test is the whole journey: an event goes in, and settled `app-db` (your app's single state map) comes out the other side. This recipe tests that journey on the JVM. No browser, no mock library, milliseconds per test.
 
-Your JavaScript anchor here is **MSW**. With MSW you don't mock your own modules; you intercept at the network boundary and answer with canned responses, so the code under test runs unmodified. re-frame2 keeps that idea and moves the boundary earlier. An effect — a description of work the handler wants done, returned as plain data — is just that: data the handler returns. The request is a description before it's ever a connection. Which means the test never touches network traffic at all. It redirects the effect's id to a different answerer for one dispatch, and that's it. No service worker, no patched `fetch`, no module-mock hoisting.
+The trick that makes it fast is one idea: **you don't mock, you redirect.** The handler under test runs unmodified and produces the same effect data it produces in production — an effect is just a description of work, returned as plain data. The test changes only *who answers* that effect. No service worker, no patched `fetch`, no module-mock hoisting.
 
-> **You don't mock, you redirect.** The handler under test runs unmodified and produces the same effect data it produces in production; the test changes only who answers it.
+> **For JavaScript developers.** Your closest anchor here is **MSW**. With MSW you don't mock your own modules; you intercept at the network boundary and answer with canned responses, so the code under test runs unmodified. re-frame2 keeps that idea and moves the boundary earlier. An effect is data the handler returns — the request is a *description* before it's ever a connection — so the test never touches network traffic at all. It redirects the effect's id to a different answerer for one dispatch, and that's it.
 
-## The shape
+## The shape of every cascade test
 
-Every cascade test is the same three moves: a fresh frame, a `dispatch-sync`, an assertion against the frame's `app-db`. (A frame is one isolated instance of your running app — its own `app-db`, its own event queue. A `dispatch` is how you send an event into it.)
+Start with the simplest possible version. Every cascade test is the same three moves: a fresh frame, a `dispatch-sync`, an assertion against the frame's `app-db`. (A frame is one isolated instance of your running app — its own `app-db`, its own event queue. A `dispatch` is how you send an event into it.)
 
 ```clojure
 (rf/reg-event :counter/inc
@@ -23,15 +23,15 @@ Every cascade test is the same three moves: a fresh frame, a `dispatch-sync`, an
 
 `with-new-frame` gives the test its own isolated frame and destroys it on exit, so nothing leaks between tests. `dispatch-sync` **drains to fixed point**: the event settles, every follow-up `:dispatch` its handlers queue settles, and (as you'll see below) every stubbed HTTP reply settles too — all before the call returns. So the assertion on the next line reads committed state. No `act()`, no fake timer to advance, nothing to `await`.
 
-> **Coming from re-frame v1?** `dispatch-sync` drains the follow-up dispatches too, so the `wait-for` choreography from the v1 test library is gone. And there is no `run-test-sync` shim — `dispatch-sync` is already settle-by-default, so the v1 macro was pure migration tax. Inline your `dispatch-sync` calls under a `make-reset-runtime-fixture` and the body reads the same.
-
 If instead you want to test one handler as the pure function it is, see [Test an event handler](test-an-event-handler.md). This page is for when the interesting behaviour is the chain itself.
+
+> **From re-frame v1.** `dispatch-sync` drains the follow-up dispatches too, so the `wait-for` choreography from the v1 test library is gone. And there is no `run-test-sync` shim — `dispatch-sync` is already settle-by-default, so the v1 macro was pure migration tax. Inline your `dispatch-sync` calls under a `make-reset-runtime-fixture` and the body reads the same.
 
 > **`with-new-frame` vs `with-frame`.** These are siblings, and the macro name telegraphs the intent. `with-new-frame [f expr]` takes a **vector** — it evaluates `expr` (typically `(rf/make-frame {})`), binds the result, runs the body, and *destroys* the frame on exit (modelled on `with-open`). `with-frame :some-id` takes a **keyword** — it pins to a frame that already exists (registered via `reg-frame`, or created earlier) and does *not* create or destroy it. Pass the wrong argument shape and the macro rejects it at compile time (`:rf.error/with-new-frame-keyword-form` / `:rf.error/with-frame-vector-form`) — so you can't accidentally leak a frame by pinning when you meant to bracket. Reach for `with-new-frame` for per-test fixtures; reach for `with-frame` for a shared fixture across several `deftest`s.
 
-## What's under test
+## A real cascade: the code under test
 
-We'll use a RealWorld-style login. The handlers live in a `.cljc` file so the JVM test can load them — same code, both platforms.
+The counter was a warm-up. Now a real chain — a RealWorld-style login that stamps state, fires a request, and folds the reply back in. The handlers live in a `.cljc` file so the JVM test can load them — same code, both platforms.
 
 ```clojure
 ;; src/my_app/session.cljc
@@ -322,19 +322,8 @@ The dispatch opts this page used aren't a grab-bag. They're the complete set of 
 | `:fx-overrides` | **outputs** — who answers the effects |
 | `:interceptor-overrides` | **chain** — which interceptors are removed or replaced for this dispatch |
 
-What dispatch opts can never touch is the **middle**: the handler and its interceptor chain's *logic*. The middle is the program under test. And because the middle can't be bent, a green test means the production step function — fed those inputs, asked for those outputs — really behaves that way. That's also why replay is trustworthy: same program plus recorded inputs is the framework's own definition of state, and your cascade test is simply that definition, run on demand.
+What dispatch opts can never touch is the **middle**: the handler and its interceptor chain's *logic*. The middle is the program under test. And because the middle can't be bent, a green test means the production step function — fed those inputs, asked for those outputs — really behaves that way.
+
+> **Going deeper.** The edges/middle split is the algebraic reason replay is trustworthy. An event handler is a pure step function `(db, event, coeffects) → (db', effects)`; `app-db` is the left fold of that step over the event ledger, seeded by the initial db. The dispatch opts only ever re-bind the *boundary* of the fold — its inputs (`:rf.cofx`) and the interpretation of its outputs (`:fx-overrides`) — never the step function itself. So "same program plus recorded inputs" is *definitionally* the same fold, and your cascade test is simply that fold's definition run on demand. A green replay isn't evidence the behaviour matches production; under this structure it *is* the production behaviour, evaluated with pinned inputs.
 
 > **Where these surfaces live.** The dispatch opts, frame lifecycle, and drain semantics are owned by [Spec 002 — Frames](../../../spec/002-Frames.md); the canned-reply stubs and the `:reply` route shape by [Spec 014 — HTTP Requests](../../../spec/014-HTTPRequests.md); the fixture helpers (`dispatch-sequence`, `assert-path-equals`, `poll-until`, `make-reset-runtime-fixture`) by [Spec 008 — Testing](../../../spec/008-Testing.md). `with-managed-request-stubs` and the `:rf.http/managed-canned-*` stubs ship in `re-frame.http.test-support` and must never appear in a production require.
-
----
-
-**You can now:**
-
-- drive a multi-event cascade with `dispatch-sync` and assert settled state on the next line — no browser, no `act()`, no fake timers
-- pin a handler's declared world facts with `{:rf.cofx {:rf/time-ms ...}}` so time can never flake a test, and understand why a generated fact fails loud under strict mint
-- answer `:rf.http/managed` with canned replies routed by method + URL (success or failure, immediate or `:after-ms`-deferred) — and redirect any effect with `:fx-overrides`
-- reach the deterministic defaults in one key with the `{:preset :test}` frame preset
-- capture what *would* dispatch without running the cascade, and silence a noisy interceptor with `:interceptor-overrides`
-- wait out an async reply that drains past `dispatch-sync` with `ts/poll-until` — and know when a sleep is the right tool instead
-- turn a bug report into a deterministic replay (with `dispatch-sequence` and `:after-each`) that becomes its own regression test
-- say what dispatch opts may bend (frame, facts, effects, chain — the edges) and what they never touch (the handler's logic — the middle)

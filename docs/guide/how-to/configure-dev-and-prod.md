@@ -1,12 +1,14 @@
 # Configure dev and production builds
 
-You're about to ship, and you want to know two things: what's actually in your production bundle, and which knobs you need to touch. For that second question the answer is *almost none*, because the defaults are already correct. **This page is for the day you need to prove it.** Think of it as the pre-ship pass — it walks through the one flag that defines production, the small set of dev knobs and where each lives, and the guardrails that stay on no matter what you set.
+You're about to ship, and you want to know two things: what's actually in your production bundle, and which knobs you need to touch. For that second question the answer is *almost none*, because the defaults are already correct. **This page is the pre-ship pass** — it walks through the one flag that defines production, then the small set of dev knobs and where each lives, and finishes with the guardrails that stay on no matter what you set.
 
-If you've shipped React, you know `NODE_ENV=production`, where the bundler strips out dev warnings. This is the same idea with a bigger reach. ClojureScript has a standard `goog.DEBUG` flag, and when it's off, the Closure compiler dead-code-eliminates re-frame2's entire dev surface: schema validation, the trace stream, epoch history. These aren't *skipped* at runtime — they're *gone* from the bundle entirely, which means zero cost rather than a cost you've cleverly avoided.
+We'll build it up one piece at a time: first the single flag that makes a build "production", then how to gate your *own* dev code so it disappears alongside the framework's, then the JVM/SSR variant, then the dev knobs, and finally the always-on guardrails.
 
-> **Coming from re-frame v1?** There is no separate tracing dependency and no `10x` preload-and-`closure-define` dance: dev builds trace by default with zero config, and production elision rides the `goog.DEBUG=false` you were already setting.
+> **For JavaScript developers.** If you've shipped React, you know `NODE_ENV=production` — the build where the bundler strips out dev warnings. re-frame2's flag is the same idea with a bigger reach. ClojureScript has a standard `goog.DEBUG` flag, and when it's off, the Closure compiler doesn't just *skip* re-frame2's dev surface at runtime — it dead-code-eliminates it from the bundle entirely: schema validation, the trace stream, epoch history, all gone. Zero cost, rather than a cost you've cleverly avoided.
 
 ## 1. Production is one flag
+
+Here is the whole production story — one line in your release build:
 
 ```clojure
 ;; shadow-cljs.edn — the release build
@@ -15,7 +17,9 @@ If you've shipped React, you know `NODE_ENV=production`, where the bundler strip
         :release {:compiler-options {:closure-defines {goog.DEBUG false}}}}}}
 ```
 
-Most production CLJS builds already set this, so re-frame2 reuses the canonical flag rather than inventing its own. Under `:advanced` compilation plus `goog.DEBUG=false`, the surfaces sort into three piles, and it's worth knowing which is which before you ship.
+That's it. Most production CLJS builds already set `goog.DEBUG false`, so re-frame2 reuses the canonical flag rather than inventing its own — odds are you have this line already.
+
+Under `:advanced` compilation plus `goog.DEBUG=false`, the framework surfaces sort into three piles. It's worth knowing which is which before you ship.
 
 **Elided — gone from the bundle, zero cost:**
 
@@ -32,9 +36,13 @@ Most production CLJS builds already set this, so re-frame2 reuses the canonical 
 
 **Opt-in:** the Performance API channel rides its own independent flag — `{:closure-defines {re-frame.performance/enabled? true}}` — for event/sub/fx/render timing in production via `PerformanceObserver`. It's off by default in every build, so you turn it on only when you specifically want production timing. ([Find and fix a slow view](fix-a-slow-view.md))
 
+> **From re-frame v1.** There is no separate tracing dependency and no `10x` preload-and-`closure-define` dance: dev builds trace by default with zero config, and production elision rides the `goog.DEBUG=false` you were already setting. The single flag does the whole job.
+
+> **Going deeper.** Why is this *elimination* and not a runtime `if`? The dev surfaces are written as `(when ^boolean re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is a `goog-define` — a constant the Closure compiler can fold. In `:advanced` mode with `goog.DEBUG=false` the predicate folds to the literal `false`, every guarded body becomes provably unreachable, and dead-code elimination removes it along with everything only *it* referenced. The "three piles" above aren't a policy the runtime enforces; they're a consequence of which code is reachable once one constant is pinned. That's why the cost isn't "small" — it's structurally *absent*, and the elision probe (`npm run test:elision`) asserts the strings simply aren't in the bundle.
+
 ## 2. Gate your own dev-only code
 
-The framework elides its own dev surface, and yours needs the same gate so it disappears alongside it. Any trace listener or debug hook you wrote should sit behind the framework's own predicate, placed as the **outermost** form:
+The framework elides its own dev surface; yours needs the same gate so it disappears alongside it. Any trace listener or debug hook you wrote should sit behind the framework's own predicate, placed as the **outermost** form:
 
 ```clojure
 (when ^boolean re-frame.interop/debug-enabled?   ;; alias of goog.DEBUG
@@ -60,11 +68,13 @@ Two spellings; pick whichever fits your deployment:
 - **Java system property `re-frame.debug`** — the `-Dre-frame.debug=false` above, on the JVM command line.
 - **Environment variable `RE_FRAME_DEBUG`** — set in the process environment, which is often the cleaner fit for a containerised deploy (`RE_FRAME_DEBUG=false` in the Dockerfile / orchestrator config, no command-line surgery).
 
-The flag is read **once**, at namespace load, so set it before `re-frame.interop` loads — i.e. as a real process-level setting, not something you `System/setProperty` after the app has booted. With it off, every JVM-side dev surface drops to the same no-op floor that Closure DCE gives a `:advanced` + `goog.DEBUG=false` browser build: no trace rings, no epoch history retaining user input. The always-on event/error streams and the SSR error projector keep firing — they exist precisely for this posture ([Security.md §Production gates](../../../spec/Security.md#production-gates)).
+The flag is read **once**, at namespace load, so set it before `re-frame.interop` loads — i.e. as a real process-level setting, not something you `System/setProperty` after the app has booted. With it off, every JVM-side dev surface drops to the same no-op floor that Closure DCE gives a `:advanced` + `goog.DEBUG=false` browser build: no trace rings, no epoch history retaining user input. The always-on event/error streams and the SSR error projector keep firing — they exist precisely for this posture.
+
+> **Going deeper.** The browser path eliminates code; the JVM path can't (no Closure pass), so it reads `re-frame.debug` *once* into a plain `def` at namespace load and branches on that constant for the process lifetime. Reading once is deliberate: a per-call check would be a hot-path tax, and a value that can change mid-run would make "is tracing on?" ambiguous. The contract is the same on both substrates — *gated off ⇒ no retention of user input* — only the mechanism differs: DCE on CLJS, a load-time constant on the JVM ([Security.md §Production gates](../../../spec/Security.md#production-gates)).
 
 ## 4. The dev knobs: three buckets, one rule
 
-Configuration lives in exactly three places, sorted by how long the configured thing lives, with one rule sitting on top: **one option, one bucket.** Nothing is settable in two places, which means there's never a question of where a setting "really" comes from.
+Now the dev-side configuration. It lives in exactly three places, sorted by how long the configured thing lives, with one rule on top: **one option, one bucket.** Nothing is settable in two places, so there's never a question of where a setting "really" comes from.
 
 | Lifetime | Surface | What lives there |
 |---|---|---|
@@ -72,7 +82,11 @@ Configuration lives in exactly three places, sorted by how long the configured t
 | Slot-level, value is an impl | `set-…!` / `install-…!` | schema validator/explainer, substrate adapter |
 | One frame | `reg-frame` metadata / `dispatch` opts | `:drain-depth`, `:observability`, `:fx-overrides` |
 
-A *frame*, here, is one isolated app instance — its own `app-db`, its own handlers. `configure!` takes a single nested map; its vocabulary is just three top-level keys, fixed-and-additive, shown here at their defaults:
+A *frame*, here, is one isolated app instance — its own `app-db`, its own handlers.
+
+### The `configure!` bucket: process-wide data
+
+`configure!` takes a single nested map; its vocabulary is just three top-level keys, fixed-and-additive, shown here at their defaults:
 
 ```clojure
 (rf/configure!
@@ -85,13 +99,21 @@ A missing top-level key leaves that subsystem untouched, so you can pass just th
 
 > **One thing fails loud.** The *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The silent no-op is reserved for *unknown keys inside* a well-formed map (that's the property that lets a wrapper pass a composed config straight through); a malformed argument is a programming error and surfaces as one.
 
+The three keys, in detail:
+
 - **`:epoch-history`** — depth of the per-frame epoch ring that powers Xray's time travel; `:depth 0` disables it. This one is dev-only: in production the ring elides whatever you set. It carries two more opts, both for the security-conscious deployment: `:trace-events-keep` (a non-negative integer) caps how many raw `:trace-events` each epoch record retains, and `:redact-fn` (`(fn [record] …)` or `nil`, default `nil`) is a projection-side override invoked once per record *at the off-box egress boundary* — the moment an epoch is about to leave the process for a hosted post-mortem dashboard. It does **not** mutate the in-process ring, so it never affects `restore-epoch!` fidelity; it only shapes what egresses. Reach for it when the built-in classification (schema `:sensitive?`, the commit-plane effects) doesn't cover a field you need to scrub on the way out. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
 - **`:trace-buffer`** — how many whole *cascades* (one dispatch plus everything it fanned into) the dev trace ring retains; bump it for a bug spanning more user actions than the default 50. `:cascades-retained 0` disables retention while the surface stays live (listeners still fire; nothing is *kept*). Dev-only, same as `:epoch-history`.
 - **`:elision`** — the size threshold above which a value is replaced by a `:rf.size/large-elided` marker on wire-bound surfaces. `:rf.size/threshold-bytes 0` turns off runtime size auto-detection entirely, so only values you *declared* large (or marked via a schema `:large?`) elide. This one is *not* dev-only — it shapes the always-on listener records your production monitors receive, so it matters in a release build too. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
 
 > **Looking for `:sub-cache`?** It's gone. The old `:sub-cache {:grace-period-ms N}` knob — a deferred-disposal timer for subscriptions — no longer exists: sub-cache disposal is now synchronous the instant a subscription's derefer count hits zero, so there's no grace window to tune. If you have it in an old config, drop it (it'll no-op as an unknown key, but it's dead weight).
 
-You touch the `set-…!` bucket only to replace an implementation — a non-Malli validator via `rf/set-schema-validator!`, an explainer via `rf/set-schema-explainer!`, a substrate via `rf/install-adapter!` — and on the happy path the boot wiring does both for you, so most apps never call them directly. The per-frame bucket rides `reg-frame` metadata (or, per-dispatch, the `dispatch` opts argument, which merges over the frame's metadata on conflict). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
+### The `set-…!` bucket: swappable implementations
+
+You touch the `set-…!` bucket only to replace an implementation — a non-Malli validator via `rf/set-schema-validator!`, an explainer via `rf/set-schema-explainer!`, a substrate via `rf/install-adapter!` — and on the happy path the boot wiring does both for you, so most apps never call them directly.
+
+### The per-frame bucket: frame-lifetime overrides
+
+The per-frame bucket rides `reg-frame` metadata (or, per-dispatch, the `dispatch` opts argument, which merges over the frame's metadata on conflict). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
 
 ```clojure
 ;; A frame that ships its own error sink — survives goog.DEBUG=false,
@@ -104,9 +126,11 @@ You touch the `set-…!` bucket only to replace an implementation — a non-Mall
 
 An `:observability` entry names a user- or library-owned `:sink` keyword (you register the sink; the framework routes pre-redacted records to it), with an optional `:rf.egress/profile` and `:opts` map. The two collections it accepts are `:handled-events` and `:errors` — the production read of the event-emit and error-emit streams, declared once on the frame rather than wired imperatively. ([Report errors in production](report-errors-in-production.md))
 
-Its safety-relevant knob is `:drain-depth`, which comes up next.
+Its safety-relevant knob is `:drain-depth`, which comes up next in the guardrails.
 
 > **Why three buckets, not one config map?** The split sorts settings by the lifetime and *shape* of the thing being set: process-wide data (a number, a map) goes through `configure!`; a swappable *implementation* (a function, an adapter) goes through `set-…!`; a per-frame *override* rides that frame's metadata. Each shape has exactly one home, so reading config is never a scavenger hunt and merging two configs never produces a conflict — a property worth more than the convenience of a single grab-bag map.
+
+> **For JavaScript developers.** No `.env` files, no `process.env` reads scattered through the app, no a-context-provider-here-a-prop-there config drift. The closest analogy is a single typed config object — except it's split by *lifetime*: process-global data, swappable services, and per-instance overrides each have their own setter, so two pieces of config can never disagree about who owns a key.
 
 Tune narrowly, usually for one debug session. If the knob you want isn't here, it doesn't exist — new knobs arrive by spec change, not by accumulating flags. Full catalogue: [API.md §Configure keys](../../../spec/API.md#configure-keys).
 
@@ -133,12 +157,3 @@ The elision mechanism and the production observability matrix are in [Spec 009 �
 4. Handlers receiving untrusted payloads reference the `:rf.schema/at-boundary` interceptor in their `:interceptors` chain.
 5. A JVM/SSR tier ships with `-Dre-frame.debug=false`.
 6. No Xray preload or pair-server artefact on the release classpath.
-
----
-
-You can now:
-
-- say what a `goog.DEBUG=false` `:advanced` build contains — validation, tracing, and time-travel elided; the always-on streams and guardrails intact
-- place any knob in its bucket: `configure!` for data, `set-…!` for impls, frame metadata for frame-lifetime settings
-- gate your own dev-only code so it elides with the framework's
-- name the guardrails that run in every build, and read their `:rf.error/*` failures as design, not surprise

@@ -6,7 +6,7 @@ The whole essay compresses to one sentence:
 
 > **Your language of choice should be Turing complete; your architecture shouldn't be.**
 
-The rest of this page unpacks it.
+The rest of this page unpacks it — one idea at a time, each building on the last. We start with the problem the inversion solves, state the inversion itself, then cash out what it buys and what it honestly costs.
 
 ## The gravity well: ten years of React state management
 
@@ -28,9 +28,11 @@ There is exactly one container of application state: **app-db** (your app's sing
 
 Notice what dissolves. There is no "lifting state up," because state was never down in the components in the first place — there is nothing to lift. A view is a render function over subscription values, and that is its entire job. It isn't causal. It doesn't fetch. It doesn't own anything. It's derived from state rather than being the home of state.
 
+> **For JavaScript developers.** Map the loop onto what you already run in your head. The **event** is your action object. The **event handler** is your reducer — but with effects pulled out of it. The **subscription** is your selector. The **view** is your component, minus everything except the `return`. The unfamiliar move isn't any one of those pieces; it's that re-frame2 takes the pieces that normally live *inside* the component — the dispatch wiring, the selectors, the data-fetching effect — and lifts every one of them *out*, so the component is left with nothing to do but render. The instance below makes the analogy precise for Redux users.
+
 > **Coming from Redux?** You already believe most of this. Redux moved state into one store and made reducers pure — re-frame2 keeps that and finishes the job. The difference is what happens *around* the store. In Redux, `useSelector`, `useDispatch`, and your data-fetching middleware still live inside the component, so the component is still where state, effects, and rendering meet. re-frame2 pulls every one of those out: subscriptions, effects, and the dispatch path all live outside the view, and the view is left with nothing to do but render. Redux got the store right and stopped at the component door; the inversion walks through it.
 
-> **Coming from re-frame v1?** This philosophy is unchanged from the original; what v2 adds is stated in [From re-frame v1](../25-from-re-frame-v1.md).
+> **From re-frame v1.** This philosophy is unchanged from the original — the inversion *is* re-frame, and v1 already had it. What v2 adds sits on top of this foundation rather than altering it; the whole delta is laid out in [From re-frame v1](../25-from-re-frame-v1.md).
 
 ## Boring views are the point
 
@@ -69,9 +71,13 @@ Neither of those touches the DOM, a clock, the network, or a component. So neith
     (is (= 6 (handler {:counter/value 6} [:counter/value])))))
 ```
 
-That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. Compare the React version, where the increment, the state it lives in, and the render are the same component — to test the logic you must mount the component and simulate a click. [Test an event handler](../how-to/test-an-event-handler.md) walks the pattern in full; [the cascade](../concepts/events-and-the-cascade.md) shows the same two functions in their runtime habitat.
+That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../how-to/test-an-event-handler.md) walks the pattern in full; [the cascade](../concepts/events-and-the-cascade.md) shows the same two functions in their runtime habitat.
 
-> **Where does `handler-meta` come from?** It reads the registry back — given a kind (`:event`, `:sub`, …) and an id, it hands back the registration map, whose `:handler-fn` is your function. You rarely reach for it outside tests, because in an app the runtime looks handlers up for you; its reason to be public is that "test it as a plain function" is a first-class promise, not a hack. (One gotcha: a typo'd id makes `handler-meta` return `nil`, so `(:handler-fn nil)` is `nil`, and the next line blows up with "nil is not a function" rather than a clean "no such handler" — if a handler you *know* you registered comes back `nil`, suspect the id spelling or a missing `:require`.)
+> **For JavaScript developers.** Compare the React version, where the increment, the state it lives in, and the render are the same component — to test the increment logic you must mount the component and simulate a click, because the logic has no existence apart from the component. Here the logic *is* a plain function with a name in a registry, so the test is a function call with two literals. That's the difference between testing behaviour and testing a rendering of behaviour.
+
+> **Where does `handler-meta` come from?** It reads the registry back — given a kind (`:event`, `:sub`, …) and an id, it hands back the registration map, whose `:handler-fn` is your function. You rarely reach for it outside tests, because in an app the runtime looks handlers up for you; its reason to be public is that "test it as a plain function" is a first-class promise, not a hack.
+
+> **Gotcha.** A typo'd id makes `handler-meta` return `nil`, so `(:handler-fn nil)` is `nil`, and the next line blows up with "nil is not a function" rather than a clean "no such handler." If a handler you *know* you registered comes back `nil`, suspect the id spelling or a missing `:require`.
 
 ## Why your architecture shouldn't be Turing complete
 
@@ -79,19 +85,19 @@ Back to the epigraph. ClojureScript is plenty Turing complete, and inside a hand
 
 Why constrain it? Because a constrained execution model is far easier to reason about, and each layer of constraint removes something a reader — human or AI — would otherwise have to simulate. The app advances one discrete event at a time, so between events it sits in exactly one well-defined state. The pipeline's stages can't be skipped or reordered at runtime, so there's no hidden control flow to chase. Handlers and subscriptions are pure functions, so their behaviour is fixed by their arguments alone. And what gets *done* — effects, render trees, transitions — is described as data and interpreted by the runtime, which means you read behaviour instead of running it in your head.
 
-Those aren't four ad-hoc rules; they're a deliberate ladder, and the spec names it. The framework's [Principles](../../../spec/Principles.md) lay it out as five stacked layers of constraint, each one buying back a specific kind of reasoning:
+Those aren't four ad-hoc rules; they're a deliberate ladder, and the spec names it as five stacked layers of constraint, each one buying back a specific kind of reasoning:
 
 - **Discrete events.** The app advances one event at a time. Events don't suspend or interleave, and a state update lands in one fell swoop — so *between* events the app is in exactly one well-defined state, schema-checkable as a whole. (This is why there's no "torn read": no observer ever catches app-db half-written.)
-- **A fixed pipeline (the dominoes).** Every event flows through the same invariant sequence — dispatch → event handler → effects → derivations → view → DOM. Stages can't be skipped, reordered, or invented at runtime. The dominoes *are* a finite-state pipeline; that's the design, not a side effect of it.
+- **A fixed pipeline (the dominoes).** Every event flows through the same invariant sequence — dispatch → event handler → effects → derivations → view → DOM. Stages can't be skipped, reordered, or invented at runtime.
 - **Purity within each stage.** Inside a stage the host language is Turing-complete but harnessed: handlers are pure `(state, event) → effects`, derivations are pure `state → value`, data is immutable, and neither time nor place reaches in. A pure function's behaviour is fixed by its arguments alone — which is exactly why the counter above tested in two lines.
 - **State machines as a sub-pattern.** When a *handler's own* internal logic wants the FSM shape — modal flows, multi-step lifecycles — [machines](../concepts/machines.md) give you a smaller finite-state, transition-table form, with the [frame](../concepts/frames.md) as the actor boundary and run-to-completion drain.
-- **Declarative data DSLs.** What gets done is described as data — events, effects, hiccup, transition tables, schemas — and the runtime interprets the *how*. Data-based DSLs (as against string DSLs) compose, diff, lint, and round-trip cleanly, which is what lets a tool read your app's behaviour without executing it.
-
-> **Where the constraints are stated normatively.** These five layers are written down with the full rationale in the framework's [Principles](../../../spec/Principles.md). Making the system legible to AI tooling is an explicit goal of the [project vision](../../../spec/000-Vision.md).
-
-> Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed. — Dijkstra
+- **Declarative data DSLs.** What gets done is described as data — events, effects, hiccup, transition tables, schemas — and the runtime interprets the *how*. A tool can read your app's behaviour without executing it.
 
 Full power in the language, where you compute things. Minimum power in the architecture, where you have to understand things.
+
+> **Going deeper.** The five layers form a ladder, not a checklist: each rung is meaningful only because the rung below it holds. Discreteness is what *lets* a state be well-defined enough to schema-check; the fixed pipeline is the finite-state machine those discrete states transition through; purity is what makes each transition a function rather than an event in time; the data DSLs are what make the whole thing inspectable from outside. The reason data-based DSLs (as against *string* DSLs) earn their place on the ladder is algebraic — values compose, diff, lint, and round-trip cleanly, with no parse step between you and the structure, which is precisely what lets a tool read your app's behaviour without running it. Dijkstra named the underlying bet decades ago: *"Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed."* The whole ladder is a campaign to turn processes-in-time into static relations you can look at.
+
+> **Where the constraints are stated normatively.** These five layers are written down with the full rationale in the framework's [Principles](../../../spec/Principles.md). Making the system legible to AI tooling is an explicit goal of the [project vision](../../../spec/000-Vision.md).
 
 ## The ceremony is real
 
@@ -111,6 +117,8 @@ The boundedness isn't a vibe; it's structural, and you can name the reason. Beca
 
 That's what the ceremony buys. Not elegance — boundedness.
 
+> **Going deeper.** "Enumerable" is the load-bearing word, and it's a property you get *for free* from the constraints, not one you have to maintain. In a Turing-complete architecture the set of writers to a piece of state is, in general, undecidable — any code that can reach a reference can write through it, and aliasing makes "who can reach this?" a question no grep can answer. Collapsing writes to one mechanism (registered handlers) over one container (app-db) turns an undecidable question into a finite enumeration: the writers are a literal, searchable list. That's the same move the five-layer ladder makes everywhere — trade expressive power you weren't using for a decidable answer to a question you ask constantly.
+
 ## One impure spot, one wire
 
 The inversion has a second dividend, and it's the one that compounds. Handlers don't *perform* effects (the work that touches the outside world — an HTTP call, writing to storage). They *return descriptions* of effects, as data, and the runtime actions those descriptions at exactly one known point in the pipeline. Everything that touches the world was first written down.
@@ -119,20 +127,10 @@ When effects only happen at one place, and they're data before they're deeds, a 
 
 Circle back to the React question this essay opened on — *"what changed this piece of state?"* In a component-tree app that's a shrug and a debugger session, because the answer could be any of the components that hold or mutate it. Here it's a *query*. Every state change rode through one event, and that event left a row on the wire: its id, its arguments, the effects it produced, the db before and after. "What changed it?" becomes "scroll the trace to the last write of this path" — a fact you read, not a hypothesis you bisect. That's not a debugging convenience bolted on afterwards; it's the direct consequence of having exactly one place where change happens.
 
-> **Two honest limits on the wire.** The dev trace wire is production-elided — it compiles out of release builds entirely (the whole emit substrate sits behind a `goog.DEBUG` gate that dead-code-eliminates in `:advanced` builds), and what you ship to users carries a separate, deliberately smaller observability channel: a handful of always-on rows — every dispatch, every cascade start and end, every cascade-level error — and nothing else. So production tells you *that* an event ran and *whether* it failed, without shipping the rich per-stage detail (db snapshots, render args, derivation values) that the dev trace carries. And revertibility ends at the effect boundary: the framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
-
 [Observability: one wire, every tool](../concepts/observability.md) is the full tour.
+
+> **Two honest limits on the wire.** The dev trace wire is production-elided — it compiles out of release builds entirely (the whole emit substrate sits behind a `goog.DEBUG` gate that dead-code-eliminates in `:advanced` builds), and what you ship to users carries a separate, deliberately smaller observability channel: a handful of always-on rows — every dispatch, every cascade start and end, every cascade-level error — and nothing else. So production tells you *that* an event ran and *whether* it failed, without shipping the rich per-stage detail (db snapshots, render args, derivation values) that the dev trace carries. And revertibility ends at the effect boundary: the framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
 
 ## When not to use it
 
 > **Pre-alpha, and there's a floor below which this doesn't pay.** re-frame2's contracts are still settling, and this guide says so wherever it matters. Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.
-
----
-
-**You can now:**
-
-- name the gravity well — and explain why a decade of React state tools (Redux included) kept collapsing back into hooks
-- state the inversion in one sentence, and defend "boring views" as the design objective rather than a limitation — and *show* the payoff by testing a handler and a subscription as plain functions
-- recite the five layers of constraint (discrete events, fixed pipeline, purity, machines, data DSLs) and say what kind of reasoning each one buys back
-- make the bounded-cost argument: feature cost bounded by feature size, because the set of things that can change a slice is enumerable — there is nowhere else for logic to hide
-- say what the one-impure-spot discipline buys (one trace wire that turns "what changed this?" into a query) and what it honestly costs (ceremony, flexibility, a production-only observability channel, and a floor below which `useState` wins)

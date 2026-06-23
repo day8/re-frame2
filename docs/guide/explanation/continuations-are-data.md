@@ -1,26 +1,44 @@
 # No await: continuations are data
 
-> **Who this is for.** You've met `:on-success` on [HTTP requests](../concepts/http.md), `:reply-to` on mutations, `:on-done` on [machines](../concepts/machines.md). At some point you asked the obvious question: *why am I naming a second event instead of just `await`ing the result?* This essay is the answer. Every async surface in re-frame2 — HTTP, [resources](../concepts/server-state.md), machines, forms — leans on this argument rather than re-making it.
+You've met `:on-success` on [HTTP requests](../concepts/http.md), `:reply-to` on mutations, `:on-done` on [machines](../concepts/machines.md). At some point you asked the obvious question: *why am I naming a second event instead of just `await`ing the result?* This page is the answer. It's one idea — and once it clicks, every async surface in re-frame2 reads the same way.
 
-**The takeaway: in re-frame2 a continuation is data, not a closure.**
+**The takeaway, up front: in re-frame2 a continuation is data, not a closure.** The rest of the page earns that sentence.
 
-## What an `await` hides
+## Start with the one move
 
-A *continuation* is "the rest of the program" — everything that should happen after an async result arrives. Every async model has continuations, so the interesting question is never *whether* you have one. It's what a continuation is *made of*.
-
-Under `async/await`, the continuation is a **closure**. Write `const quote = await fetchQuote()` and the compiler captures the rest of your function — locals and all — as an anonymous suspended function the runtime resumes later. It's ergonomic, which is why it's everywhere. It also carries four properties you stop noticing, because every mainstream language shares them. The continuation has **no name**, so you can't ask "what is this app waiting for?" It **can't be serialized**. It **dies with the process**: reload the page and every pending `await` evaporates silently. And it **closes over the world as it was** — every captured variable is a snapshot from suspension time, not arrival time.
-
-re-frame2 sits in a different lineage. In Elm, an effect (a description of work for the runtime to perform) goes out as a `Cmd` value and the result comes back as a `Msg` you handle. The continuation isn't a suspended stack frame. It's the event (a plain data vector you dispatch) you said the answer should become:
+Here is an HTTP request. Watch where the *result* is supposed to go:
 
 ```clojure
-:on-success [:checkout/quoted]
+{:fx [[:rf.http/managed
+       {:request    {:method :post :url "/api/checkout/quote"}
+        :on-success [:checkout/quoted]
+        :on-failure [:checkout/quote-failed]}]]}
 ```
 
-That event vector **is** the continuation. Not a pointer to one, not a registration handle for one. It is the whole thing: a value you can print, diff, store, and ship. Everything else in this essay falls out of that one move.
+That `:on-success [:checkout/quoted]` is the whole trick. You didn't write code to run when the answer arrives — you named an **event** to dispatch when it arrives. The answer becomes a `:checkout/quoted` event, handled by an ordinary handler, exactly as if a user had clicked a button.
 
-## The stale-world trap
+A *continuation* is "the rest of the program" — everything that should happen after an async result lands. Every async model has one; the only interesting question is what a continuation is *made of*. Under `async/await` it's a hidden closure. Here it's that vector — `[:checkout/quoted]` — a value you can print, diff, store, and ship. Everything else on this page falls out of that one move.
 
-Before the payoffs, the bug — because this is the part that actually bites people. The closure's fourth property isn't an inconvenience. It's a correctness trap. Here is the shape people write in their first week, adapted from real migration code:
+> **For JavaScript developers.** This is the Elm architecture, and it's worth borrowing the mental model. In Elm an effect goes out as a `Cmd` value and its result comes back as a `Msg` you handle — the continuation is never a suspended stack frame, it's the message you said the answer should become. re-frame2's `:on-success [:checkout/quoted]` is that same `Cmd → Msg` round-trip: you describe the work, you *name* the reply, and the runtime delivers it as a fresh event.
+
+## What an `await` quietly hides
+
+To see what you gained, look at what you left behind.
+
+Under `async/await`, the continuation is a **closure**. Write `const quote = await fetchQuote()` and the compiler captures the rest of your function — locals and all — as an anonymous suspended function the runtime resumes later. It's ergonomic, which is why it's everywhere. It also carries four properties you stop noticing, because every mainstream language shares them:
+
+- It has **no name**, so you can't ask "what is this app waiting for?"
+- It **can't be serialized**.
+- It **dies with the process** — reload the page and every pending `await` evaporates silently.
+- It **closes over the world as it was** — every captured variable is a snapshot from suspension time, not arrival time.
+
+That event vector — `[:checkout/quoted]` — has none of those properties. It *has* a name (it *is* a name). It serializes. It survives a reload. And, as we're about to see, it never reads a stale world.
+
+> **From re-frame v1.** re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every managed async surface — HTTP, [resources](../concepts/server-state.md), mutations, [machines](../concepts/machines.md) — addresses its reply by a named event, and the result arrives in a single uniform [reply envelope](../../../spec/Managed-Effects.md). The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loudly (see the trap below) — there's a sanctioned managed effect for every async job.
+
+## The bug this kills: the stale-world trap
+
+The fourth closure property — "closes over the world as it was" — isn't an inconvenience. It's a correctness trap, and it's the part that actually bites people. Here's the shape someone writes in their first week, adapted from real migration code:
 
 ```clojure
 ;; THE TRAP — do not copy.
@@ -37,11 +55,9 @@ Before the payoffs, the bug — because this is the part that actually bites peo
     {}))
 ```
 
-The `.then` closure captured `db` (your app-db, the single state map handed to the handler), frozen at issue time. Decisions made from it are decisions about the past. And the bug is invisible in every test that doesn't race an edit against a reply, which is most of them.
+The `.then` closure captured `db` — your app-db, the single state map handed to the handler — frozen at issue time. Any decision made from it is a decision about the past. And the bug is invisible in every test that doesn't race an edit against a reply, which is most of them.
 
-> **Why this ships fine elsewhere and breaks here.** In re-frame2 this exact code fails sooner and louder: the bare `rf/dispatch` fires on a fresh stack with no [frame](../concepts/frames.md) (an isolated app instance — its own db and event queue) context and raises `:rf.error/no-frame-context`. But the loud failure isn't the real disease. The stale read is — and *that* one ships fine in frameworks that allow the bare dispatch, which is most of them.
-
-Now the same intent with the continuation as data:
+Now the same intent, with the continuation as data:
 
 ```clojure
 (rf/reg-event :checkout/quote
@@ -66,19 +82,23 @@ Now the same intent with the continuation as data:
              (assoc-in [:checkout :error]  failure))}))
 ```
 
-A closure **closes over the past; a handler receives the present.** The reply handler (the function registered to run when the answer arrives) is given the db of the moment the reply lands. So "did the cart change while we waited?" is a live comparison, not a memory. It takes no discipline on your part — there is simply no mechanism by which the old db can leak into the new decision.
+A closure **closes over the past; a handler receives the present.** The reply handler — the function registered to run when the answer arrives — is given the db of the moment the reply lands. So "did the cart change while we waited?" is a *live* comparison, not a memory. It takes no discipline on your part: there is simply no mechanism by which the old db can leak into the new decision.
+
+> **Gotcha — why the trap fails *louder* here.** In re-frame2 the trap above doesn't even reach the stale read: the bare `rf/dispatch` inside the `.then` fires on a fresh stack with no [frame](../concepts/frames.md) context (a frame is an isolated app instance — its own db and event queue) and raises `:rf.error/no-frame-context`. Useful, but don't mistake the loud failure for the disease. The *stale read* is the disease — and that one ships fine in frameworks that allow the bare dispatch, which is most of them. The data-continuation form is immune by construction, not by vigilance.
 
 ## What a named continuation can do that a closure can't
 
-Naming the continuation makes it a value, and values are governable. Five properties, each impossible for a closure:
+Naming the continuation makes it a value, and values are governable. Five properties follow, each impossible for a closure:
 
-- **Recordable.** A reply is dispatched as an ordinary event, so it lands in [the event ledger](../concepts/events-and-the-cascade.md) like everything else. An awaited value slips into the handler through the call stack, where nothing else can see it, and leaves no line in the record. A reply event leaves one: traced, replayable.
-- **Inspectable.** In-flight work and its continuation are both data, so the runtime can show them to you. Every managed surface keeps a queryable registry of what's in flight. Server-state work goes further: a durable **work ledger**, literally a table of outstanding continuations. Each row carries what was started, who owns it, and the reply target it will complete. "What is this app waiting on right now?" is a query, not a hunt through invisible suspended stack frames.
-- **Survivable.** The event vector is a *name*, resolved at delivery time. Hot-reload mid-flight and the reply finds the newest handler registered under that name. A closure would have resumed the stale one. And because a ledger row is plain data, it serializes: server-side rendering waits on outstanding work and ships its summary across the wire, which no captured closure could survive. (Honesty note: the *host work itself* — the socket, the timer — is never revived across a reload or restore. A late completion whose correlation no longer matches is suppressed. The continuation survives as data; the in-flight attempt fails safe.)
-- **Lawful.** Re-targeting a continuation — a feature module relocating a reply onto its parent's event — is a pure data transform on the target vector. Concretely: a child feature issues work with `:on-success [:child/loaded]`, and a parent that embeds the child rewrites that target to `[:parent/child-loaded]` before the work flies. Because the target is just a vector, this is data-in, data-out — the role `Cmd.map` plays in Elm. The guarantee attached is precise: mapping the target changes *only* which event completes, never the issuance, the work identity (`:work/id`), the status classification, or the staleness checks. Wrappers compose predictably (`map(identity)` is a no-op; `map(f ∘ g)` is `map(f)` after `map(g)`). There is no hidden callback to smuggle behavior through.
-- **Managed.** A value can be refused. Every managed reply carries a closed `:status` — exactly one of `:ok`, `:partial`, `:error`, `:cancelled`, or `:stale` — and the runtime checks staleness *before* delivery. A reply whose correlation was superseded (the search-box race, a navigation, a re-fired mutation) is classified `:stale` and **never dispatched to your handler at all**. Cancellation arrives as data too (`:status :cancelled`, with a `:cancel/reason`), never as a silently dropped promise. The set is closed and the same five everywhere: `:ok` is a current success; `:error` is a current failure (a structured error *map*, never a loose string); `:partial` is for protocols that can return data *and* errors in one completion (GraphQL is the motivating case — usable `:value` alongside a family error map); `:cancelled` is a deliberate, still-live cancellation; `:stale` is a completion whose moment has passed. Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
+- **Recordable.** A reply is dispatched as an ordinary event, so it lands in [the event ledger](../concepts/events-and-the-cascade.md) like everything else — traced, replayable. An awaited value slips into a handler through the call stack, where nothing else can see it, and leaves no line in the record. A reply event leaves one.
+- **Inspectable.** In-flight work and its continuation are both data, so the runtime can show them to you. Every managed surface keeps a queryable registry of what's in flight; server-state work goes further with a durable **work ledger** — literally a table of outstanding continuations, each row carrying what was started, who owns it, and the reply target it will complete. "What is this app waiting on right now?" is a query, not a hunt through invisible suspended stack frames.
+- **Survivable.** The event vector is a *name*, resolved at delivery time. Hot-reload mid-flight and the reply finds the newest handler registered under that name — a closure would have resumed the stale one. And because a ledger row is plain data, it serializes: server-side rendering can wait on outstanding work and ship its summary across the wire, which no captured closure could survive. (Honest footnote: the *host work itself* — the socket, the timer — is never revived across a reload or restore. A late completion whose correlation no longer matches is suppressed. The continuation survives as data; the in-flight attempt fails safe.)
+- **Lawful.** Re-targeting a continuation — a feature module relocating a reply onto its parent's event — is a pure data transform on the target vector. A child feature issues work with `:on-success [:child/loaded]`; a parent embedding the child rewrites that target to `[:parent/child-loaded]` before the work flies. Because the target is just a vector, this is data-in, data-out, and the guarantee is precise: mapping the target changes *only* which event completes — never the issuance, the work identity (`:work/id`), the status classification, or the staleness checks. There is no hidden callback to smuggle behavior through.
+- **Managed.** A value can be refused. Every managed reply carries a closed `:status` — exactly one of `:ok`, `:partial`, `:error`, `:cancelled`, or `:stale` — and the runtime checks staleness *before* delivery. A reply whose correlation was superseded (the search-box race, a navigation, a re-fired mutation) is classified `:stale` and **never dispatched to your handler at all**. Cancellation arrives as data too (`:status :cancelled`, with a `:cancel/reason`), never as a silently dropped promise. The five outcomes mean the same thing everywhere: `:ok` is a current success; `:error` is a current failure (a structured error *map*, never a loose string); `:partial` is for protocols that return data *and* errors in one completion (GraphQL is the motivating case — usable `:value` alongside a family error map); `:cancelled` is a deliberate, still-live cancellation; `:stale` is a completion whose moment has passed. Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
 
-The delivered shape is itself plain data: your carried context, then the reply map appended.
+### The reply that lands
+
+The delivered event is itself plain data: your carried context, then the reply map appended.
 
 ```clojure
 [:article/load-replied
@@ -89,29 +109,27 @@ The delivered shape is itself plain data: your carried context, then the reply m
   :completed-at 1781078400456}]
 ```
 
-That's the four keys you reach for most, but the envelope carries more than this when it's useful — and every field is plain data. Alongside `:status`, `:value` (the decoded result, always spelled `:value` on a reply map, every family), `:work/id`, and `:completed-at`, a reply may carry `:error` (a structured error map on the `:error`/`:partial` paths), `:work/kind` (`:http`, `:resource`, `:mutation`, `:machine`, `:timer`, `:route`, …), `:attempt` (which transport retry produced this), `:rf.frame/id` (the frame the work belongs to), and `:started-at` / `:deadline-at` to bracket the timing. Optional fields are *omitted* when they don't apply rather than filled with `nil` sentinels — so a field's presence is itself a fact.
+Those are the four keys you reach for most. The envelope carries more when it's useful — and every field is plain data. Alongside `:status`, `:value` (the decoded result, always spelled `:value` on a reply map, every family), `:work/id`, and `:completed-at`, a reply may carry `:error` (a structured error map on the `:error`/`:partial` paths), `:work/kind` (`:http`, `:resource`, `:mutation`, `:machine`, `:timer`, `:route`, …), `:attempt` (which transport retry produced this), `:rf.frame/id` (the frame the work belongs to), and `:started-at` / `:deadline-at` to bracket the timing. Optional fields are *omitted* when they don't apply rather than filled with `nil` sentinels — so a field's presence is itself a fact.
 
 Even *when it finished* rides along as data (`:completed-at`). So a handler that stores a timestamp derives it from the reply — replay-faithful — instead of re-sampling a wall clock that will disagree tomorrow.
 
 > **Gotcha — don't reach for the clock in a reply handler.** The temptation, fresh off `await`, is to write `(js/Date.now)` when you store "last updated." Don't: that's a fresh ambient read, and on replay it samples *today's* clock, not the run you're replaying. Read `(:completed-at reply)` instead. The reply already carries the causal time; it's the same durable value the framework stamps on the dispatch as the built-in `:rf/time-ms` coeffect, so the two never drift. This is the whole reason completion time is a field and not something you re-sample.
 
-The full contract — the reply map, the closed status set, the work-id correlation, the suppression rules — is one framework-wide law, normatively at [Managed-Effects](../../../spec/Managed-Effects.md).
+> **Going deeper.** Effects *sequence but never bind*: a handler may ask for several effects in order, but never "run this effect, then feed its result into the next expression" — that would be monadic *binding*, the awaited-value shape. Results return as the next causal event instead, so the structure is closer to an applicative/free-effects pipeline than a monad. And re-targeting a reply is a **functor map** over the continuation slot — the role `Cmd.map` plays in Elm — obeying the functor laws: `map(identity) = identity` and `map(f ∘ g) = map(f) ∘ map(g)`. That's why the lawful guarantee above is exactly "changes only which event completes": a lawful functor map can't touch anything but the mapped slot. The full contract — the reply map, the closed status set, the work-id correlation, the suppression rules — is one framework-wide law at [Managed-Effects](../../../spec/Managed-Effects.md).
 
 > **Do, observe.** Dispatch a slow request with Xray open. While it flies, the outstanding work is visible as data — its work id, its owner, its reply target. When it lands, the reply is just another event row in the ledger. Now give the request a stable `:request-id` and re-fire before the first answer arrives: the superseded completion is classified stale, the trace records the suppression, and your handler never runs.
 
-> **For the categorically curious.** Effects *sequence but never bind*: a handler may ask for several effects in order, but never "run this effect, then feed its result into the next expression" — that would be monadic binding, the awaited-value shape. Results return as the next causal event instead. And re-targeting a reply is a functor map over the continuation slot — the role `Cmd.map` plays in Elm — obeying identity and composition: `map(identity) = identity`, `map(f ∘ g) = map(f) ∘ map(g)`.
-
 ## The honest trade
 
-This costs you something, and pretending otherwise would be marketing. With `async/await`, three dependent steps read top-to-bottom in one function and the continuations cost zero keystrokes. Here, every continuation is named: a second event id, a second handler, the flow split across registrations that read in dispatch order rather than page order. For one request that's one extra handler. For a five-step workflow it's five, and hand-chaining them through raw events gets genuinely tedious — which is exactly the point to reach for a [state machine](../concepts/machines.md), whose job is to fold those replies into explicit states.
+This costs you something, and pretending otherwise would be marketing. With `async/await`, three dependent steps read top-to-bottom in one function and the continuations cost zero keystrokes. Here, every continuation is named: a second event id, a second handler, the flow split across registrations that read in *dispatch* order rather than *page* order. For one request that's one extra handler. For a five-step workflow it's five — and hand-chaining them through raw events gets genuinely tedious, which is exactly the point to reach for a [state machine](../concepts/machines.md), whose job is to fold those replies into explicit states.
 
-What you buy with the ceremony: the continuation is **on the record**. Visible to every tool watching the trace, queryable while outstanding, faithful under replay, safe under races you didn't think to test, and testable by dispatching a plain data event — no mock runtime required to "resume" anything. You name the continuation yourself. In exchange, nothing about your app's future is invisible.
+What you buy with the ceremony: the continuation is **on the record**. Visible to every tool watching the trace, queryable while outstanding, faithful under replay, safe under races you didn't think to test, and testable by dispatching a plain data event — no mock runtime required to "resume" anything. You name the continuation yourself; in exchange, nothing about your app's future is invisible.
 
-> **Coming from redux-saga?** You've already accepted half this idea: saga *effects* are descriptions the middleware interprets. re-frame2 makes the *continuation* (which a saga keeps as a suspended generator — a closure that dies with the process) data too.
+> **Coming from redux-saga?** You've already accepted half this idea: saga *effects* are descriptions the middleware interprets, not direct calls. re-frame2 makes the *continuation* data too — the thing a saga keeps as a suspended generator (a closure that dies with the process) becomes a named event vector that doesn't. So you keep saga's "effects are data" win and lose its "the rest of the flow lives in an un-serializable, un-inspectable generator" cost.
 
 ## One doctrine, four surfaces
 
-You'll meet this everywhere, spelled per surface but argued once, here. The canonical target key is `:rf/reply-to` with an event-vector prefix, and the canonical carried shape is the reply map above. Every surface either accepts `:rf/reply-to` directly or exposes sugar that *lowers* to it — so what you write changes, but the envelope underneath does not:
+You'll meet this idea everywhere, spelled per surface but argued once, here. The canonical target key is `:rf/reply-to` with an event-vector prefix, and the canonical carried shape is the reply map above. Every surface either accepts `:rf/reply-to` directly or exposes sugar that *lowers* to it — so what you *write* changes, but the envelope underneath does not:
 
 | Surface | What you write | What lands |
 |---|---|---|
@@ -121,11 +139,3 @@ You'll meet this everywhere, spelled per surface but argued once, here. The cano
 | [Machines](../concepts/machines.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
 
 Learn the shape once; it is the same shape everywhere. (One honest wrinkle: HTTP's public spelling is `:kind`, while resources and machines speak `:status` directly — same five outcomes, two surface vocabularies for the *one* closed set. The substrate is identical; only the public word on the slot differs.)
-
----
-
-**You can now:**
-
-- Say precisely what re-frame2 traded `await` for: the continuation became a recordable, inspectable, survivable, lawful, managed value instead of an anonymous closure.
-- Spot the stale-world trap in any `.then`-closure code — and explain why a reply *handler* is immune by construction.
-- Read `:on-success`, `:reply-to`, and `:on-done` as one idea wearing three surface spellings, and predict how each behaves under races, reloads, and cancellation.
