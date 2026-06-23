@@ -1,0 +1,110 @@
+;; Conformance fixture: machine/reg-error-choice
+;;
+;; EP-0029 A5 — the registration-error taxonomy for the :type :choice /
+;; :choice transient-state grammar (Spec 009 §The thrown-error shape).
+;; Mode-B :reg-machine calls pin each fail-loud discriminator; controls pin
+;; the well-formed cases that must NOT throw.
+;;
+;; NOTE — these are :reg-machine Mode-B calls: the host validates the RAW
+;; :definition (no :fixture/handlers realisation, per
+;; spec/conformance/README.md §The :reg-machine op). Guard / action keyword
+;; refs in a raw definition must RESOLVE against the definition's own
+;; :guards / :actions map to a terminal fn — something pure EDN cannot
+;; express — so these structural-taxonomy fixtures use guard-FREE candidates.
+;; The choice-grammar checks (pairing, candidate-array shape, reserved keys,
+;; required default, self-loop) are ALL orthogonal to guard resolution and
+;; fire BEFORE the guard-ref check, so omitting the refs keeps the intent
+;; intact. The function-valued :choice rejection (the A2 / C1 divergence) is
+;; not EDN-expressible and is pinned by the choice_test.clj unit suite.
+;;
+;; DIVERGENCE (operator-ruled, A2 / C1): re-frame2's :choice is a DECLARATIVE
+;; guarded-candidate ARRAY [{:guard … :target …}] — NOT XState's
+;; choice-FUNCTION. A choice state requires a default (unguarded) candidate
+;; and only routes (no ordinary state keys).
+;;
+;; Per [005 §`:type :choice` (transient / choice states)]
+;; (../../005-StateMachines.md#type-choice-transient--choice-states) and
+;; [docs/EP/EP-0029 §A5] + [docs/EP/EP-0029 §Backwards Compatibility].
+
+{:fixture/id           :machine/reg-error-choice
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/choice :fsm/registration-validation}
+ :fixture/doc          "The :type :choice / :choice registration-error taxonomy: :type :choice requires :choice (and vice-versa); the :choice value must be a declarative NON-EMPTY candidate vector (a keyword / empty-vector / single-map is malformed); a choice state must not declare ordinary state keys; it must include an unguarded default candidate; a self-targeting candidate is rejected. Control: a well-formed choice state (an unguarded default candidate) registers cleanly."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) Well-formed choice state (an unguarded default candidate, no guard
+  ;; refs to resolve) — registers cleanly (control).
+  {:call       :reg-machine
+   :definition {:initial :idle
+                :states  {:idle     {:on {:go :checking}}
+                          :checking {:type :choice :choice [{:target :ok}]}
+                          :ok {}}}}
+
+  ;; (2) :type :choice with no :choice slot — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:type :choice} :d {}}}
+   :expect-error :rf.error/machine-choice-missing-choice}
+
+  ;; (3) A :choice slot without :type :choice — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:choice [{:target :d}]} :d {}}}
+   :expect-error :rf.error/machine-choice-without-type}
+
+  ;; (4) A non-candidate :choice (a bare keyword) — rejected. A keyword is
+  ;; not the declarative candidate-array form (mirrors the function-valued
+  ;; rejection, which EDN cannot express — see the unit suite).
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:type :choice :choice :d} :d {}}}
+   :expect-error :rf.error/machine-bad-choice}
+
+  ;; (5) An empty-vector :choice — rejected (a choice state must name at
+  ;; least one candidate).
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:type :choice :choice []} :d {}}}
+   :expect-error :rf.error/machine-bad-choice}
+
+  ;; (6) A single-map :choice (not a vector of candidate maps) — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:type :choice :choice {:target :d}} :d {}}}
+   :expect-error :rf.error/machine-bad-choice}
+
+  ;; (7) A choice state that also declares an ordinary state key (:on) —
+  ;; rejected (a choice state only routes).
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:type :choice
+                                :choice [{:target :d}]
+                                :on {:ev :e}}
+                            :d {} :e {}}}
+   :expect-error :rf.error/machine-choice-extra-keys}
+
+  ;; (8) A choice state whose every candidate is GUARDED (no unguarded
+  ;; default) — rejected (the static "no matching candidate + no default"
+  ;; case). The :guard refs are unresolved keywords, but the no-default
+  ;; check fires BEFORE the guard-ref check.
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:type :choice
+                                :choice [{:guard :g1 :target :a}
+                                         {:guard :g2 :target :b}]}
+                            :a {} :b {}}}
+   :expect-error :rf.error/machine-choice-no-default}
+
+  ;; (9) A choice candidate that targets its own declaring state — rejected
+  ;; (an immediate eventless self-loop). Unguarded, so it is ALSO the
+  ;; default; the self-loop check fires on any candidate.
+  {:call         :reg-machine
+   :definition   {:initial :c
+                  :states  {:c {:type :choice
+                                :choice [{:target :c}
+                                         {:target :d}]}
+                            :d {}}}
+   :expect-error :rf.error/machine-choice-self-loop}]}

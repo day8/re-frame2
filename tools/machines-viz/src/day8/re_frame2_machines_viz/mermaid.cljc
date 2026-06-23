@@ -998,11 +998,12 @@
     {:keys [fenced? header-comment?]
      :or   {fenced?         true
             header-comment? true}}]
-   ;; EP-0029 A4 — lower `:timeout` / `:on-timeout` to `:after` before
-   ;; rendering so a timeout surfaces as an `after / …` edge label. Bind
-   ;; once so BOTH the validation block and the render below see the
-   ;; lowered form.
-   (let [definition (g/desugar-timeouts definition)
+   ;; EP-0029 — lower the named-intent grammars before rendering: `:timeout`
+   ;; / `:on-timeout` → `:after` (A4, surfaces as an `after / …` edge label)
+   ;; and `:type :choice` / `:choice` → `:always` (A5, surfaces the
+   ;; candidate edges). Bind once so BOTH the validation block and the
+   ;; render below see the lowered form.
+   (let [definition (g/desugar-grammar definition)
          parallel?  (parallel-definition? definition)]
      (when-not (if parallel?
                  (valid-parallel-definition? definition)

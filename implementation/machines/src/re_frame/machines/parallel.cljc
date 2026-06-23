@@ -42,6 +42,7 @@
   parent macrostep, matching what a self-`[:dispatch [<self-id> …]]` would
   broadcast (pre-commit, in one macrostep)."
   (:require [clojure.set :as set]
+            [re-frame.machines.choice :as choice]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
             [re-frame.machines.timeout :as timeout]
@@ -1305,13 +1306,14 @@
   the guard throw is never demoted to a lower-priority candidate."
   [machine snapshot event]
   ;; Desugar `:timeout` / `:on-timeout` (EP-0029 A4) into the equivalent
-  ;; `:after` entries BEFORE the engine sees the spec — `:timeout` is a
-  ;; distinct authoring concept that LOWERS onto the existing `:after`
-  ;; timer mechanism. Idempotent, so a spec already desugared at
-  ;; registration is unaffected; this seam also covers the conformance
-  ;; `:machine-transition` op, which passes the RAW (pre-registration)
-  ;; definition straight here.
-  (let [machine (timeout/desugar-timeouts machine)]
+  ;; `:after` entries AND `:type :choice` / `:choice` (EP-0029 A5) into the
+  ;; equivalent `:always` candidate vector BEFORE the engine sees the spec —
+  ;; both are distinct authoring concepts that LOWER onto an existing
+  ;; mechanism (`:timeout` → `:after`; `:choice` → `:always`). Idempotent,
+  ;; so a spec already desugared at registration is unaffected; this seam
+  ;; also covers the conformance `:machine-transition` op, which passes the
+  ;; RAW (pre-registration) definition straight here.
+  (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
     (try
       (if (parallel? machine)
         (parallel-machine-transition machine snapshot event)
@@ -1473,9 +1475,11 @@
   [machine initial-snapshot]
   ;; Desugar `:timeout` / `:on-timeout` (EP-0029 A4) so an INITIAL state's
   ;; timeout arms at birth via the same `:after`-schedule fx the cascade
-  ;; emits. Idempotent — a spec already desugared at registration is
+  ;; emits, AND `:type :choice` / `:choice` (EP-0029 A5) so a TRANSIENT
+  ;; INITIAL choice leaf resolves on start via the birth-time `:always`
+  ;; settle. Idempotent — a spec already desugared at registration is
   ;; unaffected. Mirrors the desugar at the `machine-transition` entry.
-  (let [machine (timeout/desugar-timeouts machine)]
+  (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
     (try
       (apply-initial-entry-cascade* machine initial-snapshot)
       (catch #?(:clj Throwable :cljs :default) e

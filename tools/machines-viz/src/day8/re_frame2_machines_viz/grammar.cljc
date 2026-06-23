@@ -173,6 +173,77 @@
                                                (assoc :states (walk-states-timeouts (:states body))))))
                                     {} regions)))))))
 
+;; ---------------------------------------------------------------------------
+;; `:type :choice` / `:choice` → `:always` desugar (EP-0029 A5)
+;; ---------------------------------------------------------------------------
+;;
+;; A `:type :choice` transient / choice state (EP-0029 A5) routes immediately
+;; on entry to the first guard-passing candidate. The runtime LOWERS this onto
+;; the existing `:always` eventless-transition mechanism — `:choice` is a
+;; distinct authoring concept that desugars to an ordinary state carrying the
+;; same candidate vector under `:always`, dropping the `:type :choice` /
+;; `:choice` keys. The three emitters render the lowered `:always` (the
+;; candidate edges) so they desugar at their ingestion boundary via
+;; `desugar-grammar` below, alongside the `:timeout` desugar.
+;;
+;; The SEMANTICS mirror `re-frame.machines.choice/desugar-choices` exactly;
+;; machines-viz is bundle-isolated from the runtime `machines` artefact, so the
+;; desugar is re-stated here rather than required. By the time a spec reaches
+;; an emitter the runtime's `validate-machine!` already rejected a malformed
+;; choice state at registration, so the desugar can assume a well-formed
+;; candidate vector.
+
+(defn- choice-node? [node]
+  (and (map? node) (= :choice (:type node))))
+
+(defn- desugar-node-choice
+  "Desugar one state-node's `:type :choice` / `:choice` into an `:always`
+  slot carrying the candidate vector, dropping the `:type` / `:choice`
+  keys. A non-choice node is returned unchanged."
+  [node]
+  (if-not (choice-node? node)
+    node
+    (-> node (assoc :always (:choice node)) (dissoc :type :choice))))
+
+(defn- walk-states-choice [states]
+  (when states
+    (reduce-kv
+      (fn [acc k node]
+        (assoc acc k (let [n (desugar-node-choice node)]
+                       (cond-> n (:states n) (update :states walk-states-choice)))))
+      {} states)))
+
+(defn desugar-choices
+  "Rewrite a whole machine definition so every `:type :choice` transient
+  state (EP-0029 A5) is lowered into an ordinary state carrying its
+  `:choice` candidate vector under `:always`, leaving no `:type :choice`
+  keys for an emitter to see. Pure; idempotent; nil-safe (a non-map →
+  unchanged). Handles flat / compound (`:states`) and parallel (`:regions`)
+  machines."
+  [definition]
+  (if-not (map? definition)
+    definition
+    (cond-> definition
+      (:states definition)  (update :states walk-states-choice)
+      (:regions definition) (update :regions
+                                    (fn [regions]
+                                      (reduce-kv
+                                        (fn [acc rn body]
+                                          (assoc acc rn
+                                                 (cond-> (desugar-node-choice body)
+                                                   (:states body)
+                                                   (update :states walk-states-choice))))
+                                        {} regions))))))
+
+(defn desugar-grammar
+  "Apply every named-intent grammar desugar an emitter must lower before
+  walking a machine definition (EP-0029): `:timeout` / `:on-timeout` →
+  `:after` (A4) and `:type :choice` / `:choice` → `:always` (A5). The
+  single ingestion-boundary seam the three emitters share so a future
+  desugar is added once, not three times. Pure; idempotent; nil-safe."
+  [definition]
+  (-> definition desugar-timeouts desugar-choices))
+
 (defn parent-path
   "The parent path of `path` (its `pop`); `[]` for an empty/top-level
   path."

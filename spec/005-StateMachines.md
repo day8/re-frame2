@@ -208,6 +208,7 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | `:entry`, `:exit` | per-state | one fn or one keyword reference into the machine's `:actions` map |
 | `:spawn` | per-state | declarative spawn-on-entry / destroy-on-exit child actor — sugar that desugars at registration time per [§Declarative `:spawn`](#declarative-spawn) |
 | `:spawn-all` | per-state | declarative **spawn-and-join** of N parallel child actors (sugar over N `:spawn`s plus a join condition) — see [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all) |
+| `:type :choice` + `:choice` | per-state | a **transient / choice** state (EP-0029 A5): a routing node that resolves immediately on entry to the first guard-passing candidate — sugar over `:always`, see [§`:type :choice` (transient / choice states)](#type-choice-transient--choice-states) |
 | transition shape | per-event | `{:target :guard :action :meta}` |
 | multiple-candidate transitions | per-event | vector of guarded specs, first-match-wins |
 | self-transitions | per-event | omit `:target` or a self/ancestor `:target` (internal, default); add `:reenter? true` for external (exit+re-enter) |
@@ -228,6 +229,8 @@ Every state in `:states` is a map. The complete state-node grammar — every key
  :exit    <fn-or-keyword>                    ;; ran on exiting this state; keyword resolves into :actions map
  :spawn  <invoke-spec>                      ;; spawn child on entry; destroy on exit (see §Declarative :spawn)
  :spawn-all <invoke-all-spec>               ;; spawn N children in parallel and join (see §Spawn-and-join via :spawn-all)
+ :type    :choice                            ;; marks a transient / choice state (see §:type :choice); requires :choice, forbids ordinary state keys
+ :choice  [<guarded-transition>, ...]        ;; iff `:type :choice` — guarded candidates resolved immediately on entry (see §:type :choice)
  :final?  true                               ;; leaf-only — entering this state terminates the machine (see §Final states)
  :output-key <keyword>                       ;; iff `:final?` — designate which `:data` key is reported back via parent's `:on-done`
  :initial <fsm-keyword>                      ;; required IFF the state is itself compound (declares :states)
@@ -1957,6 +1960,58 @@ External observers see `:asking` → `:winner`. The "answer counted, still askin
 - **Not on the root machine.** `:always` is a state-node key; the root has `:initial` as its cascade entry-point. (A root-level "fire as soon as the machine starts" need is met by `:initial` cascading into a leaf whose `:always` fires — and that fire happens **at birth**, as part of the initial macrostep's eventless settle, *before* the birth commit, on both the eager `[:rf.machine/start]` and lazy first-event paths. See [§When creation happens](#when-creation-happens--eager-start-vs-lazy-first-event) and [§Microstep loop within drain](#microstep-loop-within-drain).)
 - **Not allowed as a self-targeting `:always`** (see above) — registration error.
 - **Not a substitute for `:after`.** `:after` is for **time-delayed** transitions; `:always` fires immediately on guard truth. They are independent capabilities; see [§Delayed `:after` transitions](#delayed-after-transitions) for the full delayed-transition semantics. Both can co-exist on the same state node — they are independent slots.
+
+## `:type :choice` (transient / choice states)
+
+A **choice state** is an immediate routing node: enter it, evaluate guarded candidates in declaration order, take the first whose `:guard` passes, and leave — all within the same macrostep, with **no event needed**. xstate/SCXML term: a **transient** (eventless) state. EP-0029 A5 adds this as named-intent grammar — it says "this is a decision node" more clearly than encoding the same routing as an ordinary state with an `:always` slot.
+
+```clojure
+{:checking
+ {:type   :choice
+  :choice [{:guard :valid? :target :accepted}
+           {:target :rejected}]}}      ;; unguarded final = the default / else branch
+```
+
+The `:choice` value is a **declarative guarded-candidate array** — the same first-guard-pass-wins candidate form a normal `:on` / `:after` / `:always` slot takes (`{:target … :guard … :action …}` maps). The last candidate is conventionally an unguarded **default / else** branch so the choice state always resolves (see [§Choice registration rules](#choice-registration-rules) below).
+
+### Distinct intent, ONE mechanism — desugars to `:always`
+
+A choice state **is** an immediate eventless routing node, which is exactly what [§Eventless `:always`](#eventless-always-transitions) already implements: on entry (or any transition that lands in the state) the runtime walks the candidate vector, takes the first guard-pass, and settles it within the macrostep drain. So `:type :choice` / `:choice` **desugars** — at registration / transition normalisation time — into an ordinary state carrying the same candidate vector under `:always`, dropping the `:type :choice` / `:choice` keys. The whole `:always` machinery drives it unchanged: the candidate walk, the first-guard-pass select, the macrostep microstep loop, and the **birth-time settle** (so a transient *initial* choice leaf resolves on start, never externally observed — per [§Microstep loop within drain](#microstep-loop-within-drain)). The grammar is distinct; the runtime is reused. This mirrors how [§`:timeout` / `:on-timeout`](#timeout--on-timeout-state--spawn) desugars onto `:after`: a named-intent authoring concept lowering onto an existing mechanism, ONE mechanism per fact.
+
+`:always` can already express immediate routing; `:choice` **names the intent** so diagrams and tools render a decision node and validation gives a clearer grammar.
+
+### DIVERGENCE from XState — a declarative array, NOT a `choice`-function
+
+XState v6 lets a `choice` state's routing be a `choice`-**function**. re-frame2 **rejects** that (EP-0029 A2 "a function may never be the edge" / C1 "opaque function-valued transitions"). re-frame2's `:choice` is a **declarative guarded-candidate array** `[{:guard … :target …}]` — the edge topology stays **data** so diagrams, model tests, conformance fixtures, and AI tools can read it. A function-valued `:choice` (`:choice (fn …)`) **fails loud at registration** with `:rf.error/machine-bad-choice`. This is behavioural parity (an immediate routing node) without API-mimicry (the JavaScript function form).
+
+### Choice registration rules
+
+`make-machine-handler` validates the choice grammar on the **raw** (pre-desugar) spec so diagnostics name the `:type :choice` / `:choice` keys the author wrote. Each rule fails loud at registration:
+
+- **`:type :choice` requires `:choice`** (and a `:choice` slot requires `:type :choice`) — one without the other is meaningless (`:rf.error/machine-choice-missing-choice` / `:rf.error/machine-choice-without-type`).
+- **The `:choice` value must be a non-empty vector of candidate maps** — a fn (the rejected XState form), a keyword, an empty vector, or any other shape fails with `:rf.error/machine-bad-choice`.
+- **A choice state must not also declare ordinary waiting-state behaviour** — `:entry`, `:exit`, `:on`, `:always`, `:after`, `:timeout`, `:on-timeout`, `:spawn`, `:spawn-all`, `:initial`, `:states`, `:final?`, `:output-key` — a choice state **only routes** (`:rf.error/machine-choice-extra-keys`). (A choice state therefore cannot carry a `:timeout`; the two named-intent grammars never combine on one node.)
+- **The `:choice` vector must include an unguarded default / else candidate** (a candidate with no `:guard`) so the choice state always resolves. Without one the choice state could be entered with every guard failing and **no candidate to take** — a stuck transient node. This is the static "no matching candidate + no default" rejection; guards are runtime fns, so the only registration-time guarantee that a choice always resolves is a present default (`:rf.error/machine-choice-no-default`).
+- **A choice candidate that targets the choice state's own declaring state is a self-loop** — an immediate eventless cycle — rejected exactly as an `:always` self-loop is (`:rf.error/machine-choice-self-loop`).
+
+The desugared `:always` candidates' targets flow through the **same** target-resolution check every transition slot uses, so a `:choice` candidate naming a non-existent state surfaces `:rf.error/machine-unresolved-target` like any other malformed target.
+
+### Worked example
+
+```clojure
+{:initial :idle
+ :data    {}
+ :guards  {:valid? (fn [{:keys [data]}] (boolean (:form-ok? data)))}
+ :states
+ {:idle     {:on {:submit :checking}}
+  :checking {:type   :choice
+             :choice [{:guard :valid? :target :accepted}
+                      {:target :rejected}]}     ;; default / else
+  :accepted {}
+  :rejected {}}}
+```
+
+Dispatching `[:my-machine [:submit]]` enters `:checking`, which resolves **immediately** within the same macrostep: if `:valid?` passes the machine settles at `:accepted`, otherwise it falls through to the default `:rejected`. External observers never see `:checking` — it is a transient routing node, exactly the property `:choice` exists to provide. A choice state may also be the machine's **initial** state, in which case it resolves on birth (the initial macrostep's eventless settle).
 
 ## State tags
 
@@ -4127,6 +4182,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Flat FSM** — states, transitions, guards, actions, `:entry` / `:exit`, wildcard `:*` | Prose: §Transition table grammar, §Action effect map; Schema: `:rf/transition-table` (flat); Fixtures: `machine-transition.edn` and the flat-FSM family | ✓ claimed | Already specced; the foundation. |
 | **Hierarchical compound states** — nested `:states` in a state node; entry/exit cascading along the LCA path; vector / keyword target resolution; deepest-wins transition resolution with parent fallthrough | Prose: [§Hierarchical compound states](#hierarchical-compound-states); Schema: `:rf/state-node` (recursive) + `:rf/transition-target`; Fixtures: `hierarchical-compound-transition`, `hierarchical-cross-level-transition`, `hierarchical-parent-fallthrough` | ✓ claimed (specified) | Snapshot dual-form, LCA-based cascading, and deepest-wins resolution are locked. |
 | **Eventless `:always` transitions** — fire as soon as a guard becomes true | Prose: [§Eventless `:always` transitions](#eventless-always-transitions); Schema: `:rf/state-node` extended for `:always` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `always-single-microstep`, `always-depth-exceeded` | ✓ claimed (specified) | Microstep loop inside drain Level 3; bounded depth (default 16); self-loop forbidden at registration; trace events at both per-microstep and macrostep granularity. |
+| **`:type :choice` transient / choice states** — a routing node that resolves immediately on entry to the first guard-passing candidate (EP-0029 A5) | Prose: [§`:type :choice` (transient / choice states)](#type-choice-transient--choice-states); Schema: `:rf/state-node` extended for `:type :choice` + `:choice` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `machine-choice-resolve`, `machine-reg-error-choice` | ✓ claimed (specified) | Sugar over `:always` — desugars at registration / normalisation into an ordinary state carrying the candidate vector under `:always`, so the candidate walk, the macrostep microstep loop, and the birth-time settle all drive it unchanged. DIVERGENCE: a declarative guarded-candidate ARRAY, NOT XState's `choice`-function (A2 / C1 — a function-valued `:choice` is rejected). A choice state only routes (no `:entry` / `:exit` / `:on` / `:after` / `:timeout` / `:spawn` / …) and must include an unguarded default candidate; a self-targeting candidate is rejected at registration. |
 | **Delayed `:after` transitions** — fire after a time delay | Prose: [§Delayed `:after` transitions](#delayed-after-transitions); Schema: `:rf/state-node` extended for `:after` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `after-single-delay`, `after-stale-detection`, `after-hierarchy` | ✓ claimed (specified) | Epoch-based stale detection — no `:cancel-dispatch-later` fx; clock primitives live in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`); SSR-mode no-ops timer scheduling; trace events at `:scheduled` / `:fired` / `:stale-after` granularity. |
 | **State tags** — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union | Prose: [§State tags](#state-tags); Schema: `:rf/state-node` extended for `:tags`, `:rf/machine-snapshot` extended for `:tags` (see [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `tags-flat-machine`, `tags-compound-active-path-union`, `tags-empty-when-no-declaration`, `tags-round-trip-pr-str` | ✓ claimed (specified) | Strictly additive — the snapshot's `:tags` slot is elided when the union is empty. Framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar covers the predicate query. Composes with hierarchical compound states (union along the active path) and — per Stage 2 — will compose with parallel regions (union across every active region). Per (Nine States Stage 1). |
 | **Parallel regions** — `:type :parallel` with multiple concurrent regions | Prose: [§Parallel regions](#parallel-regions); Schema: `:rf/transition-table` extended for `:type` + `:regions`, `:rf/state-node` extended for the parallel-region body, `:rf/machine-snapshot`'s `:state` widened to the third arm (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `parallel-flat-two-regions`, `parallel-compound-region`, `parallel-tags-union-across-regions`, `parallel-broadcast-event-both-regions`, `parallel-spawn-scoped-to-region`, `parallel-after-scoped-to-region`, `parallel-always-cascade-per-region`, `parallel-initial-state-per-region`, `parallel-snapshot-round-trip`, `parallel-ssr-hydration` | ✓ claimed (specified) | The third `:state` arm — a map of region-name → keyword-or-vector-path. Shared `:data` across regions per §9.4 (per-region encapsulation is a signal to use the N-machine substitute pattern from [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features)). Composes with `:fsm/tags` (union across every active state in every region) and with `:fsm/eventless-always` / `:fsm/delayed-after` / `:actor/declarative-spawn` (per-region scoping; one region's `:after` timer doesn't fire transitions in sibling regions). Per (Nine States Stage 2). |
