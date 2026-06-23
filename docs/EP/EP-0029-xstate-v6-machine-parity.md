@@ -1,15 +1,14 @@
 # EP-0029: XState v6 Machine Parity
 
-Status: accepted
+Status: final
 Type: standards-track
 
-> This EP proposes how re-frame2 should retarget its state-machine comparison
-> from XState v5 to the XState v6 alpha direction. If accepted, the normative
-> homes are `spec/005-StateMachines.md`, the machine implementation docs, and
-> the machine guide material under `docs/guide`. The proposal is not "copy
-> XState v6". It classifies each known v6 change into: things re-frame2 should
-> embrace, things to leave for later consideration but probably not, and things
-> re-frame2 should ignore or reject.
+> This EP retargets re-frame2's state-machine comparison from XState v5 to the
+> XState v6 alpha direction. The normative homes are `spec/005-StateMachines.md`,
+> the machine implementation docs, and the machine guide material under
+> `docs/guide`. The work is not "copy XState v6". It classifies each known v6
+> change into: things re-frame2 embraces, things left for later consideration
+> but probably not, and things re-frame2 ignores or rejects.
 
 ## Abstract
 
@@ -59,7 +58,7 @@ Goals:
 - state how each concept should, might, or should not appear in re-frame2;
 - preserve a declarative FSM surface suitable for diagrams, tools, conformance,
   model tests, and AI inspection;
-- identify the docs/spec surfaces that would change if this EP is accepted.
+- identify the docs/spec surfaces that this EP changes.
 
 Non-goals:
 
@@ -98,9 +97,9 @@ Research basis:
 
 ## Specification
 
-EP-0029 is **accepted** (operator-ruled 2026-06-23). The grouping below is the
-ruled decision surface; the implementation lands across the waves in the Bead
-Plan, each gated on this acceptance.
+EP-0029 is **final** (graduated 2026-06-24; accepted 2026-06-23). The grouping
+below is the ruled decision surface; the implementation landed across the waves
+in the Bead Plan, each gated on the acceptance.
 
 ### Decision rule
 
@@ -117,7 +116,7 @@ ergonomics, hides topology in code, or duplicates an existing re-frame2 concept.
 
 ## Group A: re-frame2 should embrace
 
-These are proposed as the first v6 parity roadmap.
+These formed the first v6 parity roadmap.
 
 ### A1. Retarget docs from XState v5 to XState v6
 
@@ -863,9 +862,9 @@ Use this instead:
 Adopt stable design direction, write tests for semantics re-frame2 actually
 chooses, and keep divergence notes explicit.
 
-## Proposed docs and spec impact
+## Docs and spec impact
 
-If accepted, implementation should update:
+The implementation updated:
 
 - `spec/005-StateMachines.md` for the accepted grammar and semantics;
 - machine implementation docs/docstrings for timeout, choice, internal-events,
@@ -957,10 +956,10 @@ the retirement sweep must not re-open the retired id.
 
 ## Bead Plan / Reference Implementation
 
-This EP should not be implemented as one large bead. It decomposes into ordered
-waves plus two standing review beads. Each wave is gated on EP-0029 acceptance and
-should land as focused PRs (run the touched-artefact slice gates locally; let CI
-run the full matrix).
+This EP was not implemented as one large bead. It decomposed into ordered
+waves plus two standing review beads. Each wave was gated on EP-0029 acceptance and
+landed as focused PRs (running the touched-artefact slice gates locally; CI ran
+the full matrix).
 
 ### Wave 1 — Docs alignment (rf2-ntg9z1)
 
@@ -1042,10 +1041,10 @@ considered done:
 
 Guide-impact assessment:
 
-- `docs/guide/concepts/machines.md` changes immediately on acceptance (Wave 1).
+- `docs/guide/concepts/machines.md` changed on acceptance (Wave 1).
 - Tutorials comparing `context`, `assign`, `setup`, actor sending, or output
-  snapshots to re-frame2 should be revised.
-- Choice-state and timeout examples should land with those features (Wave 3).
+  snapshots to re-frame2 were revised.
+- Choice-state and timeout examples landed with those features (Wave 3).
 
 ## Open Issues
 

@@ -1,6 +1,6 @@
 # EP-0025: Data Classification
 
-Status: accepted
+Status: final
 Type: standards-track
 
 > **Supersedes** the earlier "Registration-Time Subsystem Data Classification" version
@@ -183,7 +183,7 @@ clear mirrors set per axis — ordinary set/unset symmetry, like `assoc`/`dissoc
 (The keys are **bare** — `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`.
 This extends the registration-layer `:sensitive` / `:large` *already reserved* in
 Spec-Schemas to handler effects, and adds the two clear tails. The EP reserves those
-additions in the Conventions table — accepting the EP ratifies them.)
+additions in the Conventions table; they are ratified.)
 
 **Transient payloads (events, effects, coeffects) — classified at their registration.**
 A transient payload's *definition site* is its registration, so its **author** declares
@@ -409,7 +409,7 @@ durable-state schema-prop route, the per-egress fold. Removed: the derived-outpu
 policy + `:rf.egress/output-sensitivity` (no propagation). Kept: the egress
 sentinel/display contract; transient classification; validation-failure redaction.
 Amended: machine `:data` durable classification (→ projection-relative declaration); the
-HTTP carrier (→ the `:rf.http/managed` registration). Graduation carries a
+HTTP carrier (→ the `:rf.http/managed` registration). Graduation carried a
 section-by-section map.
 
 ## Bead Plan / Reference Implementation
