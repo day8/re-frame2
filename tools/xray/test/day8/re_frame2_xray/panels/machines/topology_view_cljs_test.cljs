@@ -82,7 +82,7 @@
     (is (nil? (tv/static-context-shape nil)))))
 
 (deftest static-context-declared-schema-is-authoritative
-  (testing "rf2-3q4k5b (EP-0005) — when a machine declares a `:data-schema`,
+  (testing "rf2-3q4k5b (EP-0005) — when a machine declares a `[:schemas :data]`,
             the static Context shape is read AUTHORITATIVELY off the schema
             (not the `:data` sample) and `static-context-inferred?` is FALSE,
             so the chart drops the `inferred from :data` badge."
@@ -102,7 +102,7 @@
           "declared schema → not inferred (chart drops the inferred badge)"))))
 
 (deftest static-context-inferred-when-no-schema
-  (testing "rf2-3q4k5b (EP-0005) — absent a `:data-schema`, the shape falls
+  (testing "rf2-3q4k5b (EP-0005) — absent a `[:schemas :data]`, the shape falls
             back to the one-sample inference and `static-context-inferred?`
             is TRUE (rf2-5tz9p's badge stays)."
     (let [def {:initial :idle

@@ -606,7 +606,7 @@
 ;; the Sim surface too (the Dynamic + Static Topology charts already do).
 
 (def ^:private inferred-fixture-definition
-  "No :data-schema → the context shape is INFERRED from one sample of
+  "No [:schemas :data] → the context shape is INFERRED from one sample of
   the initial :data (the chart keeps the `inferred from :data` badge)."
   {:initial :idle
    :data    {:counter 0 :label "x"}
@@ -657,7 +657,7 @@
             "inferred sample → :context-band-inferred? TRUE reaches the chart")))))
 
 (deftest sim-chart-forwards-declared-context-shape-to-canvas
-  (testing "rf2-eao0s0 — a declared (:data-schema) machine: the Static Sim
+  (testing "rf2-eao0s0 — a declared ([:schemas :data]) machine: the Static Sim
             chart hands the canvas the AUTHORITATIVE schema shape with
             :context-band-inferred? FALSE (badge dropped)."
     (setup-xray-frame!)

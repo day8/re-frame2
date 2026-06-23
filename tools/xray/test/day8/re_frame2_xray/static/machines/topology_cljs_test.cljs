@@ -9,7 +9,7 @@
   Context band was missing there. These tests pin that the wrapper now
   forwards `:context-band` (the {key → type-caption} shape) +
   `:context-band-inferred?` for BOTH an inferred (`:data`-sample) and a
-  declared (`:data-schema`) definition.
+  declared (`[:schemas :data]`) definition.
 
   The chart wrapper is the private `topology/chart` fn; we invoke it via
   its var so the `[machine-canvas/Chart {...}]` mount survives as data
@@ -21,7 +21,7 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (def ^:private inferred-definition
-  "No :data-schema → the context shape is INFERRED from one sample of the
+  "No [:schemas :data] → the context shape is INFERRED from one sample of the
   initial :data (the chart keeps the `inferred from :data` badge)."
   {:initial :idle
    :data    {:opened-count 0 :held-open? false :trail []}
@@ -38,7 +38,7 @@
              :opening {:final? true}}})
 
 (def ^:private no-data-definition
-  "Neither :data nor :data-schema → the shape is nil so the chart hides
+  "Neither :data nor [:schemas :data] → the shape is nil so the chart hides
   the Context panel."
   {:initial :idle
    :states  {:idle {} :opening {}}})
@@ -81,7 +81,7 @@
           "inferred sample → :context-band-inferred? TRUE reaches the chart"))))
 
 (deftest topology-forwards-declared-context-shape-to-chart
-  (testing "rf2-eao0s0 — a declared (:data-schema) machine: the Static
+  (testing "rf2-eao0s0 — a declared ([:schemas :data]) machine: the Static
             Topology chart forwards the AUTHORITATIVE schema shape with
             :context-band-inferred? FALSE."
     (let [props (chart-props declared-definition)]

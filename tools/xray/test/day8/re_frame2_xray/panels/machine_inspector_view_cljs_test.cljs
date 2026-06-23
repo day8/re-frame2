@@ -23,9 +23,9 @@
             ;; `:rf.error/machines-artefact-missing`.
             [re-frame.machines]
             ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint +
-            ;; the schemas walker the `:data-schema` redaction bridge
+            ;; the schemas walker the `[:schemas :data]` redaction bridge
             ;; consults. Required so the redaction tests can register a
-            ;; machine carrying a `:sensitive?` `:data-schema` slot and
+            ;; machine carrying a `:sensitive?` `[:schemas :data]` slot and
             ;; run a real transition trace through `project-trace-event`.
             [re-frame.classification :as classification]
             [re-frame.elision :as elision]
@@ -672,7 +672,7 @@
 ;; ---- (4c) declared-over-inferred Context shape (rf2-kq8nac · EP-0005) ----
 ;;
 ;; The Machine Inspector's focused-event chart surfaces the machine's
-;; declared `:data-schema` Context shape (keys + type captions)
+;; declared `[:schemas :data]` Context shape (keys + type captions)
 ;; AUTHORITATIVELY, with the declared-vs-inferred indicator — consistent
 ;; with the Static Topology view (rf2-3q4k5b) and reusing the SAME
 ;; `topology-view/static-context-shape` / `static-context-inferred?`
@@ -720,7 +720,7 @@
 
 (deftest focused-event-chart-shows-declared-context-shape-rf2-kq8nac
   (testing "rf2-kq8nac (EP-0005): when the focused machine declares a
-            `:data-schema`, the focused-event chart's Context band shows
+            `[:schemas :data]`, the focused-event chart's Context band shows
             the AUTHORITATIVE declared shape (off the schema's :map
             entries, NOT the misleading `:data` sample) and
             `:context-band-inferred?` reaches the chart FALSE (so the
@@ -751,7 +751,7 @@
              shows — consistent with the Static Topology view)")))))
 
 (deftest focused-event-chart-infers-shape-when-no-schema-rf2-kq8nac
-  (testing "rf2-kq8nac (EP-0005): absent a `:data-schema` the focused-event
+  (testing "rf2-kq8nac (EP-0005): absent a `[:schemas :data]` the focused-event
             chart falls back to the one-sample inference and
             `:context-band-inferred?` reaches the chart TRUE (rf2-5tz9p's
             `inferred from :data` badge stays)."
@@ -782,7 +782,7 @@
 ;; ---- (4d) live `:data` view renders redacted (rf2-kq8nac · EP-0005) ------
 ;;
 ;; The bead's task #2: VERIFY the panel's live `:data` view renders a
-;; `:sensitive?` `:data-schema` slot REDACTED — confirming xray reads the
+;; `:sensitive?` `[:schemas :data]` slot REDACTED — confirming xray reads the
 ;; EGRESSED/projected snapshot, never raw machine state. Two surfaces:
 ;;
 ;;   1. The SHARED mini-pipeline cascade reads the focused epoch's
@@ -799,7 +799,7 @@
 (def ^:private redaction-machine-id :session/auth-redaction)
 
 (def ^:private sensitive-schema
-  "A `:data-schema` — VALIDATION ONLY post-EP-0025 (props no longer classify).
+  "A `[:schemas :data]` — VALIDATION ONLY post-EP-0025 (props no longer classify).
   The FRAME declares the snapshot `:data` path sensitive (see the tests)."
   [:map
    [:retries :int]
