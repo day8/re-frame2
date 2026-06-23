@@ -6,11 +6,11 @@ We'll build up in three moves. First, the good news and the tool that drives the
 
 ## The good news first
 
-The bones are identical. v1's signature shape — the *six dominoes*, the one-way loop where a dispatched event falls through event handling, effects, coeffects, the `app-db` update, and back out to the subscriptions that views read — is the same shape in v2. Walk it piece by piece and nothing has moved:
+The bones are identical. v1's signature shape — the **event cascade**, the one-way run where a dispatched event falls through the *six dominoes* (event handling, effects, coeffects, the `app-db` commit, and back out to the subscriptions that views read) — is the same shape in v2. Walk it piece by piece and nothing has moved:
 
 - Events — the data describing what happened — are still data.
-- Handlers are still pure functions of state.
-- Subscriptions, the read side, are still derivations off a single `app-db` (your app's whole state, held in one map).
+- Event handlers are still pure functions of state.
+- Subscriptions are still derivations off a single `app-db` (your app's whole state, held in one map).
 
 The opinionated stance hasn't moved either: one source of truth, data over APIs over syntax, immutable values and stable contracts. v2 is v1's architecture with new capabilities grown on top.
 
@@ -52,7 +52,7 @@ These are the broad shapes of breakage — the high-volume, deterministic rewrit
 
 ### One event registration form
 
-This is the highest-volume rewrite, because `reg-event-db` is the most common registration in nearly every v1 app — and v2 doesn't have it. v1 gave you three ways to register an event handler: `reg-event-db` (the handler takes the current db and returns the new db), `reg-event-fx` (the handler takes a *coeffects* map — inputs the runtime gathered for you, the db among them — and returns an *effects* map describing what should happen), and `reg-event-ctx` (the raw interceptor context). v2 collapses all three to a single **`reg-event`**, shaped exactly like the old `reg-event-fx`: every handler takes the coeffects map and returns the closed effects map (`{:db … :fx […]}`).
+This is the highest-volume rewrite, because `reg-event-db` is the most common registration in nearly every v1 app — and v2 doesn't have it. v1 gave you three ways to register an event handler: `reg-event-db` (the handler takes the current db and returns the new db), `reg-event-fx` (the handler takes a *coeffects* map — inputs the runtime gathered for you, the db among them — and returns an *effect map* describing what should happen), and `reg-event-ctx` (the raw interceptor context). v2 collapses all three to a single **`reg-event`**, shaped exactly like the old `reg-event-fx`: every handler takes the coeffects map and returns the closed effect map (`{:db … :fx […]}`).
 
 The win is that there's no longer a db-only form that breaks the moment a handler needs an effect or a coeffect — adding the world becomes adding a key to a map you already return, not converting to a different registration.
 
@@ -245,11 +245,12 @@ This is the one v1 concept that maps onto something with a genuinely new name an
 
 ```clojure
 (rf/reg-flow
-  {:id     :rectangle/area
-   :inputs [[:width] [:height]]      ;; vector of app-db paths
-   :derive (fn [w h] (* w h))         ;; pure: (in-1, in-2, ...) → output
-   :output-path [:area]               ;; where the result is written
-   :doc    "Rectangle area computed from :width and :height."})
+  {:id     :editor/word-count
+   :inputs [[:editor :title] [:editor :body]]   ;; vector of app-db paths
+   :derive (fn [title body]                       ;; pure: (in-1, in-2, ...) → output
+             (count (re-seq #"\S+" (str title " " body))))
+   :output-path [:editor :word-count]             ;; where the result is written
+   :doc    "Live word count of the article being edited."})
 ```
 
 Internalise one thing before you reach for them, because the easy mistake is to treat flows as a sub replacement and end up with a smell.
@@ -266,7 +267,7 @@ The rewrite itself is Type B. Mechanically it's `(rf/on-changes f out-path & in-
 
 A v1 app registers everything at namespace load with `reg-*`, into one process-global registrar. v2 keeps that path working: `reg-*` still registers, and the runtime assembles a standard frame over the global registrations for you. The mechanical migration changes nothing about how you register. Keep writing `reg-*`. You are using a frame without naming it, exactly as you've always used app-db without naming a frame.
 
-You reach past that only when v2 gives you a shape v1 didn't have. The public composition model is `image → frame → event stream`: an **image** (`rf/image`) is a value naming a set of registrations — you select them from loaded namespaces (`:select-ns`) or list them inline (`:registrations`). A **frame** (`rf/make-frame`) is the live isolated execution context that runs one resolved image, with its own app state, subscription cache, and adapter binding. Images and frames are the route for genuinely new structure — a packaged feature you assemble and run as a unit, a per-tenant or multi-frame process. They're a refinement you grow into, not a step the migration forces.
+You reach past that only when v2 gives you a shape v1 didn't have. The public composition model is `image → frame → event stream`: an **image** (`rf/image`) is a value naming a set of registrations — you select them from loaded namespaces (`:select-ns`) or list them inline (`:registrations`). A **frame** (`rf/make-frame`) is the live isolated execution context that runs one **generation** — the resolved registration set an image seals into — with its own app state, subscription cache, and adapter binding. Images and frames are the route for genuinely new structure — a packaged feature you assemble and run as a unit, a per-tenant or multi-frame process. They're a refinement you grow into, not a step the migration forces.
 
 > **Going deeper — build isolated contexts from images.** A frame built from `:images` runs exactly the registrations those images select — its own sealed registration set, validated for collisions and capability requirements at assembly. Two frames can hold different handlers for the same id without collision, which makes a frame the natural unit for a hermetic test or a parallel frame on the same page. You target a frame by its id — the public address is always the frame id, never an enclosing substrate.
 

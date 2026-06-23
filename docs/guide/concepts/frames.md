@@ -72,7 +72,7 @@ Notice there's no place to hand `reg-frame` an initial app-db. That's on purpose
 > (rf/reg-frame :todo {:initial-events [[:rf/set-db {:items []}]]})
 > ```
 >
-> Keeping initialisation on the dispatch path means the same pipeline that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
+> Keeping initialisation on the dispatch path means the same cascade that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
 
 `:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:todo/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:todo/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — "to completion" meaning that if a setup event triggers further events (re-frame events can dispatch more events), those all finish too. So by the time `reg-frame` returns, the entire setup cascade is done and the frame is fully booted.
 

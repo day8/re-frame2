@@ -10,7 +10,7 @@ Here's the thing about forms: they look trivial and turn out to be one of the bu
 
 We'll build the simplest thing that works first — a login form that validates the whole draft when you press submit — and only then layer on the trimmings (cross-field rules, per-field and async validation, server rejections). The running example lives at `[:auth :login]` — that vector is a *path* into app-db, the same way `["auth"]["login"]` would be in a nested object. A form's slice always lives under its feature's key like this, which keeps the whole feature's state in one inspectable place.
 
-> **From re-frame v1.** v1 shipped no forms library, and neither does v2 — a form was, and still is, hand-rolled from the same primitives as everything else. What's new is that the hand-rolling now follows a *named convention* (this slice shape), the writes are *schema-guarded* so a malformed draft fails at the handler that wrote it, and handlers take the effects-map shape — `(fn [{:keys [db]} _] {:db ...})` instead of v1's `reg-event-db` `(fn [db _] ...)`. If you wrote forms in v1, you already know the moves; this page just gives them a standard skeleton.
+> **From re-frame v1.** v1 shipped no forms library, and neither does v2 — a form was, and still is, hand-rolled from the same primitives as everything else. What's new is that the hand-rolling now follows a *named convention* (this slice shape), the writes are *schema-guarded* so a malformed draft fails at the handler that wrote it, and handlers return an effect map — `(fn [{:keys [db]} _] {:db ...})` instead of v1's `reg-event-db` `(fn [db _] ...)`. If you wrote forms in v1, you already know the moves; this page just gives them a standard skeleton.
 
 > **Coming from React Hook Form or Formik?** re-frame2 ships no `<Form>`, no `register()`, no `useForm`. A form is a *convention* built from the same events, subs, and schemas as everything else: state lives in `app-db` (every keystroke is an inspectable event), the "validation resolver" is the Malli schema that guards the slice, and errors are subs. The normative reference card is [Pattern-Forms](../../../spec/Pattern-Forms.md).
 
@@ -75,7 +75,7 @@ With those bound, a `:status` outside the enum, or a malformed draft, now fails 
 
 ## 2. Register the events
 
-Everything that can happen to a form is one of seven events. That's not arbitrary minimalism — it's the full lifecycle, and naming each step means every transition is a discrete row in *the trace* (the framework's running log of every event that fired, which you can scrub through in the Xray dev tool) rather than a tangle of `setState` calls:
+Everything that can happen to a form is one of seven events. That's not arbitrary minimalism — it's the full lifecycle, and naming each step means every transition is a discrete row in *the trace* (the framework's running log of every event that fired, which you can scrub through in [Xray](debug-with-xray.md), the dev inspector) rather than a tangle of `setState` calls:
 
 | Event | Job |
 |---|---|
@@ -102,7 +102,7 @@ The keystroke handler does both of its jobs in one atomic step — it updates th
              (update-in [:auth :login :touched] (fnil conj #{}) field))}))
 ```
 
-That `:schema` on the registration metadata is the *event* schema — it validates the dispatched vector `[:form.login/edit-field <field> <value>]` *before* the handler runs. Dispatch `[:form.login/edit-field "email" 42]` (a string field id, a number value) and the runtime skips the handler entirely, emits `:rf.error/schema-validation-failure` with `:where :event`, and lets the rest of the queue drain. It's a cheap tripwire on the one event that fires on every keystroke, so a refactor that swaps the arg order shows up as a named error instead of a malformed draft. Like app-db schemas, it's dev-only and compiles out of production.
+That `:schema` on the registration metadata is the *event* schema — it validates the dispatched vector `[:form.login/edit-field <field> <value>]` *before* the handler runs. Dispatch `[:form.login/edit-field "email" 42]` (a string field id, a number value) and the runtime skips the handler entirely, emits `:rf.error/schema-validation-failure` with `:where :event`, and lets the rest of the queue drain. It's a cheap tripwire on the one event that fires on every keystroke, so a refactor that swaps the arg order shows up as a named error instead of a malformed draft. Like app-db schemas, it's dev-only — the check is elided from a production build entirely.
 
 ### Validation is a pure function
 
@@ -143,7 +143,7 @@ The submit handler stays a pure function — `db` in, a map out — even though 
         {:db (assoc-in db' [:auth :login :errors] errors)}))))
 ```
 
-The map this handler returns has two keys worth naming: `:db` is the new app-db, and `:fx` is the list of effects to run — here, one `:rf.http/managed` request. (The clean branch returns both; the invalid branch returns only `:db`, because there's nothing to send.)
+The effect map this handler returns has two keys worth naming: `:db` is the new app-db, and `:fx` is the list of effects to run — here, one `:rf.http/managed` request. (The clean branch returns both; the invalid branch returns only `:db`, because there's nothing to send.)
 
 Read the latch line carefully: `:submit-attempted?` flips to `true` on the way into *both* branches, valid or not. That's the whole trick behind the visibility rule in step 3 — the moment the user first presses submit, every invalid field is allowed to speak, whether or not they ever visited it.
 

@@ -19,7 +19,7 @@ src/conduit/core.cljs       ; routes, the root view, boot
 
 All of your app's state lives in **app-db**, your app's single state map. A feature claims one top-level key in that map and keeps everything it owns under that key. We call that a **slice** — one feature's corner of the state map. Articles get the `:articles` key.
 
-State only ever changes one way here. An **event** is a small piece of data announcing that something happened — at its simplest a vector like `[:app/initialise]`, a keyword id plus any payload. You **dispatch** an event to fire it, and its registered **handler** — the function that runs in response — computes the next value of app-db. That's the whole rule: views dispatch events, handlers compute new state. So even seeding canned data is an event:
+State only ever changes one way here. An **event** is a small piece of data announcing that something happened — at its simplest a vector like `[:app/initialise]`, a keyword id plus any payload. You **dispatch** an event, and its registered **event handler** computes the next value of app-db. That's the whole rule: views dispatch events, handlers compute new state. So even seeding canned data is an event:
 
 ```clojure
 ;; src/conduit/articles.cljs
@@ -63,9 +63,9 @@ State only ever changes one way here. An **event** is a small piece of data anno
 
 The two arguments in are the **coeffects** and the event. Coeffects are the facts the handler is handed to do its job — and the one you'll reach for constantly is `:db`, the current app-db. (This handler ignores both arguments, written `_cofx` and `_event`; a leading underscore is the Clojure convention for "I'm declaring this parameter but not using it.")
 
-The one map out describes what should happen next. Read it as *"the next state, and anything else to do."* Its `:db` key is the new app-db; that's the only key this handler needs, so it returns `{:db …}` and hands back the whole initial map — which is all an initialise event really is.
+The one map out is the **effect map**: it describes what should happen next. Read it as *"the next state, and anything else to do."* Its `:db` key is the new app-db; that's the only key this handler needs, so it returns `{:db …}` and hands back the whole initial map — which is all an initialise event really is.
 
-That return map is a small, **closed** vocabulary — just two keys:
+The effect map is a small, **closed** vocabulary — just two keys:
 
 - `:db` — the next app-db.
 - `:fx` — a vector of effects to run: dispatches, HTTP, navigation, anything that reaches the outside world.
@@ -94,9 +94,9 @@ With canned data the slice is born `:loaded` and never moves, so this shape can 
 
     The full rationale for keeping all state in a single map lives in [app-db: the one place](../concepts/app-db.md).
 
-## Step 2 — subscriptions: named questions
+## Step 2 — subscriptions: named, derived reads
 
-Views never reach into app-db directly. Instead they ask **subscriptions** — named, registered queries that read state for you. Add three to `articles.cljs`:
+Views never reach into app-db directly. Instead they read **subscriptions** — named, registered, pure derivations that read state for you. Add three to `articles.cljs`:
 
 ```clojure
 (rf/reg-sub :articles/slice
@@ -354,12 +354,12 @@ Finish `core.cljs` with the boot function your build invokes:
 Reading it top to bottom:
 
 1. `rf/init!` installs the Reagent adapter — the bridge between re-frame2 and your rendering substrate.
-2. `rf/reg-frame` creates the **frame** your app runs in: one isolated world of app-db, registrations, and subscriptions ([Frames](../concepts/frames.md)). What matters today is `:url-bound? true`, the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that declaration the address bar would never change. (Only one frame may claim it — a second `:url-bound? true` raises `:rf.error/duplicate-url-binding`.)
+2. `rf/reg-frame` creates the **frame** your app runs in: one isolated instance with its own app-db, event queue, and subscription cache ([Frames](../concepts/frames.md)). (Registrations aren't part of that isolation — they live in a process-global registry every frame shares; a frame isolates *state*, not the registry.) What matters today is `:url-bound? true`, the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that declaration the address bar would never change. (Only one frame may claim it — a second `:url-bound? true` raises `:rf.error/duplicate-url-binding`.)
 3. `dispatch-sync` runs the seed event synchronously, before the first render, so the feed never renders against an empty db. `with-frame` says which frame the dispatch targets.
 4. `rf/install-history-listener!` does the initial URL→state sync, so deep links work from the very first paint. It also turns the browser's Back/Forward into the same kind of route-change event a link click produces.
 5. `frame-provider-existing` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it.
 
-> **From re-frame v1.** In re-frame v1 there was no frame: app-db was one global atom, and `re-frame.core/dispatch` always hit it. re-frame2 wraps app-db, the registries, and the subscription graph into a **frame** — a named, isolated world — so you can run two independent apps on one page, or mount the same app twice without them sharing state. A single-app boot like this one declares one frame, names it `:rf/default`, and scopes the tree to it; for everyday code that mostly means an explicit `with-frame` at boot and a `frame-provider-existing` around your root view. The everything-is-global model is gone, and with it the class of bugs where two parts of a page quietly clobbered each other's state.
+> **From re-frame v1.** In re-frame v1 there was no frame: app-db was one global atom, and `re-frame.core/dispatch` always hit it. re-frame2 wraps app-db, the event queue, and the subscription cache into a **frame** — a named, isolated instance — so you can run two independent apps on one page, or mount the same app twice without them sharing state. (Registrations stay process-global, shared across frames; it's the *state* that's isolated.) A single-app boot like this one declares one frame, names it `:rf/default`, and scopes the tree to it; for everyday code that mostly means an explicit `with-frame` at boot and a `frame-provider-existing` around your root view. The everything-is-global model is gone, and with it the class of bugs where two parts of a page quietly clobbered each other's state.
 
 > **An equivalent shape: `:initial-events`.** This boot seeds app-db with a `dispatch-sync` *after* `reg-frame`, which keeps the two steps visible side by side. A frame can also carry its setup *declaratively*, as an ordered `:initial-events` vector the runtime dispatches synchronously the moment the frame is created:
 >
@@ -369,7 +369,7 @@ Reading it top to bottom:
 >                            :initial-events [[:app/initialise]]})
 > ```
 >
-> Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses because watching the seed dispatch happen is part of learning the loop. Note there's no `:db` config key — a frame always starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same dispatch pipeline as every later state change — there's no second mechanism for "the first state."
+> Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses because watching the seed dispatch happen is part of learning the loop. Note there's no `:db` config key — a frame always starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same event cascade as every later state change — there's no second mechanism for "the first state."
 
 ## See it move
 

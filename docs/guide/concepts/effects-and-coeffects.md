@@ -1,6 +1,6 @@
 # Effects and coeffects: the world at the boundary
 
-Say your handler — the function that runs when an event fires — needs the current time, a fresh id, and an HTTP request. It also has to stay a pure function: same inputs, same outputs. Purity is what makes testing, replay, and time-travel work, so you can't give it up.
+Say your [event handler](events-and-the-cascade.md) — the function that runs when an event is dispatched — needs the current time, a fresh id, and an HTTP request. It also has to stay a pure function: same inputs, same outputs. Purity is what makes testing, replay, and time-travel work, so you can't give it up.
 
 The trick is to move impurity to the edges. Side-effects leave as data on the way *out* (an **effect**) and arrive as a declared fact on the way *in* (a **coeffect**), leaving the handler pure in the middle. This page is those two halves — the way out, then the way in — each one led by the simplest example that works.
 
@@ -10,9 +10,9 @@ The trick is to move impurity to the edges. Side-effects leave as data on the wa
 
 A pure function can't *perform* a side-effect — but it can *return a description of one* and let the runtime do the dirty work. Computing a description is pure; doing the thing is not.
 
-You've already relied on this. When a handler returns `{:db new-db}` — the next value of `app-db`, your app's single state map — it didn't mutate anything. The runtime read that `:db` effect and swapped it in.
+You've already relied on this. When a handler returns `{:db new-db}` — the next value of [`app-db`](app-db.md), your app's single state map — it didn't mutate anything. The runtime read that `:db` effect and swapped it in.
 
-The same trick covers *every* side-effect, not just state. A handler returns a map with two top-level keys, and that's the *entire* grammar:
+The same trick covers *every* side-effect, not just state. A handler returns an **effect map** — a map with two top-level keys, and that's the *entire* grammar:
 
 | Key | Meaning |
 |---|---|
@@ -22,29 +22,29 @@ The same trick covers *every* side-effect, not just state. A handler returns a m
 So an HTTP POST is just one `[fx-id args]` row under `:fx` — here the fx-id is `:rf.http/managed` and its argument is the request map:
 
 ```clojure
-(rf/reg-event :counter/save
+(rf/reg-event :checkout/place-order
   (fn [{:keys [db]} _event]
-    {:db (assoc db :counter/saved? true)
+    {:db (assoc db :checkout/placing? true)
      :fx [[:rf.http/managed
-           {:request {:method :post :url "/api/counter"
-                      :body {:count (:counter/value db)}
+           {:request {:method :post :url "/api/orders"
+                      :body {:items (:cart/items db)}
                       :request-content-type :json}}]]}))
 ```
 
 That's a state change *and* an HTTP POST — and the handler is still a pure function. It built a map and returned it. The runtime applies `:db`, then runs the effect named in `:fx`. You test it by asserting on the map it returns; nothing was sent during the test.
 
-Because `:fx` is just a vector, you keep adding rows. A richer save reads like a to-do list of side-effects:
+Because `:fx` is just a vector, you keep adding rows. A richer checkout reads like a to-do list of side-effects:
 
 ```clojure
-(rf/reg-event :counter/save
+(rf/reg-event :checkout/place-order
   (fn [{:keys [db]} _event]
-    {:db (assoc db :counter/saved? true)
+    {:db (assoc db :checkout/placing? true)
      :fx [[:rf.http/managed
-           {:request {:method :post :url "/api/counter"
-                      :body {:count (:counter/value db)}
+           {:request {:method :post :url "/api/orders"
+                      :body {:items (:cart/items db)}
                       :request-content-type :json}}]
-          [:localstorage/set {:key "counter" :value (:counter/value db)}]
-          [:dispatch [:notification/show "Saved!"]]]}))
+          [:localstorage/set {:key "cart" :value (:cart/items db)}]
+          [:dispatch [:notification/show "Order placed!"]]]}))
 ```
 
 A state change, an HTTP POST, a storage write, and a follow-up dispatch — still one pure map. The runtime applies `:db` first, then walks `:fx` top to bottom, running each effect by id.
@@ -104,9 +104,9 @@ Effects handle impurity going *out*; the second category sneaks in on the way *i
 
 ```clojure
 ;; ❌ Don't do this
-(rf/reg-event :todo/add
-  (fn [{:keys [db]} [_ title]]
-    {:db (assoc-in db [:todos] {:title title :created-at (js/Date.)})}))
+(rf/reg-event :checkout/place-order
+  (fn [{:keys [db]} [_ items]]
+    {:db (assoc-in db [:orders] {:items items :placed-at (js/Date.)})}))
 ```
 
 Now the handler isn't pure: same inputs, a different output every call. No test can pin it down without monkey-patching the global clock — and, worse, replay breaks (the [last section](#why-this-is-non-negotiable-the-replay-pair) makes the reason precise).
@@ -127,14 +127,14 @@ That `{:keys [db]}` you destructure in every handler *is* the coeffects map. `:d
 Nothing reaches a handler implicitly — **not even the time**. A handler declares the facts it consumes as registration metadata, and the runtime hands it exactly those, flat in the coeffects map beside `:db`:
 
 ```clojure
-(rf/reg-event :todo/add
+(rf/reg-event :checkout/place-order
   {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [id title]}]]
-    {:db (assoc-in db [:todos id]
-                   {:id id :title title :created-at time-ms})}))
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [id items]}]]
+    {:db (assoc-in db [:orders id]
+                   {:id id :items items :placed-at time-ms})}))
 ```
 
-`:rf/time-ms` is the framework's one built-in coeffect: wall-clock epoch milliseconds, stamped once when the event was enqueued and then frozen into the record. The handler reads it like any other key — but now it's pure, because the value arrived *with* the event instead of being grabbed mid-body. Entity `:created-at` / `:updated-at`, resource freshness, and mutation timestamps all read it this way.
+`:rf/time-ms` is the framework's one built-in coeffect: wall-clock epoch milliseconds, stamped once when the event was enqueued and then frozen into the record. The handler reads it like any other key — but now it's pure, because the value arrived *with* the event instead of being grabbed mid-body. Order `:placed-at` / `:updated-at`, resource freshness, and mutation timestamps all read it this way.
 
 Delivery is **declared-only**: a fact on the event that this handler didn't declare is simply not staged. That's strict, but it buys you something rare — `:rf.cofx/requires` becomes the *complete, greppable record* of everything a handler consumes from the world, the same enforced-declaration deal [subscriptions](subscriptions.md) give you for inputs. There's no silent coupling where a test fixture happened to supply a value that's `nil` in production.
 
@@ -152,7 +152,7 @@ Every coeffect id is registered and carries a **grade**, and the grade decides e
 Recordable facts ride in one **flat** map on every dispatch envelope. Fact-name → value, no nesting:
 
 ```clojure
-{:event   [:todo/add {:id #uuid "..." :title "buy milk"}]
+{:event   [:checkout/place-order {:id #uuid "..." :items ["SKU-1" "SKU-2"]}]
  :rf.cofx {:rf/time-ms 1781078400123}}
 ```
 
@@ -205,13 +205,13 @@ Because every consumed fact is declared, the failure modes are precise and named
 
 ## Fresh ids: the minting ladder
 
-The todo above needed an `:id`. A generated id is a durable fact, so — same reasoning as the clock — it can't be a `(random-uuid)` grabbed mid-handler either. Whenever you think "my handler needs X from the world," resolve it in this preference order:
+The order above needed an `:id`. A generated id is a durable fact, so — same reasoning as the clock — it can't be a `(random-uuid)` grabbed mid-handler either. Whenever you think "my handler needs X from the world," resolve it in this preference order:
 
 1. **Derive it from recorded state** where you can — a counter already in `app-db` makes the next id deterministically, so no new fact needs recording.
-2. **Mint it at the dispatch site and ride the event** — `[:todo/add {:id (random-uuid) :title "…"}]`. The id rides the recorded event vector, so replay reproduces it. This is the workhorse: the dispatch site owns the fact's meaning.
+2. **Mint it at the dispatch site and ride the event** — `[:checkout/place-order {:id (random-uuid) :items […]}]`. The id rides the recorded event vector, so replay reproduces it. This is the workhorse: the dispatch site owns the fact's meaning.
 3. **A recorded coeffect** — only for genuinely fold-internal facts the dispatch site has no business knowing.
 
-Recorded coeffects are the last rung, not the default. The `:todo/add` handler above takes rung 2 — note the `:id` arrives *in* the event.
+Recorded coeffects are the last rung, not the default. The `:checkout/place-order` handler above takes rung 2 — note the `:id` arrives *in* the event.
 
 ## Why this is non-negotiable: the replay pair
 
@@ -219,17 +219,17 @@ Recorded coeffects are the last rung, not the default. The `:todo/add` handler a
 
 ```clojure
 ;; ❌ BROKEN REPLAY — the clock is an ambient read the ledger never recorded.
-;;    Replay this event tomorrow and :created-at is tomorrow's date. The log lies.
-(rf/reg-event :todo/add
-  (fn [{:keys [db]} [_ title]]
-    {:db (assoc-in db [:todos] {:title title :created-at (js/Date.)})}))
+;;    Replay this event tomorrow and :placed-at is tomorrow's date. The log lies.
+(rf/reg-event :checkout/place-order
+  (fn [{:keys [db]} [_ items]]
+    {:db (assoc-in db [:orders] {:items items :placed-at (js/Date.)})}))
 
 ;; ✅ HONEST REPLAY — the clock is the recorded :rf/time-ms fact the runtime supplies.
 ;;    Replay re-presents the same value; the same log reproduces the same state.
-(rf/reg-event :todo/add
+(rf/reg-event :checkout/place-order
   {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ title]]
-    {:db (assoc-in db [:todos] {:title title :created-at time-ms})}))
+  (fn [{:keys [db rf/time-ms]} [_ items]]
+    {:db (assoc-in db [:orders] {:items items :placed-at time-ms})}))
 ```
 
 The difference isn't style. The broken version cannot be replayed, restored, or deterministically tested. The honest version can, because every fact it used is one the runtime recorded and can re-supply. That's what makes time-travel actually travel: restore an epoch, re-run the log, and the handler folds the *same* recorded `:rf/time-ms` instead of whatever the wall clock reads on replay day. The reads still happen — but once, at the boundary, producing a fact the record keeps forever.
@@ -238,7 +238,7 @@ The difference isn't style. The broken version cannot be replayed, restored, or 
 
 ## See it run
 
-A live todo-adder. The durable facts — *when* each todo was created, *what* its id is — ride the declared `:rf/time-ms` coeffect and the event. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then add some todos.
+A live order-placer. The durable facts — *when* each order was placed, *what* its id is — ride the declared `:rf/time-ms` coeffect and the event. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then place some orders.
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
@@ -247,53 +247,54 @@ A live todo-adder. The durable facts — *when* each todo was created, *what* it
 ;; A PURE handler: the clock arrives as the declared :rf/time-ms recordable
 ;; coeffect; the fresh id rides the event from the dispatch site (minting
 ;; ladder, rung 2). Both facts are durable — both are recorded.
-(rf/reg-event :demo.todo/add
+(rf/reg-event :demo.order/place
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [id]}]]
-    {:db (assoc-in db [:demo.todo/items id]
+    {:db (assoc-in db [:demo.order/items id]
                    {:id id
-                    :title (str "Todo #" (inc (count (:demo.todo/items db))))
-                    :created-at time-ms})}))
+                    :label (str "Order #" (inc (count (:demo.order/items db))))
+                    :placed-at time-ms})}))
 
-(rf/reg-event :demo.todo/initialise
-  (fn [_cofx _event] {:db {:demo.todo/items {}}}))
+(rf/reg-event :demo.order/initialise
+  (fn [_cofx _event] {:db {:demo.order/items {}}}))
 
-(rf/reg-sub :demo.todo/items
-  (fn [db _query] (vals (:demo.todo/items db))))
+(rf/reg-sub :demo.order/items
+  (fn [db _query] (vals (:demo.order/items db))))
 
-(defn todo-list []
+(defn order-list []
   [:div
-   [:button {:on-click #(rf/dispatch [:demo.todo/add {:id (random-uuid)}])}
-    "Add a todo"]
+   [:button {:on-click #(rf/dispatch [:demo.order/place {:id (random-uuid)}])}
+    "Place an order"]
    [:ul
-    (for [{:keys [id title created-at]} @(rf/subscribe [:demo.todo/items])]
+    (for [{:keys [id label placed-at]} @(rf/subscribe [:demo.order/items])]
       ^{:key id}
-      [:li title
+      [:li label
        [:span {:style {:color "#888" :margin-left "1em" :font-size "0.85em"}}
-        (.toLocaleTimeString (js/Date. created-at) "en-US")]])]])
+        (.toLocaleTimeString (js/Date. placed-at) "en-US")]])]])
 
-(rf/dispatch-sync [:demo.todo/initialise])
-[todo-list]
+(rf/dispatch-sync [:demo.order/initialise])
+[order-list]
 ```
 
-Notice that `:demo.todo/add` never calls `js/Date.` or `random-uuid`. The only ambient host read left — the locale formatting the displayed time — lives at the view, a render-time choice that never touches durable state.
+Notice that `:demo.order/place` never calls `js/Date.` or `random-uuid`. The only ambient host read left — the locale formatting the displayed time — lives at the view, a render-time choice that never touches durable state.
 
-**Try it:** change the button's dispatch to `#(rf/dispatch [:demo.todo/add {:id (random-uuid)}] {:rf.cofx {:rf/time-ms 1735732800000}})` and re-evaluate. Every todo is now stamped that exact instant, because you handed the runtime the fact instead of letting it stamp the wall clock. And if you're running an app with Xray open, focus the event's epoch and read the pipeline's COEFFECTS section — the exact recordable facts this run folded, sitting right above the handler step.
+**Try it:** change the button's dispatch to `#(rf/dispatch [:demo.order/place {:id (random-uuid)}] {:rf.cofx {:rf/time-ms 1735732800000}})` and re-evaluate. Every order is now stamped that exact instant, because you handed the runtime the fact instead of letting it stamp the wall clock. And if you're running an app with Xray open, focus the event's epoch and read the COEFFECTS section — the exact recordable facts this run folded, sitting right above the handler step.
 
 ## Tests supply facts
 
 That try-it *is* the testing story. **Supply data, don't swap mechanisms.** The dispatch-opts key `:rf.cofx` hands the runtime exact facts. Supplied values win, and the runtime fills only what's missing:
 
 ```clojure
-(deftest todo-add-stamps-created-at
+(deftest place-order-stamps-placed-at
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:todo/add {:id   #uuid "00000000-0000-0000-0000-000000000001"
-                                  :title "buy milk"}]
+    (rf/dispatch-sync [:checkout/place-order
+                       {:id    #uuid "00000000-0000-0000-0000-000000000001"
+                        :items ["SKU-1" "SKU-2"]}]
                       {:rf.cofx {:rf/time-ms 1735732800000}})
-    (let [todo (-> (rf/app-db-value f) :todos
-                   (get #uuid "00000000-0000-0000-0000-000000000001"))]
-      (is (= "buy milk" (:title todo)))
-      (is (= 1735732800000 (:created-at todo))))))
+    (let [order (-> (rf/app-db-value f) :orders
+                    (get #uuid "00000000-0000-0000-0000-000000000001"))]
+      (is (= ["SKU-1" "SKU-2"] (:items order)))
+      (is (= 1735732800000 (:placed-at order))))))
 ```
 
 No clock mock, no monkey-patching. The handler never knows it's being tested, and `:rf.cofx/requires` doubles as the fixture checklist telling you exactly which facts to supply. SSR hydration and replay fixtures use the same key. Supplied values are preserved verbatim and never overwritten, so the runtime fills only what you leave out.
@@ -302,11 +303,11 @@ You stub effects with the symmetric move on the output side: **`:fx-overrides`**
 
 ```clojure
 ;; A bare function — the quick test double.
-(rf/dispatch-sync [:counter/save]
+(rf/dispatch-sync [:checkout/place-order]
                   {:fx-overrides {:rf.http/managed (fn [_m _req] (reset! sent? true))}})
 
 ;; An fx-id — redirect to a registered canned effect (Story / SSR / contract tests).
-(rf/dispatch-sync [:counter/save]
+(rf/dispatch-sync [:checkout/place-order]
                   {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
 ```
 

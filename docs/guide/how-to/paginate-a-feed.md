@@ -5,7 +5,7 @@ You have a list with more rows than you want to fetch at once. There are two pag
 - **Numbered pages** — page 2 *replaces* page 1 on screen. Think search results, an admin table, a "1 2 3 … 29" pager.
 - **Load more** — page 2 *appends* to what's already there, the way a social feed grows.
 
-Both ride on **resources**. A resource is a declared, cached server query — you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness for you; views just subscribe to its current state. [Server state: resources](../concepts/server-state.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then the load-more shape. By the end you'll have both wired with *no pagination state in app-db at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append reducer. (`app-db` is the one ordinary map that holds your app's own state; the whole point here is that pagination doesn't add anything to it.)
+Both ride on **resources**. A resource is a declared, cached server-state read — you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness for you; views just subscribe to its current state. [Server state: resources](../concepts/server-state.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then the load-more shape. By the end you'll have both wired with *no pagination state in app-db at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append reducer. (app-db is your app's own state; the whole point here is that pagination doesn't add anything to it — the page cursor and the page cache are all framework-owned runtime-db.)
 
 > **The one idea to hold onto.** A numbered page is part of the resource's *identity* — page 7 is its own separately-cached value. An infinite feed is *one* identity that *grows* — page 1, then 1+2, then 1+2+3, kept together as a single reactive value. Almost everything below follows from that one distinction.
 
@@ -150,7 +150,7 @@ This is the part that makes pagination feel smooth instead of janky. With `:keep
                     p])))]))))
 ```
 
-(Here `dispatch` and `subscribe` are bindings that `reg-view` injects into the view's body, already wired to the *frame* this view is rendering in — a frame being one isolated instance of your app's state and event loop, so these are the same `dispatch`/`subscribe` you'd reach for via `rf/`, just pre-targeted. `list-skeleton`, `list-error`, and `article-row` are your own views.)
+(Here `dispatch` and `subscribe` are bindings that `reg-view` injects into the view's body, already wired to the *frame* this view is rendering in — a frame being one isolated instance of your app, with its own app-db, event queue, and subscription cache, so these are the same `dispatch`/`subscribe` you'd reach for via `rf/`, just pre-targeted. `list-skeleton`, `list-error`, and `article-row` are your own views.)
 
 Now watch it work. Click through to page 2 with Xray open: the navigation event row shows the `ensure` it caused under the `{:page 2}` key, and the entry walks `:loading` → `:loaded`. Click *back* to page 1 and you'll see the same `{:page 1}` key, still fresh — a cache hit, no network request. That's the payoff of treating pages as identity: back-navigation is free, because you never threw page 1 away. You just stopped looking at it.
 

@@ -1,6 +1,6 @@
 # The re-frame2 Guide
 
-re-frame2 is a data-first framework for building React applications in ClojureScript. The whole app reads from one state map (app-db), you describe what happened as plain data (events), and views render last from that state. This page won't teach you any of that — its only job is to point you at the right entry point and show you how the guide is laid out, so you can skip straight to what you need.
+re-frame2 is a data-first framework for building React applications in ClojureScript. The whole app reads from one state map (app-db), you describe what happened as plain data (events), each event sets off a fixed ordered run — the event cascade — and views render last from the state it leaves behind. This page won't teach you any of that — its only job is to point you at the right entry point and show you how the guide is laid out, so you can skip straight to what you need.
 
 > **Start by running the counter in five minutes; everything else is one click deeper.**
 

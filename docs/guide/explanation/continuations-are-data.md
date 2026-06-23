@@ -10,16 +10,16 @@ Here is the effect map an event handler returns to ask for an HTTP request. (In 
 
 ```clojure
 {:fx [[:rf.http/managed
-       {:request    {:method :post :url "/api/checkout/quote"}
-        :on-success [:checkout/quoted]
-        :on-failure [:checkout/quote-failed]}]]}
+       {:request    {:method :get :url "/api/articles/welcome"}
+        :on-success [:article/loaded]
+        :on-failure [:article/load-failed]}]]}
 ```
 
-That `:on-success [:checkout/quoted]` is the whole trick. You didn't write code to run when the answer arrives — you named an **event** to dispatch when it arrives. The answer becomes a `:checkout/quoted` event, handled by an ordinary handler, exactly as if a user had clicked a button.
+That `:on-success [:article/loaded]` is the whole trick. You didn't write code to run when the answer arrives — you named an **event** to dispatch when it arrives. The answer becomes an `:article/loaded` event, handled by an ordinary handler, exactly as if a user had clicked a button.
 
-The word for "the rest of the program" — everything that should happen after an async result lands — is a **continuation**. Every async model has one; the only interesting question is what a continuation is *made of*. Under `async/await` it's a hidden closure (the suspended rest of your function). Here it's that vector — `[:checkout/quoted]` — a value you can print, diff, store, and ship. Everything else on this page falls out of that one move.
+The word for "the rest of the program" — everything that should happen after an async result lands — is a **continuation**. Every async model has one; the only interesting question is what a continuation is *made of*. Under `async/await` it's a hidden closure (the suspended rest of your function). Here it's that vector — `[:article/loaded]` — a value you can print, diff, store, and ship. Everything else on this page falls out of that one move.
 
-> **For JavaScript developers.** This is the Elm architecture, and it's worth borrowing the mental model. In Elm an effect goes out as a `Cmd` value and its result comes back as a `Msg` you handle — the continuation is never a suspended stack frame, it's the message you said the answer should become. re-frame2's `:on-success [:checkout/quoted]` is that same `Cmd → Msg` round-trip: you describe the work, you *name* the reply, and the runtime delivers it as a fresh event.
+> **For JavaScript developers.** This is the Elm architecture, and it's worth borrowing the mental model. In Elm an effect goes out as a `Cmd` value and its result comes back as a `Msg` you handle — the continuation is never a suspended stack frame, it's the message you said the answer should become. re-frame2's `:on-success [:article/loaded]` is that same `Cmd → Msg` round-trip: you describe the work, you *name* the reply, and the runtime delivers it as a fresh event.
 
 ## What an `await` quietly hides
 
@@ -32,9 +32,9 @@ Under `async/await`, the continuation is a **closure**. Write `const quote = awa
 - It **dies with the process** — reload the page and every pending `await` evaporates silently.
 - It **closes over the world as it was** — every captured variable is a snapshot from suspension time, not arrival time.
 
-That event vector — `[:checkout/quoted]` — has none of those properties. It *has* a name (it *is* a name). It serializes. It survives a reload. And, as we're about to see, it never reads a stale world.
+That event vector — `[:article/loaded]` — has none of those properties. It *has* a name (it *is* a name). It serializes. It survives a reload. And, as we're about to see, it never reads a stale world.
 
-> **From re-frame v1.** re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every managed async surface — HTTP, [resources](../concepts/server-state.md), mutations, [machines](../concepts/machines.md) — addresses its reply by a named event, and the result arrives in a single uniform [reply envelope](../../../spec/Managed-Effects.md). The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loudly (see the trap below) — there's a sanctioned managed effect for every async job.
+> **From re-frame v1.** re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every managed async surface — HTTP, [resources](../concepts/server-state.md), mutations, [machines](../concepts/machines.md) — addresses its reply by a named event, and the result arrives as a single [uniform reply](../../../spec/Managed-Effects.md) — one reply map, every surface. The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loudly (see the trap below) — there's a sanctioned managed effect for every async job.
 
 ## The bug this kills: the stale-world trap
 
@@ -42,52 +42,52 @@ The fourth closure property — "closes over the world as it was" — isn't an i
 
 ```clojure
 ;; THE TRAP — do not copy.
-(rf/reg-event :checkout/quote
+(rf/reg-event :article/load
   ;; `db` is destructured out of the handler's first argument: it's app-db,
   ;; the single state map — the whole app's state — handed to the handler.
   (fn [{:keys [db]} _]
-    (-> (js/fetch "/api/checkout/quote")          ;; reach for the browser's fetch directly
+    (-> (js/fetch "/api/articles/welcome")        ;; reach for the browser's fetch directly
         (.then #(.json %))
-        (.then (fn [quote]
+        (.then (fn [article]
                  ;; `db` here is the db from when the request was ISSUED.
-                 ;; If the user edited the cart while the request flew,
-                 ;; this guard checks a world that no longer exists.
-                 (when (= (:cart/version db) (aget quote "cart-version"))
-                   (rf/dispatch [:checkout/quoted quote])))))
+                 ;; If the user navigated to a different article while the
+                 ;; request flew, this guard checks a world that no longer exists.
+                 (when (= (:article/viewing db) (aget article "slug"))
+                   (rf/dispatch [:article/loaded article])))))
     {}))                                          ;; return no effects — we did the work by hand
 ```
 
-The `.then` closure captured `db` — your app-db — frozen at issue time. Any decision made from it is a decision about the past. And the bug is invisible in every test that doesn't race an edit against a reply, which is most of them.
+The `.then` closure captured `db` — your app-db — frozen at issue time. Any decision made from it is a decision about the past. And the bug is invisible in every test that doesn't race a navigation against a reply, which is most of them.
 
 Now the same intent, with the continuation as data. The request handler just *names* where the answer goes; two more handlers receive it:
 
 ```clojure
-(rf/reg-event :checkout/quote
+(rf/reg-event :article/load
   (fn [{:keys [db]} _]
-    {:db (assoc-in db [:checkout :status] :quoting)
+    {:db (assoc-in db [:article :status] :loading)
      :fx [[:rf.http/managed
-           {:request    {:method :post :url "/api/checkout/quote"}
-            :on-success [:checkout/quoted]
-            :on-failure [:checkout/quote-failed]}]]}))
+           {:request    {:method :get :url "/api/articles/welcome"}
+            :on-success [:article/loaded]
+            :on-failure [:article/load-failed]}]]}))
 
-(rf/reg-event :checkout/quoted
-  ;; The event vector that arrives is [:checkout/quoted <reply-map>]. The handler's
+(rf/reg-event :article/loaded
+  ;; The event vector that arrives is [:article/loaded <reply-map>]. The handler's
   ;; second argument is that vector; `[_ {:keys [value]}]` ignores the event id (`_`)
   ;; and destructures `:value` — the decoded result — out of the reply map.
   (fn [{:keys [db]} [_ {:keys [value]}]]
     ;; This `db` is current — handed to the handler at ARRIVAL time.
-    {:db (if (= (:cart/version db) (:cart-version value))
-           (assoc-in db [:checkout :quote] value)
-           (assoc-in db [:checkout :status] :cart-changed))}))
+    {:db (if (= (:article/viewing db) (:slug value))
+           (assoc-in db [:article :data] value)
+           (assoc-in db [:article :status] :navigated-away))}))
 
-(rf/reg-event :checkout/quote-failed
+(rf/reg-event :article/load-failed
   (fn [{:keys [db]} [_ {:keys [failure]}]]
     {:db (-> db
-             (assoc-in [:checkout :status] :error)
-             (assoc-in [:checkout :error]  failure))}))
+             (assoc-in [:article :status] :error)
+             (assoc-in [:article :error]  failure))}))
 ```
 
-A closure **closes over the past; a handler receives the present.** The reply handler — the function registered to run when the answer arrives — is given the db of the moment the reply lands. So "did the cart change while we waited?" is a *live* comparison, not a memory. It takes no discipline on your part: there is simply no mechanism by which the old db can leak into the new decision.
+A closure **closes over the past; a handler receives the present.** The reply handler — the function registered to run when the answer arrives — is given the db of the moment the reply lands. So "did the user navigate away while we waited?" is a *live* comparison, not a memory. It takes no discipline on your part: there is simply no mechanism by which the old db can leak into the new decision.
 
 > **Gotcha — why the trap fails *louder* here.** In re-frame2 the trap above doesn't even reach the stale read: the bare `rf/dispatch` inside the `.then` fires on a fresh stack with no [frame](../concepts/frames.md) context (a frame is an isolated app instance — its own db and event queue) and raises `:rf.error/no-frame-context`. Useful, but don't mistake the loud failure for the disease. The *stale read* is the disease — and that one ships fine in frameworks that allow the bare dispatch, which is most of them. The data-continuation form is immune by construction, not by vigilance.
 
@@ -146,7 +146,7 @@ You'll meet this idea everywhere, spelled per surface but argued once, here. The
 | Surface | What you write | What lands |
 |---|---|---|
 | [HTTP](../concepts/http.md) | `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` (or co-located `:rf/reply` — `:rf.http/managed` does not take a bare `:rf/reply-to`) | The success handler gets `{:kind :success :value …}`; failure gets `{:kind :failure :failure …}` — the same envelope in HTTP's shorter clothing (`:kind :success` *is* `:status :ok`; `:kind :failure` *is* `:status :error`). |
-| [Resources](../concepts/server-state.md) | a query key — the framework owns the reply | The continuation goes in the **work ledger**; stale generations are suppressed structurally by `:work/id` + generation. |
+| [Resources](../concepts/server-state.md) | a `:scope` + `:params` read key — the framework owns the reply | The continuation goes in the **work ledger**; stale generations are suppressed structurally by `:work/id` + generation. |
 | Mutations | `:reply-to [:favorite/replied slug]` — the spine of [form submission](../how-to/build-a-form.md) | The same reply map appended; a superseded generation never delivers. |
 | [Machines](../concepts/machines.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
 

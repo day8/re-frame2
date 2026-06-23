@@ -67,13 +67,13 @@ We've been reaching into `ctx` with `get-in [:coeffects :event]`. Time to look a
 | `:coeffects` | The handler's **inputs**: `:event`, `:db`, plus each world fact the handler declared with [`:rf.cofx/requires`](effects-and-coeffects.md) — flat, under its own id | The runtime — completely, *before* the chain runs |
 | `:effects` | The handler's **outputs**: the new `:db`, the `:fx` vector | The handler; then decorated by `:after` stages on the way out |
 
-Caught mid-pipeline, just after the handler has run, the map looks like this:
+Caught mid-chain, just after the handler has run, the map looks like this:
 
 ```clojure
-{:coeffects {:event      [:todo/add {:id #uuid "..." :title "buy milk"}]
-             :db         {:todos {...}}
+{:coeffects {:event      [:cart.item/add {:sku "abc-123" :qty 2}]
+             :db         {:cart/items [...]}
              :rf/time-ms 1781078400123}      ;; a declared fact, delivered flat
- :effects   {:db {:todos {... new-todo}}
+ :effects   {:db {:cart/items [... new-item]}
              :fx [[:dispatch [:toast/show "Added"]]]}}
 ```
 
@@ -109,7 +109,7 @@ The handler doesn't know it's wrapped, and an interceptor doesn't know what it w
 
 Notice the table said `:coeffects` is filled "completely, *before* the chain runs." That's a deliberate guarantee. By the time the first `:before` runs, `:coeffects` is finished — `:db`, `:event`, and every fact the handler declared via [`:rf.cofx/requires`](effects-and-coeffects.md) are already delivered. Every interceptor sees the complete input.
 
-The pipeline for one event is:
+The order for one event is:
 
 ```text
 envelope finalization → context assembly → :before pass → handler → :after pass
@@ -148,7 +148,7 @@ That second point hides the real reason `path` is a *framework* interceptor and 
 ```clojure
 ;; A stamp factory: each reference configures WHICH metadata key gets stamped
 ;; onto the event's :db write, so one registered interceptor serves many shapes.
-(rf/reg-interceptor :app/stamp-meta
+(rf/reg-interceptor :cart/stamp-meta
   {:doc "On the way out, stamp an audit key onto the handler's :db effect."}
   {:factory (fn [meta-key]
               {:after (fn [ctx]
@@ -162,19 +162,19 @@ That second point hides the real reason `path` is a *framework* interceptor and 
 Reference it with the bracket form, passing the factory's single arg (need several inputs? pass one map or vector):
 
 ```clojure
-(rf/reg-event :doc/save
-  {:interceptors [[:app/stamp-meta :doc/last-touched]]}
-  (fn [{:keys [db]} [_ doc]]
-    {:db (assoc-in db [:docs (:id doc)] doc)}))
+(rf/reg-event :cart.item/add
+  {:interceptors [[:cart/stamp-meta :cart/last-touched]]}
+  (fn [{:keys [db]} [_ item]]
+    {:db (update db :cart/items conj item)}))
 ```
 
-The factory runs once per chain assembly to build the executable interceptor for that arg. Two refs to the *same* factory with *different* args (`[:app/stamp-meta :a]` and `[:app/stamp-meta :b]`) are two distinct chain entries, each matchable on its own in overrides — which is exactly why override matching (below) is by full reference, not by id.
+The factory runs once per chain assembly to build the executable interceptor for that arg. Two refs to the *same* factory with *different* args (`[:cart/stamp-meta :a]` and `[:cart/stamp-meta :b]`) are two distinct chain entries, each matchable on its own in overrides — which is exactly why override matching (below) is by full reference, not by id.
 
 > **From re-frame v1.** v1's grab-bag of one-liner helper interceptors — `debug`, `trim-v`, `enrich`, `after`, `on-changes` — is gone. Each was a few lines wrapping a closure; in re-frame2 anything they did is a few lines of `reg-interceptor`, registered under a name and referenced by id. The one survivor in spirit is `path`, now the standard `[:rf.interceptor/path …]` reference.
 
 ## Two places to attach
 
-Per-handler attachment, as above, fires for that event only — the right scope for event-specific concerns like `path` or undo tags. The second place is the **frame** (one isolated re-frame2 world, with its own `app-db` and handlers), and it carries the very same references:
+Per-handler attachment, as above, fires for that event only — the right scope for event-specific concerns like `path` or undo tags. The second place is the **frame** (one isolated, running instance of your app, with its own `app-db`, event queue, and subscription cache — see [frames](frames.md)), and it carries the very same references:
 
 ```clojure
 (rf/reg-frame :app/main

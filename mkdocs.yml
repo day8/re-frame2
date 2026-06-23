@@ -215,6 +215,7 @@ nav:
       - "Where should this value live?": guide/where-state-lives.md
     - "From re-frame v1": guide/25-from-re-frame-v1.md
     - "Reference index": guide/reference.md
+    - "Glossary": guide/glossary.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md

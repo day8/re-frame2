@@ -2,7 +2,7 @@
 
 Here's the whole idea in one line: **the URL is application state, and your back button is a dispatch.**
 
-Most frameworks bolt a router onto the side of your app — its own context, its own lifecycle, its own opinion about where truth lives. re-frame2 doesn't. A route is a registry entry (one row in re-frame2's table of routes). Navigating is dispatching an event (a named action sent through the app). The active route is a subscription (a read of state your views watch). That's it — three things you already know, pointed at the URL.
+Most frameworks bolt a router onto the side of your app — its own context, its own lifecycle, its own opinion about where truth lives. re-frame2 doesn't. A route is a registry entry (one row in re-frame2's table of routes). Navigating is dispatching an event (a data vector sent through the app). The active route is a subscription (a read of state your views watch). That's it — three things you already know, pointed at the URL.
 
 Which means everything you already know about [events](events-and-the-cascade.md) and [subscriptions](subscriptions.md) is genuinely everything you need here. There is no fourth concept hiding behind the curtain. By the end of this page you'll register a route table, navigate and link between pages, branch your views on the active route, load each page's data declaratively, handle the 404, wire up back/forward, and — for free — run the exact same routing on the server.
 
@@ -195,11 +195,11 @@ The runtime runs `match-url` on the string. If it resolves to a registered route
 
 ### What happens, in order
 
-When the navigate event runs, three things happen in a **locked order**: first the route slice in frame state updates, then the browser URL pushes, then the route's loaders dispatch. State-before-URL is on purpose. If the URL push fails — offline, or the browser denies it — your application state is still consistent, so you never end up showing one page while the address bar swears you're on another.
+When the navigate event runs, three things happen in a **locked order**: first the route slice in runtime-db updates, then the browser URL pushes, then the route's loaders dispatch. State-before-URL is on purpose. If the URL push fails — offline, or the browser denies it — your application state is still consistent, so you never end up showing one page while the address bar swears you're on another.
 
 ## Move 3: the active route is a subscription
 
-The current route lives in the frame's framework-managed partition — the slice of state the runtime owns. Your code *reads* it and never *writes* it, and you read it like any other state:
+The current route lives in **runtime-db** — the framework-owned partition beside your app-db, addressed at `[:rf.db/runtime :rf.runtime/routing :current]` (see [app-db](app-db.md#yours-and-the-frameworks-next-door) for the partition itself). Your code *reads* it and never *writes* it, and you read it like any other state:
 
 ```clojure
 @(rf/subscribe [:rf/route])             ;; the full slice: {:route-id :params :query :fragment :transition :error :nav-token}
@@ -264,7 +264,7 @@ A route can declare what data to load when it becomes active, so a page's data-n
   "/cart")
 ```
 
-`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](events-and-the-cascade.md) (an input injected into an event handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
+`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](effects-and-coeffects.md) (a declared input the framework injects into a handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
 
 > **Coming from React Router or Remix?** `:on-match` *is* the route loader — but as a list of event vectors, not a function. Because it's data, you can read it, test it, and draw a dependency graph from it without running it. And it runs on the server through the exact same vector, so there's no separate "server loader" to keep in sync.
 
@@ -284,7 +284,7 @@ If any `:on-match` event errors, the runtime flips `:rf.route/transition` to `:e
       {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
 ```
 
-Routes with no `:on-error` simply leave `:transition :error` set; a view over `:rf.route/error` can render a banner. Either way, the structured-error trace still fires on the wire — `:on-error` is the route's *response*, layered over the framework's [error contract](../how-to/debug-with-xray.md), not a replacement for it.
+Routes with no `:on-error` simply leave `:transition :error` set; a view over `:rf.route/error` can render a banner. Either way, the structured-error trace still fires on the wire — `:on-error` is the route's *response*, layered over the framework's [error contract](errors.md), not a replacement for it.
 
 > **Two subtleties worth knowing.** (1) *Later loaders still run* — re-frame2's run-to-completion drain doesn't cancel events already queued, so `:on-match [[:a] [:b]]` runs `:b` even if `:a` threw. A loader that must short-circuit on a sibling's failure reads `:rf.route/transition` and self-guards. (2) *First error wins* — if both throw, `:rf.route/error` records the first, and `:on-error` fires exactly once. The slice always lands on `:error` regardless of how the events interleave.
 
@@ -331,7 +331,7 @@ When a resource is per-user, scope it with a **named scope resolver**. Register 
  :blocking? false}
 ```
 
-The runtime resolves `{:from-db :realworld/session}` against app-db (your app's single state map) at route entry. Resolution **fails closed**: logged out, the resolver returns `nil` and the feed is simply *not planned* (surfacing as a route plan error rather than a silent fallback). It never silently falls back to a shared cache, so one user's feed can never leak into another's session. Security by construction, not by remembering to check.
+The runtime resolves `{:from-db :realworld/session}` against [app-db](app-db.md) at route entry. Resolution **fails closed**: logged out, the resolver returns `nil` and the feed is simply *not planned* (surfacing as a route plan error rather than a silent fallback). It never silently falls back to a shared cache, so one user's feed can never leak into another's session. Security by construction, not by remembering to check.
 
 ## Blocking a navigation
 
@@ -356,7 +356,7 @@ When the guard blocks, the runtime also dispatches `:rf.route/navigation-blocked
 
 > **For JavaScript developers.** This replaces React Router's `useBlocker` / `usePrompt` and the old `beforeunload` hack — but with two upgrades. The guard is a *subscription* (declarative, derives from state), and the pending navigation is *state you render from*, so your confirm dialog is an ordinary view, not an imperative `window.confirm`. No modal-automation flakiness, no native-dialog ugliness.
 
-> **Gotcha — the guard sub is strict.** `:can-leave` is a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` — fail-safe, not fail-open. Keep the guard sub returning a real `true`/`false`.
+> **Gotcha — the guard sub is strict.** `:can-leave` is a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` — it fails closed (deny the leave) and fails loud (raise), never open. Keep the guard sub returning a real `true`/`false`.
 
 > **Why this matters.** The entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/reagent/realworld_resources](../../../examples/reagent/realworld_resources/) show the shape.
 
@@ -413,7 +413,7 @@ Back/forward, deep links, and the initial page load are all, underneath, URL cha
 (rf/install-history-listener!)
 ```
 
-`:url-bound? true` declares which [frame](frames.md) — an isolated instance of your app's state and registry — owns the browser URL. Ownership is always *explicit*, never inferred, and only one frame may hold it (a second frame claiming `:url-bound? true` is a loud `:rf.error/duplicate-url-binding`). Non-owning frames still route internally: a [Story](observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`. With no declared owner, URL pushes and the popstate listener simply no-op. `install-history-listener!` installs the `popstate` listener (targeted at the owner) and does the initial URL-to-state sync; it's idempotent, so hot-reload is safe, and `rf/remove-history-listener!` tears it down.
+`:url-bound? true` declares which [frame](frames.md) — an isolated instance of your app's state (frames isolate state, not registrations) — owns the browser URL. Ownership is always *explicit*, never inferred, and only one frame may hold it (a second frame claiming `:url-bound? true` is a loud `:rf.error/duplicate-url-binding`). Non-owning frames still route internally: a [Story](observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`. With no declared owner, URL pushes and the popstate listener simply no-op. `install-history-listener!` installs the `popstate` listener (targeted at the owner) and does the initial URL-to-state sync; it's idempotent, so hot-reload is safe, and `rf/remove-history-listener!` tears it down.
 
 > **From re-frame v1.** This is where the inversion lands hardest. In v1 the browser URL was the source of truth and your router *reacted* to it. Here the frame's state is the source of truth and the URL is a *print-out* of it. So a back-button press is, literally, a dispatch: popstate fires, the URL-change handler runs, the slice updates, the views re-derive. And [time-travel](../how-to/debug-with-xray.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never truth, only a projection.
 

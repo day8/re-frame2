@@ -14,7 +14,7 @@ Everything your app knows sits in one map — the logged-in user, the cart, whic
  :ui   {:active-panel :cart :modal nil}}
 ```
 
-Nested maps, vectors, sets, keywords. Ordinary data, no imposed schema. And exactly one thing ever changes it: an [event handler](events-and-the-cascade.md) — the function that runs in response to something happening — returning a new version of the map.
+Nested maps, vectors, sets, keywords. Ordinary data, no imposed schema. And exactly one thing ever changes it: an [event handler](events-and-the-cascade.md) — the function a [dispatched event](events-and-the-cascade.md) runs — returning a new version of the map.
 
 ```clojure
 (rf/reg-event :cart/add
@@ -34,7 +34,7 @@ That is the entire shape of state in re-frame2: **structured data in one map; ev
 
 ### Where the first value comes from
 
-If a handler only ever *transforms* app-db, what hands it the very first one? Every [frame](frames.md) — one isolated, independently-running instance of your app, the thing app-db belongs to — starts with `app-db` equal to the empty map `{}`. There is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same pipeline as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
+If a handler only ever *transforms* app-db, what hands it the very first one? Every [frame](frames.md) — one isolated, independently-running instance of your app, the thing app-db belongs to — starts with `app-db` equal to the empty map `{}`. There is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same [event cascade](events-and-the-cascade.md) as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
 
 ```clojure
 (rf/reg-frame :app
@@ -45,13 +45,13 @@ If a handler only ever *transforms* app-db, what hands it the very first one? Ev
                     [:app/load-preferences]]})
 ```
 
-The steps dispatch synchronously, in order, each one drained to completion before the next, so by the time `reg-frame` returns app-db is in whatever state they produced. The point is consistency: there is no special "initial state" mechanism off to one side. The first value of app-db is built by the same dispatch you use for the millionth. [Frames](frames.md) covers `:initial-events` and the rest of the registration grammar in full.
+The steps dispatch synchronously, in order, each one run to completion before the next, so by the time `reg-frame` returns app-db is in whatever state they produced. The point is consistency: there is no special "initial state" mechanism off to one side. The first value of app-db is built by the same dispatch you use for the millionth. [Frames](frames.md) covers `:initial-events` and the rest of the registration grammar in full.
 
-> **From re-frame v1.** v1 seeded the store with an `:initial-db` config value (or an `:on-create` hook). Both are retired. The new way is `:initial-events` with a leading `[:rf/set-db {…}]` step — so even your *first* state arrives through the dispatch pipeline, not a side channel. One mechanism, used everywhere.
+> **From re-frame v1.** v1 seeded the store with an `:initial-db` config value (or an `:on-create` hook). Both are retired. The new way is `:initial-events` with a leading `[:rf/set-db {…}]` step — so even your *first* state arrives by dispatch through the event cascade, not a side channel. One mechanism, used everywhere.
 
 ## A database, on purpose
 
-The name is `app-db`, not `app-state`, and the `db` carries weight. Not in the storage sense — it is all in memory, and nothing survives a reload unless you make it. The weight is in the mindset. Think how much care you give data in PostgreSQL: a schema, invariants, deliberate queries, atomic transactions, and no random function scribbling on a row as a side effect. Now think how much care the average frontend gives data scattered across thirty `useState`s. app-db asks you to treat your in-memory state with that same database care: structured data in, queries out through [subscriptions](subscriptions.md) (the read side — derived views onto the map), and changes only through events. The name is a discipline disguised as a noun.
+The name is `app-db`, not `app-state`, and the `db` carries weight. Not in the storage sense — it is all in memory, and nothing survives a reload unless you make it. The weight is in the mindset. Think how much care you give data in PostgreSQL: a schema, invariants, deliberate queries, atomic transactions, and no random function scribbling on a row as a side effect. Now think how much care the average frontend gives data scattered across thirty `useState`s. app-db asks you to treat your in-memory state with that same database care: structured data in, reads out through [subscriptions](subscriptions.md) (named, cached, pure derivations of the map), and changes only through events. The name is a discipline disguised as a noun.
 
 You can [add a schema](../how-to/validate-with-schemas.md) when you want the app to scream the instant the shape goes wrong — but you never have to, and nothing forces one on you.
 

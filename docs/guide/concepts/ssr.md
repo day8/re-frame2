@@ -2,18 +2,18 @@
 
 You want real HTML on the wire before a single byte of JavaScript loads — so crawlers and link unfurlers can read it, and the first paint lands fast. Then, once the JavaScript *does* load, you want it to **hydrate**: take over that already-painted HTML and wake it into the live, interactive app — adopting the existing DOM in place rather than throwing it away and re-rendering, so the user sees no flash. And you want all of that *without* maintaining a second, server-flavoured copy of your application. That last clause is where most stacks quietly buckle.
 
-re-frame2 gets you there by running the same handlers (the functions that respond to events), the same subscriptions (the queries that read state), and the same views (the functions that return your markup) on the JVM, against a per-request [frame](frames.md) — one isolated instance of your app. The only difference is the output: a string instead of a DOM. **There's one app. It runs twice.**
+re-frame2 gets you there by running the same event handlers (the functions that respond to events), the same subscriptions (the named, cached derivations that read state), and the same views (the functions that return your markup) on the JVM, against a per-request [frame](frames.md) — one isolated instance of your app. The only difference is the output: a string instead of a DOM. **There's one app. It runs twice.**
 
 This page builds that up one step at a time: first *why* the same code can run on a server at all, then the smallest server you can wire, then the client that hydrates it, and finally the richer pieces — response control, head metadata, error handling, and streaming — each in its own section. A beginner can read straight down the main text and stop whenever they have enough.
 
-> **Coming from Next.js or Remix?** You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming. There's no separate server layer to learn. A "loader" is your ordinary event handlers running in a per-request frame. Streaming is one hiccup marker, not a component API.
+> **For JavaScript developers.** Coming from Next.js or Remix? You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming. There's no separate server layer to learn. A "loader" is your ordinary event handlers running in a per-request frame. Streaming is one hiccup marker, not a component API.
 
 ## Why the same code runs on a JVM
 
 SSR is hard in most stacks because the app is entangled with the browser: `window`, `document`, side-effects firing in the middle of render. re-frame2 sidesteps all three, and the reason is the quiet punchline of the whole page — *it didn't do this for SSR's sake*. The framework committed to these properties for testing, replay, and observability long before anyone asked it to render on a server. SSR just falls out of them, the way a free dessert falls out of ordering the prix fixe:
 
-- **Event handlers are pure.** An event is a "something happened" message; its handler is `(state, event) → effects`. No `window`, no lifecycle. A JVM runs them fine.
-- **Subscriptions are pure.** State in, value out.
+- **Event handlers are pure.** An event is an inert "something happened" fact; its handler is `(coeffects, event) → effect map`. No `window`, no lifecycle. A JVM runs them fine.
+- **Subscriptions are pure derivations.** State in, value out.
 - **The render-tree is data.** Hiccup is nested vectors and maps, and `rf/render-to-string` is a pure function from hiccup to an HTML string — no React, no DOM, no JS runtime.
 
 None of these three were bolted on *for* SSR. They're the constraints the rest of the framework already lives by, which means turning SSR on costs you nothing structurally new to learn.
@@ -28,7 +28,7 @@ Before wiring anything, here's the shape of a single request. The host adapter r
 
 1. An HTTP request arrives. The host adapter creates a **frame for this request** and stashes the request map where handlers can read it.
 2. The frame's `:initial-events` fire in order: read the session, set the route, start data fetches.
-3. The runtime **drains**: it keeps processing events until no more are queued — every dispatch one of those events triggered runs, and every dispatch *those* triggered, until the cascade settles and app-db stops changing. (We call that settled point a *fixed point*.)
+3. The runtime **drains**: it keeps processing events until no more are queued — every dispatch one of those events triggered runs its own event cascade, and every dispatch *those* triggered, until the queue settles and app-db stops changing (the runtime's run-to-completion guarantee). (We call that settled point a *fixed point*.)
 4. The root view renders to hiccup; `render-to-string` turns it into HTML.
 5. The server ships the HTML **plus** a serialised state payload.
 6. The client boots, dispatches `:rf/hydrate` with that payload, and renders. Its first render matches the server's HTML, so the existing DOM is adopted, not replaced.
@@ -155,7 +155,7 @@ The client's job is to land in the state the server finished in, without redoing
 Two things to hold onto:
 
 - **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider-existing`. That's the carried-frame rule from [Frames](frames.md), applied at boot. An absent `:frame` raises `:rf.error/no-frame-context`; the runtime never invents a default.
-- **Hydration replaces; the server is authoritative.** `:rf/hydrate` installs the server's app-db *and* its serialisable runtime slice (machine snapshots, the route) in one atomic step, replacing whatever the client pre-seeded. A malformed payload is rejected wholesale (fail-closed); a missing one just means a normal client-only load — that's the `when-not` branch above.
+- **Hydration replaces; the server is authoritative.** `:rf/hydrate` installs the server's app-db *and* its serialisable [runtime-db](app-db.md) slice (machine snapshots, the route) in one atomic step, replacing whatever the client pre-seeded. A malformed payload is rejected wholesale (fail-closed); a missing one just means a normal client-only load — that's the `when-not` branch above.
 
 > **Coming from React?** This is `hydrateRoot` with the gloss removed. React hydrates by walking the DOM and reattaching listeners, and trusts that your component re-renders the same tree. Here the server's *state* rides along explicitly in the payload, `:rf/hydrate` installs it before the first render, and then the substrate adapter attaches listeners to the existing DOM. You never re-fetch on the client to "catch up" — the state the server computed is already in app-db.
 
@@ -308,25 +308,26 @@ The projector you register is named in the frame's `:ssr {:public-error-id :myap
 
 ## Streaming: `:rf/suspense-boundary`
 
-This is the advanced slice — the direct analogue of React 18 streaming and Next.js's `loading.js`. The idea is the same: don't make the whole page wait on its slowest query. Ship a usable shell on the first byte, with skeletons where the slow regions will be, then stream each region in as its data resolves. In React that's a `<Suspense>` boundary with a `fallback`. In re-frame2 it's one declarative hiccup marker that should look familiar:
+This is the advanced slice — the direct analogue of React 18 streaming and Next.js's `loading.js`. The idea is the same: don't make the whole page wait on its slowest subscription. Ship a usable shell on the first byte, with skeletons where the slow regions will be, then stream each region in as its data resolves. In React that's a `<Suspense>` boundary with a `fallback`. In re-frame2 it's one declarative hiccup marker that should look familiar. Here's a Conduit article page whose body lands fast but whose comment thread and author-feed sidebar are slow:
 
 ```clojure
 ;; Adapted from examples/reagent/ssr_streaming/core.cljc
-(rf/reg-view ^{:rf/id :dashboard/root} root-view []
-  [:main.dashboard
-   [:header [:h1 "Dashboard"]]
-   [:section.cards
+(rf/reg-view ^{:rf/id :article/page} article-page []
+  [:main.article-page
+   [:header [:h1 @(rf/subscribe [:article/title])]]
+   [:div.article-body @(rf/subscribe [:article/body])]
+   [:section.article-extras
     [:rf/suspense-boundary
-     {:id :card.revenue :fallback [:dashboard/card-skeleton :revenue]}
-     [:dashboard/card :revenue]]
+     {:id :region.comments :fallback [:article/comments-skeleton]}
+     [:article/comments]]
     [:rf/suspense-boundary
-     {:id :card.signups :fallback [:dashboard/card-skeleton :signups]}
-     [:dashboard/card :signups]]]])
+     {:id :region.author-feed :fallback [:article/author-feed-skeleton]}
+     [:article/author-feed]]]])
 ```
 
 The streaming walker emits the shell with each `:fallback` in place and flushes it immediately — that's your first byte. Each boundary's subtree then renders and streams in as its own chunk, and that chunk carries a per-subtree app-db delta, so the subscriptions in that region see the right state the moment they land.
 
-Failure isolation comes for free with the boundaries. If one boundary's render throws, *that card* keeps its fallback (with a `:rf.ssr/suspense-boundary-failed` trace) and the rest of the page streams on. A flaky comments service stops being able to 500 your entire page — the blast radius is exactly one boundary.
+Failure isolation comes for free with the boundaries. If one boundary's render throws, *that region* keeps its fallback (with a `:rf.ssr/suspense-boundary-failed` trace) and the rest of the page streams on. A flaky comments service stops being able to 500 your entire page — the blast radius is exactly one boundary.
 
 The wiring mirrors what you've already seen, with streaming counterparts: `stream-handler` (from `re-frame.ssr.ring.streaming`) in place of `ssr-handler`, and an opt-in client install (`ssr/streaming-install!`, same carried `:frame`) that swaps fallbacks for resolved chunks as they arrive.
 

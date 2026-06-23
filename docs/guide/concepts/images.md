@@ -23,15 +23,15 @@ Here is ordinary re-frame2. No image in sight:
   (fn [db _] (:count db 0)))
 ```
 
-Those `reg-*` forms don't *run* anything. They write entries into a **registration source store** — think of it as a catalogue: a record of every registration you've authored, each tagged with the namespace it was written in. Nothing has executed yet; you've just filled the catalogue.
+Those `reg-*` forms don't *run* anything. They write entries into the **registrar** — the process-global record of every registration you've authored, each tagged with the namespace it was written in (its registration source, `:rf.provenance/*`). Nothing has executed yet; you've just filled the registrar.
 
-When you then create a frame *without* naming an image, the runtime takes that whole catalogue, projects it into one sealed set, and hands it to the frame. That projection is the **default image**: the implicit "everything I've registered" selector. So an image, at its simplest, is just a *selection from the catalogue* — and the default selects all of it.
+When you then create a frame *without* naming an image, the runtime takes that whole registrar, projects it into one sealed set, and hands it to the frame. That projection is the **default image**: the implicit "everything I've registered" selection. So an image, at its simplest, is just a *selection from the registrar* — and the default selects all of it.
 
 The common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
 
-> **From re-frame v1.** In v1 there was exactly one global registry, and every `reg-*` wrote straight into it — last write wins, no provenance. v2 splits that in two: `reg-*` writes a *source store* (a catalogue, with the authoring namespace remembered), and a *frame* resolves a selected slice of that catalogue at creation. For everyday code you feel no difference — the default image gives you v1's "see everything" behaviour. The new power only shows up when you want more than one slice.
+> **From re-frame v1.** In v1 there was exactly one global registry, and every `reg-*` wrote straight into it — last write wins, no provenance. v2 keeps the registrar process-global but adds a selection step: `reg-*` writes the registrar (now with the authoring namespace remembered as provenance), and a *frame* resolves a selected slice of that registrar at creation. For everyday code you feel no difference — the default image gives you v1's "see everything" behaviour. The new power only shows up when you want more than one slice.
 
-> **For JavaScript developers.** Think of the source store as your full set of module exports, and the default image as `import * from` everything. You don't normally think about it — until two modules export the same name and you need to be explicit about which one a particular consumer gets.
+> **For JavaScript developers.** Think of the registrar as your full set of module exports, and the default image as `import * from` everything. You don't normally think about it — until two modules export the same name and you need to be explicit about which one a particular consumer gets.
 
 > **Heads-up.** "Default image" is a runtime projection, not a value you author. Don't reach for `rf/image` to get the default — plain `reg-*` already gives it to you. In code, the default image is simply *a frame created with no `:images` key*. You never write the word "image" to get it.
 
@@ -39,7 +39,7 @@ The common case stays boring, on purpose. You never name an image. New registrat
 
 The default image works only while ids are globally unique across everything that's loaded. The moment two loaded namespaces register the same `(kind, id)` with *different* implementations — two surfaces that both define `:counter/inc`, say — the default image refuses to assemble. The error names the colliding kind/id and both source namespaces.
 
-That refusal is a feature. The source store kept *both* descriptors, and assembly won't guess which one wins. You have three explicit ways out, and we'll meet each below: rename one id, narrow each frame to its own slice with an explicit image, or declare an exact replacement winner. The one thing the framework won't do is silently pick one and move on.
+That refusal is a feature. The registrar kept *both* descriptors, and assembly won't guess which one wins. You have three explicit ways out, and we'll meet each below: rename one id, narrow each frame to its own slice with an explicit image, or declare an exact replacement winner. The one thing the framework won't do is silently pick one and move on.
 
 > **From re-frame v1.** This is the deliberate hardening over v1's last-write-wins registrar. In v1 the second `reg-event` of `:counter/inc` quietly clobbered the first, and you found out weeks later when the wrong handler ran in production. v2 keeps both and stops at assembly with a named error, before any event touches state.
 
@@ -55,9 +55,9 @@ When you do need to be explicit, `rf/image` builds an image *value*. Building on
                 :images [counter-image]})
 ```
 
-`:select-ns` is the everyday move: *select existing registrations by the namespace they were authored in.* The frame now resolves against only the registrations written in `docs.quickstart.counter.basic` — not the whole catalogue.
+`:select-ns` is the everyday move: *select existing registrations by the namespace they were authored in.* The frame now resolves against only the registrations written in `docs.quickstart.counter.basic` — not the whole registrar.
 
-One thing to notice, because it trips people up: the selector chooses by **provenance** — *where a registration was written* — not by the keyword namespace of its id. A registration with id `:counter/inc` authored in `docs.quickstart.counter.basic` is selected because of the *file it lives in*, not because the keyword starts with `counter`.
+One thing to notice, because it trips people up: the selection chooses by **provenance** — *where a registration was written* — not by the keyword namespace of its id. A registration with id `:counter/inc` authored in `docs.quickstart.counter.basic` is selected because of the *file it lives in*, not because the keyword starts with `counter`.
 
 > **For JavaScript developers.** `:select-ns` is a glob over module paths, the way a bundler's `include`/`exclude` globs pick source files — except it selects *already-loaded* registrations rather than reading from disk. The namespace must already be `require`d through ordinary `ns` dependencies; the glob only chooses from what the runtime already knows. It never loads code for you.
 
@@ -150,13 +150,13 @@ Two images may both contain a `:counter/inc` event. Two live frames may *not* bo
 
 The reader sees one small vocabulary evolve across lessons instead of `:counter-v1/inc`, `:counter-v2/inc`, `:counter-v3/inc`. The image supplies the *meaning*; the frame ids keep the live *instances* apart.
 
-> **Coming from Redux?** An image is the set of reducers/selectors a store runs, lifted into a value you can name and compose — `combineReducers` if it returned *data* instead of a function, and could be assembled per-store. The key divergence: registration *names* are scoped to the image, so two stores can each define `:cart/add` meaning different things without a global collision. In Redux you'd reach for namespacing conventions or separate action-type constants; here the scope does it for you.
+> **For JavaScript developers (coming from Redux).** An image is the set of reducers/selectors a store runs, lifted into a value you can name and compose — `combineReducers` if it returned *data* instead of a function, and could be assembled per-store. The key divergence: registration *names* are scoped to the image, so two stores can each define `:cart/add` meaning different things without a global collision. In Redux you'd reach for namespacing conventions or separate action-type constants; here the scope does it for you.
 
 ## The shape of every image decision
 
 Every situation on this page reduces to one decision. An image holds *behaviour* (the registrations); a frame holds *state and history* (its own app-db, evolving as events run). So: **different behaviour means a different image; the same behaviour with a different lived history means the same image, just a different frame.** Watch that one rule produce every shape:
 
-- **Two surfaces on one page.** A todo surface and a counter surface that both want simple local ids (`:boot/init`, `:item/add`). Give each its own image with disjoint `:select-ns` selectors; each frame resolves only its own.
+- **Two surfaces on one page.** A cart surface and a counter surface that both want simple local ids (`:boot/init`, `:item/add`). Give each its own image with disjoint `:select-ns` selectors; each frame resolves only its own.
 - **An inspection tool beside its target.** Xray is itself a running surface with its own events, subs, and app-db paths. Run it in its own image and frame, and let it inspect the target frame *as data* — the tool never has to coordinate ids with the thing it inspects.
 - **Progressive docs examples.** Four versions of a counter, each a lesson, each its own image, all reusing `:counter/inc` / `:counter/value` / `:counter/view`.
 - **A library slice you compose in.** A library ships an image value; you build a frame from your image plus theirs.
@@ -169,7 +169,7 @@ That last one introduces composition, which is the next step.
 
 ```clojure
 (rf/make-frame {:id :docs/main
-                :images [widgets-image routing-image product-image]})
+                :images [cart-image routing-image checkout-image]})
 ```
 
 The rule is simple: **the later image in `:images` wins.** If two input images provide the same `(kind, id)`, the later one *shadows* the earlier — the assembly records it in the **shadow report** (which we read in the next section), and you apply whatever policy you like (assert none, assert a known set, log).
@@ -260,18 +260,18 @@ An override is always a *separate* image, never a second key in the same one. A 
 
 ## Hot reload swaps the image, keeps the memory
 
-During development the source store changes every time you save a file. A `reg-*` re-eval doesn't mutate any running sealed generation — it marks every image that selects the changed namespace *dirty*, resolves fresh sealed generations, and swaps them into the affected frames. The existing app-db, runtime-db, queues, and still-valid subscription caches continue. The code changed; the VM kept its memory.
+During development the registrar changes every time you save a file. A `reg-*` re-eval doesn't mutate any running sealed generation — it marks every image that selects the changed namespace *dirty*, resolves fresh sealed generations, and swaps them into the affected frames. The existing app-db, runtime-db, queues, and still-valid subscription caches continue. The code changed; the VM kept its memory.
 
 That automatic path is the one you lean on day to day: you save a file and the live frames pick up the change without losing their state. You don't call anything.
 
 When you want to change a frame's image *composition* outright — swap one whole `:images` vector for another — that's an explicit, frame-targeted reload via **`rf/reload-images!`**:
 
 ```clojure
-(rf/reload-images! :docs/main {:images [widgets-image routing-image product-v2-image]})
+(rf/reload-images! :docs/main {:images [cart-image routing-image checkout-v2-image]})
 ;; => {:rf.frame/frame   <frame value for the reloaded frame>
-;;     :rf.reload/diff   {:added    #{[:event :product/discount]}
-;;                        :changed  #{[:sub :product/price]}
-;;                        :removed  #{[:event :product/legacy-init]}
+;;     :rf.reload/diff   {:added    #{[:event :checkout/apply-discount]}
+;;                        :changed  #{[:sub :checkout/total]}
+;;                        :removed  #{[:event :checkout/legacy-init]}
 ;;                        :retained #{[:event :cart/add] …}}
 ;;     :rf.reload/shadows [{:registration … :image … :shadowed-by …} …]}
 ```

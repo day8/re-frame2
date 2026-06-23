@@ -1,6 +1,6 @@
 # Report errors in production
 
-When you ship a re-frame2 app with an optimised production build, the compiler strips out the whole *trace surface* — the rich, dev-time stream of "here's everything that just happened" that powers tools like Xray. No trace listeners, no per-frame history rings, none of it. (The jargon for "the compiler deleted this code because production can't reach it" is **elision** — *dead-code elimination*, DCE for short. You'll see the word a lot on this page; that's all it means.) Eliding the trace surface keeps the bundle lean, but it leaves you with a gap to close: a handler — the function that processes an event and returns the next state — can still throw at 3am, and when it does, you want that failure to land in your monitor with real context attached.
+When you ship a re-frame2 app with an optimised production build, the compiler **elides** the whole *trace surface* — the rich, dev-time stream of "here's everything that just happened" that powers tools like Xray. No trace listeners, no per-frame history rings, none of it. (To *elide* is to compile dev-only code out of a production build — dead-code elimination, DCE, applied because production can't reach it. You'll see the word a lot on this page; the mechanics live in [Observability](../concepts/observability.md).) Eliding the trace surface keeps the bundle lean, but it leaves you with a gap to close: an **event handler** can still throw at 3am, and when it does, you want that failure to land in your monitor with real context attached.
 
 re-frame2 closes that gap with an **always-on error substrate**: a small slice of runtime that survives elision *on purpose*. On every production-reachable failure, it fans one structured record out to every error listener you've registered. Each record carries three things worth having at 3am:
 
@@ -99,7 +99,7 @@ So why can the `:exception` be absent? Most failures carry the raw host throwabl
 - `:rf.error/no-such-handler` / `:rf.error/no-such-sub` / `:rf.error/no-such-fx` / `:rf.error/no-such-cofx` — you dispatched / subscribed / requested an id nothing is registered under.
 - `:rf.error/frame-destroyed` — an operation targeted a frame whose lifecycle already ended (a callback fired after teardown).
 - `:rf.error/write-after-destroy` — a write to app-db was suppressed because the target frame was already gone (the write-path partner of `frame-destroyed`).
-- `:rf.error/override-fallthrough` — an [image](../../../spec/002-Frames.md) (a composed stack of registrations a frame draws from) resolved to no provider for an overridden id.
+- `:rf.error/override-fallthrough` — an [image](../concepts/images.md) (the sealed set of registrations a frame resolves against) resolved to no provider for an overridden id.
 - `:rf.error/no-frame-context` — a frame-scoped op (a `subscribe` / `dispatch` using the ambient 1-arity `rf/` forms) ran with **no frame in scope** — the classic "a plain Reagent function can't see its frame" footgun, or a native async callback whose continuation fired after the cascade had already unwound. This record is itself **frameless** (`:frame nil`) but carries capture-site ancestry through the `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` correlation keys, so an off-box shipper can still attribute it.
 - `:rf.error/bad-frame-provider-arg` — a public `frame-provider` got a non-nil `:frame` that wasn't a keyword (a string, a number). Frame ids are keywords; this fails fast before the bad value reaches React context.
 - `:rf.error/machine-spawn-unregistered-type` — a runtime spawn of an unregistered `:machine-id` (with no inline `:definition`) was refused fail-closed. A structural-only record: `:machine-id`, `:frame`, `:reason`. (Machine *registration*-time rejections are dev-only and never reach this surface.)
@@ -175,7 +175,7 @@ Notice where the throwables live: **inside** the `:hook-failures` vector, one pe
 
 ## 5. Know what survives elision
 
-It's worth being precise about what's still running in production, because the line isn't obvious from the outside.
+It's worth being precise about what's still running in production, because the line isn't obvious from the outside. ([Observability](../concepts/observability.md) is the full account of what elision removes and what it spares; here's the short version a monitor needs.)
 
 - **Gone** from an `:advanced` + `goog.DEBUG=false` bundle: every trace emit, `register-listener! :trace` delivery, the per-frame trace rings, epoch history and time-travel, dispatch-id correlation, source-coords, Xray, and the pair tooling. Zero code, zero cost.
 - **Still firing:** this error substrate (the `:errors` stream); its event-emit sibling `register-listener! :events` (§7); and an opt-in Performance API channel behind its own compile-time flag.

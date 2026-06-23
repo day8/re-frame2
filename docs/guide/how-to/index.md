@@ -4,7 +4,7 @@ You've got a working app and one specific task in front of you. Each page here i
 
 > **Find the task, follow the recipe, link down for the contract.**
 
-These recipes assume you've already built something — the [quick start](../quickstart.md) is enough to get you there — and that the re-frame2 loop is familiar to you. By *the loop* we mean the six-step cycle every re-frame2 app runs on: an event is dispatched, a handler turns it into a new state and a set of effects, those effects run, and subscriptions push the changed state back to the view. [The model](../concepts/index.md) walks through all six steps in a single page, and it's worth the few minutes, because every recipe below is just one of those steps filled in for a real feature. Each recipe ends with links *down*: to the concept page for *why* it's built this way, and to the spec for *every* option when you need them.
+These recipes assume you've already built something — the [quick start](../quickstart.md) is enough to get you there — and that the re-frame2 loop is familiar to you. Every dispatch sets off one **event cascade**: the fixed, ordered run — handler → effect map → effects → derivations → view → DOM — that the *six dominoes* name as a first-contact mnemonic. [The model](../concepts/index.md) walks through all six in a single page, and it's worth the few minutes, because every recipe below is just one stage of that cascade filled in for a real feature. Each recipe ends with links *down*: to the concept page for *why* it's built this way, and to the spec for *every* option when you need them.
 
 The recipes are grouped by where they sit in the life of an app — **build it**, then **test it**, then, when something's off, **debug it**, and finally **ship it** to production. You don't read them in order; you drop into the one group that matches what's in front of you right now. Each recipe is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
 
@@ -26,7 +26,7 @@ re-frame2's payoff at test time is that the interesting parts of your app are pu
 
 | I want to… | Recipe |
 |---|---|
-| unit-test a handler — the function that takes the current state and an event and returns the next state — as the pure function it is | [Test an event handler](test-an-event-handler.md) |
+| unit-test an event handler — the pure `(coeffects, event) → effect map` function — as the pure function it is | [Test an event handler](test-an-event-handler.md) |
 | test a whole dispatch — state, effects, follow-ups | [Test a full cascade](test-a-cascade.md) |
 
 ## Debug it
@@ -47,7 +47,7 @@ When the app does something you didn't ask for, you don't reach for `println` �
 | keep tokens, passwords, and large blobs out of traces | [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md) |
 | hear about production errors with their full context | [Report errors in production](report-errors-in-production.md) |
 | set up dev and production builds — tools in, tools out | [Configure dev and production builds](configure-dev-and-prod.md) |
-| swap the React layer — the loop is identical on all of them | [Use UIx, Helix, or reagent-slim](use-uix-helix-or-slim.md) |
+| swap the substrate (the React-family rendering layer) — the loop is identical on all of them | [Use UIx, Helix, or reagent-slim](use-uix-helix-or-slim.md) |
 
 > **For JavaScript developers.** Think of this section the way you'd treat the "Recipes" or "Guides" part of a framework's docs — [React](https://react.dev)'s "you might not need an effect", the Rails guide's "how do I do file uploads". They're task-shaped, copy-pasteable, and deliberately opinionated: one good way, shown fully, rather than a tour of the option space. The option space lives in the spec links at the bottom of each page.
 
@@ -57,7 +57,7 @@ When the app does something you didn't ask for, you don't reach for `println` �
 
 A recipe answers "how do I do X." Some questions sit a step *before* that — they're design decisions, not tasks, and a recipe is the wrong shape for them. Those live elsewhere:
 
-- Asking "where should this value live — db (your app's single state map), sub (a derived, cached read of that state), flow, resource, or machine?" That's a design decision, which is exactly why it gets its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
+- Asking "where should this value live — app-db, subscription, flow, resource, or machine?" That's a design decision, which is exactly why it gets its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
 - Your task spans several features, and you'd rather watch one app grow through them in order? The [RealWorld tutorial](../tutorial/index.md) builds auth, feeds, forms, and invalidation end to end — same pieces as these recipes, assembled into one running app.
 - For everything else, [the reference map](../reference.md) indexes the complete surface.
 

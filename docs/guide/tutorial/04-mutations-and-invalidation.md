@@ -26,7 +26,7 @@ One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 
 
 This is what a **scope** is: a namespace for cache entries. The resources in Part 2 all lived in one shared scope, `:rf.scope/global` — one entry per resource, the same for everybody. The feed needs a *different* scope per signed-in user, so each user's feed is cached separately and nobody ever sees anybody else's.
 
-To key a cache per user, the runtime needs a way to compute the per-user key from your state. That's a **named scope resolver**: a small function that reads app-db (re-frame2's single state map — see [Part 1](01-pages-and-state.md)) and returns a scope value, or `nil`:
+To key a cache per user, the runtime needs a way to compute the per-user key from your state. That's a **named scope resolver**: a small function that reads app-db (your app's state map — see [Part 1](01-pages-and-state.md)) and returns a scope value, or `nil`:
 
 ```clojure
 ;; src/conduit/scope.cljs
@@ -144,7 +144,7 @@ Notice what the view *doesn't* do: it never invalidates anything. Add this butto
 
 ### Watch it happen
 
-Run the app, sign in, and click a heart. The count changes immediately — that's `:populates` landing. A moment later the list and your feed have refetched. Now open Xray (the inspection tool from earlier parts) and click another heart: the trace shows the whole causal chain, step by step. The `:ui/favorite` dispatch fires; then `:rf.mutation/started`; then the HTTP request; then `succeeded`, carrying the invalidation evidence (which tags went stale, in which scopes); and finally the refetches of any stale reads still on screen. Every step names its cause. When a list refreshes "by itself" six months from now, this trace is how you'll know which write did it.
+Run the app, sign in, and click a heart. The count changes immediately — that's `:populates` landing. A moment later the list and your feed have refetched. Now open Xray (the dev inspector from earlier parts) and click another heart: the trace shows the whole causal chain, step by step. The `:ui/favorite` dispatch fires; then `:rf.mutation/started`; then the HTTP request; then `succeeded`, carrying the invalidation evidence (which tags went stale, in which scopes); and finally the refetches of any stale reads still on screen. Every step names its cause. When a list refreshes "by itself" six months from now, this trace is how you'll know which write did it.
 
 ### The full execute payload
 

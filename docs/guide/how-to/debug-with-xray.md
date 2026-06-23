@@ -6,9 +6,9 @@ It's 11pm and the app is wrong. A value that should be `3` is `7`, or a button i
 
 Read it straight through and you get a smooth, productive path: first get Xray open, then walk the ledger backwards to the event that broke your state, then meet the rest of the panels one at a time. The callouts off to the side are optional extras — a JavaScript analogy, a note for re-frame v1 veterans, or the deeper mechanics — there when you want them, skippable when you don't.
 
-A quick glossary first, so the rest of the page reads cleanly. An **event** is the data describing something that happened — a click, a response arriving — that your app dispatches to update state. A **handler** is the function that runs an event and returns effects. An **effect** is a description of a side effect to perform — an HTTP call, a navigation. A **subscription** is a query that derives a value from app-db (your app's single state map). A **view** is the component that renders it. A **frame** is one isolated instance of your app — its own app-db and registrations.
+A quick glossary first, so the rest of the page reads cleanly. An **event** is the data describing something that happened — a click, a response arriving — that your app dispatches to update state. An **event handler** (then just "handler") is the function that runs an event and returns an effect map. An **effect** is a description of a side effect to perform — an HTTP call, a navigation. A **subscription** is a named, cached, read-only derivation of a value from app-db (your app's single state map). A **view** is the function that renders it. A **frame** is one isolated, running instance of your app — its own app-db, event queue, and subscription cache. (A frame isolates *state*, not registrations: the registrar is process-global, so every frame resolves against the same registered handlers and subs.)
 
-Two more terms you'll meet as you read. Dispatching one event sets off a chain — the handler runs, effects fire, subscriptions recompute, views re-render. That whole chain is a **cascade**, and the before/after step it represents in your app's history is an **epoch**. So "event", "epoch", and "cascade" are three angles on one moment: the event is *what arrived*, the epoch is *the moment in the timeline*, the cascade is *everything that happened in response*. Xray is built around them.
+Two more terms you'll meet as you read. Dispatching one event sets off a fixed, ordered run — the handler runs, effects fire, subscriptions recompute, views re-render. That whole run is **the event cascade** (or just **the cascade**), and the before/after record it leaves in your app's history is an **epoch**. So "event", "epoch", and "cascade" are three angles on one moment: the event is *what arrived*, the cascade is *everything that happened in response*, and the epoch is *the record that moment left in the timeline*. Xray is built around them.
 
 > **For JavaScript developers.** If you know Redux DevTools, Xray is that same idea: an action ledger, a state diff, time travel. What Xray adds is the rest of the cascade — not just "which action, what state", but which effects fired, which subscriptions recomputed, which views re-rendered, and which line of *your* code each one came from.
 
@@ -64,7 +64,7 @@ If Xray can't find the host element when it tries to open, it doesn't fail silen
 >
 > This disables only the page-load open. The collectors, the keybinding, and explicit `(day8.re-frame2-xray/open!)` / `toggle!` calls all stay live. (Story's browser-test canvases use this — they don't want a permanent Xray column.)
 
-None of this exists in production, which is by design. Xray and the trace machinery it reads compile away entirely in `:advanced` builds. See [Configure dev and production builds](configure-dev-and-prod.md).
+None of this exists in production, which is by design. Xray and the trace machinery it reads are elided entirely in `:advanced` builds. See [Configure dev and production builds](configure-dev-and-prod.md).
 
 ## Step 2: the one mental model — one event in, full insight out
 
@@ -81,7 +81,7 @@ You're staring at bad state, and you don't yet know which event put it there. He
 1. **Open Xray** (`Ctrl+Shift+C`). It lands on the latest event. Press `Space` to pause the live feed so new dispatches stop moving the list out from under you.
 2. **Press `a`** for the App-db tab. You'll see the diff this one event made — app-db before against app-db after. Each event shows only its own delta, never a cumulative pile, so the change is easy to read.
 3. **Walk backwards in time** with `j` (it steps to the older event; `k` steps back toward the newest — or use the ribbon's `◀` `▶` nav buttons), watching the diff. Ask one small question per step: *did this event write the bad value?*
-4. **Stop at the first event where the bad value appears.** That's your culprit — the epoch that wrote it. Press `e` for the Epoch tab, which gives you the full cascade as a numbered pipeline: dispatch site, event vector, coeffects, handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
+4. **Stop at the first event where the bad value appears.** That's your culprit — the epoch that wrote it. Press `e` for the Epoch tab, which lays out the full event cascade in order: dispatch site, event vector, coeffects, handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
 
 That's it. Four keys — `Space`, `a`, `j`, `e` — find most bugs.
 
@@ -101,7 +101,7 @@ Press `L` to snap back to live when you're done (`G` does the same — "go to he
 
 The next-most-common bug has a different symptom: a view re-rendered, or it shows a wrong derived value, and you don't know why.
 
-Focus the suspect event and press `v` for the Views tab. It lists every subscription that ran during this cascade, one row each. Each row flags two things: whether the sub's **value actually changed**, and whether the recompute was **driven by an upstream sub** — and if so, that upstream sub is named right on the row. Below that, you'll see the views that re-rendered this epoch. Hover a view row and it highlights that view's rendered DOM in the page, so "which component is this row?" never needs guessing.
+Focus the suspect event and press `v` for the Views tab. It lists every subscription that ran during this cascade, one row each. Each row flags two things: whether the sub's **value actually changed**, and whether the recompute was **driven by an upstream sub** — and if so, that upstream sub is named right on the row. Below that, you'll see the views that re-rendered this epoch. Hover a view row and it highlights that view's rendered DOM in the page, so "which view is this row?" never needs guessing.
 
 Read it two ways:
 
@@ -118,7 +118,7 @@ App-db, Epoch and Views cover the everyday bugs, and you'll live in them. But th
 
 | Tab | The question it answers |
 |---|---|
-| **Epoch** (`e`) | What did this event *do*? — the full handling pipeline. |
+| **Epoch** (`e`) | What did this event *do*? — the full event cascade. |
 | **app-db** (`a`) | What *changed* because of this event? — the sectioned diff. |
 | **Views** (`v`) | Why did these views re-render? — the app-db → subs → views chain. |
 | **Trace** (`t`) | What raw trace events fired in this cascade? — the readable-line timeline, colour-banded by op family. |
@@ -134,7 +134,7 @@ Each tab is the same one-event-bound lens: focus an event, press the letter, rea
 
 Everything so far is **passive** — selecting an old event rebases the panels to show that moment, but your running app doesn't move. Sometimes you want the app *itself* back at that moment — so you can poke at it live, retry the click that triggered the bug, or show a colleague. That's what rewind is for.
 
-Focus the bad epoch and press `r` while the event list has focus (or click the epoch's reset control). This rewinds the live app to the state *just before* that epoch ran — so you're poised to re-trigger the event and watch it misbehave. It's a real write: the frame's state is restored atomically to that point — app-db and the runtime's own state, machine snapshots and route included. Subscriptions recompute, and the UI repaints as it was. A rewind that can't be performed — because the epoch has aged out of the buffer, for instance — is refused with a stated reason rather than silently doing nothing.
+Focus the bad epoch and press `r` while the event list has focus (or click the epoch's reset control). This rewinds the live app to the state *just before* that epoch ran — so you're poised to re-trigger the event and watch it misbehave. It's a real write: the frame's state is restored atomically to that point — app-db and the framework-owned runtime-db beside it, machine snapshots and route included. Subscriptions recompute, and the UI repaints as it was. A rewind that can't be performed — because the epoch has aged out of the buffer, for instance — is refused with a stated reason rather than silently doing nothing.
 
 > **Rewind vs re-dispatch.** `r` rewinds *state* to before an epoch. Its capital sibling, `R`, **re-dispatches** the focused event — it runs that same event vector again *now*, against current state, appending a fresh cascade to the ledger. Use `r` to get back to a moment; use `R` to re-run a single event and watch its cascade afresh (handy after a hot-swap of the handler). Pinning a cascade you want to keep referring to is `*`.
 

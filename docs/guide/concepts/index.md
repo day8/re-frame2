@@ -32,7 +32,7 @@ Somewhere a button does this:
 
 That's the entire shape of re-frame2: **something happens → an event describes it → a pure handler computes the next state → the screen catches up.** Everything else on this shelf is detail hung on that skeleton.
 
-> **From re-frame v1.** This is the *one* event-registration form now. `reg-event-db` and `reg-event-fx` are gone — both collapsed into `reg-event`, whose handler always takes coeffects and returns an effects map. A bare `:db` update is just the `{:db …}` effect. The full list of v1→v2 deltas (effects grammar, coeffects, frames) lives in [From re-frame v1](../25-from-re-frame-v1.md).
+> **From re-frame v1.** This is the *one* event-registration form now. `reg-event-db` and `reg-event-fx` are gone — both collapsed into `reg-event`, whose handler always takes coeffects and returns an effect map. A bare `:db` update is just the `{:db …}` effect. The full list of v1→v2 deltas (effects grammar, coeffects, frames) lives in [From re-frame v1](../25-from-re-frame-v1.md).
 
 > **Coming from Redux?** You already have the skeleton: one store, one-way flow, `dispatch → reducer → store → selector → render`. `reg-event` is your reducer; the returned map is its output. re-frame2 changes two things, and you'll meet both below.
 
@@ -74,7 +74,7 @@ flowchart LR
 5. **Subscriptions recompute.** app-db changed, so the derivations watching the changed parts re-run. If a subscription's value comes out the same, propagation stops there.
 6. **Views re-render.** Views that deref a changed subscription re-run, and the DOM is patched to match.
 
-One pass through the pipeline is one **epoch**. Dominoes and epoch are two names for the same picture — you'll hear both.
+One pass through this fixed order — one dispatch, run to the end — is **the event cascade** (or just *the cascade*). The six dominoes are its stages; running the cascade leaves behind a before/after record called an **epoch**, the unit you rewind to when you time-travel. (One dispatch = one cascade = one epoch; [Observability](observability.md) owns that identity.)
 
 ## Effects: telling the world what to do
 

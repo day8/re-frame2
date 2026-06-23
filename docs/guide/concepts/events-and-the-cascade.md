@@ -8,7 +8,7 @@ We'll build up gently: first what an event *is*, then one click in slow motion, 
 
 !!! note "Production builds drop the recording"
 
-    Production builds compile the recording machinery away entirely. The replayability promise itself holds either way — it's a property of the architecture, not of the dev tooling.
+    Production builds elide the recording machinery entirely. The replayability promise itself holds either way — it's a property of the architecture, not of the dev tooling.
 
 ## An event is a fact
 
@@ -77,7 +77,7 @@ One event, six steps. The same path runs under every event your app will ever pr
 
 !!! note "The record is a dev-build surface"
 
-    Production builds compile the whole recording machinery away to zero code. [Observability](observability.md) covers that split.
+    Production builds elide the whole recording machinery to zero code. [Observability](observability.md) covers that split.
 
 ## The temptation to do it inline
 
@@ -167,7 +167,7 @@ Two notes before moving on:
 - **The first argument is the coeffects map** — a coeffect being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [the coeffects page's](effects-and-coeffects.md) subject.
 - **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: describe, don't do.
 
-> **From re-frame v1.** The shape is the same — effects map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered interceptors referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
+> **From re-frame v1.** The shape is the same — effect map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered interceptors referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
 
 > **An optional middle slot.** `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [audit-trace]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered interceptors (analytics, validation, logging) that wrap the handler. Two things to know. First, the chain *must* live under `:interceptors` — a bare interceptor or a loose positional vector in that slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Second, you author interceptors with [`reg-interceptor`](../../../spec/001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and reference them by id — they're the home for the cross-cutting "wrap every handler" work that, in Redux, you'd write as middleware.
 

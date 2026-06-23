@@ -12,7 +12,7 @@ That is the whole trick. The route *causes* the fetch, a subscription *reads* th
 
 > **For JavaScript developers.** If you've used TanStack Query (React Query), a re-frame2 *resource* is `useQuery`'s keyed, cached, deduplicated read — same idea, with one structural difference you'll feel immediately: the component doesn't fetch on mount. There's no `useQuery(...)` call buried inside the view that quietly kicks off a request the first time React renders it. The *route* causes the fetch; the view only reads what's there. That inversion is the whole point of this part.
 
-> **From re-frame v1.** In v1 a server read was a hand-rolled cascade: a `:get-articles` event firing an `:http-xhrio` effect, an `:articles-loaded` event to stash the response in app-db, an `:articles-failed` event for the error, and a flag in app-db you flipped to drive a spinner. Every read re-implemented loading, caching, and staleness by hand. re-frame2 makes a server read a *declared* thing — a **resource** — and the runtime owns the fetch/cache/staleness bookkeeping behind the same subscription shape you already know. The four-event boilerplate is gone.
+> **From re-frame v1.** In v1 a server read was a hand-rolled chain of events: a `:get-articles` event firing an `:http-xhrio` effect, an `:articles-loaded` event to stash the response in app-db, an `:articles-failed` event for the error, and a flag in app-db you flipped to drive a spinner. Every read re-implemented loading, caching, and staleness by hand. re-frame2 makes a server read a *declared* thing — a **resource** — and the runtime owns the fetch/cache/staleness bookkeeping behind the same subscription shape you already know. The four-event boilerplate is gone.
 
 ## Step 1 — add the resources artefact and point at an API
 
@@ -143,9 +143,9 @@ Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initi
   (fn [_cofx _event] {:db {}}))
 ```
 
-Here's the part that quietly rearranges people's mental furniture the first time they see it: the article data no longer lives in app-db — your app's single state map — at all. It lives in the framework-owned runtime cache instead. App-db is for *your* state; server reads live in their own keyed, lifecycle-managed store next door.
+Here's the part that quietly rearranges people's mental furniture the first time they see it: the article data no longer lives in app-db — your app's single state map — at all. It lives in **runtime-db** instead, the framework-owned partition beside app-db (its resource cache is the `:rf.runtime/resources` subsystem there — see [app-db](../concepts/app-db.md) for the two-partition model). App-db is for *your* state; server reads are a keyed, lifecycle-managed slice the runtime owns next door.
 
-> **Why isn't the server data in app-db?** Because a cache entry has a *lifecycle* app-db doesn't model: it's fetching, it's stale, it has an in-flight request, it can be garbage-collected when no page is reading it, it can be refetched without you writing a refetch event. Stuffing all that into app-db means hand-rolling it in every app, forever. Resources move the bookkeeping into the runtime — but, crucially, expose it back to you through the *same* subscription shape you already know. You read it; you don't manage it.
+> **Why isn't the server data in app-db?** Because a cache entry has a *lifecycle* app-db doesn't model: it's fetching, it's stale, it has an in-flight request, it can be garbage-collected when no page is reading it, it can be refetched without you writing a refetch event. Stuffing all that into app-db means hand-rolling it in every app, forever. Resources move the bookkeeping into runtime-db — but, crucially, expose it back to you through the *same* subscription shape you already know. You read it; you don't manage it.
 
 ## Step 3 — let the routes cause the fetch
 
@@ -342,7 +342,7 @@ Because the prior data is still there, the entry goes to `:fetching` (not `:load
 
 With the dev build running and Xray open:
 
-1. **Load the home page.** The feed shows a skeleton, then the article list. The route-entry event row in Xray shows the ensure it caused — an event being a plain map describing something that happened. The Resources panel shows the `:conduit/articles` entry walk `:idle → :loading → :loaded`.
+1. **Load the home page.** The feed shows a skeleton, then the article list. The route-entry event row in Xray shows the ensure it caused — an event being an inert data vector recording that something happened. The Resources panel shows the `:conduit/articles` entry walk `:idle → :loading → :loaded`.
 2. **Open an article, then press Back and open it again.** The second open is a **cache hit**. The Resources panel shows it served from cache, and there's no new network row in the timeline. You wrote zero caching code; identity — scope + resource + params — is the entire mechanism that makes the second read free.
 3. **Wait a minute, then revisit the home page.** The list is now past its `:stale-after-ms` window, so the route entry ensures it into `:fetching` — the old list stays on screen (you set `:keep-previous? true`) while a quiet background refetch runs. Stale-while-revalidate, declared in one number.
 4. **Break the network** (offline in dev tools, or point `api-base` at a bad host) **and reload.** The first load fails into the `:error` branch and your error view renders — a real failure, owned by a view *you* wrote, not an uncaught promise rejection scrolling past in the console.
