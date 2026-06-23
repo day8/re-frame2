@@ -1,0 +1,76 @@
+;; Conformance fixture: machine/spawn-ordering-deterministic-in-one-cascade
+;;
+;; EP-0029 A7 (../../../docs/EP/EP-0029-xstate-v6-machine-parity.md#a7-spawn-
+;; ordering-failure-and-restore-semantics) makes a SPAWN-ORDERING claim:
+;; multiple spawns crossed by a single transition are deterministic. Spec 005
+;; §Spawn lifecycle — ordering pins the mechanism: the spawn-id allocator picks
+;; the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the parent snapshot
+;; root, and the entry cascade reduces over the entered state nodes
+;; SHALLOWEST-FIRST (root → leaf).
+;;
+;; This fixture exercises a compound `:outer` state that itself declares
+;; `:spawn` AND whose `:initial` descendant `:inner` ALSO declares `:spawn`.
+;; Entering `:outer` descends to `:inner` in ONE transition, crossing both
+;; spawn-bearing nodes. The deterministic, declaration-order allocation is
+;; directly observable at the pure `machine-transition` layer:
+;;
+;;   - the OUTER (shallower) `:spawn` is allocated `:leaf#1` and its
+;;     `:rf.machine/spawn` fx is emitted FIRST;
+;;   - the INNER (deeper) `:spawn` is allocated `:leaf#2` and emitted SECOND;
+;;   - the shared `:rf/spawn-counter` for `:leaf` ends at 2 (both spawns drew
+;;     from the same parent counter, in order);
+;;   - `:rf/spawned` records each id under its own invoke-id key (no clobber).
+;;
+;; Pure-call machine-transition carries no parent registration, so the
+;; spawn-fx's `:rf/parent-id` is the sentinel `:rf/transition-pure`. No child
+;; spec is needed — at the pure layer only the spawn fx + counter are observed
+;; (actor materialisation is the host adapter's responsibility).
+;;
+;; This is the port-portable normative lock for the EP A7 ordering claim: any
+;; conforming port must allocate multiple cascade-crossed spawns shallowest-
+;; first, deterministically.
+
+{:fixture/id           :machine/spawn-ordering-deterministic-in-one-cascade
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :actor/spawn-destroy :actor/declarative-spawn}
+ :fixture/doc          "Two :spawn-bearing nodes crossed by one entry cascade allocate shallowest-first: the outer compound :spawn is :leaf#1 (emitted first), the inner descendant :spawn is :leaf#2 (emitted second), the shared :rf/spawn-counter ends at 2. Pins the EP-0029 A7 deterministic-ordering claim at the pure machine-transition layer."
+
+ :fixture/registry
+ {:machine
+  {:leaf {:doc "Stub child — the :spawn target. Body is irrelevant here; only the spawn fx ordering + counter are observed at the pure layer."}}}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition
+   {:initial :idle
+    :data    {}
+    :states
+    {:idle  {:on {:go :outer}}
+     ;; :outer is a COMPOUND state that declares :spawn AND whose :initial
+     ;; child :inner ALSO declares :spawn — entering :outer crosses both.
+     :outer {:spawn   {:machine-id :leaf :id-prefix :leaf}
+             :initial :inner
+             :states  {:inner {:spawn {:machine-id :leaf :id-prefix :leaf}}}}}}
+   :snapshot     {:state :idle :data {}}
+   :event        [:go]
+   ;; Both spawns drew from the parent's :leaf counter in cascade order:
+   ;; outer = #1, inner = #2; the counter ends at 2; :rf/spawned records both.
+   :expect-next-snapshot {:state            [:outer :inner]
+                          :data             {:rf/spawned {[:outer]         :leaf#1
+                                                          [:outer :inner]  :leaf#2}}
+                          :rf/spawn-counter {:leaf 2}}
+   ;; Effect ORDER is the assertion: the SHALLOWER node's spawn fx fires first.
+   :expect-effects
+   [[:rf.machine/spawn {:machine-id    :leaf
+                        :id-prefix     :leaf
+                        :rf/spawned-id :leaf#1
+                        :rf/parent-id  :rf/transition-pure
+                        :rf/invoke-id  [:outer]}]
+    [:rf.machine/spawn {:machine-id    :leaf
+                        :id-prefix     :leaf
+                        :rf/spawned-id :leaf#2
+                        :rf/parent-id  :rf/transition-pure
+                        :rf/invoke-id  [:outer :inner]}]]}]}
