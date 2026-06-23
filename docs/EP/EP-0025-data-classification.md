@@ -1,7 +1,9 @@
 # EP-0025: Data Classification
 
-Status: accepted
+Status: final
 Type: standards-track
+
+> **Graduated 2026-06-24** into [`spec/015-Data-Classification.md`](../../spec/015-Data-Classification.md), reconciled across the affected specs (Privacy, Security, 009, 014, 016, 011) and the migration guide; the repo-wide propagation audit (`rf2-vl0jur`) closed with zero findings. Per EP-0009 the spec now governs where it and this EP differ. One tool-local follow-up is tracked under Implementation Errata, below.
 
 > **Supersedes** the earlier "Registration-Time Subsystem Data Classification" version
 > of EP-0025 (a global registrar, frame app-db annotations, a per-egress
@@ -499,14 +501,12 @@ specs (8), `/docs/guide` (9), and `/skills` (10):
 Run this cluster after the new structure is in (stage 3+); graduation is not complete
 until it's green.
 
-## Open Issues
+## Resolved Decisions
 
-- **`marks.cljc` decomposition** — exact remove / migrate / decide split (Bead-Plan
-  stage 1).
-- **Per-subsystem declaration shape** — *decided in principle:* each subsystem owns the
-  arrangement that fits it (shared axis keys + projection-relative paths; the rest is its
-  own ergonomic call). The concrete shape lands in each subsystem's spec — not an
-  EP-level blocker.
+Both items were dispositioned by graduation (no open issues ship silently, per EP-0009).
+
+- **`marks.cljc` decomposition** (Bead-Plan stage 1) — **resolved in implementation.** The imperative marks API was removed and its logic recast as the classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`); the `marks` vocabulary and namespace residue were swept across spec and code. Confirmed by the `rf2-vl0jur` propagation audit (zero findings).
+- **Per-subsystem declaration shape** — *decided in principle:* each subsystem owns the arrangement that fits it (shared axis keys + projection-relative paths; the rest is its own ergonomic call). The concrete shapes landed in each subsystem's spec — not an EP-level blocker.
 
 ## Recommendation
 
@@ -521,3 +521,13 @@ sensitivity propagation removed — with the HTTP-carrier capability moved onto 
 
 The design keeps every scope decision — hygiene, no egress resolver, fire-per-instance,
 trust the developer — and stays a *helper*, not a contract.
+
+## Implementation Errata
+
+*Final means the decisions are settled; it does not assert the build is gap-free (EP-0009). Rows cite live bead ids and are struck as they close.*
+
+- **`rf2-jwggld`** (open, P2 decision) — Story-MCP's two inherently re-keyed, routinely non-live scrub surfaces (`record-as-variant`, `read-a11y-violations`) meet the now fail-closed `project-egress` boundary, which would redact their whole re-keyed payload to `:rf/redacted` without closing any leak the live-frame case would have. An **explicit, bead-tracked interim** ships those payloads raw when the variant frame is non-live; the framework boundary itself stays fail-closed. The permanent option (require a live frame / structured refusal / a trusted-local-raw profile) awaits an operator ruling. Tool-local — it does not change the EP-0025 contract.
+
+## Guide impact
+
+The classification helper is taught in the human guide at `how-to/keep-secrets-out-of-traces.md` (its canonical home), with recaps where values reach a mediated egress — `concepts/observability.md`, `concepts/server-state.md`, `concepts/routing.md`, `concepts/ssr.md` — and the `:sensitive` (path/effect) vs `:sensitive?` (schema trace-flag) distinction noted in `how-to/validate-with-schemas.md`. These edits landed with the guide coherence pass; graduation owes no further human-facing guide change.
