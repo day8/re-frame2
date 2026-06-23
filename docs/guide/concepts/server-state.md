@@ -94,7 +94,7 @@ That three-branch `cond` is the canonical render shape, and the next section exp
 
 > **Gotcha — no subscription ever fetches.** This is the rule that surprises query-library refugees most. A subscription that finds no entry reads `:idle` and *stays* `:idle` until a route entry, an event, or a machine causes the fetch. So "I registered the resource but my view is a permanent skeleton" almost always means a cause hasn't fired yet — you're missing a cause, not a sub.
 
-### Three lanes — register, cause, project
+### Three lanes — registering, causing, projecting
 
 Those three steps you just wrote are three different jobs, and the whole surface gets easier to hold once you stop reading them as competing APIs. **Registering a resource is not the same as reading its state, and neither is the same as causing it to fetch:**
 

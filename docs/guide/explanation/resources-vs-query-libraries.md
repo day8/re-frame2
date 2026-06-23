@@ -10,7 +10,7 @@ One sentence to carry through everything below:
 
 We'll build that up one idea at a time: where the cache lives, how identity (scope) works, what keeps an entry alive, why views never fetch, and how writes keep reads honest. The big parity table is at the end as a reference scorecard — read the narrative first; it explains the rows.
 
-> **Optional artefact, and pre-alpha.** Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**. The read path, the mutation path, optimistic rollback, active-owner polling, and infinite / load-more feeds have all landed. Two query-library features are *deliberately out of scope* for this phase — normalized/GraphQL caches and offline/cross-tab persistence — and the [honest gaps](#the-honest-gaps-out-of-scope-on-purpose) section names exactly where that line sits. Nothing here is back-compat-frozen.
+> **Optional artefact, and pre-alpha.** Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**. The read path, the mutation path, optimistic rollback, active-owner polling, and infinite / load-more feeds have all landed. Two query-library features are *deliberately out of scope* for this phase — normalized/GraphQL caches and offline/cross-tab persistence — and the [honest gaps](#the-honest-gaps--out-of-scope-on-purpose) section names exactly where that line sits. Nothing here is back-compat-frozen.
 
 ## The smallest thing that works
 
@@ -129,7 +129,7 @@ The cleanest *cause* is the page itself, declared as route metadata:
   "/articles/:slug")
 ```
 
-This is not a missing feature — the data still loads on navigation. It is the *inversion* that lets SSR get a natural wait point (`:blocking? true`), lets a route own and release the resource deterministically, and keeps views pure. If you find yourself wanting "fetch when this component appears," the re-frame2 answer is "make the route or an event the cause" — see [Routes declare what a page needs](../concepts/server-state.md#routes-declare-what-a-page-needs).
+This is not a missing feature — the data still loads on navigation. It is the *inversion* that lets SSR get a natural wait point (`:blocking? true`), lets a route own and release the resource deterministically, and keeps views pure. If you find yourself wanting "fetch when this component appears," the re-frame2 answer is "make the route or an event the cause" — see [Routes declare what a page needs](../concepts/server-state.md#routes-can-declare-more-than-one-resource).
 
 > **Coming from React?** "Fetch on mount" feels like the natural place for data because, in React, the component *is* the only durable thing you have. re-frame2 has routes, events, and machines as first-class causes that outlive any one component, so the fetch attaches to *those* — and the view drops back to its proper job: a pure function of the current state. The inversion is the same one behind [Inside out: why views come last](inside-out.md).
 
