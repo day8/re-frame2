@@ -144,11 +144,11 @@ Related: [Flows](concepts/flows.md) and [toggling a derivation at runtime](conce
 
 A frame is an isolated execution context: one running instance of a re-frame2 app.
 
-It owns that instance's state and runtime machinery: its [app-db](#app-db), [runtime-db](#runtime-db), event queue, subscription cache, and lifecycle.
+It owns the state and runtime machinery for that instance: its [app-db](#app-db), [runtime-db](#runtime-db), event queue, subscription cache, and lifecycle.
 
-To run, a frame uses a resolved set of registrations, called a [generation](#generation). Those registrations supply its behaviour.
+A frame gets its behaviour from registrations. Usually it uses the default registration set, so the same event handlers, subscriptions, views, effects, flows, and machines can run in many frames, each against that frame's own state. Advanced setups can use [images](#image) to give a frame a selected registration set.
 
-Frames let the same registered handlers run against separate state. Most apps create one frame at boot. Multiple frames are useful for independent copies of the same app, such as tests, stories, server-rendered requests, or two widgets side by side. They can be created and destroyed explicitly for short-lived contexts.
+Most apps create one frame at boot and then stop thinking about it. Multiple frames are useful when you need isolated copies: tests, stories, server-rendered requests, two app instances on one page, or a sidecar tool such as Xray. Short-lived frames can be created and destroyed explicitly.
 
 ```clojure
 (rf/reg-frame :app {:initial-events [[:rf/set-db {}]]})
