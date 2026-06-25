@@ -154,9 +154,25 @@ extra:
       link: https://github.com/day8
 
 nav:
-  - Home: index.md
+  - Home:
+    - index.md
+    - "ClojureScript for non-Clojurians": cljs/index.md
+    - Migration:
+      - "From re-frame v1": migration/from-re-frame-v1/README.md
+      - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
+      - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
+      - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
+      - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
+      - "clj-new → deps-new template": migration/from-clj-new-template/README.md
+    - EP:
+      - EP/README.md
+      - "EP-0001 Frame App/Runtime Partitions": EP/EP-0001-frame-partitions.md
+      - "EP-0002 Explicit Frame Target Resolution": EP/EP-0002-frame-target-resolution.md
+      - "EP-0003 Resource Queries": EP/EP-0003-resource-queries.md
+      - "EP-0004 Parametric Subscription Inputs": EP/EP-0004-subscription-inputs.md
+      - "EP-0005 Machine :data Schema": EP/EP-0005-machine-data-schema.md
 
-  - Guide:
+  - Core:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
     - guide/README.md
@@ -217,9 +233,6 @@ nav:
     - "Reference index": guide/reference.md
     - "Glossary": guide/glossary.md
 
-  - CLJS:
-    - "ClojureScript for non-Clojurians": cljs/index.md
-
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).
     - story/index.md
@@ -274,14 +287,6 @@ nav:
     - re-frame2-pair: skills/re-frame2-pair.md
     - re-frame2-pair-retro: skills/re-frame2-pair-retro.md
 
-  - EP:
-    - EP/README.md
-    - "EP-0001 Frame App/Runtime Partitions": EP/EP-0001-frame-partitions.md
-    - "EP-0002 Explicit Frame Target Resolution": EP/EP-0002-frame-target-resolution.md
-    - "EP-0003 Resource Queries": EP/EP-0003-resource-queries.md
-    - "EP-0004 Parametric Subscription Inputs": EP/EP-0004-subscription-inputs.md
-    - "EP-0005 Machine :data Schema": EP/EP-0005-machine-data-schema.md
-
   - API:
     # Section label IS the API overview page (navigation.indexes, rf2-qgpkm).
     - api/README.md
@@ -302,14 +307,6 @@ nav:
     - "15 — Removed": api/15-removed.md
     - "16 — Resources": api/16-resources.md
     - "Normative reference": spec/API.md
-
-  - Migration:
-    - "From re-frame v1": migration/from-re-frame-v1/README.md
-    - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
-    - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
-    - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
-    - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
-    - "clj-new → deps-new template": migration/from-clj-new-template/README.md
 
 markdown_extensions:
   - meta
