@@ -133,6 +133,8 @@ The cleanest *cause* is the page itself, declared as route metadata:
 
 This isn't a missing feature — the data still loads on navigation. It's the *inversion* that lets SSR get a natural wait point (`:blocking? true`), lets a route own and release the resource deterministically, and keeps views pure. If you find yourself wanting "fetch when this component appears," the re-frame2 answer is "make the route or an event the cause" — see [Routes declare what a page needs](../concepts/server-state.md#routes-can-declare-more-than-one-resource).
 
+> **Gotcha — what goes wrong at the route boundary.** Two failure modes live here, both fail-closed and both surfaced on the route slice (not swallowed). If a route-resource entry's `:params` / `:scope` / `:when` function can't resolve — a `{:from-db …}` scope that comes back `nil`, a params fn that throws — the route plan raises `:rf.error/resource-route-plan` and the navigation surfaces the error rather than entering a page wired to a phantom cache key. And on the server, a `:blocking? true` resource that never settles can't hold the render open forever: exceeding the render deadline raises `:rf.error/resource-ssr-blocking-timeout`, so a hung upstream becomes a located, traced error instead of a silently truncated page. (A *fresh* blocking resource — already `:loaded` and still fresh-by-policy — settles the navigation immediately, so a route blocked on cached-fresh data never hangs.)
+
 > **Coming from React?** "Fetch on mount" feels like the natural place for data because, in React, the component *is* the only durable thing you have. re-frame2 has routes, events, and machines as first-class causes that outlive any one component, so the fetch attaches to *those* — and the view drops back to its proper job: a pure function of the current state. The inversion is the same one behind [Inside out: why views come last](inside-out.md).
 
 ### What `:rf.resource/state` actually hands the view
@@ -184,7 +186,7 @@ In TanStack and SWR, keeping reads honest after a write is an imperative call yo
   (fn [{:keys [slug]} _ctx] ...))
 ```
 
-The fail-closed floor matters: a bare `:rf.resource/invalidate-tags` with no scope is a loud error, not a silent global blast across every tenant. "Invalidate this tag wherever it lives" *is* possible — `:cross-scope? true` — but it's an **audited** operation that must carry a `:cause` and is a privacy-relevant trace event. See [Writes invalidate by tag — causally](../concepts/server-state.md#writes-invalidate-by-tag--causally) and [Spec 016 §Scoped invalidation descriptors](../../../spec/016-Resources.md#scoped-invalidation-descriptors-per-target).
+The fail-closed floor matters: a bare `:rf.resource/invalidate-tags` with no scope raises `:rf.error/resource-invalidate-scope-required`, not a silent global blast across every tenant. "Invalidate this tag wherever it lives" *is* possible — `:cross-scope? true` — but it's an **audited** operation that *must* carry a `:cause` (one without it raises `:rf.error/resource-cross-scope-cause-required`) and is a privacy-relevant trace event. A descriptor that omits `:scope` defaults to `:rf.scope/same` — the mutation's resolved scope — which is also the meaning of the bare tag-set shorthand. See [Writes invalidate by tag — causally](../concepts/server-state.md#writes-invalidate-by-tag--causally) and [Spec 016 §Scoped invalidation descriptors](../../../spec/016-Resources.md#scoped-invalidation-descriptors-per-target).
 
 > **Coming from Redux?** If you already use RTK Query's `providesTags` / `invalidatesTags`, you're home — this is the same tag-graph model. The two upgrades: invalidation is *scoped* by default (a write in one tenant can't quietly nuke another's cache), and crossing a scope boundary is an explicit, audited, traceable opt-in rather than the default reach.
 
@@ -277,7 +279,9 @@ TanStack's `refetchInterval`, RTK's `pollingInterval`, and SWR's `refreshInterva
 
 ### Infinite / load-more feeds (EP-0021)
 
-`useInfiniteQuery` (TanStack) and `useSWRInfinite` accumulate pages into one growing list with cursor management. re-frame2 ships this as a first-class **`:infinite`** resource ([Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)): a resource registered with `:infinite true` plus a pure `:next-page-param` derivation (returning `nil` is the single terminal). One scoped feed entry accumulates an ordered page vector; a causal `:rf.resource/load-more` event extends it; the merged flat list is the headline read at `:rf.resource/items`, with `:rf.resource/pages` for boundaries and `:rf.resource/infinite-state` for the combined view-model. Numbered and cursor pagination stay exactly as before — every page is an ordinary resource keyed by its params, with `:keep-previous?` to avoid skeleton flashes ([Spec 016 §Paginated and previous data](../../../spec/016-Resources.md#paginated-and-previous-data)) — the infinite kind is the complementary accumulating-feed model, not a replacement.
+`useInfiniteQuery` (TanStack) and `useSWRInfinite` accumulate pages into one growing list with cursor management. re-frame2 ships this as a first-class **`:infinite`** resource ([Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)): a resource registered with `:infinite true` plus a pure `:next-page-param` derivation (returning `nil` is the single terminal). One scoped feed entry accumulates an ordered page vector; a causal `:rf.resource/load-more` event extends it; the merged flat list is the headline read at `:rf.resource/items`, with `:rf.resource/pages` for boundaries and `:rf.resource/infinite-state` for the combined view-model (which adds `:fetching-next?` and `:has-next-page?` to the read so a view can render a spinner, a "Load more" button, or an end-of-feed marker without bookkeeping). Numbered and cursor pagination stay exactly as before — every page is an ordinary resource keyed by its params, with `:keep-previous?` to avoid skeleton flashes ([Spec 016 §Paginated and previous data](../../../spec/016-Resources.md#paginated-and-previous-data)) — the infinite kind is the complementary accumulating-feed model, not a replacement.
+
+> **Gotcha — `:next-page-param` is required, and load-more failure has its own error channel.** Declaring `:infinite true` without a `:next-page-param` derivation is a loud registration error (`:rf.error/infinite-missing-next-page-param`) — there's no inferring the cursor. (A feed whose page is non-vector / enveloped also needs a `:page->items` accessor, or `:rf.error/infinite-missing-page-accessor`.) At runtime, a *load-more* page fetch that fails is **not** a feed first-load failure: the feed returns to `:loaded`, **keeps every accumulated page**, and records the failure in a **third error channel** — `:page-error`, beside `:error` (first load) and `:refresh-error` (whole-feed refresh) — so the view shows "couldn't load more — retry" without losing the feed. `:page-error` clears on the next successful load-more.
 
 ## When to reach for resources at all
 
@@ -296,6 +300,40 @@ These remain deliberately outside this HTTP-only phase. Don't let the rest of th
 
 - **Normalized / GraphQL caches** (Apollo, Relay, normalizr). The transport is HTTP-only this phase; a normalized entity cache is a separate later artefact gated on a GraphQL phase, not a resources gap ([Spec 016 §What Spec 016 does NOT cover](../../../spec/016-Resources.md#what-spec-016-does-not-cover)).
 - **Offline persistence and cross-tab broadcast.** Deferred later slices; not in the public-beta contract.
+
+## Advanced
+
+Three power-user topics that don't belong in the progressive flow above but that a real consumer reaches for once the basics are in place.
+
+### Where auth headers go: the managed-HTTP decoration seam
+
+Every flagship example on this page hits a bare `/api/...` URL, which raises the obvious question: where do auth headers, tracing headers, the API base URL, and tenant headers live? **Not on the resource.** A resource's (or mutation's) `:request` fn describes the *domain* request only — method, url, params, body, `:decode`. Cross-cutting decoration belongs to the managed-HTTP layer the resource lowers through, applied once by a frame-registered `reg-http-interceptor` that decorates *every* `:rf.http/managed` request the frame issues — reads, writes, and plain managed calls alike ([Spec 016 §Request decoration belongs to the managed-HTTP seam](../../../spec/016-Resources.md#request-decoration-belongs-to-the-managed-http-seam-not-the-resource-declaration)):
+
+```clojure
+(rf/reg-http-interceptor :realworld/auth
+  {:before (fn [ctx]
+             (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
+               (cond-> ctx
+                 token (assoc-in [:request :headers "Authorization"]
+                                 (str "Token " token)))))})
+```
+
+Two details earn their keep. The interceptor reads frame state through `(rf/app-db-value (:frame ctx))` — the carried-frame-correct read — never an ambient `db`, so it stays SSR-safe and frame-isolated. And a resource that needs auth needs **no** per-resource opt-in: register the interceptor once and every read is decorated. (One asymmetry: default retry policy is read-focused — **write retries stay opt-in**, because retrying a write can duplicate side effects, so a mutation arms `:retry` only when its own `:request` declares it.)
+
+### `:rf.scope/from-caller` and the two scope-mismatch tripwires
+
+Most resources name their scope at registration (`:rf.scope/global` or a `{:from-db …}` resolver). A third policy, **`:rf.scope/from-caller`**, *requires* the scope from the use site — every `ensure` / `refetch` / `:rf.resource/state` call (or a route-resource resolver) must supply `:scope`, or it's a loud use-time error (`:rf.error/resource-scope-required-from-caller`). It pushes enforcement to where the scope is actually known.
+
+The footgun this opens is the *resolvable-but-wrong* case: a subscription supplies a `:scope` that resolves to a perfectly valid — but **different** — concrete scope than the one the owning route/event ensured under. Fail-closed is still correct (the read never reaches a wrong-principal entry), but the symptom is a silent permanent skeleton: the sub reads `:idle` forever against a key no owner ever attached to. Because the miss is silent by construction, re-frame2 surfaces it from **both** ends of the loop in dev (all DCE'd from production):
+
+- **Read-side** — `:rf.warning/resource-sub-scope-mismatch` fires the moment a `:rf.scope/from-caller` sub lands on a scope key with zero active owners while a *different* key for the same resource id is active. Its `:hint` names the fix: pass the same `:scope` the owning route/event ensured under.
+- **Write-side** — `:rf.warning/mutation-scope-mismatch` fires when a mutation's `:invalidates` descriptor matches zero entries in its resolved scope while a *different* scope holds them (the "Gotcha — mutation scope fails open" case from the mutation section above).
+
+Both are one-shot idempotent per distinct mismatch, and Xray's offline scope-mismatch lint catches the cases the live heuristics narrow away ([Spec 016 §Dev-mode likely-mismatch warning](../../../spec/016-Resources.md#dev-mode-likely-mismatch-warning-rfwarningresource-sub-scope-mismatch)).
+
+### The `ctx` argument is reserved
+
+Every author-supplied function this artefact calls — a resource `:request`, a spec-side `:scope` resolver, a `reg-resource-scope` `:resolve` — receives a trailing `ctx` argument that is **reserved and literally `nil` today**. It's declared so the surface is forward-compatible, but you must derive your result from the function's *own* declared inputs (`params`, the resolver's `:inputs`), never from `ctx`. The one exception is the **route-resource** `:params` / `:scope` / `:when` functions, which carry a populated `(route ctx)` context because route-entry planning has a real route match to thread. The cache-consequence callbacks (`:invalidates` / `:populates` / `:patches` / `:removes`) take no `ctx` at all — their canonical signature is `(params result)`, and db-derived scope is reached only via `{:from-db …}` references ([Spec 016 §The `ctx` argument is reserved](../../../spec/016-Resources.md#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces)).
 
 ## The full scorecard
 

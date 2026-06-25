@@ -108,6 +108,8 @@ Naming the continuation makes it a value, and values are governable. Five proper
 
     Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
 
+> **Gotcha — silencing a reply on purpose stays honest.** You *can* decline the continuation: `:on-success nil` / `:on-failure nil` is fire-and-forget, the right shape for a telemetry beacon you genuinely don't care about. But silence is the one place this model could quietly regrow the bug it kills — a dropped failure is an error nobody sees. So the runtime keeps it honest: the first time a *real* (non-aborted) failure — a transport error, a 5xx, a timeout, a decode failure — is dropped by `:on-failure nil`, it emits a one-shot dev-only `:rf.warning/failure-swallowed` trace, naming the silence rather than letting it vanish. (A *cancelled* request that no longer wants its reply is correct-by-design silence, not a swallowed error, so an `:rf.http/aborted` failure is excluded.) The warning is informational — there's no `:rf.error/*` here — but it means even your deliberate silences leave a line in the record.
+
 ### The reply that lands
 
 The delivered event is itself plain data: your carried context, then the [reply map](../glossary.md#reply-map) appended.
