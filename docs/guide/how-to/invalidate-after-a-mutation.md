@@ -73,7 +73,7 @@ What happens next depends on whether anything is still *using* that entry. A rea
 
 You have a write that knows what it breaks. Now fire it from a view and watch its progress.
 
-Two pieces of vocabulary before the code, so it reads clean. A [subscription](../glossary.md#subscription) is a named, read-only derivation of state — you call `subscribe` to get one and deref it (`@`) to read its current value. A [dispatch](../glossary.md#dispatch) sends an [event](../glossary.md#event) — an inert fact that something happened — into the frame; here, the event that fires the write. The view below uses `subscribe` and `dispatch` rather than the fully-qualified `rf/subscribe` / `rf/dispatch` because `reg-view` injects those two as frame-bound locals — a [frame](../glossary.md#frame) is one isolated, running instance of your app, and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected `dispatch` carries that context for you.
+One thing about the code below: it reads a [subscription](../glossary.md#subscription) with the bare `subscribe` and fires the write with the bare [dispatch](../glossary.md#dispatch), not the fully-qualified `rf/subscribe` / `rf/dispatch`. That's because `reg-view` injects those two as [frame](../glossary.md#frame)-bound locals — and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected one carries that context for you.
 
 ```cljs-rf2
 (rf/reg-view article-editor [article]

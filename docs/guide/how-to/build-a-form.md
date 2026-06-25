@@ -2,7 +2,7 @@
 
 You're adding a form — a login, a signup, a settings panel, an editor. What you want is a draft the user types into, validation, a submit round-trip, and server rejections shown next to the right fields. This page is the recipe for that whole lifecycle, so you don't have to reinvent it every time: one state shape, seven [events](../glossary.md#event), and one rule for when errors become visible.
 
-Two glossary words carry the page, so pin them down first. [**app-db**](../glossary.md#app-db) is your app's single immutable state map — the one source of truth your code owns. A **slice** is just the corner of that map a feature claims (this form's slice lives under `[:auth :login]`). An [**event**](../glossary.md#event) is an inert data vector recording that something happened — a keystroke, a blur, a submit — which you [dispatch](../glossary.md#dispatch) and a registered [**event handler**](../glossary.md#event-handler) turns into new state.
+One page-specific word carries the rest: a **slice** is the corner of [app-db](../glossary.md#app-db) a feature claims (this form's lives under `[:auth :login]`). Everything in it changes the usual way — you [dispatch](../glossary.md#dispatch) an [event](../glossary.md#event) (a keystroke, a blur, a submit) and an [event handler](../glossary.md#event-handler) writes new state.
 
 Here's the thing about forms: they look trivial and turn out to be one of the buggier corners of any UI. When does an error appear — on the first keystroke, on blur, on submit? Where do *server* validation failures show up versus client ones? What makes the submit button live? Get these wrong and you ship a form that yells "required!" at a user who hasn't typed a single character. So before any code, one rule carries the whole page, and everything else is plumbing around it:
 
@@ -120,7 +120,7 @@ Before submit, we need a validator. The convention fixes only the *result* shape
 
 ### Submit validates and latches
 
-The submit handler stays a pure function — `db` in, a map out — even though submitting clearly *does* something to the outside world. The trick is that [effects are data](../glossary.md#effects-are-data): the handler doesn't make the network call, it *describes* one. An [**effect**](../glossary.md#effect) is exactly that — a piece of data describing a side-effect you want the framework to run on your behalf — which is what keeps the handler pure and easy to test. So only when the draft is clean does submit ask for the [managed HTTP](../glossary.md#managed-http) effect, which owns the whole request lifecycle and dispatches a result event when it returns:
+The submit handler stays a pure function — `db` in, a map out — even though submitting clearly *does* something to the outside world. The trick is that [effects are data](../glossary.md#effects-are-data): the handler doesn't make the network call, it *describes* one as an [effect](../glossary.md#effect), and the framework runs it. So only when the draft is clean does submit ask for the [managed HTTP](../glossary.md#managed-http) effect, which owns the whole request lifecycle and dispatches a result event when it returns:
 
 ```clojure
 (rf/reg-event :form.login/submit
@@ -318,7 +318,7 @@ The visibility rule lives in `:field-error` and nowhere else, which means it can
 
 ## 4. Write the view — which is almost nothing
 
-A [view](../glossary.md#view) is the pure function that renders [hiccup](../glossary.md#hiccup) from subscription values. `reg-view` hands the view body two functions ready to use, already wired to this view's [frame](../glossary.md#frame): `dispatch` sends an event, and `subscribe` reads a sub. The leading `@` you'll see on every `@(subscribe ...)` is Clojure's *deref* — `subscribe` returns a live, reactive reference, and `@` reads its current value (and quietly re-renders the view whenever that value changes). So `@(subscribe [:form.login/draft])` means "give me the current draft, and keep this view in sync with it":
+The [view](../glossary.md#view) renders [hiccup](../glossary.md#hiccup) from subscription values, and `reg-view` hands its body a `dispatch` and a `subscribe` already wired to the right [frame](../glossary.md#frame) ([Views](../concepts/views.md) has the full story). The leading `@` you'll see on every `@(subscribe ...)` is Clojure's *deref* — `subscribe` returns a live, reactive reference, and `@` reads its current value (and quietly re-renders the view whenever that value changes). So `@(subscribe [:form.login/draft])` means "give me the current draft, and keep this view in sync with it":
 
 ```clojure
 (rf/reg-view login-form []

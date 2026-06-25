@@ -5,7 +5,7 @@ You have a list with more rows than you want to fetch at once. There are two pag
 - **Numbered pages** — page 2 *replaces* page 1 on screen. Think search results, an admin table, a "1 2 3 … 29" pager.
 - **Load more** — page 2 *appends* to what's already there, the way a social feed grows.
 
-Both ride on [**resources**](../glossary.md#resource). A resource is a declared, cached server-state read: you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness — [views](../glossary.md#view) just subscribe to its current state. [Server state: resources](../concepts/server-state.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then load-more. By the end you'll have both wired with *no pagination state in [app-db](../glossary.md#app-db) at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append reducer. That's the headline: the page cursor and the page cache are all framework-owned [runtime-db](../glossary.md#runtime-db), so pagination adds *nothing* to the state you own. (Remember [the two partitions](../glossary.md#the-two-partitions): app-db is yours, runtime-db is the framework's.)
+Both ride on [**resources**](../glossary.md#resource). A resource is a declared, cached server-state read: you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness — [views](../glossary.md#view) just subscribe to its current state. [Server state: resources](../concepts/server-state.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then load-more. By the end you'll have both wired with *no pagination state in [app-db](../glossary.md#app-db) at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append handler. That's the headline: the page cursor and the page cache are all framework-owned [runtime-db](../glossary.md#runtime-db), so pagination adds *nothing* to the state you own. (Remember [the two partitions](../glossary.md#the-two-partitions): app-db is yours, runtime-db is the framework's.)
 
 > **The one idea to hold onto.** A numbered page is part of the resource's *identity* — page 7 is its own separately-cached value. An infinite feed is *one* identity that *grows* — page 1, then 1+2, then 1+2+3, kept together as a single reactive value. Almost everything below falls out of that one distinction.
 
@@ -56,7 +56,7 @@ That's the minimum. A real list usually tunes a few more optional keys:
 
 > **Gotcha — `:scope` is required, even for a public list.** There's no implicit global default — a `reg-resource` with no `:scope` is a loud registration error (`:rf.error/resource-missing-scope-policy`), not a silent shared read. "I forgot this read is user-scoped" is made unrepresentable at the door. The articles list is the same for every viewer, so it states `:scope :rf.scope/global` outright. A *per-user* list — "my drafts", a tenant-scoped table — would carry a scope resolver instead, so page 2 of tenant A and page 2 of tenant B never collide in the cache. Pagination doesn't move that boundary.
 
-> **From re-frame v1.** The page-keyed cache map and the staleness clocks that used to live in your reducers are framework state now. Your app-db holds none of it.
+> **From re-frame v1.** The page-keyed cache map and the staleness clocks that used to live in your handlers are framework state now. Your app-db holds none of it.
 
 ### 2. Let the URL carry the page
 
@@ -76,7 +76,7 @@ The [route](../glossary.md#route) validates the `?page=` query param, feeds it i
   "/")
 ```
 
-A word on *owning*, since it's the mechanism doing the cleanup. A cached page sticks around as long as something [**owns**](../glossary.md#owner--cause) it — holds a live lease on it. Route entry takes that lease, so the page you're looking at can't be garbage-collected out from under you; route leave drops it. Once a page is unowned it falls back to the normal staleness and GC policy, and eventually gets dropped — so nothing leaks, and you wrote no cleanup code to make that true. (You'll see *owner* again later, paired with *cause*, when we get to load-more: owner = lifetime, cause = explanation.)
+A word on *owning*, since it's the mechanism doing the cleanup. A cached entry lives as long as something [owns](../concepts/server-state.md) it — holds a lease — and falls back to normal staleness/GC once unowned. Here route entry takes the lease, so the page you're looking at can't be garbage-collected out from under you; route leave drops it. Nothing leaks, and you wrote no cleanup code to make that true. (You'll see *owner* again later, paired with *cause*, when we get to load-more: owner = lifetime, cause = explanation.)
 
 Each `:resources` entry is a small declaration. The four keys above:
 
@@ -157,7 +157,7 @@ This is the part that makes pagination feel smooth instead of janky. With `:keep
                     p])))]))))
 ```
 
-(Here `dispatch` and `subscribe` are bindings that `reg-view` injects into the view's body, already wired to the [frame](../glossary.md#frame) this view is rendering in — a frame being one isolated instance of your app, with its own app-db, event queue, and subscription cache. They're the same `dispatch`/`subscribe` you'd reach for via `rf/`, just pre-targeted. `list-skeleton`, `list-error`, and `article-row` are your own views.)
+(Here `dispatch` and `subscribe` are bindings that `reg-view` injects into the view's body, already wired to the [frame](../glossary.md#frame) this view is rendering in — the same `dispatch`/`subscribe` you'd reach for via `rf/`, just pre-targeted. `list-skeleton`, `list-error`, and `article-row` are your own views.)
 
 Now watch it work. Click through to page 2 with [Xray](../glossary.md#xray) open: the navigation event row shows the `ensure` it caused under the `{:page 2}` key, and the entry walks `:loading` → `:loaded`. Click *back* to page 1 and you'll see the same `{:page 1}` key, still fresh — a cache hit, no network request. That's the payoff of treating pages as identity: back-navigation is free, because you never threw page 1 away. You just stopped looking at it.
 
@@ -183,7 +183,7 @@ If you'd rather subscribe to one fact than the whole map, the family splits into
 
 > **Gotcha — two error channels, not one.** This trips people the first time. `:error` is **first-load only**. Click back to a page you visited a while ago and its entry has gone stale: the framework revalidates in the background, the page stays `:loaded` with its old rows on screen, and the status moves to `:fetching` (not `:loading`). If *that* refresh fails, the failure lands on `:refresh-error` and the data **stays visible** — the list does *not* collapse to an error screen. So your full error branch (above) gates on `(:error state)` *and* `(not (:has-data? state))`, while a "couldn't refresh — showing cached" banner gates on `(:refresh-error state)`. Two channels, two affordances; conflate them and you either hide refresh failures or blank a perfectly good list.
 
-> **From re-frame v1.** The page-keyed cache map, the `:loading?` flags, the "don't blank the list while fetching" dance — all the framework's job now. The whole reducer-and-flags apparatus you used to write by hand has become four declarations and a `cond`.
+> **From re-frame v1.** The page-keyed cache map, the `:loading?` flags, the "don't blank the list while fetching" dance — all the framework's job now. The whole handler-and-flags apparatus you used to write by hand has become four declarations and a `cond`.
 
 > **Going deeper.** Why is back-navigation free? Because a numbered page is *referentially identified* by its params: `{:page 1}` names exactly one value, and that value is content-addressed in the cache. Re-visiting the same params is a pure lookup — no request, no recomputation. It's the same property that makes a memoised pure function cheap to re-call: identity in, cached value out. The cache *is* a memoisation table keyed by the resource's identity, and the page number is just one coordinate of that key.
 
@@ -350,12 +350,12 @@ Every single-key sub from the numbered family applies to a feed too — but `:rf
 This is the load-bearing payoff. Itemised, here's what just disappeared from your codebase:
 
 - **The cursor.** `:next-page-param` derives the next page's param from the loaded tail; the runtime stores it on the entry and passes it to the next `:request`. You never thread a cursor through app-db.
-- **The append.** A page success appends to the one entry's page vector with structural sharing — prior pages stay *identical* (`=` and `identical?`). You write no append reducer.
+- **The append.** A page success appends to the one entry's page vector with structural sharing — prior pages stay *identical* (`=` and `identical?`). You write no append handler.
 - **The in-flight UI.** `:fetching-next?` is true while a load-more page is fetching; a second load-more while one is in flight dedupes (no double-fetch). You keep no `:loading-more?` flag.
 - **The terminal.** `:next-page-param` returning `nil` is the single end-of-feed signal; `:has-next-page?` reads it. A load-more past the end is a no-op — no request fires.
 - **The error.** A load-more failure keeps the feed and surfaces `:page-error` ("couldn't load more — retry"), a separate channel from a first-load failure.
 
-> **From re-frame v1.** Before infinite resources, you rolled all of the above by hand, and the parts list was long: a list slice in app-db, a `:loading-more?` flag, a cursor slice, an append reducer on the success event, an "end of feed" flag, dedupe of a double-clicked button, reset-on-filter-change. The infinite resource owns all of it — and, because it's a real resource, it also rides scope clearing, tag invalidation, SSR, and time-travel restore, which a hand-rolled slice never gets for free.
+> **From re-frame v1.** Before infinite resources, you rolled all of the above by hand, and the parts list was long: a list slice in app-db, a `:loading-more?` flag, a cursor slice, an append handler on the success event, an "end of feed" flag, dedupe of a double-clicked button, reset-on-filter-change. The infinite resource owns all of it — and, because it's a real resource, it also rides scope clearing, tag invalidation, SSR, and time-travel restore, which a hand-rolled slice never gets for free.
 
 ### Refetch and reset
 

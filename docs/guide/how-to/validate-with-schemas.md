@@ -40,7 +40,7 @@ Now, what the registration buys you. From this point on, after every event handl
 
 ## Watch one catch a bug
 
-Theory's cheap. Here's a schema doing its job — live. In RealWorld, an article's favorite count must never go below zero (you can't un-favorite past nobody). The rule appears **twice**, on purpose. The handler *guards* (`pos?` — real behaviour that ships to production). The schema *declares* (`[:int {:min 0}]` — the dev tripwire). The cell runs in the playground's frame, so no `with-frame` is needed. Click in and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then drive it with the buttons.
+Theory's cheap. Here's a schema doing its job — live. In Conduit, an article's favorite count must never go below zero (you can't un-favorite past nobody). The rule appears **twice**, on purpose. The handler *guards* (`pos?` — real behaviour that ships to production). The schema *declares* (`[:int {:min 0}]` — the dev tripwire). The cell runs in the playground's frame, so no `with-frame` is needed. Click in and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then drive it with the buttons.
 
 The piece to watch is the `[:int {:min 0}]` on the `[:howto.schema/article]` slice — that's the app-db schema from the last section. (Each `reg-event` *also* carries a small `{:schema [:cat ...]}` map describing its event vector; ignore those for now — they're event schemas, a few sections down.)
 
@@ -135,7 +135,7 @@ A single feature usually owns several slices. `reg-app-schemas` (plural) takes a
     [:articles :data]   [:vector Article]}))
 ```
 
-Paths nest and overlap freely, which is more useful than it first sounds: a write under `[:auth :login-form]` is checked against *that* schema **and** the surrounding `[:auth]` one. The empty path `[]` schemas the whole map. [The RealWorld example](../../../examples/reagent/realworld/) registers nineteen paths this way — every slice that holds server data, every form draft.
+Paths nest and overlap freely, which is more useful than it first sounds: a write under `[:auth :login-form]` is checked against *that* schema **and** the surrounding `[:auth]` one. The empty path `[]` schemas the whole map. [The Conduit example](../../../examples/reagent/realworld/) registers nineteen paths this way — every slice that holds server data, every form draft.
 
 `reg-app-schemas` is last-write-wins on a duplicate path and returns the vector of paths it registered. It's the right shape for a feature module declaring 5–20 slices under a shared prefix. Reach for the singular `reg-app-schema` instead when a feature spans only a path or two, or when you need a *guaranteed* registration order. (The plural form registers in the order it iterates the map you hand it. A small map literal like the one above iterates in source order, but Clojure promotes large maps to hash-maps, whose iteration order isn't insertion order — so for a big batch where order matters, register the ordered paths one at a time.)
 
@@ -170,9 +170,9 @@ The `:schema` slot works on every registration kind — that's the whole point: 
 
 ```clojure
 ;; A sub's RETURN value — validated after it computes.
-(rf/reg-sub :pending-todos
-  {:schema [:vector TodoSchema]}
-  (fn [db _] (filter pending? (:items db))))
+(rf/reg-sub :favorited-articles
+  {:schema [:vector Article]}
+  (fn [db _] (filter :favorited? (:articles db))))
 
 ;; An fx's ARGUMENT map — validated before the effect handler runs.
 (rf/reg-fx :http-xhrio
@@ -190,17 +190,17 @@ Each one fails differently, on purpose:
 
 - **Sub return** (`:where :sub-return`) — the failure is reported and the [subscription](../glossary.md#subscription) yields `nil` to its consumer (`:replaced-with-default`). [Views](../glossary.md#view) see no value rather than a bad one; the [cascade](../glossary.md#event-cascade) isn't aborted.
 - **Fx args** (`:where :fx-args`) — the *offending [effect](../glossary.md#effect) is skipped*, and its siblings in the same `:fx` vector still run. A typo in one `:url` shouldn't take down the rest of an event's effects, so the recovery is "skip the one, continue the rest." The trace names the failing fx.
-- **Recordable coeffect** — the exception to "always the same trace," and it needs one extra concept. A [coeffect](../glossary.md#coeffect) injects a piece of the outside world into a handler — the current time, a random seed, a value read from storage. Coeffects come in two **grades**, and the grade decides what its schema does. An *ambient* supplier (the default) runs fresh on every replay and feeds only display hints or diagnostics — its `:schema` is a dev-only advisory like every other check. But a supplier registered `{:recordable? true}` is a **recordable** input: the framework saves the exact value it injected, so the cascade can be replayed later from that saved value and produce the identical result. Because that saved value is data the replay machinery depends on, its schema is validated as the value folds in — and there a mismatch is a **production hard error** — it emits `:rf.error/cofx-value-invalid` and **throws**, halting the cascade. (That's why the example above is `{:recordable? true}`: only the recordable grade arms the throwing guard.)
+- **Recordable coeffect** — the exception to "always the same trace," and the one place the grade of the input decides what its schema does. A [coeffect](../glossary.md#coeffect) injected `{:recordable? true}` is saved verbatim so the cascade [replays](../glossary.md#time-travel) identically from it; an *ambient* one is read live and never recorded — the [two grades live in Effects & Coeffects](../concepts/effects-and-coeffects.md). Because that saved value is data the replay machinery depends on, a recordable coeffect's schema is validated as the value folds in — and there a mismatch is a **production hard error** — it emits `:rf.error/cofx-value-invalid` and **throws**, halting the cascade. (That's why the example above is `{:recordable? true}`: only the recordable grade arms the throwing guard; an ambient supplier's `:schema` is a dev-only advisory like every other check.)
 
 > **Gotcha — cofx is the asymmetric one.** Every other `:schema` on this page is a dev-only advisory that vanishes in production. The recordable-coeffect check is the lone real, production, throwing guard — because it protects the recorded values your app would later replay from. Folding an out-of-contract value into that saved record means a future replay reconstructs corrupt state, so the framework refuses it on the spot, in production too. If you see `:rf.error/cofx-value-invalid` in a production trace, that's working as designed: the framework declined to record a value that would have poisoned a replay.
 
 And one more surface, if you use [machines](../concepts/machines.md). A machine's working memory — its `:data` slot — takes a schema too, declared at `[:schemas :data]` on the machine spec rather than via `reg-app-schema` (the snapshot lives in [runtime-db](../glossary.md#runtime-db), not app-db, so it's the machine that owns the shape). The runtime checks it after every transition and at boot, and a mismatch rolls the whole macrostep back exactly like an `app-db` failure — reported as `:where :machine-data`. You'll see that surface named in the trace's `:where` tag below; the full treatment lives in the machines guide.
 
 ```clojure
-(rf/reg-machine :drawer/editor
+(rf/reg-machine :article/editor
   {:initial     :idle
-   :data        {:circles []}
-   :schemas     {:data [:map [:circles [:vector Circle]]]}   ;; validates :data
+   :data        {:tags []}
+   :schemas     {:data [:map [:tags [:vector :string]]]}   ;; validates :data
    :states      {...}})
 ```
 
