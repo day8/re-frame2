@@ -1,33 +1,33 @@
 # Events and the cascade
 
-A click happened. Now what? Between the user's finger leaving the button and the screen showing a new number, six things happen. They run in order, every time, and none of them is magic. This page slows one click down so you can see each step. It also answers a question every architecture has to answer somewhere: how does a handler — the function that decides what an event means — do something impure, like fetch from a server, without giving up the purity that made it testable?
+A click happened. Now what? Between the user's finger leaving the button and the screen showing a new number, six things happen. They run in order, every time, and none of them is magic. This page slows one click down so you can watch each step go by. It also answers a question every architecture has to answer somewhere: how does a handler — the function that decides what an event *means* — do something impure, like fetch from a server, without giving up the purity that made it testable in the first place?
 
-We'll build up gently: first what an event *is*, then one click in slow motion, then the moment a handler needs to reach outside the app — and the single move re-frame2 makes to keep that reach honest.
+We'll build up gently: first what an [event](../glossary.md#event) *is*, then one click in slow motion, then the moment a handler needs to reach outside the app — and the single move re-frame2 makes to keep that reach honest.
 
-> **Coming from Redux?** You already have the skeleton. An **event** is an action. A **handler** is a reducer. **app-db**, your app's single state map, is the store. Three deliberate differences earn their keep, and this page walks each one: (1) there is no middleware layer — side effects come out of the handler *as data* and the runtime performs them (no thunks, no sagas, no `applyMiddleware`); (2) the dispatch queue drains to completion before the view renders, so the UI paints settled states, never intermediate ones; (3) the action log is not a devtools add-on — the dev runtime records every event natively, so the "replayable history" promise at the heart of this page is checkable, not aspirational.
+> **Coming from Redux?** You already have the skeleton. An [event](../glossary.md#event) is an action. An [event handler](../glossary.md#event-handler) is a reducer. [app-db](../glossary.md#app-db), your app's single state map, is the store. Three deliberate differences earn their keep, and this page walks each one: (1) there is no middleware layer — side effects come out of the handler *as data* and the runtime performs them (no thunks, no sagas, no `applyMiddleware`); (2) the dispatch queue drains to completion before the view renders, so the UI paints settled states, never intermediate ones; (3) the action log is not a devtools add-on — the dev runtime records every event natively, so the "replayable history" promise at the heart of this page is checkable, not aspirational.
 
 !!! note "Production builds drop the recording"
 
-    Production builds elide the recording machinery entirely. The replayability promise itself holds either way — it's a property of the architecture, not of the dev tooling.
+    Production builds [elide](../glossary.md#elide) the recording machinery to zero code. The replayability promise itself holds either way — it's a property of the architecture, not of the dev tooling.
 
 ## An event is a fact
 
-An event — a value announcing that something happened — is a plain data vector: a keyword id, then any arguments.
+An [event](../glossary.md#event) — a value announcing that something happened — is a plain data vector: a keyword id, then any arguments.
 
 ```clojure
 [:counter/inc]
 [:article/load {:slug "how-it-works"}]
 ```
 
-That's the whole thing. Not a function call. Not a callback. Not an object with methods. It's a value you could print, store, or send over a wire. The verb matches the shape: `dispatch`, the call that puts an event on the queue, announces that something happened and then returns immediately.
+That's the whole thing. Not a function call. Not a callback. Not an object with methods. It's a value you could print, store, or send over a wire. The verb matches the shape: [`dispatch`](../glossary.md#dispatch), the call that puts an event on the queue, announces that something happened and then returns immediately.
 
 ```clojure
 [:button {:on-click #(rf/dispatch [:counter/inc])} "+"]
 ```
 
-When the click handler returns, **nothing has happened yet**. No state changed. No handler ran. The event joined a queue, and the click handler's job is over.
+When the click handler returns, **nothing has happened yet**. No state changed. No event handler ran. The event joined a queue, and the click handler's job is over.
 
-This is the first load-bearing idea, and it's the one that trips people up coming from imperative event handlers: an event is a declaration of what happened, not an instruction packet. The button doesn't know how the counter works or what effects might fire. It records the fact "the user asked to increment" and walks away. The handler, registered elsewhere under that id, decides what the fact means. And because events are inert data, you can log them, assert on them in tests, replay them into a fresh app, and view them in an inspector. The rest of this page leans on all four.
+This is the first load-bearing idea, and it's the one that trips people up coming from imperative event handlers: an event is a declaration of *what happened*, not an instruction packet. The button doesn't know how the counter works or what effects might fire. It records the fact "the user asked to increment" and walks away. The [event handler](../glossary.md#event-handler), registered elsewhere under that id, decides what the fact means. And because events are inert data, you can log them, assert on them in tests, replay them into a fresh app, and view them in an inspector. The rest of this page leans on all four.
 
 > **For JavaScript developers.** A DOM `on-click` usually *does* the work — mutate state, kick off a fetch, maybe both. Here the `on-click` does exactly one thing: it hands a value to `dispatch` and returns. Think of it less like calling a function and more like posting a message to a queue. Whatever the increment *means* lives somewhere else entirely, and the button neither knows nor cares.
 
@@ -37,7 +37,7 @@ This is the first load-bearing idea, and it's the one that trips people up comin
 
 [The model](index.md) names the six dominoes that every event knocks over. Here we watch one click fall through all of them. The setup is the counter from the [quick start](../quickstart.md): app-db is `{:counter/value 5}`, the screen shows `[-] 5 [+]`, and the user clicks `+`.
 
-**1 — Dispatch.** The button's `on-click` runs `(rf/dispatch [:counter/inc])`. The vector goes onto the runtime's queue. `dispatch` returns. The browser's event loop is free again.
+**1 — Dispatch.** The button's `on-click` runs `(rf/dispatch [:counter/inc])`. The vector goes onto the [frame](../glossary.md#frame)'s queue. `dispatch` returns. The browser's event loop is free again.
 
 **2 — The handler runs.** The runtime dequeues `[:counter/inc]` and looks up its registered handler:
 
@@ -46,11 +46,11 @@ This is the first load-bearing idea, and it's the one that trips people up comin
   (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 ```
 
-It runs as a pure function: the coeffects (the facts it's handed — `:db` among them) and the event in, an **effect map** out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../how-to/test-an-event-handler.md) is exactly this).
+It runs as a pure function: the [coeffects](../glossary.md#coeffect) (the facts it's handed — `:db` among them) and the event in, an [effect map](../glossary.md#effect-map) out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../how-to/test-an-event-handler.md) is exactly this).
 
-> **New to Clojure?** A few bits of syntax to read that handler. The first argument `{:keys [db]}` is *destructuring* — it pulls the `:db` entry out of the incoming coeffects map and binds it to a local named `db`, so you don't write `(:db cofx)` by hand. The second argument is named `_event`: a leading underscore is the Clojure convention for "an argument I'm required to accept but don't use here." And `(update db :counter/value inc)` returns a *new* map, a copy of `db` with `:counter/value` run through `inc` (increment) — it never mutates the original. Returning a fresh value rather than editing in place is the move that keeps the handler pure.
+> **New to Clojure?** A few bits of syntax to read that handler. The first argument `{:keys [db]}` is *destructuring* — it pulls the `:db` entry out of the incoming coeffects map and binds it to a local named `db`, so you don't write `(:db cofx)` by hand. The second argument is named `_event`: a leading underscore is the Clojure convention for "an argument I'm required to accept but don't use here." And `(update db :counter/value inc)` returns a *new* map — a copy of `db` with `:counter/value` run through `inc` (increment) — it never mutates the original. Returning a fresh value rather than editing in place is the move that keeps the handler pure.
 
-**3 — Effects come out, as data.** The handler returned an **effect map** — a description of what should happen, expressed as data:
+**3 — Effects come out, as data.** The handler returned an [effect map](../glossary.md#effect-map) — a description of what should happen, expressed as data:
 
 ```clojure
 {:db {:counter/value 6}}
@@ -58,9 +58,9 @@ It runs as a pure function: the coeffects (the facts it's handed — `:db` among
 
 Pause here, because it reframes what a handler is. Even our trivially pure handler caused a side effect: somebody has to swap app-db. The trick is that the handler *described* the change and the runtime *performed* it. Read the map as *"the next state, and anything else to do."* The "anything else" rides in an `:fx` vector of `[effect-id args]` rows — an HTTP request, a navigation, a follow-up dispatch. The counter's map has only `:db`, so there's nothing else to do; but it's the same map a handler that fires three effects returns, just with the other keys empty. One shape, no second spelling: a db update is the effect `{:db …}`, stated as plainly as every other effect.
 
-**4 — The runtime executes the effects.** It sees `:db` and swaps app-db to `{:counter/value 6}` in one atomic step, which means no observer ever sees a half-written state. If there were `:fx` rows, it would run them next, in source order, after the `:db` commit. For this click there are none.
+**4 — The runtime executes the effects.** It sees `:db` and [commits](../glossary.md#commit) app-db to `{:counter/value 6}` in one atomic step — which means no observer ever sees a half-written state. If there were `:fx` rows, it would run them next, in source order, after the `:db` commit. For this click there are none.
 
-**5 — Subscriptions recompute.** app-db changed, so the subscriptions — the derived values that watch app-db and recompute when it changes — re-run:
+**5 — Subscriptions recompute.** app-db changed, so the [subscriptions](../glossary.md#subscription) — the derived values that watch app-db and recompute when it changes — re-run:
 
 ```clojure
 (rf/reg-sub :counter/value
@@ -69,15 +69,15 @@ Pause here, because it reframes what a handler is. Even our trivially pure handl
 
 It computes `6`, which differs from its previous `5`, so everything watching it is marked for re-render. Had the value come out unchanged, nothing downstream would run at all. That economy is [the subscription graph's](subscriptions.md) whole subject.
 
-**6 — The view re-renders.** The view — the function that turns subscribed values into the markup on screen — reads its subscription with `@(rf/subscribe [:counter/value])` and re-runs. (`@` is Clojure's *deref*: a subscription is a live reference to a derived value, and `@` reads its current value. When that value changes, the view re-runs.) The view produces fresh **hiccup** — Clojure's plain-data notation for markup, where `[:button {...} "+"]` stands for a `<button>` element — now with a `6` where the `5` was. The **substrate** — the React-family renderer underneath (Reagent, UIx, or Helix) — diffs the old hiccup against the new and patches just that one DOM node. The screen shows `6`.
+**6 — The view re-renders.** The [view](../glossary.md#view) — the function that turns subscribed values into the markup on screen — reads its subscription with `@(rf/subscribe [:counter/value])` and re-runs. (`@` is Clojure's *deref*: a subscription is a live reference to a derived value, and `@` reads its current value. When that value changes, the view re-runs.) The view produces fresh [hiccup](../glossary.md#hiccup) — Clojure's plain-data notation for markup, where `[:button {...} "+"]` stands for a `<button>` element — now with a `6` where the `5` was. The [substrate](../glossary.md#substrate) — the React-family renderer underneath (Reagent, UIx, or Helix) — diffs the old hiccup against the new and patches just that one DOM node. The screen shows `6`.
 
 One event, six steps. The same path runs under every event your app will ever process: a login, a websocket message, a route change. The machine doesn't grow new paths as the app grows. You just register more handlers.
 
-**Now watch it for real.** Run your app with Xray attached ([Debug with Xray](../how-to/debug-with-xray.md)) and click `+` a few times. Each click appears as one event row: the event vector, the handler that ran, app-db before and after, what recomputed. That's not a log statement someone remembered to add. It's the runtime's own record of the cascade, and every claim on this page is checkable against it.
+**Now watch it for real.** Run your app with [Xray](../glossary.md#xray) attached ([Debug with Xray](../how-to/debug-with-xray.md)) and click `+` a few times. Each click appears as one event row: the event vector, the handler that ran, app-db before and after, what recomputed. That's not a log statement someone remembered to add. It's the runtime's own record of the cascade, and every claim on this page is checkable against it.
 
 !!! note "The record is a dev-build surface"
 
-    Production builds elide the whole recording machinery to zero code. [Observability](observability.md) covers that split.
+    Production builds [elide](../glossary.md#elide) the whole recording machinery to zero code. [Observability](observability.md) covers that split — and which streams (the always-on `:errors` and `:events`) survive it.
 
 ## The temptation to do it inline
 
@@ -95,19 +95,17 @@ Real apps reach outside themselves: servers, storage, timers. The counter never 
     {:db (assoc db :article/loading? true)}))
 ```
 
-This fails three ways, and the failures are the reasons for the architecture, not style points:
+This fails three ways, and the failures *are* the reasons for the architecture — not style points:
 
 - **The handler isn't pure anymore.** It calls `js/fetch`. Testing it now means mocking the network. You took the most testable function in the codebase and made it the least.
-- **The async path is a trap.** The `.then` callback fires after the handler returned. The `db` it closed over is the previous state, and the callback has no legal way to produce a new one. You've written a function that is half pure, half effectful, by accident.
-- **The history goes dark.** The fetch never appears in the event record. Reading the handler no longer tells you what the app will look like when the response lands. Replaying the app's events no longer reproduces its state. The inline fetch is a side effect the ledger never recorded — and the ledger, as a later section shows, is the asset this framework most refuses to give up.
+- **The async path is a trap.** The `.then` callback fires *after* the handler returned. The `db` it closed over is the previous state, and the callback has no legal way to produce a new one. You've written a function that is half pure, half effectful, by accident.
+- **The history goes dark.** The fetch never appears in the event record. Reading the handler no longer tells you what the app will look like when the response lands. Replaying the app's events no longer reproduces its state. The inline fetch is a side effect the [ledger](#the-ledger) never recorded — and the ledger, as a later section shows, is the asset this framework most refuses to give up.
 
-!!! warning "Never call `js/fetch` (or any I/O) from a handler body"
-
-    A handler that performs I/O directly stops being pure, captures a stale `db` in its async callback, and vanishes from the event record. The next section shows the pure rewrite; the rule is: describe the effect, don't perform it.
+> **Gotcha — never call `js/fetch` (or any I/O) from a handler body.** A handler that performs I/O directly stops being pure, captures a stale `db` in its async callback, and vanishes from the event record. The next section shows the pure rewrite. The rule is one line: *describe the effect, don't perform it.*
 
 ## Effects are data
 
-Here is the same load, written so the handler stays pure. An effect, here, is a description of something the runtime should do to the outside world:
+Here is the same load, written so the handler stays pure. An [effect](../glossary.md#effect), here, is a description of something the runtime should do to the outside world:
 
 ```clojure
 ;; cf. examples/reagent/realworld/articles.cljs
@@ -139,11 +137,11 @@ Here is the same load, written so the handler stays pure. An effect, here, is a 
 
 (One more piece of syntax in those last two handlers: `(-> db (assoc :a 1) (assoc :b 2))` is the *thread-first* macro. It reads top-to-bottom — take `db`, hand it to the first `assoc`, hand *that* result to the next — so it's a pipeline of "return a copy of the map with this key set," each step feeding the next. Same purity rule as before: every `assoc` produces a new map; nothing is mutated.)
 
-The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a managed HTTP request, on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` effect handler, and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
+The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a [managed HTTP request](../glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
 
-The runtime appends one uniform **reply map** as the event's last argument. On success it carries `{:kind :success :value <decoded-body>}`; on failure `{:kind :failure :failure <failure-map>}`, where that inner `:failure` map carries its own `:kind` naming the failure category. So a success handler reaches for `:value`, a failure handler for `:failure`. Every managed async surface (HTTP, resources, route loaders, machine work) replies in that one shape, so you learn it once.
+The runtime appends one uniform [reply map](../glossary.md#reply-map) as the event's last argument. On success it carries `{:kind :success :value <decoded-body>}`; on failure `{:kind :failure :failure <failure-map>}`, where that inner `:failure` map carries its own `:kind` naming the failure category. So a success handler reaches for `:value`, a failure handler for `:failure`. Every managed async surface (HTTP, [resources](server-state.md), route loaders, machine work) replies in [that one shape](../glossary.md#the-uniform-reply), so you learn it once.
 
-Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a name instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
+Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a *name* instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 
 > **Coming from Redux?** The `:fx` vector is where thunks, sagas, and middleware used to live — except the handler stays a pure function returning data, and the "middleware" is the runtime's effect interpreter. The async reply doesn't resolve a promise the reducer is awaiting; it arrives as a brand-new action dispatched onto the same queue.
 
@@ -154,7 +152,7 @@ The `:rf.http/managed` effect takes a single args map. Beyond the four keys abov
 | Key | Default | What it does |
 |---|---|---|
 | `:request` | — | The request itself: `:method`, `:url`, and optionally `:headers`, `:body`, `:query-params`. |
-| `:decode` | `:auto` | How to parse the 2xx body: a Malli schema, a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Leaving it off (`:auto` sniffs the content-type) is normal, supported, stable usage. |
+| `:decode` | `:auto` | How to parse the 2xx body: a Malli [schema](../glossary.md#schema), a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Leaving it off (`:auto` sniffs the content-type) is normal, supported, stable usage. |
 | `:on-success` | the originating event id | Where the success reply dispatches. |
 | `:on-failure` | the originating event id | Where the failure reply dispatches. `nil` swallows the failure silently. |
 
@@ -164,12 +162,12 @@ The full reference card — every slot, its default, and which failure category 
 
 Two notes before moving on:
 
-- **The first argument is the coeffects map** — a coeffect being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [the coeffects page's](effects-and-coeffects.md) subject.
-- **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: describe, don't do.
+- **The first argument is the coeffects map** — a [coeffect](../glossary.md#coeffect) being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [the coeffects page's](effects-and-coeffects.md) subject.
+- **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: *describe, don't do.*
 
-> **From re-frame v1.** The shape is the same — effect map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered interceptors referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
+> **From re-frame v1.** The shape is the same — effect map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered [interceptors](../glossary.md#interceptor) referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
 
-> **An optional middle slot.** `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [audit-trace]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered interceptors (analytics, validation, logging) that wrap the handler. Two things to know. First, the chain *must* live under `:interceptors` — a bare interceptor or a loose positional vector in that slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Second, you author interceptors with [`reg-interceptor`](../../../spec/001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and reference them by id — they're the home for the cross-cutting "wrap every handler" work that, in Redux, you'd write as middleware.
+> **An optional middle slot.** `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [audit-trace]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered [interceptors](../glossary.md#interceptor) (analytics, validation, logging) that wrap the handler. Two things to know. First, the chain *must* live under `:interceptors` — a bare interceptor or a loose positional vector in that slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Second, you author interceptors with [`reg-interceptor`](../../../spec/001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and reference them by id — they're the home for the cross-cutting "wrap every handler" work that, in Redux, you'd write as middleware.
 
 ## The shape of an effect map
 
@@ -178,7 +176,7 @@ The handler's return value is a small, **closed** map: app handlers populate exa
 - **`:db`** — the next app-db value. Omit it and app-db is left untouched (a handler that only fires async effects legitimately returns `{:fx [...]}` with no `:db`).
 - **`:fx`** — a vector of `[effect-id args]` rows, run in source order after the `:db` commit.
 
-That's the whole vocabulary an app handler returns. (There is a third, reserved key — `:rf.db/runtime` — but it's the framework's, for runtime-extension authority; ordinary handlers never emit it.) Anything that isn't a `:db` swap is an `:fx` row, and the runtime ships a handful of standard effect-ids you'll use constantly:
+That's the whole vocabulary an app handler returns. (There is a third, reserved key — `:rf.db/runtime` — but it's the framework's, for runtime-extension authority; ordinary handlers never emit it, and an *unrecognised* key [fails loud](../glossary.md#fail-loud-not-silent) rather than vanishing into a no-op.) Anything that isn't a `:db` swap is an `:fx` row, and the runtime ships a handful of standard effect-ids you'll use constantly:
 
 | `:fx` row | What it does |
 |---|---|
@@ -204,34 +202,34 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold, 
 
 ## The ledger
 
-Here's a reframing that reorganises how you think about the whole app, once it clicks. The reflex picture of state is a whiteboard: there's a current drawing, each event erases a bit and draws something new, and the old drawing is gone. The right picture is a **ledger**: each event is a line appended to the lines before it, and the app-db you see at any moment is the running total. It's the result of starting from the initial state and applying every event since, in order. Step 2 of the cascade isn't "erase and redraw." It's "add the next line and re-total."
+Here's a reframing that reorganises how you think about the whole app, once it clicks. The reflex picture of state is a whiteboard: there's a current drawing, each event erases a bit and draws something new, and the old drawing is gone. The right picture is a **ledger**: each event is a line appended to the lines before it, and the app-db you see at any moment is the running total — the result of starting from the initial state and applying every event since, in order. Step 2 of the cascade isn't "erase and redraw." It's "add the next line and re-total."
 
 That picture comes with a promise precise enough to test:
 
 > **Two fresh apps, fed the same sequence of events, finish in identical states.** Start two copies from the same initial app-db, replay the same event log into each, and they land on the same value. The events *are* the state; the current app-db carries no information the log didn't put there.
 
-The promise has one precondition: handlers must be honest about their inputs. A handler that secretly reads the clock or mints a random id mid-fold smuggles in a value the ledger never recorded, and replay diverges. re-frame2 closes that hole structurally. World facts enter handlers as **recordable coeffects**, declared at registration and recorded with the event, so replay re-presents the very values the original run consumed. [Effects and coeffects](effects-and-coeffects.md) is the full story. The rule of thumb is: durable state folds facts, never reads.
+The promise has one precondition: handlers must be honest about their inputs. A handler that secretly reads the clock or mints a random id mid-fold smuggles in a value the ledger never recorded, and replay diverges. re-frame2 closes that hole structurally. World facts enter handlers as [recordable coeffects](../glossary.md#recordable-vs-ambient-coeffects), declared at registration and recorded with the event, so replay re-presents the very values the original run consumed. [Effects and coeffects](effects-and-coeffects.md) is the full story. The rule of thumb is: *durable state folds facts, never reads.*
 
 Hold the promise and a cluster of features stops looking like separate tricks:
 
-- **Time travel is re-totalling fewer lines.** "Go back five events" isn't an undo system reversing five mutations — there were no mutations. It's the sum up to line *n−5*, recomputed on demand.
+- **[Time travel](../glossary.md#time-travel) is re-totalling fewer lines.** "Go back five events" isn't an undo system reversing five mutations — there were no mutations. It's the sum up to line *n−5*, recomputed on demand.
 - **A bug report is a ledger excerpt.** "It broke after I did these things" becomes the literal event list that produces the bad state — in a fresh app, on demand, as a regression test ([Test a full cascade](../how-to/test-a-cascade.md)).
-- **Xray's event rows *are* the ledger, drawn.** The inspector showing "every event, in order, with app-db after each" isn't building a clever visualisation — it's rendering the record the runtime keeps anyway.
+- **Xray's event rows *are* the ledger, drawn.** The inspector showing "every event, in order, with app-db after each" isn't building a clever visualisation — it's rendering the [epoch](../glossary.md#epoch) record the runtime keeps anyway.
 
 > **Going deeper.** The whole app is a **left fold** — Clojure's `reduce` — over the event stream: a step function `state' = step(state, event)` applied once per event, each result threaded into the next call. Your handlers are the step function; the runtime is the `reduce`; "two apps, same events, same state" is just the observation that `reduce` is deterministic when its step function is pure. Everything else on this page is a consequence of that one algebraic fact: time travel is partial sums, a bug report is an input slice, and recordable coeffects are the rule that keeps the step function honest so the fold stays deterministic.
 
 ## Run to completion
 
-One scheduling rule deserves a hard stop, because most frameworks choose the other way. When the runtime starts processing events, it **drains the queue to completion** before any view re-renders. The dequeued event runs its full cascade. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the render boundary arrive. This is the dispatch semantics, not a mode; there is no opt-out. (The normative drain contract lives in [the frames spec](../../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics).)
+One scheduling rule deserves a hard stop, because most frameworks choose the other way. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full cascade. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the render boundary arrive. This is the dispatch semantics, not a mode; there is no opt-out. (The normative drain contract lives in [the frames spec](../../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics).)
 
 What it buys is coherence. If submitting a form dispatches three follow-up events, the view does not glimpse the state after each one. It sees one settled state, once. Either the form is submitting or it's failed, never both in one paint. The flicker-of-intermediate-state bug, familiar from systems where any update can interleave with any render, is structurally absent.
 
 Two precise details, both visible in Xray:
 
-- **Each dequeued event is its own epoch.** A parent event and the child it `:fx`-dispatched are *two* entries in the record — two event rows, each with its own handler run and its own before/after state — even though they settled inside one drain and produced one paint. The record stays per-event; the rendering stays per-drain.
+- **Each dequeued event is its own [epoch](../glossary.md#epoch).** A parent event and the child it `:fx`-dispatched are *two* entries in the record — two event rows, each with its own handler run and its own before/after state — even though they settled inside one drain and produced one paint. The record stays per-event; the rendering stays per-drain.
 - **Async effects are not drained.** An HTTP request fired during the drain doesn't hold anything open; its reply arrives later as a fresh event and starts a fresh drain. "Run to completion" bounds the synchronous cascade, not the outside world.
 
-Strictly, the drain is per **frame** — an isolated world with its own app-db and its own queue, and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
+Strictly, the drain is per [**frame**](../glossary.md#frame) — an isolated world with its own app-db and its own queue, and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
 
 > **For JavaScript developers.** React batches state updates within an event handler and paints once at the end — run-to-completion is that idea taken all the way: the batch boundary is the *entire* settled cascade, not one handler. You never need `flushSync`, and you never catch the UI mid-update, because no render can interleave with the queue draining.
 
@@ -239,19 +237,23 @@ Strictly, the drain is per **frame** — an isolated world with its own app-db a
 
 ### When the cascade won't stop
 
-Run-to-completion is unconditional, which raises an obvious question: what if a handler dispatches an event whose handler dispatches the first one again? An infinite cascade would spin the drain forever. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain exceeds it, the runtime stops with a loud, machine-readable error:
+Run-to-completion is unconditional, which raises an obvious question: what if a handler dispatches an event whose handler dispatches the first one again? An infinite cascade would spin the drain forever. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](../glossary.md#error-record):
 
 ```clojure
-{:reason :drain-depth-exceeded :frame :main :event [:the-event-that-tripped-it] :depth 100}
+{:operation  :rf.error/drain-depth-exceeded
+ :frame      :main
+ :depth      100                       ; events already settled this drain
+ :queue-size 7                         ; events dropped, unrun
+ :last-event [:the-event-that-tripped-it]}
 ```
 
-The important part is what survives. Atomicity in re-frame2 is per **event**, not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent. (The exact halt contract: [002 §Run-to-completion](../../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics).)
+The important part is what survives. Atomicity in re-frame2 is per [**event**](../glossary.md#commit), not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent. (The exact halt contract: [002 §Run-to-completion](../../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics).)
 
 > **The bound is per-frame and tunable.** Test and story frames set a tighter `:drain-depth` (so a runaway cascade fails fast rather than spinning to the production limit); you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
 
 ### Dispatching from outside the cascade
 
-One more entry point completes the picture. Inside a handler, you never call `dispatch` directly — you return `:fx [[:dispatch ...]]` and let the runtime queue it. But *outside* any handler — at app startup, in a test, at the REPL — there's nothing to return effects to. That's what **`dispatch-sync`** is for:
+One more entry point completes the picture. Inside a handler, you never call `dispatch` directly — you return `:fx [[:dispatch ...]]` and let the runtime queue it. But *outside* any handler — at app startup, in a test, at the REPL — there's nothing to return effects to. That's what [**`dispatch-sync`**](../glossary.md#dispatch-sync) is for:
 
 ```clojure
 ;; App bootstrap, or a test fixture: run the cascade to completion, synchronously.
@@ -263,4 +265,4 @@ One more entry point completes the picture. Inside a handler, you never call `di
 
 > **Gotcha — `dispatch-sync` is an *outside* call only.** Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the cascade is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`. Use `dispatch-sync` to *enter* the machine from the outside; use `:fx` `:dispatch` to chain *within* it.
 
-The trade is the framework's signature move, made for the third time on this page. Give up a little flexibility (interleaved renders, inline effects, ambient reads) and get back inspectability: a recorded, replayable, coherent history.
+The trade is the framework's signature move, made for the third time on this page. Give up a little flexibility — interleaved renders, inline effects, ambient reads — and get back inspectability: a recorded, replayable, coherent history.
