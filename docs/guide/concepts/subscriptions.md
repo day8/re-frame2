@@ -1,12 +1,12 @@
 # Subscriptions: the derivation graph
 
-**App-db stores facts; subscriptions derive conclusions.** App-db is your app's single state map, and your views never read it directly. Instead they ask, by name, for a conclusion: "the visible articles", "can this form submit?", "the current user's name". A subscription — a named, cached derivation that turns state into a value a view wants — is that question answered. Those derivations form a graph rooted at [app-db](app-db.md), with your views hanging off the leaves. The nice part is that re-frame2 recomputes only along the paths where values actually changed.
+**[App-db](../glossary.md#app-db) stores facts; subscriptions derive conclusions.** App-db is your app's single state map, and your [views](../glossary.md#view) never read it directly. Instead they ask, by name, for a conclusion — "the visible articles", "can this form submit?", "the current user's initials" — and a [subscription](../glossary.md#subscription) is that question answered: a named, cached derivation that turns state into the value a view wants. Those derivations form a graph rooted at app-db, with your views hanging off the leaves. The nice part is that re-frame2 recomputes only along the paths where values actually changed.
 
-This page builds that graph one concept at a time: a single named derivation first, then chaining derivations into a graph, then the one rule that makes it fast, then parametric inputs, metadata, testing, and lifecycle. By the end you'll be able to read a subscription's registration and know exactly when it recomputes.
+This page builds that graph one concept at a time: a single named derivation first, then chaining derivations into a graph, then the one rule that makes it fast, then parametric inputs, metadata, testing, and lifecycle. By the end you'll read a subscription's registration and know exactly when it recomputes.
 
 ## A subscription is a named derivation
 
-At bottom, a subscription is just a function from app-db to a value some view wants. That's all it is. You register it under a keyword id:
+At bottom, a subscription is just a function from app-db to a value some view wants. That's the whole idea. You register it under a keyword id:
 
 ```clojure
 (rf/reg-sub :cart/category-filter
@@ -20,14 +20,14 @@ A view reads the current value by deref-ing the subscription:
 @(rf/subscribe [:cart/category-filter])
 ```
 
-The vector `[:cart/category-filter]` is the **query vector**: the id plus any arguments. `[:cart/line-item "sku-1"]` carries one argument. The whole vector arrives as the computation function's second argument — named `_query` above, where the leading underscore is the Clojure convention for "a parameter I'm deliberately ignoring." This sub takes no arguments, so it ignores the query vector entirely.
+The vector `[:cart/category-filter]` is the [**query vector**](../glossary.md#query-vector): the id plus any arguments. `[:cart/line-item "sku-1"]` carries one argument. The whole vector arrives as the computation function's second argument — named `_query` above, where the leading underscore is the Clojure convention for "a parameter I'm deliberately ignoring." This sub takes no arguments, so it ignores the query vector entirely.
 
 That little `@` is doing two jobs at once. It unwraps the reactive reference to a plain value, and it registers the deref-ing view as a dependent, so the view re-renders when — and only when — that value changes. The view declared a dependency and walked away. It never polls, and it never listens to a store-wide "something changed" firehose.
 
 So why name a derivation this trivial instead of just writing `(:cart/category-filter db)` in the view? Two reasons, and they recur everywhere in this framework:
 
 - **Decoupling.** Where the value lives in app-db is the subscription's secret. Move it tomorrow and you change one registration, not forty views.
-- **Sharing.** Every view asking for `[:cart/category-filter]` reads the *same* cached node. The subscription cache is keyed by query vector (per [frame](frames.md) — an isolated running instance with its own app-db and subscription cache; for now, read that as "per app"), so a computation runs once per change no matter how many views consume it. Adding the forty-first reader costs nothing.
+- **Sharing.** Every view asking for `[:cart/category-filter]` reads the *same* cached node. The subscription cache is keyed by query vector (per [frame](../glossary.md#frame) — an isolated running instance with its own app-db and subscription cache; for now read that as "per app"), so a computation runs once per change no matter how many views consume it. Adding the forty-first reader costs nothing.
 
 Both reasons get stronger the moment derivations start feeding each other, which is the actual design.
 
@@ -69,11 +69,11 @@ Layer 1 reaches into the map. Everybody else reaches into layer 1, or into each 
       items)))
 ```
 
-The `:<-` arrow reads as "this sub's input comes from". Notice what changed between layers. `:cart/by-price` does **not** take `db`. It takes the already-extracted value that `:cart/items` produced. One arrow delivers that input as a bare value; two or more deliver a vector, destructured above as `[items category]`. That's the only wrinkle in the syntax, and once you've seen it once it stays put.
+The `:<-` arrow reads as "this sub's input comes from". Notice what changed between layers. `:cart/by-price` does **not** take `db`. It takes the already-extracted value that `:cart/items` produced. One arrow delivers that input as a bare value; two or more deliver a vector, destructured above as `[items category]`. That's the only wrinkle in the syntax, and once you've seen it you've seen it.
 
-Here's the part worth pausing on: the shape of the registration *is* the topology. `(fn [db _] ...)` makes an extractor by construction; `:<-` makes a composer by construction. The framework reads the registry and knows the whole graph as data. That is how [Xray](../how-to/debug-with-xray.md) can draw your subscription topology without executing a single computation function. (The tool that exposes the static graph to debuggers is `re-frame.subs.tooling/sub-topology`, a literal projection of the registry — it never runs your bodies.)
+Here's the part worth pausing on: the shape of the registration *is* the topology. `(fn [db _] ...)` makes an extractor by construction; `:<-` makes a composer by construction. The framework reads the registry and knows the whole graph as data. That is how [Xray](../glossary.md#xray) can draw your subscription topology without executing a single computation function — the static-graph projection it reads, `re-frame.subs.tooling/sub-topology`, is a literal read of the registry that never runs your bodies.
 
-> **Going deeper.** That "the registration *is* the topology" property is what lets the whole subscription layer be treated as data rather than as opaque closures. Each `:<-` edge is a static arrow in a DAG; the layer of a node is just the longest path back to app-db. Because the edges are declared rather than discovered at run time, the graph is a *value* you can analyse, draw, diff, and reason about without evaluation — the same move that makes [flows, resources, route facts, and machine selectors](../derivations-and-algebra-views.md) compose on one shared graph with one shared algebra. The whole derivation family is one essay; this page is the subscriptions-shaped slice of it.
+> **Going deeper.** That "the registration *is* the topology" property is what lets the whole subscription layer be treated as data rather than as opaque closures. Each `:<-` edge is a static arrow in a DAG; the layer of a node is just the longest path back to app-db. Because the edges are declared rather than discovered at run time, the graph is a *value* you can analyse, draw, diff, and reason about without evaluation — the same move that makes [flows, resources, route facts, and machine selectors](../glossary.md#the-derivation-graph) compose on one shared graph with one shared algebra. The whole derivation family is one essay; this page is the subscriptions-shaped slice of it.
 
 ## The equality gate
 
@@ -81,15 +81,15 @@ I said the graph is fast without tuning. Here is the entire mechanism, one rule:
 
 > **A subscription's cached value is invalidated only when one of its inputs actually changes value — checked with `=`, deep value equality.**
 
-When app-db changes, the layer-1 extractors re-run. They read app-db, so every change makes them re-check. Then each extractor's new output is compared with its previous output by `=`. If the slice didn't change, the cached value stands and **propagation stops right there**. Downstream layer-2 subs don't re-run, views don't re-render, and nothing past the unchanged extractor even learns that an event happened.
+When app-db changes, the layer-1 extractors re-run. They read app-db, so every change makes them re-check. Then each extractor's new output is compared with its previous output by `=`. If the slice didn't change, the cached value stands and **propagation stops right there**. Downstream layer-2 subs don't re-run, views don't re-render, and nothing past the unchanged extractor even learns that an [event](../glossary.md#event) happened.
 
-That makes layer 1 a **circuit breaker** for everything behind it. Change `:cart/category-filter` and the `:cart/items` extractor re-runs, sees its slice is `=` to last time, and shuts the gate — so the sort in `:cart/by-price` never executes. The same gate sits at every node. A layer-2 sub that recomputes but produces an `=` result stops propagation to *its* dependents too. You wrote zero `memo` and zero dependency arrays; you declared what each sub reads and got memoisation at every node for free. It works in reverse, too: a no-op write — a handler that assocs a key to the value it already has — produces an app-db that is `=` to the old one, so *nothing* recomputes anywhere. You cannot cause a render storm by writing state that didn't change.
+That makes layer 1 a **circuit breaker** for everything behind it. Change `:cart/category-filter` and the `:cart/items` extractor re-runs, sees its slice is `=` to last time, and shuts the gate — so the sort in `:cart/by-price` never executes. The same gate sits at every node: a layer-2 sub that recomputes but produces an `=` result stops propagation to *its* dependents too. You wrote zero `memo` and zero dependency arrays; you declared what each sub reads and got memoisation at every node for free. It works in reverse, too. A no-op write — a handler that assocs a key to the value it already holds — produces an app-db that is `=` to the old one, so *nothing* recomputes anywhere. You cannot cause a render storm by writing state that didn't change.
 
 > **Coming from Redux?** In Reselect you carry the memoisation discipline yourself: a selector memoises on *reference* identity, so the moment a reducer returns a freshly-allocated array that's element-wise identical to the old one, every downstream selector and component recomputes anyway. The fix is to never allocate unless something changed — a rule you must hold in your head at every reducer. re-frame2 compares by value (`=`), so that whole category of "I accidentally busted the memo" bug doesn't exist. Equal values are equal, however they were allocated.
 
 One practical rule falls out of all this, and it's the one to carry away:
 
-> **Keep extractors tiny — put the work in layer 2.** Extractors run on every app-db change. They're the circuit breakers, so they must fire to decide whether to propagate, which means an extractor must be cheap: a `get`, a `get-in`, nothing more. Put a `sort-by` inside an extractor and that sort runs on every keystroke in every unrelated form — you've placed expensive work *before* the gate instead of behind it. Move it into a `:<-` sub and it runs only when the extracted slice actually changes. Same code, dramatically less work. And when a view is mysteriously slow, "is there computation in a layer-1 sub?" is the first question [Find and fix a slow view](../how-to/fix-a-slow-view.md) asks.
+> **Keep extractors tiny — put the work in layer 2.** Extractors run on every app-db change. They're the circuit breakers, so they must fire to decide whether to propagate, which means an extractor has to be cheap: a `get`, a `get-in`, nothing more. Put a `sort-by` inside an extractor and that sort runs on every keystroke in every unrelated form — you've placed expensive work *before* the gate instead of behind it. Move it into a `:<-` sub and it runs only when the extracted slice actually changes. Same code, dramatically less work. And when a view is mysteriously slow, "is there computation in a layer-1 sub?" is the first question [Find and fix a slow view](../how-to/fix-a-slow-view.md) asks.
 
 The gate scales further than you'd guess. The [Cells spreadsheet example](../../../examples/reagent/seven_guis/cells/) derives 2,600 mounted cell values from one shared input sub. The `=` check on each result means only cells whose displayed value genuinely changed re-render: correct propagation with no hand-maintained dependency edges at all.
 
@@ -97,7 +97,7 @@ The gate scales further than you'd guess. The [Cells spreadsheet example](../../
 
 Reading about a circuit breaker is one thing; watching one branch stay silent while its neighbour fires is better. Drop this into your app. It's self-contained: two independent app-db slices, one extractor and one derivation per branch, one view reading both.
 
-A few names appear in the code below that this is the first page to use, so here they are in one breath. An **event** is an inert data vector you `dispatch` to change state; a **`reg-event`** registers the event handler — the function that processes that event and returns the next app-db. **`reg-view`** registers a view, and injects the frame-aware `dispatch` and `subscribe` locals its body calls (that's why they appear unqualified inside the `reg-view` body — [Views](views.md) tells that story). None of these are the subject of this page; they're just the scaffolding that lets you watch the gate work.
+A few names appear below that this is the first concept page to use, so here they are in one breath. An [event](../glossary.md#event) is an inert data vector you [`dispatch`](../glossary.md#dispatch) to change state; [`reg-event`](../glossary.md#event-handler) registers the [event handler](../glossary.md#event-handler) that processes it and returns the next app-db. [`reg-view`](../glossary.md#view) registers a view and injects the frame-aware `dispatch` and `subscribe` locals its body calls (that's why they appear unqualified inside the `reg-view` body — [Views](views.md) tells that story). None of these are the subject of this page; they're the scaffolding that lets you watch the gate work.
 
 ```clojure
 (rf/reg-event :cart/initialise
@@ -166,9 +166,9 @@ The input function answers *what does this sub depend on?* Here, three subscript
 
 The choice between the two forms is sharp: **use `:<-` for static inputs; reach for an input function only when the upstream query vectors need values from the outer query vector.** `:<-` is exactly a constant input function with the boilerplate removed, and its edges are statically drawable. The two-function form trades that for parametricity, so spend it only where you need it.
 
-A few things keep this form predictable. The first one trips people up, so it leads:
+A few things keep this form predictable. The first trips people up, so it leads:
 
-> **Gotcha.** The input function returns query vectors — plain data — never live subscriptions. It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape errors loudly rather than guessing; the full return grammar and error ids live in the [API reference](../../../spec/API.md#reg-sub-input-production-modes).
+> **Gotcha — the input function returns *data*, not live subs.** It returns query vectors, never `subscribe` calls. It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape fails loud rather than guessing; the full return grammar and error ids live in the [API reference](../../../spec/API.md#reg-sub-input-production-modes).
 
 The other two predictability rules are gentler:
 
@@ -203,7 +203,7 @@ This is the one corner of `reg-sub` with a strict shape, so it's worth seeing th
 {:article [:article/by-id id]}             ;; a map
 ```
 
-These aren't silent coercions — they fail loudly so a typo can't quietly produce the wrong dependency edges:
+These aren't silent coercions — they [fail loud](../glossary.md#fail-loud-not-silent) so a typo can't quietly produce the wrong dependency edges:
 
 - A **malformed registration shape** (e.g. a stray non-fn in the tail) is caught at `reg-sub` time and signals `:rf.error/reg-sub-bad-args`. It's a programming error to fix, surfaced at registration rather than first use.
 - A **bad return value** from the input function signals `:rf.error/sub-input-fn-bad-return` when the concrete subscription is first materialised.
@@ -230,10 +230,10 @@ Any `reg-sub` may carry an optional **metadata map** immediately after the id, b
 The keys you'll reach for:
 
 - **`:doc`** — a human-readable description. It's structurally optional, but the dev build *warns* when a registration omits it, because tools (Xray's sub list, the topology view) surface it. Treat it as a SHOULD.
-- **`:schema`** — a [Malli](https://github.com/metosin/malli) schema (or your implementation's equivalent) describing the sub's **output**. When present, the runtime validates the computed value against it at the `:sub-return` validation boundary — a fail-loud guard that catches a derivation that's quietly producing the wrong shape, long before a view chokes on it. (`:schema` is the canonical key; the v1 `:spec` was renamed.) The full schema-everywhere story is in [Validate with schemas](../how-to/validate-with-schemas.md).
+- **`:schema`** — a [Malli](https://github.com/metosin/malli) [schema](../glossary.md#schema) (or your implementation's equivalent) describing the sub's **output**. When present, the runtime validates the computed value against it at the `:sub-return` validation boundary — a fail-loud guard that catches a derivation quietly producing the wrong shape, long before a view chokes on it. (`:schema` is the canonical key; the v1 `:spec` was renamed.) The full schema-everywhere story is in [Validate with schemas](../how-to/validate-with-schemas.md).
 - **`:tags`** — a set of keywords for your own grouping and tooling.
 
-There are two metadata keys specific to subscriptions, both from the data-classification model ([EP-0025](../../../spec/015-Data-Classification.md)). They classify the sub's **own output** so the observability pipeline knows what to redact or summarise when it captures a value into a trace:
+Two metadata keys are specific to subscriptions, both from the [data-classification](../glossary.md#data-classification) model ([EP-0025](../../../spec/015-Data-Classification.md)). They classify the sub's **own output** so the observability pipeline knows what to redact or summarise when it captures a value into a trace:
 
 - **`:sensitive`** — a vector of paths into the output shape that hold sensitive data (`[[]]` marks the whole output). A sub deriving a token, a card number, or a session secret should classify it so it's elided from traces and recordings.
 - **`:large`** — a vector of paths into the output that are big enough to summarise rather than capture verbatim (a 5,000-row table, a decoded blob).
@@ -245,13 +245,13 @@ There are two metadata keys specific to subscriptions, both from the data-classi
   (fn [db _] (:auth/token db)))
 ```
 
-> **Gotcha.** Classification doesn't propagate along the graph. A sub does **not** inherit its inputs' `:sensitive`/`:large` declarations — EP-0025 removed derived-output sensitivity propagation. If a derived value is sensitive, classify it *at the sub that produces it*. Each output path is classified where it's declared, full stop. The narrative and the keep-it-out-of-traces recipe live in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
+> **Gotcha — classification doesn't propagate.** A sub does **not** inherit its inputs' `:sensitive`/`:large` declarations — EP-0025 removed derived-output sensitivity propagation. If a derived value is sensitive, classify it *at the sub that produces it*. Each output path is classified where it's declared, full stop. The narrative and the keep-it-out-of-traces recipe live in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
 
 A malformed `:sensitive`/`:large` value is rejected at registration with `:rf.error/bad-classification` — another fail-loud guard rather than a silent drop.
 
 ## Testing a subscription without a browser
 
-Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`, you don't need a reactive runtime — or a DOM, or a browser — to test what a subscription *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It's JVM-runnable: no Reagent, no React, no installed adapter, no live cache.
+Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`, you don't need a reactive runtime — or a DOM, or a browser — to test what a subscription *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It's JVM-runnable: no Reagent, no React, no installed [adapter](../glossary.md#adapter), no live cache.
 
 ```clojure
 (deftest visible-items-honour-the-category-filter
@@ -264,7 +264,7 @@ Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`
            (mapv :sku (rf/compute-sub [:cart/visible] db))))))
 ```
 
-`compute-sub` resolves the entire input chain for you — pass it the outer query vector and a `db`, and it computes `:cart/items`, then `:cart/by-price`, then `:cart/visible`, in dependency order. It's **pure**: same `(query-v, db)` always returns the same value, with no cache carried between calls. That makes it the workhorse for sub tests and the function the conformance corpus invokes for `:sub-values` assertions.
+`compute-sub` resolves the entire input chain for you — pass it the outer query vector and a `db`, and it computes `:cart/items`, then `:cart/by-price`, then `:cart/visible`, in dependency order. It's **pure**: the same `(query-v, db)` always returns the same value, with no cache carried between calls. That makes it the workhorse for sub tests and the function the conformance corpus invokes for `:sub-values` assertions.
 
 There's a sharper, more robust variant when the `db` shape matters. Instead of hand-rolling a literal map — which silently rots when your handler-side schema evolves — drive real events through a test frame and then read the sub against the resulting db:
 
@@ -284,38 +284,38 @@ There's a sharper, more robust variant when the `db` shape matters. Instead of h
 
 ## Lifecycle: a sub exists only while something watches it
 
-A subscription node isn't a permanent fixture in the cache — it's reference-counted. When a view derefs `[:cart/visible]`, the cache materialises the node (computing the whole input chain) and bumps a ref-count. A second view sharing the same query vector bumps it again and reads the same cached value. When a view unmounts, its dependency is released, and on the **last** release — ref-count hits zero — the cache slot is disposed **synchronously, in the same tick**: the reaction is torn down, its input ref-counts are released (which can cascade disposal up the chain), and the slot is removed. A `:rf.sub/dispose` trace event marks the eviction.
+A subscription node isn't a permanent fixture in the cache — it's reference-counted. When a view derefs `[:cart/visible]`, the cache materialises the node (computing the whole input chain) and bumps a ref-count. A second view sharing the same query vector bumps it again and reads the same cached value. When a view unmounts, its dependency is released, and on the **last** release — ref-count hits zero — the cache slot is disposed **synchronously, in the same tick**: the reaction is torn down, its input ref-counts are released (which can cascade disposal up the chain), and the slot is removed. A `:rf.sub/dispose` [trace event](../glossary.md#trace-event) marks the eviction.
 
 This matters in two everyday ways:
 
 - **There's no grace-period timer.** Disposal is immediate on the 1 → 0 edge, so a sub can't be kept alive — recomputing pointlessly — across a state change that lands after its last reader has gone. (Equally: re-subscribing after disposal is a fresh cache miss that rebuilds against the registered body. Because the body and the db are the same, the recomputed value `=` what was disposed, so a remount observes no flicker.)
-- **Hot-reload and frame teardown are clean.** Re-registering a sub disposes every cached slot for that query, regardless of ref-count — the next subscribe builds against the new body. Destroying a [frame](frames.md) disposes every cached slot it owns. You get correct behaviour across a `shadow-cljs` reload without thinking about it.
+- **Hot-reload and frame teardown are clean.** Re-registering a sub disposes every cached slot for that query, regardless of ref-count — the next subscribe builds against the new body. Destroying a [frame](../glossary.md#frame) disposes every cached slot it owns. You get correct behaviour across a `shadow-cljs` reload without thinking about it.
 
 Two functions let you step outside the deref-driven lifecycle deliberately:
 
-- **`rf/subscribe-once`** — `(subscribe-once query-v)` (or `(subscribe-once frame-id query-v)`) subscribes, derefs once, and immediately unsubscribes, returning the plain value. It's a **non-reactive** read: you get the value as of right now and you are *not* registered for change notification. It's the right tool for a one-shot read inside a REPL session, a machine action, or a handler body that genuinely needs a derived value once. If you reach for it routinely from a handler, the value probably wants to be a [flow](flows.md) instead (see below).
+- **`rf/subscribe-once`** — `(subscribe-once query-v)` (or `(subscribe-once frame-id query-v)`) subscribes, derefs once, and immediately unsubscribes, returning the plain value. It's a **non-reactive** read: you get the value as of right now and you are *not* registered for change notification. It's the right tool for a one-shot read inside a REPL session, a machine action, or a handler body that genuinely needs a derived value once. If you reach for it routinely from a handler, the value probably wants to be a [flow](../glossary.md#flow) instead (see below).
 - **`rf/unsubscribe`** — `(unsubscribe query-v)` decrements the ref-count by hand, for the rare case where you took a reference programmatically and need to release it. Views never call this; their mount/unmount lifecycle does it for you.
 
 ## Standard registered subscriptions
 
 The framework registers a handful of subscriptions for you — you read subsystem state through them exactly as you'd read your own:
 
-- **`[:rf/machine <machine-id>]`** returns a [state machine](machines.md)'s snapshot `{:state :data}` (or `nil` before it's initialised). It's the canonical way to drive a view off a machine.
+- **`[:rf/machine <machine-id>]`** returns a [state machine](../glossary.md#machine)'s [snapshot](../glossary.md#snapshot) `{:state :data}` (or `nil` before it's initialised). It's the canonical way to drive a view off a machine.
 - The router publishes a family — **`:rf/route`** (the whole route slice), **`:rf.route/id`**, **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**, **`:rf.route/chain`**, and more — covered in [Routing](routing.md).
 
 These follow the [reserved-namespace convention](../../../spec/Conventions.md): anything under `:rf/…` or `:rf.<subsystem>/…` is framework-owned. Keep your own subs out of that namespace and the two never collide.
 
 ## When a subscription is the wrong tool
 
-Subscriptions are view-facing and pull-based: a node exists in the cache only while some view is watching it. That boundary is what tells you when to reach for something else.
+Subscriptions are view-facing and pull-based: a node exists in the cache only while some view is watching it. That boundary is what tells you when to reach for something else. The full decision belongs to [the four homes](../glossary.md#the-four-homes-where-state-lives) router — but here are the edges where a sub is the wrong answer:
 
 > **Reach past a subscription when…**
 >
-> - **An event handler needs the derived value.** Handlers don't subscribe — that's what [flows](flows.md) are for: derived values handlers can read. (`rf/subscribe-once` exists for a one-shot read, but if you reach for it routinely, the value wants to be a flow.)
-> - **The value comes from a server.** Subscriptions never fetch — computation functions are pure, no IO. Server-owned data belongs to [resources](server-state.md); subscriptions derive *over* the cached resource state.
-> - **The value crosses frames.** A subscription must not reach into another [frame](frames.md)'s state; frames are isolated worlds by design.
+> - **An event handler needs the derived value.** Handlers don't subscribe — that's what [flows](../glossary.md#flow) are for: derived values materialised *into* app-db, where a handler can read them as plain state. (`rf/subscribe-once` exists for a one-shot read, but if you reach for it routinely, the value wants to be a flow.)
+> - **The value comes from a server.** Subscriptions never fetch — computation functions are pure, no IO. Server-owned data belongs to [resources](../glossary.md#resource); subscriptions derive *over* the cached resource state.
+> - **The value crosses frames.** A subscription must not reach into another [frame](../glossary.md#frame)'s state; frames are isolated worlds by design.
 > - **Unsure where a value belongs at all?** [Where should this value live?](../where-state-lives.md) sorts a value into a sub, flow, resource, or machine with four questions.
 
-> **Coming from TanStack Query?** Note the split: TanStack Query gives you *one* hook (`useQuery`) that both fetches server state and derives over it. re-frame2 keeps those concerns apart — [resources](server-state.md) own the fetch-cache-invalidate lifecycle for server-owned data, and subscriptions are the pure derivation layer that computes *over* whatever's already in app-db (resource state included). When you want to fetch, that's a resource; when you want to shape what's already there, that's a sub.
+> **Coming from TanStack Query?** Note the split: TanStack Query gives you *one* hook (`useQuery`) that both fetches server state and derives over it. re-frame2 keeps those concerns apart — [resources](../glossary.md#resource) own the fetch-cache-invalidate lifecycle for server-owned data, and subscriptions are the pure derivation layer that computes *over* whatever's already in app-db (resource state included). When you want to fetch, that's a resource; when you want to shape what's already there, that's a sub.
 
-Subscriptions are also one face of a larger family — flows, resources, route facts, and machine selectors all live on one derivation graph; [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) is the essay-length tour.
+Subscriptions are also one face of a larger family — flows, resources, route facts, and machine selectors all live on [one derivation graph](../glossary.md#the-derivation-graph); [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) is the essay-length tour.
