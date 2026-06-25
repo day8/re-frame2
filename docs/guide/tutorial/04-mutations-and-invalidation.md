@@ -138,6 +138,8 @@ The view watches its instance through the passive `[:rf.mutation/state {:instanc
 
 That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping, no `:saving?` flag to maintain. (The `:optimistic?` flag is for the optimistic variant we meet later — true while an unconfirmed optimistic value is showing.)
 
+> **Gotcha — the failure path is the same instance, read `:error?`.** A favorite heart can afford to ignore a failed write (the count just doesn't move). A form can't. When a write fails, the instance settles `{:status :error, :error <envelope>}`, and the view shows it by reading the *same* instance — `(when (:error? fav) [error-banner (:error fav)])`. The `:error` value is the closed `:rf.http/*` failure envelope managed HTTP produces (the same shape a resource's `:error` carries — [Part 2](02-server-data.md)); branch on its `:kind`, render its message, never parse a string. The editor below leans on exactly this: its `:reply-to` handler does nothing on failure precisely because the form is *already* showing the instance's `:error`.
+
 Notice what the view *doesn't* do: it never invalidates anything. Add this button to the article cards from Part 1 and to the article page, and you're done. Favoriting behaves identically everywhere, because the write's consequences live on the write, not on the call site.
 
 > **Coming from RTK Query?** `[:rf.mutation/state {:instance …}]` is the tuple `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id *you* choose, not bound to one component instance. Two views can watch the *same* in-flight write by naming the same instance, and a write survives the unmount of the component that fired it.
@@ -169,6 +171,8 @@ And the sub family is wider than the one you've used. `:rf.mutation/state` retur
 [:rf.mutation/result   {:instance [:favorite slug]}]   ;; the decoded reply value on success
 [:rf.mutation/error    {:instance [:favorite slug]}]   ;; the structured error envelope on failure
 ```
+
+One more command rounds out the surface, alongside `:rf.mutation/execute`. **`:rf.mutation/clear`** is the instance's causal reset — `[:rf.mutation/clear {:instance [:favorite slug]}]` drops the runtime instance back to `:idle` and best-effort aborts any in-flight work for it. You reach for it to wipe a stale `:success` / `:error` before re-using an instance id: the editor below clears `:editor/save` on every entry, so a fresh form never shows the last save's outcome. (It's a dispatched *event*, not the `clear-mutation` registration-lifecycle function — same `clear` word, two registers, exactly as `:rf.resource/clear-scope` and `clear-resource` divide on the read side.)
 
 > **Gotcha — `:result` on the instance, `:value` in a reply.** One spelling to file away early: the instance sub stores the decoded result under `:result`. The transient [reply map](../glossary.md#reply-map) a `:reply-to` continuation receives — coming up in the **Publish** section — spells the same value `:value`. Same data, two layers; we'll meet `:value` again there.
 
@@ -265,7 +269,7 @@ The same rule covers route- and tenant-scoped reads: **a write's invalidation sc
 >                [{:tags #{[:article-list]} :cross-scope? true :cause [:admin/force-republish]}])
 > ```
 >
-> It is genuinely different from a descriptor, and genuinely dangerous: it can stale or refetch data for other users, tenants, story frames, and SSR requests. So it's **audited** — it *must* carry `:cause` evidence (a cross-scope sweep with no cause is rejected), it's recorded as a privacy-relevant trace event, and Xray warns when a precise descriptor would have done the job. Three rungs, and the floor is fail-closed: a bare invalidate with **no scope at all** is a loud error (`:rf.error/resource-invalidate-scope-required`), never a silent global blast. Reach for descriptors; reach for `:cross-scope?` only when you truly cannot name the scopes by hand.
+> It is genuinely different from a descriptor, and genuinely dangerous: it can stale or refetch data for other users, tenants, story frames, and SSR requests. So it's **audited** — it *must* carry `:cause` evidence (a cross-scope sweep with no cause is a loud error, `:rf.error/resource-cross-scope-cause-required`), it's recorded as a privacy-relevant trace event, and Xray warns when a precise descriptor would have done the job. Three rungs, and the floor is fail-closed: a bare invalidate with **no scope at all** is a loud error (`:rf.error/resource-invalidate-scope-required`), never a silent global blast. Reach for descriptors; reach for `:cross-scope?` only when you truly cannot name the scopes by hand.
 
 ### Controlling *when* invalidation runs: `:invalidate-timing`
 
@@ -310,6 +314,8 @@ Add `:optimistic-tags` — the tag-addressed twin of `:invalidates`. Where `:inv
     {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
      :decode  schema/ArticleResponse}))
 ```
+
+We reach for `:optimistic-tags` here for the same reason favoriting needs *tagged* invalidation — the article shows up in lists you can't enumerate by hand, and the flip must land in all of them at once. When the write touches exactly *one* known entry instead (a settings toggle on a single profile, say), there's a sibling key, **`:optimistic`** — the exact-target twin of `:patches`, `(fn [params] {target patch-fn})` over the same `{:resource :params :scope}` target maps. Same machinery, narrower aim: a `nil` patch-fn is an optimistic *remove* (the entry vanishes on click, restored on rollback), and a patch over an absent key is an optimistic *seed*. Both fall out of the recorded snapshot for free.
 
 Three things make this safe, and none of them are your job:
 

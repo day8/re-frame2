@@ -133,7 +133,7 @@ Most of the config map is optional knobs you reach for later. Four keys carry th
     | **`:doc`** | a docstring the registry and Xray surface. |
     | **`:sensitive` / `:large`** | privacy/size classification — vectors of paths into the entry (e.g. `[[:data :ssn]]`) marking fields to redact or summarise at every egress boundary (trace, Xray, SSR). The whole-entry shorthands are `:sensitive?` / `:large?`. |
 
-    The request fn returns the managed-HTTP args map — `{:request {…} :decode …}` — which is itself the network layer's contract, [Spec 014](../../../spec/014-HTTPRequests.md).
+    The request fn returns the managed-HTTP args map — `{:request {…} :decode …}` — which is itself the network layer's contract, [Spec 014](../../../spec/014-HTTPRequests.md). You get its other knobs for free here: `:retry`, `:timeout-ms`, `:accept`, request headers. One restriction — the runtime owns reply addressing, so the args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`; the resource lowering derives those from the scoped key and current generation. Put one in and it's a loud reject, not a silent override.
 
 Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initialise`, and the three `:articles/*` subs. The resource replaces all of them, so `:app/initialise` shrinks to an empty seed:
 
@@ -173,6 +173,8 @@ We've declared the reads but nothing fetches yet. A resource doesn't fetch until
 
 On entry the runtime *ensures* each listed resource — with the **route as [owner](../glossary.md#owner--cause)** — and on leave (or a superseding navigation) it releases them. "Ensures" is the verb to remember: it means *make sure a fresh-enough load exists*, which is a cache hit when one already does and a fetch when it doesn't.
 
+"Ensure" also covers the third case, the one the intro promised: a *deduplicated* read. If two things ensure the same `{:resource :params}` while a request is already in flight — two route entries racing, a component remounting mid-fetch — the second ensure doesn't fire a second request. It *joins* the one already running and waits for the same reply. (That's `useQuery`'s request deduplication, owner-driven: the identity is the dedupe key.) The flip side is `:rf.resource/refetch` (Step 5), which deliberately *does* force a new request even over an in-flight one — a manual refresh means "I want the latest," not "join whatever's running."
+
 The flags are where the per-page judgement lives:
 
 - `:blocking? true` on the article holds the route transition pending until the read settles, so the article page never flashes empty before its data arrives. (It's also the server-side-rendering wait point, when you get there.)
@@ -180,6 +182,8 @@ The flags are where the per-page judgement lives:
 - `:keep-previous? true` keeps the prior list on screen while a refetch runs, so a refresh never blinks back to a skeleton. This is the difference between a feed that feels alive and one that strobes.
 
 Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`, no `dispatch [:articles-loaded ...]`. The route *declares* what the page needs, and the runtime owns everything from there to the pixels. The fetch became data.
+
+> **Gotcha — a blocking read can't hang the server forever.** When `:blocking? true` is the SSR wait point, the render can't sit there indefinitely waiting on a slow upstream. A blocking SSR read that blows its deadline settles as an ordinary first-load failure for that render — its `:error` is `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`. The `:reason` lets your error view tell an SSR-deadline miss apart from a genuine upstream timeout; the `:kind` stays inside the same `:rf.http/*` taxonomy every resource error uses, so the *same* error branch you write below renders it. Client-side, a blocking read just keeps the transition pending until it settles — no deadline.
 
 > **Coming from TanStack Query?** This is the inversion from the intro made concrete. In a React + TanStack app the `useQuery` call lives *inside* the component, so the fetch is a side-effect of rendering. Here the page-to-data binding lives in the route table, *outside* any view — so you can read the whole app's data dependencies in one place, and a view that renders is guaranteed its data was already asked for.
 

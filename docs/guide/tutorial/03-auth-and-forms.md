@@ -41,6 +41,26 @@ A quick tour of the seven keys, because each earns its place. `:draft` is what's
 
 This shape is the whole convention; it's specified in full at [Pattern-Forms](../../../spec/Pattern-Forms.md).
 
+Because the slice is just an [app-db](../glossary.md#app-db) path, bind it to a [schema](../glossary.md#schema) and the framework will check every write to it in dev — a typo that drops `:status` or writes a non-set into `:touched` fails loud at the boundary instead of surfacing three components later as a confusing render:
+
+```clojure
+(def FormSlice
+  [:map
+   [:draft             :map]
+   [:submitted         [:maybe :map]]
+   [:status            [:enum :idle :submitting :submitted :error]]
+   [:errors            [:map-of :keyword [:vector :string]]]
+   [:touched           [:set :keyword]]
+   [:submit-attempted? {:optional true} :boolean]
+   [:submit-error      [:maybe :any]]])
+
+;; one shape, reused at every form's path
+(rf/reg-app-schemas {[:auth :login-form]    FormSlice
+                     [:auth :register-form] FormSlice})
+```
+
+The check is dev-only — it [elides](../glossary.md#elide) in production along with the rest of the schema surface — so it costs nothing shipped. (`reg-app-schemas` is the bulk form; `reg-app-schema` registers one path at a time.)
+
 Now wire the event up so it actually fires. Each form gets a [route](../glossary.md#route), and each route's `:on-match` runs the initialise event whenever that route matches — so navigating to `/login` always lands you on a fresh form:
 
 ```clojure
@@ -413,6 +433,8 @@ The point is that classifying the app-db path does *not* by itself redact the re
 ```
 
 > **`:interceptors` takes ids, not interceptor values.** The frame chain *references* `:conduit/auth-guard` — the id you registered the guard under (next section) — exactly the way an event's chain references interceptor ids. You register the named thing once; the frame names it. `dispatch-sync` runs the boot events synchronously so the token (and its classification) are committed before the first render, not a tick later. The `{:rf.cofx {…}}` map is the boundary stamping the declared fact: the same surface the Part 5 tests use to supply `:auth.session/token`, only here it carries the real localStorage read instead of a fixture.
+
+> **Gotcha — forget the stamp and boot fails loud.** Because `:auth.session/token` is a *provided* coeffect with no generator, the runtime has nothing to fall back on if the dispatch doesn't carry it. Drop the `{:rf.cofx {…}}` map (or fat-finger the key) and `:auth/initialise` raises `:rf.error/missing-required-cofx` at boot rather than silently reading `nil` — the fact has a registered home and a schema, so a missing supply reads as "you didn't stamp this," not "no such coeffect." That's the design paying off: a provided fact that never arrives is a wiring bug, and the runtime says so instead of booting you into a logged-out state you can't explain. (The framework clock `:rf/time-ms` is the one exception — it's stamped on *every* dispatch, so it never trips this.)
 
 ## The guard
 
