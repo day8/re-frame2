@@ -1,8 +1,8 @@
 # Find and fix a slow view
 
-A click hitches. Typing stutters. Some view — the pure function that turns your data into hiccup — is doing too much work, and you want to find it and stop it, without sprinkling memoisation everywhere and hoping.
+A click hitches. Typing stutters. Some [view](../glossary.md#view) — the pure function that turns your data into [hiccup](../glossary.md#hiccup) — is doing too much work, and you want to find it and stop it, without sprinkling memoisation everywhere and hoping.
 
-Here is the good news up front, and it's the whole reason this page is short. In re-frame2 your views read from [subscriptions](../concepts/subscriptions.md) — named, cached, read-only derivations of your state — and those subscriptions chain into each other, each one feeding the next. That chain is your **derivation graph**, and the [equality gate](../concepts/subscriptions.md) already memoises every node of it for you. So nearly every slow view is the *same* mistake wearing a different costume: expensive work on the wrong side of that gate. You don't add caching — you move work to the side of the cache that already exists.
+Here is the good news up front, and it's the whole reason this page is short. Your views read from [subscriptions](../glossary.md#subscription) — named, cached, read-only derivations of state — and those subscriptions chain into each other, each one feeding the next. That chain is the [derivation graph](../glossary.md#the-derivation-graph), and the framework already memoises every node of it for you: a subscription recomputes only when an input it actually reads produces a *new* value, compared by `=`. So nearly every slow view is the *same* mistake wearing a different costume: expensive work on the wrong side of that `=` check. You don't add caching — you move the work to the side of the cache that already exists.
 
 > **Put expensive work after the circuit breaker, not before it.**
 
@@ -15,15 +15,15 @@ The hunt is a ladder, and you climb it in order of *how cheaply you can spot the
 
 We'll take them one at a time.
 
-> **For JavaScript developers.** This page replaces the `memo` / `useMemo` / `useCallback` genre. In React you reach for those hooks per-component, in a profiler, when something feels slow. Here the framework owns memoisation, and your job is *placement* — which key reads `app-db`, which derives from another sub. Placement is checkable in code review, not just in a flame graph. The rest of this page is mostly "where does this line of code belong".
+> **For JavaScript developers.** This page replaces the `memo` / `useMemo` / `useCallback` genre. In React you reach for those hooks per-component, in a profiler, when something feels slow. Here the framework owns memoisation, and your job is *placement* — which subscription reads `app-db`, which derives from another subscription. Placement is checkable in code review, not just in a flame graph. The rest of this page is mostly "where does this line of code belong".
 
 ---
 
 ## 1 — Observe: name the shape of the slow
 
-Your usual first move still works: open the React DevTools profiler, record, do the slow thing, read the flame graph. But it tells you *which components rendered*, not *why the data changed* — and the why is what you need. Every re-render in re-frame2 traces back through a subscription to an event (the inert data vector recording that something happened). Xray, the dev inspector, shows that chain directly.
+Your usual first move still works: open the React DevTools profiler, record, do the slow thing, read the flame graph. But it tells you *which components rendered*, not *why the data changed* — and the why is what you need. Every re-render here traces back through a subscription to an [event](../glossary.md#event), the inert data vector recording that something happened. [Xray](../glossary.md#xray), the dev inspector, shows that chain directly.
 
-Attach Xray with one line ([Debug with Xray](debug-with-xray.md)). Reproduce the slow interaction once, select the newest event row, and open the **Views** tab. It lists every view that re-rendered in that cascade, with its render time, and nests under each view the subscriptions it read. Each sub has a drill that answers "why did this sub re-run", tracing back to the event that caused it. Mounted, re-rendered, and unmounted views appear in their own groups, and a re-rendered row carries a one-line *mount-reason* attribution ("parent conj'd this child", "own data changed", "callback prop churned").
+Attach Xray with one line ([Debug with Xray](debug-with-xray.md)). Reproduce the slow interaction once, select the newest event row, and open the **Views** tab. It lists every view that re-rendered in that [event cascade](../glossary.md#event-cascade), with its render time, and nests under each view the subscriptions it read. Each sub carries a drill that answers "why did this sub re-run", tracing back to the event that caused it. Mounted, re-rendered, and unmounted views appear in their own groups, and a re-rendered row carries a one-line *mount-reason* attribution ("parent conj'd this child", "own data changed", "callback prop churned").
 
 You are looking for one of two shapes:
 
@@ -38,11 +38,9 @@ If the dev build feels fine and only production is slow, jump straight to rung 4
 
 ## 2 — Move the work behind the equality gate
 
-First, the two words this whole section turns on. Subscriptions come in *layers*. A **layer-1** sub — also called an **extractor** — reads `app-db` directly and just pulls out a slice; it does no real computing. A **layer-2** sub reads from *other subscriptions* rather than from `app-db`, and it's where derived work (sorting, filtering, formatting) belongs. The equality gate sits between the two, and the whole game is putting expensive work on the layer-2 side of it. ([Subscriptions](../concepts/subscriptions.md) has the full layering grammar.)
+Two words this section turns on, recapped from [Subscriptions](../concepts/subscriptions.md): a **layer-1** sub (an **extractor**) reads [app-db](../glossary.md#app-db) directly and pulls out a slice; a **layer-2** sub reads from *other subscriptions* and is where derived work — sorting, filtering, formatting — belongs. The `=` check between them is the [circuit breaker](../concepts/subscriptions.md#the-equality-gate): when app-db changes, every extractor re-runs to re-check its slice, and an `=` result shuts the gate so nothing downstream recomputes. The whole game is putting expensive work on the layer-2 side of that gate.
 
-With those words in hand, here is the mechanism in three sentences. When `app-db` — your app's single immutable state map — changes, every layer-1 extractor re-runs to check its slice, and the new result is compared with the old by `=`. If the slice didn't change, propagation stops: downstream subs keep their cached values, and views don't re-render. That `=` check is the circuit breaker, and it can only save you work that sits *behind* it.
-
-So the first question is always: **is there computation in a layer-1 sub?** Remember, an extractor runs on *every* `app-db` change — running is how it checks its gate. So any computing you put in one runs on every keystroke in every unrelated form:
+So the first question is always: **is there computation in a layer-1 sub?** An extractor runs on *every* app-db change — running is how it checks its gate — so any computing you put in one runs on every keystroke in every unrelated form:
 
 ```clojure
 ;; Slow — the sort sits BEFORE the gate. Extractors re-run on every
@@ -70,19 +68,21 @@ Split it. A tiny extractor decides *whether* anything changed, and a layer-2 sub
          (mapv :slug))))
 ```
 
-The `:<-` arrow reads as "this sub's input comes from"; `:feed/slugs` now derives from the *value* `:articles/all` extracted, not from `db`. When some other key in `app-db` changes, `:articles/all` re-runs, returns an `=` map, the gate closes, and `:feed/slugs` never wakes — the sort doesn't run.
+The `:<-` arrow reads as "this sub's input comes from"; `:feed/slugs` now derives from the *value* `:articles/all` extracted, not from `db`. When some other key in app-db changes, `:articles/all` re-runs, returns an `=` map, the gate closes, and `:feed/slugs` never wakes — the sort doesn't run.
+
+> **Gotcha — a mistyped `:<-` input fails quiet, not loud.** When you split a sub, the new `:<-` edge points at another sub *by id*. Get that id wrong — a typo, a sub you haven't registered yet — and re-frame2 doesn't throw. It [fails loud as data](../glossary.md#error-record): it emits a `:rf.error/no-such-sub` [error record](../glossary.md#error-record) (recovery `:replaced-with-default`) to your always-on error listeners and feeds your derivation `nil` for that input. So a bad split doesn't look *slow* — it looks *wrong* (the feed renders empty, or a downstream `nil` throws somewhere unrelated). If a sub you just refactored returns nothing, check its `:<-` ids against your `reg-sub` names before you suspect the gate. The parametric input-function form has its own two named modes: an input fn that throws surfaces `:rf.error/sub-input-fn-exception`, and one that returns something other than a query vector (or vector of them) surfaces `:rf.error/sub-input-fn-bad-return`.
 
 The same misplacement happens one level up, and it trips people up. Computation in a **view body** runs on every render of that view, including renders caused by ancestors. Sorting, filtering, and formatting belong in a layer-2 sub; there they run once per input change and are shared by every consumer. Views just walk data and emit hiccup — the `[:div ...]` vector form re-frame2 uses to describe markup ([Views](../concepts/views.md)).
 
 Now observe the fix. Dispatch the same event with the Views tab open, and the sub's drill shows it returning its cached value: the gate closed, and the sort never ran. Unrelated typing no longer wakes the feed at all.
 
-> **Going deeper.** The split-extractor trick is *function memoisation* applied compositionally. Layer 1 is a pure projection `app-db → slice`; the gate is `=` on its output, so the layer-1 sub is a memoised function whose cache invalidates exactly when its observable input changes. Stacking a layer-2 sub on top composes two memoised projections: `app-db → slice → derived`, and the composite recomputes the second stage only when the first stage's `=` check opens. The whole subscription graph is a DAG of memoised pure functions, each gated independently — which is why "move the work behind the gate" is the *only* lever you ever need: you're choosing which arrow in the composition carries the cost, and the framework caches every arrow for free.
+> **Going deeper.** The split-extractor trick is *function memoisation* applied compositionally. Layer 1 is a pure projection `app-db → slice`; the gate is `=` on its output, so the layer-1 sub is a memoised function whose cache invalidates exactly when its observable input changes. Stacking a layer-2 sub on top composes two memoised projections: `app-db → slice → derived`, and the composite recomputes the second stage only when the first stage's `=` check opens. The whole graph is a DAG of memoised pure functions, each gated independently — which is why "move the work behind the gate" is the *only* lever you ever need: you're choosing which arrow in the composition carries the cost, and the framework caches every arrow for free.
 
 > **From re-frame v1.** This is the same layered-subscription model you already know — `reg-sub` with `:<-` inputs, the `=`-based propagation cut. Nothing in the gate moved. What's new is the diagnostic surface: Xray's Views tab shows the cached-vs-recomputed verdict per sub per event, so "is this extractor doing work?" is now a thing you *read* rather than reason about. The fix is identical; the observability is better.
 
-> **One derivation, read in many places?** If the same expensive value is read by *both* views and event handlers (or schemas, or other derivations), a layer-2 sub recomputes it for the render side only — handlers can't read the sub cache. Promote it to a [flow](../concepts/flows.md) and it's computed exactly once per `app-db` write, materialised into `app-db`, and every reader — view and handler alike — shares that one result. A flow is the equality gate applied to *state* instead of to a view-facing cache.
+> **One derivation, read in many places?** A subscription is a *view-facing* reactive cache — a handler can take a one-shot `subscribe-once` read of its current value, but that read recomputes per call for the handler and shares nothing with the render side. So if the same expensive value is read by *both* views and handlers (or schemas, or other derivations), a layer-2 sub ends up computing it twice: once for the reactive view cache, once per handler that asks. Promote it to a [flow](../concepts/flows.md) and it's computed exactly once per app-db write, [materialised into app-db](../glossary.md#flow), and every reader — view and handler alike — shares that one result as plain state. A flow is the equality gate applied to *state* instead of to a view-facing cache.
 
-> **When placement isn't enough.** Some work is genuinely huge even when ideally placed — parsing megabytes, running a simulation step, diffing two trees. No side of the gate saves you there, because the cost is in the computation itself, not in how often it fires. Chunk it through a [state machine](../concepts/machines.md) or move it to a Web Worker. But this is rare: reach for it only after you've confirmed the work is correctly placed and *still* slow.
+> **When placement isn't enough.** Some work is genuinely huge even when ideally placed — parsing megabytes, running a simulation step, diffing two trees. No side of the gate saves you there, because the cost is in the computation itself, not in how often it fires. Chunk it through a [machine](../concepts/machines.md) or move it to a Web Worker. But this is rare: reach for it only after you've confirmed the work is correctly placed and *still* slow.
 
 ---
 
@@ -126,17 +126,17 @@ Two details are load-bearing here.
 
 First, `^{:key slug}` gives each row a *stable identity*, so inserting or removing an article diffs by identity instead of position. Without it, one deletion at the top re-renders every row beneath it.
 
-Second, the inline `#(dispatch …)` on the button is correct as written: on a DOM element, swapping a listener is cheap. (That's the rung people climb too eagerly — rung 4 below.)
+Second, the inline `#(dispatch …)` on the button is correct as written: on a DOM element, swapping a listener is cheap. (That's the rung people climb too eagerly — `### Stable callbacks` below.)
 
 > **Gotcha — key by the id, not the value you're watching.** The key must be *stable for that row's identity*, not derived from the bit that changes. Keying a feed row by `favorites-count` would remount the row every time someone favorites it — the opposite of what you want. And never use an index or a random value as a key: an index makes "delete row 0" look like "every row's data changed", which re-creates the storm you just fixed; a fresh random key remounts every row on every render. The slug is durable; the favorite count is not.
 
-> **For JavaScript developers.** "Hand each row an id and let it subscribe to its own slice" is the same instinct as a Redux `connect`-per-row or a per-item `useSelector(s => s.articles[id])` — push the selector down to the leaf so a single-item change can't invalidate the list. The difference: you don't wrap anything in `memo`, and you don't worry about selector identity. The per-slug sub *is* the memo boundary, and it's keyed by the whole query vector for free.
+> **For JavaScript developers.** "Hand each row an id and let it subscribe to its own slice" is the same instinct as a Redux `connect`-per-row or a per-item `useSelector(s => s.articles[id])` — push the selector down to the leaf so a single-item change can't invalidate the list. The difference: you don't wrap anything in `memo`, and you don't worry about selector identity. The per-slug sub *is* the memo boundary, and it's keyed by the whole [query vector](../glossary.md#query-vector) for free.
 
-> **"But now I have 200 subscriptions — won't they leak?"** No. A subscription's cache key is its whole query vector, so `[:article/by-slug "abc"]` and `[:article/by-slug "xyz"]` are distinct cached entries, and equal subscriptions from multiple readers share one entry. Each entry is ref-counted: when the last reader of a query vector goes away — a row unmounts, the feed shrinks — the entry is evicted *in the same tick*, its reaction disposed, and a `:rf.sub/dispose` trace fires. Scroll a virtualised feed and the per-slug subs come and go with the rows; nothing accumulates. (Mechanics in [spec 006 §Reference counting and disposal](../../../spec/006-ReactiveSubstrate.md).)
+> **"But now I have 200 subscriptions — won't they leak?"** No. A subscription's cache key is its whole query vector, so `[:article/by-slug "abc"]` and `[:article/by-slug "xyz"]` are distinct cached entries, and equal subscriptions from multiple readers share one entry. Each entry is ref-counted: when the last reader of a query vector goes away — a row unmounts, the feed shrinks — the entry is evicted *in the same tick*, its reaction disposed, and a `:rf.sub/dispose` trace fires. Scroll a virtualised feed and the per-slug subs come and go with the rows; nothing accumulates. (Mechanics in [spec 006 §Reference counting and disposal](../../../spec/006-ReactiveSubstrate.md#reference-counting-and-disposal).)
 
 ### Stable callbacks — only with a measurement
 
-Every render that writes `#(dispatch [:article/toggle-favorite slug])` mints a fresh function object. It's behaviourally identical to last render's, but `=` between two anonymous fns is `false`, so a *component* receiving it as a prop sees a change and re-renders for nothing. This is invisible on a cheap child. It matters only when the Views tab shows an **expensive** child re-rendering whose data didn't change: the callback prop is the churn.
+Every render that writes `#(dispatch [:article/toggle-favorite slug])` mints a fresh function object. It's behaviourally identical to last render's, but `=` between two anonymous fns is `false`, so a *view* receiving it as a prop sees a change and re-renders for nothing. This is invisible on a cheap child. It matters only when the Views tab shows an **expensive** child re-rendering whose data didn't change: the callback prop is the churn.
 
 The naive fix is to hoist the fn into an outer `let`, but that captures the mount-time `slug` forever and goes stale if the instance is ever handed a different one. We need both things at once: *one* function object that never changes identity, yet always acts on the *current* render's args.
 
@@ -170,7 +170,7 @@ The trick is to split those two concerns. Build, once per row, a single long-liv
 
 `(favorite-cb slug)` returns the same object every render, so the prop is `=` and the receiver skips. On this plain button it buys nothing; the payoff comes when the prop feeds a chart, an editor, or a row with real depth, and the wiring is identical.
 
-> **Why a Form-2 view?** The factory must be built *once per row*, not once per render — otherwise you've minted a fresh "stable" object each render and bought nothing. A Form-2 view (a render body that returns another fn) gives you exactly that seam: the outer fn runs once at mount and is where the factory lives; the inner fn is the render fn. ([Views §Form-1, Form-2, Form-3](../concepts/views.md) explains the three shapes.)
+> **Why a Form-2 view?** The factory must be built *once per row*, not once per render — otherwise you've minted a fresh "stable" object each render and bought nothing. A Form-2 view (a render body that returns another fn) gives you exactly that seam: the outer fn runs once at mount and is where the factory lives; the inner fn is the render fn. ([Views](../concepts/views.md) explains the three view shapes.)
 
 > **For JavaScript developers — this is `useCallback`, made honest.** `useCallback(fn, [slug])` exists to hand a child a stable function identity so it can `memo` past a no-op prop change. The factory-factory does the same job, but it sidesteps the stale-closure trap that bites `useCallback` when the dependency array is wrong: the callback object is stable *and* always sees current args, because the args live in an atom the factory refreshes, not in a captured closure. Same payoff (skip the expensive child's re-render), no dependency array to get wrong.
 
@@ -182,16 +182,18 @@ The trick is to split those two concerns. Build, once per row, a single long-liv
 
 ## 4 — Only slow in production: the `rf:` timing channel
 
-Xray rides the dev trace, which is elided from production builds, so it can't see a slowness that only happens live. For that there is a second, narrower channel built for production. The runtime brackets its **four** hot paths with the browser's User Timing API (`performance.mark` / `performance.measure`), and entries are named `rf:<bucket>:<id>`. Two of the four buckets name things worth a quick gloss: an *effect* is a described side-effect the runtime carries out for you, and an *event handler* is the pure function that runs in response to an event.
+Xray rides the dev [trace stream](../glossary.md#trace-stream), which is [elided](../glossary.md#elide) from production builds, so it can't see a slowness that only happens live. For that there is a second, narrower channel built for production. The runtime brackets its **four** hot paths with the browser's User Timing API (`performance.mark` / `performance.measure`), and entries are named `rf:<bucket>:<id>`. Two of the four buckets name things worth a quick gloss: an [effect](../glossary.md#effect) is a described side-effect the runtime carries out for you, and an [event handler](../glossary.md#event-handler) is the pure function that runs in response to an event.
 
 | Bucket | Fires on | Entry name |
 |---|---|---|
 | `event` | an event handler ran (the full interceptor chain for one event) | `rf:event:article/toggle-favorite` |
 | `sub` | a subscription recomputed its body | `rf:sub:feed/slugs` |
-| `fx` | one effect executed (including reserved fx like `:dispatch` and managed http) | `rf:fx:rf.http/managed` |
+| `fx` | one effect executed (including reserved fx like `:dispatch` and managed HTTP) | `rf:fx:rf.http/managed` |
 | `render` | a `reg-view` rendered | `rf:render:my.app/article-row` |
 
 The id keeps its full namespace, so you can split on the second `:` for a per-bucket view. Note that only `reg-view` views show up under `rf:render:` — a plain `defn` view has no registered id to bracket, which is one more reason to register the views you care about measuring.
+
+> **Gotcha — a throwing path still leaves a measure.** Each bracket is a `try/finally`, so if the body it wraps throws — a handler blows up, a render dies — the `:end` mark fires and the `measure` entry still lands before the exception propagates. That's deliberate: the slowest interactions are often the ones that then error, and you don't want their timing to vanish exactly when you need it. So a `rf:event:…` or `rf:render:…` bar in the profile is *not* proof that path completed cleanly — cross-check against your error listeners.
 
 The channel is off by default. It is gated on its own compile-time flag, independent of `goog.DEBUG`:
 
@@ -202,7 +204,7 @@ The channel is off by default. It is gated on its own compile-time flag, indepen
         :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
 ```
 
-A build that doesn't flip the flag carries **zero** User-Timing bytes, because dead-code elimination (DCE) elides every bracket. CI proves this both ways: `npm run test:perf-bundle` builds the same example twice — flag off and flag on — and asserts the off bundle contains no `performance.mark`, `performance.measure`, or `rf:` fragment while the on bundle contains all three. So keeping the channel on in production is a deliberate, cheap choice ([Configure dev and production builds](configure-dev-and-prod.md)).
+A build that doesn't flip the flag carries **zero** User-Timing bytes, because dead-code elimination elides every bracket. CI proves this both ways: `npm run test:perf-bundle` builds the same example twice — flag off and flag on — and asserts the off bundle contains no `performance.mark`, `performance.measure`, or `rf:` fragment while the on bundle contains all three. So keeping the channel on in production is a deliberate, cheap choice ([Configure dev and production builds](configure-dev-and-prod.md)).
 
 To read it, open the Chrome DevTools **Performance** panel, where the `rf:` measures appear as named bars beside React renders, paint, and layout. Or ask the console for the worst offenders:
 
@@ -234,16 +236,3 @@ Entry shapes, the observer contract, the bounded-buffer caveat, and the elision 
 > **Gotcha — never profile the dev build.** The dev build carries the whole trace surface, so the profile ends up measuring the measurement apparatus — you'll chase phantom costs that vanish in production. Build `:advanced` with the perf flag on, serve *that*, and profile that. The numbers you get are the numbers your users get.
 
 > **JVM and SSR.** The `rf:` channel is browser-only — on the JVM the `enabled?` flag is a `^:const false` and the brackets compile to pure pass-through. If you're profiling SSR or a headless render, reach for a JVM profiler (clj-async-profiler, JFR) instead; the User-Timing path isn't there to read.
-
----
-
-## The ladder, in one breath
-
-Almost every slow view is the same mistake wearing a different costume: expensive work on the wrong side of the equality gate. The ladder just sorts the costumes by how cheaply you can spot them.
-
-1. **Observe.** Xray's Views tab names the shape — one wide row, or a cloud.
-2. **Move the work behind the gate.** Keep extractors tiny; do the thinking in a layer-2 sub; keep computation out of view bodies; promote a shared derivation to a flow when handlers need it too. This ends most hunts.
-3. **Break up the storm.** Hand each row an id and let it subscribe to its own slice — one change re-renders one row, on thin props with stable keys, and the per-row subs ref-count themselves away when rows unmount.
-4. **Reach for stable callbacks only with a measurement** — the factory pattern earns its keep when the receiving child is expensive, and not before.
-
-And when the dev build feels fine but production doesn't, the `rf:` User-Timing channel measures the real binary without shipping a byte of the dev trace. The framework owns the memoisation; your job is placement — and placement is the rare performance problem you can catch in code review instead of a profiler.

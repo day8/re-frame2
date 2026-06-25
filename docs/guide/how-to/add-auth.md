@@ -1,33 +1,35 @@
 # Add authentication
 
-Auth feels like a big feature, but it's really four small ones: a login form, requests that carry the user's token, routes only signed-in users can reach, and a logout that doesn't leak one user's data into the next session. Here's the good news — every one of those pieces is something you already know. They're all built from the three parts you've already met:
+Auth has a reputation. It sounds like a subsystem — sessions, tokens, redirects, the works — and frameworks happily sell you one. re-frame2 doesn't have an auth subsystem, and you won't miss it, because auth turns out to be four small features you can already build: a login form, requests that carry the user's token, routes only signed-in users can reach, and a logout that doesn't leak one user's data into the next session.
 
-- an **event** — a record of "something happened" (a click, a server reply) that you *dispatch* into the framework;
-- an **interceptor** — a wrapper that can run code before and after an event's handler, like middleware around a request;
-- an **effect** — a *description* of a side effect that you hand back, which the framework then carries out for you.
+Every one of those is auth-*shaped* use of parts you already met:
 
-There is no auth machinery to learn; there's just auth-shaped uses of the parts you have.
+- an [**event**](../glossary.md#event) — an inert vector recording that *something happened* (a click, a server reply), which you [dispatch](../glossary.md#dispatch) into the framework;
+- an [**interceptor**](../glossary.md#interceptor) — a named `:before`/`:after` wrapper around a handler, the place cross-cutting concerns live;
+- an [**effect**](../glossary.md#effect) — a *description* of a side effect you hand back as data, which the runtime then performs for you.
 
-We'll build it up one step at a time. First a tiny token slice in `app-db`, then login, then the request decorator, then the route guard, then the bounce-back, then logout. Each step is a few lines and stands on its own. The full recipe is wired end to end, with running views, in [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md) — this page is the reference shape behind it.
+There is no auth machinery to learn. There's a token [slice](../glossary.md#app-db), a route guard, and a teardown — and they're all built from the loop you already know.
+
+We'll grow it one step at a time: a tiny token slice in [app-db](../glossary.md#app-db), then login, then the request decorator, then the route guard, then the bounce-back, then logout. Each step is a few lines and stands on its own. The full recipe runs end to end, with live views, in [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md) — this page is the reference shape behind it.
 
 > **Auth is a slice, a guard, and a teardown — not a library.**
 
-Two add-on libraries do the heavy lifting: [routing](../concepts/routing.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../concepts/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../concepts/server-state.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
+Two add-on artefacts do the heavy lifting: [routing](../concepts/routing.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../concepts/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../concepts/server-state.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
 
 ## 1. The token slice
 
-Start with the smallest possible thing: where does session state live? Two `app-db` paths, and that's the whole slice.
+Start with the smallest possible question: where does session state live? Two app-db paths, and that's the whole slice.
 
 - `[:auth :user]` — the signed-in user, or `nil` when nobody's logged in.
 - `[:auth :token]` — the credential that requests carry.
 
 The guard checks `:user`, the request decorator reads `:token`, and logout clears both. Everything else on this page reads from or writes to these two paths.
 
-These two paths live in `app-db` — your app's single state map. To be precise, each [frame](../concepts/frames.md) has its own `app-db`: a frame is one isolated, running instance of your app (think one mounted app instance), and most apps run a single one. That per-frame isolation is what lets a second logged-in tab coexist with this one without their tokens crossing wires — a property that comes up again in the request decorator and the route guard below.
+These paths live in [app-db](../glossary.md#app-db) — your app's single state map. To be precise, each [frame](../glossary.md#frame) has its own app-db: a frame is one isolated, running instance of your app (think one mounted app instance), and most apps run exactly one. That per-frame isolation is what lets a second logged-in tab coexist with this one without their tokens crossing wires — a property that pays off again in the request decorator and the route guard below.
 
 ### Persist the token through one seam
 
-A page reload throws away `app-db`, so to stay logged in across refreshes the token needs to live somewhere durable — `localStorage`. The temptation is to sprinkle `localStorage` calls through login and logout and your tests. Don't. Give persistence exactly **one seam**: a single effect that writes on a truthy token and removes on `nil`. Login, logout, and tests all hit the same edge.
+A page reload throws away app-db, so to stay logged in across refreshes the token has to live somewhere durable — `localStorage`. The tempting move is to sprinkle `localStorage` calls through login, logout, and your tests. Don't. Give persistence exactly **one seam**: a single [effect](../glossary.md#effect) that writes on a truthy token and removes on `nil`. Login, logout, and tests all hit the same edge.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
@@ -43,21 +45,21 @@ A page reload throws away `app-db`, so to stay logged in across refreshes the to
         (.removeItem ls "auth-token")))))
 ```
 
-One effect, two behaviours, called from exactly one place each. That `:platforms #{:client}` matters — see the first callout.
+One [effect handler](../glossary.md#effect-handler), two behaviours, called from exactly one place each. That `:platforms #{:client}` is doing real work — see the next callout.
 
-> **Gotcha — this effect is client-only.** Under SSR there's no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and any `:auth.session/persist` row is a no-op rather than a crash.
+> **Gotcha — this effect is client-only.** Under [SSR](../glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and an `:auth.session/persist` row is a no-op rather than a crash.
 
-> **Why this matters — a localStorage token is readable by any script on your page.** If XSS is in your threat model, use the http-only cookie and drop this effect — the rest of the recipe stands unchanged. The token slice, the guard, and the teardown don't care *how* the credential was persisted; they only read it back from `app-db`.
+> **Why this matters — a localStorage token is readable by any script on your page.** If XSS is in your threat model, use the http-only cookie and drop this effect; the rest of the recipe stands unchanged. The slice, the guard, and the teardown never care *how* the credential was persisted — they only read it back from app-db.
 
 ### Read the saved token back at boot
 
-Persisting is half the seam; reading the value *back* when the app reboots is the other half. Without a boot read, every refresh logs the user out.
+Persisting is half the seam; reading the value *back* when the app reboots is the other half. Skip the boot read and every refresh silently logs the user out.
 
-But there's a rule in the way: an event handler in re-frame2 must be a *pure function* — same inputs, same outputs, no reaching out to the world — because that's what lets the framework replay, test, and trace it. Reading `localStorage` *is* reaching out to the world, so a handler can't do it directly.
+But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world — so the handler can't do it directly. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Effects and coeffects](../concepts/effects-and-coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
 
-The escape hatch is a [coeffect](../concepts/effects-and-coeffects.md): a declared input the framework hands into a handler beside `db`. Any handler that wants the saved token declares `:rf.cofx/requires`; the runtime supplies the value *before* the handler runs, so the handler itself stays pure.
+Now the auth-specific wrinkle: *which kind* of coeffect this is. Coeffects come in [two grades](../glossary.md#recordable-vs-ambient-coeffects). An *ambient* one is read live and re-read on every replay — fine for a display hint, fatal here. The saved token folds into durable `[:auth :token]`, and anything that feeds a durable write must arrive as **recorded data**: captured once, re-presented verbatim under replay. An ambient read would let an epoch-restore land *whatever `localStorage` holds now*, not the token recorded with the boot.
 
-The saved token gets folded into durable `[:auth :token]`, so it can't enter as an *ambient* read (re-run live on replay) — replay or epoch-restore would re-read whatever `localStorage` holds *then*, not the token recorded with the boot. A fact that feeds durable state must arrive as **recorded data**. So register `:auth.session/token` as a **recordable, provided** coeffect: it carries no supplier function — its value is stamped onto the boot dispatch by the host boundary (the same shape as the framework's built-in `:rf/time-ms` clock), recorded once, and re-presented verbatim under replay.
+So register `:auth.session/token` as a **recordable, provided** coeffect. It carries no supplier function — its value is stamped onto the boot dispatch by the host boundary (the same shape as the framework's built-in `:rf/time-ms` clock), recorded once, and replayed faithfully:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
@@ -69,11 +71,11 @@ The saved token gets folded into durable `[:auth :token]`, so it can't enter as 
    :doc "The saved JWT (or nil); stamped onto the boot dispatch from localStorage."})
 ```
 
-The init event in step 4 declares this coeffect and folds the saved token into the slice. That's all "stay logged in across reloads" takes — the host reads the world once, the value rides the boot dispatch, and the handler asks for it by name.
+The init event in step 4 declares this coeffect and folds the saved token into the slice. That's the whole of "stay logged in across reloads": the host reads the world once, the value rides the boot dispatch, and the handler asks for it by name.
 
 ### Read the host once at the boundary
 
-A provided coeffect needs an owner to stamp its value. For session restore that owner is your boot code: read `localStorage` *once*, at the host boundary, and hand the value to the init dispatch on the `:rf.cofx` envelope. The handler never touches `localStorage`; it reads the recorded fact flat.
+A provided coeffect needs an owner to stamp its value. For session restore that owner is your boot code: read `localStorage` *once*, at the host boundary, and hand the value to the init dispatch on the `:rf.cofx` envelope. The handler never touches `localStorage` — it reads the recorded fact flat.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/core.cljs — the host read happens
@@ -87,19 +89,19 @@ A provided coeffect needs an owner to stamp its value. For session restore that 
                     {:rf.cofx {:auth.session/token (read-jwt-from-storage)}}))
 ```
 
-> **Going deeper — why recordable, not ambient.** Coeffects come in two grades, and the choice is decided by whether a *durable* write depends on the value — that's the [effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable) home's full treatment. The session token folds into durable `[:auth :token]`, so it must be **recordable** (recorded with the event, re-presented on replay) — not ambient (re-read live), which would let replay land a different token. Because the value comes from the host rather than a registered function, it's the **provided** flavour of recordable: no supplier, stamped at the boundary. Tests and replay supply it the same way — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier (see [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md)).
+> **Going deeper — the one-question test.** Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../tutorial/03-auth-and-forms.md)).
 
 ### Keep the secret out of traces
 
-The token is a credential, so classify its path as `:sensitive`. You do this by returning a classification effect from the init event (step 4 wires it up). Classifying the *path* means the raw token never leaves the box in traces, Xray captures, or SSR payloads — while your handlers keep seeing the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
+The token is a credential, so classify its path `:sensitive`. You do this by returning a [classification](../glossary.md#data-classification) effect from the init event (step 4 wires it up). Classifying the *path* means the raw token never leaves the box — not in traces, not in [Xray](../glossary.md#xray) captures, not in SSR payloads — while your handlers keep seeing the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
 
-That's the complete slice: two paths, one persistence seam, one boot-read coeffect, and one classification. Everything below builds on it.
+That's the complete slice: two paths, one persistence seam, one boot-read coeffect, one classification. Everything below stands on it.
 
 ## 2. Wire the login form
 
 The login form is just [Build a form](build-a-form.md) — same slice shape, same seven events, same error-visibility rule. That recipe's running example *is* this login form, at `[:auth :login]`. So we don't rebuild the form; we change exactly one thing: **success establishes a session.**
 
-Upgrade the form's `:form.login/submit-success` to an fx handler that stores the user and token, persists, and bounces the user onward. (A *handler* is the function that runs when an event is dispatched.)
+Upgrade the form's `:form.login/submit-success` to an fx handler that stores the user and token, persists, and bounces the user onward:
 
 ```clojure
 (rf/reg-event :form.login/submit-success
@@ -120,19 +122,19 @@ Upgrade the form's `:form.login/submit-success` to an fx handler that stores the
             [:dispatch [:auth/post-login-redirect]]]})))
 ```
 
-The failure handler is unchanged from the form recipe. Notice login deliberately does **not** retry — one submission per click. A transient 5xx surfaces as an error and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a good way to lock an account or double-charge a flow.
+One token, one home. The classified `[:auth :token]` path holds it; the user map ships with `:token` stripped, so the JWT isn't *also* sitting unclassified at `[:auth :user :token]`, ready to leak to every off-box record. The decorator in step 3 always reads from `[:auth :token]`, never from the user.
 
-Register is the same wiring with a different URL and draft — same shape, only the endpoint and the initial draft change.
+The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed`'s retry is also closed to a fixed category set and writes never auto-retry — reads do.) Register is the same wiring with a different URL and draft.
 
-> **Gotcha — keep the credential out of the trace too.** The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value ([Spec 015 — Data classification](../../../spec/015-Data-Classification.md)).
+> **Gotcha — keep the credential out of the trace on the way *in*, too.** The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value ([Spec 015 — Data classification](../../../spec/015-Data-Classification.md)).
 
-> **Going deeper — when to reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../concepts/machines.md) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/reagent/realworld/)). The tell is when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions; that's a state machine wearing a trench coat.
+> **Going deeper — when to reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/reagent/realworld/)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
 
 ## 3. Decorate requests once, at the frame seam
 
-Now the user has a token. Every authenticated request needs to carry it in an `Authorization` header. The naive approach threads the token through every request builder — and one forgotten call site means one unauthenticated request.
+Now the user has a token. Every authenticated request needs to carry it in an `Authorization` header. The naive approach threads the token through every request builder — and one forgotten call site is one unauthenticated request shipped to production.
 
-Instead, write it **once**, as an HTTP interceptor. An interceptor's `:before` is a function that receives a *context* map — call it `ctx` — holding the in-flight request, edits it, and returns it. Ours reads the token from the frame's `app-db` and stamps the `Authorization` header onto every outbound managed request crossing that frame:
+Instead, write it **once**, as an HTTP interceptor. An HTTP interceptor's `:before` is a function that receives a *context* map — call it `ctx` — holding the in-flight request, edits it, and returns it. Ours reads the token from the frame's app-db and stamps the `Authorization` header onto every outbound managed request crossing that frame:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/core.cljs
@@ -147,30 +149,48 @@ Instead, write it **once**, as an HTTP interceptor. An interceptor's `:before` i
   {:before bearer-auth})
 ```
 
-This is the production shape, and three small choices make it so. It reads `(:frame ctx)` — the frame this request is actually running under, never a hard-coded id — so it survives renamed frames and multi-frame mounts. It returns `ctx` unchanged when there's no token, which is why login and public reads are untouched. And `Authorization` sits on the framework's built-in redaction denylist ([Spec 014 — privacy](../../../spec/014-HTTPRequests.md)), so the live request carries it while off-box traces never do.
+This is the production shape, and three small choices make it so:
 
-That's all step 3 needs. The same seam, though, has a response side — and it's where you catch an expired token:
+- It reads `(:frame ctx)` — the frame this request is *actually* running under, never a hard-coded id — so it survives renamed frames and multi-frame mounts. ([Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) reaches all the way out here.)
+- It returns `ctx` unchanged when there's no token, which is why login and public reads stay untouched.
+- `Authorization` sits on the framework's built-in redaction denylist ([Spec 014 — privacy](../../../spec/014-HTTPRequests.md)), so the live request carries it while off-box traces never do.
+
+That's all step 3 needs. But the same seam has a *response* side, and it's where you catch an expired token:
 
 ```clojure
 ;; A response-side hook on the SAME seam: catch a 401 and force logout.
+;; `:after` sees the reply payload — {:kind :success :value …} or
+;; {:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}. A 401
+;; is a *failure* reply, so the HTTP status lives inside the failure map
+;; (under :failure), keyed by the framework-owned failure :kind — never at
+;; the top level. Branch on the structured :kind, never a stringified message.
 (rf/reg-http-interceptor :my-app/expired-session
   {:after (fn [ctx response]
-            (when (= 401 (:status response))
-              (rf/dispatch [:auth/logout]))     ;; token went stale server-side
+            (when (and (= :failure (:kind response))
+                       (= :rf.http/http-4xx (get-in response [:failure :kind]))
+                       (= 401 (get-in response [:failure :status])))
+              ;; token went stale server-side. Dispatch into THIS request's
+              ;; frame — the reply runs in a transport callback, so a bare
+              ;; (rf/dispatch …) can hit :rf.error/no-frame-context; carry the
+              ;; frame from ctx (the same "identity is carried, not found" rule
+              ;; the :before decorator leans on).
+              (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
             response)})                          ;; :after MUST return the response
 ```
 
-An interceptor map carries **`:before`**, **`:after`**, or both — at least one is required, or registration is rejected fail-loud with `:rf.error/http-bad-interceptor`.
+An interceptor map carries **`:before`**, **`:after`**, or both — supply at least one, or registration is rejected fail-loud with `:rf.error/http-bad-interceptor`. (A no-op interceptor is almost always a typo, so the framework refuses to register it rather than letting it sit there doing nothing.)
 
-> **Going deeper — how the chain composes.** HTTP interceptors compose with the same onion shape as event [interceptors](../concepts/interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both request and response sides, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure: if a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap recoverable logic inside the interceptor itself.
+> **Gotcha — read the status from the failure map, not the top level.** The `:after` response is the public reply payload, discriminated by `:kind` (`:success` / `:failure`) — there is no top-level `:status`. A 4xx/5xx arrives as `{:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}`, so the HTTP status code is at `(get-in response [:failure :status])`, under the failure `:kind`. The full failure-category vocabulary is a closed set — `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, plus `:rf.http/decode-failure` / `:rf.http/accept-failure` / `:rf.http/aborted` ([Spec 014 — failure categories](../../../spec/014-HTTPRequests.md)). Branch on those, never on a parsed message.
 
-> **Gotcha — hot-reloading the interceptor.** Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you actually want a fresh end-of-chain slot.
+> **Going deeper — how the chain composes.** HTTP interceptors compose with the same onion shape as event [interceptors](../concepts/interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both legs, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure. If a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap any recoverable logic inside the interceptor itself.
 
-> **From re-frame v1.** This decorator used to be a wrapper fn around every `http-xhrio` map — and one forgotten call site meant one unauthenticated request. Here the frame seam is the single write site, so there's no call site to forget. It's the same shift you make moving from passing an `axios` config object everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
+> **Gotcha — hot-reloading the interceptor.** Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you genuinely want a fresh end-of-chain slot.
+
+> **From re-frame v1.** This decorator used to be a wrapper fn around every `http-xhrio` map — and one forgotten call site meant one unauthenticated request. Here the frame seam is the single write site, so there's no call site to forget. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
 
 ## 4. Guard the protected routes
 
-Authenticated requests work; now some *routes* should only open for signed-in users. Route-level auth is an ordinary interceptor over the navigation events — not a special routing mechanism ([Spec 012 — redirects and guards](../../../spec/012-Routing.md)).
+Authenticated requests work; now some *routes* should open only for signed-in users. Route-level auth is an ordinary interceptor over the navigation events — not a special routing mechanism ([Spec 012 — redirects and guards](../../../spec/012-Routing.md)).
 
 Start by tagging the routes that need a session:
 
@@ -179,7 +199,7 @@ Start by tagging the routes that need a session:
 (rf/reg-route :app/settings {:tags #{:requires-auth}} "/settings")
 ```
 
-Then the guard. It has one job it must get exactly right: **gate every navigation entry point.** Guarding `:rf.route/navigate` alone fails *open* on the most common path — a logged-out user who types `/settings` into the URL bar, reloads a protected page, or clicks a link gets in anyway. There are three distinct navigation events:
+Then the guard. It has one job it must get exactly right: **gate every navigation entry point.** Guarding `:rf.route/navigate` alone fails *open* on the most common path — a logged-out user who types `/settings` into the URL bar, reloads a protected page, or clicks a link gets straight in. There are three distinct navigation events:
 
 - `:rf.route/navigate` — a programmatic push.
 - `:rf/url-requested` — a `route-link` click.
@@ -205,7 +225,7 @@ The fix is to normalise all three to one target, then redirect identically:
     nil))
 ```
 
-Now the guard itself. An *event* interceptor's `ctx` is split into two halves: `:coeffects` holds the inputs (the read-only `:db` and the `:event` being handled), and `:effects` holds the outputs being assembled (the new `:db`, queued `:fx`). The guard reads the event out of `:coeffects`, and when it decides to bounce, it writes the redirect into `:effects`:
+Now the guard itself. An *event* interceptor's `ctx` splits into two halves: `:coeffects` holds the inputs (the read-only `:db` and the `:event` being handled), and `:effects` holds the outputs being assembled (the new `:db`, the queued `:fx`). The guard reads the event out of `:coeffects`, and when it decides to bounce, it writes the redirect into `:effects`:
 
 ```clojure
 (rf/reg-interceptor :my-app/auth-guard
@@ -227,17 +247,16 @@ Now the guard itself. An *event* interceptor's `ctx` is split into two halves: `
        ctx))})
 ```
 
-Two helpers do the reading, and both are *pure* — they compute from their arguments without touching app-db, which is exactly why the guard can call them inline.
+Two helpers do the reading, and both are *pure* — they compute from their arguments without touching app-db, which is exactly why the guard can call them inline:
 
-The first, `routing/match-url`, parses a URL string into a map — `{:route-id :params :query :fragment :validation-failed?}` — or `nil` when nothing matches. (Its inverse, `routing/route-url`, builds a URL from a route id and params.) Note the namespace: it lives in `re-frame.routing`, **not** on the `rf/` facade.
-
-The second, `rf/handler-meta`, reads back the metadata you stamped at registration. `(rf/handler-meta :route id)` returns that route's registration map; the guard pulls its `:tags` and checks for `:requires-auth`.
+- **`routing/match-url`** parses a URL string into a map — `{:route-id :params :query :fragment :validation-failed?}` — or `nil` when nothing matches. (Its inverse, `routing/route-url`, builds a URL from a route id and params.) Note the namespace: it lives in `re-frame.routing`, **not** on the `rf/` facade.
+- **`rf/handler-meta`** reads back the metadata you stamped at registration. `(rf/handler-meta :route id)` returns that route's registration map; the guard pulls its `:tags` and checks for `:requires-auth`.
 
 The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` — the public short-circuit primitive an interceptor's `:before` sets on its ctx — stops the original handler, so the protected slice never commits and its `:on-match` loads never fire. The guard then dispatches the login navigation itself.
 
-> **Gotcha — don't rewrite the event in place.** The runtime picks the handler from the *original* event id, so editing the event would run the wrong handler. Use skip-and-dispatch instead. And stash the target in `app-db`, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
+> **Gotcha — don't rewrite the event in place.** The runtime picks the handler from the *original* event id, so editing the event in `:before` would just run the wrong handler. Use skip-and-dispatch instead. And stash the target in app-db, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
 
-> **Gotcha — a bad URL is a non-match, not a crash.** If `match-url` can't resolve a path — an unknown route, or path params that fail the route's `:params` schema (`:validation-failed? true`) — it returns `nil`/a non-match, and `nav-target` short-circuits the guard for that event. The runtime's own URL-change handler routes the same non-match to `:rf.route/not-found`. So a logged-out user pasting a garbage protected-looking URL lands on not-found, never inside a guarded slice.
+> **Gotcha — a bad URL is a non-match, not a crash.** If `match-url` can't resolve a path — an unknown route, or path params that fail the route's `:params` schema (`:validation-failed? true`) — it returns a non-match (`nil`), and `nav-target` short-circuits the guard for that event. The runtime's own URL-change handler routes the same non-match to [`:rf.route/not-found`](../glossary.md#not-found). So a logged-out user pasting a garbage protected-looking URL lands on not-found, never inside a guarded slice.
 
 ### Wire the guard frame-wide
 
@@ -269,7 +288,9 @@ The init event from step 1 restores the saved session and classifies the token p
                     {:rf.cofx {:auth.session/token (read-jwt-from-storage)}}))
 ```
 
-> **From re-frame v1 (and a frame gotcha) — `reg-frame` is a create-and-register, atomically.** There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same event cascade that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (Per [EP-0027](../../../spec/002-Frames.md).)
+> **From re-frame v1 (and a frame gotcha) — `reg-frame` is a create-and-register, atomically.** There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event cascade](../glossary.md#event-cascade) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (Per [EP-0027](../../../spec/002-Frames.md).)
+
+> **Gotcha — exactly one frame owns the URL.** `:url-bound? true` ([`url-bound?`](../glossary.md#url-bound)) is what makes this frame's `:rf.route/navigate` push to the browser address bar and makes Back/Forward dispatch back into it — and it's *exclusive*. A second frame that also declares `:url-bound? true` is rejected fail-loud with `:rf.error/duplicate-url-binding`. This matters the moment you run a sidecar app on the same page — [Xray](../glossary.md#xray), a story, a second mounted instance: leave the sidecar's frame URL-unbound so it routes in memory only and never fights your app for the URL. (The same isolation that lets a second logged-in tab keep its own token, from step 1, is what lets the sidecar coexist here.)
 
 ## 5. Bounce back after login
 
@@ -286,15 +307,15 @@ A guard's headline feature is returning the user to exactly where they were head
                          [:rf.route/navigate :app/home])]]})))
 ```
 
-> **Why this matters — read-and-clear, not just read.** A stash that lingers is a footgun: the user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consuming the stash in the same handler that reads it means the bounce target lives exactly as long as one login round-trip.
+> **Why this matters — read-and-clear, not just read.** A stash that lingers is a footgun. The user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consuming the stash in the same handler that reads it means the bounce target lives exactly as long as one login round-trip — no longer.
 
 ## 6. Logout is a teardown
 
-Logout has to clear three things: the session slice, the persisted token, *and* the departing user's cached server reads. Skip that last one and the next account sees the previous account's feed — the kind of bug you really don't want in an auth flow.
+Logout has to clear three things: the session slice, the persisted token, *and* the departing user's cached server reads. Skip that last one and the next account sees the previous account's feed — precisely the bug you don't want anywhere near an auth flow.
 
-The first two are easy — they're just the slice and the persistence seam you already built. The third, clearing a user's cached server reads, is one causal event when you use [resources](../concepts/server-state.md) (a *resource* being a managed, cached read of server state): `:rf.resource/clear-scope`.
+The first two are easy — they're the slice and the persistence seam you already built. The third, clearing a user's cached server reads, is one causal event when you use [resources](../glossary.md#resource) (a *resource* being a managed, cached read of server state): `:rf.resource/clear-scope`.
 
-To clear *a user's* cached reads you need a way to name "this user's scope." That's a **named resource-scope resolver**: a pure function, registered once, that derives a canonical scope value from `app-db`. The same resolver is used by your resources, your route loads, and logout — one scope currency, no per-call-site seams:
+To clear *a user's* cached reads you need a way to name "this user's scope." That's a **named resource-scope resolver**: a pure function, registered once, that derives a canonical [scope](../glossary.md#scope) value from app-db. The same resolver is used by your resources, your route loads, and logout — one scope currency, no per-call-site seams:
 
 ```clojure
 ;; Register once at boot. The resolver is PURE — it derives a scope from db,
@@ -307,7 +328,7 @@ To clear *a user's* cached reads you need a way to name "this user's scope." Tha
        [:rf.scope/session {:username username}]))})   ;; nil when logged out — fail-closed
 ```
 
-Now logout itself. There's one subtlety, and the ordering matters: resolve the *old* scope from the coeffect `db` **before** you clear the auth slice. After the clear, the identity the scope derives from is gone.
+Now logout itself. There's one subtlety, and the ordering is the whole game: resolve the *old* scope from the coeffect `db` **before** you clear the auth slice. After the clear, the identity the scope derives from is gone.
 
 ```clojure
 ;; Scope resolution per Spec 016; :my-app/session is the resolver registered above.
@@ -322,17 +343,17 @@ Now logout itself. There's one subtlety, and the ordering matters: resolve the *
             [:dispatch [:rf.route/navigate :app/home]]]})))
 ```
 
-`clear-scope` removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, suppresses late replies (by scope-plus-generation checks), and emits a trace row explaining what was removed, aborted, and left alone. Every other scope stays intact, and there's no hand-maintained list of keys to forget ([Spec 016 — Resources](../../../spec/016-Resources.md)). If you don't use resources, drop that one `:fx` row and the rest stands.
+`clear-scope` earns its keep: it removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, suppresses late replies (by scope-plus-generation checks), and emits a trace row explaining what was removed, aborted, and left alone. Every other scope stays intact, and there's no hand-maintained list of keys to forget ([Spec 016 — Resources](../../../spec/016-Resources.md)). Don't use resources? Drop that one `:fx` row and the rest stands.
 
-> **Going deeper — `resolve-resource-scope` is pure, and that's load-bearing.** It reads the resolver registry against a `db` value with no dispatch, no app-state mutation, and no trace. That's why you can call it *inline* in the handler to capture `old-scope` before the clear. Note the `:cause :logout` on the payload: `clear-scope` records it in resource history so Xray can attribute the eviction. And there's deliberately **no `:snapshot-db` key** — a whole-db snapshot riding an event vector would be an egress-bearing record on traces, which EP-0015 forbids.
+> **Going deeper — `resolve-resource-scope` is pure, and that's load-bearing.** It reads the resolver registry against a `db` value with no dispatch, no app-state mutation, and no trace. That's exactly why you can call it *inline* in the handler to capture `old-scope` before the clear. Note the `:cause :logout` on the payload: `clear-scope` records it in resource history so Xray can attribute the eviction. And there's deliberately **no `:snapshot-db` key** — a whole-db snapshot riding an event vector would be an egress-bearing record on traces, which EP-0015 forbids.
 
-> **Gotcha — a nil scope is loud, not silent.** If the resolver returns `nil` at a `clear-scope` site — say the user was already gone — the runtime emits a loud diagnostic (`:rf.warning/resource-clear-scope-unresolved`) rather than a silent no-op. So a logout that quietly fails to clear a session's cache shows up in the trace instead of leaking the previous user's feed.
+> **Gotcha — a nil scope is loud, not silent.** If the resolver returns `nil` at a `clear-scope` site — say the user was already gone — the runtime emits a loud diagnostic (`:rf.warning/resource-clear-scope-unresolved`) rather than a silent no-op. So a logout that quietly *fails* to clear a session's cache shows up in the trace, instead of leaking the previous user's feed and looking fine.
 
 > **Coming from TanStack Query?** This is `queryClient.clear()` with a scalpel instead of a sledgehammer. Rather than nuking the entire cache on logout, `clear-scope` evicts exactly the entries owned by the departing session's scope — derived from the *old* identity you captured before the clear — and leaves everything else (app-level config, public reads, a second logged-in frame) untouched.
 
 ## Observe it in Xray
 
-With all six steps wired, you can watch the whole flow in [Xray](debug-with-xray.md):
+With all six steps wired, watch the whole flow in [Xray](debug-with-xray.md):
 
 - Logged out, click a link to a guarded route: the navigation event's row shows the guard skipping the handler and a follow-on dispatch to login — the protected route never reaches the route slice.
 - Logged in, find an authenticated request: the live request carried `Authorization`, the captured trace shows it redacted — as is `[:auth :token]` in the app-db view.

@@ -1,63 +1,63 @@
 # The re-frame2 Guide
 
-re-frame2 is a data-first framework for building React applications in ClojureScript. The whole app reads from one state map (app-db), you describe what happened as plain data (events), each event sets off a fixed ordered run — the event cascade — and views render last from the state it leaves behind. This page won't teach you any of that — its only job is to point you at the right entry point and show you how the guide is laid out, so you can skip straight to what you need.
+re-frame2 is a data-first framework for building React applications in ClojureScript. The whole app reads from one immutable state map — [app-db](glossary.md#app-db) — and changes it one way: you describe what happened as plain data (an [event](glossary.md#event)), that event sets off a fixed, ordered run called the [event cascade](glossary.md#event-cascade), and the [views](glossary.md#view) render last from the state it leaves behind. Data in, data out, UI as a function of the result.
 
-> **Start by running the counter in five minutes; everything else is one click deeper.**
+This page doesn't teach any of that. Its whole job is to be a signpost: find the door that fits you, walk through it, and the rest of the guide unfolds from there. Everything below is one click deeper.
+
+> **The fastest way to "get it" is to run the counter — five minutes, no theory.** Read first if you must, but the loop lands faster when you've watched it spin once.
 
 ## Pick your entry point
 
-There are three ways into the guide, depending on who you are. Pick the row that fits, and follow the first link — the rest of the guide unfolds from there.
+Three readers, three doors. Pick the row that's you and follow the first link; the second column is where to go once the first idea has sunk in.
 
-| You are… | Start at | Then |
+| You are… | Start here | Then |
 |---|---|---|
-| **A React/JS developer.** You know the ecosystem — Redux, TanStack Query, XState, React Router — but maybe not Clojure. | [Quickstart: a counter in five minutes](quickstart.md) | The [RealWorld tutorial](tutorial/index.md). Each concept page opens by naming the tool you already know, then teaches the difference. |
-| **A re-frame v1 veteran.** Most instincts survive. The global assumptions don't. | [From re-frame v1](25-from-re-frame-v1.md) — deltas, not basics. | [Frames: isolated worlds](concepts/frames.md) — the biggest new idea. |
-| **An AI agent** working on a re-frame2 app. | [The reference map](reference.md), which indexes down into the [spec](../../spec/README.md) — the normative contract. | Guide pages are self-contained and use the spec's terminology, so they chunk cleanly. Where guide and spec differ, the spec wins. |
+| **A React/JS developer** who knows the ecosystem — Redux, TanStack Query, XState, React Router — but maybe not Clojure. | [Quickstart: a counter in five minutes](quickstart.md) | The [RealWorld tutorial](tutorial/index.md). Every concept page opens by naming the tool you already reach for, then teaches only the *delta*. |
+| **A re-frame v1 veteran.** Most of your instincts survive intact. The *global* assumptions don't. | [From re-frame v1](25-from-re-frame-v1.md) — deltas, not basics. | [Frames: isolated worlds](concepts/frames.md) — the one idea that ripples through everything else. |
+| **An AI agent** working on a re-frame2 app. | [The reference map](reference.md), which indexes down into the [spec](../../spec/README.md) — the normative contract. | The guide pages are self-contained and speak the spec's vocabulary, so they chunk cleanly. Where guide and spec disagree, the spec wins. |
 
-One reader this guide deliberately doesn't serve: someone learning UI programming from scratch. It teaches re-frame2 by difference from tools you already know, which means it assumes you've shipped something with React or Redux before.
+There's one reader this guide deliberately *doesn't* serve: someone learning UI programming from scratch. It teaches re-frame2 by *difference* — "it's like the thing you already use, except…" — so it assumes you've shipped something with React or Redux before. If you haven't, this is the wrong first book.
 
-> **For JavaScript developers.** You don't have to leave your mental models at the door — the guide leans on them. Most concept pages open by naming the JS-ecosystem tool that solves the same problem (subscriptions ≈ Redux selectors / `useSelector`, resources ≈ TanStack Query, machines ≈ XState, routing ≈ React Router) and then teach only what's *different*. So the fastest path in is the [Quickstart](quickstart.md): build the counter, recognise the loop, and let each later page map onto something you already know.
+> **Coming from the JavaScript ecosystem?** Bring your mental models — the guide is built on top of them. Most concept pages open by naming the JS tool that solves the same problem, then teach only what's *different*:
+>
+> | You know… | re-frame2 calls it | The difference, in one line |
+> |---|---|---|
+> | Redux selectors / `useSelector` | [subscriptions](glossary.md#subscription) | Named, cached derivations on a graph — dependency tracking is automatic, no deps array. |
+> | TanStack Query | [resources](glossary.md#resource) | The cache lives *in* your state, where any sub can read it and Xray can show it. |
+> | XState | [machines](glossary.md#machine) | A statechart registered like an event handler; its live state is ordinary readable state. |
+> | React Router | [routing](glossary.md#navigate) | A route is a registry entry, navigating is dispatching an event, the URL is just a sub. |
+>
+> So the quickest way in really is the [Quickstart](quickstart.md): build the counter, recognise the loop, and let each later page click onto something you already know.
 
-> **From re-frame v1.** Most of your instincts carry over unchanged: events are still plain data, subscriptions still derive, effects still describe what should happen. What's gone is the *global* assumption — there is no single ambient `app-db` or registry anymore. State lives inside [frames](concepts/frames.md), and that one idea ripples through everything else. Read [From re-frame v1](25-from-re-frame-v1.md) for the deltas — it skips the basics and lists only what changed.
+> **Coming from re-frame v1?** Most instincts carry over unchanged — events are still plain data, subscriptions still derive, effects still describe what should happen. What's gone is the *global* assumption: there's no single ambient `app-db` or registry anymore. State now lives inside [frames](concepts/frames.md), and that one change reaches into everything downstream. [From re-frame v1](25-from-re-frame-v1.md) skips the basics and lists only the deltas — read that first, not this whole guide.
 
-> **Rusty on Clojure, or never wrote any?** You don't need to be fluent to follow along — the loop is data, not syntax. But if the parentheses are getting in the way, [ClojureScript for non-Clojurians](../cljs/index.md) is a fast primer aimed squarely at JS developers: just enough syntax to read every example in this guide.
+> **Rusty on Clojure, or never written a line?** You don't need fluency to follow along — the loop is *data*, not syntax. But if the parentheses are getting in the way, [ClojureScript for non-Clojurians](../cljs/index.md) is a fast primer aimed squarely at JS developers: just enough syntax to read every example here without squinting.
 
 ## The shape of the guide
 
-The guide comes in tiers, ordered by how much you need to read before you can do anything useful. The left-hand nav follows this same order, top to bottom:
+The guide is layered by *how much you have to read before you can do something useful*. The left-hand nav follows this same order, top to bottom — so "further down" always means "more depth, less urgency."
 
-| Tier | Its job | Entry |
+| Tier | What it's for | Door |
 |---|---|---|
 | **Quickstart** | Pixels in five minutes; nothing explained yet | [Quickstart](quickstart.md) |
-| **Core concepts: the loop** | The mental model — events, app-db, subscriptions, views, effects — taught as a chain of six steps where each one knocks into the next, like dominoes, one page per step, on the counter | [The model: six dominoes, one loop](concepts/index.md) |
-| **Tutorial** | Build RealWorld — pages, server data, auth, writes, tests — one app, end to end | [Build RealWorld](tutorial/index.md) |
+| **Core concepts: the loop** | The mental model — events, app-db, subscriptions, views, effects — taught as six steps that knock into each other like dominoes, one page per step, all on the counter | [The model: six dominoes, one loop](concepts/index.md) |
+| **Tutorial** | Build RealWorld end to end — pages, server data, auth, writes, tests — one app, start to finish | [Build RealWorld](tutorial/index.md) |
 | **More concepts** | Everything built *on* the loop — interceptors, frames, images, flows, machines, HTTP, resources, routing, SSR, errors, observability | [Interceptors](concepts/interceptors.md) |
 | **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |
-| **Explanation** | The why behind the design — for when you're curious, not blocked | [Inside out: why views come last](explanation/inside-out.md) |
+| **Explanation** | The *why* behind the design — for when you're curious, not blocked | [Inside out: why views come last](explanation/inside-out.md) |
 | **Migration** | What changed from re-frame v1, and how to port | [From re-frame v1](25-from-re-frame-v1.md) |
 | **Reference** | The map down into the spec, tools, and skills — every shape, every option | [The reference map](reference.md) |
 
-Two things about that order are deliberate, because they shape how you read it:
+Two things about that order are deliberate, because they change how you should read it:
 
-- **The loop comes before the tutorial.** Core concepts — the [six dominoes](concepts/index.md) (the six steps that pass data one way around the loop), app-db, subscriptions, views, effects — sit *before* RealWorld on purpose. You meet the one-way loop on a counter first, so that when the tutorial throws a real domain at you, the shape is already familiar and you're learning the app, not the framework. The deeper, feature-level concepts (frames, machines, resources, and the rest) come *after* the tutorial, once you've felt where they fit.
-- **Two design questions get their own pages, not recipes.** Some questions sit a step before "how do I…": [Where should this value live?](where-state-lives.md) (db, sub, flow, resource, or machine) and [One graph: derivations and algebra views](derivations-and-algebra-views.md) (how all your derived state — subscriptions and more — forms a single dependency graph). They're placement decisions, not tasks, so they live on the explanation shelf where you can read them without a task in hand.
+- **The loop comes *before* the tutorial.** The [six dominoes](concepts/index.md) — the six steps that pass data one way around the loop — plus app-db, subscriptions, views, and effects sit ahead of RealWorld on purpose. You meet the one-way loop on a humble counter first, so that when the tutorial drops a real domain on you, the *shape* is already familiar and you're learning the app, not the framework. The heavier feature concepts — [frames](concepts/frames.md), machines, resources, the rest — come *after* the tutorial, once you've felt where they'd fit.
+- **Two design questions get their own pages, not recipes.** Some questions sit a step *before* "how do I…": [Where should this value live?](where-state-lives.md) (plain in app-db, or one of the [four homes](glossary.md#the-four-homes-where-state-lives) — sub, flow, resource, or machine) and [One graph: derivations and algebra views](derivations-and-algebra-views.md) (how all your derived state forms a single [dependency graph](glossary.md#the-derivation-graph)). Those are *placement* decisions, not tasks, so they live on the explanation shelf where you can read them without a task in hand.
 
-Two habits run through every tier, and they're worth knowing up front because they shape how the pages read:
+Two habits run through every tier. Worth knowing up front, because they shape how the pages read:
 
-- **Do, observe, explain.** The runtime is inspectable by design, so most pages follow an action with "now open Xray and watch what it caused" before they explain why it happened. You see the effect before you read the theory, which tends to stick better.
-- **Link down, never duplicate.** Guide pages teach the model and the happy path; the complete contract lives in the [spec](../../spec/README.md). Rather than restate it, pages link into it — so when you want the exhaustive list of options, you follow the link.
+- **Do, observe, explain.** The runtime is inspectable by design, so most pages follow an action with "now open [Xray](glossary.md#xray) and watch what it caused" *before* they explain why. You see the effect before you read the theory — which, it turns out, sticks better than the other way round.
+- **Link down, never duplicate.** Guide pages teach the model and the happy path; the exhaustive contract lives in the [spec](../../spec/README.md). Rather than restate it (and watch the copy rot the moment the spec moves), pages link *into* it. When you want the complete list of options, you follow the link.
 
-Almost every page closes with a short **"You can now…"** block — the two or three concrete things you should be able to *do* after reading it. If a closing claim doesn't ring true yet, that's the signal to re-read the page (or the one it links down to) rather than push on.
+> **Going deeper — the one big idea.** The whole guide is a single idea unfolding: state is a *value*, the UI is a pure function of that value, and everything in between is data you can inspect. If you'd rather understand *why* the pieces sit where they do before you build — why views render last, why effects live at the edge, why there's no global db — the [Explanation](explanation/inside-out.md) shelf is written for exactly that mood. It's strictly optional: you can ship a real app on the loop and the tutorial alone, then circle back to the *why* when curiosity (or a code review) demands it.
 
-> **Going deeper.** The whole guide is one big idea unfolding: state is a *value*, the UI is a pure function of that value, and everything in between is data you can inspect. If you'd rather understand *why* the pieces sit where they do before you start building — why views render last, why effects live at the edge, why there's no global db — the [Explanation](explanation/inside-out.md) shelf is written for exactly that mood. It's strictly optional: you can ship a real app having read only the loop and the tutorial, and circle back to the *why* when curiosity (or a code review) demands it.
-
-> **Pre-alpha, and honest about it.** re-frame2 is pre-alpha — surfaces are still settling, and a few features aren't here yet. The guide flags deferred features and client-only paths wherever they matter, so you won't build on something that turns out to be a placeholder.
-
----
-
-**You can now:**
-
-- pick your entry point — the quickstart if you're new, the v1 deltas page if you're migrating, the reference map if you're an agent
-- find the CLJS primer if the Clojure syntax is in your way
-- name which tier answers a question: learning (quickstart, core concepts, tutorial, more concepts), doing (how-to), wondering (explanation), checking (reference)
-- read the nav as an ordered path — the loop before the tutorial, the feature concepts after it
+> **Pre-alpha, and honest about it.** re-frame2 is pre-alpha — surfaces are still settling, and a few features aren't here yet. The guide flags deferred features and client-only paths wherever they matter, so you won't build on a placeholder and find out the hard way.
