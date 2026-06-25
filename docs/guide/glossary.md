@@ -6,11 +6,10 @@ A catalog of re-frame2's nouns, verbs, and concepts.
 
 ### **adapter**
 
-re-frame2 works with various rendering libraries including Uix, Reagent and Helix. An `adaptor` is a map of "glue" functions that connect re-frame2's core to one of these libraries.
+re-frame2 renders through one of several React-family rendering libraries — Reagent, UIx, or Helix (its [substrate](#substrate)). An **adapter** is the small map of "glue" functions that wires re-frame2's core to the substrate you picked. It's a *value*, not the library itself.
 
-You install an `adapter` at application boot time with `init!`.
+You install it once, at boot, by passing it to `init!`:
 
-For example, if you are using reagent:
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
@@ -19,35 +18,33 @@ For example, if you are using reagent:
 (rf/init! reagent-adapter/adapter)
 ```
 
-Or Uix:
-```clojure
-(ns app.core
-  (:require [re-frame.core :as rf]
-            [re-frame.adapter.uix :as uix-adapter]))
+To switch substrate you change that one line — require `re-frame.adapter.uix` or `re-frame.adapter.helix` and pass *its* `adapter`. Nothing else moves: your events, subscriptions, and app-db are substrate-agnostic.
 
-(rf/init! uix-adapter/adapter)
-```
-
-Related: [Views](concepts/views.md), [Adapters](../api/14-adapters.md).
+Related: [Views](concepts/views.md), [Adapters](../api/14-adapters.md). Don't confuse it with the [substrate](#substrate) — the substrate is the rendering library; the adapter is the value that binds re-frame2 to it.
 
 ### **app-db**
 
-The map holding application state in a [frame](#frame).
+The single, immutable map that holds your application's state — one per [frame](#frame), and the one source of truth your code owns. 
 
-You design the map's structure to fit the app, and optionally you can provide a Malli schema. The `event handlers` you write will build and maintain this application state, and the `subscriptions` you write will provide projections of it to `views`.
+You design the map's shape to fit your app, and can optionally guard it with a schema (Malli by default). You never mutate it directly: an [event handler](#event-handler) returns a *new* app-db, the framework commits it atomically, and your [subscriptions](#subscription) re-derive the [views](#view) from the new value. State flows **in** through events and **out** through subscriptions — never the reverse.
 
-An example structure:
+An example shape:
 ```clojure
-{:cart {:items [{:sku "BK-1" :qty 2}]} :user/name "Ada"}
+{:cart  {:items [{:sku "BK-1" :qty 2}]
+         :open? false}
+ :user  {:name "Ada"}
+ :route {:page :checkout}}
 ```
+
+Note: The framework keeps *its* own state separately in [runtime-db](#runtime-db) within a [frame](#frame); see [the two partitions](#the-two-partitions).
 
 Related: [app-db](concepts/app-db.md), [Validate with schemas](how-to/validate-with-schemas.md).
 
 ### **coeffect**
 
-The first argument to an event handler is a map of facts about the world: a map of coeffects.
+A fact about the world — the current time, a fresh UUID, a value from local storage — that the framework supplies to an [event handler](#event-handler) as data, so the handler stays a pure function and never reaches out to the world itself. A handler is a pure function from coeffects to an [effect map](#effect-map): the world flows *in* as coeffects and *out* as [effects](#effect).
 
-This map always contains the key `:db` which provides the current value of [app-db](#app-db). If a handler needs other facts, such as the current date, a UUID, or local storage, they must be specified in the event handler's metadata using the key `:rf.cofx/requires` like this.
+A handler's first argument is its coeffects map. It always carries `:db` (the current value of [app-db](#app-db)). Any *other* fact must be declared up front in the event's metadata under `:rf.cofx/requires`, and the framework supplies it:
 
 ```clojure
 (rf/reg-event :order/place
@@ -56,8 +53,7 @@ This map always contains the key `:db` which provides the current value of [app-
     {:db (assoc db :order/date today)}))
 ```
 
-
-For this to work, you must register a coeffects handler via [`reg-cofx`](../api/01-core.md#reg-cofx) for `:today`. For example:
+You make a coeffect available by registering a supplier for it with [`reg-cofx`](../api/01-core.md#reg-cofx):
 
 ```clojure
 (rf/reg-cofx :today
@@ -65,44 +61,53 @@ For this to work, you must register a coeffects handler via [`reg-cofx`](../api/
     (subs (.toISOString (js/Date.)) 0 10)))
 ```
 
+Declaring the world this way — rather than reading it inside the handler — is what makes events pure, testable, and replayable.
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
-### **effects map**
+### **effect**
 
-The map returned by an `event handler` or `machine action`.
-
-Given an `event` and `coeffects`, an `event handler` computes and returns an `effects map` describing how "the world" should be changed: the side effects of the event.
-
-The `event handler` does not make changes itself; it computes a description of the necessary changes.
-
-An `event handler` often returns only one `:db` effect, meaning "replace app-db with this new value", like this:
+A single side effect, described as data for the framework to perform — an HTTP request, a navigation, a delayed dispatch, a write to local storage. An effect is a `[effect-id config]` pair, and effects ride in the `:fx` vector of an [effect map](#effect-map):
 
 ```clojure
-{:db new-app-db-value}
+[:dispatch-later {:ms 500 :event [:cart/saved]}]   ;; one effect
 ```
 
-When an `event handler` also needs HTTP, delayed events, post messages, local storage, email, or other side effects, it typically returns them under `:fx`.
+The [event handler](#event-handler) only *describes* the effect; the runtime performs it, using the handler you registered for that `effect-id` with [`reg-fx`](../api/01-core.md#reg-fx). Effects are the output side of an event — the dual of its input [coeffects](#coeffect) — and keeping them as data, rather than doing them inline, is what makes events pure and testable.
+
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
+
+### **effect map**
+
+The map an [event handler](#event-handler) — or a [machine](#machine) action — returns to describe how the world should change. The handler never makes the change itself; it's a pure function that returns this *description*, and the framework carries it out.
+
+It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace app-db with this":
 
 ```clojure
-{:db new-app-db-value
+{:db new-db}
+```
+
+`:fx` is a vector of [effects](#effect) — each a `[effect-id config]` pair describing one side effect to perform (an HTTP call, a delayed dispatch, navigation, local storage, …):
+
+```clojure
+{:db new-db
  :fx [[:http {:url "/api/cart" :method :post}]
       [:dispatch-later {:ms 500 :event [:cart/saved]}]]}
 ```
 
-Use [`reg-fx`](../api/01-core.md#reg-fx) to register effect handlers.
+`:db` and `:fx` are the only top-level keys application code may return; an unknown key fails loud. Register your own effects with [`reg-fx`](../api/01-core.md#reg-fx).
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). **Effects** are often shortened to `fx`.
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). The `:fx` key is why effects are often just called "fx".
 
 ### **epoch**
 
-In re-frame2 observability, an epoch is the record left behind by one completed event cascade.
-
-It captures the event, before/after frame state, and trace evidence used by Xray, time-travel, and debugging tools.
+The record one [event cascade](#event-cascade) leaves behind — its trigger event, the before/after [app-db](#app-db), and the cascade's trace events. The epoch is re-frame2's **unit of time-travel**: [Xray](#xray) rewinds, replays, and inspects history one epoch at a time.
 
 ```clojure
 ;; one dispatch = one cascade = one epoch (the record)
 ```
+
+Epochs live on the dev-only observability surface — they're [elided](#elide) from production builds.
 
 Related: [Observability](concepts/observability.md).
 
@@ -184,7 +189,7 @@ A function that computes how an [event](#event) changes the world. It receives t
 - a map of [coeffects](#coeffect): selected facts about the world needed to process the event
 - the event vector
 
-It returns an [effects map](#effects-map): data describing what about the world should be changed, and how.
+It returns an [effect map](#effect-map): data describing what about the world should be changed, and how.
 
 ```text
 (coeffects, event-vector) -> effect-map
@@ -269,7 +274,7 @@ Related: [Images](concepts/images.md).
 An interceptor wraps around an event handler by providing one or both these functions:
 
 - a `:before` function that runs before the event handler and can inspect or change the handler's coeffects.
-- an `:after` function that runs after the event handler and can inspect or change the [effects map](#effects-map) the handler returned.
+- an `:after` function that runs after the event handler and can inspect or change the [effect map](#effect-map) the handler returned.
 
 Both functions receive a context map and return an updated context map.
 
