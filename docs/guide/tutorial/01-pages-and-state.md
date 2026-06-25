@@ -124,8 +124,6 @@ The two-layer split is a habit worth forming early. The top sub (`:articles/slic
 
 > **Gotcha — a sub with no registration fails loud.** Dereference a sub-id you never registered (a typo — `@(subscribe [:articles/dat])`) and you get a `:rf.error/no-such-handler`, not a silent `nil` that propagates into a blank screen three components away. The same goes for an input vector pointing at an unregistered sub. The error names the missing id, so a fat-fingered keyword is a one-line fix rather than an afternoon's debugging.
 
-> **Going deeper.** The subscription layers form a directed acyclic graph, and re-frame2 walks it the way a build tool walks a dependency tree: each node caches its last value and only recomputes when an input it actually reads produces a *new* value (by `=`). That's the same insight behind spreadsheet recalculation and incremental-computation libraries like Adapton — do the least work by tracking exactly which downstream values a change can reach. The two-layer habit (raw read on top, view-shaping below) is just you placing the cache boundaries where they pay off. See [Subscriptions: the derivation graph](../concepts/subscriptions.md) for how recomputation actually propagates.
-
 ??? note "The full derivation-graph story"
 
     For how the graph recomputes and stays cheap, see [Subscriptions: the derivation graph](../concepts/subscriptions.md).
@@ -204,8 +202,6 @@ Two more hiccup details the listing above quietly leans on, since both bite newc
 - **Every element in a `for`-generated list needs a `^{:key …}` metadata tag.** The `^{:key (:slug article)}` on each preview and `^{:key tag}` on each tag isn't decoration — it's how the renderer tells one list item from another across re-renders. Forget it and React falls back to index-based reconciliation, which breeds subtle bugs the moment the list reorders (plus a console warning to remind you). Use a stable, unique field from the data (a slug, an id) — never the loop index.
 
 Those `rf/route-link`s point at a route id that doesn't exist yet. We add it next.
-
-> **Going deeper.** "Pure function of data to hiccup" is more than a slogan — it's what makes a view *referentially transparent*: the same sub values always produce the same hiccup, so the view has no hidden state and no order-dependence. That property is exactly what lets the framework memoise aggressively (re-render only when an input value moves), and what lets you test a view by calling it with a map and comparing the returned data — no DOM, no mount. Effects (dispatching, navigating) live on the *other* side of the loop, in handlers; the view only ever *describes*. See [Views: pure functions of data](../concepts/views.md) for where the line is drawn.
 
 ??? note "Why views stay pure"
 

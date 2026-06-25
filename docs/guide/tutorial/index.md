@@ -218,14 +218,9 @@ By the time `reg-frame` returns, that cascade has settled and `app-db` holds wha
 
 ### Two providers: scope vs lifecycle
 
-There are two providers in the family, and the distinction matters once you have more than one frame.
+The family has two providers, scope-only and lifecycle, and they take different keys: `frame-provider-existing` (the one on this page) just scopes the tree to a frame you already registered, while `frame-provider` (no suffix) *creates* a frame on mount keyed by `:id` and destroys it on unmount — the one you reach for when a view should own a frame for as long as it's mounted (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../concepts/frames.md) is the full picture; the slip to watch for here is crossing their keys:
 
-- **`frame-provider-existing`** (the one on this page) is **scope-only**: you registered the frame at the root, and the provider just carries its id down. It creates nothing and destroys nothing.
-- **`frame-provider`** (no suffix) is the **lifecycle** one — it *creates* a frame on mount and *destroys* it on unmount, taking the same construction opts as `reg-frame` (`:id`, `:initial-events`, …). Note the key is `:id` here, not `:frame` — because this provider *names a frame into being*, it doesn't point at one that already exists.
-
-You reach for `frame-provider` when a *component* should own a frame for exactly as long as it's mounted: a comparison page showing two isolated apps side by side, a Story canvas, an embedded widget, a modal. A single-page app's one root frame outlives every component, so it's registered once at the top and merely scoped in — hence `-existing`.
-
-> **Gotcha — don't hand a lifecycle opt to the scope-only provider.** Pass something like `:initial-events` to `frame-provider-existing` and it fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`), pointing you at the owned `frame-provider` instead of silently doing nothing — a scope-only provider neither creates nor owns a frame, so it has nowhere to *put* construction opts. The full picture is in [Frames: isolated worlds](../concepts/frames.md).
+> **Gotcha — don't hand a lifecycle opt to the scope-only provider.** Pass something like `:initial-events` to `frame-provider-existing` and it fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`), pointing you at the owned `frame-provider` instead of silently doing nothing — a scope-only provider neither creates nor owns a frame, so it has nowhere to *put* construction opts.
 
 > **Gotcha — and the mirror: `frame-provider` wants `:id`, not `:frame`.** The two providers take different keys, and crossing them is the easy slip. The lifecycle `frame-provider` *requires* `:id` (the token it creates and later tears down); hand it `{:frame …}` — the scope-only key — and it fails loud with `:rf.error/owned-frame-provider-missing-id`, because to it `:frame` is an unknown opt and the required `:id` is simply absent. The fix is in the message: switch to `:id` if you meant to *own* a frame, or to `frame-provider-existing` if you only meant to *scope* to one that already exists.
 
