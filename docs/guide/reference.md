@@ -66,7 +66,7 @@ Two documents own that lookup, and they split along the same Conventions-vs-009 
 
 So `:rf.error/set-db-bad-value` (you handed `[:rf/set-db]` a non-map), `:rf.error/image-zero-match` (a `:select-ns :include` glob matched no loaded namespace), and `:rf.error/invalid-image` (an image carrying a retired key) all resolve to one row in that catalogue — code, meaning, and recovery, side by side.
 
-> **Why this matters.** Errors are *dossiers*, not log lines — a structured record you can match on, route, and recover from. And because error records fan out to your always-on `:errors` listeners, they **survive production**, unlike the dev-only trace surface. The narrative version (why re-frame2 makes that choice, and how that always-on stream surfaces failures in the wild) is the guide's [Errors](concepts/errors.md) concept page; the production observability channel that carries them is [11 — Instrumentation](../api/11-instrumentation.md), with the working recipe at [how-to: Report errors in production](how-to/report-errors-in-production.md).
+> **Why this matters.** Because [error records](glossary.md#error-record) fan out to your always-on `:errors` listeners, they **survive production**, unlike the dev-only trace surface — so this lookup stays useful in the wild, not just at the REPL. The narrative version (why re-frame2 makes that choice) is the guide's [Errors](concepts/errors.md) concept page; the production observability channel that carries them is [11 — Instrumentation](../api/11-instrumentation.md), with the working recipe at [how-to: Report errors in production](how-to/report-errors-in-production.md).
 
 ## The test-helper namespaces
 
@@ -84,29 +84,13 @@ The rule of thumb: a test that drives *events, subs, or machines* reaches for `r
 
 The full inventory is in [10 — Testing](../api/10-testing.md), and the working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
 
-## Images and frames: the composition model
+## Images and frames: where the composition model lives
 
-One model carries the whole composition story: **`image → frame → event stream`**. Two nouns sit at the front of it, and they divide the labour cleanly — *behaviour* on one side, *state* on the other.
+One model carries the whole composition story: **`image → frame → event stream`**. In one line: an [**image**](glossary.md#image) is a *value* naming a set of [registrations](glossary.md#registration) (behaviour) and a [**frame**](glossary.md#frame) is the live, isolated execution context that runs them (state). The full teaching lives at [concepts/images.md](concepts/images.md) and [concepts/frames.md](concepts/frames.md) — this row just points you at the contracts.
 
-An [**image**](glossary.md#image) is a *value* naming a set of [registrations](glossary.md#registration) (events, subs, fx, …) — built with `rf/image`, either by selecting registrations from loaded namespaces (`:select-ns`) or by listing them inline (`:registrations`). Think of it as the recipe: what's in the app, but not yet running.
+The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration), and the composition rules — image order, the `rf/frame-shadows` report, collisions — are owned by [002-Frames](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent). The everyday rule that there's no enclosing container to address — you target a frame by its id — is [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found), taught in [Frames](concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found).
 
-A [**frame**](glossary.md#frame) is the live, isolated execution context — the running dish. It owns the [app-db](glossary.md#app-db) and [runtime-db](glossary.md#runtime-db), the subscription cache, the [trace surface](glossary.md#trace-stream), the [adapter](glossary.md#adapter) binding, and the resolved set of registrations its images add up to (re-frame2 calls one such resolved set a *generation* — hot-reload an image and you get a new generation, like a fresh build of the recipe). You build a frame from images with `rf/make-frame`:
-
-```clojure
-(rf/make-frame {:id      :app/main
-                :images  [app-image]
-                :adapter :reagent})
-```
-
-A frame *is* the natural unit for sealed-off tests and multi-frame inspection. Two frames built from *different* images can hold different handlers for the same id, because each resolves against its own generation; two frames built from the *same* image share every registration, and what's isolated is their state, not their behaviour (see [concepts/images.md](concepts/images.md)). And when you stack images, a later one can *shadow* an earlier one — register over the same id, so its handler wins. That's not silently lost: composition records each shadowed id, and you read the report with `rf/frame-shadows`.
-
-Most apps never touch any of this by hand. A single-app process just `reg-*`s into the global registrar, and the runtime assembles the standard image for it. You reach for explicit images and `make-frame` only when you want isolation: a test that needs a clean slate, a tool inspecting several frames at once, or a hot-reloaded image generation swapped into a running frame.
-
-> **The address is always the frame id.** There is no public container constructor and no container-scoped dispatch option in the `image → frame → event stream` model. You target a frame by its id (or, in tests and tools, by the frame *value* `make-frame` returns — read its id back with `frame-value->id`), never by some enclosing substrate. This is the everyday face of [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found).
-
-> **From re-frame v1.** If you came looking for the older app / realm / module composition vocabulary — `rf/app`, `rf/module`, `rf/realm`, `install!`, and their inspectors — it has left the public facade entirely. The image/frame model replaced it: a feature namespace registers ordinary `reg-*` forms, an `rf/image` selects them, and `make-frame` runs them. Nothing addresses a realm anymore.
-
-The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration), and the composition rules — image order, the shadow report, collisions — are owned by [002-Frames](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
+> **From re-frame v1.** The older app / realm / module composition vocabulary — `rf/app`, `rf/module`, `rf/realm`, `install!`, and their inspectors — has left the public facade; the image/frame model replaced it. [15 — Removed](../api/15-removed.md) lists what's gone and what took its place.
 
 ## The worked examples
 

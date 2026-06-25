@@ -31,7 +31,7 @@ re-frame2's payoff at test time is that the interesting parts of your app are pu
 
 ## Debug it
 
-When the app does something you didn't ask for, you don't reach for `println` — you read the [trace](../glossary.md#trace-stream). Because every event flows through the same loop, re-frame2 records each one on a single timeline, so the whole story of *why* a change happened is already written down, waiting to be replayed. One dispatch leaves behind one [**epoch**](../glossary.md#epoch) — the before/after of that cascade — and these recipes are how you read them: replaying the timeline, and tracking down a view that recomputes more than it should.
+When the app does something you didn't ask for, you don't reach for `println` — you read the [trace](../glossary.md#trace-stream), the timeline every event already wrote down, one [epoch](../glossary.md#epoch) per dispatch ([why it works](../concepts/observability.md)). These recipes are how you read it: replaying the timeline, and tracking down a view that recomputes more than it should.
 
 | I want to… | Recipe |
 |---|---|

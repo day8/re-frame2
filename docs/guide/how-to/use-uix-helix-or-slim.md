@@ -103,11 +103,9 @@ Three rules govern every UIx and Helix component, and once they click you won't 
 
 ## Step 3 — Why callbacks dispatch off the handle
 
-Step 2's second rule said: grab `dispatch` off `(rf/frame-handle)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason.
+Step 2's second rule said: grab `dispatch` off `(rf/frame-handle)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason, and what the handle gives you.
 
-A re-frame2 app can have many [frames](../glossary.md#frame) — independent app-db instances, each its own little world (see [Frames](../concepts/frames.md) for the full story). So whenever you dispatch, *something* has to say which frame the event lands in. During render, the surrounding provider supplies that answer ambiently — but a click handler doesn't fire during render. It fires *later*, after render has long finished, with that ambient frame context gone. A bare `rf/dispatch` reaching for the frame at click time finds nothing to aim at.
-
-[`(rf/frame-handle)`](../glossary.md#frame-handle), called during render, solves this by *capturing* the current frame right then and there and closing over it. The `dispatch` you pull out of it carries that frame with it across the async gap, so when the click finally fires, it still lands in the right world. That's the whole reason for the dance: grab the handle while the frame is in scope, and the callback inherits it. ([Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — the runtime never *guesses* a frame from absence.)
+It's the async-boundary rule from [Frames](../concepts/frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. [`(rf/frame-handle)`](../glossary.md#frame-handle), called *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found). In Reagent `reg-view` injects `dispatch` for you; UIx/Helix have no such injection, so you pull it off the handle yourself.
 
 And the handle gives you more than just a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
 
@@ -137,7 +135,7 @@ The no-arg `(rf/frame-handle)` captures the *ambient* frame at call time, which 
   (ws/on-message (fn [msg] (dispatch [:ws/incoming msg]))))
 ```
 
-> **From re-frame v1.** In v1 you reached for a global `re-frame.core/dispatch` from anywhere and it just worked, because there was a single implicit app. re-frame2 has many frames and never *infers* one from absence. A bare `rf/dispatch` inside a callback has no ambient frame by the time it fires (the render scope is long gone) and raises `:rf.error/no-frame-context` — which is the *good* failure, far better than a guessed-wrong frame quietly corrupting another world's state. The handle is how you carry the right frame across that async gap. See [Frames](../concepts/frames.md) for why the frame is always explicit.
+> **From re-frame v1.** v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app; re-frame2 has many frames and never infers one from absence, so the handle is how you carry the right frame across the async gap. [Frames](../concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found) covers why a guessed default would be a trap.
 
 ## Step 4 — Mount it: scope a frame into the subtree
 
@@ -163,10 +161,10 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
 
 ## Step 5 — Own a frame's lifetime
 
-`frame-provider-existing` scopes a frame that already exists. Sometimes a subtree should *own* a frame outright — a modal, a tab, a per-tenant panel that creates its frame on mount and cleans up after itself on unmount. That's the *other* member of the provider family, and picking the wrong one is the most common mount-time stumble. They differ in one word: **ownership**.
+`frame-provider-existing` scopes a frame that already exists. Its sibling `frame-provider` instead *owns* one — a modal, a tab, a per-tenant panel that creates its frame on mount and tears it down on unmount. The two providers and the ownership split are detailed in [Frames — Two providers](../concepts/frames.md#two-providers-who-owns-the-frames-life); picking the wrong one is the most common mount-time stumble, so here are the opts each takes and the matched errors when you cross them:
 
-- **`frame-provider-existing`** — *scope only* (Step 4). The frame already exists; this provider merely makes its id available to the subtree. It creates nothing, destroys nothing. It takes exactly one opt: `:frame` (a required keyword id). This is the scope-into-React counterpart to the lexical `rf/with-frame`.
-- **`frame-provider`** — *own the lifetime*. It **creates** a frame on mount, **provides** its id to descendants, and **destroys** it on unmount. It takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the [image](../glossary.md#image) — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation).
+- **`frame-provider-existing`** — *scope only* (Step 4). One opt: `:frame` (a required keyword id). Creates and destroys nothing.
+- **`frame-provider`** — *own the lifetime*. Takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the [image](../glossary.md#image) — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation).
 
 ```clojure
 ;; OWN a frame's lifetime: create on mount, run its setup, destroy on unmount.
@@ -183,7 +181,7 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
 
 > **Gotcha — a captured handle can outlive its owned frame.** Because `frame-provider` *destroys* its frame on unmount, a handle you captured inside it (or a `frame-handle :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the modal/tab/panel has closed — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when the owning subtree unmounts, or hold the data in a longer-lived frame if it must outlast the widget.
 
-> **From re-frame v1.** Frames always start with `app-db = {}` — there's no `:db` config key, and the old `:initial-db` / `:on-create` keys are retired. Seeding initial state is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step: setup is now ordinary events through ordinary dispatch. See [Frames](../concepts/frames.md) for the full init surface.
+> **From re-frame v1.** There's no `:db` / `:initial-db` / `:on-create` here — a frame always starts `app-db = {}` and you seed it with `[:rf/set-db {…}]` as the first `:initial-events` step, as the `:checkout` example does. [Frames — Seeding initial state](../concepts/frames.md#seeding-initial-state) is the full init surface.
 
 ## Step 6 — Helix is the same moves, different notation
 

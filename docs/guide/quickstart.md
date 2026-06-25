@@ -36,7 +36,7 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
 (rf/reg-sub :counter/value
   (fn [db _query] (:counter/value db)))
 
-;; VIEW — reg-view hands the component a ready-to-use `dispatch` and
+;; VIEW — reg-view hands the view a ready-to-use `dispatch` and
 ;; `subscribe`, so you don't import or wire them yourself.
 (reg-view counter-app []
   [:div
@@ -50,7 +50,7 @@ A few words on the moving parts — five nouns and one verb, and they're the who
 - An [**event**](glossary.md#event) is an inert data vector — a fact that something happened — here, `[:counter/inc]`. To [**dispatch**](glossary.md#dispatch) is to drop that event onto a queue.
 - The [**app-db**](glossary.md#app-db) is your app's single state map: the one place all the state you own lives. (`db` is short for database, and it really is the whole database — one map.)
 - An [**event handler**](glossary.md#event-handler) (a "handler") is the pure function that receives an event and returns a map describing what should happen next: `{:db next-state}` here, where `:db` is the new value of app-db. Read that map as *"the next state, and anything else to do."* For the counter there's nothing else, so it's just `:db` — but the same shape grows to carry an HTTP request or a follow-up event without changing the handler's signature.
-- A [**subscription**](glossary.md#subscription) is a named, derived read of app-db, and a [**view**](glossary.md#view) is a component that renders from subscriptions and dispatches events back.
+- A [**subscription**](glossary.md#subscription) is a named, derived read of app-db, and a [**view**](glossary.md#view) renders from subscriptions and dispatches events back.
 
 (That last line — `reg-view` — needs the `:require-macros` form at the top because `reg-view` is a macro; a plain `:require` covers everything else. Don't sweat the distinction; it's the one piece of Clojure boilerplate on the page.)
 
@@ -209,6 +209,6 @@ Three lines, and each names exactly one decision. [`init!`](glossary.md#init) in
 
 > **Where did `:initial-db` go?** A frame always starts with `app-db = {}`; there is no `:db` (or `:initial-db`, or `:on-create`) config key. Seeding is *itself an event* — that's the whole reason the seed goes through `:initial-events` rather than a magic config slot. It keeps "events are the unit of state change" honest: the initial state is built by the very same dispatch-and-cascade machinery that handles every later change, so it shows up in the inspector ledger like any other event. (Need to set app-db wholesale rather than from a handler? The framework's `[:rf/set-db {…}]` event does exactly that as a first step.) If you genuinely need to dispatch into the frame *after* boot — a REPL poke, a test — [`with-frame`](glossary.md#frame) pins the frame for a body of `dispatch` / `dispatch-sync` calls, and [`frame-handle`](glossary.md#frame-handle) hands you a callable bundle of a frame's ops to carry across async.
 
-A [**frame**](glossary.md#frame) is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](glossary.md#image); by default that's the one implicit image projected from everything you've registered, so you don't name it. (A frame isolates *state*, not registrations — those live in a process-wide [registrar](glossary.md#registrar) every frame shares.) This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)) — at which point the payoff lands: because your views were never bound to a global store, the same `counter-app` mounts into a second frame with a second, independent app-db, no changes.
+A [**frame**](glossary.md#frame) is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](glossary.md#image); by default that's the one implicit image projected from everything you've registered, so you don't name it. (A frame isolates *state*, not registrations — those live in a process-wide [registrar](glossary.md#registrar) every frame shares.) This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)) — at which point the payoff lands: because your views were never bound to a global app-db, the same `counter-app` mounts into a second frame with a second, independent app-db, no changes.
 
 > **`frame-provider` vs `frame-provider-existing`.** We used `frame-provider-existing` because *we* created the frame at top level with `reg-frame`, and the component's only job is to *scope* that existing frame into the React tree (it creates and destroys nothing). Its sibling [`frame-provider`](glossary.md#frame-provider) is the UI-owned form: hand it `{:id :session :initial-events [[:rf/set-db {}]]}` and *it* creates the frame on mount and destroys it on unmount — the right tool when a frame's lifetime is tied to a component being on screen (a modal, a per-tab session) rather than to the whole app. Same scoping power; the difference is who owns the frame's birth and death.
