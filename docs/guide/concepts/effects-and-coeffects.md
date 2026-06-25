@@ -1,23 +1,23 @@
 # Effects and coeffects: the world at the boundary
 
-Say your [event handler](events-and-the-cascade.md) — the function that runs when an event is dispatched — needs the current time, a fresh id, and an HTTP request. It also has to stay a pure function: same inputs, same outputs. Purity is what makes testing, replay, and time-travel work, so you can't give it up.
+Say your [event handler](events-and-the-cascade.md) — the function that runs when an [event](../glossary.md#event) is [dispatched](../glossary.md#dispatch) — needs the current time, a fresh id, and an HTTP request. It also has to stay a pure function: same inputs, same output, every time. Purity is what makes testing, replay, and time-travel work, so giving it up isn't on the table.
 
-The trick is to move impurity to the edges. Side-effects leave as data on the way *out* (an **effect**) and arrive as a declared fact on the way *in* (a **coeffect**), leaving the handler pure in the middle. This page is those two halves — the way out, then the way in — each one led by the simplest example that works.
+The trick is to push impurity out to the edges. Side-effects leave as data on the way *out* (an [**effect**](../glossary.md#effect)) and arrive as a declared fact on the way *in* (a [**coeffect**](../glossary.md#coeffect)), leaving the handler pure in the middle. Hold onto that symmetry — it's the whole page. We'll take the two halves in turn, the way out then the way in, each one led by the simplest example that works.
 
-> **For JavaScript developers.** If you know Redux, the output half will feel familiar: effects play the role middleware and sagas play, pulling side-effects out of reducers. The difference is that here the handler returns a plain *description*, and one runtime interpreter executes it. There's no middleware stack to compose and no generator runtime to learn.
+> **Coming from Redux?** The output half will feel familiar: effects play the role thunks, sagas, and middleware play, pulling side-effects out of reducers. The difference is that here the handler returns a plain *description*, and one runtime interpreter executes it. There's no middleware stack to compose and no generator runtime to learn.
 
 ## The way out: a handler returns a description
 
-A pure function can't *perform* a side-effect — but it can *return a description of one* and let the runtime do the dirty work. Computing a description is pure; doing the thing is not.
+A pure function can't *perform* a side-effect — but it can *return a description of one* and let the runtime do the dirty work. Computing a description is pure; doing the thing is not. That one move is the entire output story.
 
-You've already relied on this. When a handler returns `{:db new-db}` — the next value of [`app-db`](app-db.md), your app's single state map — it didn't mutate anything. The runtime read that `:db` effect and swapped it in.
+You've already leaned on it. When a handler returns `{:db new-db}` — the next value of [`app-db`](app-db.md), your app's single state map — it didn't mutate anything. It built a map and handed it back; the runtime read that `:db` and swapped it in.
 
-The same trick covers *every* side-effect, not just state. A handler returns an **effect map** — a map with two top-level keys, and that's the *entire* grammar:
+The same move covers *every* side-effect, not just state. A handler returns an [**effect map**](../glossary.md#effect-map) — and the entire grammar is two top-level keys:
 
 | Key | Meaning |
 |---|---|
 | `:db` | Replace `app-db` with this value. |
-| `:fx` | A vector of `[fx-id args]` rows — each row names a registered effect by id and hands it one argument. *Every* other effect rides here: a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself. |
+| `:fx` | A vector of `[fx-id args]` rows — each row names a registered [effect](../glossary.md#effect) by id and hands it one argument. *Every* other effect rides here: a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself. |
 
 So an HTTP POST is just one `[fx-id args]` row under `:fx` — here the fx-id is `:rf.http/managed` and its argument is the request map:
 
@@ -31,7 +31,7 @@ So an HTTP POST is just one `[fx-id args]` row under `:fx` — here the fx-id is
                       :request-content-type :json}}]]}))
 ```
 
-That's a state change *and* an HTTP POST — and the handler is still a pure function. It built a map and returned it. The runtime applies `:db`, then runs the effect named in `:fx`. You test it by asserting on the map it returns; nothing was sent during the test.
+That's a state change *and* an HTTP POST — and the handler is still pure. It built a map and returned it. The runtime applies `:db`, then runs the effect named in `:fx`. You test it by asserting on the map it returns; nothing was sent during the test.
 
 Because `:fx` is just a vector, you keep adding rows. A richer checkout reads like a to-do list of side-effects:
 
@@ -51,15 +51,15 @@ A state change, an HTTP POST, a storage write, and a follow-up dispatch — stil
 
 > **Coming from Redux?** `:fx` is what thunks, sagas, and middleware do — minus the machinery. No middleware ordering, no generator runtime. The handler returns data and one interpreter loop executes it.
 
-> **From re-frame v1.** There's now exactly one event form — `reg-event` — and a db update is just the `:db` effect in the map every handler returns. There's no separate db-only registration: the "I only touch state" case is `{:db …}` and nothing else, the same map shape as a handler that also fires three effects. And the top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` effect keys are gone — everything rides in `:fx` as ordinary rows now, so you learn one grammar instead of two. (This is the EP-0018 collapse.)
+> **From re-frame v1.** There's now exactly one event form — `reg-event` — and a db update is just the `:db` effect in the map every handler returns. No separate db-only registration: "I only touch state" is `{:db …}` and nothing else, the *same map shape* as a handler that also fires three effects. The top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` effect keys are gone too — everything rides in `:fx` as ordinary rows now, so you learn one grammar instead of two. (This is the EP-0018 collapse.)
 
 !!! warning "Effects don't roll back"
 
-    The `:db` commit lands *before* any `:fx` entry runs, and it's committed for good. The `:fx` entries then run best-effort, one at a time. If one throws, `app-db` is **not** rolled back and already-fired effects are not undone. Most real effects (a sent request, a written key) are irreversible anyway, so there's nothing to undo. When you need to compensate for a half-finished sequence, express that as a compensating event, not a framework rollback.
+    The `:db` [commit](../glossary.md#commit) lands *before* any `:fx` entry runs, and it's committed for good. The `:fx` entries then run best-effort, one at a time. If one throws, `app-db` is **not** rolled back and already-fired effects are not undone. Most real effects (a sent request, a written key) are irreversible anyway, so there's nothing to undo. When you need to compensate for a half-finished sequence, express that as a compensating event, not a framework rollback.
 
 ### Your own effects: `reg-fx`
 
-You aren't limited to the shipped effect set. When you need a new one, register it:
+You aren't limited to the shipped effect set. When you need a new one, register it with [`reg-fx`](../glossary.md#effect-handler):
 
 ```clojure
 (rf/reg-fx :localstorage/set
@@ -69,17 +69,17 @@ You aren't limited to the shipped effect set. When you need a new one, register 
     (.setItem js/localStorage key (pr-str value))))
 ```
 
-That `reg-fx` is now the *only* place in your codebase that writes to `js/localStorage`, so side-effects don't scatter across handlers. Each effect is named, registered, and addressable by id — exactly what lets a test redirect it, the trace stream record it, and Xray display it.
+That `reg-fx` is now the *only* place in your codebase that writes to `js/localStorage`, so side-effects don't scatter across handlers. Each effect is named, registered, and addressable by id — which is exactly what lets a test redirect it, the [trace stream](../glossary.md#trace-stream) record it, and [Xray](../glossary.md#xray) display it.
 
 The `:platforms #{:client}` declaration says where the effect may run. During [server-side rendering](ssr.md) the runtime skips a `:client`-only effect and emits a `:rf.fx/skipped-on-platform` trace event, so handlers never branch on platform. A `:platforms` set with more than one member runs on each listed platform; omit the key and the effect runs everywhere.
 
-> **Gotcha — register before you use it.** An `:fx` row naming an effect-id that was never `reg-fx`'d is a fail-loud `:rf.error/no-such-handler`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration ordering across files doesn't matter — the lookup happens when the row runs, not when the handler is defined.
+> **Gotcha — register before you use it.** An `:fx` row naming an effect-id that was never `reg-fx`'d [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/no-such-handler`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration *ordering* across files doesn't matter — the lookup happens when the row runs, not when the handler is defined.
 
 #### The effect handler's two arguments
 
 The handler you pass `reg-fx` takes two arguments. The first, the *context map*, is the same one the originating event handler received — `:db`, `:event`, `:frame`, plus any coeffects. The second is the row's argument.
 
-That `:frame` entry matters once an effect needs to dispatch back. A [frame](frames.md) is a single isolated app instance — its own `app-db` — and a page can run several at once. So when an effect fires a follow-up dispatch, *which* `app-db` should it land in? The answer is `(:frame m)`: the frame the originating event ran in. **Frame-aware effects read `(:frame m)`** so the reply lands in the right `app-db` instead of guessing at a default. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
+That `:frame` entry earns its keep the moment an effect needs to dispatch back. A [frame](../glossary.md#frame) is a single isolated app instance — its own `app-db` — and a page can run several at once. So when an effect fires a follow-up dispatch, *which* `app-db` should it land in? The answer is `(:frame m)`: the frame the originating event ran in. **Frame-aware effects read `(:frame m)`** so the reply lands in the right `app-db` instead of guessing at a default. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
 
 ```clojure
 (rf/reg-fx :my-app/save
@@ -92,15 +92,15 @@ That `:frame` entry matters once an effect needs to dispatch back. A [frame](fra
           (.catch #(rf/dispatch on-failure {:frame frame}))))))
 ```
 
-> **Why pass `:frame` back in the callback?** Outside a synchronous dispatch there is no ambient frame scope, so a bare `(rf/dispatch …)` in a `.then` raises `:rf.error/no-frame-context`. Capturing `(:frame m)` and threading it through keeps the reply addressed to the frame that started the work — see [reactive state per frame](frames.md). (You can `:dispatch`/`:dispatch-later`/`:rf.http/managed` instead of hand-rolling fetch; this example exists only to show the closure rule for fx you write yourself.)
+> **Why thread `:frame` back through the callback?** Outside a synchronous dispatch there is no ambient frame in scope, so a bare `(rf/dispatch …)` in a `.then` raises `:rf.error/no-frame-context` — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found). Capturing `(:frame m)` and threading it through keeps the reply addressed to the frame that started the work. (You'd normally `:dispatch`/`:dispatch-later`/`:rf.http/managed` instead of hand-rolling fetch; this example exists only to show the closure rule for fx you write yourself — and `frame-handle` is the keystone for carrying a frame across an async boundary in app code.)
 
-So how does a plain map become action? In one pass: your handler returns, the [interceptor chain](interceptors.md) completes, the runtime commits `:db`, then it walks `:fx` in source order and invokes each row by id. `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — all in one registry, run by one interpreter loop.
+So how does a plain map become action? In one pass: your handler returns, the [interceptor chain](interceptors.md) completes, the runtime [commits](../glossary.md#commit) `:db`, then it walks `:fx` in source order and invokes each row by id. `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — all in one [registrar](../glossary.md#registrar), run by one interpreter loop.
 
 Periodic and delayed work goes through that same door. The 7GUIs timer example (`examples/reagent/seven_guis/timer/`) drives its ticks with `[:dispatch-later {:ms 100 :event [:timer/tick gen]}]` rows, so there's no `js/setInterval` in app code — every tick is an ordinary recorded event that carries its frame.
 
 ## The way in: a handler reads only what was recorded
 
-Effects handle impurity going *out*; the second category sneaks in on the way *in*. Your handler needs the current time, a `localStorage` value, a fresh id — and the reflex is to grab them:
+Effects handle impurity going *out*. The second category sneaks in on the way *in*. Your handler needs the current time, a `localStorage` value, a fresh id — and the reflex is to just grab them:
 
 ```clojure
 ;; ❌ Don't do this
@@ -111,14 +111,14 @@ Effects handle impurity going *out*; the second category sneaks in on the way *i
 
 Now the handler isn't pure: same inputs, a different output every call. No test can pin it down without monkey-patching the global clock — and, worse, replay breaks (the [last section](#why-this-is-non-negotiable-the-replay-pair) makes the reason precise).
 
-These inputs-from-the-world are **coeffects**. Hold onto the symmetry: an effect is data the handler *outputs* for the runtime to perform; a coeffect is data the runtime *delivers* for the handler to read.
+These inputs-from-the-world are [**coeffects**](../glossary.md#coeffect). The symmetry, stated plainly: an effect is data the handler *outputs* for the runtime to perform; a coeffect is data the runtime *delivers* for the handler to read.
 
 | | Inputs (coeffects) | Outputs (effects) |
 |---|---|---|
 | **Built in for free** | `:db`, `:event` | `:db` |
 | **You register more with** | `reg-cofx` | `reg-fx` |
 | **You opt in per handler with** | `:rf.cofx/requires` | (returned in the effect map) |
-| **The impure work happens in** | the cofx supplier | the fx handler |
+| **The impure work happens in** | the cofx supplier | the [fx handler](../glossary.md#effect-handler) |
 
 That `{:keys [db]}` you destructure in every handler *is* the coeffects map. `:db` and `:event` are staged automatically; every other world fact is opt-in, through one declaration key.
 
@@ -134,31 +134,31 @@ Nothing reaches a handler implicitly — **not even the time**. A handler declar
                    {:id id :items items :placed-at time-ms})}))
 ```
 
-`:rf/time-ms` is the framework's one built-in coeffect: wall-clock epoch milliseconds, stamped once when the event was enqueued and then frozen into the record. The handler reads it like any other key — but now it's pure, because the value arrived *with* the event instead of being grabbed mid-body. Order `:placed-at` / `:updated-at`, resource freshness, and mutation timestamps all read it this way.
+`:rf/time-ms` is the framework's one built-in coeffect: wall-clock epoch milliseconds, stamped once when the event was enqueued and then frozen into the record. The handler reads it like any other key — but now it's pure, because the value arrived *with* the event instead of being grabbed mid-body. Order `:placed-at` / `:updated-at`, [resource](../glossary.md#resource) freshness, mutation timestamps — all read the clock this way.
 
-Delivery is **declared-only**: a fact on the event that this handler didn't declare is simply not staged. That's strict, but it buys you something rare — `:rf.cofx/requires` becomes the *complete, greppable record* of everything a handler consumes from the world, the same enforced-declaration deal [subscriptions](subscriptions.md) give you for inputs. There's no silent coupling where a test fixture happened to supply a value that's `nil` in production.
+Delivery is **declared-only**: a fact riding on the event that this handler didn't declare is simply not staged. That's strict, but it buys you something rare — `:rf.cofx/requires` becomes the *complete, greppable record* of everything a handler consumes from the world, the same enforced-declaration deal [subscriptions](subscriptions.md) give you for inputs. There's no silent coupling where a test fixture happened to supply a value that's `nil` in production.
 
-> **From re-frame v1.** `[(rf/inject-cofx :local-store "k")]` in the interceptor vector becomes `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and your cofx handler drops the ctx wrapper. `inject-cofx` itself is removed with no alias — calling it is a hard error that names `:rf.cofx/requires` as the replacement. So v1's wart — an early interceptor blind to a later injection — can't even be expressed; coeffect delivery is no longer a chain member you order, it's the construction of the chain's *input*. See the [migration guide](../25-from-re-frame-v1.md).
+> **From re-frame v1.** `[(rf/inject-cofx :local-store "k")]` in the interceptor vector becomes `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and your cofx handler drops the ctx wrapper. `inject-cofx` itself is removed with no alias — calling it is a hard error (`:rf.error/inject-cofx-removed`) that names `:rf.cofx/requires` as the replacement. So v1's wart — an early interceptor blind to a later injection — *can't even be expressed*; coeffect delivery is no longer a chain member you order, it's the construction of the chain's *input*. See the [migration guide](../25-from-re-frame-v1.md).
 
-> **Going deeper.** Why "every handler can declare requires"? Because there is exactly one `reg-event`, and it *always* receives the coeffects map, any event can carry `:rf.cofx/requires`. Adding a world fact is adding one line of metadata to a handler you already wrote — its signature and return shape never change. re-frame v1 had a db-only registration that structurally *couldn't* declare coeffects; that hole is gone.
+> **Going deeper.** Why can *every* handler declare requires? Because there is exactly one `reg-event`, and it *always* receives the coeffects map, so any event can carry `:rf.cofx/requires`. Adding a world fact is one line of metadata on a handler you already wrote — its signature and return shape never change. re-frame v1 had a db-only registration that structurally *couldn't* declare coeffects; that hole is gone.
 
 ### Two grades: ambient and recordable
 
-Every coeffect id is registered and carries a **grade**, and the grade decides everything:
+Every coeffect id is registered and carries a **grade**, and the grade decides everything. This is the [recordable-vs-ambient](../glossary.md#recordable-vs-ambient-coeffects) split:
 
-- **Recordable** (`:recordable? true`) — the fact is written onto the event with it, recorded, and re-presented verbatim by replay. Required for any fact that can affect durable state; the clock (`:rf/time-ms`) is the canonical example.
+- **Recordable** (`:recordable? true`) — the fact is written onto the event, recorded with it, and re-presented verbatim by replay. Required for any fact that can affect durable state; the clock (`:rf/time-ms`) is the canonical example.
 - **Ambient** (the default) — the supplier simply *runs again* on replay; nothing is recorded. Legal only where no durable write depends on the answer — a display preference, a diagnostic measurement.
 
-Recordable facts ride in one **flat** map on every dispatch envelope. Fact-name → value, no nesting:
+Recordable facts ride in one **flat** map on every dispatch [envelope](../glossary.md#event-envelope). Fact-name → value, no nesting:
 
 ```clojure
 {:event   [:checkout/place-order {:id #uuid "..." :items ["SKU-1" "SKU-2"]}]
  :rf.cofx {:rf/time-ms 1781078400123}}
 ```
 
-Child dispatches each get their own fresh stamp, because every event is its own causal token. (The normative contract is [`spec/002-Frames.md`](../../../spec/002-Frames.md).)
+Each child dispatch gets its own fresh stamp, because every event is its own causal token. (The normative contract is [`spec/002-Frames.md`](../../../spec/002-Frames.md).)
 
-> **Coming from XState?** A recordable coeffect is the same idea of reading recorded history instead of the live clock, applied to an event handler: a value stamped once and frozen, so a re-run lands in the same state.
+> **Coming from XState?** A recordable coeffect is the same idea as reading recorded history instead of the live clock, applied to an event handler: a value stamped once and frozen, so a re-run lands in the same state.
 
 ### Registering suppliers: `reg-cofx`
 
@@ -191,11 +191,11 @@ One rule, no exceptions: a cofx supplier must return its value **synchronously**
 
 ??? note "What about generated recordable facts?"
 
-    You might want an app-registered supplier that *mints* a replayable random value on demand. The contract is settled: generation runs at processing-start, governed by three mint policies — `:live` (the router's default), `:strict` (hard-wired for replay and the `:test` preset's default), and `:explicit-live` (the declared-nondeterminism escape). But the machinery is **not built yet**. Today every requirable fact is provided, ambient, or supplied on the dispatch — so don't reach for this shape until it ships.
+    You might want an app-registered supplier that *mints* a replayable random value on demand. The contract is settled: generation runs at processing-start, governed by three mint policies — `:live` (the router's default), `:strict` (hard-wired for replay and the `:test` preset's default), and `:explicit-live` (the declared-nondeterminism escape hatch), selectable per dispatch via the `:rf.cofx/mint-policy` opt. But the machinery is **not built yet**. Today every requirable fact is provided, ambient, or supplied on the dispatch — so don't reach for this shape until it ships.
 
 ### When a declaration goes wrong
 
-Because every consumed fact is declared, the failure modes are precise and named — and the framework distinguishes a *typo* from a *genuinely-absent* value, which is the whole point of registering provided facts:
+Because every consumed fact is declared, the failure modes are precise and named — and the framework distinguishes a *typo* from a *genuinely-absent* value, which is the whole point of registering provided facts. (As always, [branch on the `:rf.error/*` category](../glossary.md#error-record), never on the human-readable reason.)
 
 - **Required id that was never registered** → `:rf.error/unregistered-cofx`. Caught at registration where statically checkable, otherwise at first processing — typos die before dispatch semantics apply.
 - **Declared, registered, but `:provided?` and absent from the event** → `:rf.error/missing-required-cofx`, in *every* mint mode. This is the case `:provided?` exists to make legible: the fact has a home and a `:schema`, so a missing supply reads as "you didn't stamp this," not "no such coeffect." (`:rf/time-ms` is the exception — the enqueue stamp guarantees it is always present.)
@@ -205,9 +205,9 @@ Because every consumed fact is declared, the failure modes are precise and named
 
 ## Fresh ids: the minting ladder
 
-The order above needed an `:id`. A generated id is a durable fact, so — same reasoning as the clock — it can't be a `(random-uuid)` grabbed mid-handler either. Whenever you think "my handler needs X from the world," resolve it in this preference order:
+The order above needed an `:id`. A generated id is a durable fact, so — same reasoning as the clock — it can't be a `(random-uuid)` grabbed mid-handler either. Whenever you catch yourself thinking "my handler needs X from the world," resolve it in this preference order:
 
-1. **Derive it from recorded state** where you can — a counter already in `app-db` makes the next id deterministically, so no new fact needs recording.
+1. **Derive it from recorded state** where you can — a counter already in `app-db` makes the next id deterministically, so no new fact needs recording at all.
 2. **Mint it at the dispatch site and ride the event** — `[:checkout/place-order {:id (random-uuid) :items […]}]`. The id rides the recorded event vector, so replay reproduces it. This is the workhorse: the dispatch site owns the fact's meaning.
 3. **A recorded coeffect** — only for genuinely fold-internal facts the dispatch site has no business knowing.
 
@@ -232,7 +232,7 @@ Recorded coeffects are the last rung, not the default. The `:checkout/place-orde
     {:db (assoc-in db [:orders] {:items items :placed-at time-ms})}))
 ```
 
-The difference isn't style. The broken version cannot be replayed, restored, or deterministically tested. The honest version can, because every fact it used is one the runtime recorded and can re-supply. That's what makes time-travel actually travel: restore an epoch, re-run the log, and the handler folds the *same* recorded `:rf/time-ms` instead of whatever the wall clock reads on replay day. The reads still happen — but once, at the boundary, producing a fact the record keeps forever.
+The difference isn't style. The broken version cannot be replayed, restored, or deterministically tested. The honest version can, because every fact it used is one the runtime recorded and can re-supply. That's what makes [time-travel](../glossary.md#time-travel) actually travel: restore an [epoch](../glossary.md#epoch), re-run the log, and the handler folds the *same* recorded `:rf/time-ms` instead of whatever the wall clock reads on replay day. The reads still happen — but once, at the boundary, producing a fact the record keeps forever.
 
 > **Going deeper.** The rule, compressed: a handler computes the next value of your state by *folding in facts that were recorded with the event* — the db, the event vector, the stamped clock — and nothing else. The moment a handler reaches past those into the live world (the wall clock, a random source, the URL bar), the record stops being a faithful account of what happened, and replay stops working. Everything on this page is that one sentence, unpacked.
 
@@ -278,7 +278,7 @@ A live order-placer. The durable facts — *when* each order was placed, *what* 
 
 Notice that `:demo.order/place` never calls `js/Date.` or `random-uuid`. The only ambient host read left — the locale formatting the displayed time — lives at the view, a render-time choice that never touches durable state.
 
-**Try it:** change the button's dispatch to `#(rf/dispatch [:demo.order/place {:id (random-uuid)}] {:rf.cofx {:rf/time-ms 1735732800000}})` and re-evaluate. Every order is now stamped that exact instant, because you handed the runtime the fact instead of letting it stamp the wall clock. And if you're running an app with Xray open, focus the event's epoch and read the COEFFECTS section — the exact recordable facts this run folded, sitting right above the handler step.
+**Try it:** change the button's dispatch to `#(rf/dispatch [:demo.order/place {:id (random-uuid)}] {:rf.cofx {:rf/time-ms 1735732800000}})` and re-evaluate. Every order is now stamped that exact instant, because you handed the runtime the fact instead of letting it stamp the wall clock. And if you have an app running with [Xray](../glossary.md#xray) open, focus the event's epoch and read the COEFFECTS section — the exact recordable facts this run folded, sitting right above the handler step.
 
 ## Tests supply facts
 
@@ -314,14 +314,3 @@ You stub effects with the symmetric move on the output side: **`:fx-overrides`**
 Overrides can also be pinned per frame at construction — `(rf/make-frame {:fx-overrides {…}})` — so an entire test frame, Story canvas, or SSR render runs against stubbed effects without touching any dispatch site. Ambient coeffects are the one place you re-register a *supplier* (legal precisely because ambient facts never feed durable state); recordable facts you supply as data, never by swapping a mechanism.
 
 > **From re-frame v1.** The v1 escape hatches are gone, loudly. Calling `rf/inject-cofx` is a hard error (`:rf.error/inject-cofx-removed`) that names `:rf.cofx/requires` as the replacement, and supplying a `:dispatched-at` dispatch opt is a hard error (`:rf.error/dispatched-at-retired`) that points you at `:rf/time-ms` on the `:rf.cofx` envelope. Both fire in production too — they're correctness contracts, not dev-only nags — so an old habit can't silently no-op.
-
----
-
-**You can now:**
-
-- return any side-effect as a `[fx-id args]` row in `:fx`, and register your own with `reg-fx` — reading `(:frame m)` to keep follow-up dispatches frame-addressed
-- name the two coeffect grades and choose the right one — ambient for reads no durable write depends on, recordable for everything else
-- declare a handler's world facts with `:rf.cofx/requires` and read them flat, knowing nothing (not even time) arrives undeclared
-- recognise the fail-loud cases — `:rf.error/unregistered-cofx` for a typo, `:rf.error/missing-required-cofx` for an un-stamped provided fact, `:rf.error/no-such-handler` for an unregistered fx
-- mint fresh ids by the ladder: derive from state, ride the event payload, recorded coeffect last
-- make any handler deterministic in a test by supplying `{:rf.cofx {...}}` on the dispatch, and stub effects with `:fx-overrides` (a test-double fn or a redirect to a registered fx-id)
