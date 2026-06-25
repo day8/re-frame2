@@ -195,7 +195,7 @@ The full **registration metadata** is small and worth knowing in one glance. The
 | `:data-schema` | no | Validates *successful* data where the transport decode supports it. Validation only — it does **not** drive egress classification. |
 | `:sensitive` / `:large` | no | Projection-relative path-vectors (`[[:data :ssn] [:params :account-id]]`) marking which slots redact / summarise at every egress boundary (SSR, tools, trace) — the framework's [data classification](../glossary.md#data-classification) applied to a cache entry. The coarse whole-entry `:sensitive?` / `:large?` booleans are the degenerate root-prop case. |
 | `:transport` | no | `:rf.http/managed` is the only built-in (and the default); the model is transport-neutral so a later transport can plug in. |
-| `:infinite` | no | `true` registers a load-more / infinite-scroll feed instead of a keyed cache — a different kind, covered by the spec's infinite-resources section. |
+| `:infinite` | no | `true` registers a load-more / infinite-scroll feed instead of a keyed cache — a different kind, with its own `:next-page-param` / `:page->items` keys and `load-more` surface. See [Infinite feeds](#infinite-feeds-accumulate-pages-with-infinite). |
 
 > **Gotcha — the `:request` function describes the domain request only.** It MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`: the runtime owns reply addressing (it threads those from the scoped key and current generation, which is what makes stale-reply suppression airtight), and an args map that supplies them is rejected. Cross-cutting decoration — auth headers, tracing, a base URL, a default retry — belongs in a frame-registered `reg-http-interceptor` that decorates *every* managed request, not copied into each resource's `:request`.
 
@@ -463,7 +463,9 @@ A view renders the in-flight optimistic state from the instance sub's derived **
 
 ## SSR and hydration
 
-On the server, each request renders in its own [frame](../glossary.md#frame) — which matters, because a process-global cache would itself be a cross-user leak. Blocking route resources are the render's wait point. The settled entries are serialized (sensitive data redacted) and shipped with the page, and on the client, [hydration](../glossary.md#hydration) installs them under the same freshness rules. A hydrated entry that's still fresh is **not** refetched, so there's no duplicate-fetch flash on first paint; a stale one background-refreshes by policy. Hydration never crosses scopes — the serialized scope and the client's resolved scope must agree before hydrated data is usable. The mental model is in [Server-side rendering](ssr.md), and `examples/reagent/resources_ssr/` is the worked demo.
+On the server, each request renders in its own [frame](../glossary.md#frame) — which matters, because a process-global cache would itself be a cross-user leak. Blocking route resources are the render's wait point. Every durable entry present at serialize time rides the projection, not just the blocking ones — a non-blocking resource that happened to settle before render serializes exactly like a blocking one, and one still in flight simply has no `:data` to ship yet (the client refetches it on hydration if the route still needs it). The settled entries are serialized (sensitive data redacted) and shipped with the page, and on the client, [hydration](../glossary.md#hydration) installs them under the same freshness rules. A hydrated entry that's still fresh is **not** refetched, so there's no duplicate-fetch flash on first paint; a stale one background-refreshes by policy. Hydration never crosses scopes — the serialized scope and the client's resolved scope must agree before hydrated data is usable. The mental model is in [Server-side rendering](ssr.md), and `examples/reagent/resources_ssr/` is the worked demo.
+
+> **Gotcha — a blocking SSR resource needs a deadline, not an open wait.** `:blocking? true` holds the render until the read settles, so a slow upstream can't be allowed to hang the request forever. A blocking resource that exceeds the render deadline settles as a structured first-load failure for that SSR frame — an `:error` envelope `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}` (the `:kind` stays inside the closed `:rf.http/*` taxonomy; the `:reason` lets your [error projector](../glossary.md#registration) tell an SSR-deadline failure apart from a genuine upstream timeout). The renderer then chooses error markup, a skeleton, or an app fallback; the client picks the read up again on hydration.
 
 ## When it fails loud — the errors and warnings
 
@@ -481,6 +483,59 @@ And the **dev-only warnings** (elided from production) that catch the *resolvabl
 
 - **`:rf.warning/resource-sub-scope-mismatch`** — a subscription resolved a perfectly valid scope key that has *no owner*, while a *different* scope key for the same resource *is* active. Almost always: your view's `:scope` doesn't match the route/event that ensured the data. You'll see a permanent skeleton; the warning names the active scope you probably meant.
 - **`:rf.warning/mutation-scope-mismatch`** — the write-side twin: a mutation's `:invalidates` matched zero entries in its scope while the same tags match an entry in *another* scope. Your write succeeded but the cached read it should have refreshed didn't, because the scopes don't line up.
+
+## Advanced
+
+### Infinite feeds: accumulate pages with `:infinite`
+
+Everything so far has treated a paginated list as *independent* entries — page 2 is its own cache key, addressable as "go to page N", and `:keep-previous?` stops it flashing a skeleton on the way there. A **load-more / infinite-scroll feed** is the complementary shape: the user *accumulates* pages (page 1, then 1+2, then 1+2+3) into one growing list, and the *next* page's cursor is derived from the last page's data. You opt one resource into that shape with `:infinite true`:
+
+```clojure
+(rf/reg-resource :feed/timeline
+  {:infinite         true
+   :params-schema    [:map [:filter :keyword]]   ;; the FEED identity — not the page
+   :scope            {:from-db :realworld/session}
+   :next-page-param  (fn [last-page _all-pages]   ;; REQUIRED for :infinite
+                       (get-in last-page [:page-info :next-cursor]))  ;; nil ⇒ end of feed
+   :page->items      :items                       ;; REQUIRED when a page isn't already a vector
+   :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})}
+  ;; the per-page cursor rides the (otherwise-reserved) ctx — no new arity
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param]}]
+    {:request {:method :get :url "/api/timeline"
+               :params (cond-> {:filter filter :limit 20}
+                         page-param (assoc :cursor page-param))}
+     :decode  :app/timeline-page}))
+```
+
+The whole feed is **one** scoped entry — its `:data` is an ordered vector of pages, not N per-page cache keys — so it gets one owner, one GC clock, one SSR-restore unit, one Xray row. Only the *identity* params (filter / sort / search) name the feed; the per-page cursor is internal sequencing state and is **never** part of the cache key. Change a filter and you get a different feed instance; the old accumulation becomes a separate, GC-eligible entry.
+
+Extending the feed is a **cause**, not a view fetch — dispatch `[:rf.resource/load-more {:resource :feed/timeline :scope … :params … :cause [:user :feed/load-more]}]`. A `load-more` is **ownerless** by rule: the route (or whatever first-loaded the feed) already owns the one entry, and a load-more only *extends* it, so it carries a `:cause` and never an `:owner` (a supplied owner is warn-and-ignored, `:rf.warning/resource-load-more-owner-ignored`). It reuses the work ledger and stale-suppression exactly as `ensure` does, and there's **no sixth FSM state** — a load-more on a `:loaded` feed transitions to `:fetching` (the accumulated pages stay visible, no skeleton) and back to `:loaded` with the new page appended.
+
+A view reads the feed through a small infinite-specific projection family — all passive, all derived, all framework-owned and memoised:
+
+```clojure
+@(subscribe [:rf.resource/infinite-state {:resource :feed/timeline :scope … :params …}])
+;; => {:status :loaded
+;;     :items          [<item> <item> …]   ;; the merged list — the everyday read
+;;     :pages          [<page-0> <page-1> …]
+;;     :page-count     3
+;;     :has-next-page? true                ;; (some? next-page-param)
+;;     :fetching-next? false               ;; a load-more in flight (distinct from :fetching?)
+;;     :has-data?      true
+;;     :error          nil                 ;; page-0 first-load failure
+;;     :refresh-error  nil
+;;     :page-error     nil}                ;; last load-more failure
+```
+
+`:rf.resource/items` is the headline read — the flat list every feed view wants (the thing a TanStack user reaches for `.flatMap(p => p.items)` to get). The narrower `:rf.resource/pages`, `:has-next-page?`, `:fetching-next?`, `:page-count`, and `:page-error` exist so a view subscribes to just the fact it cares about. A worked feed view renders `:items`, shows a spinner while `:fetching-next?`, a "Load more" button (dispatching `:rf.resource/load-more`) while `:has-next-page?`, and an end-of-feed marker otherwise.
+
+> **Coming from TanStack Query?** This is `useInfiniteQuery`. `:next-page-param` is `getNextPageParam(lastPage, allPages)` — with two deliberate alignments: re-frame2 standardises the terminal on **`nil`** (not `undefined` / an empty page) and additionally hands you `:has-next-page?` so a view never re-derives "are we at the end". The merge that TanStack leaves to your render (`pages.flatMap(...)`) is the framework-owned, memoised `:rf.resource/items` here.
+
+> **Gotcha — the third error channel: `:page-error`.** A *load-more* page-fetch failure is **not** a feed first-load failure and **not** a whole-feed refresh failure. The feed stays `:loaded`, **keeps every accumulated page**, and records the failure in `:page-error` — so the view shows "couldn't load more — retry" without losing the list the user already scrolled. It's cleared by the next successful load-more or whole-feed load. (First-load failure is still `:error`; a failed background refresh of the whole feed is still `:refresh-error`.)
+
+> **Gotcha — `:page->items` is required, not guessed.** If a page is already a vector it flattens by identity. If a page is *enveloped* (`{:items [...] :page-info {…}}`), you **must** declare a `:page->items` accessor — a keyword key or `(fn [page] …)`; the framework will not guess `:items` / `:data`. A non-vector page with no accessor is a loud registration error (`:rf.error/infinite-missing-page-accessor`), the same fail-loud floor as a missing `:next-page-param` (`:rf.error/infinite-missing-next-page-param`).
+
+A few load-bearing edges: an `:rf.resource/ensure` (or a blocking route entry) on an infinite resource fetches **page 0 only** — it doesn't re-fetch the accumulation. A `:refetch` of a feed defaults to **window-preserving** (the visible pages stay rendered until their replacement succeeds, so a focus/reconnect refetch never collapses the feed back to page 0); `:refetch-all-pages?` and `:refetch-window` are the opt-ins. And a mutation that touches one item *inside* a feed invalidates the **whole feed** in this slice (coarse but correct) rather than patching one element in place. The full contract — including the reserved-but-deferred backward `:rf.resource/load-prev` and the per-page `:page-data-schema` egress rule — is [Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds).
 
 ## When resources are the wrong tool
 

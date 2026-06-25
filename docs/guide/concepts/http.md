@@ -144,6 +144,10 @@ Here is the full `:request` envelope:
 
 > **Gotcha — don't thread auth by hand.** Threading `"Authorization"` into each call site by hand gets old fast — and breaks the moment a token rotates. Don't. Register one [HTTP interceptor](#middleware-stamp-every-request-once) instead and drop the header from your handlers entirely. The example above threads it inline only to show the envelope key exists.
 
+> **Gotcha — the CLJS-only keys are silently no-ops on the JVM.** The six Fetch-passthrough keys above (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM the request still goes out — the option is just dropped — and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible rather than mysterious. (`:redirect` is the exception: it *is* honoured on the JVM.) If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site. The same asymmetry hits `:rf.http/cors`, which only the browser ever emits.
+
+> **Gotcha — a malformed header is dropped, not fatal.** A header with an empty or control-character name, or a value carrying a raw `\r`/`\n` (the response-splitting guard), is rejected by the platform's header builder. Rather than failing the whole request, the runtime drops just that one pair, emits a redacted `:rf.warning/http-header-invalid` trace naming the offending header (the *value* is omitted — it may carry a secret), and sends the request with the remaining valid headers. So a stray newline in one interpolated header value quietly loses that header instead of taking down the call — watch the warning trace if a header you expected isn't arriving.
+
 ## Failures are a closed set
 
 When something goes wrong, your `:on-failure` handler receives `{:kind :failure :failure <map>}`, and that failure map always carries a `:kind` from a fixed, framework-reserved list. Not a string — a keyword from a known set:
@@ -274,11 +278,51 @@ The race is gone, with zero lines of race-handling code. (And that's not just an
 
 A *manual* abort is different from a supersession. Where reusing a `:request-id` quietly retires the previous request, a manual abort is an explicit "stop now." `[:rf.http/managed-abort the-id]` aborts whichever request currently holds the id and *does* deliver a failure reply — `{:kind :rf.http/aborted, :reason :user}` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells the two apart: `:user` for a manual abort, `:request-id-superseded` for a supersession (trace-only — it never reaches a handler). The [managed-http counter example](../../../examples/reagent/managed_http_counter/) demonstrates the manual-abort path end-to-end — plus the 404-is-not-a-decode-failure rule — in one small file.
 
+If the cancel signal you want to honour already lives outside re-frame — a parent widget's lifecycle, a shared `AbortController` — hand its `.signal` straight to the request under `:abort-signal`. It attaches a cancellation source to the same one request, so you can supply it *together with* a `:request-id` and the framework guarantees exactly one terminal outcome no matter which fires first. (`:abort-signal` is browser-only — the JVM has no `AbortController`, so `:request-id` is the cross-host cancel handle.)
+
 > **Requests that die with their machine.** There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](machines.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed. Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
 
 ### Silencing a reply
 
 Set `:on-success` or `:on-failure` to `nil` and that reply is dropped — fire-and-forget, useful for a telemetry beacon you genuinely don't care to handle. But the framework won't let you *accidentally* swallow an error: the first time a non-aborted failure is dropped by `:on-failure nil`, a one-shot `:rf.warning/failure-swallowed` trace fires (dev-only) so the silence is observable rather than invisible. Aborted requests are excluded — a cancelled request that no longer wants its reply is correct-by-design silence, not a bug.
+
+## Keeping secrets out of the trace
+
+HTTP is where the secrets are: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. And every step of a managed request can land on the dev [trace stream](../glossary.md#trace-stream) — the retry attempt, the failure category, the swallowed-failure warning — so without care the transport becomes the app's biggest leak. Managed HTTP applies [data classification](../glossary.md#data-classification) at that egress boundary so the real value renders on-box but a redaction sentinel is what crosses into a trace, Xray, or an off-box log. Three layers cooperate, and two of them need no opt-in.
+
+**Sensitive headers are redacted always — no flag required.** A closed, framework-owned denylist of header *names* — `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-CSRF-Token`, and a handful more — is redacted to `:rf/redacted` in every `:rf.http/*` trace event, whether or not the request is marked sensitive. The name *is* the signal: a leaked `Authorization` header is a leak even from a handler nobody thought to flag. Matching is case-insensitive, and the built-in set is immutable — no frame can remove a name. The same is true on the URL side: a denylisted query-string parameter (`?api_key=…`, `?access_token=…`, `?token=…`, `?signature=…`) has its **value** scrubbed inline (`?api_key=:rf/redacted&page=2`), name and position preserved so you can still see which endpoint was hit, and that hit alone stamps the trace `:sensitive?`.
+
+**For app-specific carriers, declare them on the fx registration.** Got an `X-Honeycomb-Team` or a `shop_token` that the built-in lists don't know about? Don't reach for a per-call flag and don't mutate a global — name them once on the `:rf.http/managed` registration, and they union onto the immutable defaults:
+
+```clojure
+(rf/reg-fx :rf.http/managed
+  {:carriers {:headers      ["X-Honeycomb-Team"]
+              :query-params ["shop_token"]}}
+  re-frame.http.managed/managed-handler)
+```
+
+**For a whole request, set `:sensitive?`.** When an *entire* request is sensitive — a login POST whose body is the password — flag it and the framework redacts the body, the `:params`, and *every* URL query value (not just the denylisted ones) on the way to the trace. The flag lives either under `:request` or at the top level of the args map; the two are equivalent, and either being true wins:
+
+```clojure
+(rf/reg-event :auth/login
+  (fn [_ [_ creds]]
+    {:fx [[:rf.http/managed
+           {:request    {:method :post :url "/auth/login" :body creds}
+            :sensitive? true}]]}))      ;; body + params + all URL values redacted in traces
+```
+
+**For response bodies, mark the slots on your `:decode` schema.** The response is classified per-slot through the schema you already hand `:decode` — the owner's natural declaration of the body's shape doubles as its sensitivity map. Mark `{:sensitive? true}` on a slot and that field is redacted in the trace; mark `{:large? true}` and it's elided to a size marker; an unmarked sibling rides in the clear:
+
+```clojure
+;; [:token] is redacted in traces; [:user-id] rides verbatim.
+:decode [:map
+         [:token {:sensitive? true} :string]
+         [:user-id :int]]
+```
+
+This is the schema's job whether or not the request also carries the coarse `:sensitive?` flag (the flag is the whole-body hammer; the schema marks are the scalpel). All of this rides the dev trace surface, so it [elides](../glossary.md#elide) wholesale in production along with the rest of tracing — the redaction step costs nothing in a release build. (The full denylists, the `{:include :except}` carrier-policy form, and the off-box fail-closed rules are in [spec 014 §Privacy](../../../spec/014-HTTPRequests.md#privacy); the framework-wide story is [keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).)
+
+> **Gotcha — a 4xx/5xx error body is always omitted off-box.** A non-2xx response surfaces its raw body at `:body`, and that body never ran through your `:decode` schema (status is classified *before* decode), so its shape is unknown. Off-box egress therefore drops it unconditionally — error responses routinely echo back request context or tokens. On your local dev trace you still see it; it's the off-box boundary that fails closed. If you need fields out of an error body, decode `:body` yourself in the failure branch where the value stays on-box.
 
 ## Fewer keys at the call site: the verb helpers
 

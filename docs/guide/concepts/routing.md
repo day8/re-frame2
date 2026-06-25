@@ -56,6 +56,8 @@ Move 1 is a couple of registry rows. Move 2 is a dispatch — the same verb you 
 
 `reg-route` registers a route the same way `reg-event` registers an event: an id, a metadata map, and — in the third slot — the path. The path grammar is deliberately small enough to parse in your head. A path is made of exactly five kinds of thing, and no more: literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`).
 
+> **Gotcha — `reg-route` needs the artefact loaded.** `reg-route` (and `route-link`, `match-url`, `route-url`, the route subs) all live in the separately-packaged `day8/re-frame2-routing` artefact, not in core. Requiring `re-frame.routing` *at boot* is what wires them up — that's the `(:require … [re-frame.routing])` in the three-moves snippet above. Forget it and the first `reg-route` call **throws** `:rf.error/routing-artefact-missing`, naming the namespace to require and the Maven coordinate to add — a loud, actionable error, not a silent no-op.
+
 The `:params` and `:query` keys take [schemas](../how-to/validate-with-schemas.md), which validate *and coerce* for you, so `?page=2` arrives as the integer `2`, not the string `"2"`. That coercion is the part everyone forgets to do by hand — so let the schema own it:
 
 ```clojure
@@ -308,7 +310,7 @@ If the page's data is [server state managed as resources](server-state.md) — a
   "/article/:slug")
 ```
 
-> **Coming from Remix?** This is the loader — as data. `:blocking? true` is the `await`: it holds the route transition (and, on the server, the render) until the resource settles. Non-blocking entries fetch in the background. `:keep-previous? true` keeps the old page on screen while the next one first-loads, so a slug change doesn't flash an empty article.
+> **Coming from Remix?** This is the loader — as data. `:blocking? true` is the `await`: it holds the route transition (and, on the server, the render) until the resource settles. Non-blocking entries fetch in the background. `:keep-previous? true` keeps the old page on screen while the next one first-loads, so a slug change doesn't flash an empty article. A fourth flag, `:when` — a `(fn [route ctx] …)` predicate — makes an entry *conditional*: the resource is planned only when the predicate is truthy, which beats threading a sentinel `nil` param to mean "don't load yet".
 
 Here's the bug this design quietly kills. On route entry, the runtime marks each listed resource active, owned by the route, keyed by *this navigation's* **nav-token**. On route leave — or the moment a newer navigation supersedes this one — ownership is released by token, and any stale reply that lands late is *suppressed* rather than written. That's the classic race where you click away, an old fetch resolves a beat too late, and clobbers the page you're now looking at. Fixed once, in the substrate, instead of in every page you'll ever write.
 
