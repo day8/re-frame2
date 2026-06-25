@@ -173,7 +173,7 @@ We've declared the reads but nothing fetches yet. A resource doesn't fetch until
 
 On entry the runtime *ensures* each listed resource — with the **route as [owner](../glossary.md#owner--cause)** — and on leave (or a superseding navigation) it releases them. "Ensures" is the verb to remember: it means *make sure a fresh-enough load exists*, which is a cache hit when one already does and a fetch when it doesn't.
 
-"Ensure" also covers the third case, the one the intro promised: a *deduplicated* read. If two things ensure the same `{:resource :params}` while a request is already in flight — two route entries racing, a component remounting mid-fetch — the second ensure doesn't fire a second request. It *joins* the one already running and waits for the same reply. (That's `useQuery`'s request deduplication, owner-driven: the identity is the dedupe key.) The flip side is `:rf.resource/refetch` (Step 5), which deliberately *does* force a new request even over an in-flight one — a manual refresh means "I want the latest," not "join whatever's running."
+"Ensure" also covers the third case, the one the intro promised: a *deduplicated* read. If two things ensure the same `{:resource :params}` while a request is already in flight — two route entries racing, a view remounting mid-fetch — the second ensure doesn't fire a second request. It *joins* the one already running and waits for the same reply. (That's `useQuery`'s request deduplication, owner-driven: the identity is the dedupe key.) The flip side is `:rf.resource/refetch` (Step 5), which deliberately *does* force a new request even over an in-flight one — a manual refresh means "I want the latest," not "join whatever's running."
 
 The flags are where the per-page judgement lives:
 

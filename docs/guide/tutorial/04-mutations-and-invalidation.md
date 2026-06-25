@@ -22,11 +22,9 @@ Before a write can invalidate a read, the reads have to be *labelled* so a write
 
 Each resource declared [`:tags`](../glossary.md#cache-tag) on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. Those tags are the shared vocabulary between writes and reads: a read says "my data is tagged `[:article slug]`," and later a write can say "I just made `[:article slug]` stale" — and the runtime matches the two up, no read named directly. Tags are how a write breaks a read it has never heard of.
 
-One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose, because what it returns depends on *who is asking* — your feed and another user's feed are different data, even though both come from the same URL. So its cache can't be one shared entry; it has to be keyed per user.
+One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose, because what it returns depends on *who is asking* — your feed and another user's feed are different data from the same URL. That's the job of a [**scope**](../glossary.md#scope), a resource's leak boundary: Part 2's resources all shared `:rf.scope/global`, but the feed needs a *different* scope per signed-in user. ([Server state](../concepts/server-state.md) teaches viewer-relative scope in full.)
 
-This is what a [**scope**](../glossary.md#scope) is: a namespace for cache entries. The resources in Part 2 all lived in one shared scope, `:rf.scope/global` — one entry per resource, the same for everybody. The feed needs a *different* scope per signed-in user, so each user's feed is cached separately and nobody ever sees anybody else's.
-
-To key a cache per user, the runtime needs a way to compute the per-user key from your state. That's a **named scope resolver**: a small *pure* function that reads [app-db](../glossary.md#app-db) (your app's state map — see [Part 1](01-pages-and-state.md)) and returns a scope value, or `nil`:
+To key the cache per user, register a **named scope resolver** — a pure function that reads [app-db](../glossary.md#app-db) and returns a scope value, or `nil`:
 
 ```clojure
 ;; src/conduit/scope.cljs
@@ -40,7 +38,7 @@ To key a cache per user, the runtime needs a way to compute the per-user key fro
 
 Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` (meaning "resolve my scope through the `:conduit/session` resolver") instead of the default `:rf.scope/global`. Its cache entries are keyed by the signed-in username, so each user gets their own.
 
-And here's the payoff of returning `nil` when logged out — what re-frame2 calls [**fail-closed**](../glossary.md#fail-loud-not-silent): signed out, the resolver returns `nil`, the scope can't be computed, and the read simply *fails* rather than falling back to some default entry. It never silently serves the previous user's feed. You'll see the term "fail-closed" recur on the write side too — same idea: when an identity can't be resolved, do nothing rather than guess.
+Returning `nil` when logged out is [**fail-closed**](../glossary.md#fail-loud-not-silent) (deny by default when an identity can't be resolved): the scope can't be computed, so the read simply *fails* rather than serving the previous user's feed from a default entry. The same idea recurs on the write side below.
 
 That's the whole setup. The reads are tagged; the feed is scoped. Now let's write.
 
