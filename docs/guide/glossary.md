@@ -125,7 +125,7 @@ Epochs live on the dev-only observability surface — they're [elided](#elide) f
 
 Related: [Observability](concepts/observability.md).
 
-### **error record / `:rf.error/*` category**
+### **error record**
 
 A failure the framework surfaces as a structured map rather than a thrown, silent, or swallowed error — it [fails loud](#fail-loud-not-silent), but as *data*. Every record is keyed by a reserved **`:rf.error/*` category** drawn from a fixed catalogue; **branch on the category**, never on the human-readable `:reason` (which is prose for people and can change).
 
