@@ -269,28 +269,20 @@ Related: [Images](concepts/images.md).
 
 ### **interceptor**
 
-An interceptor wraps around an event handler by providing one or both these functions:
+A named, reusable wrapper around an [event handler](#event-handler) — a pair of `:before` / `:after` functions for cross-cutting concerns (logging, validation, tracing, undo, injecting effects). Each is a `context → context` function:
 
-- a `:before` function that runs before the event handler and can inspect or change the handler's coeffects.
-- an `:after` function that runs after the event handler and can inspect or change the [effect map](#effect-map) the handler returned.
+- `:before` runs before the handler and can read or adjust its [coeffects](#coeffect);
+- `:after` runs after and can read or adjust the [effect map](#effect-map) it returned.
 
-Both functions receive a context map and return an updated context map.
-
-Use interceptors for cross-cutting concerns such as logging, validation, undo, tracing, or adding effect rows.
-
-Register an interceptor with `reg-interceptor`:
+Interceptors are registered by id with `reg-interceptor` (never written inline), and an event opts into them by id:
 
 ```clojure
 (rf/reg-interceptor :my-app/logger
   {:before (fn [ctx] ctx)
    :after  (fn [ctx] ctx)})
-```
 
-An event handler opts in by listing interceptor ids in its registration metadata.
-
-```clojure
 (rf/reg-event :cart/add
-  {:interceptors [:my-app/logger]}    ;; interceptor ids
+  {:interceptors [:my-app/logger]}    ;; opt in by id
   (fn [{:keys [db]} [_ item]]
     {:db (update db :cart/items conj item)}))
 ```
@@ -299,7 +291,9 @@ Related: [Interceptors](concepts/interceptors.md).
 
 ### **machine**
 
-A re-frame2 machine is a statechart-capable state machine, registered as an event handler via `reg-machine`; its live value is a [snapshot](#snapshot).
+A statechart-capable state machine, registered as an [event handler](#event-handler) with `reg-machine`. It models a feature's lifecycle as explicit **states** and **transitions** — driven by dispatched [events](#event), with guards, actions, timeouts, and child machines — instead of a scatter of boolean flags in [app-db](#app-db).
+
+Its live value is a [snapshot](#snapshot) (the current state plus its `:data`), held in [runtime-db](#runtime-db) and read like any other derived state.
 
 ```clojure
 (rf/reg-machine :auth.login/flow login-flow)
@@ -309,7 +303,7 @@ Related: [Machines](concepts/machines.md).
 
 ### **mutation**
 
-A declared server-state write whose cache consequences (what it invalidates) are declared once on the registration.
+A declared server-state **write** — the write-side partner to a [resource](#resource)'s read. Its cache consequences (which cached reads it [invalidates](#invalidate)) are declared *once, on the registration*, never imperatively at the call site.
 
 ```clojure
 (rf/reg-mutation :article/favorite {:scope :rf.scope/global} request-fn)
@@ -319,7 +313,7 @@ Related: [Server state](concepts/server-state.md). The reply field is `:value`; 
 
 ### **resource**
 
-A declared, cached server-state read registered with `reg-resource`; its `:scope` is a required leak boundary.
+A declared, cached server-state **read** (the read-side partner to a [mutation](#mutation)'s write), registered with `reg-resource`. Its `:scope` is a required, fail-closed leak boundary — part of the read's identity (with its `:params`) — so one user's data can't surface in another's cache.
 
 ```clojure
 (rf/reg-resource :article {:scope :rf.scope/global} request-fn)
@@ -350,7 +344,7 @@ For example, this registration says: when the runtime sees the event id `:cart/a
 
 - `reg-event` registers an [event handler](#event-handler).
 - `reg-sub` registers a [subscription](#subscription).
-- `reg-fx` registers an effect handler.
+- `reg-fx` registers an [effect handler](#effect-handler).
 - `reg-cofx` registers a [coeffect](#coeffect) supplier.
 - `reg-interceptor` registers an event-handler wrapper.
 - `reg-frame` registers a named [frame](#frame).
@@ -390,9 +384,9 @@ HTTP registration:
 
 ### **runtime-db**
 
-The framework-owned part of a [frame](#frame)'s state.
+The framework-owned half of a [frame](#frame)'s state — the other side of [the two partitions](#the-two-partitions), sitting beside the [app-db](#app-db) you own.
 
-It sits beside [app-db](#app-db), which is yours. re-frame2 uses runtime-db for its own durable state: machine snapshots, the current route, resource caches, mutation status, and similar runtime machinery. App code normally reads this state through subscriptions or accessors, not by editing runtime-db paths directly.
+re-frame2 keeps its own durable state here: machine [snapshots](#snapshot), the current route, [resource](#resource) caches, [mutation](#mutation) status, and similar machinery. App code reads it through subscriptions or accessors — never by editing `:rf.db/runtime` paths directly.
 
 ```clojure
 [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow]
@@ -402,7 +396,7 @@ Related: [app-db](#app-db), [frame](#frame). Paths: `:rf.db/runtime`, children `
 
 ### **snapshot**
 
-A machine's live value at any moment: which state it's in plus its `:data`, read through a subscription addressed by the machine's id.
+A [machine](#machine)'s live value at any moment — which state it's in, plus its `:data`. It lives in [runtime-db](#runtime-db), and you read it through a [subscription](#subscription) addressed by the machine's id.
 
 ```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])   ;; {:state :authed :data {...}}
