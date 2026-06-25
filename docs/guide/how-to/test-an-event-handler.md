@@ -110,12 +110,14 @@ That means giving the test its own [**frame**](../glossary.md#frame): an isolate
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:articles/refresh]
                       {:rf.cofx      {:rf/time-ms 1781078400123}
-                       :fx-overrides {:rf.http/managed (fn [_ _req] nil)}})
+                       :fx-overrides {:rf.http/managed (fn [_frame-ctx _args] nil)}})
     (is (= 1781078400123
            (get-in (rf/app-db-value f) [:articles :refreshing-since])))))
 ```
 
 [`dispatch-sync`](../glossary.md#dispatch-sync) drains the entire [cascade](../glossary.md#event-cascade) before returning, which is why the assertion on the next line can read fully committed state — there's nothing to flush and nothing to await.
+
+> **Gotcha — `dispatch-sync` is for the test boundary, not for inside a handler.** Call it from your test (or at boot, or the REPL) — never from inside a running handler. A handler that calls `(rf/dispatch-sync [:other] …)` in its body [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/dispatch-sync-in-handler`: a handler must stay pure and *describe* a follow-up dispatch as data, not synchronously drive one. The in-handler shape is the `:fx` effect `[[:dispatch [:other]]]`, which the runtime drains as part of the same cascade. (A bare `(rf/dispatch [:other])` from a handler body is *not* this error — it queues normally and routes to the handler's frame — but the `:fx` form is the idiom you want.)
 
 Two dispatch options do the work that the literal coeffects map did back in section 2:
 
@@ -196,7 +198,7 @@ If your tests — or any helpers they load — register anything themselves, bra
 |---|---|
 | `ts/snapshot-registrar` + `ts/restore-registrar!` | You're hand-rolling a fixture and want the raw snapshot/restore primitives — capture the registrar map, restore it later. |
 | `ts/with-fresh-registrar` | An ad-hoc `deftest` or REPL block whose only shared state is the registrar — no frames, no flows, no schemas left to clean up. |
-| `ts/make-reset-runtime-fixture` | The **default for any real suite**. It snapshots/restores the registrar *and* resets the rest of per-process state — frames, flows, schemas, machine timers, routing counters, in-flight HTTP, epoch history, trace listeners. It's a *factory*: call it to get the fixture fn. |
+| `ts/make-reset-runtime-fixture` | The **default for any real suite**. It snapshots/restores the registrar *and* resets the rest of per-process state — frames, flows, schemas, machine timers, routing counters, in-flight HTTP, resource caches, epoch history, trace listeners. It's a *factory*: call it to get the fixture fn. |
 
 ```clojure
 ;; The standard shape for a suite that exercises more than the registrar:

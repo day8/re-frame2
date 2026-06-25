@@ -89,9 +89,10 @@ The single rule that keeps the branch honest: **check whether `:exception` is pr
                                 :event-id   (str (:event-id record))
                                 :failing-id (str (:failing-id record)) ;; nil unless distinct
                                 :frame      (str (:frame record))}
-                        :extra {:event      (pr-str (:event record))
-                                :reason     (:reason record)
-                                :elapsed-ms (:elapsed-ms record)}})]
+                        :extra {:event        (pr-str (:event record))
+                                :reason       (:reason record)
+                                :elapsed-ms   (:elapsed-ms record)
+                                :source-coord (:source-coord record)}})] ;; {:ns :file :line}, when captured
       (if-let [ex (:exception record)]
         (Sentry/captureException ex ctx)
         (Sentry/captureMessage (str (:error record)) ctx)))))
@@ -101,7 +102,7 @@ The single rule that keeps the branch honest: **check whether `:exception` is pr
 
 So why can the `:exception` be absent? Most failures carry the raw host throwable, but a meaningful set don't — the **invalid-operation** categories. These fire when the runtime *refuses* an operation outright rather than letting something throw: addressing a handler that was never registered, [dispatching](../glossary.md#dispatch) into a frame that's already been destroyed. They're production-reachable (a stale closure or a race against teardown can both trigger them), so they survive elision, and they arrive with `:exception nil`:
 
-- `:rf.error/no-such-handler` / `:rf.error/no-such-sub` / `:rf.error/no-such-fx` / `:rf.error/no-such-cofx` — you dispatched / [subscribed](../glossary.md#subscription) / requested an id nothing is registered under.
+- `:rf.error/no-such-handler` / `:rf.error/no-such-sub` / `:rf.error/no-such-fx` / `:rf.error/unregistered-cofx` — you dispatched / [subscribed](../glossary.md#subscription) / requested an id nothing is registered under (the last fires when a handler's `:rf.cofx/requires` names a [coeffect](../glossary.md#coeffect) with no `reg-cofx`).
 - `:rf.error/frame-destroyed` — an operation targeted a frame whose lifecycle already ended (a callback fired after teardown).
 - `:rf.error/write-after-destroy` — a write to app-db was suppressed because the target frame was already gone (the write-path partner of `frame-destroyed`).
 - `:rf.error/override-fallthrough` — an [image](../glossary.md#image) (the sealed set of [registrations](../glossary.md#registration) a frame resolves against) resolved to no provider for an overridden id.
@@ -110,6 +111,8 @@ So why can the `:exception` be absent? Most failures carry the raw host throwabl
 - `:rf.error/machine-spawn-unregistered-type` — a runtime spawn of an unregistered [machine](../glossary.md#machine) (`:machine-id` with no inline `:definition`) was refused fail-closed. A structural-only record: `:machine-id`, `:frame`, `:reason`. (Machine *registration*-time rejections are dev-only and never reach this surface.)
 
 Because these have no throwable, your bridge falls through to `captureMessage` — the `if-let` handles it automatically. And there's a second reason to branch on the category keyword rather than the message: the `:reason` string is human-facing, and its exact wording is allowed to change between releases. The structured slots are the contract; lean on those, not the prose.
+
+> **One slot worth grabbing — `:source-coord`.** When the failing handler or subscription was registered through a `reg-*` macro, the record carries a `:source-coord` of `{:ns … :file … :line …}` — the definition site of the *broken* component. It's the production analogue of the jump-to-source chip [Xray](../glossary.md#xray) shows in dev, and it survives elision on purpose: the coord rides a separate always-on registry, *not* the public registration metadata (which is stripped of coord keys under `goog.DEBUG=false`). Ship it as `:extra` (above) and your Sentry issue links straight back to the line; it also makes a stabler fingerprint than a stack trace whose frames shift between builds. The slot is simply **absent** when the component was registered programmatically (no macro to capture the coord) — so read it defensively, never assume it's there.
 
 ### Name the *failing* component, not just the event {#name-the-failing-component}
 
@@ -200,12 +203,13 @@ The substrate is live in dev too — only your gates keep the bridge *off* — w
     (println :rf-error (:error record)
              :event-id       (:event-id record)
              :failing-id     (:failing-id record)
+             :source-coord   (:source-coord record)
              :has-exception? (some? (:exception record)))))
 ```
 
 Now exercise a few failing paths and watch the records print **synchronously**:
 
-- **A handler that throws.** Click the thing that dispatches it. You get `:rf.error/handler-exception` with `:has-exception? true` and no `:failing-id` (the handler *is* the event).
+- **A handler that throws.** Click the thing that dispatches it. You get `:rf.error/handler-exception` with `:has-exception? true` and no `:failing-id` (the handler *is* the event). If you registered that handler with `reg-event` (the macro), `:source-coord` points at its definition line; register one programmatically and the slot is absent — a quick way to see the macro-capture rule from §3 in action.
 - **A bad dispatch.** Dispatch an event id nothing is registered under. You get `:rf.error/no-such-handler` with `:has-exception? false` — proof, with your own eyes, that the invalid-operation categories arrive with `:exception nil`.
 - **A throwing interceptor or cofx supplier.** This prints with `:failing-id` set to the broken component while `:event-id` still names the event — exactly the distinction §3 cares about.
 
@@ -249,17 +253,25 @@ Reach for a frame sink when you want either of these:
 A frame declares which sink ids it routes to under its `:observability` config — `:handled-events` for the per-event metrics stream, `:errors` for projected error records — and you register the concrete sink function against each id:
 
 ```clojure
-;; On the frame registration (per spec/015-Data-Classification.md):
-;;   :observability {:handled-events [{:sink :app.sinks/datadog}]
-;;                   :errors         [{:sink :app.sinks/sentry-projected}]}
+;; On the frame registration (per spec/015-Data-Classification.md). Each entry
+;; carries an :rf.egress/profile naming the boundary — that profile is what
+;; decides how much survives projection:
+;;   :observability
+;;   {:handled-events [{:sink :app.sinks/datadog
+;;                      :rf.egress/profile :rf.egress/off-box-observability}]
+;;    :errors         [{:sink :app.sinks/sentry-projected
+;;                      :rf.egress/profile :rf.egress/public-error}]}
 
 (rf/register-observability-sink! :app.sinks/sentry-projected
   (fn [record]
-    ;; record is ALREADY projected under the frame's classification +
-    ;; the entry's egress profile: sensitive paths redacted, :exception
-    ;; dropped. No sink-local scrubbing — and none needed.
+    ;; record is ALREADY projected under the frame's classification + the
+    ;; entry's egress profile: sensitive paths redacted, and — because this
+    ;; entry chose :rf.egress/public-error — the raw :exception dropped.
+    ;; No sink-local scrubbing, and none needed.
     (Sentry/captureMessage (str (:error record)) (clj->js {:extra record}))))
 ```
+
+The `:rf.egress/profile` on each entry is load-bearing, and it's the one slot that's easy to get wrong. The default — what you get if you omit it — is `:rf.egress/off-box-observability`, which redacts sensitive paths and elides large ones but **walks the `:exception` through** (it's hosted-monitoring, where the stack is the point). Only `:rf.egress/public-error` *drops* the throwable. So if the whole reason you reached for a frame sink was to strip the host exception, you must say `:rf.egress/profile :rf.egress/public-error` explicitly — leaving the profile off keeps the exception. (An unknown profile is rejected fail-closed with `:rf.error/unknown-egress-profile`, so a typo can't silently downgrade the boundary.)
 
 `register-observability-sink!` returns the `sink-id`; re-registering the same id replaces; a throwing sink is isolated from its siblings, exactly like the raw listener. The framework ships no Datadog / Sentry client — the sink function is your integration's concern. And routing is **fail-closed**: a frame with no `:observability` policy routes *nothing* (there's no `:rf/default` synthesised on your behalf), so you can't accidentally leak from an unclassified frame.
 

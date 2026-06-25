@@ -53,6 +53,8 @@ That's the whole contract — four declarations on the host, and Xray opens. You
 
 If Xray can't find the host element when it tries to open, it doesn't fail silently — it logs an actionable missing-host diagnostic on the console telling you to add `[data-rf-xray-host]`, and even hands you the snippet to paste.
 
+> **Gotcha — Xray is desktop-only.** Below a 600px viewport (phones) it refuses to mount: the DOM root is created but the visible UI is a single message explaining it's desktop-only. Between 600px and 900px it narrows; at 900px and below it takes the full viewport width. So if Xray seems to "vanish" on a small window, that's the floor — widen the window, don't hunt for a bug.
+
 > **No resize CSS required.** You do *not* wire any resize CSS: Xray auto-injects its own drag handle on the host's left edge (drag to widen, double-click to reset, arrow keys when focused). Width is driven by the `--rf-xray-inline-width` custom property (default `560px`); override it anywhere up the cascade — `:root { --rf-xray-inline-width: 720px; }` — and a user drag writes back to the same property.
 
 > **A tool-only page that shouldn't reserve app real estate?** Suppress just the auto-open before `rf/init!` and drive Xray explicitly instead:
@@ -62,7 +64,7 @@ If Xray can't find the host element when it tries to open, it doesn't fail silen
 > (xray-config/configure! {:rf.xray/auto-open? false})
 > ```
 >
-> This disables only the page-load open. The collectors, the keybinding, and explicit `(day8.re-frame2-xray/open!)` / `toggle!` calls all stay live. (Story's browser-test canvases use this — they don't want a permanent Xray column.)
+> This disables only the page-load open. The collectors, the keybinding, and explicit `(day8.re-frame2-xray.core/open!)` / `toggle!` calls all stay live. (Story's browser-test canvases use this — they don't want a permanent Xray column.)
 
 None of this exists in production, which is by design. Xray and the trace machinery it reads are [elided](../glossary.md#elide) entirely in `:advanced` builds — remove the consumer and the framework is byte-for-byte unchanged. See [Configure dev and production builds](configure-dev-and-prod.md).
 
@@ -89,7 +91,7 @@ That's it. Four keys — `Space`, `a`, `j`, `e` — find most bugs.
 
 Once the core loop is muscle memory, three shortcuts make it faster:
 
-- **Loud breakages tint pink.** An epoch that carries an issue — a thrown exception or a schema violation — tints its row pink in the list, so you can scan for the tint instead of stepping one by one. The exception's message and data show up inline in the Epoch panel for that event (there's no separate "Issues" tab — issues surface where the event already is).
+- **Loud breakages tint pink.** An epoch that carries an issue — a thrown exception, a schema violation, a hydration mismatch, a perf-budget overrun, or a raw `console.error` from your app — tints its row pink in the list, so you can scan for the tint instead of stepping one by one. The exception's message and data show up inline in the Epoch panel for that event (there's no separate "Issues" tab — issues surface where the event already is). Want Xray to *come to you*? Flip *Settings → General → "Auto-open on error"* (off by default — Xray won't interrupt you in your own app unasked) and it pops open the moment the first issue lands.
 - **Drowning in noise? Add a filter pill.** The events ribbon (which slides open the moment you add your first filter) takes filter-IN pills (show only matches, green `+`) and filter-OUT pills (hide matches, magenta `×`) keyed on an event-id or a wildcard like `:mouse/*`. They compose as `(any IN) AND NOT (any OUT)`, and a count of `N events filtered out` shows on the right so a filter can never silently hide the truth. Filters are transient — they reset on reload, so a stale pill never bites you in a fresh session.
 - **Chase the cause across dispatches.** Was the culprit handler dispatched by another event's `:dispatch` effect? Then keep walking — its cascade lists the follow-up dispatches it queued, so the causal chain stays legible. ([Events and the cascade](../concepts/events-and-the-cascade.md) is the model behind this.)
 
@@ -114,7 +116,7 @@ This is the [derivation graph](../glossary.md#the-derivation-graph) made visible
 
 ## Step 5: the other lenses
 
-App-db, Epoch and Views cover the everyday bugs, and you'll live in them. But the tab bar carries more lenses — each answering a specific question about the focused event. The full roster, left to right (letter mnemonic in parentheses):
+App-db, Epoch and Views cover the everyday bugs, and you'll live in them. But the tab bar carries more lenses — each answering a specific question about the focused event. The full roster, left to right (the first six carry a single-letter mnemonic, in parentheses):
 
 | Tab | The question it answers |
 |---|---|
@@ -124,11 +126,11 @@ App-db, Epoch and Views cover the everyday bugs, and you'll live in them. But th
 | **Trace** (`t`) | What raw [trace events](../glossary.md#trace-event) fired in this cascade? — the readable-line timeline, colour-banded by op family. |
 | **Machine** (`m`) | What did this event do to my state machines? — transitions, guards, actions, `:after` rings, the cancellation cascade. Blank when the focused event touched no machine. |
 | **Routes** (`r`) | What did this event do to my routes? — current route, this-epoch navigation, the registered route table. |
-| **Resources** (`s`) | What's the lifecycle state of my resources? — long-lived server-state reads, retained values, teardown. |
-| **Graph** (`g`) | How does my reactive graph hang together? — the cross-family derivation graph (subs, flows, machines, routes) as one picture. |
-| **Modules** (`u`) | How is my app's runtime wired? — the `image → frame` structure for multi-frame / [image](../glossary.md#image)-composed apps. |
+| **Resources** | What's the lifecycle state of my resources? — long-lived server-state reads, retained values, teardown. |
+| **Graph** | How does my reactive graph hang together? — the cross-family derivation graph (subs, flows, machines, routes) as one picture. |
+| **Modules** | How is my app's runtime wired? — the `image → frame` structure for multi-frame / [image](../glossary.md#image)-composed apps. |
 
-Each tab is the same one-event-bound lens: focus an event, press the letter, read that projection of *that* moment. (`1`–`6` jump to the first six tabs by number; `Ctrl+→` / `Ctrl+←` cycle through them.)
+Each tab is the same one-event-bound lens: focus an event, switch tab, read that projection of *that* moment. The first six carry a letter mnemonic (`e` `a` `v` `t` `m` `r`) and a number (`1`–`6`); `Ctrl+→` / `Ctrl+←` cycle through the whole strip. The last three — Resources, Graph and Modules — landed later and have no keystroke of their own yet, so you click them (or jump by name from the command palette, `Ctrl/Cmd+K`).
 
 ## Step 6: rewind to the bad epoch
 
@@ -189,7 +191,7 @@ Xray is keyboard-first, but you only need a handful of keys for everything above
 | `L` or `G` | event list | Snap back to live (follow the head) |
 | `a` / `e` / `v` | tab bar | Jump to App-db / Epoch / Views |
 | `t` / `m` / `r` | tab bar | Jump to Trace / Machine / Routes |
-| `s` / `g` / `u` | tab bar | Jump to Resources / Graph / Modules |
+| `1`–`6` | tab bar | Jump to the first six tabs by number |
 | `r` | event list | Rewind the live app to the focused epoch |
 | `R` | event list | Re-dispatch the focused event (fresh cascade) |
 | `*` | event list | Pin / unpin the focused cascade |

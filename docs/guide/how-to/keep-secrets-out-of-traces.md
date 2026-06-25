@@ -245,10 +245,10 @@ The profile matrix is in [Spec 015](../../../spec/015-Data-Classification.md#pro
 
 ### Two things to verify before the first record ships
 
-**Direct reads are not auto-projected.** Everything so far has relied on the framework *projecting* your data — applying the classifications to produce a safe copy — automatically as it crosses a boundary. But a direct grab of live state that sidesteps the normal observation path — `rf/app-db-value`, `rf/sub-cache`, an MCP `get-path` — hands you the raw value, with no projection applied. If you ship that result off-box yourself, run it through [`rf/project-egress`](../glossary.md#project-egress) first, naming the frame so it knows whose classifications to apply:
+**Direct reads are not auto-projected.** Everything so far has relied on the framework *projecting* your data — applying the classifications to produce a safe copy — automatically as it crosses a boundary. But a direct grab of live state that sidesteps the normal observation path — `rf/app-db-value`, a sub-cache snapshot, an MCP `get-path` — hands you the raw value, with no projection applied. If you ship that result off-box yourself, run it through [`rf/project-egress`](../glossary.md#project-egress) first, naming the frame so it knows whose classifications to apply:
 
 ```clojure
-(rf/project-egress (rf/app-db-value :app/main [:auth])
+(rf/project-egress (get-in (rf/app-db-value :app/main) [:auth])
   {:frame :app/main :path [:auth] :rf.egress/profile :rf.egress/off-box-tool})
 ```
 
@@ -280,6 +280,22 @@ Omit the frame and the projection **fails closed** — it redacts the whole valu
 > ```
 >
 > The exception's job is to say *what went wrong*, not to carry the secret that caused it. (There's no `rf/safe-throw` — which `ex-data` keys are sensitive is author knowledge. The framework's *own* adapter/render diagnostics carry only a shape summary, never the raw value, so the residual here is exclusively your app's throw-sites.)
+
+## Advanced
+
+Two surfaces that aren't part of the everyday flow but are worth knowing exist: the **hydration payload** (one more egress boundary, if you render on the server) and the **epoch ledger** (where classification meets time-travel).
+
+### SSR and hydration — a fourth egress boundary
+
+If you run [SSR](../concepts/ssr.md), the server hands the client a **hydration payload** — a serialised slice of app-db the browser adopts on first render. That's production egress to an untrusted client, so it's a boundary the same classification guards. But SSR is **allowlist-first**, which is the stronger posture: it asks *"which state is allowed to cross?"*, not *"which leaves are sensitive?"*. You name the slice that may ship; **unlisted state does not cross even if you never classified it**, and a frame that renders on the server with no payload policy at all **fails closed** (`:rf.error/ssr-missing-payload-policy`) rather than shipping app-db whole.
+
+Classification then composes on top as **defence-in-depth**: a sensitive child of an allowlisted slice is *still redacted* unless the SSR policy explicitly permits it. The `:rf.egress/ssr-hydration` profile from the table above is exactly the projection applied **after** the allowlist — never a parallel mechanism. (The per-frame classification registry is itself kept off the hydration wire — a classified path can embed a sensitive id like `[:by-id "user-secret" :token]`, so the declaration keys *are* sensitive structure — and the client rebuilds its own identical registry from the same app image on mount.) The allowlist opt lives on the SSR host surface, not here; see [the SSR concept page](../concepts/ssr.md) and [Spec 011](../../../spec/011-SSR.md) for its exact shape.
+
+### Classification and time-travel — epoch records stay raw
+
+Classifying a path does **not** break [time-travel](../glossary.md#time-travel). An [epoch](../glossary.md#epoch) is causal replay material, so the framework keeps the **raw** value in the stored record — mutating it at rest would corrupt the replay contract, and a `restore-epoch` revert is meant to put the *real* value back. Redaction is applied only when an epoch **leaves** the box: an off-box epoch export must go through `project-egress` under an off-box profile, exactly like any other record. There is no storage-side `:redact-fn` hook — egress redacts, storage stays raw, and the two diverge on purpose so a redacted-frame epoch still replays the genuine value locally.
+
+The everyday consequence: your dev [epoch ledger](../glossary.md#epoch) and the on-box Xray diff show real values (you're a trusted local operator under `:rf.egress/local-redacted`/`local-raw`), while the same epoch *shipped* to a hosted monitor is projected. Don't reach for a scrub-on-store hook — there isn't one, and you don't want one.
 
 ## Check the projection in Xray
 
