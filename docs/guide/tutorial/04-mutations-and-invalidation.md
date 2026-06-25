@@ -1,16 +1,16 @@
 # Part 4: writes — favoriting, posting, invalidation
 
-In [Part 2](02-server-data.md) the app *read* server state through resources — a resource is a cached, declarative read of remote data. In [Part 3](03-auth-and-forms.md) you added login. Reads are only half a real app, though. The moment a user clicks the favorite heart on an article card or hits **Publish Article** in the editor, the app has to *write* — and a write is harder than a read, because a write makes other reads wrong. Favorite an article and three cached reads are suddenly stale: the article detail, every list it appears in, and your personal feed.
+In [Part 2](02-server-data.md) the app *read* server state through [resources](../glossary.md#resource) — a resource is a cached, declarative read of remote data. In [Part 3](03-auth-and-forms.md) you added login. Reads are only half a real app, though. The moment a user clicks the favorite heart on an article card, or hits **Publish Article** in the editor, the app has to *write* — and a write is harder than a read, because a write makes other reads wrong. Favorite an article and three cached reads go stale at once: the article detail, every list it appears in, and your personal feed.
 
-The naive answer is to wire each write to "and now refetch these reads" at the call site. That works until you have forty call sites and one of them forgets. re-frame2's answer is a **mutation**: a write registered *once*, with its consequences — which cached reads it breaks — declared on the registration, not at the call site. Click the heart anywhere and the right reads refresh, because the write knows what it breaks.
+The naive fix is to wire each write to "and now refetch these reads" at the call site. That works right up until you have forty call sites and one of them forgets. re-frame2's answer is a [**mutation**](../glossary.md#mutation): a write registered *once*, with its consequences — which cached reads it breaks — declared on the registration, not at the call site. Click the heart anywhere and the right reads refresh, because the write knows what it breaks.
 
 This part lands three things, one at a time:
 
-- the favorite heart fires a **mutation** that declares which cached reads it invalidates, so the detail, the lists, and your feed all refresh with **no wiring at the call site**;
+- the favorite heart fires a **mutation** that declares which cached reads it [invalidates](../glossary.md#invalidate), so the detail, the lists, and your feed all refresh with **no wiring at the call site**;
 - publishing an article saves it, then *continues* — navigate to the new article, clear the form — via a **`:reply-to` event**, not a callback;
 - a **`:can-leave` route guard** and a confirm dialog stop you from navigating away from a half-written draft.
 
-> **Coming from RTK Query or TanStack Query?** A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences: invalidation is declared once on the write's *registration*, not per call site; every invalidation is **scoped** — your feed and another user's feed are different cache entries, and a write names which scopes it touches; and the post-write continuation is a dispatched **event**, not an `onSuccess` callback.
+> **Coming from RTK Query or TanStack Query?** A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences. Invalidation is declared once on the write's *registration*, not per call site; every invalidation is **scoped** — your feed and another user's feed are different cache entries, and a write names which scopes it touches; and the post-write continuation is a dispatched [**event**](../glossary.md#event), not an `onSuccess` callback.
 
 One phrase to file away now and watch pay off by the end — it won't fully land until the **Publish** section, and that's fine:
 
@@ -20,13 +20,13 @@ One phrase to file away now and watch pay off by the end — it won't fully land
 
 Before a write can invalidate a read, the reads have to be *labelled* so a write can name them without naming each one by hand. We did that labelling back in Part 2.
 
-Each resource declared `:tags` on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. Those tags are the shared vocabulary between writes and reads: a read says "my data is tagged `[:article slug]`," and later a write can say "I just made `[:article slug]` stale" — and the runtime matches the two up, no read named directly. Tags are how a write breaks a read it has never heard of.
+Each resource declared [`:tags`](../glossary.md#cache-tag) on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. Those tags are the shared vocabulary between writes and reads: a read says "my data is tagged `[:article slug]`," and later a write can say "I just made `[:article slug]` stale" — and the runtime matches the two up, no read named directly. Tags are how a write breaks a read it has never heard of.
 
 One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose, because what it returns depends on *who is asking* — your feed and another user's feed are different data, even though both come from the same URL. So its cache can't be one shared entry; it has to be keyed per user.
 
-This is what a **scope** is: a namespace for cache entries. The resources in Part 2 all lived in one shared scope, `:rf.scope/global` — one entry per resource, the same for everybody. The feed needs a *different* scope per signed-in user, so each user's feed is cached separately and nobody ever sees anybody else's.
+This is what a [**scope**](../glossary.md#scope) is: a namespace for cache entries. The resources in Part 2 all lived in one shared scope, `:rf.scope/global` — one entry per resource, the same for everybody. The feed needs a *different* scope per signed-in user, so each user's feed is cached separately and nobody ever sees anybody else's.
 
-To key a cache per user, the runtime needs a way to compute the per-user key from your state. That's a **named scope resolver**: a small function that reads app-db (your app's state map — see [Part 1](01-pages-and-state.md)) and returns a scope value, or `nil`:
+To key a cache per user, the runtime needs a way to compute the per-user key from your state. That's a **named scope resolver**: a small *pure* function that reads [app-db](../glossary.md#app-db) (your app's state map — see [Part 1](01-pages-and-state.md)) and returns a scope value, or `nil`:
 
 ```clojure
 ;; src/conduit/scope.cljs
@@ -40,7 +40,7 @@ To key a cache per user, the runtime needs a way to compute the per-user key fro
 
 Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` (meaning "resolve my scope through the `:conduit/session` resolver") instead of the default `:rf.scope/global`. Its cache entries are keyed by the signed-in username, so each user gets their own.
 
-And here's the payoff of returning `nil` when logged out — what re-frame2 calls **fail-closed**: signed out, the resolver returns `nil`, the scope can't be computed, and the read simply *fails* rather than falling back to some default entry. It never silently serves the previous user's feed. (You'll see the term "fail-closed" recur on the write side too — same idea: when an identity can't be resolved, do nothing rather than guess.)
+And here's the payoff of returning `nil` when logged out — what re-frame2 calls [**fail-closed**](../glossary.md#fail-loud-not-silent): signed out, the resolver returns `nil`, the scope can't be computed, and the read simply *fails* rather than falling back to some default entry. It never silently serves the previous user's feed. You'll see the term "fail-closed" recur on the write side too — same idea: when an identity can't be resolved, do nothing rather than guess.
 
 That's the whole setup. The reads are tagged; the feed is scoped. Now let's write.
 
@@ -97,7 +97,7 @@ That's a complete, working favorite write. The next section fires it; the deeper
 
 ## Fire it, watch the instance
 
-A resource is "a subscription you read and an event you fire" (a *subscription* is a read of derived state; an *event* is something you `dispatch`). A mutation is the mirror image: **an event you fire and an instance you watch.** The UI never calls the mutation directly. Instead it dispatches `:rf.mutation/execute` — `dispatch` being how every event enters the system:
+A resource is "a subscription you read and an event you fire" (a [*subscription*](../glossary.md#subscription) is a read of derived state; an [*event*](../glossary.md#event) is something you [`dispatch`](../glossary.md#dispatch)). A mutation is the mirror image: **an event you fire and an instance you watch.** The UI never calls the mutation directly. Instead it dispatches `:rf.mutation/execute` — `dispatch` being how every event enters the system:
 
 ```clojure
 ;; src/conduit/views.cljs
@@ -140,11 +140,11 @@ That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping, no
 
 Notice what the view *doesn't* do: it never invalidates anything. Add this button to the article cards from Part 1 and to the article page, and you're done. Favoriting behaves identically everywhere, because the write's consequences live on the write, not on the call site.
 
-> **Coming from RTK Query?** `[:rf.mutation/state {:instance …}]` is the tuple `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id you choose, not bound to one component instance. Two views can watch the *same* in-flight write by naming the same instance, and a write survives the unmount of the component that fired it.
+> **Coming from RTK Query?** `[:rf.mutation/state {:instance …}]` is the tuple `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id *you* choose, not bound to one component instance. Two views can watch the *same* in-flight write by naming the same instance, and a write survives the unmount of the component that fired it.
 
 ### Watch it happen
 
-Run the app, sign in, and click a heart. The count changes immediately — that's `:populates` landing. A moment later the list and your feed have refetched. Now open Xray (the dev inspector from earlier parts) and click another heart: the trace shows the whole causal chain, step by step. The `:ui/favorite` dispatch fires; then `:rf.mutation/started`; then the HTTP request; then `succeeded`, carrying the invalidation evidence (which tags went stale, in which scopes); and finally the refetches of any stale reads still on screen. Every step names its cause. When a list refreshes "by itself" six months from now, this trace is how you'll know which write did it.
+Run the app, sign in, and click a heart. The count changes immediately — that's `:populates` landing. A moment later the list and your feed have refetched. Now open [Xray](../glossary.md#xray) (the dev inspector from earlier parts) and click another heart: the trace shows the whole causal chain, step by step. The `:ui/favorite` dispatch fires; then `:rf.mutation/started`; then the HTTP request; then `succeeded`, carrying the invalidation evidence (which tags went stale, in which scopes); and finally the refetches of any stale reads still on screen. Every step names its cause. When a list refreshes "by itself" six months from now, this trace is how you'll know which write did it.
 
 ### The full execute payload
 
@@ -170,7 +170,7 @@ And the sub family is wider than the one you've used. `:rf.mutation/state` retur
 [:rf.mutation/error    {:instance [:favorite slug]}]   ;; the structured error envelope on failure
 ```
 
-> **Gotcha — `:result` on the instance, `:value` in a reply.** One spelling to file away early: the instance sub stores the decoded result under `:result`. The transient reply map a `:reply-to` continuation receives — coming up in the **Publish** section — spells the same value `:value`. Same data, two layers; we'll meet `:value` again there.
+> **Gotcha — `:result` on the instance, `:value` in a reply.** One spelling to file away early: the instance sub stores the decoded result under `:result`. The transient [reply map](../glossary.md#reply-map) a `:reply-to` continuation receives — coming up in the **Publish** section — spells the same value `:value`. Same data, two layers; we'll meet `:value` again there.
 
 ## Going further with mutations
 
@@ -255,7 +255,7 @@ The fix is the per-scope descriptor form you already used in the favorite: name 
 
 The same rule covers route- and tenant-scoped reads: **a write's invalidation scope must match the scope of the resources it breaks.** When a write touches both a global fact and a session fact, return one descriptor per scope (exactly as `:conduit/favorite` does) — never a blanket `:cross-scope? true`, which is the audited multi-tenant escape, not the default.
 
-> **Why this matters — you don't have to spot it by eye.** In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only (elided from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the trace stream or in Xray.
+> **Why this matters — you don't have to spot it by eye.** In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only ([elided](../glossary.md#elide) from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the [trace stream](../glossary.md#trace-stream) or in Xray.
 
 > **What `:cross-scope? true` actually is — and why it's not your default.** We've called it "the audited escape" twice now, so let's be concrete. A per-scope descriptor can only name scopes you *already know* — global, the session you resolved, a tenant id you hold. But some operations need to stale a tag *wherever it lives*, across scopes the call site **cannot enumerate**: an admin force-publishing across every tenant, a cache-poisoning response, a data migration. That's the one job `:cross-scope?` does — "invalidate this tag in every scope currently holding it":
 >
@@ -272,7 +272,7 @@ The same rule covers route- and tenant-scoped reads: **a write's invalidation sc
 By default a mutation's `:invalidates` fires **on success** (`:after-success`) — the safe choice, and what every example here uses. The registration key `:invalidate-timing` lets you move it:
 
 - `:after-success` *(default)* — stale the reads only once the write is confirmed.
-- `:before-request` — stale *before* the request goes out (a "I know this is about to be wrong, refetch eagerly" pattern).
+- `:before-request` — stale *before* the request goes out (an "I know this is about to be wrong, refetch eagerly" pattern).
 - `:after-failure` — stale on failure (useful when a failed write still perturbs server state you cache).
 - `:after-settle` — stale on either outcome.
 
@@ -280,7 +280,7 @@ You rarely need anything but the default; reach for the others only when the wri
 
 ### Make it optimistic: the heart flips *before* the reply
 
-`:populates` runs on success — the heart flips the moment the server confirms. For a tiny, reversible change like a favorite, you usually want the flip *immediately on click*, then a revert if the write fails. That's an **optimistic mutation**, and it's a registration key, not a call-site dance.
+`:populates` runs on success — the heart flips the moment the server confirms. For a tiny, reversible change like a favorite, you usually want the flip *immediately on click*, then a revert if the write fails. That's an [**optimistic mutation**](../glossary.md#optimistic-update--rollback), and it's a registration key, not a call-site dance.
 
 Add `:optimistic-tags` — the tag-addressed twin of `:invalidates`. Where `:invalidates` says "these tags went *stale*," `:optimistic-tags` says "patch every entry carrying these tags, *now*, before the request":
 
@@ -436,7 +436,7 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied repl
               [:dispatch [:rf.route/navigate :conduit.article/show {:slug (:slug article)}]]]}))))
 ```
 
-That `{:keys [status value]}` is the reply map's public shape: `:status` tells you how the write settled, and `:value` carries the decoded result on `:ok`.
+That `{:keys [status value]}` is the reply map's public shape: `:status` tells you how the write settled, and `:value` carries the decoded result on `:ok`. It's the same closed envelope every managed-async surface in re-frame2 produces — [the uniform reply](../glossary.md#the-uniform-reply).
 
 Three rules make `:reply-to` trustworthy:
 
@@ -452,7 +452,7 @@ And here's the point this part exists to land: `[:editor/replied]` is **data**. 
 
 ## Guard the half-written draft
 
-One gap is left. Write half an article, click the site logo, and the draft silently vanishes — which is exactly the kind of thing users never forgive. Routes close this with a `:can-leave` guard, a subscription the router consults before navigating away:
+One gap is left. Write half an article, click the site logo, and the draft silently vanishes — which is exactly the kind of thing users never forgive. Routes close this with a [`:can-leave` guard](../glossary.md#route-guard), a [subscription](../glossary.md#subscription) the router consults before navigating away:
 
 ```clojure
 ;; src/conduit/editor.cljs
@@ -498,12 +498,3 @@ Now re-read `:editor/replied` above and notice the choreography. On a successful
 > **For JavaScript developers — this is React Router's `useBlocker`, but the block is data.** A `:can-leave` guard plays the role of React Router's `useBlocker` / `unstable_usePrompt`: stop a navigation, ask the user. The difference is where the blocked navigation lives. There's no imperative `blocker.proceed()` / `blocker.reset()` you call from inside a component effect — the parked navigation is a value under `:rf/pending-navigation`, and `:rf.route/continue` / `:rf.route/cancel` are ordinary dispatched events. The dialog is just a view subscribed to a slot, which means it tests like any other view and shows up in Xray like any other state.
 
 Everything in this part is running code: [`examples/reagent/realworld_resources/`](../../../examples/reagent/realworld_resources/) is the full app, including the pieces we trimmed for space (edit mode's load-and-seed, article delete, comments, follow/unfollow, the editor's field markup). For the concepts behind resources and mutations as a pair — the read model and its write counterpart — the [server-state concept page](../concepts/server-state.md) is the reference companion to this tutorial.
-
----
-
-**You can now:**
-
-- register a mutation whose four cache-consequence arms — `:invalidates` (per-scope descriptors, with `:invalidate-timing` to control *when*), `:populates` (authoritative seed), `:patches` (surgical edit), and `:removes` (delete eviction) — declare the write's consequences once, at the registration, across scopes via a named scope resolver;
-- fire writes with `:rf.mutation/execute` (the full payload: `:mutation` / `:params` / `:instance` / `:scope` / `:cause` / `:reply-to` / `:optimistic?`) and render their lifecycle from the instance-keyed `[:rf.mutation/state …]` sub and its `:status` / `:pending?` / `:result` / `:error` siblings — concurrency-safe, with no app-db flags;
-- continue a workflow after a write with `:reply-to` — an event target that receives the uniform reply map, only ever for accepted replies, after the cache has settled;
-- block navigation away from unsaved work with a `:can-leave` guard and a dialog over `:rf/pending-navigation`.

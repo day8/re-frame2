@@ -2,9 +2,9 @@
 
 The [quickstart](../quickstart.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part the quickstart hid). Budget five minutes from `npm install` to pixels.
 
-Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. (That **do → observe → explain** loop is the spine of this whole tutorial; the *observe* step is where Xray, the inspector you'll set up below, earns its keep.)
+Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. (That **do → observe → explain** loop is the spine of this whole tutorial; the *observe* step is where [Xray](../glossary.md#xray), the inspector you'll set up below, earns its keep.)
 
-> **Haven't done the quickstart?** [Do that first.](../quickstart.md) It teaches the loop — events → app-db → subs → views — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
+> **Haven't done the quickstart?** [Do that first.](../quickstart.md) It teaches the loop — [events](../glossary.md#event) → [app-db](../glossary.md#app-db) → [subs](../glossary.md#subscription) → [views](../glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
 
 ## One app, five parts
 
@@ -44,7 +44,7 @@ conduit/
   src/conduit/core.cljs  ;; the app (next section)
 ```
 
-**`deps.edn`** — the compiler, the core artefact, the Reagent adapter, and (dev-only) Xray:
+**`deps.edn`** — the compiler, the core artefact, the Reagent [adapter](../glossary.md#adapter), and (dev-only) Xray:
 
 ```clojure
 {:deps {thheller/shadow-cljs   {:mvn/version "3.4.10"}  ;; the build tool's JVM half
@@ -56,7 +56,7 @@ conduit/
 
 `thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray is the inspector you'll keep open for the whole tutorial — a live window into what your app is doing. It lives under `:aliases {:dev …}` — an **alias** in `deps.edn` is just a named bundle of *extra* dependencies you opt into on demand, the way an npm `devDependency` is pulled in only when you ask for it. Xray sits in the `:dev` alias because it's a tool, not application code, and a release build that never activates `:dev` never sees it — so it stays out of your shipped bundle automatically.
 
-> **For JavaScript developers.** Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. You'll lean on it constantly. Like DevTools, it ships only in dev builds; the `:dev` alias is what makes that automatic.
+> **For JavaScript developers.** Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. (That record is the [trace stream](../glossary.md#trace-stream); Xray is just the prettiest reader of it.) You'll lean on it constantly. Like DevTools, it ships only in dev builds; the `:dev` alias is what makes that automatic.
 
 **`package.json`**:
 
@@ -178,20 +178,20 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
      [shell]]))
 ```
 
-The events, subs, and views here are just the quickstart's loop again — an event updates app-db (your app's single state map), a subscription reads from it, and a view renders that read. Two bits of syntax look new only because the browser cells smoothed them over:
+The events, subs, and views here are just the quickstart's loop again — an [event](../glossary.md#event) updates [app-db](../glossary.md#app-db) (your app's single state map), a [subscription](../glossary.md#subscription) reads from it, and a [view](../glossary.md#view) renders that read. Two bits of syntax look new only because the browser cells smoothed them over:
 
 - **`reg-view`** is a macro (that's why it's `:require-macros`'d at the top, not plain `:require`'d). It defines a view *and* wires its body to the current frame, so inside `header` you can write a bare `subscribe` / `dispatch` and it just finds the right app-db — no frame argument to thread through. The functions-only browser cells couldn't run macros, so the quickstart used plain `defn` views with an explicit `rf/subscribe`; on the real toolchain `reg-view` is the idiomatic shape.
 - **`@(subscribe …)`** — a subscription doesn't hand you a value, it hands you a *reactive reference* that re-runs the view whenever its slice of app-db changes. The leading `@` (Clojure's deref) reads the current value out of it. Read `@(subscribe [:session/user])` as "the live value of who's signed in."
 
 What's genuinely new beyond syntax is the **boot**, the part the quickstart's browser cells quietly did on your behalf. It's four moves, in order, each one short:
 
-**Move 1 — `(rf/init! reagent-adapter/adapter)` installs the substrate.** The substrate is the view library's reactivity that your subscriptions wire into, and this line tells the runtime which one you're using. It's idempotent, so hot reload is safe — calling it twice does nothing. It creates *no* frame; that's the next move's job. To swap substrates later you change one require and this one Var ([Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md)).
+**Move 1 — `(rf/init! reagent-adapter/adapter)` installs the substrate.** The [substrate](../glossary.md#substrate) is the view library's reactivity that your subscriptions wire into, and the [adapter](../glossary.md#adapter) is the small map of glue that binds re-frame2 to it; this line installs that glue. It's idempotent, so hot reload is safe — calling it twice does nothing. It creates *no* frame; that's the next move's job. To swap substrates later you change one require and this one Var ([Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md)).
 
-**Move 2 — `(rf/reg-frame :rf/default {})` establishes the frame.** Every dispatch and subscription runs against a **frame** — an isolated instance of the app holding its own app-db. The runtime *never* invents one for you: there's no ambient global and no silent default. A single-page app has exactly one frame, registered once at the root. `reg-frame` is **atomic** — it creates the frame *and* registers it under the id in one move, so there's never a half-built frame lying around. A fresh frame always starts with `app-db = {}`, which is why the seeding happens in the next move via an event. The empty config map grows in later parts — by Part 5 it carries keys like `:interceptors`, `:fx-overrides`, and `:initial-events` — so don't worry that it looks bare now.
+**Move 2 — `(rf/reg-frame :rf/default {})` establishes the frame.** Every dispatch and subscription runs against a [**frame**](../glossary.md#frame) — an isolated instance of the app holding its own app-db. The runtime *never* invents one for you: [identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found), so there's no ambient global and no silent default. A single-page app has exactly one frame, registered once at the root. `reg-frame` is **atomic** — it creates the frame *and* registers it under the id in one move, so there's never a half-built frame lying around. A fresh frame always starts with `app-db = {}`, which is why the seeding happens in the next move via an event. The empty config map grows in later parts — by Part 5 it carries keys like `:interceptors`, `:fx-overrides`, and `:initial-events` — so don't worry that it looks bare now.
 
-**Move 3 — `with-frame` + `dispatch-sync` seeds state.** Out here, outside the rendered tree, there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. And it's `dispatch-sync` — a dispatch that runs the event immediately rather than queuing it — because plain `dispatch` would let the first render race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of only two legitimate uses of `dispatch-sync`; the other is tests.
+**Move 3 — `with-frame` + `dispatch-sync` seeds state.** Out here, outside the rendered tree, there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. And it's [`dispatch-sync`](../glossary.md#dispatch-sync) — a dispatch that runs the [event cascade](../glossary.md#event-cascade) immediately rather than queuing it — because plain [`dispatch`](../glossary.md#dispatch) would let the first render race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of only two legitimate uses of `dispatch-sync`; the other is tests.
 
-**Move 4 — `frame-provider-existing` wraps the tree.** The provider carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `-existing` suffix is load-bearing: this provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
+**Move 4 — `frame-provider-existing` wraps the tree.** The [provider](../glossary.md#frame-provider) carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `-existing` suffix is load-bearing: this provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
 
 That's the whole boot. Four moves: install the substrate, register the frame, seed it, scope the tree to it.
 
@@ -212,9 +212,9 @@ The manual Move 3 (`with-frame` + `dispatch-sync`) is worth meeting first becaus
 
 By the time `reg-frame` returns, that cascade has settled and `app-db` holds whatever it produced — so you can drop the separate `with-frame` + `dispatch-sync` of Move 3 entirely. From Part 1 on you'll often prefer this form, and the finished reference uses it.
 
-> **Gotcha.** A *step* is a bare event vector like `[:app/initialise]`; the whole `:initial-events` value is a vector *of* those — so `[[:app/initialise]]`, a single one-step vector, with the double brackets. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix. See [EP-0027 in 002-Frames](../../../spec/002-Frames.md) for the full grammar.
+> **Gotcha — mind the double brackets.** A *step* is a bare event vector like `[:app/initialise]`; the whole `:initial-events` value is a vector *of* those — so `[[:app/initialise]]`, a single one-step vector, with the double brackets. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix; it doesn't quietly run the wrong thing. See [EP-0027 in 002-Frames](../../../spec/002-Frames.md) for the full grammar.
 
-> **Going deeper.** Why is seeding an *event* rather than a `:db` config key? Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same event cascade that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` effect. The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes time-travel and replay possible.
+> **Going deeper — why an event and not a `:db` key?** Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same [event cascade](../glossary.md#event-cascade) that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` [effect map](../glossary.md#effect-map). The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes [time-travel](../glossary.md#time-travel) and replay possible.
 
 ### Two providers: scope vs lifecycle
 
@@ -225,19 +225,19 @@ There are two providers in the family, and the distinction matters once you have
 
 You reach for `frame-provider` when a *component* should own a frame for exactly as long as it's mounted: a comparison page showing two isolated apps side by side, a Story canvas, an embedded widget, a modal. A single-page app's one root frame outlives every component, so it's registered once at the top and merely scoped in — hence `-existing`.
 
-> **Gotcha.** Pass a lifecycle opt like `:initial-events` to `frame-provider-existing` and it fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`), pointing you at the owned `frame-provider` instead of silently doing nothing. The full picture is in [Frames: isolated worlds](../concepts/frames.md).
+> **Gotcha — don't hand a lifecycle opt to the scope-only provider.** Pass something like `:initial-events` to `frame-provider-existing` and it fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`), pointing you at the owned `frame-provider` instead of silently doing nothing — a scope-only provider neither creates nor owns a frame, so it has nowhere to *put* construction opts. The full picture is in [Frames: isolated worlds](../concepts/frames.md).
 
 ### When the boot goes wrong
 
-Each of the four moves has a named way of failing. The good news: every failure arrives as a *structured* error — in the console **and** as a row in Xray, under a stable `:rf.error/*` id — so you're never reduced to guessing. If you hit an error on first run, match its id here:
+Each of the four moves has a named way of failing. The good news: every failure arrives as a *structured* [error record](../glossary.md#error-record) — in the console **and** as a row in Xray, under a stable `:rf.error/*` category — so you're never reduced to guessing ([fail loud, not silent](../glossary.md#fail-loud-not-silent) is the whole posture). If you hit an error on first run, match its category here:
 
-| `:rf.error/*` id | What happened | The fix |
+| `:rf.error/*` category | What happened | The fix |
 |---|---|---|
 | `:rf.error/no-adapter-installed` | Something rendered or subscribed before any `init!` ran — usually a refactor that moved the boot and dropped Move 1 on the floor. | Install the adapter first; everything else comes after. |
 | `:rf.error/no-frame-context` (at a dispatch) | An event was dispatched with no frame in scope. The classic case is a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. | Boot-time events belong inside `run`, under `with-frame`, after `reg-frame`. |
 | `:rf.error/no-frame-context` (at a subscribe) | The tree rendered *without* the provider, so the first `subscribe` in a view has no frame to read. No fallback exists underneath. | Wrap the root in `frame-provider-existing` (Move 4). |
 | `:rf.error/no-such-handler` | A dispatch reached the runtime but nothing is registered under that id. Once the app spans files (Part 1 on), the usual cause isn't a typo — it's a feature namespace never `:require`d from `core`, so its registrations never ran. | `:require` the feature namespace from `core` so its registrations run at load. |
-| `:rf.error/no-such-fx` | The same story for an *effect* — a side-effect the framework performs for you — registered by a namespace that never loaded. | This is why Part 2 requires the HTTP artefact at boot, so its effects register. |
+| `:rf.error/no-such-fx` | The same story for an [effect](../glossary.md#effect) — a side-effect the framework performs for you — whose [effect handler](../glossary.md#effect-handler) lives in a namespace that never loaded. | This is why Part 2 requires the HTTP artefact at boot, so its effects register. |
 
 ## `npm install` to pixels
 
@@ -247,7 +247,7 @@ npm install          # shadow-cljs + React           (~30s)
 npm run dev          # first compile                 (~60–90s)
 ```
 
-When the build reports `Build completed`, open **<http://localhost:8020>**. You should see the green Conduit banner, the navbar with **Sign in** / **Sign up** — and Xray already open in the right rail. That's the gate: pixels, inspector attached, inside five minutes. If you got an error instead, match its `:rf.error/*` id against the table just above and the fix is right there.
+When the build reports `Build completed`, open **<http://localhost:8020>**. You should see the green Conduit banner, the navbar with **Sign in** / **Sign up** — and Xray already open in the right rail. That's the gate: pixels, inspector attached, inside five minutes. If you got an error instead, match its `:rf.error/*` category against the table just above and the fix is right there.
 
 ## Minute one: open Xray
 
@@ -256,12 +256,4 @@ Xray auto-opened with the app, and `Ctrl+Shift+C` toggles it. Take a moment to l
 - **The event spine** shows one row: `:app/initialise`. That's not a log line you wrote — it's the runtime's own record of the only thing that has happened so far.
 - **app-db** shows `{:session {:user nil}}` — exactly the value the boot event returned.
 
-One event, one state, nothing else. **Keep Xray open for the whole tutorial.** This is the *observe* step of the do → observe → explain loop in the flesh — so when something misbehaves later, you won't reach for print statements, you'll just read what the app actually did. [Debug with Xray](../how-to/debug-with-xray.md) is the deeper tour when you want it.
-
-**You can now:**
-
-- Scaffold a re-frame2 project on the real toolchain: `deps.edn`, `package.json`, `shadow-cljs.edn`, a host page.
-- Boot an app honestly, and say what each move does: `init!` (substrate), `reg-frame` (the app's frame, atomic create-and-register), `with-frame` + `dispatch-sync` (seed before first render), `frame-provider-existing` (carry the frame down the tree).
-- Choose between the manual seed (`with-frame` + `dispatch-sync`) and the declarative one (`:initial-events` on `reg-frame`), and tell `frame-provider` (lifecycle: create + destroy) apart from `frame-provider-existing` (scope-only).
-- Diagnose the four first-render failures by id: `:rf.error/no-adapter-installed`, `:rf.error/no-frame-context` (dispatch- and subscribe-side), `:rf.error/no-such-handler`, `:rf.error/no-such-fx`.
-- Run the app with Xray attached and read your first event row.
+One event, one state, nothing else. **Keep Xray open for the whole tutorial.** This is the *observe* step of the do → observe → explain loop in the flesh — so when something misbehaves later, you won't reach for print statements, you'll just read what the app actually did. (The framework keeps *its* own state in a separate partition, [runtime-db](../glossary.md#runtime-db), which Xray will also show you once routing and resources start using it.) [Debug with Xray](../how-to/debug-with-xray.md) is the deeper tour when you want it.
