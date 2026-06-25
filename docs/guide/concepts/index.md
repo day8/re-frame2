@@ -38,7 +38,7 @@ That's the entire shape of re-frame2: **something happens → an event describes
 
 ## State in one place
 
-Notice where the state lived: in `db`. State in re-frame2 lives in exactly one place — [**app-db**](../glossary.md#app-db), your app's single immutable state map. Not in components, not scattered across a dozen stores. One map.
+Notice where the state lived: in `db`. State in re-frame2 lives in exactly one place — [**app-db**](../glossary.md#app-db), your app's single immutable state map. Not scattered across many places, not owned by the views that render it. One map.
 
 That single fact pays off everywhere. A handler is a pure function *of* app-db, so it's trivial to test — feed it a map, check the map it returns, no mounting required. A [subscription](../glossary.md#subscription) is a derivation *over* app-db, so the view layer never has to ask "where did this value come from?" And because nothing else holds state, there's nowhere for a state bug to hide except the one map and the pure functions that transform it. When the truth is in one place, "where's the bug?" has one place to be.
 

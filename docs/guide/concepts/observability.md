@@ -2,7 +2,7 @@
 
 You clicked a button and the app is now subtly wrong. You want to know one thing: what did that click actually *do*? Which handler ran, what changed in [app-db](../glossary.md#app-db), which subscriptions recomputed, which views re-rendered, what effects escaped. In most frontends that question has no clean answer, because causality is smeared across a hundred components, each mutating its own little corner of state. You end up bisecting `console.log` statements like it's 2009.
 
-re-frame2 has a clean answer, and it falls out of the architecture rather than being bolted on. Every event runs the same fixed [event cascade](../glossary.md#event-cascade) — the ordered run from a dispatched [event](../glossary.md#event) through its [event handler](../glossary.md#event-handler), the [commit](../glossary.md#commit), and the [effects](../glossary.md#effect) — so there's a single place to stand and watch the runtime go past. As it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream**, and it's the whole foundation. The fancy panels you'll meet at the end — [Xray](../glossary.md#xray) (the dev inspector), Story (a component workbench), the pair MCP (a bridge that lets an AI inspect the running app) — are all just *readers* of it.
+re-frame2 has a clean answer, and it falls out of the architecture rather than being bolted on. Every event runs the same fixed [event cascade](../glossary.md#event-cascade) — the ordered run from a dispatched [event](../glossary.md#event) through its [event handler](../glossary.md#event-handler), the [commit](../glossary.md#commit), and the [effects](../glossary.md#effect) — so there's a single place to stand and watch the runtime go past. As it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream**, and it's the whole foundation. The fancy panels you'll meet at the end — [Xray](../glossary.md#xray) (the dev inspector), Story (a view workbench), the pair MCP (a bridge that lets an AI inspect the running app) — are all just *readers* of it.
 
 This page builds up from the smallest piece. First the shape of a single trace event. Then the buffer that remembers recent ones. Then a listener you can write in eight lines. Then what survives into production. Then the tools sitting on top.
 
@@ -19,7 +19,7 @@ A [trace event](../glossary.md#trace-event) is just a map. The runtime emits one
  :operation :rf.event/dispatched        ;; what specifically happened
  :op-type   :rf.event                   ;; which family it belongs to
  :time      1716800000000               ;; host clock, ms
- :tags      {:rf.trace/event-id    :counter/inc
+ :tags      {:rf.trace/event-id    :cart/add-item
              :rf.trace/dispatch-id 4711
              :frame                :app
              ,,,}}                      ;; the open bag of specifics
@@ -66,7 +66,7 @@ So each [frame](../glossary.md#frame) also keeps a ring buffer of recent history
 (rf/trace-buffer :app)
 ;; => vector of cascade bundles, oldest first — each one already grouped:
 ;;    {:dispatch-id 4711  :parent-dispatch-id nil  :frame :app
-;;     :event [:counter/inc]  :dispatched {,,,}
+;;     :event [:cart/add-item {:sku "BK-1"}]  :dispatched {,,,}
 ;;     :handler {,,,}  :fx {,,,}  :effects [,,,]  :subs [,,,]  :renders [,,,]
 ;;     :trace-events [,,,]}
 ```
