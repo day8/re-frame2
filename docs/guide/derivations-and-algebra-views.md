@@ -267,15 +267,37 @@ To see one live, open [Xray](glossary.md#xray) on a running app. The panel that 
 Reading a healthy graph is the common case. But the algebra also shapes how the framework reports an *unhealthy* one — and because errors are attributed to **graph identities** rather than to low-level functions, the diagnostics line up with the same node vocabulary you've been reading. When something goes wrong, the framework tells you *which node* and *which axis*, not just which function threw. The cases worth recognizing:
 
 - **Unknown input fact** — a derivation declares an input (`[:sub …]`, `[:db …]`, `[:resource …]`) that names a fact nothing produces. The graph has a dangling edge; the framework [fails loud](glossary.md#fail-loud-not-silent) rather than silently feeding `nil`.
-- **Cycle in an acyclic graph** — a flow whose inputs depend, transitively, on its own output. Flows are topologically sorted before they drain, so a cycle is a registration-time error, not a hang at runtime. (Subscriptions tolerate some shapes flows can't, because a flow must reach a fixed point inside one commit.)
+- **Cycle in an acyclic graph** — a flow whose inputs depend, transitively, on its own output. Flows are topologically sorted before they drain, so a cycle is a registration-time error (`:rf.error/flow-cycle`, thrown by `reg-flow` *before* any snapshot is created), not a hang at runtime. The error even carries the offending chain — a `:cycle` vector with a closing repeat, `[:a :b :a]` for `:a → :b → :a` — which a tool like Xray renders verbatim. (Subscriptions tolerate some shapes flows can't, because a flow must reach a fixed point inside one commit; the subscription graph stays dynamic at the view boundary and has no registration-time cycle gate.)
 - **Illegal storage write** — a source form tries to materialize where its storage class forbids. A flow writes app-db only; pointing one at a `:rf.db/runtime` output path is rejected. The storage class isn't decoration — it's an enforced contract.
 - **Missing lifecycle owner** — a process with no owner to keep it alive or release it. A graph that shows dependencies but hides ownership is *incomplete*, and the framework treats a missing owner as the error it is.
-- **Unresolved resource scope** — a scope resolver that can't produce a key (its `:from-db` source is absent, say). The resource can't form its `[cache-scope resource-id canonical-params]` identity, so it can't cache — and a [scope](glossary.md#scope) that can't resolve raises rather than serving the wrong principal's data.
+- **Unresolved resource scope** — a scope resolver that can't produce a key (its `:from-db` source is absent, say), surfaced as `:rf.error/resource-sub-unresolved-scope`. The resource can't form its `[cache-scope resource-id canonical-params]` identity, so it can't cache — and a [scope](glossary.md#scope) that can't resolve raises rather than serving the wrong principal's data. (A resource registered with no scope policy at all is the sibling `:rf.error/resource-missing-scope-policy`.)
 - **Stale reply suppressed** — not an error so much as a *visible non-event*: an async reply arrived for a request a newer navigation or fetch already superseded, and the process dropped it by declared identity. The graph can show you that suppression happened — which is exactly the thing that's invisible (and maddening) when a framework swallows it silently.
 
 > **Why this matters for reading apps.** The whole point of the algebra is that a tool can describe your app from declarations alone. That same property is what makes its errors legible: an "unknown input fact" message can name the *fact*, an illegal-write message can name the *storage class*, a missing-owner message can name the *lifecycle*. You debug against the model on this page, not against a stack trace through framework internals. The error vocabulary itself (`:rf.error/*`, `:rf.warning/*`) is catalogued in the [instrumentation spec](../../spec/009-Instrumentation.md); this page is just the map that makes those messages mean something.
 
 > **No public graph-accessor yet (pre-alpha).** The assembled shape is consumed internally — by Xray and the conformance fixtures — and a public name ships only once the shape survives real use. What you can rely on today is the model: the classifications on this page are normative, and they are what the tools render.
+
+## Advanced
+
+Everything above is what you need to *read* a graph. Two things sit one level deeper — the seam that lets families plug in, and a law about deltas that the framework states but does not yet execute. You can skip this section and lose nothing about reading apps.
+
+### The contributor seam: how the optional families plug in
+
+The fourth rule above said a missing family just isn't there. The mechanism is worth a sentence for anyone wiring up tooling. Core can't `:require` flows, resources, routing, or machines — that would defeat their [bundle isolation](glossary.md#elide) and break a core-only build. So the composer reaches each optional family through a **contributor seam**: a `{family {:static-fn :live-fn …}}` map. On the JVM the default contributors auto-resolve whatever siblings are on the classpath; in the browser the tool that draws the graph (which already requires the families it has) supplies the map. A family whose artefact is absent contributes nothing — which is the same "no-flows app draws no flow nodes" story, just told from the composer's side. The composer is itself bundle-isolated and exports no public accessor; it's the internal shape the deferred public name will one day produce.
+
+### The optional delta law
+
+The whole-value law says every derivation must be correct as a function that recomputes its *entire* output. That's the floor, and today it's also the ceiling: re-frame2 ships **no executable delta protocol**. But the spec writes down the law a delta path *would* have to obey, so that if one ever lands it can't quietly change observed values.
+
+The idea: a derivation could one day declare a `:step-delta` companion beside its `:derive`, computing an *output* delta from an *input* delta instead of rebuilding the whole value — the optimization you'd want for, say, a hundred-thousand-row grid where one cell changed.
+
+```clojure
+{:id         :large-grid/visible-rows
+ :derive     #'app.grid/visible-rows        ;; whole-value: the floor, always correct
+ :step-delta #'app.grid/visible-rows-delta} ;; delta: an optional fast path
+```
+
+The binding rule is that the delta path must **commute** with whole-value recomputation — applying the input delta then deriving must equal deriving then applying the output delta. If a `:step-delta` is absent, disabled, or fails its conformance check, whole-value derivation remains correct; the delta is never load-bearing for correctness, only for speed. This is why the error list above has a quiet seventh member the healthy-reading cases never hit: **delta law check failed** — a declared `:step-delta` that disagreed with whole-value recompute, caught by conformance rather than shipped. Until a real performance case needs it, the practical takeaway is simply: trust the whole-value value; the delta is a deferred optimization with a law already waiting for it.
 
 ## The rule worth carrying
 

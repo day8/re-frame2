@@ -36,7 +36,7 @@ You never construct these — the runtime emits them, and your job (more often a
 | `:rf.fx` | An effect was handled. |
 | `:rf.view` | A view rendered. |
 | `:rf.machine` | A [state machine](machines.md) transitioned, raised, spawned, or stopped. |
-| `:rf.flow` | A [flow](flows.md) re-derived or skipped. |
+| `:flow` | A [flow](flows.md) re-derived or skipped. (The op-type is bare `:flow`; the operations under it are `:rf.flow/*`.) |
 | `:rf.cofx` | A [coeffect](../glossary.md#coeffect) was injected. |
 | `:rf.frame` | A [frame](../glossary.md#frame) was created or destroyed. |
 | `:rf.registry` | A handler was registered (the `reg-*` calls themselves trace). |
@@ -116,11 +116,11 @@ Next to the trace ring (what the app *did*) sits the **epoch history** (what the
 
 ```clojure
 (rf/configure! {:epoch-history {:depth            50    ;; how many epochs to keep (default)
-                                :trace-events-keep 200   ;; per-record raw-event budget
-                                :redact-fn        my-fn}});; runs before ring-append
+                                :trace-events-keep 50    ;; per-record raw-event budget (defaults to :depth)
+                                :redact-fn        my-fn}});; runs at off-box egress, never at storage
 ```
 
-`:depth` is the obvious one — how far back time-travel reaches. `:trace-events-keep` caps how many raw trace events each record carries alongside its assembled projections, so one pathological cascade can't bloat a record. `:redact-fn` is the safety valve: it runs on each record *before* it's stored, your chance to scrub sensitive payloads out of the snapshots that the devtools will display.
+`:depth` is the obvious one — how far back time-travel reaches. `:trace-events-keep` caps how many of the most-recent records keep their raw trace events alongside the cheap structured projections; older records drop the raw events to bound memory. It defaults to the `:depth` value (so trace detail and epoch evict together); set it smaller — `5`, say — to bound a long dev session's heap more aggressively. `:redact-fn` is the advanced safety valve, and where it runs matters: it is **projection-side, not storage-side**. The ring always stores the *raw* record, because an epoch record is causal replay material and mutating it at rest would corrupt `restore-epoch!`. The fn runs once per record at the **off-box egress boundary** — after the frame's normal `:sensitive` / `:large` classification has already projected the record — as a last scrub for something the declaration-driven projection can't prove (a sensitive slot no schema or classification covers). It is the rare escape hatch; ordinary redaction wants the [data classification](../glossary.md#data-classification) model, not this. A throwing `redact-fn` falls back to the already-projected record rather than leaking.
 
 Because each record holds real before-and-after state, [time travel](../glossary.md#time-travel) falls out for free: `(rf/restore-epoch! frame-id epoch-id)` rewinds a frame to exactly the state it held then — both partitions, [app-db](../glossary.md#app-db) and [runtime-db](../glossary.md#runtime-db) (machine snapshots, the route slice), in one atomic write. This isn't a special debug build; it's the direct consequence of state being one immutable value per frame.
 
@@ -281,5 +281,29 @@ flowchart LR
 | "Can I ship telemetry to my APM?" | none of these | That's the always-on sink path above — production never has the dev panels. |
 
 And here's the rule for the tool you might write yourself — a domain monitor, a recorder, a release-health dashboard: consume the public substrate, don't invent a private one. What happened is in the trace and epoch records; what exists is in the [registrar](../glossary.md#registrar); state reads respect frame identity and privacy markings. The framework owns the data shape, and tools own the rendering. That division is why one listener registration is a complete tooling integration, and why the ecosystem stays one truth instead of a pile of almost-right panels.
+
+## Advanced
+
+If the tool you write *dispatches its own events* — a recorder that writes captured events into its own app-db, an inspector that drives a panel — you hit a circularity the moment your listener fires synchronously mid-cascade: your bookkeeping dispatch emits its own trace events, which re-enter your listener, which dispatches again. Two opt-out flags exist precisely for this, and they're how Xray, Story, and the pair MCP stay quiet on the very wire they watch.
+
+**Silence one handler — `:rf.trace/no-emit?` in the registration meta.** A handler whose registration carries the flag produces no trace events for the work it does — the cascade still runs, commits, and walks its effects; it just doesn't narrate. The innermost in-scope handler wins, so a normal handler dispatched *from inside* a silenced one is visible again.
+
+```clojure
+(rf/reg-event :my-tool/note-trace-event
+  {:rf.trace/no-emit? true}                 ;; this handler's cascade emits nothing
+  (fn [{:keys [db]} [_ ev]]
+    {:db (update db :captured (fnil conj []) ev)}))
+```
+
+One subtlety with a production reach: the always-on `:events` stream honours this flag too — a `:rf.trace/no-emit?` handler is dropped from the production event-emit record as well, on the principle that a tool's internal bookkeeping isn't user-domain signal. (The `:errors` stream is unaffected; a real error still surfaces.)
+
+**Silence a whole frame — `:rf.trace/frame-no-emit?` in the frame config.** An inspector renders its *own* UI in a dedicated frame, and that UI's subscriptions and renders emit `:rf.sub/run` / `:rf.view/render` like any other — enough, on a busy panel, to evict every application cascade from the buffer the inspector is supposed to be showing you. Marking the tool's frame trace-disabled makes it emit nothing at all, while every application frame is untouched.
+
+```clojure
+(rf/reg-frame :my-tool/inspector
+  {:rf.trace/frame-no-emit? true})          ;; a tool frame: no trace from here
+```
+
+This is the mechanism behind "a devtool in its own frame can storm its own subscriptions without polluting your app frame's history" — the per-frame ring isolates the *storage*, and this flag suppresses the tool frame's *emission* entirely. Both flags sit inside the same dev-only elision gate as everything else here, so they cost nothing in production (which emits no trace anyway).
 
 > **Going deeper.** The wire is a *free monoid* of trace events — an append-only sequence with one associative operation (concatenation) and an identity (the empty stream). Every tool is then a *fold* over that sequence: Xray folds it into an epoch ledger, a metrics sink folds it into counters, `group-cascades` folds the flat ring into bundles. Because a fold is determined entirely by its accumulator and step function — and the underlying sequence is the same for everyone — two correct folds over one stream *cannot* disagree about a shared question; they can only project different facets. "One truth, many presentations" isn't a discipline the tools agree to uphold. It's an algebraic property of building every reader as a fold over a single shared sequence. The dispatch-id correlation adds a second structure on top: it makes the stream not just a flat sequence but a *forest* (each cascade a tree rooted at its dispatched event, child cascades hanging off `:parent-dispatch-id`), so causal queries are tree walks rather than scans.
