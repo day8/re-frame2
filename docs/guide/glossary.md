@@ -406,27 +406,27 @@ Related: [Machines](concepts/machines.md).
 
 ### **subscription**
 
-A named, registered, pure, cached, read-only derivation of state.
+A named, registered, pure, **cached** derivation of state — how a [view](#view) reads what it needs. You declare it with `reg-sub`; the framework recomputes it only when its inputs actually change (by `=`), so a view never re-renders for a value that didn't move. Subscriptions compose in layers: some read [app-db](#app-db) directly, others combine other subscriptions into a derivation graph.
 
 ```clojure
 (rf/reg-sub :cart/count (fn [db _] (count (:items (:cart db)))))
 ```
 
-Related: [Subscriptions](concepts/subscriptions.md). Casual "sub" is fine; not as a headword.
+Related: [Subscriptions](concepts/subscriptions.md). Casual "sub" is fine; not as a headword. (Need the value inside an [event handler](#event-handler)? Materialise it with a [flow](#flow).)
 
 ### **substrate**
 
-The React-family rendering layer your app runs on, such as Reagent, UIx, Helix, or reagent-slim.
+The React-family rendering layer your app runs on — Reagent, UIx, Helix, or reagent-slim. You pick one and wire re-frame2 to it with an [adapter](#adapter). Because the core is substrate-agnostic, your events, subscriptions, and app-db are identical whichever you choose — only the rendering differs.
 
 ```clojure
-;; "substrate" = the layer; the value you pass to init! is the adapter
+;; substrate = the rendering library; the adapter is the value you pass to init!
 ```
 
-Related: [Views](concepts/views.md).
+Related: [Use UIx, Helix, or slim](how-to/use-uix-helix-or-slim.md).
 
 ### **view**
 
-A pure render function from subscription values to hiccup.
+A pure render function from [subscription](#subscription) values to **hiccup** — the Clojure data that describes your UI. Views read derived state and [dispatch](#dispatch) [events](#event) on interaction; they hold no business logic. The [substrate](#substrate) turns the hiccup into real React elements.
 
 ```clojure
 (rf/reg-view :cart-badge (fn [] [:span.badge @(rf/subscribe [:cart/count])]))
@@ -438,7 +438,7 @@ Related: [Views](concepts/views.md). Use "component" for React-analogy callouts 
 
 ### **commit**
 
-The single, deferred, all-or-nothing app-db write at the end of an event; no observer ever sees a half-written app-db.
+The single, deferred, all-or-nothing write of the new [app-db](#app-db) at the end of an [event](#event) — no observer ever sees a half-written app-db. The `:db` your [event handler](#event-handler) returns is *staged* and lands once, atomically, after flows run, so a throwing handler or flow installs *nothing*.
 
 ```clojure
 ;; the :db you return is staged; it's committed once, at the end, atomically
@@ -450,7 +450,7 @@ Related: [Events & the cascade](concepts/events-and-the-cascade.md).
 
 Enqueue an [event](#event) for a [frame](#frame) to process.
 
-`dispatch` wraps the event in an [event envelope](#event-envelope) and returns immediately. The event handler runs later, during the [event cascade](#event-cascade).
+`dispatch` wraps the event in an [event envelope](#event-envelope) and returns immediately; the [event handler](#event-handler) runs later, during the [event cascade](#event-cascade). (Its synchronous sibling `dispatch-sync` runs the cascade *now* — mainly for tests and boot.)
 
 ```clojure
 (rf/dispatch [:cart/add-item {:sku "BK-1"}]
@@ -461,7 +461,7 @@ Related: [event](#event), [event envelope](#event-envelope), [event cascade](#ev
 
 ### **drain / run-to-completion**
 
-The runtime drains the whole event queue to a fixed point before subscriptions recompute and views render.
+The runtime drains the *whole* event queue to a fixed point — running every queued [event](#event) to completion — before [subscriptions](#subscription) recompute and [views](#view) render. So the UI updates once, from a settled state, never mid-flight.
 
 ```clojure
 ;; all queued events run to completion, THEN subs recompute, THEN views render
@@ -471,7 +471,7 @@ Related: [Events & the cascade](concepts/events-and-the-cascade.md). Hyphenate *
 
 ### **elide**
 
-Compile dev-only code out of production via one flag, either `goog.DEBUG` or `-Dre-frame.debug`.
+Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). It removes the dev trace surface, the [epoch](#epoch) buffer, and schema *checks* — but the always-on `:errors` and `:events` streams survive, so production observability keeps working.
 
 ```clojure
 ;; goog.DEBUG=false removes the dev trace surface and schema checks
@@ -481,7 +481,7 @@ Related: [Observability](concepts/observability.md). Name DCE once, then use **e
 
 ### **invalidate**
 
-A mutation declares, as data on its registration, which cached reads it makes stale.
+A [mutation](#mutation) declares — as data on its registration, never imperatively — which cached [resource](#resource) reads it makes stale, so they refetch.
 
 ```clojure
 {:invalidates (fn [{:keys [slug]} _result]
@@ -492,7 +492,7 @@ Related: [Server state](concepts/server-state.md).
 
 ### **navigate**
 
-Change the route by dispatching navigation; the URL is an input, the route is a sub.
+Change the route by dispatching navigation — the URL is an input, the route a [subscription](#subscription) you read like any other.
 
 ```clojure
 (rf/dispatch [:rf.route/navigate :article {:id "abc"}])
@@ -512,7 +512,7 @@ Related: [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
 
 ### **register**
 
-Name your handlers and machinery at boot time with [registration](#registration) forms.
+Name your handlers and machinery at boot time with [registration](#registration) forms — `reg-event` for an [event handler](#event-handler), `reg-sub` for a [subscription](#subscription), and so on.
 
 ```clojure
 (rf/reg-event :cart/clear (fn [{:keys [db]} _] {:db (dissoc db :cart)}))
@@ -522,7 +522,7 @@ Related: [Events & the cascade](concepts/events-and-the-cascade.md). There is **
 
 ### **subscribe / derive**
 
-Read derived state by name through a subscription; `@(subscribe …)` both reads and subscribes.
+Read derived state by name through a [subscription](#subscription); `@(subscribe …)` both reads the current value *and* subscribes, so the [view](#view) re-renders when it changes.
 
 ```clojure
 @(rf/subscribe [:cart/count])
@@ -534,7 +534,7 @@ Related: [Subscriptions](concepts/subscriptions.md).
 
 ### **Effects are data**
 
-A handler returns a *description* of side-effects and the runtime performs them; a pure handler plus data effects is what makes replay, test, and trace possible.
+An [event handler](#event-handler) returns a *description* of side-effects — an [effect map](#effect-map) of data — and the runtime performs them; a pure handler plus data effects is what makes replay, test, and trace possible.
 
 ```clojure
 {:fx [[:http {:url "/api/login"}] [:dispatch [:ui/spinner true]]]}
@@ -544,7 +544,7 @@ Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
 ### **Fail loud, not silent**
 
-A recognised input that can't be honoured raises a structured `:rf.error/*`, never a nil or no-op. Keep **fail-loud** (raise instead of swallow) distinct from **fail-closed** (deny by default at a boundary).
+A recognised input that can't be honoured raises a structured [error record](#error-record) (`:rf.error/*`), never a nil or no-op. Keep **fail-loud** (raise instead of swallow) distinct from **fail-closed** (deny by default at a boundary).
 
 ```clojure
 ;; unregistered id, missing cofx, unknown fx → raises :rf.error/*, never returns nil
@@ -554,7 +554,7 @@ Related: [Errors](concepts/errors.md).
 
 ### **Frame identity is carried, not found**
 
-An operation reads its frame from its scope (provider / running handler / captured handle); the runtime never invents one. A rootless call is `:rf.error/no-frame-context`.
+An operation reads its [frame](#frame) from its scope (provider / running handler / captured handle); the runtime never invents one. A rootless call is `:rf.error/no-frame-context`.
 
 ```clojure
 [rf/frame-provider-existing {:frame :app} [app-root]]   ;; scope carries the frame downward
@@ -564,7 +564,7 @@ Related: [Frames](concepts/frames.md).
 
 ### **The four homes (where state lives)**
 
-Subscription → flow → resource → machine: pick the cheapest that fits, decided by the where-state-lives router. Every other concept defers here for "which one do I use?".
+[Subscription](#subscription) → [flow](#flow) → [resource](#resource) → [machine](#machine): pick the cheapest that fits, decided by the where-state-lives router. Every other concept defers here for "which one do I use?".
 
 ```clojure
 ;; cart total → sub (or flow); the article → resource; checkout → machine
@@ -574,7 +574,7 @@ Related: [Where state lives](where-state-lives.md).
 
 ### **The two partitions**
 
-A frame holds **app-db** (yours) and **runtime-db** (the framework's), addressed by the projection paths `:rf.db/app` and `:rf.db/runtime`; runtime subsystems live under `:rf.runtime/*`.
+A [frame](#frame) holds [app-db](#app-db) (yours) and [runtime-db](#runtime-db) (the framework's), addressed by the projection paths `:rf.db/app` and `:rf.db/runtime`; runtime subsystems live under `:rf.runtime/*`.
 
 ```clojure
 [:rf.db/runtime :rf.runtime/resources]   ;; the resource cache IS a runtime-db subsystem
@@ -584,7 +584,7 @@ Related: [app-db](concepts/app-db.md).
 
 ### **The uniform reply**
 
-Every managed async surface (HTTP, resources, mutations, route loaders, machine async) completes by *dispatching an event carrying a reply map*, never by an awaited value. The HTTP envelope's discriminator is `:kind` (`:success`/`:failure`); the resource view-model's `:status` (`:ok/:partial/:error/:cancelled/:stale`) is a different field, with `:kind :success` ≡ `:status :ok`.
+Every managed async surface (HTTP, resources, mutations, route loaders, machine async) completes by [dispatching](#dispatch) an [event](#event) carrying a reply map, never by an awaited value. The HTTP envelope's discriminator is `:kind` (`:success`/`:failure`); the resource view-model's `:status` (`:ok/:partial/:error/:cancelled/:stale`) is a different field, with `:kind :success` ≡ `:status :ok`.
 
 ```clojure
 [:auth/login-reply {:kind :success :value {:token "…"}}]
@@ -594,7 +594,7 @@ Related: [Managed HTTP](concepts/http.md).
 
 ### **Xray**
 
-The dev inspector: an in-app panel that reads the trace stream and per-frame epoch history so you debug the loop, not the DOM.
+The dev inspector: an in-app panel that reads the trace stream and per-frame [epoch](#epoch) history so you debug the loop, not the DOM.
 
 ```clojure
 ;; open Xray to step through epochs, inspect app-db, and read the cascade
