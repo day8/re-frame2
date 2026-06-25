@@ -61,6 +61,8 @@ A [mutation](../glossary.md#mutation) is a managed server-state *write* — the 
 
 That's it — one key, naming the same `[:article slug]` and `[:article-list]` tags the reads carry. On success, the engine finds every cached entry whose tags intersect and marks it stale.
 
+The write lowers through the same [managed HTTP](../glossary.md#managed-http) transport your resources use, so the runtime owns the request's whole lifecycle — encode, send, decode, classify the failure, abort. One deliberate difference from a read: **a write does not retry by default.** Reads are safe to re-issue; re-sending a write can double a side-effect (charge the card twice, post the comment twice), so a mutation retries only when *its own* `:request` opts in by declaring `:retry`. Leave it off unless the endpoint is genuinely idempotent. (Cross-cutting request decoration — auth headers, base URLs, tracing — belongs in a `reg-http-interceptor` that decorates *every* managed request, not copied into each mutation's `:request`.)
+
 What happens next depends on whether anything is still *using* that entry. A read is **owned** while something on screen depends on it — a mounted route showing the article, a running [machine](../glossary.md#machine) that asked for it. (That's the [owner](../glossary.md#owner--cause) — a lease that keeps the entry alive and decides whether an invalidation refetches *now* or merely marks the entry stale.) An **unowned** entry is one whose last reader has gone away, but whose value is still sitting in the cache. Owned entries refetch immediately, because something is waiting to display the fresh value; unowned ones just get marked stale and wait until the next time someone asks for them (their next *ensure* — the read path's "make sure this is loaded" call). So you don't get a refetch storm for data nothing is watching, which is exactly the behavior you want.
 
 > **Note the callback signature.** `:invalidates` is a function of `(params result)` — the accepted params, and the decoded reply value. Notably, there is *no* `db` / `ctx` argument, and that's deliberate: a cache-consequence plan returns *data* (a tag set, or the descriptors we'll meet later). When a plan genuinely needs a value out of [app-db](../glossary.md#app-db) — say, to pick a scope — it names a resolver to fetch it (the `{:from-db …}` form you'll see in [the scope section](#the-scope-footgun-and-how-to-disarm-it)) rather than reaching into the db directly inside the callback. That keeps the dependency visible and the plan inspectable in tooling, instead of buried in opaque callback code.
@@ -106,6 +108,8 @@ The execute event takes a map payload with these keys:
 | `:cause` | no | Trace/diagnostic data explaining why the write fired. Pure metadata; never changes behavior. |
 | `:reply-to` | no | A call-site continuation event target (see [§6](#6-optional-do-more-than-refresh-the-cache)). |
 | `:optimistic?` | no | `false` forces the pessimistic path for one call, skipping a registered optimistic plan. |
+
+> **Gotcha — bad `:params` fail loud before the write fires.** `:params` are checked against the mutation's required `:params-schema` *before* the request is lowered, so a payload that doesn't conform never reaches the server: the execute raises `:rf.error/mutation-invalid-params` (the offending value is redacted in the error per the [data-classification](../glossary.md#data-classification) policy). Host values — functions, promises, dates, DOM nodes — are rejected the same way, because params have to be serializable EDN to take part in identity and replay. This is the write-side twin of the read path's fail-closed validation: the schema, not a silent coercion, decides what a valid write looks like.
 
 If you only ever need a slice of the instance state, the focused subs project just that slice — handy when a button cares about nothing but "am I in flight?":
 
@@ -211,6 +215,8 @@ A populated key counts as an **authoritative load** — it becomes `:loaded`, th
 
 > **Gotcha: the populated value must be the resource's *stored* shape.** Populate the whole decoded envelope the resource stores (e.g. `{:article {…}}`), not an unwrapped inner projection. A populated entry has to read *identically* to a fetched one, or you've created a cache-coherence bug — the next view to read that key sees a shape no fetch would ever produce.
 
+> **Gotcha: a bad target at settle is split by class — a typo doesn't strand the write.** These exact-target arms run at *settle*, after the server write has already committed. So a *recoverable* bad target — an **unregistered** resource id, or a non-map target — is **dropped-and-warned, not thrown**: the valid siblings in the same arm still land, the dropped target is recorded on the instance, and you get a dev-only `:rf.warning/mutation-target-skipped` (elided from production). One typo'd sibling must not throw away the good cache writes after an irreversible remote write. A *corruption-class* target, though — a mis-spelled `:rf.scope/*` keyword or a non-EDN scope/params, anything that would write the cache under a **wrong identity** — still throws the whole arm; no relaxed policy may swallow that. (Note the asymmetry with the *optimistic* pre-write arms in [Advanced](#advanced): those run *before* the request is sent, so they reject *every* bad target, recoverable or not — there's no committed write to stay consistent with yet.)
+
 > **Partial replies — `:refetch-populated? true`.** If the write's reply is only *partial* relative to a full resource GET, you don't want to keep the half-populated value. Opt a single invalidation descriptor into `:refetch-populated? true` and that key gets refetched after all:
 >
 > ```clojure
@@ -292,11 +298,55 @@ A descriptor can only name scopes you already know. Occasionally you need the op
 
 Because it can stale or refetch data across *every* user, tenant, story frame, and SSR request, it's deliberately load-bearing to spell out and is treated as a privacy-relevant operation:
 
-- it **must** carry `:cause` evidence — a cross-scope invalidation with no `:cause` is rejected;
+- it **must** carry `:cause` evidence — a cross-scope invalidation with no `:cause` is a loud `:rf.error/resource-cross-scope-cause-required`, never a silent unaudited sweep (the mutation engine stamps `:cause` for you when you supply one on the descriptor);
 - it shows up as a privacy-relevant [trace event](../glossary.md#trace-event), recording that a mutation reached outside its own scope;
 - [Xray](../glossary.md#xray) warns you when a precise descriptor would have done the job, so you don't reach for the sledgehammer by reflex.
 
 Reach for `:cross-scope?` only when the scopes are genuinely unenumerable at the call site. If you can name them, name them with descriptors.
+
+## Advanced
+
+Everything above settles the cache *after* the server confirms. The power-user move is to flip the UI *before* it confirms — an [optimistic update](../glossary.md#optimistic-update--rollback) — and let the framework reconcile when the reply lands. This is its own small contract; reach for it when a write must feel instant (a favorite toggle, a like count, an item that should vanish on click) and you accept the cost of a possible rollback. The worked example lives in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md); the normative rules are [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations).
+
+An optimistic plan is a registration-level arm, in two forms that mirror the success-time `:patches` and tag-addressed `:invalidates`:
+
+```clojure
+(rf/reg-mutation :article/favorite
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   ;; exact-target form — patch one known key. (fn [params] -> {target patch-fn}),
+   ;; patch-fn is (fn [old-data] -> new-data). Note: NO result arg — the reply
+   ;; doesn't exist yet. A nil patch-fn is an optimistic remove; a patch over an
+   ;; absent key is an optimistic seed.
+   :optimistic  (fn [{:keys [slug]}]
+                  {{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global}
+                   (fn [old] (update-in old [:article :favorited] not))})
+   ;; tag-addressed form — flip EVERY cached entry carrying these tags at once
+   ;; (the detail, every list, the feed), so the toggle is consistent across views.
+   :optimistic-tags (fn [{:keys [slug]}]
+                      [{:scope :rf.scope/global
+                        :tags  #{[:article slug]}
+                        :patch (fn [old] (update-in old [:article :favorited] not))}])
+   :populates   (fn [{:keys [slug]} result]
+                  {{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global} result})
+   :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
+     :decode  :json}))
+```
+
+What the runtime guarantees, so you don't hand-roll any of it:
+
+- **The inverse is captured for you — you never write a rollback.** Before each forward patch the runtime snapshots the *whole entry* as it stood (or records that the key was absent), so a rollback restores exactly what existed, never a reconstructed approximation. An author-written inverse — which drifts the moment the forward patch changes — is never required.
+- **Settle is deterministic: commit, roll back, or reconcile.** On an accepted `:ok` reply the authoritative `:populates` / `:patches` / `:invalidates` overwrite the optimistic value and the snapshot is discarded (`:rf.mutation/optimistic-reconciled`). On an `:error` or `:cancelled` reply it rolls back (`:rf.mutation/optimistic-rolled-back`). A stale/superseded reply rolls back nothing — its snapshot is simply dropped.
+- **`:on-conflict` governs a *contested* rollback.** If a concurrent write landed on the entry between your optimistic apply and the rollback, restoring your snapshot would clobber newer truth. So the default `:on-conflict :invalidate` does *not* blind-restore — it marks the entry stale in its own scope and lets the read path refetch the authoritative value. `:force` restores your snapshot anyway (single-writer last-write-wins) and trips a `:rf.warning/optimistic-force-clobber`. This deference to the read path is a deliberate divergence from TanStack/SWR's unconditional context restore. An out-of-enum value is a loud `reg-mutation` error.
+- **The view can tell it's showing an optimistic value.** `[:rf.mutation/state {:instance …}]` carries a derived `:optimistic?` — true between the apply and settle — so you can render "pending, but already showing your change."
+
+Two guardrails worth internalizing:
+
+> **Gotcha — optimistic plans are fail-closed and scope-bounded.** Every optimistic target's scope is fail-closed: a `{:from-db …}` that resolves nil *drops* that target rather than writing under an implicit global (unlike a mutation's fail-open *execution* scope — an optimistic apply writes the cache, so it carries the same leak boundary a read does). There is deliberately **no `:cross-scope?` optimistic form**: the optimistic surface is exact-key or tag-within-named-scope only, so it can't leak a write across users or tenants the way an audited `:cross-scope?` invalidation deliberately can. A malformed `:optimistic-tags` descriptor (non-map, missing `:patch`, non-collection `:tags`) is warn-and-skipped (`:rf.warning/optimistic-tags-descriptor-skipped`), not thrown — it runs *before* the request lowers, so throwing would kill the whole write; the well-formed descriptors in the same plan still apply.
+
+> **Gotcha — don't combine `:optimistic*` with `:invalidate-timing :before-request`.** A `:before-request` invalidation stales the very entries an optimistic apply immediately re-populates — contradictory (stale-then-optimistic-fresh). It's a loud registration error (`:rf.error/mutation-optimistic-before-request`), not a silent precedence rule; optimistic writes use the default `:after-success` timing. To skip a registered optimistic plan for one call, pass `{:optimistic? false}` on the execute payload (a boolean disable, never a per-call forward plan — call-site cache logic stays off the call site).
 
 ## Observe it in Xray
 

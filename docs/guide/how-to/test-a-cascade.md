@@ -121,9 +121,9 @@ Several routes coexist in one table — list each `[method url]` the cascade fir
 
 ```clojure
 (rf/with-managed-request-stubs
-  {[:get  "/api/profiles/alice"] {:reply {:ok {:profile {:username "alice"}}}}
-   [:post "/api/articles"]       {:reply {:ok {:article {:slug "hello"}}}}
-   [:del  "/api/articles/old"]   {:reply {:failure {:kind :rf.http/http-4xx :status 403}}}}
+  {[:get    "/api/profiles/alice"] {:reply {:ok {:profile {:username "alice"}}}}
+   [:post   "/api/articles"]       {:reply {:ok {:article {:slug "hello"}}}}
+   [:delete "/api/articles/old"]   {:reply {:failure {:kind :rf.http/http-4xx :status 403}}}}
   ;; ... dispatch the events whose handlers fire those three requests ...
   )
 ```
@@ -151,7 +151,7 @@ Both tests above assert the *settled* state — the reply has already folded in 
       (is (= :authed (:session/status (rf/app-db-value f)))))))
 ```
 
-That last test reaches for `ts/poll-until` — here `ts` is the conventional alias for `re-frame.test-support`, the test-only helper namespace (`[re-frame.test-support :as ts]` in your require block; you'll see the full block in the regression-test section below). `poll-until` is the **settle** primitive: it polls a predicate against a bounded deadline (defaults `:timeout-ms 2000`, `:interval-ms 5`) and fails fast if the condition never holds, so a genuinely stuck cascade surfaces as a timeout rather than a hang. On the JVM it's synchronous and returns the truthy value; on CLJS it returns a `js/Promise` you compose under `cljs.test/async`. Reach for it whenever a reply or a scheduled event drains *past* `dispatch-sync` — a deferred reply, a machine `:after` transition, a `:dispatch-later`.
+That last test reaches for `ts/poll-until` — here `ts` is the conventional alias for `re-frame.test-support`, the test-only helper namespace (`[re-frame.test-support :as ts]` in your require block; you'll see the full block in the regression-test section below). `poll-until` is the **settle** primitive: it polls a predicate against a bounded deadline (defaults `:timeout-ms 2000`, `:interval-ms 5`) and fails fast if the condition never holds, so a genuinely stuck cascade surfaces as a timeout rather than a hang. On the JVM it's synchronous and returns the truthy value (and on timeout throws an `ex-info` carrying `:rf.error/poll-until-timeout`, so you can branch on the discriminator); on CLJS it returns a `js/Promise` you compose under `cljs.test/async` — resolving with the value, rejecting on timeout. The optional `:label` rides into the timeout message, so a failing poll names *what* it was waiting for instead of a bare deadline. Reach for it whenever a reply or a scheduled event drains *past* `dispatch-sync` — a deferred reply, a machine `:after` transition, a `:dispatch-later`.
 
 > **Gotcha — `poll-until` is for *settles*, not *windows*.** Don't reach for it to wait out a timer window (a grace period, a debounce). That's a `Thread/sleep` whose duration *is* the contract — annotate it `;; Timer-semantics sleep: ...` so audits leave it alone. `poll-until` waits for a state change to *appear*; a timer sleep proves something does or doesn't happen *within* a fixed window. Different jobs.
 
@@ -202,6 +202,8 @@ The two seams above — redirect HTTP to a stub, make generated facts strict —
 ```
 
 The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (every `:rf.http/managed` is redirected to its canned-success stub, so a test frame can never accidentally reach the network), `:drain-depth 100` (the cap on how many cascade steps a single dispatch will drain before it bails — set to the framework default here, surfaced explicitly so tooling can read "this is a test frame"), and `:rf.cofx/mint-policy :strict` (the strict-mint behaviour described above). Your own keys win over the preset expansion, so you can still pin a different HTTP stub or opt into `:explicit-live` per dispatch. Use the preset when you want the defaults everywhere; reach for the explicit `with-managed-request-stubs` table when a test needs route-by-route control over the replies.
+
+> **Gotcha — a runaway cascade halts at `:drain-depth`, it doesn't hang.** If a handler re-dispatches itself (or a stubbed reply re-fires the same request that triggers it), the cascade would loop forever. It doesn't: the drain stops the moment it exceeds `:drain-depth` and emits a structured `:rf.error/drain-depth-exceeded` (tags `:depth`, `:queue-size`, `:last-event`). Crucially the unit of atomicity is the *event, not the drain* — every event that already settled keeps its committed `:db` and its own epoch; only the remaining queued events are discarded, and nothing is rolled back. So a test that trips the cap reads partly-advanced state, never a frozen one. If a `dispatch-sync` in a test ever seems to "never return", suspect an accidental dispatch loop and check your error listener for that category — the cap is set deliberately low (`100`) on a test frame so the loop surfaces fast.
 
 ## Asserting on what would dispatch — without running the cascade
 
@@ -284,6 +286,29 @@ If you'd rather the assertion read like the ledger does, `re-frame.test-support`
 ```
 
 It shares its name root with the `:rf.assert/path-equals` event you'd use inside a Story `:script` block, so navigating between a `deftest` and a story variant needs no translation table. The companion `assert-db-equals` takes a whole expected `app-db` — handy in small fixtures where "the whole thing should equal this" is the natural shape. For a single inline check, the plain `(is (= ... (get-in ...)))` form reads fine; reach for the `assert-*` family when you're checking many path/value pairs in sequence.
+
+## Asserting on a derived value, not raw `app-db`
+
+Every assertion so far has read a path straight out of `app-db`. But the cascade doesn't stop at the commit — the chain this page opened with runs on through [subscriptions](../glossary.md#subscription) to the [view](../glossary.md#view), and sometimes the value worth pinning is a *derived* one (a filtered list, a rolled-up count, a formatted label) rather than the raw state it's computed from. You could assert the inputs and trust the sub — but if the bug lives in the sub's own logic, that misses it. `compute-sub` lets you assert the derived value directly, still headless on the JVM:
+
+```clojure
+(rf/reg-sub :articles/favorited
+  (fn [db _] (filterv :favorited? (vals (:articles db)))))
+
+(deftest favorited-derives-correctly
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (ts/dispatch-sequence [[:article/loaded {:slug "a" :favorited? true}]
+                           [:article/loaded {:slug "b" :favorited? false}]])
+    ;; assert the SUB's output, not the raw :articles map
+    (is (= 1 (count (rf/compute-sub [:articles/favorited]
+                                    (rf/app-db-value f)))))))
+```
+
+`(rf/compute-sub query-v db)` runs the subscription's body against an `app-db` *value* and returns what it computes — no reactive cache, no Reagent, no adapter. `query-v` is the exact vector you'd hand `subscribe` (`[:sub-id arg1 arg2]`), so a parameterized sub passes its args the same way. Layered subs resolve transitively: a sub built on other subs computes its inputs first, depth-first, then itself — the whole derivation graph, evaluated as a pure function. The recommended shape is the one above: **drive `db` with `dispatch-sync` (or `dispatch-sequence`), then `compute-sub` against the result**, so the sub is tested against state the real code paths produced. (You *can* pass a hand-rolled literal map as `db` for a trivial reader, but that decouples the test from how the state is actually built and rots silently when the shape moves — keep it for the rare case where the dispatch path adds nothing.)
+
+> **Gotcha — a sub that throws (or names a missing sub) substitutes `nil`, it doesn't bubble.** `compute-sub` follows the same fail-soft recovery the reactive runtime uses: if the sub body throws, the runtime emits `:rf.error/sub-exception` and the call returns `nil`; an input that names an unregistered sub emits `:rf.error/no-such-sub` and substitutes `nil` for that input (the outer body still runs). So a green-looking `(is (nil? ...))` can be masking a thrown sub rather than a genuinely empty result — when a `compute-sub` assertion surprises you, check your error listener for those two categories before trusting the `nil`.
+
+> **`compute-sub` is JVM-pure; it is not the live reactive value.** It recomputes from the `db` you hand it every call, with no memoisation carried between calls — perfect for a deterministic assertion, but it is *not* a substitute for the running frame's cache. When you want "what the mounted frame would show *right now*" (cache-aware, after a live dispatch) rather than "what this sub computes over this `app-db` value", that's `subscribe-once` — same call shape, reads through the frame's cache, returns the value and disposes its ref-count without leaving a live subscription behind.
 
 ## Co-located replies — when the request and its reply belong together
 

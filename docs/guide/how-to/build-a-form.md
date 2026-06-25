@@ -147,6 +147,8 @@ The [effect map](../glossary.md#effect-map) this handler returns has two keys wo
 
 Read the latch line carefully: `:submit-attempted?` flips to `true` on the way into *both* branches, valid or not. That's the whole trick behind the visibility rule in step 3 — the moment the user first presses submit, every invalid field is allowed to speak, whether or not they ever visited it.
 
+> **Gotcha — a malformed request is caught at dispatch, not at the server.** Two slots on the `:rf.http/managed` map are validated the instant the effect runs, before any packet leaves: `:on-success` / `:on-failure` must each be an event vector (or `nil`) — anything else throws `:rf.error/http-bad-reply-target` — and the final `:url` must be a non-blank string, or you get `:rf.error/http-bad-request`. Both fail loud at the call site rather than surfacing as a baffling `:rf.http/transport` failure three handlers downstream. So a fat-fingered reply target (`:on-success :form.login/submit-success` — a bare keyword, not `[:form.login/submit-success]`) is a named error you fix in seconds, not a submit that silently never replies.
+
 ### The success reply
 
 Managed HTTP follows [the uniform reply](../glossary.md#the-uniform-reply): the result never arrives as an awaited value, it arrives as the reply event's last argument. On success that's a map shaped `{:kind :success :value <decoded body>}`. The handler's argument list `[_ {:keys [value]}]` is Clojure destructuring — `_` ignores the event id, and `{:keys [value]}` pulls `:value` straight out of that reply map into a local named `value`:
@@ -197,15 +199,7 @@ The payoff is that the view never learns which validator complained. Client sche
 
 > **Why the 4xx body is raw text.** On a non-2xx response, managed HTTP classifies by status *before* it decodes anything, then hands you the body untouched under `:body`. That's why `server-field-errors` parses the JSON by hand instead of reading a decoded map — it's the documented contract, not a workaround. (The flip side: a JSON endpoint that returns an HTML 404 from a load balancer surfaces cleanly as `:rf.http/http-4xx` with the HTML at `:body`, not as a baffling decode failure.)
 
-> **Submits cross the network — let transport retry handle the flaky parts.** A login POST can hit a 503 from a just-restarting node or a dropped connection on a flaky link. Those are *transport* failures, and managed HTTP retries them for you if you ask — add a `:retry` to the submit's request and a transient 5xx becomes a backed-off retry instead of a banner the user has to dismiss:
->
-> ```clojure
-> :retry {:on           #{:rf.http/transport :rf.http/http-5xx}
->         :max-attempts 3
->         :backoff      {:base-ms 250 :factor 2 :max-ms 2000 :jitter true}}
-> ```
->
-> `:on` is a *closed* set drawn from `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}` — a member outside it is rejected at dispatch with `:rf.error/http-bad-retry-on`, so a typo fails loud rather than silently disabling retry. Don't put `:rf.http/http-4xx` here for a login: a 401 is a *correct* answer ("wrong password"), not a transient fault, and retrying it just makes the user wait. Only `:on-failure` fires after the *final* attempt, so a successful retry reaches `:submit-success` and your handler never sees the intermediate 503s. See [managed HTTP](../concepts/http.md) for the full retry contract.
+A transient failure — a 503 from a just-restarting node, a dropped connection — isn't a validation error and shouldn't become a banner the user has to dismiss. Managed HTTP can back off and retry those for you; because retry is a power-user knob rather than part of the baseline, it lives under [Advanced — let transport retry ride out the flaky network](#let-transport-retry-ride-out-the-flaky-network).
 
 ### The two mechanical events
 
@@ -374,6 +368,45 @@ Run this list on any form before you call it done (the normative card in [Patter
 - Server-side validation mirrors the client schema where it applies.
 
 Want a worked audit target? Read `auth.cljs` in the [RealWorld example](../../../examples/reagent/realworld/). Its login and register forms follow this recipe, with submit handed off to an auth state [machine](../glossary.md#machine).
+
+## Advanced
+
+The baseline recipe ships as-is. These are the power-user moves you reach for only when a specific need shows up — skip them until then.
+
+### Validate the *server's* reply in production
+
+There's a subtlety hiding in the success and error handlers: they consume data that came off the network, and the draft schema doesn't guard it. Two reasons. First, `LoginForm` is bound to `[:auth :login :draft]` — it validates what the *user* typed, not what the *server* sent back. Second, app-db and event schemas are dev-only: the runtime [elides](../glossary.md#elide) every check from a production build. So in production, `(:user value)` in `submit-success` is whatever shape the server happened to return, written into app-db unchecked.
+
+For most forms that's fine — your own backend is trusted. But when the response crosses a trust boundary (a third-party auth provider, a partner API, anything you don't control), you can pin a schema check that *survives* production by adding the `:rf.schema/at-boundary` interceptor to the reply handler. It re-runs that handler's own `:schema` even when global validation is elided:
+
+```clojure
+;; LoginReply describes the success reply *envelope* — {:kind :success :value <user-map>} —
+;; because the boundary check validates the whole dispatched event vector, reply map and all.
+(rf/reg-event :form.login/submit-success
+  {:schema       [:cat [:= :form.login/submit-success] LoginReply]
+   :interceptors [:rf.schema/at-boundary]}    ;; force the check in prod
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:auth :login :status]    :submitted)
+             (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
+             (assoc-in [:auth :user]             (dissoc (:user value) :token)))}))
+```
+
+A malformed reply now fails loud with `:rf.error/schema-validation-failure :where :event` — the same structured trace every other check emits, so a bad server payload reads identically to an internal bug in your tooling. (Attach `:rf.schema/at-boundary` to a handler that has no `:schema` and registration itself throws `:rf.error/at-boundary-missing-schema` — the interceptor is meaningless without a schema to force.) There's a second, complementary place to validate a server payload: a Malli `:decode` schema on the `:rf.http/managed` request itself, which checks the response *body* as part of the decode pipeline (a mismatch classifies as `:rf.http/decode-failure` and routes to `:on-failure`). That runs in production because it *is* the decode step — so `:decode` guards the body shape on the way in, while `:rf.schema/at-boundary` guards the handler's event when the body is trusted enough to skip decode-schema'ing but the write still warrants a production gate. [Validate with schemas](validate-with-schemas.md) covers the boundary interceptor in full.
+
+### Let transport retry ride out the flaky network
+
+A login POST can hit a 503 from a just-restarting node or a dropped connection on a flaky link. Those are *transport* failures, and managed HTTP retries them for you if you ask — add a `:retry` to the submit's request and a transient 5xx becomes a backed-off retry instead of a banner the user has to dismiss:
+
+```clojure
+:retry {:on           #{:rf.http/transport :rf.http/http-5xx}
+        :max-attempts 3
+        :backoff      {:base-ms 250 :factor 2 :max-ms 2000 :jitter true}}
+```
+
+`:on` is a *closed* set drawn from `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}` — a member outside it is rejected at dispatch with `:rf.error/http-bad-retry-on`, so a typo fails loud rather than silently disabling retry. (And the value must be a *set*: a vector `:on` would silently disable retry for every category, so the runtime rejects a non-set shape too.) Don't put `:rf.http/http-4xx` here for a login: a 401 is a *correct* answer ("wrong password"), not a transient fault, and retrying it just makes the user wait. Only `:on-failure` fires after the *final* attempt, so a successful retry reaches `:submit-success` and your handler never sees the intermediate 503s — each failed attempt does leave a `:rf.http/retry-attempt` trace row, so you can still watch the backoff in [Xray](../glossary.md#xray). See [managed HTTP](../concepts/http.md) for the full retry contract.
+
+> **Gotcha — transport retry is not "retry after refreshing the token".** `:retry` is a pure function of *failure category × attempt count* — nothing else. The moment the decision depends on the response body ("the body says rate-limited"), on another request ("refresh the token first, then retry"), or on app state ("only if the user's still on this page"), you've left transport retry behind and you want a [state machine](../concepts/machines.md) driving the submit. The machine owns the conditional retry; `:rf.http/managed` keeps doing plain transport retry inside each attempt the machine launches. Don't try to encode "refresh-then-retry" into `:retry` — there's no slot for it, by design.
 
 ## When a form slice is wrong
 

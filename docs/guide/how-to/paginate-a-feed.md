@@ -90,7 +90,9 @@ Two more keys earn their place on real tables:
 - **`:when`** — a `(fn [route _ctx] …)` predicate; the resource is only ensured when it returns truthy. Use it for a list that should only load under a condition (a search that waits for a non-empty `?q=`) rather than ensuring with sentinel-`nil` params.
 - **`:scope`** — for a *scoped* list, a named-resolver reference like `{:from-db :app/session}` so the route ensures under the same principal the view subscribes under. (A global list omits it; the resource's own `:scope :rf.scope/global` resolves sub-side too.)
 
-> **Gotcha — both seams must compute the same key.** Params identity is *exact*. `{:page nil}` and `{:page 1}` are different cache entries. If a view subscribes under one key while the route ensured the other, the view reads `:idle` forever — a miserable bug to chase, because everything *looks* wired up. So normalise the same way everywhere: `(or page 1)` on the route side (above) and on the sub side (next step). Same fallback, both seams.
+> **Gotcha — both seams must compute the same key.** Params identity is *exact*. `{:page nil}` and `{:page 1}` are different cache entries. If a view subscribes under one *params* key while the route ensured the other, the view reads `:idle` forever — a miserable bug to chase, because everything *looks* wired up. So normalise the same way everywhere: `(or page 1)` on the route side (above) and on the sub side (next step). Same fallback, both seams.
+
+> **Gotcha — a scoped list's *scope* must match too, and it fails differently.** The same-key rule has a second half that only bites once you go scoped (step 2's `:scope {:from-db :app/session}` list, or the session-scoped feed below). A subscription resolves its own scope — and the failure modes are deliberately *not* the silent `:idle` of a params slip. A sub that **can't resolve a scope at all** (a `{:from-db …}` resolver that returns `nil` because the user is logged out, say) is a loud, structured `:rf.error/resource-sub-unresolved-scope` carrying the resource id — never a silent shared-cache read and never a silent skeleton. A sub that resolves a *valid but wrong* scope (it ensured under one principal, the view subscribed under another) does land on `:idle` forever — but in dev the framework spots it for you and emits `:rf.warning/resource-sub-scope-mismatch`, naming the resolved sub-scope, the active scope the read likely meant, and the fix (pass the same `:scope` the owning route/event ensured under). So the cure is the same — make both seams resolve the same scope, by pointing registration, route, and sub at one named resolver (`{:from-db :app/session}`) — but you're not chasing it blind. (A *global* list sidesteps all of this: `:rf.scope/global` resolves identically sub-side and ensure-side, so there's no scope to mismatch.)
 
 ### 3. Page by navigating, not by fetching
 
@@ -396,6 +398,37 @@ The route's `:scroll` key declares the behaviour. The contract is a closed three
 Leave `:scroll` undeclared and the resolved default is `:top` on forward navigation and `:restore` on Back/Forward — exactly what a feed wants, so an infinite feed usually declares nothing here. That saved-position cache is kept host-side, deliberately outside app-db. Dispatching on every scroll tick would also flood the [event](../glossary.md#event) tape with noise no tool can use — you'd be paying the cost of an event for a value no event reads.
 
 So what *is* a fact? The page number (in the URL), the accumulated pages (the infinite resource entry, runtime-owned), and — if you need a resume point — a real domain fact like the last-read item id. Store those, and let the router own the pixels.
+
+## Advanced
+
+Two things you won't reach for on day one, but that the paginated/feed shapes support the moment you need them.
+
+### Keep a list fresh on an interval
+
+A leaderboard, a notifications badge, an admin queue — sometimes a list should re-read itself every few seconds without anyone clicking. Declare `:poll-interval-ms` on the resource and the runtime re-loads it on that cadence; you write no timer, no `setInterval`, no `:dispatch-later` loop:
+
+```clojure
+(rf/reg-resource :app/articles
+  {:params-schema    [:map [:page :int]]
+   :scope            :rf.scope/global
+   :poll-interval-ms 5000               ;; re-read every 5s — while owned + visible
+   :stale-after-ms   60000}
+  (fn [{:keys [page]} _ctx] …))
+```
+
+The contract is worth knowing, because it's the same *owner-driven* model the rest of this page runs on, not a component-observer one (TanStack's `refetchInterval`, SWR's `refreshInterval`, RTK's `pollingInterval` — but driven by the lease, not by a mounted hook):
+
+- **Polling needs a live owner.** A `:poll` tick fires only while the entry has at least one active [owner](../glossary.md#owner--cause) (the route lease, a machine, an explicit `[:lease …]`). The poll itself is pure [cause](../glossary.md#owner--cause), never an owner — it creates no liveness and extends no GC, so the instant the last owner releases (route leave), polling stops. A "just polling, no route" view mints its own `[:lease …]` owner with a matching release.
+- **Hidden tabs pause.** A tick is suppressed while the document is hidden (`document.visibilityState != "visible"`) and resumes on tab return — matching the `refetchIntervalInBackground: false` default of every prior-art tool. (A background opt-in is reserved for the first consumer that needs it.)
+- **It can't stampede.** A tick that finds a refetch already in flight skips and re-arms (no overlapping requests); a tab return that fires both the focus revalidation and a poll tick double-fetches nothing — whichever starts work first wins, the other no-ops. A failed tick is an ordinary background-refresh failure (data stays, `:refresh-error` records it) and the *next* tick still fires — a transient blip never silently stops the monitor.
+
+`:poll-interval-ms` is orthogonal to `:stale-after-ms`: staleness governs "refetch on focus/route-entry *if* older than X", polling governs "re-read every X regardless." A non-positive or absent value means no polling. Because of [structural sharing](../glossary.md#the-derivation-graph), a poll that returns identical rows preserves the old `:data` value, so the list stays quiet on screen when nothing actually changed.
+
+### Feeds and pages under SSR
+
+Both shapes ride [SSR](../glossary.md#ssr) with no extra work, because a resource entry is the same runtime-owned value on the server as in the browser. A `:blocking?` route resource is the wait point: the server drains it before render, serializes the settled entry through the egress projection (a numbered page, or the feed's accumulated pages — typically just page 0 from the server), and the client [hydrates](../glossary.md#hydration) it instead of refetching. For an infinite feed the nice consequence is that **load-more resumes from the hydrated tail** — the client reads `:next-page-param` off the page-0 the server already painted and the first "Load more" continues the sequence, no double-fetch of what shipped in the HTML.
+
+> **Gotcha — a blocking SSR resource needs a deadline, and a slow upstream surfaces as a typed failure.** Blocking governs the server's *wait-before-render* point, so a hung backend can't be allowed to hang the request forever. A blocking resource that exceeds the render deadline settles as a structured first-load failure for that server frame — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, inside the same closed `:rf.http/*` taxonomy every resource `:error` carries — so your error branch (which already gates on `:error` + `(not (:has-data? state))`) renders an error or skeleton rather than the page never arriving. The `:reason` lets you tell an SSR-deadline miss apart from a genuine upstream timeout; the `:kind` keeps it in one taxonomy. A non-blocking route resource never blocks render at all — if it hasn't settled by serialize time it simply ships no data and the client fetches it on hydration.
 
 ## Where to go from here
 

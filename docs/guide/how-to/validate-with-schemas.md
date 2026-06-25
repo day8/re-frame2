@@ -179,19 +179,30 @@ The `:schema` slot works on every registration kind — that's the whole point: 
   {:schema [:map [:method :keyword] [:url :string]]}
   http-xhrio-handler)
 
-;; A coeffect's INJECTED value — validated as it folds into the handler context.
-(rf/reg-cofx :now-wall
-  {:schema inst?}
-  (fn [] (js/Date.)))
+;; A RECORDABLE coeffect's value — validated as it folds into the handler context.
+(rf/reg-cofx :order/delta
+  {:recordable? true                  ;; the grade that makes the schema a hard guard
+   :schema [:int {:min 1 :max 6}]}
+  (fn [] (inc (rand-int 6))))
 ```
 
 Each one fails differently, on purpose:
 
 - **Sub return** (`:where :sub-return`) — the failure is reported and the [subscription](../glossary.md#subscription) yields `nil` to its consumer (`:replaced-with-default`). [Views](../glossary.md#view) see no value rather than a bad one; the [cascade](../glossary.md#event-cascade) isn't aborted.
 - **Fx args** (`:where :fx-args`) — the *offending [effect](../glossary.md#effect) is skipped*, and its siblings in the same `:fx` vector still run. A typo in one `:url` shouldn't take down the rest of an event's effects, so the recovery is "skip the one, continue the rest." The trace names the failing fx.
-- **Recordable coeffect** — the exception to "always the same trace," and it needs one extra concept. A [coeffect](../glossary.md#coeffect) injects a piece of the outside world into a handler — the current time, a random seed, a value read from storage. Most are injected freely. But a coeffect a handler declares with `:rf.cofx/requires` is a **recordable** input: the framework saves the exact value it injected, so the cascade can be replayed later from that saved value and produce the identical result. Because that saved value is data the replay machinery depends on, its schema is validated when the value is injected, and a mismatch is a **production hard error** — it emits `:rf.error/cofx-value-invalid` and **throws**, halting the cascade.
+- **Recordable coeffect** — the exception to "always the same trace," and it needs one extra concept. A [coeffect](../glossary.md#coeffect) injects a piece of the outside world into a handler — the current time, a random seed, a value read from storage. Coeffects come in two **grades**, and the grade decides what its schema does. An *ambient* supplier (the default) runs fresh on every replay and feeds only display hints or diagnostics — its `:schema` is a dev-only advisory like every other check. But a supplier registered `{:recordable? true}` is a **recordable** input: the framework saves the exact value it injected, so the cascade can be replayed later from that saved value and produce the identical result. Because that saved value is data the replay machinery depends on, its schema is validated as the value folds in — and there a mismatch is a **production hard error** — it emits `:rf.error/cofx-value-invalid` and **throws**, halting the cascade. (That's why the example above is `{:recordable? true}`: only the recordable grade arms the throwing guard.)
 
 > **Gotcha — cofx is the asymmetric one.** Every other `:schema` on this page is a dev-only advisory that vanishes in production. The recordable-coeffect check is the lone real, production, throwing guard — because it protects the recorded values your app would later replay from. Folding an out-of-contract value into that saved record means a future replay reconstructs corrupt state, so the framework refuses it on the spot, in production too. If you see `:rf.error/cofx-value-invalid` in a production trace, that's working as designed: the framework declined to record a value that would have poisoned a replay.
+
+And one more surface, if you use [machines](../concepts/machines.md). A machine's working memory — its `:data` slot — takes a schema too, declared at `[:schemas :data]` on the machine spec rather than via `reg-app-schema` (the snapshot lives in [runtime-db](../glossary.md#runtime-db), not app-db, so it's the machine that owns the shape). The runtime checks it after every transition and at boot, and a mismatch rolls the whole macrostep back exactly like an `app-db` failure — reported as `:where :machine-data`. You'll see that surface named in the trace's `:where` tag below; the full treatment lives in the machines guide.
+
+```clojure
+(rf/reg-machine :drawer/editor
+  {:initial     :idle
+   :data        {:circles []}
+   :schemas     {:data [:map [:circles [:vector Circle]]]}   ;; validates :data
+   :states      {...}})
+```
 
 ## Read the failure trace
 
@@ -214,6 +225,8 @@ Two tags reward a closer look. `:path` is the **failing leaf** — the registere
 In **Xray**, these don't pile up in a footnote: the four runtime boundaries (`:event` / `:app-db` / `:fx-args` / `:sub-return`) attach to the matching DISPATCH / HANDLER / FX / SUBSCRIPTIONS step of the event row, and an `:app-db` rollback mutes every downstream step with a "cascade rolled back" banner so you read the blast radius at a glance. [Debug with Xray](debug-with-xray.md) walks the panel.
 
 > **Why this matters.** A structured trace is the one thing that keeps documentation honest: the schema *is* the slice's description, and the runtime would catch any lie. A schema can't drift from reality, because the moment it does, a dispatch fails.
+
+> **Gotcha — editing a schema mid-session can flag a value no handler wrote.** Re-registering a path's schema is last-write-wins; a file save that re-evaluates a `reg-app-schema` with a *tighter* shape is the normal hot-reload path. But the value already sitting at that path was written under the *old* schema, so it may not satisfy the new one — through no handler's fault. The runtime doesn't fail a dispatch for this (nothing was dispatched); it emits a softer `:rf.schema/violation` warning trace (`:op-type :warning`) carrying `:path`, `:pre-reload-schema`, `:post-reload-schema`, and `:mismatching-value`, so a dev panel can highlight the now-stale slice. app-db is **not** auto-cleared or rewound — dispatch the event that rewrites the slice (or reset the frame) to clear it. This is the one schema signal that isn't tied to a dispatch.
 
 ## Query your schemas (tools and agents)
 

@@ -126,7 +126,7 @@ Upgrade the form's `:form.login/submit-success` to an fx handler that stores the
 
 One token, one home. The classified `[:auth :token]` path holds it; the user map ships with `:token` stripped, so the JWT isn't *also* sitting unclassified at `[:auth :user :token]`, ready to leak to every off-box record. The decorator in step 3 always reads from `[:auth :token]`, never from the user.
 
-The failure handler is unchanged from the form recipe. Notice login deliberately does **not** retry — one submission per click. A transient 5xx surfaces as an error and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. Register is the same wiring with a different URL and draft.
+The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed`'s retry is also closed to a fixed category set and writes never auto-retry — reads do.) Register is the same wiring with a different URL and draft.
 
 > **Gotcha — keep the credential out of the trace on the way *in*, too.** The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value ([Spec 015 — Data classification](../../../spec/015-Data-Classification.md)).
 
@@ -161,14 +161,28 @@ That's all step 3 needs. But the same seam has a *response* side, and it's where
 
 ```clojure
 ;; A response-side hook on the SAME seam: catch a 401 and force logout.
+;; `:after` sees the reply payload — {:kind :success :value …} or
+;; {:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}. A 401
+;; is a *failure* reply, so the HTTP status lives inside the failure map
+;; (under :failure), keyed by the framework-owned failure :kind — never at
+;; the top level. Branch on the structured :kind, never a stringified message.
 (rf/reg-http-interceptor :my-app/expired-session
   {:after (fn [ctx response]
-            (when (= 401 (:status response))
-              (rf/dispatch [:auth/logout]))     ;; token went stale server-side
+            (when (and (= :failure (:kind response))
+                       (= :rf.http/http-4xx (get-in response [:failure :kind]))
+                       (= 401 (get-in response [:failure :status])))
+              ;; token went stale server-side. Dispatch into THIS request's
+              ;; frame — the reply runs in a transport callback, so a bare
+              ;; (rf/dispatch …) can hit :rf.error/no-frame-context; carry the
+              ;; frame from ctx (the same "identity is carried, not found" rule
+              ;; the :before decorator leans on).
+              (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
             response)})                          ;; :after MUST return the response
 ```
 
 An interceptor map carries **`:before`**, **`:after`**, or both — supply at least one, or registration is rejected fail-loud with `:rf.error/http-bad-interceptor`. (A no-op interceptor is almost always a typo, so the framework refuses to register it rather than letting it sit there doing nothing.)
+
+> **Gotcha — read the status from the failure map, not the top level.** The `:after` response is the public reply payload, discriminated by `:kind` (`:success` / `:failure`) — there is no top-level `:status`. A 4xx/5xx arrives as `{:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}`, so the HTTP status code is at `(get-in response [:failure :status])`, under the failure `:kind`. The full failure-category vocabulary is a closed set — `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, plus `:rf.http/decode-failure` / `:rf.http/accept-failure` / `:rf.http/aborted` ([Spec 014 — failure categories](../../../spec/014-HTTPRequests.md)). Branch on those, never on a parsed message.
 
 > **Going deeper — how the chain composes.** HTTP interceptors compose with the same onion shape as event [interceptors](../concepts/interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both legs, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure. If a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap any recoverable logic inside the interceptor itself.
 
@@ -277,6 +291,8 @@ The init event from step 1 restores the saved session and classifies the token p
 ```
 
 > **From re-frame v1 (and a frame gotcha) — `reg-frame` is a create-and-register, atomically.** There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event cascade](../glossary.md#event-cascade) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (Per [EP-0027](../../../spec/002-Frames.md).)
+
+> **Gotcha — exactly one frame owns the URL.** `:url-bound? true` ([`url-bound?`](../glossary.md#url-bound)) is what makes this frame's `:rf.route/navigate` push to the browser address bar and makes Back/Forward dispatch back into it — and it's *exclusive*. A second frame that also declares `:url-bound? true` is rejected fail-loud with `:rf.error/duplicate-url-binding`. This matters the moment you run a sidecar app on the same page — [Xray](../glossary.md#xray), a story, a second mounted instance: leave the sidecar's frame URL-unbound so it routes in memory only and never fights your app for the URL. (The same isolation that lets a second logged-in tab keep its own token, from step 1, is what lets the sidecar coexist here.)
 
 ## 5. Bounce back after login
 
