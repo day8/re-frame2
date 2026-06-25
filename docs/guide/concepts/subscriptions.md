@@ -20,6 +20,8 @@ A view reads the current value by deref-ing the subscription:
 @(rf/subscribe [:cart/category-filter])
 ```
 
+> **Gotcha — a wrong sub-id fails loud, not silent.** Subscribe to an id that was never registered — a typo, a not-yet-loaded namespace — and re-frame2 doesn't quietly hand back `nil` and leave you guessing. It emits `:rf.error/no-such-sub` (an always-on [error record](../glossary.md#error-record) that survives production, carrying the offending `:rf.sub/id`) and recovers the reaction to `nil` so the view still renders. The same id appearing as a `:<-` input of another sub reports the same way. Because the miss isn't cached, registering the sub later — boot order, a lazy load — lets the next subscribe build cleanly against the real body.
+
 The vector `[:cart/category-filter]` is the [**query vector**](../glossary.md#query-vector): the id plus any arguments. `[:cart/line-item "sku-1"]` carries one argument. The whole vector arrives as the computation function's second argument — named `_query` above, where the leading underscore is the Clojure convention for "a parameter I'm deliberately ignoring." This sub takes no arguments, so it ignores the query vector entirely.
 
 That little `@` is doing two jobs at once. It unwraps the reactive reference to a plain value, and it registers the deref-ing view as a dependent, so the view re-renders when — and only when — that value changes. The view declared a dependency and walked away. It never polls, and it never listens to a store-wide "something changed" firehose.
@@ -30,6 +32,8 @@ So why name a derivation this trivial instead of just writing `(:cart/category-f
 - **Sharing.** Every view asking for `[:cart/category-filter]` reads the *same* cached node. The subscription cache is keyed by query vector (per [frame](../glossary.md#frame) — an isolated running instance with its own app-db and subscription cache; for now read that as "per app"), so a computation runs once per change no matter how many views consume it. Adding the forty-first reader costs nothing.
 
 Both reasons get stronger the moment derivations start feeding each other, which is the actual design.
+
+> **Gotcha — don't rebuild a non-primitive argument inline every render.** Sharing works because the cache keys on the query vector. An id plus keyword/string/number args is value-stable, so `[:article/by-id "BK-1"]` from a hundred views is one cache node. But if you pass a *fresh* map, set, or collection assembled in the render body — `@(subscribe [:report/rows {:cols cols}])` where `{:cols cols}` is built right there each time — you risk minting a new cache entry per render instead of reusing one: unbounded growth, zero hit-rate, and the sub still computes the right value so nothing looks wrong. The dev build catches this with a one-shot `:rf.warning/sub-arg-cache-fragmentation` per sub-id. The fix is to hoist the argument to a value-stable reference — a `let`-bound, subscribed, or memoised value — so repeated subscribes share one slot.
 
 > **Coming from Redux?** A subscription is a selector — Reselect's `createSelector` with the memoisation built in. **Coming from Solid or Jotai?** It's a derived signal / derived atom. Three deliberate divergences from both: subscriptions are named by keyword in a registry, so tools can draw the whole graph without running your app; change detection is deep value equality (`=`), never reference identity, so there is no "don't allocate a new object or you'll bust the memo" dance; and dependencies are declared as data, not discovered by tracking a function run.
 
@@ -317,5 +321,19 @@ Subscriptions are view-facing and pull-based: a node exists in the cache only wh
 > - **Unsure where a value belongs at all?** [Where should this value live?](../where-state-lives.md) sorts a value into a sub, flow, resource, or machine with four questions.
 
 > **Coming from TanStack Query?** Note the split: TanStack Query gives you *one* hook (`useQuery`) that both fetches server state and derives over it. re-frame2 keeps those concerns apart — [resources](../glossary.md#resource) own the fetch-cache-invalidate lifecycle for server-owned data, and subscriptions are the pure derivation layer that computes *over* whatever's already in app-db (resource state included). When you want to fetch, that's a resource; when you want to shape what's already there, that's a sub.
+
+## Advanced
+
+Three corners you won't need on day one, but will want when something goes sideways — what the graph does when a computation throws, how a schema'd sub recovers from a bad value, and what subscribing during teardown reports.
+
+### When a computation throws
+
+A computation function is just code, and code can throw — a `nil` where you assumed a map, a divide-by-zero in a derived total. re-frame2 treats that as a [fail-loud](../glossary.md#fail-loud-not-silent) event, not a crash: it emits `:rf.error/sub-exception` and **recovers the sub to `nil`**, so the throw can't take down the render. The record is always-on (it reaches your production error listeners — Sentry, Datadog), and its `:where` tag tells you which path threw: `:reactive` for the live cache path a view drives, `:compute-sub` for the pure test/SSR path. Both surface the same way, so a sub that throws mid-render-to-string projects a fail-closed 5xx rather than shipping a silent 200 with `nil`-shaped HTML. Recovery is the framework's built-in "return `nil`"; there's no per-frame recovery policy to configure. The full catalogue entry is in [Errors and recovery](errors.md) and the [error-event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).
+
+### When a schema'd sub computes the wrong shape
+
+If a sub carries a `:schema` (see [Registration metadata](#registration-metadata-docs-schema-and-classification)), the runtime validates the computed value *after* the body runs, at the `:sub-return` boundary. On a mismatch it emits `:rf.error/schema-validation-failure` with `:where :sub-return` and, by default, **surfaces `nil`** to the consumer (the same `:replaced-with-default` posture as a throw) — so a derivation quietly producing the wrong shape is caught at the sub that produced it, not three layers downstream where a view chokes on it. A strict mode re-raises instead, for CI. Like every schema check, this whole boundary is [elided](../glossary.md#elide) in production builds — it's a development guard, not a runtime tax.
+
+> **Gotcha — subscribing during teardown returns `nil`, loudly.** Subscribe against a [frame](../glossary.md#frame) that's already been destroyed — a stray async callback firing after a `frame-provider` unmounted, a hot-reload race — and re-frame2 recovers (the subscribe returns `nil`) while emitting a production-survivable `:rf.error/frame-destroyed` carrying the frame id and the attempted query vector. So a teardown race fails safe, but a genuine use-after-destroy bug stays visible on the stream you watch in production. (A *rootless* subscribe — one issued under no frame scope at all — is the different `:rf.error/no-frame-context`; see [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found).)
 
 Subscriptions are also one face of a larger family — flows, resources, route facts, and machine selectors all live on [one derivation graph](../glossary.md#the-derivation-graph); [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) is the essay-length tour.

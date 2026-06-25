@@ -50,6 +50,8 @@ It runs as a pure function: the [coeffects](../glossary.md#coeffect) (the facts 
 
 > **New to Clojure?** A few bits of syntax to read that handler. The first argument `{:keys [db]}` is *destructuring* — it pulls the `:db` entry out of the incoming coeffects map and binds it to a local named `db`, so you don't write `(:db cofx)` by hand. The second argument is named `_event`: a leading underscore is the Clojure convention for "an argument I'm required to accept but don't use here." And `(update db :counter/value inc)` returns a *new* map — a copy of `db` with `:counter/value` run through `inc` (increment) — it never mutates the original. Returning a fresh value rather than editing in place is the move that keeps the handler pure.
 
+> **Gotcha — dispatching an event with no handler fails loud.** If the runtime dequeues an event whose id was never registered — a typo (`:counter/inc` vs `:counter/incr`), or a dispatch that ran before its `reg-event` loaded — the cascade for that event simply doesn't run, and the runtime emits an [error record](../glossary.md#error-record) keyed `:rf.error/no-such-handler` carrying the offending event. It does *not* fall through to a silent no-op ([fail loud, not silent](../glossary.md#fail-loud-not-silent)). This is one of the few error categories that survives production — it fans out to your always-on error listeners — because a dispatch to a missing handler is a real bug whether you're in dev or live.
+
 **3 — Effects come out, as data.** The handler returned an [effect map](../glossary.md#effect-map) — a description of what should happen, expressed as data:
 
 ```clojure
@@ -154,7 +156,7 @@ The `:rf.http/managed` effect takes a single args map. Beyond the four keys abov
 | `:request` | — | The request itself: `:method`, `:url`, and optionally `:headers`, `:body`, `:query-params`. |
 | `:decode` | `:auto` | How to parse the 2xx body: a Malli [schema](../glossary.md#schema), a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Leaving it off (`:auto` sniffs the content-type) is normal, supported, stable usage. |
 | `:on-success` | the originating event id | Where the success reply dispatches. |
-| `:on-failure` | the originating event id | Where the failure reply dispatches. `nil` swallows the failure silently. |
+| `:on-failure` | the originating event id | Where the failure reply dispatches. `nil` drops the failure reply (fire-and-forget) — and the runtime fires a one-shot `:rf.warning/failure-swallowed` trace the first time a non-abort failure is dropped this way, so even the silence is observable. |
 
 The full reference card — every slot, its default, and which failure category a bad value classifies into — lives in [Spec 014 §The args map](../../../spec/014-HTTPRequests.md#the-args-map).
 
@@ -176,7 +178,7 @@ The handler's return value is a small, **closed** map: app handlers populate exa
 - **`:db`** — the next app-db value. Omit it and app-db is left untouched (a handler that only fires async effects legitimately returns `{:fx [...]}` with no `:db`).
 - **`:fx`** — a vector of `[effect-id args]` rows, run in source order after the `:db` commit.
 
-That's the whole vocabulary an app handler returns. (There is a third, reserved key — `:rf.db/runtime` — but it's the framework's, for runtime-extension authority; ordinary handlers never emit it, and an *unrecognised* key [fails loud](../glossary.md#fail-loud-not-silent) rather than vanishing into a no-op.) Anything that isn't a `:db` swap is an `:fx` row, and the runtime ships a handful of standard effect-ids you'll use constantly:
+That's the whole vocabulary an app handler returns. (The map has a few more reserved keys — `:rf.db/runtime`, for framework/runtime-extension authority, plus the data-classification keys `:sensitive` / `:large` that mark a path for redaction at egress — but ordinary handlers never emit them, and an *unrecognised* key [fails loud](../glossary.md#fail-loud-not-silent) rather than vanishing into a no-op.) Anything that isn't a `:db` swap is an `:fx` row, and the runtime ships a handful of standard effect-ids you'll use constantly:
 
 | `:fx` row | What it does |
 |---|---|
@@ -264,5 +266,7 @@ One more entry point completes the picture. Inside a handler, you never call `di
 `dispatch-sync` runs the event through the same run-to-completion drain as `dispatch`, but it *blocks* until the drain settles, instead of scheduling it for the next microtask and returning immediately. That's exactly what you want when the next line of a test needs to assert on the settled state, or when boot code must finish initialising before rendering begins.
 
 > **Gotcha — `dispatch-sync` is an *outside* call only.** Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the cascade is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`. Use `dispatch-sync` to *enter* the machine from the outside; use `:fx` `:dispatch` to chain *within* it.
+
+> **Gotcha — a dispatch needs a frame in scope.** Both `dispatch` and `dispatch-sync` resolve [which frame](../glossary.md#frame) to target from the scope they're called in — a [provider](../glossary.md#frame-provider), a running handler, or a captured [frame-handle](../glossary.md#frame-handle). The runtime never invents one. A call from a *rootless* async callback — a stray `setTimeout`, a WebSocket `onmessage`, a bare promise `.then` that escaped the view tree — has no frame in scope and raises `:rf.error/no-frame-context` (also production-surviving). The fix is to grab a `frame-handle` while the frame *is* in scope and dispatch through it, or to pass `{:frame <id>}` explicitly in the dispatch opts. (This is the everyday face of [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found); [Frames](frames.md) is the full story.)
 
 The trade is the framework's signature move, made for the third time on this page. Give up a little flexibility — interleaved renders, inline effects, ambient reads — and get back inspectability: a recorded, replayable, coherent history.

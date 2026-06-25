@@ -208,6 +208,8 @@ From outside any scope — a test, a tool, the REPL — you name the frame expli
 
 There is no `dispatch-to` / `subscribe-to` sugar — the two-argument opts form is the one mechanism, and `{:frame …}` always beats whatever scope (or absence of scope) surrounds the call. It's also the right shape from non-Reagent contexts: server-side rendering, headless JVM tests, and tooling agents all address frames this way.
 
+> **Gotcha — naming a frame that doesn't exist is a *different* error from naming none.** `:rf.error/no-frame-context` is reserved for **absence** — you carried no frame at all. The moment you *do* carry one (`{:frame :ghost}`), you've supplied an explicit target, so a target that names no registered frame — a typo, or a frame already torn down — is the registry-lookup case instead: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record lands on the always-on [error stream](../glossary.md#error-record) (the same recovering behaviour as a [destroyed frame](#ending-and-resetting-a-frame), because the runtime can't tell a typo from a teardown race). Branch on the category, not the absence: a missing scope and a bad target are two distinct failures.
+
 The complete resolution contract — every rule, the full error payload, the frame-metadata grammar — is [the frames spec](../../../spec/002-Frames.md).
 
 ## The async boundary: capture the frame
@@ -298,6 +300,22 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
 Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.)
 
 > **Gotcha — the scope macros are synchronous-only, like the dynamic binding underneath them.** `with-frame` establishes the frame via a dynamic var, which evaporates the instant control crosses an async boundary. An async callback created inside a `with-frame` body that fires *after* the body returns is back in frameless territory — and `with-new-frame` has already destroyed its frame by then. That's the same async cliff as the WebSocket above; the same fix applies — capture a `frame-handle` (or pass an explicit `{:frame …}`) before the boundary.
+
+## Advanced
+
+Two corners you can ignore until a multi-frame app makes you reach for them. Both follow from "frames are independent state machines" — the same root as everything above.
+
+### Run-to-completion is per-frame
+
+[Run-to-completion](../glossary.md#drain--run-to-completion) — the runtime drains the whole event queue to a fixed point before anything renders — is scoped to *one frame*. Each frame has its own queue and its own drain loop; a cascade in frame A drains A's queue to settled, and a cascade in frame B drains B's, and the two never merge into one drain. That's the dispatch-level expression of isolation: a settled, between-event state of *one* frame is the snapshot boundary [time-travel](../glossary.md#time-travel) restores, and no other frame's drain can leave that value inconsistent with its handlers.
+
+So "one event, one cascade, one [epoch](../glossary.md#epoch)" is a per-frame statement. N frames mid-flight are N independent run-to-completion loops, each rewindable on its own.
+
+### Cross-frame `dispatch-sync` during a drain
+
+You met one `dispatch-sync` rule already: calling it against the *current* frame from inside that frame's running handler is `:rf.error/dispatch-sync-in-handler` (the cascade is already synchronous). The *cross-frame* variant is the deliberate exception. A `dispatch-sync` aimed at a **different** frame while the caller's frame is mid-drain is **not** rejected — it interleaves the two cascades: the target frame runs to settled, then the caller's frame continues. Frames are independent state machines, so this is well-defined, not a deadlock.
+
+It's almost never what you meant, though, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` and proceeds. If you want one frame to poke another, prefer the async form — `(rf/dispatch [event] {:frame other})` — which queues on the target's router and drains on a later cycle, after your own cascade settles. Reserve the synchronous cross-frame call for the rare case where you genuinely need the other frame settled *before the next line runs* (some test and tooling setups), and treat the warning as the signal to double-check that intent.
 
 ## What frames are not
 

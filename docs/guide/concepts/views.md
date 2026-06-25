@@ -117,7 +117,11 @@ A `reg-view` and a `defn` define the **same render function**. `reg-view` adds e
 
 So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and `subscribe` → `rf/subscribe`. Nothing else differs about the render function.
 
+> **Hot-reload just works.** Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The wrapper resolves the render fn through the registry on every render, so a saved edit (or a REPL re-eval) flows through immediately. The runtime also emits a `:rf.registry/handler-replaced` trace event on the swap, which is how tooling refreshes its view list.
+
 > **Why every live cell uses `defn`.** The cells in this guide run in a functions-only environment where `reg-view` isn't available, `rf/dispatch` / `rf/subscribe` resolve as plain functions, and the cell supplies the frame scope. So a cell and a prose listing of the same component differ in exactly this one way — same component, two spellings. In project code, write `reg-view`.
+
+> **`reg-view` is the Reagent surface.** The `defn`-shape macro rewrite is Reagent-specific. On the hooks-shaped [substrates](../glossary.md#substrate) — UIx and Helix — you write native components and reach for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) and a captured `(rf/frame-handle)` instead; there's no `reg-view` macro and most views need no registration at all, because UIx/Helix components compose by Var reference like ordinary React components. The `reg-view*` lookup lane (below) is still available on every substrate for registry-keyed addressing. Everything else on this page — the one rule, the imperative-listener trap, frame isolation — holds identically across all three. See [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
 
 ### The three call shapes
 
@@ -232,6 +236,8 @@ Ask the "after" view what it does: all it does is walk the list and emit `<li>`s
     Pushing computation into the view is the single most common way re-frame2 apps get accidentally slow, because the work re-runs on every render instead of only when its inputs change. The hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
 > **What's the `^{:key (:id p)}` for?** Same as React's `key`. When you emit a *list* of elements, give each a stable identity so the substrate diffs by identity instead of position — insert or remove one item and only that item's DOM moves, not everything below it. Attach it as metadata on the element (`^{:key v} [:li ...]`) and key by something durable from the data, never the loop index. More on why this matters for big lists in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
+>
+> **Gotcha — missing or colliding keys.** Omit the key on a list and the substrate falls back to *position*; key two siblings the same and they collide. Either way reconciliation can keep stale DOM in place, drop a row, or duplicate one when the list changes — a silent visual bug, not an error. The `^{:key …}` rides through `reg-view` to React untouched, so a registered row keys exactly like a plain one; the discipline is the same in both. (This `:key` is React's reconciliation key — distinct from the trace `:render-key` further down, which is instrumentation identity, not reconciliation.)
 
 ## The trap: imperative listeners lose the frame
 

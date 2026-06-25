@@ -53,9 +53,11 @@ A state change, an HTTP POST, a storage write, and a follow-up dispatch — stil
 
 > **From re-frame v1.** There's now exactly one event form — `reg-event` — and a db update is just the `:db` effect in the map every handler returns. No separate db-only registration: "I only touch state" is `{:db …}` and nothing else, the *same map shape* as a handler that also fires three effects. The top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` effect keys are gone too — everything rides in `:fx` as ordinary rows now, so you learn one grammar instead of two. (This is the EP-0018 collapse.)
 
+> **Gotcha — `:db` and `:fx` are the whole top level.** Application handlers return exactly those two keys; anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](../glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — the error message points you at wrapping it as an `:fx` row.
+
 !!! warning "Effects don't roll back"
 
-    The `:db` [commit](../glossary.md#commit) lands *before* any `:fx` entry runs, and it's committed for good. The `:fx` entries then run best-effort, one at a time. If one throws, `app-db` is **not** rolled back and already-fired effects are not undone. Most real effects (a sent request, a written key) are irreversible anyway, so there's nothing to undo. When you need to compensate for a half-finished sequence, express that as a compensating event, not a framework rollback.
+    The `:db` [commit](../glossary.md#commit) lands *before* any `:fx` entry runs, and it's committed for good. The `:fx` entries then run best-effort, one at a time. If one throws, the runtime [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/fx-handler-exception` (attributed to the offending fx-id), **skips** that one effect, and **carries on** with the rest of the vector — `app-db` is **not** rolled back and already-fired effects are not undone. Most real effects (a sent request, a written key) are irreversible anyway, so there's nothing to undo. When you need to compensate for a half-finished sequence, express that as a compensating event, not a framework rollback.
 
 ### Your own effects: `reg-fx`
 
