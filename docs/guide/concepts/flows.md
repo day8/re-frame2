@@ -201,7 +201,7 @@ A `:derive` function is pure, but pure functions still blow up — a `nil` where
 
 This is the single most important safety property of flows, so it's worth stating precisely. The app-db install is one deferred, all-or-nothing write. A flow throw happens *before* that write, so:
 
-- **app-db is left unchanged.** Not the handler's `:db`, not any *earlier* flow's output in the same pass — nothing lands. There is no partial commit. The event you dispatched is simply as if it never reached the store.
+- **app-db is left unchanged.** Not the handler's `:db`, not any *earlier* flow's output in the same pass — nothing lands. There is no partial commit. The event you dispatched is simply as if it never reached app-db.
 - **No `db-changed` trace fires**, and **`:fx` is skipped** — no `:dispatch`-issued children, no HTTP, no navigation queued by this event.
 - **The failure surfaces on the error stream** as `:rf.error/flow-eval-exception`, carrying the offending flow id and the originating event. This rides the *always-on production error substrate*, so even in a `:advanced` production build your Sentry/Honeybadger/Rollbar monitor gets the record. A per-flow `:rf.flow/failed` trace fires first with the full detail, but that one is dev-only and elides in production.
 - **The work re-attempts cleanly.** Because the whole commit was discarded, the dirty-check bookkeeping rolls back too — every flow in that pass re-attempts on the next, clean pass. Nothing half-done is ever observable.

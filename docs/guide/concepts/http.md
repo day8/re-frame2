@@ -142,7 +142,7 @@ Here is the full `:request` envelope:
 | `:credentials` | `:same-origin` | `:omit` / `:same-origin` / `:include`. CLJS-only; the JVM transport ignores it. |
 | `:mode` `:redirect` `:cache` `:referrer` `:integrity` | — | Fetch passthroughs. All but `:redirect` are CLJS-only. |
 
-> **Gotcha — don't thread auth by hand.** Threading `"Authorization"` into each call site by hand gets old fast — and breaks the moment a token rotates. Don't. Register one [HTTP interceptor](#middleware-stamp-every-request-once) instead and drop the header from your handlers entirely. The example above threads it inline only to show the envelope key exists.
+> **Gotcha — don't thread auth by hand.** Threading `"Authorization"` into each call site by hand gets old fast — and breaks the moment a token rotates. Don't. Register one [HTTP interceptor](#interceptors-stamp-every-request-once) instead and drop the header from your handlers entirely. The example above threads it inline only to show the envelope key exists.
 
 > **Gotcha — the CLJS-only keys are silently no-ops on the JVM.** The six Fetch-passthrough keys above (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM the request still goes out — the option is just dropped — and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible rather than mysterious. (`:redirect` is the exception: it *is* honoured on the JVM.) If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site. The same asymmetry hits `:rf.http/cors`, which only the browser ever emits.
 
@@ -351,7 +351,7 @@ Every verb is there — `rf.http/get` / `post` / `put` / `delete` / `patch` / `h
 
 Two notes. `rf.http/get` shadows `clojure.core/get`, so the namespace is meant to be *aliased* (`:as rf.http`) and called qualified — `(rf.http/get …)` reads as "an HTTP GET", which is the whole point. And these helpers live in `re-frame.http`, **not** on the `rf/` facade: you require them explicitly. They ship in the same `day8/re-frame2-http` artefact as the fx they expand to, so loading the helpers and registering `:rf.http/managed` are one dep decision.
 
-## Middleware: stamp every request once
+## Interceptors: stamp every request once
 
 Threading `"Authorization"` into every call site is the kind of cross-cutting concern that belongs in one place. re-frame2 ships a **per-frame HTTP interceptor chain** for exactly this — the same `{:before :after}` onion you know from [event interceptors](interceptors.md), but wrapping the transport instead of the event handler. A `:before` transforms the request on its way out; an `:after` transforms the reply on its way back.
 

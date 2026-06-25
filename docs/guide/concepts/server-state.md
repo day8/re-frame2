@@ -122,7 +122,7 @@ Two invariants keep views simple. First, **`:error` is reserved for first-load f
 
 The derived booleans — `:loading?`, `:fetching?`, `:has-data?`, `:stale?` — exist so a view never has to reverse-engineer those two rules. That's why the canonical `cond` reads them directly rather than matching on `:status`.
 
-> **Going deeper.** That status enum is the *data lifecycle* only, and a real page has more render states than a cache entry does. The tutorial builds the full set of **nine page states**: Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct, and Done. The resource feeds the first two and the error branch; the cardinality states (Empty / One / Some / Too Many) fall out of *counting* the loaded data; Incorrect and Correct come from form state, and Done from domain state — both living in your app-db. So a page's render decision is one derivation over the cache entry *plus* the page's own app-db state. [Part 2](../tutorial/02-server-data.md) makes it concrete.
+> **Going deeper.** That status enum is the *data lifecycle* only — a real page renders from this cache entry *plus* its own app-db (cardinality, form, and domain state), so the page's render decision is one derivation over both. [Part 2](../tutorial/02-server-data.md) builds that full set of nine page states.
 
 ## The full read and command surface
 

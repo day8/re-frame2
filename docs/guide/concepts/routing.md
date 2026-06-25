@@ -89,7 +89,7 @@ One more `:query` key earns its keep early. `:query-retain` is a set of keys car
 
 ### Routes are queryable data
 
-Because routes are registry entries, the route table is *queryable data* — and that pays off. Tag a route `:tags #{:requires-auth}` and an ordinary [interceptor](interceptors.md) (a `:before`/`:after` wrapper around your navigation events) can read the tag and redirect. That's the entire auth-guard mechanism — no special router middleware, just data and a step that reads it:
+Because routes are registry entries, the route table is *queryable data* — and that pays off. Tag a route `:tags #{:requires-auth}` and an ordinary [interceptor](interceptors.md) (a `:before`/`:after` wrapper around your navigation events) can read the tag and redirect. That's the entire auth-guard mechanism — no special router machinery, just data and a step that reads it:
 
 ```clojure
 (rf/reg-route :app/admin

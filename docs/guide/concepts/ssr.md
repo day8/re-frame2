@@ -67,7 +67,7 @@ That's a working SSR server. Everything below refines it.
 
 ### Reading the request
 
-Handlers read the request the way they read any outside fact — through a declared [coeffect](../glossary.md#coeffect), which is the framework's name for an input a handler pulls in (declared up front, supplied by the runtime) rather than reaches out for:
+Handlers read the request the way they read any other outside fact — through a declared [coeffect](../glossary.md#coeffect):
 
 ```clojure
 ;; Adapted from examples/reagent/ssr/core.cljc
@@ -88,7 +88,7 @@ Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arriv
 
     `:rf/server-init` is a pattern-reserved name the framework documents and you supply the body for. It is not licence to register your own events under the reserved `:rf/*` root.
 
-> **Going deeper — the request read is *ambient*, and replay cares.** First, why this needs care at all: re-frame2 can *replay* a recorded run of your app — re-fire the same events to reconstruct the same app-db (that's what powers time-travel and [epoch](observability.md) restore). Replay only works if every input a handler used was captured in the recording. The request coeffect is the exception. It reads the per-request slot the host stashed, and — like reading `localStorage` or the wall clock — its value is **never recorded**. The framework grades a read like that an *[ambient](../glossary.md#recordable-vs-ambient-coeffects)* coeffect (as opposed to a *recordable* one, which is stamped onto the [event envelope](../glossary.md#event-envelope) and replays identically).
+> **Going deeper — the request read is *ambient*, and replay cares.** [Time-travel](observability.md) replays a run only if every input a handler used was captured; the request coeffect is the exception. It reads the per-request slot the host stashed, and — like `localStorage` or the wall clock — its value is **never recorded**. That makes it an *[ambient](../glossary.md#recordable-vs-ambient-coeffects)* coeffect, not a *recordable* one stamped onto the [event envelope](../glossary.md#event-envelope).
 >
 > So the rule is precise: an ambient read is fine for a **non-durable** decision (branch on `:request-method`, peek at a header to pick a code path) but **not** for a value you fold into durable state. Here's why the second case breaks: on replay the framework re-runs the live supplier rather than re-presenting the value the recorded run saw — and after the per-request frame is torn down, that supplier reads `nil`. So `(assoc db :session-user (-> request :session :user))` directly off the ambient read makes a *durable write whose input was never recorded*, and a replay reconstructs a different app-db.
 >
