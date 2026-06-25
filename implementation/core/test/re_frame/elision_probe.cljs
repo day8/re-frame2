@@ -67,7 +67,27 @@
             ;; image-loading path (make-frame / assemble / the within-image
             ;; collision check), so those image-assembly fns DCE when unused.
             [re-frame.source-store :as source-store]
-            [re-frame.source-coords :as source-coords]))
+            [re-frame.source-coords :as source-coords]
+            ;; rf2-tfiutq — ungated DIRECT-CALL dev-only diagnostic emits (the
+            ;; ~18 warning/diagnostic sites across resources / routing / machines
+            ;; / ssr-client) elide in production NOT via a call-site
+            ;; `interop/debug-enabled?` gate but via Closure constant-folding the
+            ;; DIRECTLY-CALLED `trace/emit!` / `trace/emit-error!` body to `nil`
+            ;; under :advanced + goog.DEBUG=false, after which the pure
+            ;; `(str …)` / literal-string args are dropped as dead. (Contrast the
+            ;; framework's OWN emit machinery — storage.cljc / registrar.cljc —
+            ;; which captures `emit!` via `(late-bind/get-fn :trace/emit!)`; that
+            ;; INDIRECT identity escapes the fold, so those sites carry an
+            ;; explicit `(when interop/debug-enabled? …)` call-site gate.)
+            ;;
+            ;; The probe previously pinned dev-only prose absence ONLY inside
+            ;; already-gated branches; it never rooted an UNGATED direct-emit site
+            ;; to prove the fold path holds. These touches root one representative
+            ;; direct-emit site per surface so the control build (DEBUG=true)
+            ;; contains the prose and the production build (DEBUG=false) DCEs it —
+            ;; the methodology now has teeth for the direct-call elision path.
+            [re-frame.routing.classification :as routing-classification]
+            [re-frame.machines.lifecycle-fx.traces :as machines-traces]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
@@ -521,7 +541,18 @@
   ;; control bundle; under DEBUG=false the form-source gate DCEs it.
   (rf/reg-event :probe/doc-event
     {:doc "rf2-9wwkcm-doc-elision-sentinel: pure-documentation metadata"}
-    (fn [{:keys [db]} _ev] {:db db})))
+    (fn [{:keys [db]} _ev] {:db db}))
+  ;; rf2-tfiutq — `reg-machine`'s LITERAL opts map carrying `:doc` now rides
+  ;; `gate-doc-arg` (previously forwarded verbatim, so its `:doc` string
+  ;; survived :advanced). The distinctive sentinel rides the literal-opts arm:
+  ;; under DEBUG=true the dev arm keeps the full opts map (with `:doc`); under
+  ;; DEBUG=false the `(if interop/debug-enabled? <full> <stripped>)` gate DCEs
+  ;; the `:doc` string. (The `:rf.probe/doc-machine` registration succeeds —
+  ;; a single-state idle machine — so the opts map is genuinely registered.)
+  (rf/reg-machine :rf.probe/doc-machine
+    {:doc "rf2-tfiutq-machine-opts-doc-sentinel: reg-machine literal opts :doc"}
+    {:initial :idle
+     :states  {:idle {}}}))
 
 ;; ---- rf2-9vx0jk: dev-only :rf.interceptor/override-summary run-start tag ----
 ;;
@@ -633,7 +664,46 @@
 
 ;; ---- entry point ----------------------------------------------------------
 
+;; ---- rf2-tfiutq: ungated DIRECT-CALL dev-only diagnostic emit elision ------
+;;
+;; The ~18 app-facing dev-only warning/diagnostic emits (resources / routing /
+;; machines / ssr-client) call `trace/emit!` / `trace/emit-error!` DIRECTLY on a
+;; runtime DATA branch (`when-some` / `when (seq …)` / `doseq` / a `catch`),
+;; building `(str …)` or literal-string prose, with NO call-site
+;; `interop/debug-enabled?` gate. They still ELIDE in production: under
+;; :advanced + goog.DEBUG=false the directly-called `emit!` / `emit-error!`
+;; body folds to `nil`, Closure inlines the now-no-op call, and the pure prose
+;; args drop as dead. (The framework's OWN emit machinery — storage.cljc,
+;; registrar.cljc — instead captures `emit!` via `(late-bind/get-fn …)`; that
+;; INDIRECT identity escapes the fold, so those sites carry an explicit
+;; `(when interop/debug-enabled? …)` call-site gate. The two paths are NOT
+;; interchangeable: a direct call folds, an indirect-via-registry call does
+;; not.)
+;;
+;; This touch roots one representative direct-emit site per surface (one
+;; `emit!` + `(str …)`, one `emit-error!` + literal-string) so the gated-body
+;; sentinels below pin the FOLD path, not just the require-boundary or the
+;; already-gated branches. Under DEBUG=true the prose lands in the control
+;; bundle; under DEBUG=false the fold DCEs it.
+
+(defn ^:export touch-direct-emit-diagnostics! []
+  ;; routing `advise-query-promotion!` — `emit!` :warning whose `:advice`
+  ;; `(str …)` arg is built on the `(when (seq missing) …)` data branch. A
+  ;; route-meta that classifies an UNPROMOTED `[:query k]` path reaches the
+  ;; emit (the keyword `:query` key never matches the runtime string key, so
+  ;; `unpromoted-query-keys` is non-empty).
+  (routing-classification/advise-query-promotion!
+    :rf.probe/direct-emit-route
+    {:sensitive [[:query "token"]]}
+    #{})
+  ;; machines `emit-destroy-exit-failure!` — `emit-error!` with a literal-string
+  ;; `:reason`, an ungated `defn` body. Calling it directly roots the
+  ;; literal-string emit shape.
+  (machines-traces/emit-destroy-exit-failure!
+    :rf.probe/direct-emit-actor :rf/default {:probe :direct-emit}))
+
 (defn ^:export run []
+  (touch-direct-emit-diagnostics!)
   (touch-trace!)
   (touch-schemas!)
   (touch-registrar!)

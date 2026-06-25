@@ -108,6 +108,16 @@
            (registrar/strip-pure-documentation {:doc "x" :schema :int}))
         "dev: full map retained (identity)")))
 
+;; Note (rf2-tfiutq): the `reg-machine` LITERAL opts-map `:doc` elision lands
+;; here too — but the runtime handler-meta strip rides the SAME single
+;; `register!` chokepoint exercised by `doc-stripped-uniformly-across-reg-
+;; surfaces` above, and the machine surface needs `day8/re-frame2-machines` on
+;; the classpath (absent from this core artefact's `:test` deps). The semantic
+;; strip for `reg-machine` opts therefore lives in the machines artefact
+;; (`re-frame.machine-doc-opts-prod-elision-test`), and the CLJS-bundle `:doc`
+;; STRING absence — the bytes the macro's new `gate-doc-arg` routing DCEs — is
+;; pinned by the elision probe (`rf2-tfiutq-machine-opts-doc-sentinel`).
+
 ;; ---- classification: the elidable set is closed to :doc -----------------
 
 (deftest pure-documentation-keys-is-closed-to-doc
