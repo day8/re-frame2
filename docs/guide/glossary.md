@@ -113,47 +113,47 @@ Related: [Observability](concepts/observability.md).
 
 ### **error record / `:rf.error/*` category**
 
-A failure surfaced as a structured map keyed by a reserved category keyword; branch on the category, never the human-readable `:reason`.
+A failure the framework surfaces as a structured map rather than a thrown, silent, or swallowed error — it [fails loud](#fail-loud-not-silent), but as *data*. Every record is keyed by a reserved **`:rf.error/*` category** drawn from a fixed catalogue; **branch on the category**, never on the human-readable `:reason` (which is prose for people and can change).
 
 ```clojure
-{:rf.error/category :rf.error/no-frame-context :reason "no frame in scope"}
+{:rf.error/category :rf.error/no-frame-context
+ :reason "no frame in scope"}
 ```
+
+Error records fan out to your always-on error listeners (Sentry, Datadog, …), so — unlike the dev-only trace surface — they **survive production**. Build your monitoring on them.
 
 Related: [Errors](concepts/errors.md).
 
 ### **event**
 
-An inert data vector that captures the fact that something happened.
+An inert data vector recording a fact: *something happened*. You [dispatch](#dispatch) an event; a registered [event handler](#event-handler) decides what to do in response — the event itself does nothing.
 
-Events often represent user intent: the user clicked a button, dragged something somewhere else, opened a route, or chose a tab. Other application actors can also cause events, such as timers, browser APIs, WebSockets, and route loaders.
-
-The first element is an identifier, typically a namespaced keyword, optionally followed by further facts.
+Most events are user intent — a click, a drag, a route change, a tab switch — but timers, browser APIs, WebSockets, and route loaders raise them too. The first element is an identifier (a namespaced keyword is the norm), optionally carrying facts:
 
 ```clojure
 [:event-id & facts]
 ```
 
-So, this is possible:
+Prefer a single map payload over positional arguments — it's self-describing and stays stable as the event grows:
+
 ```clojure
-[:event-id "hello" :world 1]
+[:cart/add-item {:sku "BK-1" :qty 1}]    ;; good — a named payload
+[:cart/add-item "BK-1" 1]                ;; placeful and fragile
 ```
 
-But that structure is quite "placeful" and fragile. A better shape is where `facts` is a single map payload.
-```clojure
-[:cart/add-item {:sku "BK-1" :qty 1}]
-```
+Because an event is just data, it can be logged, recorded, and replayed — the basis of re-frame2's testability and time-travel.
 
 Related: [Events & the cascade](concepts/events-and-the-cascade.md).
 
 ### **event cascade**
 
-The fixed, ordered run started by one dispatched [event](#event).
-
-A cascade runs the event handler, commits any state change, performs effects, updates derivations, and lets views render from the new state.
+The fixed, ordered run one dispatched [event](#event) sets off — re-frame2's name for a single turn of the loop. The [event handler](#event-handler) runs and returns an [effect map](#effect-map); the new [app-db](#app-db) is committed atomically; effects fire; [subscriptions](#subscription) re-derive; and [views](#view) render from the new state.
 
 ```clojure
-;; dispatch → handler → effect map → commit/effects → derivations → render
+;; dispatch → handler → effect map → commit → effects → derivations → render
 ```
+
+The view renders once, at the end, from the committed state — never mid-cascade.
 
 Related: [Events & the cascade](concepts/events-and-the-cascade.md). One dispatched event leaves behind one [epoch](#epoch), the before/after record of that cascade.
 
@@ -184,31 +184,23 @@ Related: [Events & the cascade](concepts/events-and-the-cascade.md), [Frames](co
 
 ### **event handler**
 
-A function that computes how an [event](#event) changes the world. It receives two arguments:
-
-- a map of [coeffects](#coeffect): selected facts about the world needed to process the event
-- the event vector
-
-It returns an [effect map](#effect-map): data describing what about the world should be changed, and how.
+A **pure** function that computes how a dispatched [event](#event) should change the world. It takes two arguments — a map of [coeffects](#coeffect) (the facts it needs, `:db` among them) and the event vector — and returns an [effect map](#effect-map):
 
 ```text
 (coeffects, event-vector) -> effect-map
 ```
 
-An event handler often returns only the `:db` effect, meaning "replace app-db with this new value." It can also return multiple `:fx` entries for other side effects.
+It *describes* changes, it doesn't perform them: typically a `:db` value ("replace app-db with this") plus any `:fx` for other side effects. Because it's pure — no IO, no clock, no reading subscriptions; the world arrives only through declared coeffects — it's trivially testable and replayable.
 
-You register an `event handler` with `reg-event` like this:
+Register one with `reg-event`:
 
-```clojure
-(rf/reg-event :your-event-id  your-handler-fn)
-```
-
-In practice, something like this:
 ```clojure
 (rf/reg-event :cart/add
   (fn [{:keys [db]} [_ item]]
     {:db (update db :cart/items conj item)}))
 ```
+
+Related: [Events & the cascade](concepts/events-and-the-cascade.md).
 
 ### **flow**
 
