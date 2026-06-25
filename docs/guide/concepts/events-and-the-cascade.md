@@ -71,7 +71,7 @@ Pause here, because it reframes what a handler is. Even our trivially pure handl
 
 It computes `6`, which differs from its previous `5`, so everything watching it is marked for re-render. Had the value come out unchanged, nothing downstream would run at all. That economy is [the subscription graph's](subscriptions.md) whole subject.
 
-**6 — The view re-renders.** The [view](../glossary.md#view) — the function that turns subscribed values into the markup on screen — reads its subscription with `@(rf/subscribe [:counter/value])` and re-runs. (`@` is Clojure's *deref*: a subscription is a live reference to a derived value, and `@` reads its current value. When that value changes, the view re-runs.) The view produces fresh [hiccup](../glossary.md#hiccup) — Clojure's plain-data notation for markup, where `[:button {...} "+"]` stands for a `<button>` element — now with a `6` where the `5` was. The [substrate](../glossary.md#substrate) — the React-family renderer underneath (Reagent, UIx, or Helix) — diffs the old hiccup against the new and patches just that one DOM node. The screen shows `6`.
+**6 — The view re-renders.** The [view](../glossary.md#view) reads its subscription with `@(rf/subscribe [:counter/value])` and re-runs. (`@` is Clojure's *deref*: a subscription is a live reference to a derived value, and `@` reads its current value. When that value changes, the view re-runs.) It produces fresh [hiccup](../glossary.md#hiccup) — now with a `6` where the `5` was — and the [substrate](../glossary.md#substrate) diffs it against the old and patches just that one DOM node. The screen shows `6`.
 
 One event, six steps. The same path runs under every event your app will ever process: a login, a websocket message, a route change. The machine doesn't grow new paths as the app grows. You just register more handlers.
 
@@ -141,26 +141,15 @@ Here is the same load, written so the handler stays pure. An [effect](../glossar
 
 The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a [managed HTTP request](../glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
 
-The runtime appends one uniform [reply map](../glossary.md#reply-map) as the event's last argument. On success it carries `{:kind :success :value <decoded-body>}`; on failure `{:kind :failure :failure <failure-map>}`, where that inner `:failure` map carries its own `:kind` naming the failure category. So a success handler reaches for `:value`, a failure handler for `:failure`. Every managed async surface (HTTP, [resources](server-state.md), route loaders, machine work) replies in [that one shape](../glossary.md#the-uniform-reply), so you learn it once.
+That reply rides as the event's last argument in [the uniform reply](../glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:failure` — and every managed async surface answers the same way. [Managed HTTP](http.md) is its home.
 
 Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a *name* instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 
 > **Coming from Redux?** The `:fx` vector is where thunks, sagas, and middleware used to live — except the handler stays a pure function returning data, and the "middleware" is the runtime's effect interpreter. The async reply doesn't resolve a promise the reducer is awaiting; it arrives as a brand-new action dispatched onto the same queue.
 
-> **Coming from TanStack Query?** A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](server-state.md) manage the request lifecycle for you, the way a `useQuery` hook does. The fx below is the mechanism underneath that convenience.
+> **Coming from TanStack Query?** A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](server-state.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
 
-The `:rf.http/managed` effect takes a single args map. Beyond the four keys above, the slots you'll reach for most often are:
-
-| Key | Default | What it does |
-|---|---|---|
-| `:request` | — | The request itself: `:method`, `:url`, and optionally `:headers`, `:body`, `:query-params`. |
-| `:decode` | `:auto` | How to parse the 2xx body: a Malli [schema](../glossary.md#schema), a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Leaving it off (`:auto` sniffs the content-type) is normal, supported, stable usage. |
-| `:on-success` | the originating event id | Where the success reply dispatches. |
-| `:on-failure` | the originating event id | Where the failure reply dispatches. `nil` drops the failure reply (fire-and-forget) — and the runtime fires a one-shot `:rf.warning/failure-swallowed` trace the first time a non-abort failure is dropped this way, so even the silence is observable. |
-
-The full reference card — every slot, its default, and which failure category a bad value classifies into — lives in [Spec 014 §The args map](../../../spec/014-HTTPRequests.md#the-args-map).
-
-> **The co-located form.** If a request and its reply genuinely belong together, you can *omit* `:on-success` / `:on-failure`. Then the reply routes back to the originating event id, with the payload merged under an `:rf/reply` key on the appended message argument, and one handler branches on `(:rf/reply msg)` to play both roles. Two explicit targets is the recommended default — it makes the failure path impossible to overlook — but the co-located form is there when the split would only scatter related code.
+The `:rf.http/managed` args map carries far more than the four keys above — `:decode`, `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the cascade point.
 
 Two notes before moving on:
 
@@ -169,27 +158,11 @@ Two notes before moving on:
 
 > **From re-frame v1.** The shape is the same — effect map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered [interceptors](../glossary.md#interceptor) referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
 
-> **An optional middle slot.** `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [audit-trace]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered [interceptors](../glossary.md#interceptor) (analytics, validation, logging) that wrap the handler. Two things to know. First, the chain *must* live under `:interceptors` — a bare interceptor or a loose positional vector in that slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Second, you author interceptors with [`reg-interceptor`](../../../spec/001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and reference them by id — they're the home for the cross-cutting "wrap every handler" work that, in Redux, you'd write as middleware.
+> **An optional middle slot.** `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [:my-app/audit]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered [interceptors](../glossary.md#interceptor) (the cross-cutting "wrap every handler" work) referenced by id. The chain *must* live under that key — a bare interceptor or a loose positional vector in the slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Authoring them is [Interceptors](interceptors.md)' subject.
 
 ## The shape of an effect map
 
-The handler's return value is a small, **closed** map: app handlers populate exactly two keys.
-
-- **`:db`** — the next app-db value. Omit it and app-db is left untouched (a handler that only fires async effects legitimately returns `{:fx [...]}` with no `:db`).
-- **`:fx`** — a vector of `[effect-id args]` rows, run in source order after the `:db` commit.
-
-That's the whole vocabulary an app handler returns. (The map has a few more reserved keys — `:rf.db/runtime`, for framework/runtime-extension authority, plus the data-classification keys `:sensitive` / `:large` that mark a path for redaction at egress — but ordinary handlers never emit them, and an *unrecognised* key [fails loud](../glossary.md#fail-loud-not-silent) rather than vanishing into a no-op.) Anything that isn't a `:db` swap is an `:fx` row, and the runtime ships a handful of standard effect-ids you'll use constantly:
-
-| `:fx` row | What it does |
-|---|---|
-| `[:dispatch [:event-id ...]]` | Queue a follow-up event. It drains as part of this same cascade (more below). |
-| `[:dispatch-later {:ms 250 :event [:event-id ...]}]` | Queue an event after a delay. The timer is scheduled as an effect; delivery is a fresh dispatch. |
-| `[:rf.http/managed {...}]` | The managed HTTP request from the last section. |
-| `[:rf.nav/push-url "/articles/how-it-works"]` | Push a URL onto the history stack (routing). |
-
-And you register your own with `reg-fx` — that's the topic of [Effects and coeffects](effects-and-coeffects.md), which also explains why `:db` is "just another effect" the framework happens to register for you.
-
-> **The fx is always `[id args]`.** Even a no-arg effect is a two-element row — `[[:my-fx nil]]` — never a bare `[:my-fx]`. One uniform shape means the runtime never has to guess whether the second element is an argument or another effect.
+An app handler returns a small, **closed** [effect map](../glossary.md#effect-map) of exactly `:db` (the next app-db value) and `:fx` (a vector of `[effect-id args]` rows); any other top-level key fails loud, and you register your own effect-ids with `reg-fx`. The grammar is [Effects and coeffects](effects-and-coeffects.md)' subject. One of its rows matters to the cascade specifically: a `[:dispatch [:event-id ...]]` row queues a follow-up event that **drains as part of this same cascade** (more below), so a handler chains the next step by returning it rather than calling `dispatch`.
 
 ### Ordering and atomicity — what you can rely on
 

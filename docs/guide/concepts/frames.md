@@ -69,23 +69,23 @@ Notice there's no place to hand `reg-frame` an initial app-db. That's on purpose
 > **A frame's app-db always starts as `{}` — there is no `:db` config key.** State arrives the only way state ever arrives: through an [event cascade](../glossary.md#event-cascade). To seed initial data, make `[:rf/set-db {…}]` the first `:initial-events` step (`:rf/set-db` is the framework's "replace app-db with this map" event):
 >
 > ```clojure
-> (rf/reg-frame :todo {:initial-events [[:rf/set-db {:items []}]]})
+> (rf/reg-frame :cart {:initial-events [[:rf/set-db {:items []}]]})
 > ```
 >
 > Keeping initialisation on the dispatch path means the same cascade that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
 
-`:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:todo/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:todo/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — "to completion" meaning that if a setup event dispatches further events, those all finish too. So by the time `reg-frame` returns, the entire setup cascade is done and the frame is fully booted.
+`:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:cart/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:cart/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — "to completion" meaning that if a setup event dispatches further events, those all finish too. So by the time `reg-frame` returns, the entire setup cascade is done and the frame is fully booted.
 
 ### The rest of `reg-frame`'s config
 
 Day to day, `:initial-events` is the key you reach for. But `reg-frame` mirrors the other registrations — a keyword plus a metadata map — and a few more keys are worth knowing exist:
 
 ```clojure
-(rf/reg-frame :todo
-  {:doc            "The todo app frame."          ;; like all reg-*
+(rf/reg-frame :cart
+  {:doc            "The shopping-cart frame."      ;; like all reg-*
    :initial-events [[:rf/set-db {:items []}]       ;; ordered setup steps, dispatched synchronously
-                    [:todo/restore-session]]
-   :on-destroy     [:todo/cleanup]                 ;; single event dispatched before teardown
+                    [:cart/restore-session]]
+   :on-destroy     [:cart/cleanup]                 ;; single event dispatched before teardown
    :fx-overrides   {:my-app/http http-stub-fn}     ;; per-frame fx replacements (test doubles)
    :interceptors   [:my-app/recorder]              ;; interceptor REFS prepended to every event in this frame
    :drain-depth    100                             ;; run-to-completion drain depth limit
@@ -96,11 +96,11 @@ Day to day, `:initial-events` is the key you reach for. But `reg-frame` mirrors 
 - **`:fx-overrides`** swaps registered [effect handlers](../glossary.md#effect-handler) by id — the test-double mechanism (stub `:my-app/http` so a frame never hits the network).
 - **`:interceptors`** prepends [interceptor](../glossary.md#interceptor) *refs* (registered ids, never inline interceptor values) to every event in the frame — "global within this frame."
 - **`:drain-depth`** caps the run-to-completion drain.
-- **`:preset`** expands into a named bundle (`:test`, `:story`, `:devtool`) so a frame's *intent* is visible at the call site and machine-readable from `(rf/frame-meta :todo)`.
+- **`:preset`** expands into a named bundle (`:test`, `:story`, `:devtool`) so a frame's *intent* is visible at the call site and machine-readable from `(rf/frame-meta :cart)`.
 
 The full grammar — including the production-observability `:observability` sink policy — is [the `reg-frame` reference in 002](../../../spec/002-Frames.md).
 
-> **Gotcha — malformed config fails loud, at registration, before anything mutates.** Hand `reg-frame` a `:sensitive` or `:large` key (those moved to handler effects — see [data classification](../../../spec/015-Data-Classification.md)) or a malformed `:observability` entry, and registration throws `:rf.error/bad-frame-classification` *before* any setup event runs, so you never get a half-registered frame. A top-level shape mistake is caught the same way: `{:initial-events [:todo/init]}` — a bare event, not a *vector of* steps — is rejected with a diagnostic that names the fix (wrap it as `[[:todo/init]]`).
+> **Gotcha — malformed config fails loud, at registration, before anything mutates.** Hand `reg-frame` a `:sensitive` or `:large` key (those moved to handler effects — see [data classification](../../../spec/015-Data-Classification.md)) or a malformed `:observability` entry, and registration throws `:rf.error/bad-frame-classification` *before* any setup event runs, so you never get a half-registered frame. A top-level shape mistake is caught the same way: `{:initial-events [:cart/init]}` — a bare event, not a *vector of* steps — is rejected with a diagnostic that names the fix (wrap it as `[[:cart/init]]`).
 
 > **Going deeper — three lanes meet at startup; keep them apart.** The two lines you write are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:initial-events`, which seed app-db or kick a boot sequence ([Pattern — Boot](../../../spec/Pattern-Boot.md)). **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/13-lifecycle.md).
 
@@ -149,16 +149,16 @@ Notice what *isn't* there: no pane id threaded through the view, no atom per pan
 
 Click `+` on the left and only the left number moves. Open [Xray](../glossary.md#xray), pick the left frame, and you see only that frame's events and app-db; the right frame's ledger never heard about the click. Frames are how every inspection tool partitions the world.
 
-> **Borderline case? Ask one question.** This is where people hesitate. The discriminator: *would these two things ever sensibly share a piece of state?* If yes, they are two views over slices of *one* frame's app-db — components on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter, and that "no" is the signal.
+> **Borderline case? Ask one question.** This is where people hesitate. The discriminator: *would these two things ever sensibly share a piece of state?* If yes, they are two views over slices of *one* frame's app-db — views on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter, and that "no" is the signal.
 
 ### Two providers: who owns the frame's life?
 
 The split pane used [`frame-provider-existing`](../glossary.md#frame-provider) — and the name is precise. It **scopes** an *already-registered* frame into a React subtree; it creates nothing and destroys nothing. You registered `:pane/left` with `reg-frame` at boot, and the provider just establishes its scope for descendants. Pass it a `:frame` keyword and nothing else — a lifecycle option (`:images`, `:initial-events`) fails loud, because this provider doesn't own a lifecycle.
 
-Its sibling, `frame-provider`, **owns** one. It creates the frame when the component mounts and destroys it when the component unmounts — the React tree's lifecycle *is* the frame's lifecycle. You give it the frame's recipe inline rather than a pre-registered id:
+Its sibling, `frame-provider`, **owns** one. It creates the frame when the view mounts and destroys it when the view unmounts — the React tree's lifecycle *is* the frame's lifecycle. You give it the frame's recipe inline rather than a pre-registered id:
 
 ```clojure
-;; A component that owns its frame's lifetime. Mount creates the frame
+;; A view that owns its frame's lifetime. Mount creates the frame
 ;; (and runs :initial-events); unmount destroys it. No boot-time reg-frame,
 ;; no manual teardown — the React tree does both.
 (rf/reg-view counter-widget [label]
@@ -170,11 +170,11 @@ Its sibling, `frame-provider`, **owns** one. It creates the frame when the compo
 So the choice is just "who controls when this frame lives and dies?"
 
 - **`frame-provider-existing`** — *you* control the lifetime (you `reg-frame` it, you `destroy-frame!` it, or it lives for the whole program). The provider only scopes. This is the split-pane shape above and the normal root-of-app shape.
-- **`frame-provider`** — *the component* controls the lifetime. Mount creates, unmount destroys. Reach for it when a frame should exist exactly as long as a piece of UI is on screen — a modal that wants its own throwaway world, a dynamically-added widget, a devcard.
+- **`frame-provider`** — *the view* controls the lifetime. Mount creates, unmount destroys. Reach for it when a frame should exist exactly as long as a piece of UI is on screen — a modal that wants its own throwaway world, a dynamically-added widget, a devcard.
 
 > **For JavaScript developers.** `frame-provider` is the React mental model you already have: a component owns a resource for the duration of its mount, like a `useEffect` that creates on mount and cleans up on unmount. `frame-provider-existing` is the less common React pattern of *providing* a resource someone else owns — closer to a context Provider wrapping a store you created at the app root.
 
-> **Gotcha — re-mounting `frame-provider` under the same id is idempotent.** If a `frame-provider` carries an `:id` and the component re-mounts (a hot reload, a Story re-evaluation, a key change), the existing frame's durable state is *preserved*, not blown away — re-mount updates config and refreshes the image without resetting `app-db`. That's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
+> **Gotcha — re-mounting `frame-provider` under the same id is idempotent.** If a `frame-provider` carries an `:id` and the view re-mounts (a hot reload, a Story re-evaluation, a key change), the existing frame's durable state is *preserved*, not blown away — re-mount updates config and refreshes the image without resetting `app-db`. That's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
 
 ## The one rule: frame identity is carried, not found
 
@@ -285,13 +285,13 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
 
 ```clojure
 ;; Pin to an EXISTING frame for the block (creates / destroys nothing):
-(rf/with-frame :todo
-  (rf/dispatch-sync [:todo/add "milk"])
+(rf/with-frame :cart
+  (rf/dispatch-sync [:cart/add "milk"])
   @(rf/subscribe [:items]))
 
 ;; CREATE a frame, use it, and destroy it on exit (success or throw):
-(rf/with-new-frame [f (rf/make-frame {:images [todo-image]})]
-  (rf/dispatch-sync [:todo/add "milk"])
+(rf/with-new-frame [f (rf/make-frame {:images [cart-image]})]
+  (rf/dispatch-sync [:cart/add "milk"])
   (is (= 1 (count (:items (rf/app-db-value (rf/frame-value->id f)))))))
 ```
 

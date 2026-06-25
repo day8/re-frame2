@@ -98,7 +98,7 @@ That `:frame` entry earns its keep the moment an effect needs to dispatch back. 
 
 So how does a plain map become action? In one pass: your handler returns, the [interceptor chain](interceptors.md) completes, the runtime [commits](../glossary.md#commit) `:db`, then it walks `:fx` in source order and invokes each row by id. `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — all in one [registrar](../glossary.md#registrar), run by one interpreter loop.
 
-Periodic and delayed work goes through that same door. The 7GUIs timer example (`examples/reagent/seven_guis/timer/`) drives its ticks with `[:dispatch-later {:ms 100 :event [:timer/tick gen]}]` rows, so there's no `js/setInterval` in app code — every tick is an ordinary recorded event that carries its frame.
+Periodic and delayed work goes through that same door. An auto-dismissing notification rides a `[:dispatch-later {:ms 5000 :event [:notification/dismiss]}]` row — so there's no `js/setInterval` in app code, and the delayed dispatch is an ordinary recorded event that carries its frame.
 
 ## The way in: a handler reads only what was recorded
 

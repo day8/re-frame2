@@ -186,7 +186,7 @@ The other two predictability rules are gentler:
     ...))
 ```
 
-The dynamism lives at the view boundary, where component mount and unmount already manage subscription lifecycle. Each concrete cache entry keeps the same edges for its whole life.
+The dynamism lives at the view boundary, where view mount and unmount already manage subscription lifecycle. Each concrete cache entry keeps the same edges for its whole life.
 
 > **From re-frame v1.** Your signal functions returned live `(rf/subscribe ...)` calls — v2 input functions return query vectors as plain data instead, and the single-input and map-returning v1 shapes need rewriting. [From re-frame v1](../25-from-re-frame-v1.md) has the mechanical recipes.
 
@@ -273,13 +273,13 @@ Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`
 There's a sharper, more robust variant when the `db` shape matters. Instead of hand-rolling a literal map — which silently rots when your handler-side schema evolves — drive real events through a test frame and then read the sub against the resulting db:
 
 ```clojure
-(deftest pending-todos-after-events
+(deftest cart-count-after-events
   (rf/with-new-frame [f (rf/make-frame {})]
     ;; with-new-frame pins f as the current frame for the body, so the
     ;; dispatches below land in f without naming it each time.
-    (rf/dispatch-sync [:add-todo {:text "milk"}])
-    (rf/dispatch-sync [:add-todo {:text "eggs"}])
-    (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/app-db-value f)))))))
+    (rf/dispatch-sync [:cart/add-item {:sku "BK-1"}])
+    (rf/dispatch-sync [:cart/add-item {:sku "BK-2"}])
+    (is (= 2 (count (rf/compute-sub [:cart/items] (rf/app-db-value f)))))))
 ```
 
 > **Two styles, one rule of thumb.** `compute-sub` against a literal `db` is the escape hatch for very simple readers where the dispatch path adds nothing. For anything that depends on the *shape* events produce, dispatch real events into a frame and read `(rf/app-db-value f)` — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter. The full testing matrix is in [Test an event handler](../how-to/test-an-event-handler.md) and [Spec 008 §Sub testing](../../../spec/008-Testing.md#sub-testing--compute-sub-vs-dispatch-sync--app-db-value).
