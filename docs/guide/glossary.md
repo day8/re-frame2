@@ -1,17 +1,17 @@
 # Glossary
 
-A catalog of re-frame2's important nouns, verbs, and concepts.
+A catalog of re-frame2's nouns, verbs, and concepts.
 
 ## The Nouns
 
 ### **adapter**
 
-A map of "glue" functions that connects re-frame2 to the rendering library your app uses, such as Reagent, UIx, Helix, or reagent-slim.
+re-frame2 works with various rendering libraries including Uix, Reagent and Helix. An `adaptor` is a map of "glue" functions that connect re-frame2's core to one of these libraries.
 
-You install an adapter at boot time with `init!`.
+You install an `adapter` at application boot time with `init!`.
 
+For example, if you are using reagent:
 ```clojure
-;; Reagent
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]))
@@ -19,8 +19,8 @@ You install an adapter at boot time with `init!`.
 (rf/init! reagent-adapter/adapter)
 ```
 
+Or Uix:
 ```clojure
-;; UIx
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]))
@@ -28,13 +28,13 @@ You install an adapter at boot time with `init!`.
 (rf/init! uix-adapter/adapter)
 ```
 
-Related: [Views](concepts/views.md), [Adapters](../api/14-adapters.md), [substrate](#substrate).
+Related: [Views](concepts/views.md), [Adapters](../api/14-adapters.md).
 
 ### **app-db**
 
-A map holding application state for a [frame](#frame).
+The map holding application state in a [frame](#frame).
 
-You design the map's structure to fit the app, and optionally you can provide a Malli schema. The event handlers you write will build and maintain this application state, and the subscriptions you write will provide projections of it to views.
+You design the map's structure to fit the app, and optionally you can provide a Malli schema. The `event handlers` you write will build and maintain this application state, and the `subscriptions` you write will provide projections of it to `views`.
 
 An example structure:
 ```clojure
@@ -47,35 +47,42 @@ Related: [app-db](concepts/app-db.md), [Validate with schemas](how-to/validate-w
 
 The first argument to an event handler is a map of facts about the world: a map of coeffects.
 
-This map always contains `:db`, the current value of [app-db](#app-db). If a handler needs other facts, such as the current time, a UUID, or local storage, they must be specified in the event handler's metadata using the key `:rf.cofx/requires`.
-
-Coeffects are sometimes called **side causes**, mirroring the **side effects** an event handler returns.
+This map always contains the key `:db` which provides the current value of [app-db](#app-db). If a handler needs other facts, such as the current date, a UUID, or local storage, they must be specified in the event handler's metadata using the key `:rf.cofx/requires` like this.
 
 ```clojure
 (rf/reg-event :order/place
-  {:rf.cofx/requires [:now]}           ;; :now is a declared coeffect
-  (fn [{:keys [now db]} _] ...))
+  {:rf.cofx/requires [:today]}           ;; :today is a required coeffect
+  (fn [{:keys [db today]} _]             ;; the key :today will appear in the coeffects map
+    {:db (assoc db :order/date today)}))
 ```
 
-Use [`reg-cofx`](../api/01-core.md#reg-cofx) to register coeffect handlers.
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). **Coeffect** is often shortened to `cofx`.
+For this to work, you must register a coeffects handler via [`reg-cofx`](../api/01-core.md#reg-cofx) for `:today`. For example:
 
-### **effect map**
+```clojure
+(rf/reg-cofx :today
+  (fn []
+    (subs (.toISOString (js/Date.)) 0 10)))
+```
 
-The map returned by an event handler or machine action.
 
-Given an event and coeffects, an event handler computes and returns a map of effects describing how "the world" should be changed: the side effects of the event.
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
-The handler does not make changes itself; it computes changes and describes them.
+### **effects map**
 
-A handler often returns only the `:db` effect, meaning "replace app-db with this new value."
+The map returned by an `event handler` or `machine action`.
+
+Given an `event` and `coeffects`, an `event handler` computes and returns an `effects map` describing how "the world" should be changed: the side effects of the event.
+
+The `event handler` does not make changes itself; it computes a description of the necessary changes.
+
+An `event handler` often returns only one `:db` effect, meaning "replace app-db with this new value", like this:
 
 ```clojure
 {:db new-app-db-value}
 ```
 
-When an event handler also needs HTTP, delayed events, post messages, local storage, email, or other side effects, it typically returns them under `:fx`.
+When an `event handler` also needs HTTP, delayed events, post messages, local storage, email, or other side effects, it typically returns them under `:fx`.
 
 ```clojure
 {:db new-app-db-value
@@ -89,7 +96,9 @@ Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). **Effects** a
 
 ### **epoch**
 
-The before/after state record one cascade leaves behind; the unit of time-travel.
+In re-frame2 observability, an epoch is the record left behind by one completed event cascade.
+
+It captures the event, before/after frame state, and trace evidence used by Xray, time-travel, and debugging tools.
 
 ```clojure
 ;; one dispatch = one cascade = one epoch (the record)
@@ -109,7 +118,9 @@ Related: [Errors](concepts/errors.md).
 
 ### **event**
 
-An inert data vector — a fact that something happened. Events often represent user intent: the user clicked a button, dragged something somewhere else, opened a route, or chose a tab. Other application actors can also cause events, such as timers, browser APIs, WebSockets, and route loaders.
+An inert data vector that captures the fact that something happened.
+
+Events often represent user intent: the user clicked a button, dragged something somewhere else, opened a route, or chose a tab. Other application actors can also cause events, such as timers, browser APIs, WebSockets, and route loaders.
 
 The first element is an identifier, typically a namespaced keyword, optionally followed by further facts.
 
@@ -118,24 +129,34 @@ The first element is an identifier, typically a namespaced keyword, optionally f
 ```
 
 So, this is possible:
-
 ```clojure
-[:event-id "hello" :world]
+[:event-id "hello" :world 1]
 ```
 
-But, typically, `facts` is a single map payload.
-
+But that structure is quite "placeful" and fragile. A better shape is where `facts` is a single map payload.
 ```clojure
 [:cart/add-item {:sku "BK-1" :qty 1}]
 ```
 
 Related: [Events & the cascade](concepts/events-and-the-cascade.md).
 
+### **event cascade**
+
+The fixed, ordered run started by one dispatched [event](#event).
+
+A cascade runs the event handler, commits any state change, performs effects, updates derivations, and lets views render from the new state.
+
+```clojure
+;; dispatch → handler → effect map → commit/effects → derivations → render
+```
+
+Related: [Events & the cascade](concepts/events-and-the-cascade.md). One dispatched event leaves behind one [epoch](#epoch), the before/after record of that cascade.
+
 ### **event envelope**
 
-The runtime package created when an [event](#event) is dispatched.
+The runtime package created when an [event](#event) is dispatched. This is a low level concept tied to the runtime.
 
-App code dispatches an event vector, sometimes with extra dispatch options. Before the event is queued, re-frame2 wraps those values into an event envelope. The envelope carries the event vector plus the runtime facts needed to process it: the target [frame](#frame), where the event came from, tracing ids, per-dispatch overrides, and the durable `:rf.cofx` record used for replayable coeffects such as `:rf/time-ms`.
+App code `dispatches` an `event` (vector), sometimes with extra dispatch options. Before the event is queued, re-frame2 wraps those values into an event envelope. The envelope carries the event vector plus the runtime facts needed to process it: the target [frame](#frame), where the event came from, tracing ids, per-dispatch overrides, and the durable `:rf.cofx` record used for replayable coeffects such as `:rf/time-ms`.
 
 Most application code never reads an event envelope directly. It is the router's internal work item. Event handlers receive the envelope's event vector as their second argument, and receive an assembled map of [coeffects](#coeffect) as their first argument.
 
@@ -158,18 +179,26 @@ Related: [Events & the cascade](concepts/events-and-the-cascade.md), [Frames](co
 
 ### **event handler**
 
-A function that decides what an event means.
+A function that computes how an [event](#event) changes the world. It receives two arguments:
 
-It receives two arguments: a map of [coeffects](#coeffect) and the event vector. It returns an [effect map](#effect-map): data describing what the runtime should change after the handler finishes.
+- a map of [coeffects](#coeffect): selected facts about the world needed to process the event
+- the event vector
 
-An event handler does not change the world itself. It computes the description of the change.
+It returns an [effects map](#effects-map): data describing what about the world should be changed, and how.
 
 ```text
 (coeffects, event-vector) -> effect-map
 ```
 
-A handler often returns only the `:db` effect, meaning "replace app-db with this new value." It can also return `:fx` rows for other side effects.
+An event handler often returns only the `:db` effect, meaning "replace app-db with this new value." It can also return multiple `:fx` entries for other side effects.
 
+You register an `event handler` with `reg-event` like this:
+
+```clojure
+(rf/reg-event :your-event-id  your-handler-fn)
+```
+
+In practice, something like this:
 ```clojure
 (rf/reg-event :cart/add
   (fn [{:keys [db]} [_ item]]
@@ -200,11 +229,11 @@ Related: [Flows](concepts/flows.md) and [toggling a derivation at runtime](conce
 
 ### **frame**
 
-A frame is an isolated execution context: one running instance of a re-frame2 app.
+A frame is an isolated execution context: one running instance of an app.
 
 It owns the state and runtime machinery for that instance: its [app-db](#app-db), [runtime-db](#runtime-db), event queue, subscription cache, and lifecycle.
 
-A frame gets its behaviour from registrations. Usually it uses the default registration set, so the same event handlers, subscriptions, views, effects, flows, and machines can run in many frames, each against that frame's own state. Advanced setups can use [images](#image) to give a frame a selected registration set.
+A frame gets its behaviour from registrations, for example `reg-event` and `reg-view`. Usually it uses the default registration set, so the same event handlers, subscriptions, views, effects, flows, and machines can run in many frames, each against that frame's own state. Advanced setups can use [images](#image) to give a frame a selected registration set.
 
 Most apps create one frame at boot and then stop thinking about it. Short-lived frames are useful for tests, stories, and server-rendered requests. Multiple independent app instances can run on the same page by using different frames; a sidecar tool such as Xray is just a separate app in its own frame.
 
@@ -237,23 +266,21 @@ Related: [Images](concepts/images.md).
 
 ### **interceptor**
 
-An interceptor is a named wrapper around an event handler.
-
-Use interceptors for cross-cutting concerns such as logging, validation, undo, tracing, or adding effect rows.
-
-An interceptor can provide either or both of these functions:
+An interceptor wraps around an event handler by providing one or both these functions:
 
 - a `:before` function that runs before the event handler and can inspect or change the handler's coeffects.
-- an `:after` function that runs after the event handler and can inspect or change the [effect map](#effect-map) the handler returned.
+- an `:after` function that runs after the event handler and can inspect or change the [effects map](#effects-map) the handler returned.
 
 Both functions receive a context map and return an updated context map.
+
+Use interceptors for cross-cutting concerns such as logging, validation, undo, tracing, or adding effect rows.
 
 Register an interceptor with `reg-interceptor`:
 
 ```clojure
 (rf/reg-interceptor :my-app/logger
-  {:before (fn [ctx] ...)
-   :after (fn [ctx] ctx)})
+  {:before (fn [ctx] ctx)
+   :after  (fn [ctx] ctx)})
 ```
 
 An event handler opts in by listing interceptor ids in its registration metadata.
@@ -297,15 +324,78 @@ A declared, cached server-state read registered with `reg-resource`; its `:scope
 
 Related: [Server state](concepts/server-state.md). "Server state" is the category, not the noun.
 
-### **runtime-db**
+### **registration**
 
-The framework-owned state partition beside app-db (machine snapshots, route slice, resource cache, mutation status); read-don't-write for app code.
+An app's behaviour is defined by the registrations you provide.
 
+A single registration maps an `id`, usually a namespaced keyword, to a function or configuration the runtime can look up later.
+
+At runtime:
+
+- a [frame](#frame) supplies isolated state and execution context
+- an [image](#image) supplies the selected registrations
+- a stream of [events](#event) drives the runtime, which uses those registrations to decide what to do
+
+For example, this registration says: when the runtime sees the event id `:cart/add`, use this [event handler](#event-handler) function.
 ```clojure
-[:rf.db/runtime :rf.runtime/machines :auth.login/flow]   ;; a snapshot's address
+(rf/reg-event :cart/add
+  (fn [{:keys [db]} [_ item]]
+    {:db (update db :cart/items conj item)}))
 ```
 
-Related: [app-db](concepts/app-db.md). Paths: `:rf.db/runtime`, children `:rf.runtime/*`.
+[Core](../api/01-core.md) registration:
+
+- `reg-event` registers an [event handler](#event-handler).
+- `reg-sub` registers a [subscription](#subscription).
+- `reg-fx` registers an effect handler.
+- `reg-cofx` registers a [coeffect](#coeffect) supplier.
+- `reg-interceptor` registers an event-handler wrapper.
+- `reg-frame` registers a named [frame](#frame).
+- `reg-view` and `reg-view*` register [views](#view).
+
+Flows registration:
+
+- `reg-flow` registers a [flow](#flow).
+
+[Machines](concepts/machines.md) registration:
+
+- `reg-machine` and `reg-machine*` register [machines](#machine).
+
+Routing registration:
+
+- `reg-route` registers a route.
+
+Schema registration:
+
+- `reg-app-schema` and `reg-app-schemas` register Malli schemas for app-db paths.
+
+SSR registration:
+
+- `reg-head` registers an SSR head producer.
+- `reg-error-projector` registers an SSR error projector.
+
+HTTP registration:
+
+- `reg-http-interceptor` registers managed-HTTP middleware.
+
+[Resource](../api/16-resources.md) registration:
+
+- `reg-resource` registers a [resource](#resource).
+- `reg-mutation` registers a [mutation](#mutation).
+- `reg-resource-scope` registers a named resource-scope resolver.
+
+
+### **runtime-db**
+
+The framework-owned part of a [frame](#frame)'s state.
+
+It sits beside [app-db](#app-db), which is yours. re-frame2 uses runtime-db for its own durable state: machine snapshots, the current route, resource caches, mutation status, and similar runtime machinery. App code normally reads this state through subscriptions or accessors, not by editing runtime-db paths directly.
+
+```clojure
+[:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow]
+```
+
+Related: [app-db](#app-db), [frame](#frame). Paths: `:rf.db/runtime`, children `:rf.runtime/*`.
 
 ### **snapshot**
 
@@ -361,13 +451,16 @@ Related: [Events & the cascade](concepts/events-and-the-cascade.md).
 
 ### **dispatch**
 
-Send an event into a frame; returns immediately and never mutates inline.
+Enqueue an [event](#event) for a [frame](#frame) to process.
+
+`dispatch` wraps the event in an [event envelope](#event-envelope) and returns immediately. The event handler runs later, during the [event cascade](#event-cascade).
 
 ```clojure
-(rf/dispatch [:cart/add-item {:sku "BK-1"}])
+(rf/dispatch [:cart/add-item {:sku "BK-1"}]
+  {:frame :checkout})
 ```
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md).
+Related: [event](#event), [event envelope](#event-envelope), [event cascade](#event-cascade).
 
 ### **drain / run-to-completion**
 
@@ -422,7 +515,7 @@ Related: [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
 
 ### **register**
 
-Name your handlers and machinery at boot time with the `reg-*` registrars: `reg-event`, `reg-sub`, `reg-view`, `reg-fx`, `reg-cofx`, `reg-interceptor`, `reg-machine`, `reg-flow`, `reg-resource`, `reg-mutation`, `reg-route`, `reg-app-schema`.
+Name your handlers and machinery at boot time with [registration](#registration) forms.
 
 ```clojure
 (rf/reg-event :cart/clear (fn [{:keys [db]} _] {:db (dissoc db :cart)}))
@@ -471,16 +564,6 @@ An operation reads its frame from its scope (provider / running handler / captur
 ```
 
 Related: [Frames](concepts/frames.md).
-
-### **The event cascade**
-
-The fixed, ordered run one dispatch sets off: handler → effect map → effects → derivations → view → DOM.
-
-```clojure
-;; dispatch → handler → effect map → effects → derivations → view → DOM
-```
-
-Related: [Events & the cascade](concepts/events-and-the-cascade.md). Reserve "the loop" for the whole repeating machine, "the six dominoes" for the first-contact mnemonic, "epoch" for the record.
 
 ### **The four homes (where state lives)**
 
