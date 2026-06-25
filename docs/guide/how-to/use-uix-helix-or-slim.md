@@ -40,11 +40,19 @@ That's it. To switch substrates, you change that one argument. Each adapter live
 (rf/init! helix-adapter/adapter)
 ```
 
-reagent-slim is the exception that proves the rule: its require and `init!` are byte-identical to stock Reagent's. There, the choice lives in your `deps.edn` coordinate instead of the import line (we'll get to that at the end).
+reagent-slim follows the same explicit shape — it ships its own adapter binding at `re-frame.adapter.reagent-slim`, and you name it at `init!` exactly like the others:
+
+```clojure
+;; reagent-slim
+(require '[re-frame.adapter.reagent-slim :as reagent-slim])
+(rf/init! reagent-slim/adapter)
+```
+
+What makes slim *feel* like stock Reagent isn't the boot line — it's that the view layer is the same Reagent you already write. The two real differences are downstream: you depend on `day8/reagent-slim` in your `deps.edn` instead of `day8/re-frame2-reagent`, and your `reagent.*` view imports become `reagent2.*` (we'll get to both at the end).
 
 There's deliberately no registry and no auto-install here, because the project holds boot to one rule: it must name its substrate in plain sight. Open any app's boot function and you can read its substrate straight off the page — no spelunking required. The framework enforces this strictly:
 
-- `(rf/init!)` with no argument doesn't even compile — that arity doesn't exist.
+- `(rf/init!)` with no argument is an arity error — `init!` has exactly one arity (it takes the adapter spec map), so there's no zero-arg form to fall through to.
 - A keyword, a `nil`, or anything that isn't the adapter spec map raises `:rf.error/no-adapter-specified`, whose message says it plainly: *"rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry."*
 
 > **Install once, install one.** Calling `init!` a second time after an adapter is already installed raises `:rf.error/adapter-already-installed` — the runtime won't silently swap substrates underneath a running app. One adapter, installed once, for the life of the runtime.
@@ -173,6 +181,8 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
 
 > **Idempotent re-mount is safe.** Re-mounting a `frame-provider` under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state. `make-frame` is idempotent replacement, and the destroy-on-unmount is deferred and cancelled by a re-acquire. You don't have to special-case dev tooling.
 
+> **Gotcha — a captured handle can outlive its owned frame.** Because `frame-provider` *destroys* its frame on unmount, a handle you captured inside it (or a `frame-handle :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the modal/tab/panel has closed — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when the owning subtree unmounts, or hold the data in a longer-lived frame if it must outlast the widget.
+
 > **From re-frame v1.** Frames always start with `app-db = {}` — there's no `:db` config key, and the old `:initial-db` / `:on-create` keys are retired. Seeding initial state is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step: setup is now ordinary events through ordinary dispatch. See [Frames](../concepts/frames.md) for the full init surface.
 
 ## Step 6 — Helix is the same moves, different notation
@@ -190,11 +200,12 @@ Slim isn't a fourth view paradigm — that trips people up, so let's be clear up
 - **Payoff:** roughly 7–10 KB gzipped off a typical app (25–33% of the Reagent layer), and up to ~22–27 KB for apps using Reagent's HTML-export path. These are analytical estimates pending build-measured validation. Runtime speed is marginally better at best, so go slim for kilobytes, not frame rate — it's a download-size lever, not a performance one.
 - **Constraints:** React 19 only. No `react-dom/server` — HTML export is handled by a small pure-CLJS serializer in `reagent2.dom.server` instead. The class-component escape hatch is capped to seven `create-class` keys (more than most apps ever touch).
 
-Mechanically it's a small swap: change your `reagent.*` requires to `reagent2.*` (for example, `reagent2.dom.client` for `reagent.dom.client`). You pick slim by deps coordinate, not by import line — the published adapter namespace is `re-frame.adapter.reagent`, exactly the same string as stock. So your app depends on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}`, and the boot code reads identically either way. Concretely, the migration is three line-edits:
+Mechanically it's a small swap: your app depends on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}`, you boot the matching adapter (`reagent-adapter/adapter` vs `reagent-slim/adapter`), and you change your `reagent.*` requires to `reagent2.*` (for example, `reagent2.dom.client` for `reagent.dom.client`). Slim deliberately ships a *distinct* adapter namespace — `re-frame.adapter.reagent-slim`, the sibling of stock's `re-frame.adapter.reagent` — so the two artefacts can sit side by side and you choose between them by which `adapter` you pass to `init!`. Concretely, the migration is four line-edits:
 
-1. `react` / `react-dom` to 19.x in `package.json`;
-2. `reagent.dom/render` → `reagent2.dom.client/{create-root, render}`;
-3. `reagent.dom/unmount-component-at-node` → `reagent2.dom.client/unmount`.
+1. swap the deps coordinate to `day8/reagent-slim`, and point `init!` at `re-frame.adapter.reagent-slim`'s `adapter`;
+2. `react` / `react-dom` to 19.x in `package.json`;
+3. `reagent.dom/render` → `reagent2.dom.client/{create-root, render}`;
+4. `reagent.dom/unmount-component-at-node` → `reagent2.dom.client/unmount`.
 
 (If you have a `r/dom-node` call, it moves to a `:ref` callback — `findDOMNode` is gone in React 19.) The worked twin is [`examples/reagent-slim/counter_slim_and_fast/`](../../../examples/reagent-slim/counter_slim_and_fast/), whose events, subs, and views are byte-for-byte the stock Reagent counter's.
 
