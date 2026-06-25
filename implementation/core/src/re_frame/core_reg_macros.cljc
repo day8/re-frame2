@@ -430,9 +430,17 @@
      3-arg `reg-machine` call. Per rf2-wvh95f F2 the `opts` metadata map is the
      canonical Spec 001 MIDDLE slot, so the emitted call is `(reg-machine
      machine-id opts spec)` (opts middle, spec last). `opts-form` is a RUNTIME
-     expression evaluated at the call site (not walked at expansion time); it
-     is forwarded verbatim. The 5-arg form (no opts) emits the bare 2-arg
-     `reg-machine` call, unchanged."
+     expression evaluated at the call site (not walked at expansion time). The
+     5-arg form (no opts) emits the bare 2-arg `reg-machine` call, unchanged.
+
+     Per rf2-tfiutq the opts-form rides `gate-doc-arg` so a LITERAL doc-bearing
+     opts map (`(reg-machine :id {:doc \"…\"} spec)`) DCEs its `:doc` string
+     under `:advanced` + `goog.DEBUG=false` — closing the parity gap with the
+     splice-through `defreg-macro` / `defreg-event-macro` surfaces (which gate
+     every literal doc-bearing arg). A non-literal opts expression (a symbol, a
+     computed map, a `merge` call) passes through unchanged — its `:doc`, if
+     any, still strips from the stored handler-meta via the runtime `register!`
+     strip, but its string bytes are outside the macro's reach."
      ([form-meta ns-sym file machine-id machine]
       (expand-reg-machine form-meta ns-sym file machine-id machine ::no-opts))
      ([form-meta ns-sym file machine-id machine opts-form]
@@ -441,6 +449,9 @@
             stamped     (stamp-machine-spec-expr machine ns-sym file machine-sym)
             inline?     (not (identical? stamped machine-sym))
             no-opts?    (= opts-form ::no-opts)
+            ;; rf2-tfiutq — gate a literal doc-bearing opts map for `:doc`
+            ;; string elision, exactly as the splice-through reg-* surfaces do.
+            opts-form   (if no-opts? opts-form (gate-doc-arg opts-form))
             reg-call    (fn [spec-expr]
                           (if no-opts?
                             `(re-frame.core-machines/reg-machine ~machine-id ~spec-expr)

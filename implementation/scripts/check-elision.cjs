@@ -506,7 +506,59 @@ const DEV_ONLY_SENTINELS = [
   // the form-source gate DCE the string entirely. The sentinel is distinctive
   // enough that a global grep is unambiguous.
   { source: 're-frame.core/reg-* macros (:doc pure-documentation metadata literal)',
-    sentinel: 'rf2-9wwkcm-doc-elision-sentinel' }
+    sentinel: 'rf2-9wwkcm-doc-elision-sentinel' },
+  // re-frame.core/reg-machine — LITERAL opts-map `:doc` elision (rf2-tfiutq).
+  // The 3-arg `reg-machine` macro (`(reg-machine :id {:doc "…"} spec)`)
+  // previously forwarded its `opts` map VERBATIM into the emitted registration
+  // call, so a literal doc-bearing opts map's `:doc` STRING survived :advanced
+  // (the splice-through `defreg-macro` / `defreg-event-macro` surfaces gate
+  // every literal doc-bearing arg via `gate-doc-args`, but `expand-reg-machine`
+  // bypassed that path). rf2-tfiutq routes the opts-form through `gate-doc-arg`
+  // when it is a literal map, emitting the same
+  // `(if interop/debug-enabled? <full-opts> <opts-without-:doc>)` gate Closure
+  // constant-folds under goog.DEBUG=false. The elision-probe's
+  // `touch-doc-metadata!` registers `:rf.probe/doc-machine` with a literal opts
+  // `:doc`; under DEBUG=true the dev arm keeps the string, under DEBUG=false the
+  // gate DCEs it. The sentinel is the distinctive `:doc` value head.
+  { source: 're-frame.core/reg-machine (literal opts-map :doc elision)',
+    sentinel: 'rf2-tfiutq-machine-opts-doc-sentinel' },
+  // ---- rf2-tfiutq: ungated DIRECT-CALL dev-only diagnostic prose ----------
+  //
+  // The ~18 app-facing dev-only warning/diagnostic emits (resources /
+  // routing / machines / ssr-client) call `trace/emit!` / `trace/emit-error!`
+  // DIRECTLY on a runtime DATA branch (`when-some` / `when (seq …)` /
+  // `doseq` / a `catch`), building `(str …)` or literal-string prose, with
+  // NO call-site `interop/debug-enabled?` gate. They still ELIDE in
+  // production: under :advanced + goog.DEBUG=false the directly-called
+  // `emit!` / `emit-error!` body folds to `nil`, Closure inlines the now-
+  // no-op call, and the pure prose args drop as dead. (Contrast the
+  // framework's OWN emit machinery — storage.cljc / registrar.cljc — which
+  // captures `emit!` via `(late-bind/get-fn :trace/emit!)`; that INDIRECT
+  // identity escapes the fold, so those sites carry an explicit
+  // `(when interop/debug-enabled? …)` call-site gate, pinned by the
+  // keyword-op sentinels above.)
+  //
+  // Before rf2-tfiutq the probe pinned dev-only prose absence ONLY inside
+  // already-gated branches and via the require boundary — it never rooted an
+  // UNGATED direct-emit site, so the FOLD path's production absence was
+  // UNVERIFIED. The elision-probe's `touch-direct-emit-diagnostics!` now
+  // roots one representative direct-emit site per shape:
+  //
+  //   1. routing `advise-query-promotion!` — `emit!` :warning whose `:advice`
+  //      `(str …)` prose is built on the `(when (seq missing) …)` branch.
+  //   2. machines `emit-destroy-exit-failure!` — `emit-error!` with a
+  //      literal-string `:reason`, an ungated `defn` body.
+  //
+  // Under DEBUG=true the prose lands in the control bundle; under
+  // DEBUG=false the fold DCEs it. A regression that defeats the fold — e.g.
+  // a refactor that captures `emit!` into a var / map (escaping its
+  // identity, like the framework's late-bind machinery) — would surface
+  // the prose in production and fail this assertion. The fragments are the
+  // distinctive middle of each prose string, unambiguous under a global grep.
+  { source: 're-frame.routing.classification/advise-query-promotion! (direct emit! :advice prose)',
+    sentinel: 'stays a STRING in the route slice' },
+  { source: 're-frame.machines.lifecycle-fx.traces/emit-destroy-exit-failure! (direct emit-error! :reason prose)',
+    sentinel: 'An :exit action threw during destroy-time cascade' }
   // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
   // once warning + its emit helper were RETIRED (EP-0002; superseded by
   // the always-on :rf.error/no-frame-context). There is no longer any
@@ -571,6 +623,26 @@ const PROD_ABSENT_WHEN_UNUSED_SENTINELS = [
   // former check-capabilities! sentinel with the image-capability feature.)
   { source: 're-frame.image-assembly/resolve-within-image (assembly-only, DCE when unused)',
     sentinel: 'is selected from' },
+  // re-frame.late-bind.directory/hooks — the ~150 paragraph-length
+  // `:description` strings in the hook-directory inventory (rf2-tfiutq).
+  // This is plain ungated CLJC DATA — no `interop/debug-enabled?` gate — so
+  // it is NOT kept out of production by goog.DEBUG DCE. It is kept out by
+  // REACHABILITY DCE: the directory is required ONLY by drift/publication
+  // TESTS (`late_bind_drift_test`, the adapter publication suites); ZERO
+  // production src namespace `:require`s it (`re-frame.late-bind` names it in
+  // a docstring only, not a require), so the whole corpus is unreachable from
+  // any production boot path and Closure trims it. The probe deliberately does
+  // NOT require it either, so the `:description` strings must be ABSENT.
+  //
+  // No sentinel guarded that absence before rf2-tfiutq. This pins it (mirroring
+  // the EP-0023 `'is selected from'` image-assembly reachability guard): an
+  // accidental future production `:require` of the directory — or a refactor
+  // that pulls `hooks` into a reachable boot path — would surface this
+  // distinctive `:description` head and fail CI. The fragment is the exact text
+  // of the `:router/dispatch!` row's one-line `:description`, unique under a
+  // global grep across tracked source.
+  { source: 're-frame.late-bind.directory/hooks (:description corpus, DCE when unrequired)',
+    sentinel: 'Enqueue an event for processing by the drain loop' },
 ];
 
 // ----- helpers ---------------------------------------------------------------

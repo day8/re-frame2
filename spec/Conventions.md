@@ -1398,11 +1398,11 @@ re-frame2 ships as **multiple Maven artefacts**. A user picks the artefacts thei
 
 ### Artefact tiers
 
-The CLJS reference's published artefact set partitions across three tiers.
+The CLJS reference's artefact set partitions across three tiers (the per-feature tier additionally enumerates post-v1 artefacts, tagged inline, so it stays the complete capability list).
 
 **Core** — `day8/re-frame2`. The always-needed surface: registry, drain, fx, dispatch, subscribe, frame-provider, trace.
 
-**Per-feature** — `day8/re-frame2-<feature-id>`. Optional capabilities. The feature-id matches the spec topic:
+**Per-feature** — `day8/re-frame2-<feature-id>`. Optional capabilities. The feature-id matches the spec topic. Rows tagged **(post-v1)** name an artefact whose contract is settled and whose coordinate is fixed, but which ships after v1 — they are listed here so this table stays the single complete per-feature enumeration:
 
 | Artefact | Spec | Feature |
 |---|---|---|
@@ -1413,6 +1413,9 @@ The CLJS reference's published artefact set partitions across three tiers.
 | `re-frame2-ssr` | [011](011-SSR.md) | SSR & hydration |
 | `re-frame2-schemas` | [010](010-Schemas.md) | Malli schema layer |
 | `re-frame2-epoch` | [Tool-Pair](Tool-Pair.md) | Tool-Pair epoch surfaces |
+| `re-frame2-resources` **(post-v1)** | [016](016-Resources.md) | Resources / declarative server-state — the richest per-feature artefact: it alone contributes three runtime subsystems (`:rf.runtime/resources` / `:rf.runtime/work-ledger` / `:rf.runtime/mutations`) and three registrar kinds (`:resource` / `:mutation` / `:resource-scope`) |
+
+Other post-v1 per-feature artefacts follow this same convention as their coordinates settle — e.g. Stories ([007](007-Stories.md)) is a post-v1 capability without a fixed artefact coordinate yet, so it earns a row here once one is assigned.
 
 **Per-adapter** — `day8/re-frame2-<adapter>`. Each adapter implements the [Spec 006 substrate contract](006-ReactiveSubstrate.md) for one rendering substrate:
 
