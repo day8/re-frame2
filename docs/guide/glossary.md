@@ -73,7 +73,21 @@ A single side effect, described as data for the framework to perform — an HTTP
 [:dispatch-later {:ms 500 :event [:cart/saved]}]   ;; one effect
 ```
 
-The [event handler](#event-handler) only *describes* the effect; the runtime performs it, using the handler you registered for that `effect-id` with [`reg-fx`](../api/01-core.md#reg-fx). Effects are the output side of an event — the dual of its input [coeffects](#coeffect) — and keeping them as data, rather than doing them inline, is what makes events pure and testable.
+The [event handler](#event-handler) only *describes* the effect; the runtime performs it, via the [effect handler](#effect-handler) you registered for that `effect-id` with [`reg-fx`](../api/01-core.md#reg-fx). Effects are the output side of an event — the dual of its input [coeffects](#coeffect) — and keeping them as data, rather than doing them inline, is what makes events pure and testable.
+
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
+
+### **effect handler**
+
+The function — registered with `reg-fx` for a given `effect-id` — that actually *performs* an [effect](#effect). The runtime calls it once for each effect in a handler's `:fx` vector, passing that effect's config. This is where the real, impure work happens (the HTTP call, the navigation, the `localStorage` write) — which is exactly why it's kept *out* of the pure [event handler](#event-handler): the event handler describes effects as data; the effect handler carries them out.
+
+```clojure
+(rf/reg-fx :cart/save          ;; teach the runtime a new effect
+  (fn [{:keys [items]}]        ;; the handler receives the effect's config
+    (save-to-server! items)))  ;; and does the impure work
+```
+
+re-frame2 ships handlers for the common effects (`:dispatch`, `:dispatch-later`, `:rf.http/managed`, …); you register your own with `reg-fx`.
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
@@ -95,7 +109,7 @@ It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace 
       [:dispatch-later {:ms 500 :event [:cart/saved]}]]}
 ```
 
-`:db` and `:fx` are the only top-level keys application code may return; an unknown key fails loud. Register your own effects with [`reg-fx`](../api/01-core.md#reg-fx).
+`:db` and `:fx` are the only top-level keys application code may return; an unknown key fails loud. Each effect is performed by an [effect handler](#effect-handler); register your own with [`reg-fx`](../api/01-core.md#reg-fx).
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). The `:fx` key is why effects are often just called "fx".
 
@@ -204,15 +218,10 @@ Related: [Events & the cascade](concepts/events-and-the-cascade.md).
 
 ### **flow**
 
-A flow automatically maintains a derived value in [app-db](#app-db).
+A pure derivation that re-frame2 keeps materialised at a path in [app-db](#app-db). The point: because the derived value lives *in* app-db, your [event handlers](#event-handler) can read it as plain state — whereas a [subscription](#subscription)'s value is only available to [views](#view).
 
-You specify the input paths to watch, the `:output-path` to maintain, and a pure `:derive` function. When any input value changes, re-frame2 runs `:derive` with the input values and stores the result at `:output-path`.
+You declare the `:inputs` to watch, a pure `:derive` function, and the `:output-path` to maintain; whenever an input changes, the framework re-runs `:derive` and writes the result, in step with the [event cascade](#event-cascade):
 
-Most flows watch ordinary app-db paths. A flow can also watch runtime state by using an input path that starts with `:rf.db/runtime`; the result is still written to app-db.
-
-Flows are often useful for collating or collapsing multiple facts into a single piece of state; for example, collapsing many pieces of error state into one `:any-errors?` value.
-
-Here is a static flow definition:
 ```clojure
 (rf/reg-flow
   {:id :cart/total :inputs [[:cart :items]]
@@ -220,36 +229,33 @@ Here is a static flow definition:
    :output-path [:cart :total]})
 ```
 
-Flows can also be [created and removed dynamically](../api/05-flows.md#runtime-registration-via-fx) via effects.
+Reach for a flow to collate or collapse many facts into one — e.g. folding several error flags into a single `:any-errors?`. Inputs may also read framework state (a path under `:rf.db/runtime`), and flows can be [added and removed dynamically](../api/05-flows.md#runtime-registration-via-fx) via effects.
 
-Related: [Flows](concepts/flows.md) and [toggling a derivation at runtime](concepts/flows.md#toggling-a-derivation-at-runtime).
+Related: [Flows](concepts/flows.md), [toggling a derivation at runtime](concepts/flows.md#toggling-a-derivation-at-runtime).
 
 ### **frame**
 
-A frame is an isolated execution context: one running instance of an app.
+An isolated, running instance of an app. A frame owns the state and runtime machinery for that instance — its [app-db](#app-db), [runtime-db](#runtime-db), event queue, subscription cache, and lifecycle.
 
-It owns the state and runtime machinery for that instance: its [app-db](#app-db), [runtime-db](#runtime-db), event queue, subscription cache, and lifecycle.
+A frame supplies *state*; its *behaviour* comes from an [image](#image). Crucially, **a frame isolates state, not registrations** — the registry is process-global, so the *same* event handlers, subscriptions, views, effects, flows, and machines run in every frame, each against that frame's own state. Most frames use the default image (all registrations); advanced setups hand a frame a *selected* one.
 
-A frame gets its behaviour from registrations, for example `reg-event` and `reg-view`. Usually it uses the default registration set, so the same event handlers, subscriptions, views, effects, flows, and machines can run in many frames, each against that frame's own state. Advanced setups can use [images](#image) to give a frame a selected registration set.
-
-Most apps create one frame at boot and then stop thinking about it. Short-lived frames are useful for tests, stories, and server-rendered requests. Multiple independent app instances can run on the same page by using different frames; a sidecar tool such as Xray is just a separate app in its own frame.
+Most apps create one frame at boot and then forget about it. But because frames are independent, you can run several app instances on one page: short-lived frames power tests, stories, and per-request server rendering, and a sidecar tool like [Xray](#xray) is just a separate app in its own frame. A frame's [identity is carried, not found](#frame-identity-is-carried-not-found) — each operation reads its frame from scope.
 
 ```clojure
 (rf/reg-frame :app
-  {:initial-events [[:some-initialise-event]
-                    [:another-event]]
-   :images [image1 image2]})    ;; an optional composition of registrations
+  {:initial-events [[:app/initialise]]
+   :images [image1 image2]})    ;; optional: a selected composition of registrations
 ```
 
 Related: [Frames](concepts/frames.md).
 
 ### **image**
 
-An image is a value that selects registrations: event handlers, subscriptions, views, effect handlers, flows, machines, and other app behaviour. It is not a running app and it does not hold state.
+The selected set of registrations a [frame](#frame) resolves its behaviour against — [event handlers](#event-handler), [subscriptions](#subscription), [views](#view), [effect handlers](#effect-handler), [flows](#flow), [machines](#machine), and the rest. An image is a *value*: it's not a running app and holds no state.
 
-Most apps use the default image automatically, which means "all the registrations already loaded." You name images explicitly when different frames need different behaviour: a test frame with fake effects, two examples that reuse the same event ids, or a sidecar tool such as Xray.
+Most apps use the **default image** automatically — "all the registrations already loaded." You name an image explicitly only when different frames need different behaviour: a test frame with fake effects, two examples that reuse the same event ids, or a sidecar tool like [Xray](#xray).
 
-When a frame starts, its image is resolved into a sealed registration set. That resolved set is sometimes called an **image generation**, but the simple rule is enough most of the time: the image supplies behaviour; the frame supplies state.
+The rule that ties it to a frame: **the image supplies behaviour; the [frame](#frame) supplies state.** When a frame starts, its image is resolved into a sealed registration set (its *generation*) — but most of the time that rule is all you need.
 
 ```clojure
 (def checkout-image
