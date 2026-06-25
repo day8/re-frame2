@@ -237,6 +237,16 @@ Most apps create one frame at boot and then forget about it. But because frames 
 
 Related: [Frames](concepts/frames.md).
 
+### **hiccup**
+
+The plain Clojure data that describes your UI: nested vectors where `[:div.card {:on-click f} "Hi"]` is a `<div>`. Because markup is *data*, not a template language, a [view](#view) composes and diffs cheaply and even renders to a string on the server — and the [substrate](#substrate) turns it into real React elements.
+
+```clojure
+[:ul.cart (for [item items] [:li {:key (:sku item)} (:name item)])]
+```
+
+Related: [Views](concepts/views.md).
+
 ### **image**
 
 The selected set of registrations a [frame](#frame) resolves its behaviour against — [event handlers](#event-handler), [subscriptions](#subscription), [views](#view), [effect handlers](#effect-handler), [flows](#flow), [machines](#machine), and the rest. An image is a *value*: it's not a running app and holds no state.
@@ -276,6 +286,21 @@ Interceptors are registered by id with `reg-interceptor` (never written inline),
 ```
 
 Related: [Interceptors](concepts/interceptors.md).
+
+### **query vector**
+
+The vector you hand `subscribe` to read a [subscription](#subscription): an id plus any arguments — `[:article/page "abc"]`. The id picks the subscription; the rest are its arguments, and the whole vector keys the subscription cache, so two equal query vectors share one cached value.
+
+```clojure
+@(rf/subscribe [:cart/count])             ;; id only
+@(rf/subscribe [:article/by-id "BK-1"])   ;; id + argument
+```
+
+Related: [Subscriptions](concepts/subscriptions.md).
+
+### **registrar**
+
+The single, process-wide table every `reg-*` form writes to and every lookup reads from, keyed by kind + id. It holds *all* your [registrations](#registration) — events, subs, effects, views, machines — and **every [frame](#frame) shares the one registrar** rather than keeping its own copy. That's the mechanism behind "a frame isolates state, not behaviour."
 
 ### **registration**
 
@@ -405,6 +430,16 @@ Enqueue an [event](#event) for a [frame](#frame) to process.
 
 Related: [event](#event), [event envelope](#event-envelope), [event cascade](#event-cascade).
 
+### **dispatch-sync**
+
+Like [`dispatch`](#dispatch), but it runs the [event](#event) and its whole [cascade](#event-cascade) to completion *before returning*, instead of queuing for the next tick. The right call at boot, in tests, and at the REPL — never from inside a running handler (which raises `:rf.error/dispatch-sync-in-handler`).
+
+```clojure
+(rf/dispatch-sync [:app/initialise])   ;; app-db is committed before the next line
+```
+
+Related: [Events & the cascade](concepts/events-and-the-cascade.md).
+
 ### **drain / run-to-completion**
 
 The runtime drains the *whole* event queue to a fixed point — running every queued [event](#event) to completion — before [subscriptions](#subscription) recompute and [views](#view) render. So the UI updates once, from a settled state, never mid-flight.
@@ -424,6 +459,12 @@ Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-fram
 ```
 
 Related: [Observability](concepts/observability.md). Name DCE once, then use **elide**.
+
+### **init!**
+
+The one-time boot call that installs a [substrate](#substrate) [adapter](#adapter) into the runtime — `(rf/init! reagent-adapter/adapter)`. Idempotent, called once at startup. It does *not* create a default [frame](#frame) (identity is carried, not found); you register your root frame explicitly.
+
+Related: [Adapters](../api/14-adapters.md).
 
 ### **project (egress)**
 
@@ -517,6 +558,28 @@ Every managed async surface (HTTP, resources, mutations, route loaders, machine 
 
 Related: [Managed HTTP](concepts/http.md).
 
+
+### **The derivation graph**
+
+The directed graph of pure derivations rooted at [app-db](#app-db), with [views](#view) at the leaves. [Subscriptions](#subscription), [flows](#flow), resource reads, route facts, and machine selectors are all nodes on this one graph; the runtime recomputes only along edges whose value actually changed (by `=`), so an unchanged input prunes everything downstream of it.
+
+Related: [Subscriptions](concepts/subscriptions.md).
+
+### **Data classification**
+
+Marking an [app-db](#app-db) path (or a payload slot) `:sensitive` or `:large` so the framework swaps in a redaction/size sentinel wherever that value would cross an egress boundary — a trace, [Xray](#xray), an SSR payload, an off-box log — while on-box rendering still sees the real value. Hygiene applied at the boundary (see [project (egress)](#project-egress)), not security.
+
+Related: [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
+
+### **Recordable vs ambient coeffects**
+
+Two grades of [coeffect](#coeffect). A *recordable* one (the clock, a fresh id) is captured onto the [event envelope](#event-envelope) before the handler runs, so the durable result depends on a recorded value and [replays](#time-travel) identically. An *ambient* one is read live and isn't recorded — fine for a display hint, never for anything that feeds a durable write.
+
+```clojure
+{:rf.cofx/requires [:rf/time-ms]}   ;; :rf/time-ms is recordable — stamped on the envelope
+```
+
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
 ## Machines
 
