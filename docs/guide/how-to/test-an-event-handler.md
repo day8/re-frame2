@@ -133,15 +133,15 @@ There's a failure mode here that catches people, and it's a *feature*. If a hand
 `:rf/time-ms` is the exception that always succeeds — the router stamps every event with an enqueue time when it's dispatched, so the clock is never *missing*; the runtime can always mint it. The strict failure fires for a fact the runtime *can't* safely mint on its own — typically one backed by a **generator**: a function you registered with `reg-cofx` that produces a fresh value each time (a new id, a random number). The framework won't run that generator behind your test's back, because the value it makes is one your test didn't choose. So if you declare such a fact and don't supply it, the dispatch refuses to proceed:
 
 ```clojure
-(rf/reg-event :todo/create
+(rf/reg-event :comment/create
   {:rf.cofx/requires [:app/new-id]}     ;; a reg-cofx with a value-returning generator
-  (fn [{:keys [db app/new-id]} [_ text]]
-    {:db (assoc-in db [:todos new-id] {:text text})}))
+  (fn [{:keys [db app/new-id]} [_ body]]
+    {:db (assoc-in db [:comments new-id] {:body body})}))
 
 ;; A :test-preset frame is strict-mint by default. Supply the id, or the
 ;; dispatch fails with :rf.error/missing-required-cofx — it will NOT silently
 ;; mint a different id than production would.
-(rf/dispatch-sync [:todo/create "milk"]
+(rf/dispatch-sync [:comment/create "Great article!"]
                   {:frame f :rf.cofx {:app/new-id "id-123"}})
 ```
 

@@ -38,11 +38,9 @@ If the dev build feels fine and only production is slow, jump straight to rung 4
 
 ## 2 — Move the work behind the equality gate
 
-First, the two words this whole section turns on. Subscriptions come in *layers*. A **layer-1** sub — also called an **extractor** — reads [app-db](../glossary.md#app-db) directly and just pulls out a slice; it does no real computing. A **layer-2** sub reads from *other subscriptions* rather than from app-db, and it's where derived work — sorting, filtering, formatting — belongs. The `=` check sits between the two, and the whole game is putting expensive work on the layer-2 side of it. ([Subscriptions](../concepts/subscriptions.md) has the full layering grammar.)
+Two words this section turns on, recapped from [Subscriptions](../concepts/subscriptions.md): a **layer-1** sub (an **extractor**) reads [app-db](../glossary.md#app-db) directly and pulls out a slice; a **layer-2** sub reads from *other subscriptions* and is where derived work — sorting, filtering, formatting — belongs. The `=` check between them is the [circuit breaker](../concepts/subscriptions.md#the-equality-gate): when app-db changes, every extractor re-runs to re-check its slice, and an `=` result shuts the gate so nothing downstream recomputes. The whole game is putting expensive work on the layer-2 side of that gate.
 
-With those words in hand, here is the mechanism in three sentences. When app-db — your app's single immutable state map — changes, every layer-1 extractor re-runs to check its slice, and the new result is compared with the old by `=`. If the slice didn't change, propagation stops: downstream subs keep their cached values, and views don't re-render. That `=` check is the circuit breaker, and it can only save you work that sits *behind* it.
-
-So the first question is always: **is there computation in a layer-1 sub?** Remember, an extractor runs on *every* app-db change — running is how it checks its gate. So any computing you put in one runs on every keystroke in every unrelated form:
+So the first question is always: **is there computation in a layer-1 sub?** An extractor runs on *every* app-db change — running is how it checks its gate — so any computing you put in one runs on every keystroke in every unrelated form:
 
 ```clojure
 ;; Slow — the sort sits BEFORE the gate. Extractors re-run on every
@@ -138,7 +136,7 @@ Second, the inline `#(dispatch …)` on the button is correct as written: on a D
 
 ### Stable callbacks — only with a measurement
 
-Every render that writes `#(dispatch [:article/toggle-favorite slug])` mints a fresh function object. It's behaviourally identical to last render's, but `=` between two anonymous fns is `false`, so a *component* receiving it as a prop sees a change and re-renders for nothing. This is invisible on a cheap child. It matters only when the Views tab shows an **expensive** child re-rendering whose data didn't change: the callback prop is the churn.
+Every render that writes `#(dispatch [:article/toggle-favorite slug])` mints a fresh function object. It's behaviourally identical to last render's, but `=` between two anonymous fns is `false`, so a *view* receiving it as a prop sees a change and re-renders for nothing. This is invisible on a cheap child. It matters only when the Views tab shows an **expensive** child re-rendering whose data didn't change: the callback prop is the churn.
 
 The naive fix is to hoist the fn into an outer `let`, but that captures the mount-time `slug` forever and goes stale if the instance is ever handed a different one. We need both things at once: *one* function object that never changes identity, yet always acts on the *current* render's args.
 
