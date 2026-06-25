@@ -237,6 +237,18 @@ Most apps create one frame at boot and then forget about it. But because frames 
 
 Related: [Frames](concepts/frames.md).
 
+### **frame-handle**
+
+A [frame](#frame) captured as a *value* — a bundle of that frame's `dispatch`/`subscribe` — so you can carry it across an async boundary. Grab one (`rf/frame-handle`) while the frame is in scope, and a later `setTimeout`, promise, or WebSocket callback can still dispatch into the right frame instead of raising `:rf.error/no-frame-context`.
+
+Related: [Frames](concepts/frames.md).
+
+### **frame-provider**
+
+The React component that scopes a [frame](#frame) to a view subtree, so `dispatch`/`subscribe` inside resolve to it. `frame-provider` *creates* a frame on mount and destroys it on unmount (view-owned widgets, modals, stories); `frame-provider-existing` just threads an already-created frame's id down. (The everyday expression of [frame identity is carried, not found](#frame-identity-is-carried-not-found).)
+
+Related: [Frames](concepts/frames.md).
+
 ### **hiccup**
 
 The plain Clojure data that describes your UI: nested vectors where `[:div.card {:on-click f} "Hi"]` is a `<div>`. Because markup is *data*, not a template language, a [view](#view) composes and diffs cheaply and even renders to a string on the server — and the [substrate](#substrate) turns it into real React elements.
@@ -374,6 +386,12 @@ re-frame2 keeps its own durable state here: machine [snapshots](#snapshot), the 
 ```
 
 Related: [app-db](#app-db), [frame](#frame). Paths: `:rf.db/runtime`, children `:rf.runtime/*`.
+
+### **schema**
+
+A data description of a value's shape — `[:map [:sku :string] [:qty :int]]` — written in **Malli**, the data-driven schema library re-frame2 uses by default. Attach one to an [app-db](#app-db) path (`reg-app-schema`), an event, or an HTTP `:decode` step; the runtime checks it at a named boundary in dev and [elides](#elide) the check in production. Because a schema is itself data, it validates, coerces, and round-trips through tools.
+
+Related: [Validate with schemas](how-to/validate-with-schemas.md).
 
 ### **subscription**
 
