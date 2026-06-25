@@ -113,18 +113,6 @@ It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace 
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). The `:fx` key is why effects are often just called "fx".
 
-### **epoch**
-
-The record one [event cascade](#event-cascade) leaves behind — its trigger event, the before/after [app-db](#app-db), and the cascade's trace events. The epoch is re-frame2's **unit of time-travel**: [Xray](#xray) rewinds, replays, and inspects history one epoch at a time.
-
-```clojure
-;; one dispatch = one cascade = one epoch (the record)
-```
-
-Epochs live on the dev-only observability surface — they're [elided](#elide) from production builds.
-
-Related: [Observability](concepts/observability.md).
-
 ### **error record**
 
 A failure the framework surfaces as a structured map rather than a thrown, silent, or swallowed error — it [fails loud](#fail-loud-not-silent), but as *data*. Every record is keyed by a reserved **`:rf.error/*` category** drawn from a fixed catalogue; **branch on the category**, never on the human-readable `:reason` (which is prose for people and can change).
@@ -529,15 +517,6 @@ Every managed async surface (HTTP, resources, mutations, route loaders, machine 
 
 Related: [Managed HTTP](concepts/http.md).
 
-### **Xray**
-
-The dev inspector: an in-app panel that reads the trace stream and per-frame [epoch](#epoch) history so you debug the loop, not the DOM.
-
-```clojure
-;; open Xray to step through epochs, inspect app-db, and read the cascade
-```
-
-Related: [Debug with Xray](how-to/debug-with-xray.md).
 
 ## Machines
 
@@ -709,3 +688,45 @@ The client picking up the server's already-painted HTML and *adopting* it — in
 ### **hydration mismatch**
 
 When the client's first render disagrees with the server's HTML. re-frame2 compares a structural hash of both and fires a trace naming *where* they diverged (default: warn-and-replace; a strict mode for CI) — turning the classic silent SSR bug into a located, debuggable one.
+
+## Observability
+
+re-frame2's observability surface — everything tools read to show you the loop. The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)); the always-on error and event streams survive production. See [Observability](concepts/observability.md).
+
+### **trace stream**
+
+The live, in-process feed of [trace events](#trace-event) the runtime emits at every step of the loop — event dispatched, handler run, sub recomputed, effect fired. Every tool ([Xray](#xray), Story, the pair MCP) is just a reader of it; there's no second source of truth. Dev-only — [elided](#elide) from production.
+
+### **trace event**
+
+One immutable record on the [trace stream](#trace-stream): an `:operation` (what happened), an `:op-type` (its family), a timestamp, and tags — including the id that correlates a whole [cascade](#event-cascade). Filter by `:op-type` to slice the stream; the always-on `:errors`/`:events` records are the production-surviving subset.
+
+### **listener**
+
+A callback you register (`register-listener!`) on a named stream — `:trace`, `:epoch`, `:events`, or `:errors` — fired on each matching emit. One registration is a complete tooling integration; but a listener sees data in the clear, so [project it](#project-egress) before sending anything off-box.
+
+### **epoch**
+
+The record one [event cascade](#event-cascade) leaves behind — its trigger event, the before/after [app-db](#app-db), and the cascade's [trace events](#trace-event). The epoch is re-frame2's **unit of time-travel**: [Xray](#xray) rewinds, replays, and inspects history one epoch at a time.
+
+```clojure
+;; one dispatch = one cascade = one epoch (the record)
+```
+
+Epochs live on the dev-only observability surface — they're [elided](#elide) from production builds.
+
+Related: [Observability](concepts/observability.md).
+
+### **time-travel**
+
+Restoring a [frame](#frame) to the exact state it held at an earlier [epoch](#epoch) — both partitions, in one atomic write, no handlers re-run. It works because each epoch holds the real before/after immutable value; it's the superpower behind [Xray](#xray)'s scrubbing and undo.
+
+### **Xray**
+
+The dev inspector: an in-app panel that reads the [trace stream](#trace-stream) and per-frame [epoch](#epoch) history so you debug the loop, not the DOM.
+
+```clojure
+;; open Xray to step through epochs, inspect app-db, and read the cascade
+```
+
+Related: [Debug with Xray](how-to/debug-with-xray.md).
