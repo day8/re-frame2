@@ -405,7 +405,7 @@ short of improvising.
  the [`re-frame2-pair`](../re-frame2-pair/SKILL.md) skill — Xray
  owns the *seeing*; re-frame2-pair owns the *driving*.
 - **Implementing Xray** (panel-facade/leaf split, mount lifecycle
- internals, `frame-provider-existing` `:rf/xray` isolation, the epoch pump's contract).
+ internals, `frame-provider {:frame :rf/xray}` isolation, the epoch pump's contract).
  Source of truth:
  [`tools/xray/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/xray/spec/011-Launch-Modes.md)
  and the per-panel implementation specs. A `xray-implementor` sibling

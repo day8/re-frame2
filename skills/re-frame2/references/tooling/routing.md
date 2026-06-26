@@ -112,7 +112,7 @@ Distilled from `examples/reagent/routing/core.cljs`.
   ;; (rf/dispatch [:rf.route/handle-url-change ...]) would raise
   ;; :rf.error/no-frame-context — the no-ambient-frame contract (EP-0002).
   (rf/install-history-listener!)
-  (render [rf/frame-provider-existing {:frame app-frame} [root-view]]))
+  (render [rf/frame-provider {:frame app-frame} [root-view]]))
 ```
 
 ## `:can-leave` — the pending-nav protocol
