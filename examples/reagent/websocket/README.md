@@ -1,69 +1,27 @@
 # Pattern-WebSocket in re-frame2
 
-A WebSocket is the textbook case of *state that is a question, not a value*.
-You never really want to know "what's in the connection variable"; you want to
-know **which state we're in** — connecting, authenticating, connected, dropped,
-reconnecting, given-up — and which [events](../../../docs/guide/glossary.md#event)
-move you between them. That's a [machine](../../../docs/machines/glossary.md#machine),
-and modelling the connection lifecycle as one is the whole point of this example.
+This example models a WebSocket connection as a [machine](../../../docs/machines/glossary.md#machine).
 
-It's the runnable companion to [`spec/Pattern-WebSocket.md`](../../../spec/Pattern-WebSocket.md):
-the spec's §The connection state machine is the normative description, and this
-example is its working form — the same shapes, app-shaped so the
-[views](../../../docs/guide/glossary.md#view) can drive them and you can click
-through the lifecycle in a browser. No network required; a tiny in-process mock
-server stands in for a real endpoint.
+A connection is best understood as a question, not a value. You rarely care "what's in the connection variable". You care **which state you're in** — connecting, authenticating, connected, dropped, reconnecting, or given-up — and which [events](../../../docs/guide/glossary.md#event) move you between them. That is exactly what a machine describes, and modelling the connection lifecycle as one is the whole point here.
 
-If you've read the [machines guide](../../../docs/machines/concepts.md) and want
-to see the grammar earn its keep on something gnarlier than a turnstile, this is
-that example. Three things make a real connection hard, and the machine grammar
-has a clean answer for each.
+It's the runnable companion to [`spec/Pattern-WebSocket.md`](../../../spec/Pattern-WebSocket.md). The spec's §The connection state machine is the normative description; this example is its working form, wired up so the [views](../../../docs/guide/glossary.md#view) can drive it and you can click through the lifecycle in a browser. No network is needed — a tiny in-process mock server stands in for a real endpoint.
+
+If you've read the [machines guide](../../../docs/machines/concepts.md) and want to see the grammar earn its keep on something harder than a turnstile, this is that example. Three things make a real connection tricky, and the machine grammar has a clean answer for each.
 
 ## The load-bearing idea, in three moves
 
-**Move one: the lifecycle is one compound state.** The happy path —
-`:connecting → :authenticating → :connected` — lives *inside* a parent
-[state](../../../docs/machines/glossary.md#state) called `:active`, with
-`:disconnected`, `:reconnecting`, and `:failed` as siblings beside it. Why nest
-the three leaves rather than flatten everything? Because the socket, the offline
-queue, the in-flight requests, and the subscription set all belong to *one*
-connection — they share a single `:data` map — and that shared lifecycle is
-exactly what a compound state expresses. (When the axes *don't* share data, you
-reach for parallel regions instead; the [`nine_states`](../nine_states/) example
-is that case. Here the data is shared, so a compound state is the right shape.)
+**Move one: the lifecycle is one compound state.** The happy path — `:connecting → :authenticating → :connected` — lives *inside* a parent [state](../../../docs/machines/glossary.md#state) called `:active`. Its siblings are `:disconnected`, `:reconnecting`, and `:failed`. Why nest the three success leaves instead of flattening everything? Because the socket, the offline queue, the in-flight requests, and the subscription set all belong to *one* connection — they share a single `:data` map. A compound state is what expresses that shared lifecycle. (When the axes *don't* share data, you reach for parallel regions instead — see the [`nine_states`](../nine_states/) example. Here the data is shared, so a compound state is the right shape.)
 
-**Move two: the JS WebSocket can't live in app-db, so an actor owns it.** A live
-`WebSocket` is a stateful host-side reference — it doesn't serialise, it won't
-survive a time-travel replay, and stuffing it into
-[app-db](../../../docs/guide/glossary.md#app-db) would quietly defeat re-frame2's
-value semantics. The canonical answer is to hand it to a child machine: the
-`:active` parent [`:spawn`](../../../docs/machines/glossary.md#spawn)s a
-`:websocket/socket` actor on entry, and *that* actor owns the host-side socket in
-a private side-table keyed by its own id. The connection machine's `:data` never
-holds the socket — only its **id**. Because the actor is spawned on `:active`, it
-survives all three success-path leaf transitions without re-spawning; the moment
-you leave `:active` (to reconnect, fail, or disconnect) the runtime tears the
-actor down automatically, and re-entering spawns a fresh one.
+**Move two: the JS WebSocket can't live in app-db, so an actor owns it.** A live `WebSocket` is a host-side reference. It doesn't serialise, it won't survive a time-travel replay, and putting it in [app-db](../../../docs/guide/glossary.md#app-db) would quietly defeat re-frame2's value semantics. The answer is to hand it to a child machine. The `:active` parent [`:spawn`](../../../docs/machines/glossary.md#spawn)s a `:websocket/socket` actor on entry, and *that* actor holds the host-side socket in a private side-table keyed by its own id. The connection machine's `:data` never holds the socket — only its **id**. Because the actor is spawned on `:active`, it survives all three success-path leaf transitions without re-spawning. The moment you leave `:active` — to reconnect, fail, or disconnect — the runtime tears the actor down, and re-entering spawns a fresh one.
 
-**Move three: a stale message must not be believed, and the socket id *is* the
-clock.** Reconnects create a subtle hazard — a slow `:message` from the socket
-you just replaced can land *after* the new one is live, and acting on it would be
-a bug. The fix is delightfully cheap: every inbound event carries the id of the
-socket it came from, and a `:current-socket?`
-[guard](../../../docs/machines/glossary.md#guard) drops it unless that id matches
-the one currently live. The live socket id literally *is* the connection's epoch
-— no separate version counter, no generation field. That's
-[Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md) composed against
-a value you already had lying around.
+**Move three: a stale message must not be believed, and the socket id *is* the clock.** Reconnects create a subtle hazard. A slow `:message` from the socket you just replaced can land *after* the new one is live, and acting on it would be a bug. The fix is cheap: every inbound event carries the id of the socket it came from, and a `:current-socket?` [guard](../../../docs/machines/glossary.md#guard) drops it unless that id matches the one currently live. The live socket id *is* the connection's epoch — no separate version counter, no generation field. That's [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md) composed against a value you already had.
 
-Everything below is those three moves, plus the day-to-day grammar (`:after`
-timers, `:always` cascades, [state tags](../../../docs/machines/glossary.md#state-tag))
-doing the unglamorous wiring.
+Everything below is those three moves, plus the day-to-day grammar (`:after` timers, `:always` cascades, [state tags](../../../docs/machines/glossary.md#state-tag)) doing the unglamorous wiring.
 
 ## What this example demonstrates
 
 - **A connection lifecycle as a compound machine.** `:active` parents
-  `:connecting` / `:authenticating` / `:connected`; the socket
+  `:connecting` / `:authenticating` / `:connected`. The socket
   [`:spawn`](../../../docs/machines/glossary.md#spawn) is anchored on the parent,
   so it spans the success-path leaf [transitions](../../../docs/machines/glossary.md#transition)
   without re-spawning. Leaving `:active` (to `:reconnecting`, `:failed`, or
@@ -72,7 +30,7 @@ doing the unglamorous wiring.
 - **A spawned actor owning the host-side socket.** The `:websocket/socket` actor
   is itself a small [machine](../../../docs/machines/glossary.md#machine). It
   keeps the JS `WebSocket`-shaped reference in a private store keyed by its
-  `:rf/self-id`, translates outbound `:send` events into wire writes, and
+  `:rf/self-id`, turns outbound `:send` events into wire writes, and
   forwards inbound server messages back to the parent. Only the id ever appears
   in `:data` — never the socket itself.
 
@@ -146,7 +104,7 @@ The example ships with a tiny in-process `WebSocket`-shaped stub in `messages.cl
 - **`messages/send-server-push!`** — used by the "Trigger server push" button to deliver a manual server-pushed event.
 - **`messages/simulate-disconnect!`** — used by the "Drop connection" button to force every live mock socket closed, triggering the reconnect cascade.
 
-**Production swap-out:** replace `mock-socket-for-actor` with a real `(js/WebSocket. url)` and wire its `onopen` / `onmessage` / `onerror` / `onclose` to the same actor-level dispatches. The connection machine — and every test against it — does not change. (That's the payoff of the machine-owns-the-actor / actor-owns-the-host-reference split: the transport is a swappable detail the lifecycle never sees.)
+**Production swap-out:** replace `mock-socket-for-actor` with a real `(js/WebSocket. url)` and wire its `onopen` / `onmessage` / `onerror` / `onclose` to the same actor-level dispatches. The connection machine — and every test against it — does not change. That's the payoff of the machine-owns-the-actor / actor-owns-the-host-reference split: the transport is a swappable detail the lifecycle never sees.
 
 ## How to run
 

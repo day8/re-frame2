@@ -1,37 +1,43 @@
 # flows — Spec 013 worked example
 
-A shopping cart whose subtotal and total aren't read with a subscription — they're *materialised into app-db* and kept fresh by the framework. That one move is the whole point of this example, and it's the companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md).
+A shopping cart. Its subtotal and total are *flows*: the framework keeps them computed and stored in app-db. This is the companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md).
 
-Here's the idea in a sentence. A [subscription](../../../spec/013-Flows.md) keeps its answer in a view-facing cache: great for views, invisible to everything else. A **flow** keeps its answer in [app-db](../../../spec/013-Flows.md) — so an event handler can read it as plain data, it travels back under time-travel, and it survives the wire. You declare the `:inputs` to watch, a pure `:derive`, and the `:output-path` to maintain; whenever an input changes, the runtime re-runs `:derive` and writes the result, in step with the event cascade. The cart's subtotal and total are exactly such values.
+A flow and a subscription both derive a value from state, but they store it differently. A [subscription](../../../spec/013-Flows.md) keeps its result in a view-facing cache — perfect for views, but nothing else can see it. A **flow** keeps its result in [app-db](../../../spec/013-Flows.md). So an event handler can read it as plain data, it comes back under time-travel, and it survives the wire.
+
+You declare three things: the `:inputs` to watch, a pure `:derive`, and the `:output-path` to write. When an input changes, the runtime re-runs `:derive` and writes the result — in step with the event cascade. The cart's subtotal and total are exactly that kind of value.
 
 ## Why a flow and not a sub
 
-This is the load-bearing question — Spec 013 §When (and when not) to use a flow — and the reason this example exists. The honest default is *still a subscription*: lighter, cached per-input, no app-db write. A typical app has dozens of subs and a handful of flows, if that. So reach for a flow only when the derived value has graduated from "a view's render input" to part of the application's **state**:
+This is the key question this example exists to answer (Spec 013 §When (and when not) to use a flow). The default answer is *still a subscription*: lighter, cached per-input, no app-db write. A typical app has dozens of subscriptions and a handful of flows, if that.
+
+Reach for a flow only when the derived value is no longer just a view's render input — when it has become part of the application's **state**:
 
 - another event handler reads it as plain `app-db` data,
 - it should survive SSR hydration, a time-travel revert, or app-db serialisation (sub-cache contents do not survive the wire),
 - the derivation is stable enough to be worth registering.
 
-The cart total ticks all three boxes, and the tell is one line: `:checkout/place-order` needs the total *inside a handler*, where no subscription can reach. That single requirement is what tips it from view-input to state. Most values never tip — when in doubt, use a sub.
+The cart total meets all three. The clearest sign is one line: `:checkout/place-order` needs the total *inside a handler*, where no subscription can reach. That single need is what makes it state, not a view input. Most values never cross that line — when in doubt, use a subscription.
 
 ## What this demonstrates
 
-Three things Spec 013 calls out, all live in this one cart.
+Three things Spec 013 calls out, all in this one cart.
 
-**Materialised computed state.** `:cart/subtotal` folds the line items into a sum and writes it to `[:cart :subtotal]`; `:cart/total` takes it from there. Both are declared with `rf/reg-flow` — a registered, runtime-toggleable computed-state declaration — and the runtime, not your code, is the sole author of those paths.
+**Computed state in app-db.** `:cart/subtotal` sums the line items and writes the result to `[:cart :subtotal]`. `:cart/total` takes it from there. Both are declared with `rf/reg-flow`. The runtime — not your code — is the only writer of those paths.
 
-**A flow that reads another flow — the topological cascade.** `:cart/total`'s `:inputs` are `[:cart :subtotal]` (another flow's output) and `[:cart :discount-rate]`. The runtime reads the dependency edge straight off that path overlap and sorts the two flows so `:cart/subtotal` always runs first. Both settle in a *single* walk that fires right after the event handler and before the `:db` install — so bump a quantity and the line-item change, the new subtotal, and the new total all land in one commit. A view never catches the cart mid-update with the subtotal moved but the total stale.
+**A flow that reads another flow.** `:cart/total`'s `:inputs` are `[:cart :subtotal]` (another flow's output) and `[:cart :discount-rate]`. The runtime sees that `:cart/total` depends on `:cart/subtotal` (their paths overlap) and runs `:cart/subtotal` first. Both update in a *single* pass, right after the event handler and before the `:db` commit. So when you bump a quantity, the line-item change, the new subtotal, and the new total all land in one commit. A view never sees the subtotal updated while the total is still stale.
 
-**A derivation you can switch on at runtime.** The discount is a feature gate, and `:cart/discount-rate` is *not* registered at boot — when it's absent its path reads nil and `:cart/total` treats it as 0% off. "Apply 10% discount" registers the flow mid-event via the `:rf.fx/reg-flow` effect; "Remove discount" tears it down via `:rf.fx/clear-flow` (which also vacates the path back to nil). This is the trick a database's materialised view can't pull off: because flows are data the framework holds in a registry rather than logic compiled into event chains, a derivation can be added or removed while the app runs. (v1's `on-changes` interceptor — the closest equivalent — wires into specific events at registration time and can't be toggled.)
+**A derivation you can switch on at runtime.** The discount is a feature gate. `:cart/discount-rate` is *not* registered at boot; while it is absent, its path reads nil and `:cart/total` treats it as 0% off. "Apply 10% discount" registers the flow mid-event with the `:rf.fx/reg-flow` effect. "Remove discount" tears it down with `:rf.fx/clear-flow` (which also resets the path to nil). A database's materialised view can't do this: because a flow is data in a registry — not logic baked into event chains — you can add or remove one while the app runs. (v1's closest equivalent, the `on-changes` interceptor, wires into fixed events at registration time and can't be toggled.)
 
-Two smaller payoffs ride along, and both are about how *ordinary* a flow's output is:
+Two smaller payoffs come along too, both about how *ordinary* a flow's output is:
 
-- **A handler reads it with a bare `get-in`.** `:checkout/place-order` reads `[:cart :total]` straight off `db` — no subscribe ceremony, no special flow accessor. Materialised state *is* app-db state.
-- **A view reads it through a plain sub.** The subs over `[:cart :subtotal]` and `[:cart :total]` are nothing but app-db reads; flows publish no framework sub of their own. The `:output-path` is the contract, and anything that reads app-db can read it.
+- **A handler reads it with a plain `get-in`.** `:checkout/place-order` reads `[:cart :total]` straight off `db` — no subscribe, no special flow accessor. The flow's output is just app-db state.
+- **A view reads it through a plain subscription.** The subscriptions over `[:cart :subtotal]` and `[:cart :total]` are ordinary app-db reads; a flow publishes no subscription of its own. The `:output-path` is the contract, and anything that reads app-db can read it.
 
 ### One wrinkle worth knowing: the one-event lag
 
-A flow registered mid-event doesn't compute during *that* event — effects run after the event's flow pass has already happened, so a freshly-registered flow's first output only appears on the **next** drain. The discount handlers paper over this with a tiny trick from the spec's own `:wizard/settle` pattern: right after registering (or clearing) the discount flow, they `[:dispatch [:cart/touch]]`. `:cart/touch` is a no-op — `(fn [{:keys [db]} _] {:db db})`, it writes nothing — whose *only* job is to make a drain happen, so the flow transform re-walks with the just-(de)registered flow now visible and materialises the discounted total. The toggle is the registration; the no-op is the nudge that surfaces it.
+A flow registered mid-event does not compute during *that* event. Effects run after the event's flow pass is already done, so a freshly-registered flow produces its first output only on the **next** drain.
+
+The discount handlers solve this with a small trick from the spec's `:wizard/settle` pattern. Right after registering (or clearing) the discount flow, they `[:dispatch [:cart/touch]]`. `:cart/touch` is a no-op — `(fn [{:keys [db]} _] {:db db})`, it writes nothing. Its only job is to cause a drain, so the flows re-run with the just-changed flow now visible, and the discounted total appears. The toggle is the registration; the no-op is the nudge that makes it show up.
 
 ## Files
 
@@ -48,7 +54,7 @@ flows/
 shadow-cljs watch examples/flows
 ```
 
-Then open the served build and bump a cart quantity to watch the subtotal and total settle together; toggle the discount to add and remove a flow live.
+Then open the served build. Bump a cart quantity to watch the subtotal and total update together. Toggle the discount to add and remove a flow live.
 
 ## Cross-references
 
