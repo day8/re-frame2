@@ -2,9 +2,9 @@
 
 A resource is a named, cached read of remote state — re-frame2's answer to TanStack Query / RTK Query / SWR / `re-frame-query`, re-expressed in the model: **views read server state passively through subscriptions; route entry, events, and machines *cause* it to fetch; the cache lives in the framework-owned runtime partition, not `app-db`.** You register a resource once with a scope policy, a params schema, and a request; after that the runtime owns identity, cache scope, staleness, dedupe, invalidation, GC, in-flight ownership, SSR hydration, and the metadata Xray reads.
 
-Resources are an **optional, post-v1 capability** — they ship in `day8/re-frame2-resources` (`re-frame.resources`), require `day8/re-frame2-http` for the transport, and are wired by one `(:require [re-frame.resources])` at app boot. An app that omits the artefact sees the `reg-resource` wrapper throw a clean `:rf.error/resources-artefact-missing`. This chapter covers the registration shape, the events, the subs, and introspection. The tutorial is [Guide ch.27 — Server-state and resources](../guide/concepts/server-state.md); the normative source is [016-Resources.md](../../spec/016-Resources.md).
+Resources are an **optional, post-v1 capability** — they ship in `day8/re-frame2-resources` (`re-frame.resources`), require `day8/re-frame2-http` for the transport, and are wired by one `(:require [re-frame.resources])` at app boot. An app that omits the artefact sees the `reg-resource` wrapper throw a clean `:rf.error/resources-artefact-missing`. This chapter covers the registration shape, the events, the subs, and introspection. The tutorial is [Guide ch.27 — Server-state and resources](concepts.md); the normative source is [016-Resources.md](../../spec/016-Resources.md).
 
-> **Scope is HTTP-only.** The first public-beta surface is **landed and complete**: the read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)), **focus/reconnect active-stale revalidation** (`:rf.resource/window-focused` / `:rf.resource/network-reconnected` + the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns — see [Revalidation](#focusreconnect-revalidation)), and **active-owner polling** (`:poll-interval-ms` — see [Polling](#polling)). **GraphQL is deferred** to a later slice. See [Guide ch.27 §What's deferred](../guide/concepts/server-state.md).
+> **Scope is HTTP-only.** The first public-beta surface is **landed and complete**: the read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)), **focus/reconnect active-stale revalidation** (`:rf.resource/window-focused` / `:rf.resource/network-reconnected` + the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns — see [Revalidation](#focusreconnect-revalidation)), and **active-owner polling** (`:poll-interval-ms` — see [Polling](#polling)). **GraphQL is deferred** to a later slice. See [Guide ch.27 §What's deferred](concepts.md).
 
 ## Registration
 
@@ -65,7 +65,7 @@ These three (`:params-schema`, `:scope`, request fn) are the registration gate �
 | `<resolver>` | Derive the scope. A route-resource resolver is `(fn [route ctx] …)`; a sub-resolvable resolver is a pure data value or a fn-of-nothing. |
 | `:rf.scope/from-caller` | Scope required from the use site — every ensure / refetch / state call must supply `:scope` (or a route resolver must). |
 
-There is no `[:rf.scope/global]` fallthrough. Event resolution precedence: payload `:scope` → route resolver → spec resolver. Subscription resolution: payload `:scope` → sub-resolvable spec policy → loud `:rf.error/resource-sub-unresolved-scope` (never a silent global read or `:idle`). See [Guide ch.27 §Scope](../guide/concepts/server-state.md).
+There is no `[:rf.scope/global]` fallthrough. Event resolution precedence: payload `:scope` → route resolver → spec resolver. Subscription resolution: payload `:scope` → sub-resolvable spec policy → loud `:rf.error/resource-sub-unresolved-scope` (never a silent global read or `:idle`). See [Guide ch.27 §Scope](concepts.md).
 
 ### `clear-resource`
 
@@ -244,13 +244,13 @@ The `:rf.resource/state` view-model — facts plus **derived** booleans:
  :has-data?     <bool>}
 ```
 
-Status invariants: `:loading` = first load, no usable data; `:fetching` = refresh in flight while prior data stays visible; `:error` = first load failed, no usable data; a failed *background* refresh stays `:loaded`, keeps prior `:data`, records `:refresh-error`. `:stale?` / `:loading?` / `:fetching?` / `:has-data?` are derived sub values, never stored. See [Guide ch.27 §Status](../guide/concepts/server-state.md).
+Status invariants: `:loading` = first load, no usable data; `:fetching` = refresh in flight while prior data stays visible; `:error` = first load failed, no usable data; a failed *background* refresh stays `:loaded`, keeps prior `:data`, records `:refresh-error`. `:stale?` / `:loading?` / `:fetching?` / `:has-data?` are derived sub values, never stored. See [Guide ch.27 §Status](concepts.md).
 
 > **Lifecycle trace ops (observability, not events you dispatch).** The runtime emits `:rf.resource/cache-hit` when a fresh `ensure` is served from cache with **no fetch** (a fresh-skip: an already-`:loaded` entry still fresh-by-policy serves the cached value, attaches the owner lease, and — for a blocking route resource — drains the blocking slot immediately, with no `:fetching` transition), and `:rf.resource/stale-fired` when a stale timer ticks (arming the stale transition, not a fetch). These are trace surfaces Xray reads — they are not `:status` values and not events user code dispatches.
 
 ## Mutations
 
-A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](../guide/concepts/server-state.md); the normative source is [016-Resources.md §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate).
+A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](concepts.md); the normative source is [016-Resources.md §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate).
 
 ### `reg-mutation`
 
@@ -285,7 +285,7 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
 
 **Optional keys**: `:invalidates` (`(fn [params result] → #{tag …})` — the tags made stale on success, composed with `:rf.resource/invalidate-tags`, scoped), `:patches` / `:populates` (controlled resource-entry transforms / seeds applied on success **before** invalidation, keyed by scoped key, via the same durable entry shape + structural sharing the read path uses), `:scope` (the cache scope the invalidation / patch / populate targets), `:invalidate-timing` (`:after-success` (default) | `:before-request` | `:after-failure` | `:after-settle`), `:transport`, `:doc`.
 
-> **`:retry` is NOT a `reg-mutation` spec key.** Write retries are opt-in and ride the [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args your `:request` fn returns — put `:retry {…}` in *that* map. The runtime passes the `:request` args through to the transport unchanged and does **not** read or enforce a spec-level `:retry`; there is no `reg-mutation`-level retry to arm. (Reads inherit the same discipline — see [Guide ch.10 §Retry](../guide/concepts/http.md): re-issuing a non-idempotent write because a reply was merely slow is the double-write bug, so retry stays explicit and per-request.)
+> **`:retry` is NOT a `reg-mutation` spec key.** Write retries are opt-in and ride the [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args your `:request` fn returns — put `:retry {…}` in *that* map. The runtime passes the `:request` args through to the transport unchanged and does **not** read or enforce a spec-level `:retry`; there is no `reg-mutation`-level retry to arm. (Reads inherit the same discipline — see [Guide ch.10 §Retry](http.md): re-issuing a non-idempotent write because a reply was merely slow is the double-write bug, so retry stays explicit and per-request.)
 
 > **Mutation `:scope` is not fail-closed.** Unlike a resource read — whose `:scope` is **required** and fails closed — a mutation's `:scope` is optional and resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it **MUST match the scope of the resources the write changes**: a write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead and silently misses the scoped entries (stale reads, no error). Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site; the `:rf.scope/from-caller` *policy* is a resource-read concept, not a mutation one.
 
@@ -341,7 +341,7 @@ A failure settles `:error` — there is **no `:refresh-error` analogue** (a writ
 
 ## Introspection and projection (tool/test lane)
 
-These direct functions are the **tool/test projection lane** — not an app-read API. `resource-meta` / `mutation-meta` project the **registration** (the registered spec); `resource-state` / `resources` / `mutation-state` / `mutations` project **runtime state** (the live entries) as a one-shot, non-reactive snapshot at an explicit frame. They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. **App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#subscriptions-passive)**, never through these functions, which do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [Guide ch.27 §Three lanes](../guide/concepts/server-state.md#three-lanes--registering-causing-projecting) and the [Spec 016 lane table](../../spec/016-Resources.md#public-api).
+These direct functions are the **tool/test projection lane** — not an app-read API. `resource-meta` / `mutation-meta` project the **registration** (the registered spec); `resource-state` / `resources` / `mutation-state` / `mutations` project **runtime state** (the live entries) as a one-shot, non-reactive snapshot at an explicit frame. They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. **App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#subscriptions-passive)**, never through these functions, which do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [Guide ch.27 §Three lanes](concepts.md#three-lanes--registering-causing-projecting) and the [Spec 016 lane table](../../spec/016-Resources.md#public-api).
 
 `:frame` is an explicit, app-registered frame id ([EP-0002](../EP/EP-0002-frame-target-resolution.md) — no ambient `:rf/default` fallback; a frameless call with no resolvable context fails closed).
 
@@ -405,14 +405,14 @@ Xray exposes the same shapes plus the tool accessors (`list-resources`, `list-re
 
 ## Cache home
 
-Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db partition (`:rf.db/runtime`); the frame work ledger at `:rf.runtime/work-ledger`. Both are reserved runtime-db keys, framework-owned, per-frame isolated, allocated lazily. App code reads through the subs and accessors and never hand-edits the slice. Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) are deliberately separate; host handles (AbortControllers, timers, promises) live in side tables and are never serialized. The correctness rule: **cancellation is opportunistic; stale-reply suppression (by work-id + generation) is mandatory.** See [Guide ch.27 §Cache home and the work ledger](../guide/concepts/server-state.md).
+Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db partition (`:rf.db/runtime`); the frame work ledger at `:rf.runtime/work-ledger`. Both are reserved runtime-db keys, framework-owned, per-frame isolated, allocated lazily. App code reads through the subs and accessors and never hand-edits the slice. Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) are deliberately separate; host handles (AbortControllers, timers, promises) live in side tables and are never serialized. The correctness rule: **cancellation is opportunistic; stale-reply suppression (by work-id + generation) is mandatory.** See [Guide ch.27 §Cache home and the work ledger](concepts.md).
 
 ## Examples and cross-references
 
-- [Guide ch.27 — Server-state and resources](../guide/concepts/server-state.md) — the tutorial.
+- [Guide ch.27 — Server-state and resources](concepts.md) — the tutorial.
 - [Spec 016 — Resources](../../spec/016-Resources.md) — the normative contract.
 - [EP-0003 — Resource Queries](../EP/EP-0003-resource-queries.md) — rationale and prior-art benchmark.
 - [Migration: re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md) — moving off `shipclojure/re-frame-query` or a hand-rolled Pattern-RemoteData cache.
-- [07 — HTTP](07-http.md) — the `:rf.http/managed` transport and the `:rf.http/*` failure taxonomy.
-- [06 — Routing](06-routing.md) — `:resources` route metadata.
-- [09 — SSR](09-ssr.md) — the hydration install path.
+- [07 — HTTP](http-api.md) — the `:rf.http/managed` transport and the `:rf.http/*` failure taxonomy.
+- [06 — Routing](../api/06-routing.md) — `:resources` route metadata.
+- [09 — SSR](../api/09-ssr.md) — the hydration install path.

@@ -6,7 +6,7 @@ By the end of this part the home page fetches the global article list on entry, 
 
 Here is the one sentence to carry through the whole part:
 
-**A server read is a [subscription](../glossary.md#subscription) you read and a [cause](../glossary.md#owner--cause) you fire — the view never fetches.**
+**A server read is a [subscription](../../guide/glossary.md#subscription) you read and a [cause](../glossary.md#owner--cause) you fire — the view never fetches.**
 
 That is the whole trick. The route *causes* the fetch, a subscription *reads* the result, and nothing in your view ever calls the network. We'll build up to it one piece at a time. Let's go.
 
@@ -126,14 +126,14 @@ Most of the config map is optional knobs you reach for later. Four keys carry th
     |---|---|
     | **`:stale-after-ms`** | freshness window — fresh for this long, then the next *ensure* refetches in the background. Your `staleTime`. |
     | **`:gc-after-ms`** | how long an entry lingers in cache after its last reader/owner goes away, before garbage collection. Your `gcTime`/`cacheTime`. |
-    | **`:poll-interval-ms`** | re-read every N ms while the entry has an active owner and the tab is visible — `refetchInterval`, but owner-driven. Covered in [Server state: resources](../concepts/server-state.md). |
+    | **`:poll-interval-ms`** | re-read every N ms while the entry has an active owner and the tab is visible — `refetchInterval`, but owner-driven. Covered in [Server state: resources](../concepts.md). |
     | **`:tags`** | `(fn [params data] → #{tag …})` — names the facts the data contains, so a write can invalidate exactly the reads it broke (Part 4). |
     | **`:data-schema`** | optional Malli schema for the *decoded response*. When present, the data is shape-validated; when absent, it isn't. Validation only — it does **not** drive caching or privacy. |
     | **`:transport`** | which transport the read runs on. The only built-in is `:rf.http/managed`, which is also the default — you'll rarely write this. |
     | **`:doc`** | a docstring the registry and Xray surface. |
     | **`:sensitive` / `:large`** | privacy/size classification — vectors of paths into the entry (e.g. `[[:data :ssn]]`) marking fields to redact or summarise at every egress boundary (trace, Xray, SSR). The whole-entry shorthands are `:sensitive?` / `:large?`. |
 
-    The request fn returns the managed-HTTP args map — `{:request {…} :decode …}` — which is itself the network layer's contract, [Spec 014](../../../spec/014-HTTPRequests.md). You get its other knobs for free here: `:retry`, `:timeout-ms`, `:accept`, request headers. One restriction — the runtime owns reply addressing, so the args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`; the resource lowering derives those from the scoped key and current generation. Put one in and it's a loud reject, not a silent override.
+    The request fn returns the managed-HTTP args map — `{:request {…} :decode …}` — which is itself the network layer's contract, [Spec 014](../../spec/014-HTTPRequests.md). You get its other knobs for free here: `:retry`, `:timeout-ms`, `:accept`, request headers. One restriction — the runtime owns reply addressing, so the args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`; the resource lowering derives those from the scoped key and current generation. Put one in and it's a loud reject, not a silent override.
 
 Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initialise`, and the three `:articles/*` subs. The resource replaces all of them, so `:app/initialise` shrinks to an empty seed:
 
@@ -143,7 +143,7 @@ Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initi
   (fn [_cofx _event] {:db {}}))
 ```
 
-Here's the part that quietly rearranges people's mental furniture the first time they see it: the article data no longer lives in [app-db](../glossary.md#app-db) — your app's single state map — at all. It lives in **[runtime-db](../glossary.md#runtime-db)** instead, the framework-owned partition beside app-db (its resource cache is the `:rf.runtime/resources` subsystem there — see [app-db](../concepts/app-db.md) for [the two-partition model](../glossary.md#the-two-partitions)). App-db is for *your* state; server reads are a keyed, lifecycle-managed slice the runtime owns next door.
+Here's the part that quietly rearranges people's mental furniture the first time they see it: the article data no longer lives in [app-db](../../guide/glossary.md#app-db) — your app's single state map — at all. It lives in **[runtime-db](../../guide/glossary.md#runtime-db)** instead, the framework-owned partition beside app-db (its resource cache is the `:rf.runtime/resources` subsystem there — see [app-db](../../guide/concepts/app-db.md) for [the two-partition model](../../guide/glossary.md#the-two-partitions)). App-db is for *your* state; server reads are a keyed, lifecycle-managed slice the runtime owns next door.
 
 > **Why isn't the server data in app-db?** Because a cache entry has a *lifecycle* app-db doesn't model: it's fetching, it's stale, it has an in-flight request, it can be garbage-collected when no page is reading it, it can be refetched without you writing a refetch event. Stuffing all that into app-db means hand-rolling it in every app, forever. Resources move the bookkeeping into runtime-db — but, crucially, expose it back to you through the *same* subscription shape you already know. You read it; you don't manage it.
 
@@ -201,11 +201,11 @@ Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`,
     | **`:when`** | `(fn [route ctx] → boolean)` — only ensure this read when the predicate holds (skip a read whose params aren't available yet). The clean alternative to ensuring with sentinel `nil` params. |
     | **`:id` / `:after`** | order the ensure-*dispatch* of dependent reads — give an entry a local `:id`, and another `:after #{that-id}` to dispatch it later. (Dispatch order only, not a data waterfall — the params still come from the route, not from the earlier read's data.) |
 
-> **Routes aren't the only cause.** The route is the *cleanest* cause, but an [event](../glossary.md#event) or a [state machine](../../machines/glossary.md#machine) can ensure a resource too — `[:rf.resource/ensure {:resource … :params … :owner … :cause …}]`. The difference is the **[owner](../glossary.md#owner--cause)**: a route owner is released for you on route leave, while an event-minted owner needs a matching `[:rf.resource/release-owner {:owner …}]` so the entry doesn't get pinned alive forever. For "fetch this when the page is showing," the route is exactly right and frees you from the bookkeeping.
+> **Routes aren't the only cause.** The route is the *cleanest* cause, but an [event](../../guide/glossary.md#event) or a [state machine](../../machines/glossary.md#machine) can ensure a resource too — `[:rf.resource/ensure {:resource … :params … :owner … :cause …}]`. The difference is the **[owner](../glossary.md#owner--cause)**: a route owner is released for you on route leave, while an event-minted owner needs a matching `[:rf.resource/release-owner {:owner …}]` so the entry doesn't get pinned alive forever. For "fetch this when the page is showing," the route is exactly right and frees you from the bookkeeping.
 
 ## Step 4 — read the read, and handle every state it can be in
 
-The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf.resource/state` subscription — a [subscription](../glossary.md#subscription) being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale).
+The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf.resource/state` subscription — a [subscription](../../guide/glossary.md#subscription) being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale).
 
 Here's the rewritten home page. Read the resource, branch on its state:
 
@@ -271,7 +271,7 @@ One invariant about failure is worth pausing on:
 
     A failed *background* refresh does not flip the resource to `:error`. It stays `:loaded` with its prior data and records the problem in `:refresh-error`, so users keep reading last-known-good content through a flaky network. Reserve the `:error` branch for the one case where there is genuinely nothing to show yet — a first load that failed. A refresh that fails is a footnote, not a catastrophe.
 
-The two error channels carry the **same envelope** — the closed [Spec 014](../../../spec/014-HTTPRequests.md) HTTP-failure shape — so you can render either with the same view. A first-load failure looks like:
+The two error channels carry the **same envelope** — the closed [Spec 014](../../spec/014-HTTPRequests.md) HTTP-failure shape — so you can render either with the same view. A first-load failure looks like:
 
 ```clojure
 {:status :error
@@ -340,13 +340,13 @@ The route causes the *first* fetch, and `:stale-after-ms` causes background refr
                :cause    [:manual :feed/refresh]}])
 ```
 
-Because the prior data is still there, the entry goes to `:fetching` (not `:loading`), so the feed keeps showing while the new list arrives — your `:fetching?` branch lights up the "Refreshing…" hint and nothing blinks. Note the `:cause`: it's pure trace/diagnostic metadata (it answers *why* in [Xray](../glossary.md#xray)) and, unlike an `:owner`, it doesn't keep the entry alive — a one-shot refresh shouldn't pin a cache entry.
+Because the prior data is still there, the entry goes to `:fetching` (not `:loading`), so the feed keeps showing while the new list arrives — your `:fetching?` branch lights up the "Refreshing…" hint and nothing blinks. Note the `:cause`: it's pure trace/diagnostic metadata (it answers *why* in [Xray](../../guide/glossary.md#xray)) and, unlike an `:owner`, it doesn't keep the entry alive — a one-shot refresh shouldn't pin a cache entry.
 
 ## See it move
 
 With the dev build running and Xray open:
 
-1. **Load the home page.** The feed shows a skeleton, then the article list. The route-entry event row in Xray shows the ensure it caused — an [event](../glossary.md#event) being an inert data vector recording that something happened. The Resources panel shows the `:conduit/articles` entry walk `:idle → :loading → :loaded`.
+1. **Load the home page.** The feed shows a skeleton, then the article list. The route-entry event row in Xray shows the ensure it caused — an [event](../../guide/glossary.md#event) being an inert data vector recording that something happened. The Resources panel shows the `:conduit/articles` entry walk `:idle → :loading → :loaded`.
 2. **Open an article, then press Back and open it again.** The second open is a **cache hit**. The Resources panel shows it served from cache, and there's no new network row in the timeline. You wrote zero caching code; identity — scope + resource + params — is the entire mechanism that makes the second read free.
 3. **Wait a minute, then revisit the home page.** The list is now past its `:stale-after-ms` window, so the route entry ensures it into `:fetching` — the old list stays on screen (you set `:keep-previous? true`) while a quiet background refetch runs. Stale-while-revalidate, declared in one number.
 4. **Break the network** (offline in dev tools, or point `api-base` at a bad host) **and reload.** The first load fails into the `:error` branch and your error view renders — a real failure, owned by a view *you* wrote, not an uncaught promise rejection scrolling past in the console.
@@ -355,4 +355,4 @@ Step back and notice there's still just one loop here: events write state, subs 
 
 > **Going deeper.** Why does this stay "one loop" rather than becoming a second data path bolted on the side? Because a resource entry is a *value* — an immutable view-model projected from the runtime cache — and your view is a pure function of that value. The cache's mutation (fetch, settle, expire, GC) happens entirely inside the runtime; what crosses the boundary into your code is always a fresh immutable snapshot. So the substitution model you rely on for app-db subscriptions holds unchanged: same input value, same rendered output, every time. The lifecycle complexity is real, but it's *encapsulated* — it never leaks into the referential transparency your views depend on. That's the algebraic reason "new power, same shape" isn't just a slogan: the resource is a new *source* feeding the same pure reduction, not a new kind of computation.
 
-The full resources model — scopes as leak boundaries, owners vs. causes, polling, the refetch race rules — is in [Server state: resources](../concepts/server-state.md). The normative contract is [Spec 016 — Resources](../../../spec/016-Resources.md).
+The full resources model — scopes as leak boundaries, owners vs. causes, polling, the refetch race rules — is in [Server state: resources](../concepts.md). The normative contract is [Spec 016 — Resources](../../spec/016-Resources.md).

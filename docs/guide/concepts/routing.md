@@ -292,7 +292,7 @@ Routes with no `:on-error` simply leave `:transition :error` set; a view over `:
 
 ### Declaring resources instead
 
-If the page's data is [server state managed as resources](server-state.md) — a [resource](../glossary.md#resource) being a declared, cached unit of server data — declare it as data with the `:resources` key instead (available when both `re-frame.routing` and `re-frame.resources` are loaded):
+If the page's data is [server state managed as resources](../../resources/concepts.md) — a [resource](../../resources/glossary.md#resource) being a declared, cached unit of server data — declare it as data with the `:resources` key instead (available when both `re-frame.routing` and `re-frame.resources` are loaded):
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs

@@ -120,7 +120,7 @@ Note the `:decode` schema in the sign-in example: `[:token {:sensitive? true} :s
 
 ### HTTP carriers: redact by header and query-param name
 
-There's one transient HTTP surface people forget: the **request** side. An `Authorization: Bearer …` header or a `?shop_token=…` query param is a secret travelling in the request, and [managed HTTP](../glossary.md#managed-http) records the request shape. These aren't classified by path into the body — they're classified by **name**, on the `:rf.http/managed` registration's `:carriers` block:
+There's one transient HTTP surface people forget: the **request** side. An `Authorization: Bearer …` header or a `?shop_token=…` query param is a secret travelling in the request, and [managed HTTP](../../resources/glossary.md#managed-http) records the request shape. These aren't classified by path into the body — they're classified by **name**, on the `:rf.http/managed` registration's `:carriers` block:
 
 ```clojure
 ;; extend the built-in carrier denylist with your app's own secret-bearing names
@@ -143,7 +143,7 @@ Carriers are **process-global** (one registration, not per-frame), and a malform
 
 ## Classify subsystem data on the subsystem
 
-Some data lives *inside* a runtime subsystem — a [machine](../../machines/glossary.md#machine)'s `:data`, a [resource](../glossary.md#resource)'s fetched data or params, a [route](../glossary.md#route)'s query string. You don't own its absolute storage path (the subsystem mints that fresh for each instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. Each time an instance is created (a machine spawns, a resource fetches), the framework translates your shape-relative declaration into a concrete path in the classification registry for that instance, and removes it again when the instance is torn down:
+Some data lives *inside* a runtime subsystem — a [machine](../../machines/glossary.md#machine)'s `:data`, a [resource](../../resources/glossary.md#resource)'s fetched data or params, a [route](../glossary.md#route)'s query string. You don't own its absolute storage path (the subsystem mints that fresh for each instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. Each time an instance is created (a machine spawns, a resource fetches), the framework translates your shape-relative declaration into a concrete path in the classification registry for that instance, and removes it again when the instance is torn down:
 
 ```clojure
 (rf/reg-machine :checkout/payment

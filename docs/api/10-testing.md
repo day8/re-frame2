@@ -268,6 +268,6 @@ Tests targeting multiple frames or machines reach for the same surfaces with exp
 
 - [01 — Core](01-core.md) — `dispatch-sync`, `subscribe-once`, `make-frame`, `with-frame` rowed in dispatch / registration.
 - [03 — Effects and interceptors](03-effects.md) — `with-fx-overrides` and the precedence rules.
-- [07 — HTTP](07-http.md) — HTTP test stubs (`with-managed-request-stubs`, canned-reply fx).
+- [07 — HTTP](../resources/http-api.md) — HTTP test stubs (`with-managed-request-stubs`, canned-reply fx).
 - [12 — Registrar](12-registrar.md) — `registrations`, `handler-meta`, `sub-topology` for tests that introspect what's registered.
 - [Spec 008 — Testing](../../spec/008-Testing.md) — the normative source.

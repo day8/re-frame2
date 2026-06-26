@@ -10,11 +10,11 @@ Every one of those is auth-*shaped* use of parts you already met:
 
 There is no auth machinery to learn. There's a token [slice](../glossary.md#app-db), a route guard, and a teardown — and they're all built from the loop you already know.
 
-We'll grow it one step at a time: a tiny token slice in [app-db](../glossary.md#app-db), then login, then the request decorator, then the route guard, then the bounce-back, then logout. Each step is a few lines and stands on its own. The full recipe runs end to end, with live views, in [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md) — this page is the reference shape behind it.
+We'll grow it one step at a time: a tiny token slice in [app-db](../glossary.md#app-db), then login, then the request decorator, then the route guard, then the bounce-back, then logout. Each step is a few lines and stands on its own. The full recipe runs end to end, with live views, in [Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md) — this page is the reference shape behind it.
 
 > **Auth is a slice, a guard, and a teardown — not a library.**
 
-Two add-on artefacts do the heavy lifting: [routing](../concepts/routing.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../concepts/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../concepts/server-state.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
+Two add-on artefacts do the heavy lifting: [routing](../concepts/routing.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../../resources/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../../resources/concepts.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
 
 ## 1. The token slice
 
@@ -89,7 +89,7 @@ A provided coeffect needs an owner to stamp its value. For session restore that 
                     {:rf.cofx {:auth.session/token (read-jwt-from-storage)}}))
 ```
 
-> **Going deeper — the one-question test.** Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../tutorial/03-auth-and-forms.md)).
+> **Going deeper — the one-question test.** Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md)).
 
 ### Keep the secret out of traces
 
@@ -124,7 +124,7 @@ Upgrade the form's `:form.login/submit-success` to an fx handler that stores the
 
 One token, one home. The classified `[:auth :token]` path holds it; the user map ships with `:token` stripped, so the JWT isn't *also* sitting unclassified at `[:auth :user :token]`, ready to leak to every off-box record. The decorator in step 3 always reads from `[:auth :token]`, never from the user.
 
-The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed`'s retry is also closed to a fixed category set and writes never auto-retry — reads do.) Register is the same wiring with a different URL and draft.
+The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../../resources/glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed`'s retry is also closed to a fixed category set and writes never auto-retry — reads do.) Register is the same wiring with a different URL and draft.
 
 > **Gotcha — keep the credential out of the trace on the way *in*, too.** The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value ([Spec 015 — Data classification](../../../spec/015-Data-Classification.md)).
 
@@ -313,9 +313,9 @@ A guard's headline feature is returning the user to exactly where they were head
 
 Logout has to clear three things: the session slice, the persisted token, *and* the departing user's cached server reads. Skip that last one and the next account sees the previous account's feed — precisely the bug you don't want anywhere near an auth flow.
 
-The first two are easy — they're the slice and the persistence seam you already built. The third, clearing a user's cached server reads, is one causal event when you use [resources](../glossary.md#resource) (a *resource* being a managed, cached read of server state): `:rf.resource/clear-scope`.
+The first two are easy — they're the slice and the persistence seam you already built. The third, clearing a user's cached server reads, is one causal event when you use [resources](../../resources/glossary.md#resource) (a *resource* being a managed, cached read of server state): `:rf.resource/clear-scope`.
 
-To clear *a user's* cached reads you need a way to name "this user's scope." That's a **named resource-scope resolver**: a pure function, registered once, that derives a canonical [scope](../glossary.md#scope) value from app-db. The same resolver is used by your resources, your route loads, and logout — one scope currency, no per-call-site seams:
+To clear *a user's* cached reads you need a way to name "this user's scope." That's a **named resource-scope resolver**: a pure function, registered once, that derives a canonical [scope](../../resources/glossary.md#scope) value from app-db. The same resolver is used by your resources, your route loads, and logout — one scope currency, no per-call-site seams:
 
 ```clojure
 ;; Register once at boot. The resolver is PURE — it derives a scope from db,

@@ -148,8 +148,8 @@ And everything else is built *on* the loop, never beside it:
 |---|---|
 | Derived values your handlers can read | [Flows](flows.md) |
 | Modes and transitions made explicit | [State machines](../../machines/concepts.md) |
-| The managed HTTP request | [HTTP](http.md) |
-| Server data, cached and invalidated | [Server state: resources](server-state.md) |
+| The managed HTTP request | [HTTP](../../resources/http.md) |
+| Server data, cached and invalidated | [Server state: resources](../../resources/concepts.md) |
 | The URL as just another input | [Routing: the URL is a sub](routing.md) |
 | Rendering on the server | [Server-side rendering](ssr.md) |
 | Cross-cutting behaviour around handlers | [Interceptors](interceptors.md) |
@@ -157,4 +157,4 @@ And everything else is built *on* the loop, never beside it:
 | Failures as structured data | [Errors: dossiers, not log lines](errors.md) |
 | Watching the loop run | [Observability: one wire, every tool](observability.md) |
 
-Not sure whether a value belongs in app-db, a sub, a [flow](../glossary.md#flow), a [resource](../glossary.md#resource), or a [machine](../../machines/glossary.md#machine)? [Where should this value live?](../where-state-lives.md) is the decision guide — it's the one router every other page defers to for "which one do I use?"
+Not sure whether a value belongs in app-db, a sub, a [flow](../glossary.md#flow), a [resource](../../resources/glossary.md#resource), or a [machine](../../machines/glossary.md#machine)? [Where should this value live?](../where-state-lives.md) is the decision guide — it's the one router every other page defers to for "which one do I use?"

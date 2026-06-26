@@ -1,6 +1,6 @@
 # Where should this value live?
 
-You have a value — a cart total, an article you fetched, the step a checkout is sitting in — and re-frame2 hands it four possible homes: a [**subscription**](glossary.md#subscription) (a derived value computed on demand), a [**flow**](glossary.md#flow) (a derived value written into your state), a [**resource**](glossary.md#resource) (a cached copy of server data), or a [**machine**](../machines/glossary.md#machine) (a process with named states). Pick the wrong one and the value fights you: it goes stale, it lies to your handlers, it scatters across booleans nobody keeps in sync. Pick the right one and it just behaves — because each home is shaped for a different job.
+You have a value — a cart total, an article you fetched, the step a checkout is sitting in — and re-frame2 hands it four possible homes: a [**subscription**](glossary.md#subscription) (a derived value computed on demand), a [**flow**](glossary.md#flow) (a derived value written into your state), a [**resource**](../resources/glossary.md#resource) (a cached copy of server data), or a [**machine**](../machines/glossary.md#machine) (a process with named states). Pick the wrong one and the value fights you: it goes stale, it lies to your handlers, it scatters across booleans nobody keeps in sync. Pick the right one and it just behaves — because each home is shaped for a different job.
 
 This is the page every other concept page links back to instead of answering the question a fifth time. The whole decision comes down to **four questions, asked in order — the first *yes* is your answer.** Read on and we'll grow one value — a shopping cart — until it has lived in all four homes and you can feel why each one exists.
 
@@ -10,7 +10,7 @@ Ask them top to bottom. Stop at the first *yes*.
 
 1. **Can you recompute it, every time, from state you already have?** → It's a **subscription**. ([Subscriptions: the derivation graph](concepts/subscriptions.md))
 2. **Must it live *in* [`app-db`](glossary.md#app-db) — read by [event handlers](glossary.md#event-handler), covered by your schema, riding time-travel?** → It's a **flow**. ([Flows: derived values your handlers can read](concepts/flows.md))
-3. **Does it come from a server, where it can go stale and needs caching, refetch, and invalidation?** → It's a **resource**. ([Server state: resources](concepts/server-state.md))
+3. **Does it come from a server, where it can go stale and needs caching, refetch, and invalidation?** → It's a **resource**. ([Server state: resources](../resources/concepts.md))
 4. **Does it have a lifecycle of its own — named states, timers, retries, cancellation?** → It's a **machine**. ([State machines](../machines/concepts.md))
 
 The order sorts by cost, cheapest first. A subscription costs nothing to declare and stores nothing. A flow pays an `app-db` write. A resource brings a whole cache. A machine brings a whole transition table. So you reach for a heavier home only when the value genuinely needs what it buys. **The cheapest home that fits is the right one.**
@@ -81,7 +81,7 @@ The cost is an `app-db` write on every recompute, plus a piece of registered run
 
 ### Question 3 — does it come from a server and go stale? Then it's a resource
 
-The cart so far is *local*. The user built it, so it's true by construction. But the checkout page must show the article being bought — title, price, stock — and that data isn't yours. It lives on a server, and you hold a *cache* of it that's stale the instant you read it. A value like that — remote origin, an identity naming *which* thing you fetched, staleness, refetch, invalidation — is a [resource](glossary.md#resource).
+The cart so far is *local*. The user built it, so it's true by construction. But the checkout page must show the article being bought — title, price, stock — and that data isn't yours. It lives on a server, and you hold a *cache* of it that's stale the instant you read it. A value like that — remote origin, an identity naming *which* thing you fetched, staleness, refetch, invalidation — is a [resource](../resources/glossary.md#resource).
 
 A resource splits cleanly into two halves: a **read** and a **cause**. The read is an ordinary subscription a view pulls passively — it never reaches out to the network. The fetch happens separately, set off by a **cause**: some named thing in your app that says "go get this now" — a route opening, an event firing, a machine entering a state. So the slogan is *a sub you read and a cause you fire*. Keeping the fetch off the render path is the whole point: a view that fetched while rendering would re-fetch on every re-render, and two views showing the same article would race to fetch it twice. A cause fires once, for a reason you can name and see in the trace.
 
@@ -106,7 +106,7 @@ A resource splits cleanly into two halves: a **read** and a **cause**. The read 
 ;; → {:status :loaded :data {:title "Widget" :price 1200} :has-data? true ...}
 ```
 
-Three keys make a registration valid, and forgetting any one is an error you hit immediately, not a surprise in production: **`:params-schema`** (every variable that names *which* thing you fetched), **`:scope`** (the leak boundary — see below), and the **`:request`** function in the third slot, returning a [managed-HTTP](concepts/http.md) args map (`:request`, `:decode`, plus optional `:accept`/`:retry`). A `reg-resource` missing any of them throws at registration time (`:rf.error/resource-missing-scope-policy` for a missing scope, `:rf.error/invalid-resource-spec` for the others) — there is no half-registered resource.
+Three keys make a registration valid, and forgetting any one is an error you hit immediately, not a surprise in production: **`:params-schema`** (every variable that names *which* thing you fetched), **`:scope`** (the leak boundary — see below), and the **`:request`** function in the third slot, returning a [managed-HTTP](../resources/http.md) args map (`:request`, `:decode`, plus optional `:accept`/`:retry`). A `reg-resource` missing any of them throws at registration time (`:rf.error/resource-missing-scope-policy` for a missing scope, `:rf.error/invalid-resource-spec` for the others) — there is no half-registered resource.
 
 Two ideas make a resource a resource. First, its **identity is the params**: `{:slug "widget"}` says *which* article, so two screens asking for the same one share one cache entry and one request. Second, its **scope is the leak boundary**: scope decides *whose* cache an entry lives in. And the cache itself isn't a store of its own — it's a *runtime-db* subsystem (`:rf.runtime/resources`, sitting beside the machine snapshots from Question 4), so it rides the same frame-state revert, serialise, and hydrate machinery as everything else the framework owns.
 
@@ -129,7 +129,7 @@ Reads are a small, passive family of subscriptions — you never poke at the raw
  :has-data? true}
 ```
 
-Staleness and invalidation come built in too: ensuring a stale entry refetches in the background while old data stays on screen, and a write elsewhere invalidates by tag. ([Server state: resources](concepts/server-state.md) is the full story; the most common cause of all is a route declaring its `:resources`, covered in [Routing](concepts/routing.md); the transport underneath is [managed HTTP](concepts/http.md).)
+Staleness and invalidation come built in too: ensuring a stale entry refetches in the background while old data stays on screen, and a write elsewhere invalidates by tag. ([Server state: resources](../resources/concepts.md) is the full story; the most common cause of all is a route declaring its `:resources`, covered in [Routing](concepts/routing.md); the transport underneath is [managed HTTP](../resources/http.md).)
 
 > **The read-side scope footgun.** A subscription can't run a `(route, ctx)` resolver — it's pure — so a `:rf.scope/from-caller` resource that a route ensured under one scope, then a view subscribes to *without* passing the same `:scope`, fails closed. If the scope is unresolvable you get a loud `:rf.error/resource-sub-unresolved-scope`; if it resolves to a *different* key the view reads `:idle` forever (a permanent skeleton), and the framework emits a dev warning naming the active scope you probably meant. The fix is always the same: subscribe with the same `:scope` the owning route or event ensured under.
 

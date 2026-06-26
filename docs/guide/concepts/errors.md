@@ -67,7 +67,7 @@ The full catalogue — every category, its trigger, its `:tags` payload, its rec
 
 When an error fires, the runtime applies a typed, per-category default. That's the whole story. There's no app-steering error policy here: no global error handler, no hook that swallows an exception or substitutes a result.
 
-This is deliberate, and the reasoning is worth sitting with — swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
+This is deliberate, and the reasoning is worth sitting with — swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](../../resources/http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
 
 The `:recovery` vocabulary is small and readable on sight:
 
@@ -77,7 +77,7 @@ The `:recovery` vocabulary is small and readable on sight:
 - `:warned-and-replaced` — last-write-wins on a conflicting set; advisory only.
 - `:skipped` — a platform-gated effect documented out, not really an error.
 - `:retried` — the runtime retried within a bound and surfaced the result.
-- `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `dispatch` to a misspelled fx-id, a [resource](../glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
+- `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `dispatch` to a misspelled fx-id, a [resource](../../resources/glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
 
 Plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. The per-category assignments live in [the catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).
 

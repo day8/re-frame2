@@ -96,12 +96,12 @@ def on_pre_build(config):
             shutil.rmtree(dest)
         shutil.copytree(src, dest)
 
-# Case 1a: guide/*, skills/*, and api/* pages link to spec via ../../spec/ —
-# collapse one level. All three trees live at docs/<tree>/X.md (depth 2 below
+# Case 1a: depth-2 pages (guide/*, skills/*, api/*, EP/*, and the per-capability
+# sections machines/*, resources/*, routing/*, ssr/*) link to spec via
+# ../../spec/ — collapse one level. All live at docs/<tree>/X.md (depth 2 below
 # repo root), so from the source tree the correct ref to spec/ is ../../spec/,
 # while in the staged docs_dir (where spec/ is copied to docs/spec/) the
-# correct ref is ../spec/. The rewrite is identical for all three trees
-# because they share the same depth.
+# correct ref is ../spec/. The rewrite is identical because they share depth.
 _GUIDE_TO_SPEC = re.compile(r'\]\(\.\./\.\./spec/')
 
 # Case 1a-mig: depth-2 pages (guide/*, skills/*, api/*) link to migration via
@@ -115,6 +115,12 @@ _GUIDE_TO_MIGRATION = re.compile(r'\]\(\.\./\.\./migration/')
 # ../../../spec/; in the staged docs_dir (docs/spec/) the correct ref is
 # ../../spec/. The rewrite collapses one level, same as the depth-2 case.
 _GUIDE_DEEP_TO_SPEC = re.compile(r'\]\(\.\./\.\./\.\./spec/')
+
+# Case 1a-deep-mig: depth-3 sub-chapter pages (e.g. a capability tutorial or
+# how-to under docs/resources/tutorial/) link to migration via
+# ../../../migration/; staged at docs/migration/, the correct ref is
+# ../../migration/. Same one-level collapse as Case 1a-deep.
+_GUIDE_DEEP_TO_MIGRATION = re.compile(r'\]\(\.\./\.\./\.\./migration/')
 
 # Case 1b: docs-root pages (e.g. docs/release-process.md) link to spec via
 # ../spec/ — correct for the GitHub source tree (where spec/ lives at the
@@ -227,7 +233,8 @@ _REWRITES = (
 
 
 def on_page_markdown(markdown, page, config, files):
-    """Rewrite cross-tree links in guide/*, skills/*, and spec/* pages.
+    """Rewrite cross-tree links in guide/*, skills/*, api/*, EP/*, the
+    per-capability sections (machines/, resources/, routing/, ssr/), and spec/* pages.
 
     See the module docstring for the full rewrite catalogue. Order matters:
     the in-tree directory-style rewrites (case 3) MUST run before the
@@ -238,7 +245,9 @@ def on_page_markdown(markdown, page, config, files):
     src = page.file.src_path.replace('\\', '/')
 
     if (src.startswith('guide/') or src.startswith('skills/')
-            or src.startswith('api/') or src.startswith('EP/')):
+            or src.startswith('api/') or src.startswith('EP/')
+            or src.startswith('machines/') or src.startswith('resources/')
+            or src.startswith('routing/') or src.startswith('ssr/')):
         # Choose by source depth. A guide sub-chapter at
         # docs/guide/<chapter-dir>/X.md is depth 3; its source spec ref is
         # ../../../spec/ and the staged path is ../../spec/. Plain
@@ -250,6 +259,7 @@ def on_page_markdown(markdown, page, config, files):
         if src.count('/') >= 2:
             # depth-3 (or deeper) — sub-chapter pages
             markdown = _GUIDE_DEEP_TO_SPEC.sub('](../../spec/', markdown)
+            markdown = _GUIDE_DEEP_TO_MIGRATION.sub('](../../migration/', markdown)
             # Bare ../../xray/ -> ../../xray/index.md (chapter overview).
             # Only sub-chapter pages emit this shape; depth-2 guide pages
             # would use ../xray/ and don't appear in the warning set.

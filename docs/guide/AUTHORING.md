@@ -143,7 +143,7 @@ Four gates keep the contract from rotting — the guide is maintained like produ
 
 1. **Per-PR staleness rule.** Every feature-touching PR updates the affected guide page(s) or states explicitly in the PR why the guide is unchanged — the same discipline already enforced for `tools/xray/spec/`, extended to the guide.
 2. **The cold-agent test.** A fresh AI agent, given only the **quickstart + tutorial** and an empty project, must produce a working app. Every stall or hallucination is a documentation bug *with a repro*. Concepts and how-tos are deliberately out of scope — the agent reaching for them is itself a tutorial-tier finding.
-3. **Time-to-pixels.** From setup start to first render in under five minutes, measured against the setup section of [the tutorial's index](tutorial/index.md). The quickstart's live cells are zero-install and don't count toward the budget.
+3. **Time-to-pixels.** From setup start to first render in under five minutes, measured against the setup section of [the tutorial's index](../resources/tutorial/index.md). The quickstart's live cells are zero-install and don't count toward the budget.
 4. **Snippets compile in CI.** Snippets cited from `examples/` files compile because their sources do; the citation comment is what lets the gate map a page to its compiled source. Hand-written snippets without a source file get the symbol-verification rule as their floor — prefer promoting them into an example.
 
 ## Mechanics

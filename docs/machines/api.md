@@ -8,7 +8,7 @@ This chapter covers the registration surface (the `reg-machine` / `defmachine` m
 
 > **Front-porch shrink (rf2-wad2fl / rf2-gkt25a).** Only `reg-machine` / `defmachine` and the `machine-has-tag?` subscription sugar are `re-frame.core` facade exports. The plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the `dispatch-to-system` fn live in their owned namespace `re-frame.machines` — reach them as `re-frame.machines/<name>`, not `rf/<name>`. The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple. `re-frame.machines` is the `day8/re-frame2-machines` artefact.
 
-For the *why* — the design rationale, the v1 vs post-v1 split, the capability matrix — see [005-StateMachines.md](../spec/005-StateMachines.md).
+For the *why* — the design rationale, the v1 vs post-v1 split, the capability matrix — see [005-StateMachines.md](../../spec/005-StateMachines.md).
 
 ## Registration
 
@@ -126,7 +126,7 @@ The canonical machine read is the framework-registered subscription vector `[:rf
 |---|---|---|
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data}` (or `nil` if not yet initialised) | 005 |
 
-This subscription vector is the canonical machine read — see [005 §Subscribing to machines](../spec/005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
+This subscription vector is the canonical machine read — see [005 §Subscribing to machines](../../spec/005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
 
 ## Cross-machine messaging
 
@@ -138,7 +138,7 @@ The action-side way one machine addresses its spawned child actor by *role* (`:l
 {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}
 ```
 
-It resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor; no-op when the `system-id` is unbound. This is the surface to reach for — a **machine action** can't read app-db and its `:on-spawn` return is dropped, so the fx form is the spec-blessed way an action sends a message to a named actor. See [The actor-lifecycle fx](#the-actor-lifecycle-fx) and [005 §Named addressing via `:system-id`](../spec/005-StateMachines.md).
+It resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor; no-op when the `system-id` is unbound. This is the surface to reach for — a **machine action** can't read app-db and its `:on-spawn` return is dropped, so the fx form is the spec-blessed way an action sends a message to a named actor. See [The actor-lifecycle fx](#the-actor-lifecycle-fx) and [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
 
 When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`; naming by `system-id` lets the parent address the child by role without threading that id.
 
@@ -192,11 +192,11 @@ Machines support **final states** — leaf states marked `:final?` that auto-des
 
 The pattern: a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, the framework destroys the child. No manual `:rf.machine/destroy` needed.
 
-See [005 §Final states](../spec/005-StateMachines.md#final-states-final--on-done--output-key).
+See [005 §Final states](../../spec/005-StateMachines.md#final-states-final--on-done--output-key).
 
 ## Machine-tooling exports (JVM)
 
-The shipped machine-tooling exports live in `re-frame.machines` and are JVM-only (Xray + conformance consume them directly; no `re-frame.core` facade export). They render the machine *algebra view* that Xray / re-frame-pair navigate — there is **no** framework-level `machine->xstate-json`, `machine->mermaid`, or Stately bridge (those are owned by the separate `day8/re-frame2-machines-viz` library; see [Spec 005 §Future](../spec/005-StateMachines.md) and the [Machines-Viz design rationale](../../tools/machines-viz/spec/DESIGN-RATIONALE.md)).
+The shipped machine-tooling exports live in `re-frame.machines` and are JVM-only (Xray + conformance consume them directly; no `re-frame.core` facade export). They render the machine *algebra view* that Xray / re-frame-pair navigate — there is **no** framework-level `machine->xstate-json`, `machine->mermaid`, or Stately bridge (those are owned by the separate `day8/re-frame2-machines-viz` library; see [Spec 005 §Future](../../spec/005-StateMachines.md) and the [Machines-Viz design rationale](../../tools/machines-viz/spec/DESIGN-RATIONALE.md)).
 
 ### `re-frame.machines/machine-algebra-view`
 
@@ -218,7 +218,7 @@ The shipped machine-tooling exports live in `re-frame.machines` and are JVM-only
 
 ### Post-v1 / future surfaces (not shipped)
 
-The following are **not** part of the shipped v1 surface — they are forward-pointers in [Spec 005 §Future](../spec/005-StateMachines.md), owned by the post-v1 `day8/re-frame2-machines` and `day8/re-frame2-machines-viz` libraries:
+The following are **not** part of the shipped v1 surface — they are forward-pointers in [Spec 005 §Future](../../spec/005-StateMachines.md), owned by the post-v1 `day8/re-frame2-machines` and `day8/re-frame2-machines-viz` libraries:
 
 - `machine->mermaid` / `machine->xstate-json` — diagram/JSON exporters, owned by `day8/re-frame2-machines-viz` (Machines-Viz), not the framework.
 - `:child-machine` — a possible future declarative state-scoped child-machine binding (desugaring to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`). Pure sugar over the v1 surface; not yet shipped. Use the imperative `:spawn` / `:destroy` cycle today.
@@ -227,11 +227,11 @@ The v1 foundation covers the machine-as-event-handler primitive (`reg-machine` o
 
 ## Capability matrix
 
-The v1 transition-table grammar covers a specific subset of Statechart capabilities — sequencing, `:after` timers, internal-vs-external transitions, guards, action lists, hierarchical states, parallel regions where the framework's epoch model can tolerate them, and final-state semantics. The exact subset and its rationale lives at [005 §Capability matrix](../spec/005-StateMachines.md#capability-matrix); the schema shape is [Spec-Schemas §`:rf/transition-table`](../spec/Spec-Schemas.md#rftransition-table).
+The v1 transition-table grammar covers a specific subset of Statechart capabilities — sequencing, `:after` timers, internal-vs-external transitions, guards, action lists, hierarchical states, parallel regions where the framework's epoch model can tolerate them, and final-state semantics. The exact subset and its rationale lives at [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix); the schema shape is [Spec-Schemas §`:rf/transition-table`](../../spec/Spec-Schemas.md#rftransition-table).
 
 ## See also
 
 - [01 — Core](../api/01-core.md) — `reg-machine` rowed in registration.
 - [08 — Schemas](../api/08-schemas.md) — machines declare schemas for their `:data` slot the same way ordinary handlers do.
 - [11 — Instrumentation](../api/11-instrumentation.md) — machine snapshots are part of the epoch buffer; transitions emit trace events.
-- [Spec 005 — State Machines](../spec/005-StateMachines.md) — the normative source.
+- [Spec 005 — State Machines](../../spec/005-StateMachines.md) — the normative source.

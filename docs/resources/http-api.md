@@ -300,7 +300,7 @@ The denylists and `:sensitive?` flag cover request carriers; the **response body
 
 !!! warning "Classification does not propagate — declare each surface a secret crosses"
 
-    A token in the response body (classified by the `:decode` schema) and the same token stored durably in `app-db` are **two** declarations on two surfaces. There is no propagation that carries one to the other. When `:on-success` writes the token into `app-db`, classify that durable path too — a `reg-event` returning `:sensitive [[:auth :token]]` alongside `:db` ([01 — Core §Standard events](01-core.md) and [keep secrets out of traces](../guide/how-to/keep-secrets-out-of-traces.md)). And never copy a secret into a sibling app-db path you have not classified (e.g. a JWT duplicated at `[:auth :user :token]`): the copy ships raw until *that* path is classified or the duplicate is dropped.
+    A token in the response body (classified by the `:decode` schema) and the same token stored durably in `app-db` are **two** declarations on two surfaces. There is no propagation that carries one to the other. When `:on-success` writes the token into `app-db`, classify that durable path too — a `reg-event` returning `:sensitive [[:auth :token]]` alongside `:db` ([01 — Core §Standard events](../api/01-core.md) and [keep secrets out of traces](../guide/how-to/keep-secrets-out-of-traces.md)). And never copy a secret into a sibling app-db path you have not classified (e.g. a JWT duplicated at `[:auth :user :token]`): the copy ships raw until *that* path is classified or the duplicate is dropped.
 
 ## Trace events emitted by `:rf.http/managed`
 
@@ -313,9 +313,9 @@ The denylists and `:sensitive?` flag cover request carriers; the **response body
 
 ## See also
 
-- [03 — Effects and interceptors](03-effects.md) — `:rf.http/managed` rowed in the standard fx table.
-- [08 — Schemas](08-schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
-- [10 — Testing](10-testing.md) — patterns for combining HTTP stubs with `dispatch-sequence`.
-- [11 — Instrumentation](11-instrumentation.md) — `project-egress`, the wire-boundary walker, and the observability-sink surface.
+- [03 — Effects and interceptors](../api/03-effects.md) — `:rf.http/managed` rowed in the standard fx table.
+- [08 — Schemas](../api/08-schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
+- [10 — Testing](../api/10-testing.md) — patterns for combining HTTP stubs with `dispatch-sequence`.
+- [11 — Instrumentation](../api/11-instrumentation.md) — `project-egress`, the wire-boundary walker, and the observability-sink surface.
 - [Keep secrets out of traces](../guide/how-to/keep-secrets-out-of-traces.md) — the full classification + projection model.
 - [Spec 014 — HTTP Requests](../../spec/014-HTTPRequests.md) — the normative source (incl. §Privacy).

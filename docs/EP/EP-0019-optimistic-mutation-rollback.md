@@ -107,7 +107,7 @@ receive.
 ### The user-visible gap
 
 *(Pre-graduation motivation — the gap this EP filled. Now shipped: the
-mutations tutorial, [`docs/guide/tutorial/04-mutations-and-invalidation.md`](../guide/tutorial/04-mutations-and-invalidation.md),
+mutations tutorial, [`docs/guide/tutorial/04-mutations-and-invalidation.md`](../resources/tutorial/04-mutations-and-invalidation.md),
 teaches the optimistic variant as a current feature.)*
 
 Before this EP, the guide was explicit about the limit: `:populates` was a

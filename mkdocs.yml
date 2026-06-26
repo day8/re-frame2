@@ -189,20 +189,11 @@ nav:
       - "Subscriptions": guide/concepts/subscriptions.md
       - "Views": guide/concepts/views.md
       - "Effects and coeffects": guide/concepts/effects-and-coeffects.md
-    - "Tutorial: Build RealWorld":
-      - guide/tutorial/index.md
-      - "1. Pages and state": guide/tutorial/01-pages-and-state.md
-      - "2. Real data": guide/tutorial/02-server-data.md
-      - "3. Auth and forms": guide/tutorial/03-auth-and-forms.md
-      - "4. Mutations and invalidation": guide/tutorial/04-mutations-and-invalidation.md
-      - "5. Test and ship": guide/tutorial/05-test-and-ship.md
     - "More concepts":
       - "Interceptors": guide/concepts/interceptors.md
       - "Frames": guide/concepts/frames.md
       - "Images": guide/concepts/images.md
       - "Flows": guide/concepts/flows.md
-      - "HTTP": guide/concepts/http.md
-      - "Server state: resources": guide/concepts/server-state.md
       - "Routing": guide/concepts/routing.md
       - "Server-side rendering": guide/concepts/ssr.md
       - "Errors": guide/concepts/errors.md
@@ -212,8 +203,6 @@ nav:
       - "Add auth": guide/how-to/add-auth.md
       - "Build a form": guide/how-to/build-a-form.md
       - "Validate with schemas": guide/how-to/validate-with-schemas.md
-      - "Paginate a feed": guide/how-to/paginate-a-feed.md
-      - "Invalidate after a mutation": guide/how-to/invalidate-after-a-mutation.md
       - "Test an event handler": guide/how-to/test-an-event-handler.md
       - "Test a cascade": guide/how-to/test-a-cascade.md
       - "Debug with Xray": guide/how-to/debug-with-xray.md
@@ -237,6 +226,24 @@ nav:
     - "Concepts": machines/concepts.md
     - "API": machines/api.md
     - "Glossary": machines/glossary.md
+
+  - Resources:
+    - resources/index.md
+    - "Concepts": resources/concepts.md
+    - "HTTP": resources/http.md
+    - "Tutorial: Build RealWorld":
+      - resources/tutorial/index.md
+      - "1. Pages and state": resources/tutorial/01-pages-and-state.md
+      - "2. Real data": resources/tutorial/02-server-data.md
+      - "3. Auth and forms": resources/tutorial/03-auth-and-forms.md
+      - "4. Mutations and invalidation": resources/tutorial/04-mutations-and-invalidation.md
+      - "5. Test and ship": resources/tutorial/05-test-and-ship.md
+    - "How-to":
+      - "Paginate a feed": resources/how-to/paginate-a-feed.md
+      - "Invalidate after a mutation": resources/how-to/invalidate-after-a-mutation.md
+    - "API": resources/api.md
+    - "HTTP API": resources/http-api.md
+    - "Glossary": resources/glossary.md
 
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).
@@ -300,7 +307,6 @@ nav:
     - "03 — Effects": api/03-effects.md
     - "05 — Flows": api/05-flows.md
     - "06 — Routing": api/06-routing.md
-    - "07 — HTTP": api/07-http.md
     - "08 — Schemas": api/08-schemas.md
     - "09 — SSR": api/09-ssr.md
     - "10 — Testing": api/10-testing.md
@@ -309,7 +315,6 @@ nav:
     - "13 — Lifecycle": api/13-lifecycle.md
     - "14 — Adapters": api/14-adapters.md
     - "15 — Removed": api/15-removed.md
-    - "16 — Resources": api/16-resources.md
     - "Normative reference": spec/API.md
 
 markdown_extensions:

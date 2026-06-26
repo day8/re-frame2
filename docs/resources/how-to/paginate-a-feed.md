@@ -5,11 +5,11 @@ You have a list with more rows than you want to fetch at once. There are two pag
 - **Numbered pages** — page 2 *replaces* page 1 on screen. Think search results, an admin table, a "1 2 3 … 29" pager.
 - **Load more** — page 2 *appends* to what's already there, the way a social feed grows.
 
-Both ride on [**resources**](../glossary.md#resource). A resource is a declared, cached server-state read: you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness — [views](../glossary.md#view) just subscribe to its current state. [Server state: resources](../concepts/server-state.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then load-more. By the end you'll have both wired with *no pagination state in [app-db](../glossary.md#app-db) at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append handler. That's the headline: the page cursor and the page cache are all framework-owned [runtime-db](../glossary.md#runtime-db), so pagination adds *nothing* to the state you own. (Remember [the two partitions](../glossary.md#the-two-partitions): app-db is yours, runtime-db is the framework's.)
+Both ride on [**resources**](../glossary.md#resource). A resource is a declared, cached server-state read: you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness — [views](../../guide/glossary.md#view) just subscribe to its current state. [Server state: resources](../concepts.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then load-more. By the end you'll have both wired with *no pagination state in [app-db](../../guide/glossary.md#app-db) at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append handler. That's the headline: the page cursor and the page cache are all framework-owned [runtime-db](../../guide/glossary.md#runtime-db), so pagination adds *nothing* to the state you own. (Remember [the two partitions](../../guide/glossary.md#the-two-partitions): app-db is yours, runtime-db is the framework's.)
 
 > **The one idea to hold onto.** A numbered page is part of the resource's *identity* — page 7 is its own separately-cached value. An infinite feed is *one* identity that *grows* — page 1, then 1+2, then 1+2+3, kept together as a single reactive value. Almost everything below falls out of that one distinction.
 
-> **Coming from TanStack Query?** You already know both halves; you just don't know their re-frame2 names yet. Numbered pages are `useQuery` with the page in the `queryKey`, plus `keepPreviousData`. Load-more is `useInfiniteQuery`. They map over nearly one-to-one. The one deliberate divergence — stated up front because it's the bit that feels unfamiliar — is that the next-page cursor is advanced by a *causal [event](../glossary.md#event)*, not by a `fetchNextPage()` call from inside a component. That's the same passive-views rule the whole framework runs on: views read; events change the world.
+> **Coming from TanStack Query?** You already know both halves; you just don't know their re-frame2 names yet. Numbered pages are `useQuery` with the page in the `queryKey`, plus `keepPreviousData`. Load-more is `useInfiniteQuery`. They map over nearly one-to-one. The one deliberate divergence — stated up front because it's the bit that feels unfamiliar — is that the next-page cursor is advanced by a *causal [event](../../guide/glossary.md#event)*, not by a `fetchNextPage()` call from inside a component. That's the same passive-views rule the whole framework runs on: views read; events change the world.
 
 ## Numbered pages
 
@@ -34,7 +34,7 @@ Here's the one rule that makes resources work: every variable that changes the s
      :decode  :json}))
 ```
 
-Every `reg-resource` requires exactly three things, and they're all here: `:params-schema` (the resource's *identity* — which inputs distinguish one cached answer from another; the page is one of them), [`:scope`](../glossary.md#scope) (the cache's visibility boundary — more on that in the gotcha below), and the request function (the last argument, returning the HTTP call). Leave any one out and registration [fails loud](../glossary.md#fail-loud-not-silent). The server replies `{:articles [...] :total 290}` — adapt the field names to yours.
+Every `reg-resource` requires exactly three things, and they're all here: `:params-schema` (the resource's *identity* — which inputs distinguish one cached answer from another; the page is one of them), [`:scope`](../glossary.md#scope) (the cache's visibility boundary — more on that in the gotcha below), and the request function (the last argument, returning the HTTP call). Leave any one out and registration [fails loud](../../guide/glossary.md#fail-loud-not-silent). The server replies `{:articles [...] :total 290}` — adapt the field names to yours.
 
 That's the minimum. A real list usually tunes a few more optional keys:
 
@@ -52,7 +52,7 @@ That's the minimum. A real list usually tunes a few more optional keys:
      :decode  :json}))
 ```
 
-`:stale-after-ms` / `:gc-after-ms` tune the staleness and garbage-collection clocks. `:tags` is the handle a write elsewhere uses to [invalidate](../glossary.md#invalidate) this list — see [Invalidate after a mutation](invalidate-after-a-mutation.md). (You could also add a `:data-schema` to [shape-validate](../glossary.md#schema) each page, but a paginated list rarely needs one.)
+`:stale-after-ms` / `:gc-after-ms` tune the staleness and garbage-collection clocks. `:tags` is the handle a write elsewhere uses to [invalidate](../glossary.md#invalidate) this list — see [Invalidate after a mutation](invalidate-after-a-mutation.md). (You could also add a `:data-schema` to [shape-validate](../../guide/glossary.md#schema) each page, but a paginated list rarely needs one.)
 
 > **Gotcha — `:scope` is required, even for a public list.** There's no implicit global default — a `reg-resource` with no `:scope` is a loud registration error (`:rf.error/resource-missing-scope-policy`), not a silent shared read. "I forgot this read is user-scoped" is made unrepresentable at the door. The articles list is the same for every viewer, so it states `:scope :rf.scope/global` outright. A *per-user* list — "my drafts", a tenant-scoped table — would carry a scope resolver instead, so page 2 of tenant A and page 2 of tenant B never collide in the cache. Pagination doesn't move that boundary.
 
@@ -60,9 +60,9 @@ That's the minimum. A real list usually tunes a few more optional keys:
 
 ### 2. Let the URL carry the page
 
-Quick question: where should the *current page number* live? It's tempting to drop it into app-db — but the page number is really telling you *where the user is*, and "where the user is" is the URL's job. Put it in the URL and you get shareable links, working Back/Forward, and a reload that lands on the same page, all for free. (This is the [routing](../concepts/routing.md) ethos in one move: the URL is an input, not a thing you sync.)
+Quick question: where should the *current page number* live? It's tempting to drop it into app-db — but the page number is really telling you *where the user is*, and "where the user is" is the URL's job. Put it in the URL and you get shareable links, working Back/Forward, and a reload that lands on the same page, all for free. (This is the [routing](../../guide/concepts/routing.md) ethos in one move: the URL is an input, not a thing you sync.)
 
-The [route](../glossary.md#route) validates the `?page=` query param, feeds it into the resource's params, and opts into keeping the old page visible while the new one loads:
+The [route](../../guide/glossary.md#route) validates the `?page=` query param, feeds it into the resource's params, and opts into keeping the old page visible while the new one loads:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs
@@ -76,13 +76,13 @@ The [route](../glossary.md#route) validates the `?page=` query param, feeds it i
   "/")
 ```
 
-A word on *owning*, since it's the mechanism doing the cleanup. A cached entry lives as long as something [owns](../concepts/server-state.md) it — holds a lease — and falls back to normal staleness/GC once unowned. Here route entry takes the lease, so the page you're looking at can't be garbage-collected out from under you; route leave drops it. Nothing leaks, and you wrote no cleanup code to make that true. (You'll see *owner* again later, paired with *cause*, when we get to load-more: owner = lifetime, cause = explanation.)
+A word on *owning*, since it's the mechanism doing the cleanup. A cached entry lives as long as something [owns](../concepts.md) it — holds a lease — and falls back to normal staleness/GC once unowned. Here route entry takes the lease, so the page you're looking at can't be garbage-collected out from under you; route leave drops it. Nothing leaks, and you wrote no cleanup code to make that true. (You'll see *owner* again later, paired with *cause*, when we get to load-more: owner = lifetime, cause = explanation.)
 
 Each `:resources` entry is a small declaration. The four keys above:
 
 - `:resource` names the registered resource;
 - `:params` is a pure `(fn [route] …)` computing its params from the route match;
-- `:blocking?` keeps the route transition pending (and gives [SSR](../glossary.md#ssr) a wait point) until this resource's first load lands;
+- `:blocking?` keeps the route transition pending (and gives [SSR](../../guide/glossary.md#ssr) a wait point) until this resource's first load lands;
 - `:keep-previous?` is the no-flicker key from step 4.
 
 Two more keys earn their place on real tables:
@@ -96,7 +96,7 @@ Two more keys earn their place on real tables:
 
 ### 3. Page by navigating, not by fetching
 
-Here's the mental shift, and it's the whole numbered-pages trick: **changing pages is a [navigation](../glossary.md#navigate), not a fetch.** You swap `?page=` in the URL and the route does the rest. Drop the param entirely for page 1, so the first page has one canonical URL rather than `/` and `/?page=1` both pointing at the same list:
+Here's the mental shift, and it's the whole numbered-pages trick: **changing pages is a [navigation](../../guide/glossary.md#navigate), not a fetch.** You swap `?page=` in the URL and the route does the rest. Drop the param entirely for page 1, so the first page has one canonical URL rather than `/` and `/?page=1` both pointing at the same list:
 
 ```clojure
 (rf/reg-event :home/go-to-page
@@ -109,7 +109,7 @@ Here's the mental shift, and it's the whole numbered-pages trick: **changing pag
   (fn [q _] (or (:page q) 1)))
 ```
 
-Notice the event has *no fetch in it* — no HTTP, no resource call. It just navigates. The route declaration from step 2 turns that navigation into the right `ensure`. That's the seam doing its job, and it's why the [event handler](../glossary.md#event-handler) stays a pure function returning a tiny [effect map](../glossary.md#effect-map).
+Notice the event has *no fetch in it* — no HTTP, no resource call. It just navigates. The route declaration from step 2 turns that navigation into the right `ensure`. That's the seam doing its job, and it's why the [event handler](../../guide/glossary.md#event-handler) stays a pure function returning a tiny [effect map](../../guide/glossary.md#effect-map).
 
 > **Gotcha — navigate takes three args.** It's `(navigate target path-params opts)`: target, then path-params `{}`, then the opts map carrying `:query`. The opts always go in the *third* slot — dropping a `{:query …}` map into the second (params) slot is the classic mistake the router rejects with `:rf.error/navigate-arity-misuse`.
 
@@ -157,11 +157,11 @@ This is the part that makes pagination feel smooth instead of janky. With `:keep
                     p])))]))))
 ```
 
-(Here `dispatch` and `subscribe` are bindings that `reg-view` injects into the view's body, already wired to the [frame](../glossary.md#frame) this view is rendering in — the same `dispatch`/`subscribe` you'd reach for via `rf/`, just pre-targeted. `list-skeleton`, `list-error`, and `article-row` are your own views.)
+(Here `dispatch` and `subscribe` are bindings that `reg-view` injects into the view's body, already wired to the [frame](../../guide/glossary.md#frame) this view is rendering in — the same `dispatch`/`subscribe` you'd reach for via `rf/`, just pre-targeted. `list-skeleton`, `list-error`, and `article-row` are your own views.)
 
-Now watch it work. Click through to page 2 with [Xray](../glossary.md#xray) open: the navigation event row shows the `ensure` it caused under the `{:page 2}` key, and the entry walks `:loading` → `:loaded`. Click *back* to page 1 and you'll see the same `{:page 1}` key, still fresh — a cache hit, no network request. That's the payoff of treating pages as identity: back-navigation is free, because you never threw page 1 away. You just stopped looking at it.
+Now watch it work. Click through to page 2 with [Xray](../../guide/glossary.md#xray) open: the navigation event row shows the `ensure` it caused under the `{:page 2}` key, and the entry walks `:loading` → `:loaded`. Click *back* to page 1 and you'll see the same `{:page 1}` key, still fresh — a cache hit, no network request. That's the payoff of treating pages as identity: back-navigation is free, because you never threw page 1 away. You just stopped looking at it.
 
-The `:rf.resource/state` [subscription](../glossary.md#subscription) you read here is the same one every resource exposes — pagination just leans on a few of its keys. The full shape is worth knowing once:
+The `:rf.resource/state` [subscription](../../guide/glossary.md#subscription) you read here is the same one every resource exposes — pagination just leans on a few of its keys. The full shape is worth knowing once:
 
 ```clojure
 @(subscribe [:rf.resource/state {:resource :app/articles :params {:page 2}}])
@@ -246,7 +246,7 @@ Beyond `:next-page-param` (required) and `:page->items`, an infinite resource al
 - `:prev-page-param` — the bidirectional mirror, for prepending older pages (see the prepend callout at the end).
 - `:initial-page-param` — the first page's cursor (default `nil`).
 - `:refetch` — the refetch-window policy (see [Refetch and reset](#refetch-and-reset)).
-- `:page-data-schema` — a schema that validates **one page** (the thing your request decodes). This is the grain that matters: the resource's accumulated `:data` is the *sequence* of pages, so a whole-feed `:data-schema` would be wrong — you want to validate (and, where a page carries sensitive fields, [classify on egress](../glossary.md#data-classification)) one page at a time. That's why it's `:page-data-schema`, not `:data-schema`.
+- `:page-data-schema` — a schema that validates **one page** (the thing your request decodes). This is the grain that matters: the resource's accumulated `:data` is the *sequence* of pages, so a whole-feed `:data-schema` would be wrong — you want to validate (and, where a page carries sensitive fields, [classify on egress](../../guide/glossary.md#data-classification)) one page at a time. That's why it's `:page-data-schema`, not `:data-schema`.
 
 > **Coming from TanStack Query?** Map it straight across: `:next-page-param` is `getNextPageParam`, `:initial-page-param` is `initialPageParam`, `:page->items` is the accessor you'd write inline when flattening `data.pages`. The first page's `nil` param is TanStack's defaulted `initialPageParam`. The one re-frame2 addition: a derived `:has-next-page?` so a view never re-derives the terminal itself.
 
@@ -368,7 +368,7 @@ Tag invalidation reaches a feed the same way it reaches any resource: a write th
 
 Resetting on a filter change needs **no code at all** — and this falls straight out of the identity model. A different filter is a different *identity params* value, so it's a different feed instance that first-loads page 0 on its own. The old accumulation is a separate, GC-eligible entry; you don't clear it, you just stop owning it. And because the feed is a real scoped resource, a per-user feed (a scope resolver instead of `:rf.scope/global`) is dropped wholesale on `clear-scope` at logout — coherence a hand-rolled app-db slice simply can't buy.
 
-> **Going deeper — infinite scroll instead of a button.** Want the feed to load as the user nears the bottom? Wire an `IntersectionObserver` to a sentinel `div`. One catch: the observer callback fires *outside frame context* — the browser calls it directly, not as part of your app's render or event loop — so a bare `rf/dispatch` there has no frame to target and raises `:rf.error/no-frame-context` ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)). The fix is to capture a [frame-handle](../glossary.md#frame-handle) while you *are* still in frame context (during render or mount) and dispatch through that:
+> **Going deeper — infinite scroll instead of a button.** Want the feed to load as the user nears the bottom? Wire an `IntersectionObserver` to a sentinel `div`. One catch: the observer callback fires *outside frame context* — the browser calls it directly, not as part of your app's render or event loop — so a bare `rf/dispatch` there has no frame to target and raises `:rf.error/no-frame-context` ([frame identity is carried, not found](../../guide/glossary.md#frame-identity-is-carried-not-found)). The fix is to capture a [frame-handle](../../guide/glossary.md#frame-handle) while you *are* still in frame context (during render or mount) and dispatch through that:
 >
 > ```clojure
 > ;; Create at mount (Form-3), observe a sentinel div, disconnect on unmount.
@@ -387,7 +387,7 @@ Resetting on a filter change needs **no code at all** — and this falls straigh
 
 ## Scroll position is not a fact
 
-With feeds you'll be tempted to dispatch scroll positions into app-db. Don't — and here's the test that settles it, lifted from [Where should this value live?](../where-state-lives.md): would any handler or sub *decide* anything on this value, and would it mean anything after a [time-travel](../glossary.md#time-travel) restore or on a server render? A pixel offset fails both tests cold. It's host state, and the framework treats it as such.
+With feeds you'll be tempted to dispatch scroll positions into app-db. Don't — and here's the test that settles it, lifted from [Where should this value live?](../../guide/where-state-lives.md): would any handler or sub *decide* anything on this value, and would it mean anything after a [time-travel](../../guide/glossary.md#time-travel) restore or on a server render? A pixel offset fails both tests cold. It's host state, and the framework treats it as such.
 
 The route's `:scroll` key declares the behaviour. The contract is a closed three-value enum (plus a map form for host-specific shapes):
 
@@ -395,7 +395,7 @@ The route's `:scroll` key declares the behaviour. The contract is a closed three
 - **`:restore`** — restore the saved scroll position for this URL (the runtime captures positions on every navigation; this is the natural Back/Forward behaviour).
 - **`:preserve`** — leave the scroll position where it is. (Also the meaning of `nil` / an absent `:scroll`.)
 
-Leave `:scroll` undeclared and the resolved default is `:top` on forward navigation and `:restore` on Back/Forward — exactly what a feed wants, so an infinite feed usually declares nothing here. That saved-position cache is kept host-side, deliberately outside app-db. Dispatching on every scroll tick would also flood the [event](../glossary.md#event) tape with noise no tool can use — you'd be paying the cost of an event for a value no event reads.
+Leave `:scroll` undeclared and the resolved default is `:top` on forward navigation and `:restore` on Back/Forward — exactly what a feed wants, so an infinite feed usually declares nothing here. That saved-position cache is kept host-side, deliberately outside app-db. Dispatching on every scroll tick would also flood the [event](../../guide/glossary.md#event) tape with noise no tool can use — you'd be paying the cost of an event for a value no event reads.
 
 So what *is* a fact? The page number (in the URL), the accumulated pages (the infinite resource entry, runtime-owned), and — if you need a resume point — a real domain fact like the last-read item id. Store those, and let the router own the pixels.
 
@@ -422,11 +422,11 @@ The contract is worth knowing, because it's the same *owner-driven* model the re
 - **Hidden tabs pause.** A tick is suppressed while the document is hidden (`document.visibilityState != "visible"`) and resumes on tab return — matching the `refetchIntervalInBackground: false` default of every prior-art tool. (A background opt-in is reserved for the first consumer that needs it.)
 - **It can't stampede.** A tick that finds a refetch already in flight skips and re-arms (no overlapping requests); a tab return that fires both the focus revalidation and a poll tick double-fetches nothing — whichever starts work first wins, the other no-ops. A failed tick is an ordinary background-refresh failure (data stays, `:refresh-error` records it) and the *next* tick still fires — a transient blip never silently stops the monitor.
 
-`:poll-interval-ms` is orthogonal to `:stale-after-ms`: staleness governs "refetch on focus/route-entry *if* older than X", polling governs "re-read every X regardless." A non-positive or absent value means no polling. Because of [structural sharing](../glossary.md#the-derivation-graph), a poll that returns identical rows preserves the old `:data` value, so the list stays quiet on screen when nothing actually changed.
+`:poll-interval-ms` is orthogonal to `:stale-after-ms`: staleness governs "refetch on focus/route-entry *if* older than X", polling governs "re-read every X regardless." A non-positive or absent value means no polling. Because of [structural sharing](../../guide/glossary.md#the-derivation-graph), a poll that returns identical rows preserves the old `:data` value, so the list stays quiet on screen when nothing actually changed.
 
 ### Feeds and pages under SSR
 
-Both shapes ride [SSR](../glossary.md#ssr) with no extra work, because a resource entry is the same runtime-owned value on the server as in the browser. A `:blocking?` route resource is the wait point: the server drains it before render, serializes the settled entry through the egress projection (a numbered page, or the feed's accumulated pages — typically just page 0 from the server), and the client [hydrates](../glossary.md#hydration) it instead of refetching. For an infinite feed the nice consequence is that **load-more resumes from the hydrated tail** — the client reads `:next-page-param` off the page-0 the server already painted and the first "Load more" continues the sequence, no double-fetch of what shipped in the HTML.
+Both shapes ride [SSR](../../guide/glossary.md#ssr) with no extra work, because a resource entry is the same runtime-owned value on the server as in the browser. A `:blocking?` route resource is the wait point: the server drains it before render, serializes the settled entry through the egress projection (a numbered page, or the feed's accumulated pages — typically just page 0 from the server), and the client [hydrates](../../guide/glossary.md#hydration) it instead of refetching. For an infinite feed the nice consequence is that **load-more resumes from the hydrated tail** — the client reads `:next-page-param` off the page-0 the server already painted and the first "Load more" continues the sequence, no double-fetch of what shipped in the HTML.
 
 > **Gotcha — a blocking SSR resource needs a deadline, and a slow upstream surfaces as a typed failure.** Blocking governs the server's *wait-before-render* point, so a hung backend can't be allowed to hang the request forever. A blocking resource that exceeds the render deadline settles as a structured first-load failure for that server frame — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, inside the same closed `:rf.http/*` taxonomy every resource `:error` carries — so your error branch (which already gates on `:error` + `(not (:has-data? state))`) renders an error or skeleton rather than the page never arriving. The `:reason` lets you tell an SSR-deadline miss apart from a genuine upstream timeout; the `:kind` keeps it in one taxonomy. A non-blocking route resource never blocks render at all — if it hasn't settled by serialize time it simply ships no data and the client fetches it on hydration.
 
