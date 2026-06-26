@@ -405,6 +405,9 @@
    {:key         :machines/reset-timers!
     :producer-ns 're-frame.machines
     :description "Cancel in-flight `:after` wall-clock timers (test isolation)."}
+   {:key         :machines/install-runtime!
+    :producer-ns 're-frame.machines
+    :description "EP-0026 §Framework Standard Registrations: re-register the machine runtime (`:rf.machine/*` fx + `:rf/machine*` subs) into BOTH the regular registrar AND the image standard registry. Consulted by `re-frame.test-support`'s reset fixture after a sibling ns's `registrar/clear-all!` / `image-assembly/clear-standards!` wipes them, so a Story variant frame's sealed generation (which carries only the standard union + its image selection, no registrar fallback) still resolves the framework machine runtime. The machine analogue of `re-frame.events/register-set-db-standard!` (the `:rf/set-db` re-seed). A no-op when machines is not loaded."}
    {:key         :machines/reset-spawn-order!
     :producer-ns 're-frame.machines
     :design-bead "rf2-vsigt"
