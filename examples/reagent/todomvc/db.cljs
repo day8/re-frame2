@@ -3,9 +3,9 @@
 
   Demonstrates: the single source of truth (`default-db` — todos and *nothing
   else*; the active filter is derived from the route, never stored), and a
-  recordable coeffect (`reg-cofx :todo.storage/todos`) that carries saved todos
-  *in* at boot so the durable write stays replayable instead of reaching for
-  localStorage inside a handler."
+  recordable coeffect (`reg-cofx :todo.storage/todos`) whose registered supplier
+  reads the saved todos *in* at boot, so the durable write stays replayable
+  instead of reaching for localStorage inside a handler."
   (:require [re-frame.core :as rf]))
 
 ;; The default db carries no `:showing` slot — Spec 012's :route slice owns
@@ -34,35 +34,31 @@
       (catch :default _
         (sorted-map)))))
 
-;; localStorage is deliberate — see README. The Spec-014 :rf.http/managed demo lives with realworld.
+;; localStorage is deliberate — see README; the Spec-014 :rf.http/managed demo
+;; lives with realworld.
 ;;
-;; EP-0017 (recordable coeffects): the saved todos are a STORAGE
-;; world fact, and `:todo/initialise` folds them into durable app-db. A durable
-;; write must be a function of prior frame-state plus the causal token — not of
-;; an ambient `localStorage` read at the write site (which replay/restore could
-;; not reproduce). So the host-boundary boot read happens once, in
-;; `todomvc.core/run`, and rides the boot dispatch token as the flat RECORDABLE
-;; coeffect `:rf.cofx {:todo.storage/todos …}`.
+;; EP-0017 (recordable coeffects): the saved todos are a STORAGE world fact, and
+;; `:todo/initialise` folds them into durable app-db. A durable write must fold a
+;; RECORDED fact, not an ambient `localStorage` read at the write site (which
+;; replay / epoch-restore could not reproduce). So `:todo.storage/todos` is a
+;; registered RECORDABLE coeffect whose supplier reads localStorage: the supplier
+;; runs at the boot dispatch, its value is recorded onto the causal token, and
+;; replay re-folds that captured snapshot rather than re-reading whatever
+;; localStorage holds now.
 ;;
-;; `:todo.storage/todos` is therefore registered RECORDABLE + PROVIDED
-;; (EP-0017 §2, the `:rf/time-ms` shape): it carries NO generator — its value is
-;; STAMPED onto the boot dispatch token by its owner (`todomvc.core/run`,
-;; reading the host once at the boundary), recorded with the token, and
-;; re-presented verbatim under replay / epoch-restore. This closes the
-;; determinism hole the ambient grade left open: replay re-folds the captured
-;; snapshot, never a live re-read of whatever localStorage holds now.
-;;
-;; The boundary read (`read-todos-from-storage`) always coerces to a
-;; `(sorted-map)`: a nil (empty / absent localStorage, first run) would
-;; otherwise clobber default-db's `(sorted-map)` and break allocate-next-id's
-;; `(last (keys todos))` = max-id invariant once the map promotes to an
-;; unordered PersistentHashMap (>8 entries).
+;; Registering the supplier is the canonical coeffect shape — the Glossary's
+;; "make a coeffect available by registering a supplier with reg-cofx". (The
+;; value-stamped-at-the-dispatch-site PROVIDED form — `:provided? true`, no
+;; supplier — is reserved for boundary facts the app can't read itself, e.g. an
+;; SSR server that stamps the session the client can't see.)
+
 (defn read-todos-from-storage
-  "Host-boundary read of the saved TodoMVC items from localStorage, normalised
-   to a sorted-map. Called from `todomvc.core/run` so the value is STAMPED onto
-   the boot dispatch token's `:rf.cofx` as a recordable causal fact rather than
-   being read ambiently in a durable handler. nil/empty localStorage (first
-   run, or node with no localStorage) yields an empty sorted-map."
+  "Read the saved TodoMVC items from localStorage, normalised to a sorted-map —
+   the supplier body for the `:todo.storage/todos` recordable coeffect. nil/empty
+   localStorage (first run, or a server with no localStorage) yields an empty
+   sorted-map, so it never clobbers `default-db`'s `(sorted-map)` — which would
+   break allocate-next-id's `(last (keys todos))` max-id invariant once the map
+   promotes to an unordered PersistentHashMap past 8 entries."
   []
   (or (some-> (.-localStorage js/globalThis)
               (.getItem ls-key)
@@ -71,15 +67,10 @@
 
 (rf/reg-cofx :todo.storage/todos
   {:recordable? true
-   :provided?   true
-   :doc "Recordable, PROVIDED coeffect (EP-0017 §2): the saved TodoMVC items,
-         read from localStorage as a sorted-map. It has NO generator — its
-         value is stamped onto the boot dispatch token by `todomvc.core/run`
-         (the host-boundary read happens ONCE there), recorded with the token,
-         and re-presented verbatim under replay / epoch-restore. A handler that
-         folds it into durable app-db declares
-         `:rf.cofx/requires [:todo.storage/todos]` and reads it flat; absent
-         from the token it is `:rf.error/missing-required-cofx` (the boot
-         dispatch always supplies it). Tests / replay supply the value directly
-         on the dispatch token — `{:rf.cofx {:todo.storage/todos (sorted-map …)}}`
-         — never re-register a supplier."})
+   :doc "Recordable coeffect (EP-0017): the saved TodoMVC items, read from
+         localStorage as a sorted-map. The registered supplier runs at the boot
+         dispatch; its value is recorded onto the causal token and re-presented
+         verbatim under replay / epoch-restore. A handler folds it into durable
+         app-db by declaring `:rf.cofx/requires [:todo.storage/todos]` and
+         reading it flat — folding a recorded fact, never an ambient read."}
+  (fn [] (read-todos-from-storage)))

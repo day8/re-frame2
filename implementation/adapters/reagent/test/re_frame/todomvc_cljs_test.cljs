@@ -14,12 +14,11 @@
    COLD-BOOT ID-ALLOCATION REGRESSION (rf2-mzqd4.1)
    ------------------------------------------------
    `:todo/initialise` declares the `:todo.storage/todos` cofx (EP-0017
-   `:rf.cofx/requires`), now a RECORDABLE+PROVIDED fact (rf2-16ck78): its
-   value rides the boot dispatch token, supplied by the host boundary
-   (`db/read-todos-from-storage`), which reads `js/globalThis.localStorage`
-   via `some->`. Node has no localStorage, so the boundary read exercises the
+   `:rf.cofx/requires`), a RECORDABLE coeffect whose registered supplier
+   (`db/read-todos-from-storage`) reads `js/globalThis.localStorage` via
+   `some->`. Node has no localStorage, so the supplier exercises the
    EMPTY-localStorage / first-run path: `some->` short-circuits to nil and the
-   boundary coerces it to an empty `(sorted-map)`. Before the coercion fix, a
+   supplier coerces it to an empty `(sorted-map)`. Before the coercion fix, a
    nil clobbered default-db's `(sorted-map)`, leaving `:todos` nil. The first
    `:todo/add` then built a PLAIN PersistentArrayMap (not a sorted-map); once
    it promoted to an unordered PersistentHashMap (>8 entries),
@@ -27,7 +26,7 @@
    a new add could reuse an existing id and `assoc-in` would silently
    OVERWRITE a todo.
 
-   The boundary read coerces to `(sorted-map)` when localStorage is empty, so
+   The supplier coerces to `(sorted-map)` when localStorage is empty, so
    `:todos` is ALWAYS a sorted-map and the id-allocation invariant holds.
    This test cold-boots with no localStorage and adds well past the
    8-entry ArrayMap→HashMap promotion threshold, asserting: every add
@@ -71,22 +70,18 @@
   (testing "cold boot with empty localStorage keeps :todos a sorted-map so
             allocate-next-id never collides past the ArrayMap→HashMap
             promotion threshold (rf2-mzqd4.1)"
-    ;; Cold boot mirroring todomvc.core/run, which reads the host ONCE at the
-    ;; boundary (`db/read-todos-from-storage`) and SUPPLIES the saved todos on
-    ;; the boot dispatch token's :rf.cofx. EP-0017 (rf2-16ck78):
-    ;; :todo.storage/todos is now a RECORDABLE+PROVIDED coeffect, so its value
-    ;; must ride the token (absent → :rf.error/missing-required-cofx). The boot
-    ;; dispatch is issued explicitly here (rather than via :initial-events)
-    ;; carrying the empty-localStorage / first-run value: an
-    ;; empty sorted-map, exactly what the node-side boundary read yields.
+    ;; Cold boot exactly as todomvc.core/boot! does it: the frame seeds itself
+    ;; via `:initial-events [[:todo/initialise]]`, which folds in the saved todos
+    ;; supplied by the registered `:todo.storage/todos` recordable coeffect
+    ;; (db.cljs). The supplier reads `js/globalThis.localStorage`; node has none,
+    ;; so it exercises the empty / first-run path and coerces nil to an empty
+    ;; `(sorted-map)`. No manual `:rf.cofx` supply — the registered generator
+    ;; provides the fact, which is the whole point of the EP-0017 generator shape.
     (with-new-frame [f (frame/make-anon-frame-record!
-                         {:fx-overrides {:todo.storage/save :rf/no-op}})]
-      (rf/dispatch-sync [:todo/initialise]
-                        {:frame   f
-                         :rf.cofx {:todo.storage/todos (sorted-map)}})
-
+                         {:fx-overrides   {:todo.storage/save :rf/no-op}
+                          :initial-events [[:todo/initialise]]})]
       ;; The invariant the whole bug hinges on: :todos must be a
-      ;; sorted-map immediately after init, NOT nil.
+      ;; sorted-map immediately after boot, NOT nil.
       (is (sorted? (todos f))
           ":todos must be a sorted-map after cold-boot init, not nil")
       (is (= 0 (count (todos f)))
