@@ -1,271 +1,245 @@
 (ns re-frame.views.owned-frame
-  "Substrate-agnostic core of the UI-OWNED frame-provider lifecycle boundary
-  (EP-0024 §Scope, carry, and ownership). This ns owns the create-on-mount /
-  destroy-on-unmount semantics that make `rf/frame-provider` an OWNED lifecycle
-  boundary — the component that CREATES a frame on mount, PROVIDES its id to
-  descendants, and DESTROYS it on unmount.
+  "Substrate-agnostic core of the merged config-shaped `rf/frame-provider`
+  (EP-0024 §Scope, carry, and ownership, amended). One provider, two
+  config shapes, dispatched on the prop map:
 
-  The sibling `rf/frame-provider-existing` is the SCOPE-ONLY counterpart: it
-  provides an ALREADY-CREATED frame id through the same React context and
-  creates / refreshes / destroys NOTHING. It lives in the per-adapter shells
-  (Reagent's `re-frame.views.provider`, the UIx / Helix `defui` / `defnc`
-  shells) and reuses the scope-only provide tier
-  (`re-frame.substrate.spine/build-frame-provider-element` /
-  `re-frame.adapter.context/provider-element`); it does NOT touch this ns. The
-  fail-loud guard for lifecycle opts handed to the scope-only provider lives
-  here (`reject-lifecycle-opts!`) so both kinds of provider validate against
-  one place.
+    - **`{:frame existing-id}` — SCOPE-ONLY.** Provide an ALREADY-CREATED
+      frame's id to descendants through the shared React context. Creates /
+      refreshes / destroys NOTHING. FAILS LOUD when the named frame is
+      ABSENT (`:rf.error/frame-provider-frame-absent`) — the guardrail Story
+      + Xray rely on (you asked to scope a frame that does not exist). This
+      is the scope-INTO-React counterpart to `rf/with-frame` (a dynamic var
+      cannot cross React's render boundary). The validate-keyword +
+      provide-tier work itself lives in the per-adapter shells
+      (`re-frame.substrate.spine/build-frame-provider-element` /
+      `re-frame.adapter.context/provider-element`); the absent guard
+      (`require-live-frame-for-scope!`) lives here so both the Reagent and
+      React-hook shells validate against one place.
 
-  The shared OWNED contract (EP-0024):
+    - **`{:id the-id …}` — ENSURE.** Create the frame if absent
+      (`acquire-ensure-frame!` runs the unified `re-frame.live-frame/make-frame`
+      over the provider's `{:id :images :initial-events :url-bound? …}` opts),
+      REUSE it if present WITHOUT re-seeding (`make-frame`'s idempotent
+      replacement preserves durable app-db / sub-cache / queue and
+      `reg-frame` RE-RECORDS but does NOT REPLAY `:initial-events` on a
+      re-registration), and provide its id to descendants. **There is NO
+      destroy-on-unmount.** A genuine unmount leaves the frame live.
 
-    - **create-on-mount** — `acquire-owned-frame!` runs the unified
-      `re-frame.live-frame/make-frame` over the provider's `{:id :images
-      :initial-events …}` opts, returning the resolved frame id.
-    - **provide-frame-id-to-descendants** — the per-adapter shell wraps
-      children in the shared React Context (via
-      `re-frame.adapter.context/provider-element`) with the resolved id.
-    - **destroy-on-unmount** — `release-owned-frame!` tears the frame down.
-    - **idempotent re-mount** — re-mounting under the SAME `:id` (hot reload,
-      Story re-evaluation, React StrictMode dev double-invoke) MUST NOT destroy
-      durable state (app-db, sub-cache, queue). Per EP-0024 §Duplicate id
-      policy this couples to `make-frame`'s idempotent replacement: a re-acquire
-      under the same id refreshes config + resolved generation while preserving
-      durable state, and the destroy is DEFERRED + cancellable so a re-mount
-      that re-acquires the id before the deferred destroy fires CANCELS it.
+  EP-0024 amendment (provider collapse). The previous family had THREE
+  components: an OWNED `frame-provider` (create-on-mount + destroy-on-unmount),
+  a scope-only `frame-provider-existing`, and a `frame-provider-ns-safe`
+  twin. The owned destroy-on-unmount has been RETIRED — it had zero product
+  consumers (only its own lifecycle tests). True ownership (modals,
+  multi-instance widgets) stays expressible as `rf/make-frame` +
+  `rf/destroy-frame!` inside a `create-class` (what Story already does), where
+  the component explicitly owns the lifetime. The merged `rf/frame-provider`
+  keeps the name and serves the two non-owning jobs (scope an existing frame,
+  ensure a named frame) that every product call site actually needs.
 
-  Why deferred destroy (the StrictMode / hot-reload tolerance, EP-0024
-  §per-adapter spec): React StrictMode mounts a component, runs its effect,
-  runs the cleanup, then runs the effect AGAIN (dev mount → unmount → mount).
-  A synchronous `destroy-frame!` in the cleanup would tear down durable state
-  between the two mounts. Instead `release-owned-frame!` SCHEDULES the destroy
-  via a 0ms host timer keyed by frame id; `acquire-owned-frame!` cancels any
-  pending destroy for that id first. So:
-
-    - StrictMode (synchronous unmount→remount in the same task): the remount's
-      acquire cancels the deferred destroy before the timer fires — the frame
-      is never destroyed, durable state survives, no double-create churn.
-    - Hot reload (re-eval under the same id): same idempotent-replacement path;
-      `make-frame` refreshes config + generation, durable state preserved.
-    - Genuine unmount (no remount re-acquires the id): the deferred destroy
-      fires on the next macrotask, AFTER React has finished its synchronous
-      teardown — so `destroy-frame!` does not race the unmounting render's
-      in-flight per-frame work (subscriptions / event drains). This is the
-      ordering the EP requires.
+  Why ENSURE rather than CREATE-AND-DESTROY. The ensure shape is exactly
+  what hot reload, React StrictMode dev double-invoke, and Story
+  re-evaluation need: re-mounting under the SAME `:id` must NOT destroy
+  durable state (app-db, sub-cache, queue) NOR re-run `:initial-events`. The
+  unified `make-frame` already gives this for free — re-`make-frame`-ing an
+  existing id is idempotent replacement (config + resolved generation
+  refresh, durable state preserved; EP-0024 §Duplicate id policy), and
+  `reg-frame`'s re-registration branch RE-RECORDS the `:initial-events`
+  without replaying them (EP-0027 §Reset / §Frame provider). So the ENSURE
+  provider is a render-phase `make-frame` and nothing else: no destroy
+  effect, no deferred-destroy registry, no StrictMode cancellation dance —
+  the durable-state-survives property falls out of `make-frame`'s
+  idempotence, not out of a teardown-timing trick.
 
   CLJS-only (in core, like `re-frame.adapter.context`): it reaches React-shaped
-  lifecycle through ONE shared React function component (`owned-frame-fc`) so
-  the create/provide/destroy + StrictMode/idempotency handling lives once, not
-  per substrate. The per-adapter `frame-provider` shells (Reagent's `:r>`
-  embed, UIx's `defui`, Helix's `defnc`) only read their props in the native
-  idiom and hand a clean opts map + children to this core — zero per-substrate
-  lifecycle drift, mirroring how `re-frame.substrate.spine/build-frame-provider-
-  element` factors the scope-only element-build. The plain-atom (JVM-runnable)
-  build never loads this ns."
+  lifecycle through ONE shared React function component (`ensure-frame-fc`) so
+  the ensure-on-render handling lives once, not per substrate. The per-adapter
+  `frame-provider` shells (Reagent's `:r>` embed, UIx's `defui`, Helix's
+  `defnc`) only read their props in the native idiom, DISPATCH on `:frame` vs
+  `:id`, and hand a clean opts map + children to this core — zero
+  per-substrate lifecycle drift, mirroring how
+  `re-frame.substrate.spine/build-frame-provider-element` factors the
+  scope-only element-build. The plain-atom (JVM-runnable) build never loads
+  this ns."
   (:require ["react"               :as React]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.error        :as rf-error]
             [re-frame.frame        :as frame]
-            [re-frame.interop      :as interop]
             [re-frame.live-frame   :as live-frame]))
 
-;; ---- pending-destroy registry --------------------------------------------
+;; ---- ENSURE: create-if-absent / reuse-if-present (no re-seed) -------------
 ;;
-;; `frame-id -> host-timer-handle`. A frame id has at most one pending
-;; deferred destroy at a time. `acquire-owned-frame!` cancels the pending
-;; destroy (if any) before (re)creating; `release-owned-frame!` schedules one.
-;; defonce so a hot-reload of this ns does not orphan an in-flight cancel
-;; (the same registry survives the reload).
+;; The ensure provider's whole lifecycle is ONE render-phase `make-frame`.
+;; There is no destroy-on-unmount, so there is no pending-destroy registry,
+;; no deferred-destroy timer, and no StrictMode cancellation. The
+;; durable-state-survives-a-remount property is `make-frame`'s idempotent
+;; replacement (EP-0024 §Duplicate id policy) + `reg-frame`'s re-record-but-
+;; don't-replay-`:initial-events` re-registration (EP-0027), NOT a teardown
+;; trick.
 
-(defonce ^:private pending-destroys (atom {}))
+(defn acquire-ensure-frame!
+  "ENSURE (EP-0024 amended). Create the named frame if absent, REUSE it
+  WITHOUT re-seeding if present, and return the resolved frame id.
 
-(defn- cancel-pending-destroy!
-  "Cancel and forget any deferred `destroy-frame!` scheduled for `frame-id`.
-  Called by `acquire-owned-frame!` so a re-mount under the same id (StrictMode
-  remount, hot reload) reclaims the still-alive frame instead of letting the
-  earlier release's deferred destroy fire. Returns true when a pending destroy
-  was cancelled."
-  [frame-id]
-  (when-let [handle (get @pending-destroys frame-id)]
-    (interop/clear-timeout! handle)
-    (swap! pending-destroys dissoc frame-id)
-    true))
+  Runs the unified `make-frame` over the ensure frame-provider's `opts`
+  (`{:id :images :initial-events :url-bound? …}` plus any record-config keys).
+  Idempotent under the same `:id`: a re-acquire (hot reload / StrictMode
+  remount / Story re-eval) takes `make-frame`'s idempotent-replacement path —
+  the record-config + resolved generation refresh while durable state (app-db,
+  sub-cache, queue) is PRESERVED and `:initial-events` are RE-RECORDED but NOT
+  REPLAYED (EP-0027 §Frame provider). So a remount never re-seeds.
 
-(defn acquire-owned-frame!
-  "CREATE-ON-MOUNT (EP-0024). Run the unified `make-frame` over the owned
-  frame-provider's `opts` (`{:id :images :initial-events …}` plus any
-  record-config keys) and return the resolved frame id. Idempotent under the same
-  `:id`:
-  re-acquiring refreshes config + resolved generation while preserving durable
-  state (EP-0024 §Duplicate id policy) AND cancels any pending deferred destroy
-  for that id, so a StrictMode remount / hot reload reclaims the live frame
-  rather than recreating it.
-
-  `opts` must carry an explicit `:id` keyword — an owned provider OWNS a named
-  frame lifetime, so the id is the lifecycle token. `make-frame`'s own
+  `opts` must carry an explicit `:id` keyword — an ensure provider names the
+  frame it ensures, so the id is the addressing token. `make-frame`'s own
   validation fails loud on a bad shape. Returns the frame id (read off the
   returned frame value via `frame/frame-value->id`)."
   [opts]
-  (let [frame-value (live-frame/make-frame opts)
-        frame-id    (frame/frame-value->id frame-value)]
-    ;; Cancel AFTER make-frame so a same-id re-acquire that hit the idempotent
-    ;; path keeps the live frame; the cancel drops the stale pending-destroy.
-    (cancel-pending-destroy! frame-id)
-    frame-id))
+  (frame/frame-value->id (live-frame/make-frame opts)))
 
-(defn release-owned-frame!
-  "DESTROY-ON-UNMOUNT (EP-0024), DEFERRED. Schedule `destroy-frame!` for
-  `frame-id` on a 0ms host timer rather than tearing down synchronously, so a
-  React StrictMode remount (dev mount→unmount→mount) or a hot reload that
-  re-acquires the same id BEFORE the timer fires cancels the destroy (via
-  `acquire-owned-frame!`) and preserves durable state. A genuine unmount — no
-  re-acquire — lets the timer fire on the next macrotask, AFTER React's
-  synchronous teardown, so the destroy does not race the unmounting render's
-  in-flight subscriptions / event drains.
-
-  Re-entrant-safe: a second release for the same id replaces the prior pending
-  handle (cancelling it first) so at most one deferred destroy is outstanding
-  per id. The deferred body clears its own registry slot before destroying so a
-  release that fires between two genuine lifecycles cannot leak a stale handle.
-  `destroy-frame!` is itself idempotent, so a no-op (already-destroyed) id is
-  harmless."
-  [frame-id]
-  ;; Replace any prior pending destroy for this id (cancel-then-reschedule) so
-  ;; we never stack two timers against one frame.
-  (cancel-pending-destroy! frame-id)
-  (let [handle (interop/set-timeout!
-                 (fn deferred-destroy []
-                   ;; Drop our slot first: by the time we fire, this handle is
-                   ;; the live one (a re-acquire would have cancelled us), so
-                   ;; clearing here keeps the registry honest if destroy throws.
-                   (swap! pending-destroys dissoc frame-id)
-                   (frame/destroy-frame! frame-id))
-                 0)]
-    (swap! pending-destroys assoc frame-id handle)
-    nil))
-
-(defn ^:no-doc pending-destroy?
-  "TEST/TOOLING ONLY. True when a deferred `destroy-frame!` is currently
-  scheduled (and not yet fired/cancelled) for `frame-id`. Lets a test assert
-  the StrictMode-tolerant cancel happened without reaching the host timer."
-  [frame-id]
-  (contains? @pending-destroys frame-id))
-
-(defn ^:no-doc owned-frame-opts
-  "Normalise the owned frame-provider's prop map into the `make-frame` opts the
-  lifecycle consumes. Strips the `:children` carrier (the substrate element
-  macros fold trailing children onto `:children`; it is not a frame option) and
-  passes EVERY OTHER key through — `:id`, `:images`, `:initial-events`, and the
-  record-config keys `make-frame` honours (`:fx-overrides`, `:preset`, …). The
-  provider runs `:initial-events` once per frame-id lifetime (EP-0027): the
-  first creation runs the setup; a genuine remount / StrictMode re-acquire under
-  the same id RE-RECORDS but does NOT replay (idempotent re-registration
-  preserves durable state)."
+(defn ^:no-doc ensure-frame-opts
+  "Normalise the ensure frame-provider's prop map into the `make-frame` opts
+  the lifecycle consumes. Strips the `:children` carrier (the substrate
+  element macros fold trailing children onto `:children`; it is not a frame
+  option) and passes EVERY OTHER key through — `:id`, `:images`,
+  `:initial-events`, `:url-bound?`, and the record-config keys `make-frame`
+  honours (`:fx-overrides`, `:preset`, …). `:initial-events` run ONCE per
+  frame-id lifetime: the first creation runs the setup; a genuine remount /
+  StrictMode re-acquire under the same id RE-RECORDS but does NOT replay
+  (idempotent re-registration preserves durable state)."
   [props]
   (dissoc props :children))
 
-(defn ^:no-doc require-owned-frame-id!
-  "Validate the OWNED frame-provider's `:id` (EP-0024). An owned provider OWNS
-  a named frame lifetime, so `:id` is mandatory and must be a keyword — it is
-  the lifecycle token descendants route to and `destroy-frame!` tears down on
-  unmount. A missing / nil / non-keyword `:id` is a CONFIGURATION ERROR: emit +
-  throw `:rf.error/owned-frame-provider-missing-id` so a tooling-generated or
-  hand-authored owned provider fails loudly at the boundary rather than minting
-  an anonymous, unaddressable frame. (The OWNED provider takes `:id`; the
-  SCOPE-only `rf/frame-provider-existing` takes `:frame` — a `:frame` key with
-  no `:id` is the common mistake and trips this guard.) Returns the keyword
-  `:id`."
+(defn ^:no-doc require-ensure-frame-id!
+  "Validate the ENSURE frame-provider's `:id` (EP-0024 amended). An ensure
+  provider names the frame it ensures, so `:id` is mandatory and must be a
+  keyword — it is the addressing token descendants route to and the key
+  `make-frame` ensures under. A missing / nil / non-keyword `:id` is a
+  CONFIGURATION ERROR: emit + throw `:rf.error/ensure-frame-provider-missing-id`
+  so a tooling-generated or hand-authored ensure provider fails loudly at the
+  boundary rather than minting an anonymous, unaddressable frame. (The ENSURE
+  shape takes `:id`; the SCOPE-only shape takes `:frame` — a `:frame` key with
+  no `:id` selects the scope branch, so it never reaches here.) Returns the
+  keyword `:id`."
   [id where-sym]
   (if (keyword? id)
     id
     (rf-error/throw-error!
-      :rf.error/owned-frame-provider-missing-id
+      :rf.error/ensure-frame-provider-missing-id
       where-sym
-      (str "frame-provider is the UI-OWNED lifecycle boundary (EP-0024): it "
-           "CREATES the frame on mount, so it needs an explicit keyword `:id` "
-           "to own and destroy. Got " (pr-str id) ". Pass `{:id :your/frame …}` "
-           "(plus optional :images / :initial-events). To merely SCOPE descendants "
-           "to a frame that ALREADY EXISTS, use `rf/frame-provider-existing "
-           "{:frame :your/frame}` (or `rf/with-frame` outside React render).")
+      (str "frame-provider {:id …} is the ENSURE shape (EP-0024): it CREATES "
+           "the frame if absent and REUSES it if present, so it needs an "
+           "explicit keyword `:id` to ensure under. Got " (pr-str id) ". Pass "
+           "`{:id :your/frame …}` (plus optional :images / :initial-events / "
+           ":url-bound?). To merely SCOPE descendants to a frame that ALREADY "
+           "EXISTS, use `frame-provider {:frame :your/frame}`.")
       {:recovery :no-frame-context
        :extra    {:received id}})))
 
-;; ---- scope-only fail-loud guard (rf/frame-provider-existing) --------------
+;; ---- SCOPE-only: fail-loud-if-absent guard --------------------------------
 ;;
-;; The SCOPE-only provider (`rf/frame-provider-existing`) provides an
-;; already-created frame and creates / refreshes / destroys NOTHING. Per the
-;; EP-0024 name-family ruling it takes `:frame` ONLY — any frame-CONSTRUCTION /
-;; lifecycle opt (`:id`, `:images`, `:initial-events`, … — i.e. the
-;; opts the OWNED provider consumes) is a hard MISUSE and MUST fail loud, so a
-;; caller cannot silently expect a scope-only provider to create or own a
-;; frame. The guard lives here (beside the owned-provider id guard) so both
-;; provider kinds validate against one place; every per-adapter
-;; `frame-provider-existing` shell calls it before delegating to the scope-only
-;; provide tier.
+;; The merged `rf/frame-provider` in its `{:frame existing-id}` shape provides
+;; an ALREADY-CREATED frame and creates / refreshes / destroys NOTHING. Per
+;; the EP-0024 amendment ruling it FAILS LOUD when the named frame is ABSENT
+;; (this is today's `frame-provider-existing` guardrail behaviour, kept) — a
+;; caller cannot silently scope a subtree to a frame that does not exist. The
+;; guard lives here (beside the ensure-provider id guard) so both shells
+;; validate against one place; every per-adapter scope shell calls it before
+;; delegating to the scope-only provide tier.
+
+(defn ^:no-doc require-live-frame-for-scope!
+  "Fail loud when a `{:frame existing-id}` SCOPE-only `frame-provider` names a
+  frame that is NOT live in the registry (never created, or destroyed). The
+  scope shape provides an ALREADY-CREATED frame — scoping a subtree to an
+  absent frame would silently establish a context every descendant
+  subscribe / dispatch then mis-resolves, so it is a CONFIGURATION ERROR:
+  emit + throw `:rf.error/frame-provider-frame-absent` pointing the caller at
+  the ENSURE shape (`{:id …}`) for create-if-absent. `frame-kw` is the
+  already-validated keyword frame id; `where-sym` names the calling shell for
+  the diagnostic. Returns the keyword when the frame is live."
+  [frame-kw where-sym]
+  (if (some? (frame/frame frame-kw))
+    frame-kw
+    (rf-error/throw-error!
+      :rf.error/frame-provider-frame-absent
+      where-sym
+      (str "frame-provider {:frame " (pr-str frame-kw) "} is the SCOPE-only "
+           "shape (EP-0024): it provides an ALREADY-CREATED frame through "
+           "React context and creates nothing. No live frame is registered "
+           "under " (pr-str frame-kw) " — it was never created, or it has been "
+           "destroyed. To CREATE the frame if absent (and reuse it if present, "
+           "without re-seeding), use the ENSURE shape "
+           "`frame-provider {:id " (pr-str frame-kw) " …}` instead; to scope an "
+           "existing frame, ensure it is created (e.g. `rf/make-frame`) before "
+           "the provider mounts.")
+      {:recovery :ensure-or-create-the-frame
+       :extra    {:frame frame-kw}})))
+
+;; ---- scope-only fail-loud guard: lifecycle opts (frame-provider-existing) --
+;;
+;; PHASE 1 retained surface. The legacy scope-only `rf/frame-provider-existing`
+;; (its 41 example call sites are migrated to the merged provider in PHASE 2)
+;; still rejects any frame-CONSTRUCTION / lifecycle opt handed to it. The
+;; merged `rf/frame-provider` does NOT use this — its `{:frame …}` shape is
+;; scope-only by construction (a sibling `{:id …}` shape selects ENSURE) — but
+;; `frame-provider-existing` keeps the guard until PHASE 2 retires the name.
 
 (def ^:private lifecycle-opt-keys
-  "Frame-CONSTRUCTION / lifecycle opt keys that belong to the OWNED
-  `rf/frame-provider`. Passing any of these to the SCOPE-only
-  `rf/frame-provider-existing` is a misuse (it neither creates nor owns a
-  frame). `:children` is the substrate trailing-children carrier, not a
+  "Frame-CONSTRUCTION / lifecycle opt keys. Passing any of these to the
+  scope-only `rf/frame-provider-existing` is a misuse (it neither creates nor
+  owns a frame). `:children` is the substrate trailing-children carrier, not a
   lifecycle opt, so it is excluded.
 
   EP-0027: `:initial-events` is the construction setup key (it replaces the
   retired `:initial-db` / `:on-create`); both retired keys are kept in this set
   so a caller who still passes them to the scope-only provider gets the
-  use-the-owned-provider diagnostic rather than silently nothing (the owned
-  provider itself then fails them loud via `reg-frame`)."
+  use-the-ensure-shape diagnostic rather than silently nothing."
   #{:id :images :initial-events :initial-db :on-create :fx-overrides})
 
 (defn ^:no-doc reject-lifecycle-opts!
-  "Fail loud when a SCOPE-only `rf/frame-provider-existing` is handed any
-  frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-events` /
-  …). `props` is the provider's already-native-read prop map
-  (minus `:children`); `where-sym` names the calling shell for the diagnostic.
-  Emits + throws `:rf.error/frame-provider-existing-lifecycle-opt` so a caller
-  who expected scope-only-provides-an-existing-frame semantics but passed
-  construction opts is told to use the OWNED `rf/frame-provider` instead. A
-  clean `{:frame …}`-only prop map passes through (returns nil)."
+  "Fail loud when the legacy scope-only `rf/frame-provider-existing` is handed
+  any frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-events`
+  / …). `props` is the provider's already-native-read prop map (minus
+  `:children`); `where-sym` names the calling shell for the diagnostic. Emits +
+  throws `:rf.error/frame-provider-existing-lifecycle-opt` so a caller who
+  passed construction opts is told to use the merged `rf/frame-provider {:id …}`
+  ENSURE shape instead. A clean `{:frame …}`-only prop map passes through
+  (returns nil)."
   [props where-sym]
   (let [offending (filter (set lifecycle-opt-keys) (keys props))]
     (when (seq offending)
       (rf-error/throw-error!
         :rf.error/frame-provider-existing-lifecycle-opt
         where-sym
-        (str "frame-provider-existing is the SCOPE-ONLY provider (EP-0024): it "
-             "provides an ALREADY-CREATED frame through React context and "
-             "creates / refreshes / destroys nothing. It takes `:frame` ONLY. "
-             "Got lifecycle opt(s) " (pr-str (vec offending)) ". To CREATE and "
-             "OWN a frame for as long as the component is mounted, use the "
-             "owned `rf/frame-provider {:id :your/frame :images […] …}` "
+        (str "frame-provider-existing is the SCOPE-ONLY provider: it provides "
+             "an ALREADY-CREATED frame through React context and creates / "
+             "refreshes / destroys nothing. It takes `:frame` ONLY. Got "
+             "lifecycle opt(s) " (pr-str (vec offending)) ". To CREATE the frame "
+             "if absent (and reuse it if present), use the merged "
+             "`rf/frame-provider {:id :your/frame :images […] …}` ENSURE shape "
              "instead.")
         {:recovery :use-frame-provider
          :extra    {:offending-keys (vec offending)}}))))
 
-;; ---- the shared React lifecycle component --------------------------------
+;; ---- the shared React lifecycle component (ENSURE) -----------------------
 ;;
-;; ONE React function component backs the owned frame-provider on every
+;; ONE React function component backs the ENSURE frame-provider on every
 ;; React-shaped substrate (Reagent via `:r>`, UIx/Helix via `createElement`).
-;; The create/provide/destroy + StrictMode/idempotency handling lives here,
-;; not per adapter. Two-phase, matching the React resource-ownership idiom:
+;; The ensure-on-render handling lives here, not per adapter. ONE phase:
 ;;
-;;   - CREATE during RENDER (synchronously, before children render) so a
+;;   - ENSURE during RENDER (synchronously, before children render) so a
 ;;     descendant that subscribes/dispatches on first render observes a live
-;;     frame. `make-frame` is idempotent replacement, so creating during render
-;;     (which React may run more than once before commit — concurrent features,
-;;     StrictMode dev double-INVOKE of the render fn) is safe: a same-id
-;;     re-create refreshes config + generation, preserving durable state. The
-;;     resolved id is stashed in a `useRef` so re-renders reuse it.
-;;   - DESTROY on UNMOUNT via `useEffect` empty-deps cleanup, DEFERRED (see
-;;     `release-owned-frame!`) so StrictMode's mount→unmount→mount and hot
-;;     reload do not tear down durable state. The effect SETUP re-drives
-;;     `cancel-pending-destroy!` (rf2-i02deh): StrictMode replays the effect as
-;;     setup → cleanup → setup on the SAME fiber WITHOUT re-running render, so
-;;     the render-phase acquire cannot cancel the remount's pending destroy —
-;;     the setup-phase cancel is what makes the deferred-destroy window
-;;     StrictMode-tolerant.
+;;     frame. `make-frame` is idempotent replacement, so ensuring during
+;;     render (which React may run more than once before commit — concurrent
+;;     features, StrictMode dev double-INVOKE of the render fn) is safe: a
+;;     same-id re-ensure refreshes config + generation, preserving durable
+;;     state and NOT replaying `:initial-events`. The resolved id is stashed
+;;     in a `useRef` so re-renders reuse it.
+;;
+;; There is deliberately NO unmount effect — the ensure provider does not own
+;; the frame's teardown. True ownership stays explicit (`make-frame` +
+;; `destroy-frame!` inside a `create-class`).
 
-(defn ^:no-doc owned-frame-fc
-  "The React function component that owns one frame's UI lifetime — ONE
+(defn ^:no-doc ensure-frame-fc
+  "The React function component that ENSURES one frame on render — ONE
   implementation shared by every React-shaped substrate. `props` is a JS
   object carrying:
 
@@ -281,82 +255,53 @@
                     here as ordinary React children.
 
   Returns the shared frame Context Provider element (via
-  `adapter-context/provider-element`) scoping the CREATED frame's id to those
+  `adapter-context/provider-element`) scoping the ENSURED frame's id to those
   children.
 
-  Render-phase create (NOT effect-phase): lazily acquire the frame the first
+  Render-phase ensure (NOT effect-phase): lazily acquire the frame the first
   time this instance renders, caching the resolved id in a `useRef` so
   re-renders reuse it (and so the provider's context `:value` is stable).
-  Acquiring during render guarantees the frame exists BEFORE children render and
+  Ensuring during render guarantees the frame exists BEFORE children render and
   read it — an effect would run after the first child render and race
   descendant subscribes/dispatches.
 
-  Effect-phase destroy: an empty-deps `useEffect` arms a cleanup that calls
-  `release-owned-frame!` (DEFERRED destroy) on unmount. Empty deps ⇒ the cleanup
-  runs once per genuine unmount. StrictMode's extra mount→unmount→mount cycle is
-  absorbed because the destroy is deferred AND the effect SETUP re-drives
-  `cancel-pending-destroy!` on every run: StrictMode replays the effect as
-  setup → cleanup → setup on the SAME fiber, and the render phase does NOT
-  re-run on the effect re-setup (the fiber's cached `id-ref.current` survives),
-  so the render-phase `acquire-owned-frame!` is NOT a reliable cancel site for
-  the remount. Cancelling in the effect setup (rf2-i02deh) is — the remount's
-  setup reclaims the still-live frame before the prior cleanup's 0ms timer can
-  fire. A genuine first mount finds no pending destroy (no-op); a genuine
-  unmount arms the deferred destroy with no re-setup to cancel it, so real
-  teardown is unaffected."
+  No unmount effect: the ensure provider does NOT destroy the frame on
+  unmount (EP-0024 amendment — owned destroy-on-unmount retired). A genuine
+  unmount leaves the frame live; a remount re-ensures it (idempotent, no
+  re-seed). True ownership stays expressible as `make-frame` + `destroy-frame!`
+  inside a `create-class`."
   [^js props]
   (let [opts     (.-rfOpts props)
         children (.-children props)
         id-ref   (React/useRef nil)
-        ;; Render-phase acquire (idempotent). Cache the resolved id so the
-        ;; context value and the unmount-effect's release target are stable.
+        ;; Render-phase ensure (idempotent). Cache the resolved id so the
+        ;; context value is stable across re-renders.
         frame-id (or (.-current id-ref)
-                     (let [fid (acquire-owned-frame! opts)]
+                     (let [fid (acquire-ensure-frame! opts)]
                        (set! (.-current id-ref) fid)
                        fid))]
-    (React/useEffect
-      (fn arm-owned-frame-teardown []
-        ;; StrictMode/hot-reload tolerance (rf2-i02deh). React StrictMode runs
-        ;; this effect as setup → cleanup → setup AGAIN on the SAME fiber (the
-        ;; `useRef` persists). The cleanup below schedules the DEFERRED destroy;
-        ;; the re-setup must CANCEL it, or the 0ms timer fires and tears down
-        ;; durable state between the two mounts. The render phase does NOT
-        ;; re-run on a StrictMode effect re-setup (the fiber's `id-ref.current`
-        ;; is still populated), so `acquire-owned-frame!` — the render-phase
-        ;; cancel site — never runs again. Re-drive the cancel HERE, on every
-        ;; effect setup, so the remount's effect-setup reclaims the still-live
-        ;; frame (Spec 002 §StrictMode double-invoke / §idempotent re-mount).
-        ;; A genuine first mount has no pending destroy, so this is a no-op
-        ;; there; a genuine unmount still arms the deferred destroy via the
-        ;; cleanup, and nothing re-acquires the id to cancel it — so real
-        ;; teardown is unaffected.
-        (cancel-pending-destroy! (.-current id-ref))
-        (fn cleanup-owned-frame []
-          (release-owned-frame! (.-current id-ref))))
-      ;; Empty deps: arm once on mount, clean up once on unmount.
-      #js [])
     (apply adapter-context/provider-element
            frame-id
            (adapter-context/normalize-children children))))
 
-(defn ^:no-doc owned-frame-react-element
-  "Build the raw React element for the UI-owned frame-provider, for the
+(defn ^:no-doc ensure-frame-react-element
+  "Build the raw React element for the ENSURE frame-provider, for the
   React-hook substrates (UIx / Helix). The substrate-agnostic CORE those
-  adapters' native `frame-provider` shells delegate to, parallel to
-  `re-frame.substrate.spine/build-frame-provider-element` for the scope-only
-  path. Given the provider's already-native-read prop map `props`
-  (`{:id :images :initial-events …}`), the React children value `children`, and
-  `where-sym` (the calling shell's fn symbol, for the fail-loud `:id`
-  diagnostic): validate `:id`, separate the `make-frame` opts, and return a
-  `createElement` over `owned-frame-fc` so React owns the create-on-mount /
-  destroy-on-unmount lifecycle.
+  adapters' native `frame-provider` shells delegate to (on the `{:id …}`
+  branch), parallel to `re-frame.substrate.spine/build-frame-provider-element`
+  for the scope-only `{:frame …}` branch. Given the provider's
+  already-native-read prop map `props` (`{:id :images :initial-events
+  :url-bound? …}`), the React children value `children`, and `where-sym` (the
+  calling shell's fn symbol, for the fail-loud `:id` diagnostic): validate
+  `:id`, separate the `make-frame` opts, and return a `createElement` over
+  `ensure-frame-fc` so React ensures the frame on render.
 
-  The Reagent shell does NOT use this — it embeds `owned-frame-fc` via Reagent's
-  `:r>` interop head (so trailing hiccup children translate to React children),
-  building the element in `re-frame.views.provider`."
+  The Reagent shell does NOT use this — it embeds `ensure-frame-fc` via
+  Reagent's `:r>` interop head (so trailing hiccup children translate to React
+  children), building the element in `re-frame.views.provider`."
   [props children where-sym]
-  (require-owned-frame-id! (:id props) where-sym)
+  (require-ensure-frame-id! (:id props) where-sym)
   (apply React/createElement
-         owned-frame-fc
-         #js {:rfOpts (owned-frame-opts props)}
+         ensure-frame-fc
+         #js {:rfOpts (ensure-frame-opts props)}
          (adapter-context/normalize-children children)))
