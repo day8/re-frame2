@@ -25,50 +25,57 @@
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view ^{:doc "The login form view. Captures email + password in a plain
-                  atom across renders (Form-2 outer/inner shape) — the inputs
-                  are uncontrolled, so the atom is only read in the submit
-                  handler, never in the render body, and needs no reactivity.
-                  Dispatches :auth.login/flow → :auth.login/submit on submit.
+(reg-view ^{:doc "The login form view. The email + password DRAFT is application
+                  state, so it lives in app-db (the `:auth.login/draft` slice),
+                  NOT a view-local atom — projected via the `:auth.login/draft`
+                  sub, mutated via the `:auth.login/edit-field` event. The inputs
+                  are CONTROLLED: `:value` reads from the draft sub, `:on-change`
+                  DISPATCHES an edit-field event (it never sets view-local state).
+                  Submit reads the draft back out of the sub and hands it to the
+                  machine via :auth.login/flow → :auth.login/submit.
 
-                  View-side discriminators read the machine's runtime-projected
-                  `:tags` set (chapter §State tags) via `rf/machine-has-tag?`, not boolean
-                  state-predicate subs — so adding a new busy-ish state changes no view."}
+                  The machine owns submit/auth STATUS; the slice owns the DRAFT
+                  (Pattern-Forms §Variations: machine + slice). View-side
+                  discriminators read the machine's runtime-projected `:tags` set
+                  (chapter §State tags) via `rf/machine-has-tag?`, not boolean
+                  state-predicate subs — so adding a new busy-ish state changes
+                  no view."}
           login-form []
-  (let [state (atom {:email "" :password ""})]
-    (fn []
-      (let [busy?   @(rf/machine-has-tag? :auth.login/flow :auth/busy)
-            locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)
-            err     @(subscribe [:auth.login/error])]
-        [:form.login-form
-         {:data-testid "login-form"
-          :on-submit (fn [e]
-                       (.preventDefault e)
-                       (when-not (or busy? locked?)
-                         (dispatch [:auth.login/flow
-                                    [:auth.login/submit @state]])))}
-         [:input  {:type        "email"
-                   :placeholder "Email"
-                   :data-testid "login-email"
-                   :disabled    (or busy? locked?)
-                   :on-change   #(swap! state assoc :email (.. % -target -value))}]
-         [:input  {:type        "password"
-                   :placeholder "Password"
-                   :data-testid "login-password"
-                   :disabled    (or busy? locked?)
-                   :on-change   #(swap! state assoc :password (.. % -target -value))}]
-         [:button {:type "submit"
-                   :data-testid "login-submit"
-                   :disabled (or busy? locked?)}
-          (if busy? "Signing in…" "Sign in")]
-         (when (and err (not locked?))
-           [:div.error-row
-            [:p.error err]
-            [:button {:type "button"
-                      :data-testid "login-dismiss"
-                      :on-click #(dispatch [:auth.login/flow
-                                             [:auth.login/dismiss]])}
-             "Dismiss"]])]))))
+  (let [busy?   @(rf/machine-has-tag? :auth.login/flow :auth/busy)
+        locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)
+        draft   @(subscribe [:auth.login/draft])
+        err     @(subscribe [:auth.login/error])]
+    [:form.login-form
+     {:data-testid "login-form"
+      :on-submit (fn [e]
+                   (.preventDefault e)
+                   (when-not (or busy? locked?)
+                     (dispatch [:auth.login/flow
+                                [:auth.login/submit draft]])))}
+     [:input  {:type        "email"
+               :placeholder "Email"
+               :data-testid "login-email"
+               :value       (:email draft)
+               :disabled    (or busy? locked?)
+               :on-change   #(dispatch [:auth.login/edit-field :email (.. % -target -value)])}]
+     [:input  {:type        "password"
+               :placeholder "Password"
+               :data-testid "login-password"
+               :value       (:password draft)
+               :disabled    (or busy? locked?)
+               :on-change   #(dispatch [:auth.login/edit-field :password (.. % -target -value)])}]
+     [:button {:type "submit"
+               :data-testid "login-submit"
+               :disabled (or busy? locked?)}
+      (if busy? "Signing in…" "Sign in")]
+     (when (and err (not locked?))
+       [:div.error-row
+        [:p.error err]
+        [:button {:type "button"
+                  :data-testid "login-dismiss"
+                  :on-click #(dispatch [:auth.login/flow
+                                         [:auth.login/dismiss]])}
+         "Dismiss"]])]))
 
 (reg-view ^{:doc "Top banner reflecting the machine's current state. The
                   `data-state` attribute surfaces the state keyword so a
@@ -117,10 +124,15 @@
   ;; so the `reg-view`-injected `dispatch`/`subscribe` (and the login machine
   ;; reads) resolve to it (a no-provider render reads the no-provider sentinel
   ;; and raises :rf.error/no-frame-context). The login machine is
-  ;; self-initialising, so there is no boot `dispatch-sync` to scope here.
+  ;; self-initialising; the form DRAFT slice is not, so it is seeded with one
+  ;; boot `dispatch-sync` scoped to this frame BEFORE first render — the
+  ;; controlled inputs read `:value` off `[:auth :login-form :draft]`, so the
+  ;; slot must exist as empty strings on the first paint (a nil there would make
+  ;; React treat the inputs as uncontrolled).
   (rf/reg-frame :rf/default
     {:doc          "State-machines walkthrough demo frame."
      :fx-overrides {:rf.http/managed :auth.login/canned-failure}})
+  (rf/dispatch-sync [:auth.login/initialise-form] {:frame :rf/default})
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
