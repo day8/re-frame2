@@ -13,7 +13,7 @@
   `defaults/default-frame-id` = `:rf/xray`). The `chrome-shell` wrapper
   (`panel_views.cljs`) is `reg-view*`-registered, so its render runs
   under the Story per-variant frame scope (the namespace-preserving
-  `frame-provider-existing` twin) and `(rf/current-frame-id)`
+  `frame-provider` twin) and `(rf/current-frame-id)`
   resolves to the variant frame the canvas allocated for THIS cell. We
   thread that frame into `[shell/shell-view {:frame-id …}]`, so each
   chrome cell's app-db (focused epoch, selected tab, theme, modal
@@ -27,7 +27,7 @@
   `:variants-grid` and stay fully isolated: driving one does not move
   the others.
 
-  Pre rf2-1w07r the shell hardcoded `[frame-provider-existing {:frame :rf/xray}]`,
+  Pre rf2-1w07r the shell hardcoded `[frame-provider {:frame :rf/xray}]`,
   so every cell's subscribes collided on the single global `:rf/xray`
   app-db; the gallery had to serialise rendering and re-dispatch its
   seeds into `:rf/xray` through a testbed-local `:panel-gallery.chrome/

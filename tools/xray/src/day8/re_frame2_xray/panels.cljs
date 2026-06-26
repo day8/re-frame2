@@ -79,7 +79,7 @@
   2. Calls `(rf/reg-frame :rf/xray {})` — idempotent, ensures the
      state-isolation frame exists.
   3. Wraps the panel's `Panel` (or equivalent) view in
-     `[rf/frame-provider-existing {:frame :rf/xray} [<Panel>]]` so descendant
+     `[rf/frame-provider {:frame :rf/xray} [<Panel>]]` so descendant
      subscribes / dispatches re-anchor to `:rf/xray` regardless of
      the host's React-context.
   4. Delegates to `substrate-adapter/render` with the wrapped tree +
@@ -192,7 +192,7 @@
   (mount/ensure-xray-frame!))
 
 (defn- render-panel!
-  "Internal helper. Wraps `panel-view` in `[rf/frame-provider-existing {:frame
+  "Internal helper. Wraps `panel-view` in `[rf/frame-provider {:frame
   frame} [panel-view]]` and delegates to the substrate adapter's
   render fn. Returns the adapter's unmount fn so the caller can
   tear the mount down without going through this ns again.
@@ -213,7 +213,7 @@
   [panel-view mount-point opts]
   (ensure-xray-handlers-installed!)
   (let [frame (get opts :frame :rf/xray)
-        tree  [rf/frame-provider-existing {:frame frame}
+        tree  [rf/frame-provider {:frame frame}
                [panel-view]]]
     (substrate-adapter/render tree mount-point nil)))
 

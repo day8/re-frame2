@@ -59,4 +59,4 @@
     ;; dispatch-sync so the initial render sees the seeded app-db rather
     ;; than a transient empty frame.
     (rf/dispatch-sync [:counter/initialise]))
-  (rdc/render root [rf/frame-provider-existing {:frame :rf/default} [views/counter-app]]))
+  (rdc/render root [rf/frame-provider {:frame :rf/default} [views/counter-app]]))

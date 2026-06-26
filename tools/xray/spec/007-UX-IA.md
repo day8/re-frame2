@@ -1880,7 +1880,7 @@ Every `mount-<panel>!` fn:
    Xray's state-isolation frame. `reg-frame`'s surgical-update-on-
    re-register semantics (per Spec 002 §reg-frame) keep this
    idempotent.
-3. Wraps the panel's view in `[rf/frame-provider-existing {:frame :rf/xray}
+3. Wraps the panel's view in `[rf/frame-provider {:frame :rf/xray}
    [Panel]]` so descendant `subscribe` / `dispatch` re-anchor to
    `:rf/xray` regardless of the host's React-context. The
    `:rf/xray` default may be overridden via `opts {:frame
@@ -2059,7 +2059,7 @@ mutation round-trips through localStorage under the canonical key
 ### Frame isolation
 
 Same discipline as the Dynamic shell. The Static surface composer
-inside `shell.cljs` is wrapped in `[rf/frame-provider-existing {:frame
+inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame
 :rf/xray}]`; every subscribe + dispatch inside the surface resolves
 to `:rf/xray`. Each subscribing region is `reg-view`-registered so
 its rendered component carries `:contextType frame-context` (rf2-in6l2

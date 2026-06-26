@@ -979,7 +979,7 @@
   ;; `:rf.error/frame-construction-in-handler`) — frame construction happens at
   ;; the TOP LEVEL here (and at the picker-row React `:on-click`, also top
   ;; level), via `ensure-machine-frame!`, BEFORE the `:machine-epochs/select`
-  ;; event is dispatched. The render is wrapped in a `frame-provider-existing`
+  ;; event is dispatched. The render is wrapped in a `frame-provider`
   ;; on the shell frame (scope-only — the shell frame is already `reg-frame`'d).
   (rf/reg-frame shell-frame {})
   ;; Seed the SHELL frame's bookkeeping, then auto-select the default track so
@@ -990,4 +990,4 @@
   (rf/with-frame shell-frame
     (rf/dispatch-sync [:machine-epochs/seed])
     (rf/dispatch-sync [:machine-epochs/select default-track]))
-  (rdc/render react-root [rf/frame-provider-existing {:frame shell-frame} [root]]))
+  (rdc/render react-root [rf/frame-provider {:frame shell-frame} [root]]))

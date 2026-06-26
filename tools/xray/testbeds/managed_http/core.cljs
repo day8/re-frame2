@@ -499,10 +499,10 @@
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; establish the host frame explicitly, run the boot dispatch under its
-  ;; scope, and wrap the render in a `frame-provider-existing` (scope-only
+  ;; scope, and wrap the render in a `frame-provider` (scope-only
   ;; — the host frame is already `reg-frame`'d) so in-tree
   ;; dispatch/subscribe resolve to it (the carried invariant).
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [::initialise]))
-  (rdc/render react-root [rf/frame-provider-existing {:frame host-frame} [root]]))
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]]))

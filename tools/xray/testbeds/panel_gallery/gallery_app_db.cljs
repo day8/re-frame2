@@ -13,7 +13,7 @@
 
   ## Frame isolation
 
-  The Story canvas wraps each variant in `[frame-provider-existing {:frame
+  The Story canvas wraps each variant in `[frame-provider {:frame
   variant-id}]`. Subscriptions inside the rendered tree resolve to
   the variant frame; `:rf.xray/app-db-state` (← `:rf.xray/app-db-
   current+diff`) reads the seeded `:epoch-history` + `:focus` (and any

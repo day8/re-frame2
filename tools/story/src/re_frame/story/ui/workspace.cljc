@@ -78,13 +78,12 @@
                        [re-frame.story.config :as config]
                        [re-frame.story.decorators :as decorators]
                        [re-frame.story.runtime :as runtime]
-                       ;; canvas/frame-provider-ns-safe is the
-                       ;; namespace-preserving frame-provider variant the
-                       ;; canvas uses to avoid Reagent's `:>` interop
-                       ;; calling `(name kw)` and dropping the namespace
-                       ;; off the variant frame keyword (rf2-c5jz path
-                       ;; under the rf2-zme7 fix). Variant cells re-use
-                       ;; it for the same reason: variant frames have
+                       ;; The merged `rf/frame-provider {:frame …}` shape
+                       ;; routes through Reagent's `:r>` interop head, which
+                       ;; avoids `:>`'s `(name kw)` prop conversion dropping
+                       ;; the namespace off the variant frame keyword
+                       ;; (rf2-c5jz path under the rf2-zme7 fix). Variant
+                       ;; cells need this because variant frames have
                        ;; namespaced ids of the form `:story.x/y`, and a
                        ;; namespace-dropping provider would scope the
                        ;; subtree to `:y` — a frame that does not exist.
@@ -338,9 +337,9 @@
 
      Per /spec/007-Stories.md §Relationship with frames + tools/story
      feature-set §4.2: each variant cell wraps the rendered view in a
-     `frame-provider-existing`-style scope (the namespace-preserving
-     `canvas/frame-provider-ns-safe`) on the variant id — the frame is
-     already allocated by the runtime — so the view's subscribe /
+     scope-only `rf/frame-provider {:frame …}` (whose `:r>` interop head
+     preserves the namespace) on the variant id — the frame is already
+     allocated by the runtime — so the view's subscribe /
      dispatch (resolved via React context at render time) target the
      per-variant frame the runtime allocated. Without the
      wrap, subscriptions run under no carried frame and fail with
@@ -395,18 +394,18 @@
               ;; React-context default at the workspace's mount site,
               ;; and the variant body's :counter/initialise dispatches
               ;; (which DID route to the variant's frame) become
-              ;; invisible to the view. Plain
-              ;; `rf/frame-provider-existing` (scope-only — the frame is
-              ;; already allocated) goes through Reagent's `:>` interop
-              ;; which calls `(name kw)` on prop values and drops the
-              ;; namespace before React sees it;
-              ;; `canvas/frame-provider-ns-safe` bypasses that via a
-              ;; direct `React.createElement` call.
+              ;; invisible to the view. The merged `rf/frame-provider
+              ;; {:frame …}` shape (scope-only — the frame is already
+              ;; allocated) routes through Reagent's `:r>` interop head, so
+              ;; the namespace of a `:story.x/y`-shaped variant id survives
+              ;; the React-context round trip (a plain `[:> Provider …]`
+              ;; mount calls `(name kw)` on prop values and drops the
+              ;; namespace before React sees it).
               ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on
               ;; the immediate wrapper around the decorated view (same
               ;; reason as canvas.cljs) so the a11y panel can scope
               ;; axe-core to ONLY the variant's rendered tree.
-              [canvas/frame-provider-ns-safe {:frame variant-id}
+              [rf/frame-provider {:frame variant-id}
                [:div {:data-rf-story-variant-root (pr-str variant-id)}
                 (canvas/safe-decorated-view
                   [resolved-view eff-args]

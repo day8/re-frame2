@@ -17,7 +17,7 @@
   popup with the CANONICAL Xray events directly — no `:rf/xray` literal,
   no re-dispatch indirection. Cells in the grid are fully isolated.
 
-  (Pre rf2-1w07r the shell hardcoded `[frame-provider-existing {:frame :rf/xray}]`,
+  (Pre rf2-1w07r the shell hardcoded `[frame-provider {:frame :rf/xray}]`,
   so the gallery routed its seeds through a testbed-local
   `:panel-gallery.chrome/seed!` event's `:after-seeds` lane to land
   writes on the shared `:rf/xray` frame. The parameterized shell retires

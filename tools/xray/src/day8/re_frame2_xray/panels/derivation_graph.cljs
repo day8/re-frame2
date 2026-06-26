@@ -84,7 +84,7 @@
   Same contract as every Xray panel — observing the graph pins nothing,
   dispatches nothing, mutates no host state. Pure hiccup; projection
   algebra lives in `derivation_graph_helpers.cljc` (JVM-portable). Frame
-  isolation comes from the enclosing `[rf/frame-provider-existing {:frame :rf/xray}]`
+  isolation comes from the enclosing `[rf/frame-provider {:frame :rf/xray}]`
   in `shell.cljs`."
   (:require [re-frame.core :as rf]
             [re-frame.derivation.graph :as dgraph]

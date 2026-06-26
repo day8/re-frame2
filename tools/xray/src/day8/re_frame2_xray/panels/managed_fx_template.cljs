@@ -31,7 +31,7 @@
 
   Same contract as every other Xray panel — pure hiccup, no Reagent /
   UIx / Helix references. Frame isolation is provided by the enclosing
-  `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs`. Every
+  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`. Every
   `subscribe` / `dispatch` here resolves to the `:rf/xray` frame.
 
   ## Cross-link

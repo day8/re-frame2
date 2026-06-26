@@ -15,7 +15,7 @@
 
   The panel's state lives in a frame named `:rf/xray` — a sibling of
   the host's `:rf/default`. Subscribers / dispatchers wrapped inside
-  `[rf/frame-provider-existing {:frame :rf/xray} ...]` resolve to that frame;
+  `[rf/frame-provider {:frame :rf/xray} ...]` resolve to that frame;
   a Xray view subscribing to `:rf.xray/trace-buffer` reads
   `:rf/xray`'s app-db, not the host's. Prefix prevents id collision;
   frame-provider prevents db reads/writes from leaking into the host.
