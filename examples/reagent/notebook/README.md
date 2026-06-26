@@ -135,7 +135,7 @@ The mount is the ordinary re-frame2 boot, in four steps.
 app [frame](../../../docs/guide/glossary.md#frame). A
 [`dispatch-sync`](../../../docs/guide/glossary.md#dispatch-sync) seeds
 the [app-db](../../../docs/guide/glossary.md#app-db) before the first
-paint. Then the tree renders inside a `frame-provider-existing`, so
+paint. Then the tree renders inside a `frame-provider`, so
 every `dispatch`/`subscribe` in the tree resolves to that frame. Render
 with no provider and those calls raise `:rf.error/no-frame-context` —
 [identity is carried, not found](../../../docs/guide/glossary.md#frame-identity-is-carried-not-found),

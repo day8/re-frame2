@@ -316,7 +316,7 @@
        ;; Wrap the mount in the carried frame's `frame-provider` so every
        ;; in-tree `dispatch`/`subscribe` resolves to the hydrated frame.
        (rdc/render @react-root
-                   [rf/frame-provider-existing {:frame app-frame}
+                   [rf/frame-provider {:frame app-frame}
                     [(rf/view :dashboard/root)]]))))
 
 ;; The JVM-runnable headless test that exercises the server stream

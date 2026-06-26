@@ -93,8 +93,8 @@
 ;; establish its frame explicitly. `init!` installs the adapter (it does
 ;; NOT create the frame), `reg-frame` registers the app frame, the boot
 ;; dispatch runs under `with-frame`, and the client render is wrapped in
-;; `frame-provider-existing` so every in-tree `dispatch`/`subscribe`
-;; resolves to the app frame. `frame-provider-existing` is the scope-only
+;; `frame-provider` so every in-tree `dispatch`/`subscribe`
+;; resolves to the app frame. `frame-provider` is the scope-only
 ;; sibling — it provides the ALREADY-registered frame; the lifecycle-owning
 ;; `frame-provider` (which would create a frame on mount) is deliberately
 ;; not used, since `reg-frame` already established it. Matches the canonical
@@ -105,7 +105,7 @@
   "The one canonical boot sequence for this example: install the slim
    adapter, register the app frame, dispatch the boot event under the frame
    scope, then lazily mount `counter-app` into `#app` under a
-   `frame-provider-existing` (the scope-only sibling — `reg-frame` already
+   `frame-provider` (the scope-only sibling — `reg-frame` already
    created the frame, so the mount only re-scopes into it, not re-creates it).
 
    `boot!` is the single source of truth for the boot so the teaching path
@@ -132,7 +132,7 @@
      (when-not @react-root
        (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
      (rdc/render @react-root
-                 [rf/frame-provider-existing {:frame app-frame}
+                 [rf/frame-provider {:frame app-frame}
                   [counter-app]]))))
 
 (defn run []

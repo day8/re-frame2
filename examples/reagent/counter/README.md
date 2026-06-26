@@ -73,7 +73,7 @@ to end. Four steps, all in `run`:
 (rf/with-frame app-frame
   (rf/dispatch-sync [:counter/initialise]))     ;; boot it: seed app-db, synchronously
 (rdc/render @react-root
-  [rf/frame-provider-existing {:frame app-frame} ;; scope the frame to the view tree
+  [rf/frame-provider {:frame app-frame} ;; scope the frame to the view tree
    [counter-app]])
 ```
 
@@ -90,7 +90,7 @@ Each step does one job:
   [`dispatch-sync`](../../../docs/guide/glossary.md#dispatch-sync) — the
   synchronous sibling of `dispatch` — so `app-db` is seeded *before* the
   first render, not a tick later.
-- `frame-provider-existing` wraps the view tree. That's what lets the
+- `frame-provider` wraps the view tree. That's what lets the
   `dispatch` and `subscribe` calls inside the views find their frame
   instead of raising `:rf.error/no-frame-context`.
 

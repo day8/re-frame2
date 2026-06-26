@@ -148,7 +148,7 @@
 ;;   2. declares `:url-bound? true` so it owns the URL, and
 ;;   3. seeds its app-db under `with-frame`.
 ;; Because the frame is created up-front by `reg-frame`, the render is
-;; wrapped in `frame-provider-existing` (the SCOPE-only member of the
+;; wrapped in `frame-provider` (the SCOPE-only member of the
 ;; provider family — it provides an already-created frame id through React
 ;; context and creates/destroys nothing; contrast the owned `frame-provider`,
 ;; which mounts its own frame). That scope is what every in-tree
@@ -177,5 +177,5 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider-existing {:frame app-frame}
+                [rf/frame-provider {:frame app-frame}
                  [root-view]])))

@@ -522,7 +522,7 @@
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
     ;; Scope the render into the already-created `:rf/default` frame (built by
-    ;; the `reg-frame` above) with the SCOPE-ONLY `frame-provider-existing` —
+    ;; the `reg-frame` above) with the SCOPE-ONLY `frame-provider` —
     ;; it provides that frame's id to descendants over React context and
     ;; creates / owns nothing (the lifecycle-owning `frame-provider`, which
     ;; takes `:id` and constructs a frame, is the other component and is not
@@ -532,6 +532,6 @@
     ;; sentinel and those reads raise `:rf.error/no-frame-context` (there is no
     ;; `:rf/default` floor).
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider-existing {:frame :rf/default}
+      ($ uix-adapter/frame-provider {:frame :rf/default}
          ($ root-view))
       @react-root)))
