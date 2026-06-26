@@ -27,14 +27,19 @@
 
   EP-0024 amendment (provider collapse). The previous family had THREE
   components: an OWNED `frame-provider` (create-on-mount + destroy-on-unmount),
-  a scope-only `frame-provider-existing`, and a `frame-provider-ns-safe`
-  twin. The owned destroy-on-unmount has been RETIRED — it had zero product
-  consumers (only its own lifecycle tests). True ownership (modals,
-  multi-instance widgets) stays expressible as `rf/make-frame` +
-  `rf/destroy-frame!` inside a `create-class` (what Story already does), where
-  the component explicitly owns the lifetime. The merged `rf/frame-provider`
-  keeps the name and serves the two non-owning jobs (scope an existing frame,
-  ensure a named frame) that every product call site actually needs.
+  a scope-only `frame-provider-existing`, and a namespace-safe twin. All three
+  have COLLAPSED into this one merged `rf/frame-provider`. The owned
+  destroy-on-unmount has been RETIRED — it had zero product consumers (only
+  its own lifecycle tests). True ownership (modals, multi-instance widgets)
+  stays expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
+  `create-class` (what Story already does), where the component explicitly
+  owns the lifetime. The scope-only `frame-provider-existing` and its
+  namespace-safe twin have been retired too — the merged provider's
+  `{:frame …}` shape (routed through Reagent's `:r>` interop head, so a
+  namespaced frame keyword survives the React-context round trip) is their one
+  replacement. The merged `rf/frame-provider` keeps the name and serves the
+  two non-owning jobs (scope an existing frame, ensure a named frame) that
+  every product call site actually needs.
 
   Why ENSURE rather than CREATE-AND-DESTROY. The ensure shape is exactly
   what hot reload, React StrictMode dev double-invoke, and Story
@@ -139,8 +144,8 @@
 ;; The merged `rf/frame-provider` in its `{:frame existing-id}` shape provides
 ;; an ALREADY-CREATED frame and creates / refreshes / destroys NOTHING. Per
 ;; the EP-0024 amendment ruling it FAILS LOUD when the named frame is ABSENT
-;; (this is today's `frame-provider-existing` guardrail behaviour, kept) — a
-;; caller cannot silently scope a subtree to a frame that does not exist. The
+;; (the scope-only guardrail Story + Xray rely on) — a caller cannot silently
+;; scope a subtree to a frame that does not exist. The
 ;; guard lives here (beside the ensure-provider id guard) so both shells
 ;; validate against one place; every per-adapter scope shell calls it before
 ;; delegating to the scope-only provide tier.
@@ -172,52 +177,6 @@
            "the provider mounts.")
       {:recovery :ensure-or-create-the-frame
        :extra    {:frame frame-kw}})))
-
-;; ---- scope-only fail-loud guard: lifecycle opts (frame-provider-existing) --
-;;
-;; PHASE 1 retained surface. The legacy scope-only `rf/frame-provider-existing`
-;; (its 41 example call sites are migrated to the merged provider in PHASE 2)
-;; still rejects any frame-CONSTRUCTION / lifecycle opt handed to it. The
-;; merged `rf/frame-provider` does NOT use this — its `{:frame …}` shape is
-;; scope-only by construction (a sibling `{:id …}` shape selects ENSURE) — but
-;; `frame-provider-existing` keeps the guard until PHASE 2 retires the name.
-
-(def ^:private lifecycle-opt-keys
-  "Frame-CONSTRUCTION / lifecycle opt keys. Passing any of these to the
-  scope-only `rf/frame-provider-existing` is a misuse (it neither creates nor
-  owns a frame). `:children` is the substrate trailing-children carrier, not a
-  lifecycle opt, so it is excluded.
-
-  EP-0027: `:initial-events` is the construction setup key (it replaces the
-  retired `:initial-db` / `:on-create`); both retired keys are kept in this set
-  so a caller who still passes them to the scope-only provider gets the
-  use-the-ensure-shape diagnostic rather than silently nothing."
-  #{:id :images :initial-events :initial-db :on-create :fx-overrides})
-
-(defn ^:no-doc reject-lifecycle-opts!
-  "Fail loud when the legacy scope-only `rf/frame-provider-existing` is handed
-  any frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-events`
-  / …). `props` is the provider's already-native-read prop map (minus
-  `:children`); `where-sym` names the calling shell for the diagnostic. Emits +
-  throws `:rf.error/frame-provider-existing-lifecycle-opt` so a caller who
-  passed construction opts is told to use the merged `rf/frame-provider {:id …}`
-  ENSURE shape instead. A clean `{:frame …}`-only prop map passes through
-  (returns nil)."
-  [props where-sym]
-  (let [offending (filter (set lifecycle-opt-keys) (keys props))]
-    (when (seq offending)
-      (rf-error/throw-error!
-        :rf.error/frame-provider-existing-lifecycle-opt
-        where-sym
-        (str "frame-provider-existing is the SCOPE-ONLY provider: it provides "
-             "an ALREADY-CREATED frame through React context and creates / "
-             "refreshes / destroys nothing. It takes `:frame` ONLY. Got "
-             "lifecycle opt(s) " (pr-str (vec offending)) ". To CREATE the frame "
-             "if absent (and reuse it if present), use the merged "
-             "`rf/frame-provider {:id :your/frame :images […] …}` ENSURE shape "
-             "instead.")
-        {:recovery :use-frame-provider
-         :extra    {:offending-keys (vec offending)}}))))
 
 ;; ---- the shared React lifecycle component (ENSURE) -----------------------
 ;;

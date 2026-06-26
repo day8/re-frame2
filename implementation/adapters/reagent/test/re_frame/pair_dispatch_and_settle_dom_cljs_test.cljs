@@ -122,7 +122,7 @@
           (try
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider-existing {:frame frame-kw}
+                (rdc/render root [rf/frame-provider {:frame frame-kw}
                                   [(rf/view :rf.pair-settle/parent)]])))
             (is (nil? (.querySelector mount-node ".child"))
                 "child absent before :show")

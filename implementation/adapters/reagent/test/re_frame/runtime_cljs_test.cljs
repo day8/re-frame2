@@ -826,9 +826,12 @@
 ;; mount a component, so these tests stop at the hiccup-emission level.
 
 (deftest frame-provider-emits-provider-hiccup
-  (testing "[rf/frame-provider-existing {:frame :a} child] emits a Provider element with :a"
+  (testing "[rf/frame-provider {:frame :a} child] emits a Provider element with :a"
+    ;; The merged provider's SCOPE-only `{:frame …}` shape fails loud if the
+    ;; frame is absent, so register it live before scoping.
+    (rf/reg-frame :a {})
     (let [child       [:span "hi"]
-          tree        (rf/frame-provider-existing {:frame :a} child)
+          tree        (rf/frame-provider {:frame :a} child)
           [head value & rest] tree]
       ;; The wrapper composes the Reagent component returned by
       ;; build-frame-provider as the head, with the frame keyword threaded
@@ -856,38 +859,45 @@
         (is (= [child] inner)
             "children pass through unchanged")))))
 
-(deftest frame-provider-missing-frame-key-raises-no-frame-context
-  ;; EP-0002 (rf2-9o48ih) — inverted from the prior
-  ;; `frame-provider-default-fallback-no-frame-key`. Under the carried
-  ;; invariant there is no `(or (:frame props) :rf/default)` floor: a
-  ;; `frame-provider` with no (or nil) `:frame` is a CONFIGURATION ERROR
-  ;; — the provider raises `:rf.error/no-frame-context` rather than
-  ;; synthesising a default. `:frame` is a required prop (per Spec 002
-  ;; §Frame target resolution — the carried invariant).
-  (testing "frame-provider-existing with no :frame key raises :rf.error/no-frame-context"
-    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
-          (rf/frame-provider-existing {} [:span "x"]))
-        "missing :frame is a config error — no :rf/default floor"))
+(deftest frame-provider-missing-or-nil-frame-key-fails-loud
+  ;; EP-0002 (rf2-9o48ih) + EP-0024 (provider collapse). The merged
+  ;; `frame-provider` dispatches on the prop map: a `{:frame …}` key selects
+  ;; the SCOPE-only shape, otherwise the ENSURE shape validates `:id`. So an
+  ;; EMPTY prop map (no `:frame`) is the ENSURE shape with no `:id` — a
+  ;; CONFIGURATION ERROR raising `:rf.error/ensure-frame-provider-missing-id`.
+  ;; An explicit `{:frame nil}` DOES carry the `:frame` key, so it selects the
+  ;; SCOPE shape; under the carried invariant there is no
+  ;; `(or (:frame props) :rf/default)` floor, so a nil `:frame` raises
+  ;; `:rf.error/no-frame-context` rather than synthesising a default (Spec 002
+  ;; §Frame target resolution).
+  (testing "frame-provider with no :frame key selects ENSURE and raises :rf.error/ensure-frame-provider-missing-id"
+    (is (thrown-with-msg? :default #":rf.error/ensure-frame-provider-missing-id"
+          (rf/frame-provider {} [:span "x"]))
+        "an empty prop map is the ENSURE shape with no :id — a config error"))
   (testing "frame-provider with explicit nil :frame raises :rf.error/no-frame-context"
     (is (thrown-with-msg? :default #":rf.error/no-frame-context"
-          (rf/frame-provider-existing {:frame nil} [:span "x"]))
+          (rf/frame-provider {:frame nil} [:span "x"]))
         "nil :frame is a config error — no :rf/default floor")))
 
 (deftest frame-provider-variadic-children
   (testing "frame-provider accepts zero, one, or many children"
+    ;; SCOPE-only `{:frame …}` fails loud if absent — register the frames.
+    (rf/reg-frame :z {})
+    (rf/reg-frame :one {})
+    (rf/reg-frame :many {})
     ;; Zero children — the wrapper still renders the Provider element with
     ;; no inner content. React-side that's a valid empty subtree.
-    (let [tree (rf/frame-provider-existing {:frame :z})]
+    (let [tree (rf/frame-provider {:frame :z})]
       (is (= :z (second tree))
           "frame keyword threaded through with no children")
       (is (= [] (drop 2 tree))
           "no extra children when none were passed"))
     ;; One child.
-    (let [tree (rf/frame-provider-existing {:frame :one} [:p "alone"])]
+    (let [tree (rf/frame-provider {:frame :one} [:p "alone"])]
       (is (= [[:p "alone"]] (drop 2 tree))
           "single child passes through"))
     ;; Many children — the variadic & captures them all in declaration order.
-    (let [tree (rf/frame-provider-existing {:frame :many}
+    (let [tree (rf/frame-provider {:frame :many}
                                   [:header]
                                   [:main]
                                   [:footer])]
@@ -896,9 +906,11 @@
 
 (deftest frame-provider-keyword-frame
   (testing "frame-provider only handles keyword frame ids (per Spec 002 §Frame ids)"
-    ;; The component itself doesn't validate — that's the runtime's job —
-    ;; but it threads whatever keyword the user supplies.
-    (let [tree (rf/frame-provider-existing {:frame :rf.frame/anonymous-1} [:p])]
+    ;; SCOPE-only `{:frame …}` fails loud if absent — register the frame.
+    (rf/reg-frame :rf.frame/anonymous-1 {})
+    ;; The component threads whatever keyword the user supplies through to the
+    ;; scope tier.
+    (let [tree (rf/frame-provider {:frame :rf.frame/anonymous-1} [:p])]
       (is (= :rf.frame/anonymous-1 (second tree))
           "namespaced gensym'd frame keyword threads through unchanged"))))
 
@@ -910,10 +922,12 @@
     ;; build-frame-provider. Both are callable; both produce the same
     ;; final hiccup shape when invoked with a frame keyword.
     ;; rf2-4y60: build-frame-provider is 0-arity — the returned component
-    ;; takes the frame keyword at render time.
+    ;; takes the frame keyword at render time. The merged provider's SCOPE
+    ;; shape fails loud if absent, so register :hello live first.
+    (rf/reg-frame :hello {})
     (let [provider     (re-frame.views/build-frame-provider)
           substrate-tree (provider :hello [:span "x"])
-          wrapper-tree   (rf/frame-provider-existing {:frame :hello} [:span "x"])
+          wrapper-tree   (rf/frame-provider {:frame :hello} [:span "x"])
           ;; The wrapper invokes (build-frame-provider) per call;
           ;; the substrate-side returns the same generic component. Compare
           ;; the inner Provider hiccup produced by each.

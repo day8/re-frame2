@@ -546,7 +546,7 @@
            ;; that landed before the bundle executed.
            (streaming-client/install! {:frame :app/main})
            (rdc/render react-root
-             [rf/frame-provider-existing {:frame :app/main}
+             [rf/frame-provider {:frame :app/main}
               [(rf/view :app/root)]])
            ;; Reconcile against the canonical payload once it lands.
            ;; (A host typically polls / observes for `__rf_payload`, or

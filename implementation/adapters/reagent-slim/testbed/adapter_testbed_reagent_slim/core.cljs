@@ -83,4 +83,4 @@
   (rf/reg-frame :rf/default {})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
-  (rdc/render app-root [rf/frame-provider-existing {:frame :rf/default} [root]]))
+  (rdc/render app-root [rf/frame-provider {:frame :rf/default} [root]]))

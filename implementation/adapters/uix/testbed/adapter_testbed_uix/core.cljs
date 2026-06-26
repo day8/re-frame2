@@ -55,5 +55,5 @@
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
   (uix-dom/render-root
-    ($ uix-adapter/frame-provider-existing {:frame :rf/default} ($ root))
+    ($ uix-adapter/frame-provider {:frame :rf/default} ($ root))
     app-root))
