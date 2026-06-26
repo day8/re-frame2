@@ -35,9 +35,10 @@ Type: standards-track
 > its own lifecycle tests). **True ownership** (modals, multi-instance widgets)
 > stays expressible as `make-frame` + `destroy-frame!` inside a `create-class`
 > (what Story already does), where the component explicitly declares it owns
-> the lifetime. The legacy `frame-provider-existing` name is retired in favour
-> of the merged `{:frame …}` shape; the rename of its example call sites is a
-> separate migration. Normative home for the amended provider:
+> the lifetime. The legacy `frame-provider-existing` name (and its
+> namespace-safe twin) is retired in favour of the merged `{:frame …}` shape;
+> the rename of its call sites across examples, Story, Xray, tests, and docs is
+> complete. Normative home for the amended provider:
 > `spec/002-Frames.md` §the merged config-shaped `frame-provider`, with the
 > substrate contract in `spec/006-ReactiveSubstrate.md`. The sections below
 > that describe the OWNED create-on-mount/destroy-on-unmount boundary are
