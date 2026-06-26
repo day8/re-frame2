@@ -1,67 +1,94 @@
 # counter_helix — Helix substrate counter
 
-The canonical counter, rendered through the Helix adapter. Same six
-dominoes as [`examples/reagent/counter/`](../../reagent/counter/);
-different substrate.
+The canonical counter, rendered through Helix instead of Reagent. Here's
+the load-bearing trick, and it's worth dwelling on: the events and the
+subscription in this example are **byte-for-byte identical** to the ones
+in the [Reagent](../../reagent/counter/) and [UIx](../../uix/counter_uix/)
+counters. Not "similar." Not "ported." The same characters on disk. Only
+the view layer at the bottom of the file changes.
+
+That's the whole pitch for re-frame2's [substrate](../../../docs/guide/glossary.md#substrate)
+story in one example. Your [events](../../../docs/guide/glossary.md#event),
+your [subscriptions](../../../docs/guide/glossary.md#subscription), and your
+[app-db](../../../docs/guide/glossary.md#app-db) don't know — and aren't
+allowed to know — which React-family library is painting pixels underneath.
+Swap the [adapter](../../../docs/guide/glossary.md#adapter) and the same
+state model lights up a different renderer.
 
 ## What this demonstrates
 
-- **`rf/init!` with the Helix adapter** — `(rf/init! helix-adapter/adapter)`.
-  No default-adapter registry; the adapter spec map is passed
-  explicitly.
-- **`reg-event` / `reg-sub`** —
-  *substrate-agnostic*. The exact same registrations as the Reagent
-  and UIx counters; the artefact layer doesn't know which substrate
-  is below.
-- **`use-subscribe` hook (Helix idiomatic)** — components call
-  `(helix-adapter/use-subscribe [:counter/value])` directly.
-- **`(:dispatch (rf/frame-handle))` for click handlers** — Helix
-  components take `dispatch` off a `(rf/frame-handle)` and close over
-  it. The handle captures the render-time frame, so the closed-over
-  `dispatch` keeps targeting that frame even from an async callback.
-  There is no auto-injection in Helix — `reg-view` stays Reagent-only;
-  Helix users write `defnc` directly.
-- **Shared frame-context** — the same React Context object the
-  Reagent and UIx adapters consume. Cross-substrate parity is at the
-  runtime layer.
+- **Installing the Helix adapter** — `(rf/init! helix-adapter/adapter)`.
+  An [adapter](../../../docs/guide/glossary.md#adapter) is a *value* — the
+  little map of glue that binds re-frame2 to a rendering library — and you
+  pass it in by hand. There's no default-adapter registry doing it behind
+  your back. (`init!` installs the adapter; it does **not** create a
+  [frame](../../../docs/guide/glossary.md#frame) — see the mount below.)
+- **`reg-event` / `reg-sub`, substrate-agnostic** — the `:counter/*`
+  [event handlers](../../../docs/guide/glossary.md#event-handler) and the
+  `:counter/value` [subscription](../../../docs/guide/glossary.md#subscription)
+  are the artefact layer, and they are exactly the registrations the
+  Reagent and UIx counters use. The code that computes *what your app does*
+  has no idea what's below it.
+- **Reading state with the `use-subscribe` hook** — Helix's idiom is hooks
+  all the way down, so a component reads a subscription by calling
+  `(helix-adapter/use-subscribe [:counter/value])` directly, getting back
+  the live value.
+- **Dispatching off a frame-handle** — the click handlers take `dispatch`
+  off a [`(rf/frame-handle)`](../../../docs/guide/glossary.md#frame-handle)
+  and close over it. A frame-handle is a frame captured *as a value*; it
+  pins the render-time frame, so the closed-over `dispatch` keeps aiming at
+  the right frame even when fired later from an async callback. There's no
+  auto-injection in Helix — `reg-view` stays a Reagent-only convenience, and
+  Helix users write `defnc` and wire `dispatch` themselves.
+- **The shared frame-context** — the render is wrapped in
+  `frame-provider-existing`, the same React Context machinery the Reagent
+  and UIx adapters consume. The substrate boundary is real, but it sits at
+  the runtime layer, not in three parallel universes.
 
 ## Why this shape
 
-This example is the counter half of the Helix **smoke-test subset** —
-counter + login — per [Spec 006 §CLJS reference: Helix as alternative
-substrate Decision 7](../../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate).
-That pair is what confirms the Helix adapter implements the substrate
-contract; `process_monitor_helix` is a documented design-led example
-alongside it, not part of the Decision-7 smoke subset. Pair with
+Read this example next to its two siblings —
 [`examples/reagent/counter/`](../../reagent/counter/) and
-[`examples/uix/counter_uix/`](../../uix/counter_uix/) to see the
-substrate boundary cleanly.
+[`examples/uix/counter_uix/`](../../uix/counter_uix/) — and the substrate
+boundary stops being an abstract claim and becomes a diff you can run your
+eye down. They're the same app three times, sharing every line of model and
+differing only in the view.
+
+Why does the framework even *carry* a Helix counter? Because counter + login
+is the representative pair that proves the Helix adapter actually satisfies
+the substrate contract — the curated smoke subset per
+[Spec 006 §CLJS reference: Helix as alternative substrate, item 7](../../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate).
+(`process_monitor_helix` is a separate, design-led example that sits
+*alongside* the subset, not part of it.)
 
 ### The substrate boundary — same model, three view layers
 
-`core.cljs` carries a `SUBSTRATE BOUNDARY` divider. Above it is the
-**substrate-agnostic artefact layer** — the `:counter/*` events and the
-`:counter/value` sub. Those lines are byte-for-byte identical in the
-Reagent and UIx counters; the artefact layer never names a substrate.
-Below the divider is the **only** substrate-specific code: the Helix
-`defnc` view + the mount.
+Open `core.cljs` and you'll find a literal `SUBSTRATE BOUNDARY` divider
+drawn across the file. Above it: the **substrate-agnostic artefact layer** —
+the `:counter/*` events and the `:counter/value` sub. Those lines are
+identical, character for character, in all three counters; the artefact
+layer never names a substrate. Below it: the **only** substrate-specific
+code in the example — the Helix `defnc` views and the mount.
 
-That duplication across the three counters is **deliberate and the
-intended v2 style**, not copy-paste drift waiting to happen. The
-id-identity *is* the cross-substrate parity demonstration: byte-identical
-events + sub driving Reagent `reg-view`, UIx `defui`, and Helix `defnc`
-proves the adapter contract is the whole story. It is intentionally **not**
-hoisted into a shared model namespace — each substrate counter is a
-self-contained `:browser` build, and `npm run test:bundle-isolation` greps
-each released bundle to prove a Helix `main.js` carries no Reagent/UIx code
-(and vice versa). A shared model required into all three builds would
-defeat that isolation and the parity claim it underwrites. The rationale
-and its four bounding conditions are catalogued in
+The instinct of every seasoned engineer here is to recoil. Duplicated code
+across three folders? Surely that's copy-paste rot waiting to bite someone.
+But the duplication is the *point*, and it's load-bearing rather than lazy:
+the id-identity **is** the parity demonstration. Byte-identical events and a
+byte-identical sub, driving a Reagent `reg-view`, a UIx `defui`, and a Helix
+`defnc`, is the proof that the adapter contract is the whole story — that
+nothing leaks across the boundary. Hoist the model into a shared namespace
+and you'd lose exactly that proof. Each substrate counter is a self-contained
+`:browser` build, and `npm run test:bundle-isolation` greps every released
+bundle to confirm a Helix `main.js` carries no Reagent or UIx code (and vice
+versa). A shared model required into all three builds would defeat both the
+isolation *and* the parity claim it underwrites. The rationale and its four
+bounding conditions are catalogued in
 [`examples/TESTING.md` §Exception 2](../../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share).
 
-The folder name carries the `_helix` namespace suffix so the
-top-level namespace doesn't collide with Reagent or UIx siblings on
-the classpath.
+One last detail you'll notice in the source: the folder carries the `_helix`
+namespace suffix (`counter-helix.core`) purely so its top-level namespace
+doesn't collide with the Reagent and UIx siblings on the classpath. Nothing
+deeper than housekeeping.
 
 ## Files
 

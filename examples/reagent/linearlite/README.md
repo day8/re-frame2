@@ -1,101 +1,143 @@
 # linearlite — EP-0019 optimistic-mutation + rollback worked example
 
-A small **Linearlite-class issue tracker** — a board of issues you **create**,
-**retitle**, and move between **statuses** — where every write applies
-**optimistically** and **rolls back on failure**. Built on the first-class
-**optimistic mutation** primitive ([EP-0019](../../../docs/EP/EP-0019-optimistic-mutation-rollback.md),
-[Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations)).
+A small **Linearlite-class issue tracker** — a board of cards you **create**,
+**retitle**, and move between **statuses** — built around one stubborn UX
+problem: a write to a server takes time, but a user expects the screen to react
+*now*. So you show the change immediately, before the server has agreed to it —
+and then, when the server comes back, you either keep the change or take it back.
 
-This is the **write-side flagship** dogfood — the counterpart of
-[`reagent/infinite_feed/`](../infinite_feed/) (the read-side EP-0021 load-more
-dogfood). There the runtime owned the page accumulation; **here the runtime owns
-the optimistic apply, the recorded snapshot inverse, the per-entry revision
-token, and the conflict-aware rollback** — the author writes only the *forward*
-patch.
+That "show it now, take it back if it fails" dance is the **optimistic update**.
+Done by hand it's a notorious bug farm: a `:saving?` flag here, a shadow copy of
+the old value squirrelled away there, a race between the reply and the next
+click, and an undo path you wrote from memory that doesn't quite match what was
+really on screen. This example does none of that by hand. The whole dance is a
+first-class runtime primitive ([EP-0019](../../../docs/EP/EP-0019-optimistic-mutation-rollback.md),
+[Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations)),
+and the author writes only the *forward* change — "make the card look like this."
+The runtime owns the rest: applying the change before the request goes out,
+remembering exactly what was there before, and putting it back, untouched, if
+the write fails.
+
+It's the **write-side flagship** of the dogfood examples — the mirror image of
+[`reagent/infinite_feed/`](../infinite_feed/), the read-side EP-0021 load-more
+dogfood. There the runtime owned accumulating pages of data you read; **here it
+owns applying your optimistic guess, recording the truthful inverse, and the
+conflict-aware rollback** — and you write the forward patch and nothing else.
+
+> **Coming from TanStack Query / SWR?** You know this shape: an `onMutate` that
+> writes the cache early, a context object holding the snapshot, an `onError`
+> that restores it. re-frame2 keeps the idea and removes the bookkeeping — there's
+> no context object to remember to return, because the runtime snapshots the
+> inverse for you. The one deliberate divergence is on conflict (below): where
+> TanStack restores its captured context unconditionally, re-frame2 can decide a
+> stale inverse is the *wrong* thing to restore and refetch instead.
 
 ## What this demonstrates
 
-The four facts the optimistic primitive surfaces, in one cohesive app:
+The whole point fits in four facts, all in one cohesive app.
 
-- **The write shows immediately.** Each mutation declares **`:optimistic`** — the
-  exact-target twin of `:patches`: `(fn [params] -> {target patch-fn})`. The
-  patch runs at **phase 1.5**, *before* the request lowers, so the new card
-  appears / the title changes / the card moves the instant the user acts. The
-  view **never mutates app-db** — there is **no app-db issue list, no `:saving?`
-  flag, no manual optimistic copy**. The board is a single managed `reg-resource`
-  entry; every write patches *that* entry in place.
+- **The write shows immediately — and the view never touches the data.** Each
+  [mutation](../../../docs/resources/glossary.md#mutation) declares an
+  **`:optimistic`** forward patch: `(fn [params] -> {target patch-fn})`, the
+  exact-target twin of a resource's `:patches`. That patch runs *before* the
+  request is sent, so the new card appears, or the title changes, or the card jumps
+  columns the instant the user acts. Crucially, the
+  [view](../../../docs/guide/glossary.md#view) does **not** mutate state to make
+  this happen — there is no app-db issue list, no `:saving?` flag, no hand-rolled
+  shadow copy. The board is a single managed
+  [resource](../../../docs/resources/glossary.md#resource), and every write patches
+  *that* one cache entry in place.
 
-- **The inverse is runtime-recorded.** The author writes only the **forward**
-  patch. The runtime snapshots each touched entry's whole `:before` value
-  (verbatim, by structural sharing) and its `:revision` at apply time, on the
-  mutation instance row's `:patch-summary` `:rollback` slot. The author never
-  describes how to undo a change — the inverse is **truthful by construction**
-  (the exact entry that existed, never a reconstruction).
+- **The inverse is recorded for you, so it's true by construction.** You write
+  only the forward patch — "set this title," "move this card." You never describe
+  how to undo it. At the moment the patch applies, the runtime snapshots the whole
+  *before* value of each touched entry — the exact map that existed, kept by
+  structural sharing, not a reconstruction someone tried to derive later. The undo
+  is therefore the real thing that was there, which is precisely the bit hand-rolled
+  optimistic code tends to get subtly wrong.
 
-- **The reply settles deterministically.** An accepted **`:ok`** reply
-  **commits** — the mutation's **`:populates`** overwrites the optimistic guess
-  with the server's authoritative board (a temp issue id is replaced by the
-  server's, the optimistic marker clears). An accepted **`:error`** reply
-  **rolls back** — the recorded `:before` is restored verbatim. There is **no
-  wall-clock race**: the verdict keys on the work-id + generation acceptance and
-  the per-entry revision, both canonical recorded facts.
+- **The reply settles deterministically — no clock-watching.** A success reply
+  **commits**: the mutation's **`:populates`** re-seeds the board with the server's
+  authoritative value, so a card's temporary id gets replaced by the server's and
+  the optimistic marker clears. A failure reply **rolls back**: the recorded
+  *before* is restored verbatim and the change visibly reverts. There's no
+  wall-clock race deciding which wins, because the verdict keys off recorded facts
+  — which write this is, and each entry's revision at apply time — not "whichever
+  reply landed last."
 
-- **Rollback is what you see — the headline.** A **"Fail the next write"**
-  toggle arms the demo backend to answer the next mutation with a **503**. The
-  optimistic change paints immediately, the request fails, and the runtime rolls
-  the board back to exactly its pre-click state — the new card **vanishes**, the
-  retitled card **reverts**, the moved card **snaps back** — with a "failed —
-  reverted" badge. **No manual undo, no app-db bookkeeping.**
+- **Rollback is the thing you actually watch — the headline.** A **"Fail the next
+  write"** toggle arms the demo backend to answer the next write with a `503`. Tick
+  it, then create or retitle or move a card: the optimistic change paints
+  instantly, the request fails, and the runtime snaps the board back to exactly its
+  pre-click state — the new card **vanishes**, the retitled card **reverts**, the
+  moved card **jumps back** — and the card wears a "failed — reverted" badge. No
+  manual undo, no app-db bookkeeping, no flag you forgot to reset.
 
-The board is read passively through `[:rf.resource/data …]` (the resource sub
-family); each in-flight write is watched through `[:rf.mutation/state {:instance
-…}]` — including the derived **`:optimistic?`** flag (EP-0019 Rider 1), true
-while a live optimistic apply is showing between phase 1.5 and settle, so the
-card renders a "saving…" badge over its optimistic value.
+The board is read passively through the resource sub `[:rf.resource/data …]`;
+each in-flight write is watched through the mutation view-model
+`[:rf.mutation/state {:instance …}]`, whose **`:optimistic?`** flag is true while
+a write's optimistic value is on screen but not yet settled — so a card can wear a
+"saving…" badge over the value you're hoping sticks.
 
-**The conflict policy.** Each mutation names `:on-conflict :invalidate` (the
-default, named here for the dogfood): on a failure rollback where a competing
-write moved the touched entry while ours was in flight, the **read path is the
-recovery authority** — the runtime refetches the authoritative value rather than
-restoring a now-stale inverse (re-frame2's deliberate divergence from
-TanStack/SWR's unconditional context restore).
+## Why this shape
 
-**Scope is the fail-closed leak boundary.** The board is a single public board,
-so it carries the explicit, auditable `:scope :rf.scope/global` claim. A
-per-team board would carry a scope resolver instead, and the optimistic apply
-would be **fail-closed** (a nil-resolving scope drops the target rather than
-writing globally) — the same leak boundary a read has, because an optimistic
-apply *writes* the cache.
+A few decisions in the source are worth a sentence, because each one is a place
+the framework draws a line you'd otherwise have to police yourself.
 
-## Idiomatic re-frame2
+**Conflict policy: the read path is the recovery authority.** Each mutation names
+`:on-conflict :invalidate` — the default, spelled out here because this is the
+example whose job is to *show* it. The subtle case it handles: a write fails and
+wants to roll back, but while it was in flight a *competing* write already moved
+the same entry. Restoring our recorded inverse now would clobber that newer change
+with stale data. So instead the runtime refetches the authoritative value and lets
+the read path heal the cache. (This is the deliberate divergence from TanStack/SWR,
+which restore captured context unconditionally — fine until two writes overlap.)
 
-The board is a single managed resource; every write is a named `reg-mutation`;
-the demo seam (the fail-next-write toggle) and the inline edit draft are
-ordinary app-db slices driven by events and read by subs. **No raw atoms through
-views, no frame-ids as view args, no vestigial timing.** The only durable
-"server state" — the issue board — lives in the runtime resource cache, not
-app-db.
+**Scope is a fail-closed leak boundary, even on a write.** The board is one public
+board, so the resource carries the explicit, auditable `:scope :rf.scope/global`
+claim — there's no implicit default to fall back on. A per-team board would carry a
+[scope](../../../docs/resources/glossary.md#scope) resolver instead, and the optimistic
+apply would inherit the same fail-closed rule a read has: a scope that resolves to
+nil drops the target rather than writing it globally. The reason it matters is that
+an optimistic apply *writes* the cache, so it needs the same boundary a read does —
+one team's optimistic guess must never paint into another team's board.
+
+**Everything else is plain, idiomatic re-frame2.** The board is a single managed
+resource; each of the three writes is a named
+[`reg-mutation`](../../../docs/resources/glossary.md#mutation); and the demo chrome
+— the fail-next-write toggle, the new-issue draft, the id of the card being
+inline-edited — are ordinary app-db slices: an
+[event](../../../docs/guide/glossary.md#event) writes, a
+[subscription](../../../docs/guide/glossary.md#subscription) reads, the view reads
+the sub. No raw atoms through views, no frame-ids as view
+args, no vestigial timing. The only durable "server state" — the issue board
+itself — lives in the runtime resource cache, not app-db, exactly where state you
+don't own belongs.
 
 ## No backend ships with the example
 
-It overrides `:rf.http/managed` (the fx resources + mutations lower every
-read/write onto) with a canned stub that holds the canonical board in a closure
-and synthesises the authoritative reply for each read/write, delegating to the
+There's no server here, so the example overrides the
+[`:rf.http/managed`](../../../docs/resources/glossary.md#managed-http) effect — the
+one transport every read and write lowers onto — with a small canned stub. The stub
+holds the canonical board in a closure (it *is* the demo server) and synthesises
+the authoritative reply for each read and write, delegating to the
 framework-shipped `:rf.http/managed-canned-success` / `-failure`
-([Spec 014 §Testing](../../../spec/014-HTTPRequests.md)) with `:after-ms` (the
-deferred reply rides `:dispatch-later` — tape-visible, time-travel-safe, **not**
-raw `js/setTimeout`) so the optimistic value is visibly painted before the reply
-lands. The **fail-next-write** flag is read from app-db at request time: when
-armed, the next *write* answers a 503 (driving the rollback arc) and disarms.
+([Spec 014 §Testing](../../../spec/014-HTTPRequests.md)). It defers each reply by a
+small `:after-ms` so the optimistic value is *visibly* painted before the reply
+lands — and that delay rides the framework's `:dispatch-later` (tape-visible and
+time-travel-safe, **not** a raw `js/setTimeout`), so even the demo's fake latency
+plays by the rules. The **fail-next-write** flag is read from app-db at request
+time: when armed, the next *write* answers a `503` (driving the rollback arc) and
+disarms itself.
 
 ## Status
 
 The optimistic-mutation runtime has **landed and graduated** (EP-0019): the
-`:optimistic` / `:optimistic-tags` forward grammar, the runtime-recorded
-snapshot inverse + per-entry revision, the deterministic commit / rollback /
-reconcile settle protocol, the `:on-conflict` rule, the derived `:optimistic?`
-flag, and the trace family (`:rf.mutation/optimistic-applied` /
-`-rolled-back` / `-reconciled`) are all real and operational.
+`:optimistic` / `:optimistic-tags` forward grammar, the runtime-recorded snapshot
+inverse and per-entry revision, the deterministic commit / rollback / reconcile
+settle protocol, the `:on-conflict` rule, the derived `:optimistic?` flag, and the
+trace family (`:rf.mutation/optimistic-applied` / `-rolled-back` / `-reconciled`)
+are all real and operational.
 
 ## Files
 

@@ -1,40 +1,64 @@
 # routing — Spec 012 worked example
 
-A three-page app — home, articles list, article detail — that
-demonstrates URL ↔ frame state, navigation as event, route as
-subscription, and route-aware root-view dispatch. The worked
-companion to [Construction Prompt
-CP-7](../../../spec/Construction-Prompts.md) and [Spec
-012](../../../spec/012-Routing.md).
+The one idea to carry away: **the URL is just application state, and the
+back button is just a dispatch.** Most frameworks bolt a router onto the
+side of your app — its own context, its own lifecycle, its own opinion
+about where truth lives. re-frame2 declines. A route is a registration;
+navigating is dispatching an [event](../../../docs/guide/glossary.md);
+the active route is a [subscription](../../../docs/guide/glossary.md)
+your views watch. This example is the smallest app that puts all three
+to work: a three-page site — home, an articles list, an article detail —
+with a real URL, a 404, and working Back/Forward. The worked companion
+to [Construction Prompt CP-7](../../../spec/Construction-Prompts.md) and
+[Spec 012](../../../spec/012-Routing.md).
 
 ## What this demonstrates
 
-- **`reg-route`** — the route table as registered data, one entry per
-  page (`:routing.app/home`, `:routing.app/articles`,
-  `:routing.app/article-detail`, `:rf.route/not-found`).
-- **`:rf.route/navigate`** — programmatic navigation. The view
-  dispatches a navigate fx; the runtime updates the URL and the route
-  slice.
-- **`:rf.route/handle-url-change`** — popstate / initial-load handler
-  that pulls the URL into frame state.
-- **`:rf.route/id` and `:rf.route/params`** — route reads as plain
-  subs; the root view dispatches on `:rf.route/id` to render the
-  right page.
-- **`:rf/url-requested`** — user-initiated anchor clicks. The runtime
-  catches the click, dispatches the event, and the route slice
-  updates without a full-page reload.
-- **`route-link`** — convenience link component that synthesises the
-  click → navigate flow.
-- **Server-and-client-shared handler** — the route handler is the
-  same on both sides; the SSR example reuses this surface.
+- **The route table as data** (`reg-route`) — four registry rows, one
+  per page: `:routing.app/home`, `:routing.app/articles`,
+  `:routing.app/article-detail` (whose `:id` path param carries a Malli
+  `:params` schema), and the reserved `:rf.route/not-found`. No router
+  object is constructed; you just register rows, the same way you
+  register an event handler.
+- **The root view branches on the route** — `root-view` is a `case`
+  over the `:rf.route/id` subscription. The active route is ordinary
+  derived state, so picking the page to render is a plain read, not a
+  framework callback. `:rf.route/params` is read the same way to pull
+  `:id` out of the URL on the detail page.
+- **Linking is a framework view, not glue you write** — every link uses
+  `rf/route-link`, the registered view shipped by
+  `day8/re-frame2-routing`. It renders an honest `<a href="…">`,
+  intercepts a plain primary-button click to dispatch `:rf/url-requested`
+  (an in-app navigation, no full-page reload), and — politely — defers
+  modifier-key and middle-clicks to the browser, so open-in-new-tab
+  still works. Notice what *isn't* here: no `onClick` handler hand-rolling
+  the navigate, no `preventDefault`. That whole dance is the framework's.
+- **The browser owns nothing the frame doesn't claim** — the app frame
+  declares `:url-bound? true`, and that single flag is what makes it the
+  owner of the address bar. `install-history-listener!` then wires
+  Back/Forward (popstate) and the initial URL→state sync *to that owner*.
+  It's the canonical surface for the job: a hand-rolled, frameless
+  `:rf.route/handle-url-change` dispatch would have nowhere to land and
+  would raise `:rf.error/no-frame-context`.
+- **The same routing runs on the server** — the route handler is
+  side-agnostic, so the [SSR example](../ssr/) reuses this exact surface
+  with no SSR-specific routing code.
 
 ## Why this shape
 
-The smallest example that exercises the full Spec 012 surface end to
-end. A real SPA needs a route table, navigation as event, route as
-sub, and a root-view switch — this example has exactly those four in
-the canonical shape, so AI agents reading it have a complete pattern
-to scaffold against.
+This is the *smallest* example that exercises Spec 012 end to end, and
+that's the point: a real single-page app needs a route table, navigation
+as an event, the route as a subscription, and a root-view switch — and
+this app has each of those once, in its canonical form, with nothing
+extra to distract. Read it and you've got a complete, copy-able pattern
+to scaffold a routed app against, with no incidental complexity to filter
+out first. The deliberate restraint extends to small details worth
+copying: the articles collection lives under `:routing.app/articles-list`
+rather than `:routing.app/articles`, so the app-db key and sub-id never
+visually collide with the same-named route-id (the registries are
+independent, but the eye appreciates the separation). And the React root
+is created lazily inside `run`, not at namespace load, so a co-required
+example can't race a second `create-root` onto the shared `#app` node.
 
 ## Files
 
@@ -67,3 +91,5 @@ lives in `implementation/routing/test/` and the conformance fixtures.
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the normative spec.
 - [`examples/reagent/ssr/`](../ssr/) — SSR over a routed app reuses the same handler.
 - [`examples/reagent/realworld/`](../realworld/) — broader sketch with routing folded in.
+</content>
+</invoke>

@@ -1,29 +1,48 @@
 # 7GUIs in re-frame2
 
-[7GUIs](https://eugenkiss.github.io/7guis/) is a cross-framework UI benchmark — seven progressively complex tasks that exercise different facets of UI programming. Implementing them in re-frame2 demonstrates how the pattern handles the full range, from trivial state mutation to spreadsheet-grade formula evaluation.
+[7GUIs](https://eugenkiss.github.io/7guis/) is a cross-framework benchmark: seven small UI tasks, ordered so each one drags in a problem the last one didn't have. A counter. Then two fields that must stay in sync. Then a form with a validation rule. Then a timer. Then a list you can edit. Then undo/redo. Then — the boss level — a working spreadsheet. The point of the suite isn't the widgets; it's that each task has a *famous trap*, and a framework either has an honest answer for it or it papers over the crack.
 
-| # | Task | Demonstrates | File |
+What's worth reading here is how little the answer *changes* as the difficulty climbs. Every one of these seven is the same shape underneath: state lives in one place ([app-db](../../../docs/guide/glossary.md#app-db)), [events](../../../docs/guide/glossary.md#event) are the only way it changes, [subscriptions](../../../docs/guide/glossary.md#subscription) derive everything the [view](../../../docs/guide/glossary.md#view) needs, and the view just reads derivations and dispatches events. The traps that sink the imperative versions — the update loop between two text fields, the validation path you forgot, the undo stack that drifts out of sync — mostly stop being *bugs you can write* and become *shapes the architecture doesn't have*. That's the whole pitch of re-frame2, and the suite is a nice place to watch it pay off seven times in a row.
+
+| # | Task | The trap, and re-frame2's answer | File |
 |---|---|---|---|
-| 1 | Counter | Smallest possible app: events, subs, view | [`../counter/core.cljs`](../counter/core.cljs) |
-| 2 | Temperature Converter | Bidirectional derivations; one source of truth | [`temperature/core.cljs`](temperature/core.cljs) |
-| 3 | Flight Booker | Form validation; layered subs deriving the Book button's enabled-state | [`flight_booker/core.cljs`](flight_booker/core.cljs) |
-| 4 | Timer | `:dispatch-later` periodic tick; controlled slider; one source of truth for elapsed time | [`timer/core.cljs`](timer/core.cljs) |
-| 5 | CRUD | List operations (add/update/delete); selection-as-state; derived filtered list | [`crud/core.cljs`](crud/core.cljs) |
-| 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`circle_drawer/core.cljs`](circle_drawer/core.cljs) |
-| 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`cells/core.cljs`](cells/core.cljs) |
+| 1 | Counter | The smallest honest app — one [event handler](../../../docs/guide/glossary.md#event-handler), one subscription, one view. The baseline everything else layers onto. | [`../counter/core.cljs`](../counter/core.cljs) |
+| 2 | Temperature Converter | Two fields, each editing the other. Wire them to *each other* and you get an update loop or a stale-value race. Answer: one canonical value in app-db, one event per field; both inputs read it through subscriptions. The bidirectional wiring simply isn't there to loop. | [`temperature/core.cljs`](temperature/core.cljs) |
+| 3 | Flight Booker | The Book button is enabled only when three fields agree (dates parse, return ≥ start). Compute that imperatively after every keystroke and you'll miss a path. Answer: enabled-state is a [subscription](../../../docs/guide/glossary.md#subscription) layered over the three field subs — it can't go stale, because nothing re-derives it but app-db changing. | [`flight_booker/core.cljs`](flight_booker/core.cljs) |
+| 4 | Timer | A clock that ticks while you also drag a slider that changes the duration mid-flight — classic place to grow a race. Answer: the tick is just a `:dispatch-later` event through the same pipeline as everything else, elapsed time is one source of truth, and a generation token retires stale ticks so Reset reads `0.0` no matter the timing. | [`timer/core.cljs`](timer/core.cljs) |
+| 5 | CRUD | A master/detail list. Keep the edit inputs as their own component state and they fall out of sync the moment selection changes. Answer: the inputs *are* a subscription over a draft slice; the list shows committed values; selection is state, not React identity. | [`crud/core.cljs`](crud/core.cljs) |
+| 6 | Circle Drawer | Undo/redo — the canonical excuse to hand-roll a fragile undo stack inside a component. Answer: an [interceptor](../../../docs/guide/glossary.md#interceptor) snapshots the circles before each undoable event; Undo/Redo are ordinary events that pop and push those snapshots. A modal dialog is just a key in app-db. | [`circle_drawer/core.cljs`](circle_drawer/core.cljs) |
+| 7 | Cells | A spreadsheet: formulas that reference cells, changes that propagate, cycles that must be caught. The trap is hand-maintained per-cell observers that go stale. Answer: each cell's value is a subscription over the whole cell map, the [reaction layer](../../../docs/guide/glossary.md#the-derivation-graph) `=`-dedups so only changed cells re-render, and a pure parser/evaluator turns bad input into typed error markers instead of throwing. | [`cells/core.cljs`](cells/core.cljs) |
 
-Each example lives in its own self-contained sub-folder under `seven_guis/<name>/` with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`). Per the test-free examples policy there is **no per-example `.spec.cjs`** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates (`test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`), not under `examples/`. The shadow-cljs build targets in `implementation/shadow-cljs.edn` wire each task up to its own bundle; to view one in a browser, watch its build (`shadow-cljs watch examples/cells`) and serve the staged `index.html`.
+## What this demonstrates
+
+Read the seven in order and you can watch the dataflow grammar grow one word at a time, never changing model:
+
+- **Counter** is the bare loop — event handler, subscription, view. Nothing else.
+- **Temperature** adds the load-bearing idea the whole suite leans on: *one source of truth, derived two ways*. The canonical value is Celsius; both fields are subscriptions off it, one passing through the raw text you're typing and the other showing the conversion. The trap is structurally absent.
+- **Flight Booker** stacks subscriptions into a layered `:<-` chain — `start-valid?` and `return-valid?` and `dates-coherent?` feed a `book-enabled?` sub that the button reads. The "did I cover every path?" question becomes "does the derivation graph include it?", which is much harder to get wrong.
+- **Timer** shows an event handler scheduling its own follow-up via the `:fx [[:dispatch-later …]]` effect — a periodic tick that rides the same [cascade](../../../docs/guide/glossary.md#event-cascade) as a button click, plus a generation-token trick that makes Reset observably correct without reaching outside the loop.
+- **CRUD** is selection-as-state. The detail inputs read a `:draft` slice through subscriptions; Create/Update/Delete are list operations on a vector; a `can-update?` sub even disables editing when the selected row is hidden by the filter — the master/detail edge the task exists to test, answered as derived state.
+- **Circle Drawer** is the first one to reach past the core four registrations for an interceptor. A named `:undoable` interceptor (referenced by id from each undoable event's `:interceptors`) captures the prior `:circles` in its `:before` and pushes it onto an undo stack in its `:after`. The slider drag deliberately *omits* the interceptor, so a whole drag collapses into one undo step — the kind of thing that's a chore to get right with an imperative stack and nearly free here.
+- **Cells** is the payoff. It's a real little interpreter — tokeniser, recursive-descent parser, evaluator — written as pure functions that run on the JVM, with cycle detection via a visited-set walk and error markers (`#PARSE`, `#CYCLE`, `#DIV/0`, `#TYPE`) that propagate through arithmetic without ever throwing. Propagation is handled by leaning on the [derivation graph](../../../docs/guide/glossary.md#the-derivation-graph) rather than fighting it: every cell's value sub takes the *whole* cell map as input, so any edit recomputes every mounted cell — and that's fine, because the evaluator is pure, the grid is small, and `=`-dedup means an unchanged result never re-renders. Correctness for free, no per-cell dependency edges to keep in sync.
+
+Three of the tasks (Flight Booker, CRUD, Circle Drawer) also disable buttons by reading a subscription rather than poking `.disabled` — the *ask, don't tell* habit re-frame2 leans on. Most of them attach a Malli [schema](../../../docs/guide/glossary.md#schema) to their app-db slice, so a malformed write [fails loud](../../../docs/guide/glossary.md#fail-loud-not-silent) in dev and is [elided](../../../docs/guide/glossary.md#elide) in production. And the two tasks that mint ids into durable state (CRUD's people, Circle Drawer's circles) allocate them from a counter held in app-db rather than calling `random-uuid` at the write site — so a replay of the event stream reproduces exactly the same data, which is the property that makes time-travel and SSR hydration honest.
+
+## Why this shape
+
+The suite is a good argument *against* the worry that "everything is an event and a subscription" gets heavy as apps grow. Watch what stays constant: from the counter to the spreadsheet, no task needs a second state-management idea. Two-way binding never appears. There's no observer wiring, no manual dependency tracking, no imperative "recompute the derived bits after this change" step — the [cascade](../../../docs/guide/glossary.md#event-cascade) does that, once, at the end, from settled state. The hard parts that remain hard (parsing a formula, detecting a cycle, getting the timer's generation logic right) are *genuine* domain problems, not framework friction — and they live in plain pure functions you can unit-test on the JVM without a browser anywhere in sight.
+
+Each task lives in its own self-contained sub-folder under `seven_guis/<name>/` with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`). Per the test-free examples policy there is **no per-example `.spec.cjs`** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates (`test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`), not under `examples/`. The shadow-cljs build targets in `implementation/shadow-cljs.edn` wire each task up to its own bundle; to view one in a browser, watch its build (`shadow-cljs watch examples/cells`) and serve the staged `index.html`.
 
 CLJS namespace identifiers can't start with a digit, so the on-disk directory is `seven_guis/` and the cluster namespace prefix is `seven-guis.*`. Each task follows the catalogue's `<name>.core` shape: `seven-guis.cells.core`, `seven-guis.flight-booker.core`, etc. — one consistent scope across every example in the cluster.
 
 ## How these compare to the original 7GUIs reference
 
-The reference implementations on the [7GUIs site](https://eugenkiss.github.io/7guis/tasks) are typically tens of lines of imperative code per task. The re-frame2 versions are slightly longer because they:
+The reference implementations on the [7GUIs site](https://eugenkiss.github.io/7guis/tasks) are typically tens of lines of imperative code per task. The re-frame2 versions run a little longer, because they buy something with the extra lines:
 
-- Carry `:doc` metadata on registrations.
-- Attach Malli schemas where the data shape benefits.
-- Use registered views (Var-reference style, the canonical form).
-- Keep every artefact (event / sub / view) named and individually
-  queryable rather than inlined into an imperative update loop.
+- They carry `:doc` metadata on registrations.
+- They attach Malli schemas where the data shape benefits.
+- They use registered views (Var-reference style, the canonical form).
+- They keep every artefact — each event, each subscription, each view — named and individually queryable, rather than inlined into one imperative update loop.
 
-The verbosity tax is real but small. The win is that every artefact is named, queryable, schema-able, and AI-amenable — at the same scale as the imperative reference.
+The verbosity tax is real, and small. What you get back for it: every artefact is named, queryable, schema-able, and AI-amenable — at roughly the same scale as the imperative reference, with the famous traps engineered out rather than carefully avoided.

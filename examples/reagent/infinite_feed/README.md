@@ -3,73 +3,117 @@
 A single growing feed — a **load-more / infinite-scroll timeline** — built on
 the first-class **infinite resource** primitive ([EP-0021](../../../docs/EP/EP-0021-infinite-resources.md),
 [Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)).
-Composed as proper re-frame2: a `reg-resource` with `:infinite true`, owned by
-the route, read entirely through the **passive** infinite subscription family,
-with accumulation driven by a **causal** `:rf.resource/load-more` event. The
-worked companion to the guide's load-more half,
+
+Here's the one idea worth carrying away: the view does almost nothing. It reads
+a list and renders it, and clicking "Load more" dispatches a single event that
+carries no page number. No cursor lives in the view. No `:loading-more?` flag
+sits in [app-db](../../../docs/guide/glossary.md#app-db). There is no list slice
+to append to and no append reducer to write. All of that — the accumulated
+pages, the cursor that knows where the next page starts, the in-flight tracking,
+the where-does-it-end signal — lives inside the [resource](../../../docs/resources/glossary.md#resource)
+the runtime owns. The feed is one cache entry that grows; the view just watches
+it grow. That inversion is the whole point of the primitive, and it's the thing
+to notice as you read the source.
+
+It's composed as proper re-frame2: a `reg-resource` with `:infinite true`, owned
+by the route, read entirely through the **passive** infinite [subscription](../../../docs/guide/glossary.md#subscription)
+family, with accumulation driven by a **causal** `:rf.resource/load-more`
+[event](../../../docs/guide/glossary.md#event). It's the worked companion to the
+guide's load-more half,
 [docs/resources/how-to/paginate-a-feed.md](../../../docs/resources/how-to/paginate-a-feed.md).
 
-This is the **complement** to the numbered-pagination model
-([Spec 016 §Paginated and previous data](../../../spec/016-Resources.md#paginated-and-previous-data),
-demonstrated as a route in [`reagent/realworld_resources/`](../realworld_resources/)):
-numbered pages keep each page an **independent** entry (the page is in
-`:params`, the identity is the page) addressed as "go to page N"; an infinite
-feed keeps the **accumulation together** as one entry and the next cursor is
-always available from the tail. Both are legitimate; an app picks per feed.
+There are two honest ways to paginate, and this example is the second one. The
+first — **numbered pages** ([Spec 016 §Paginated and previous data](../../../spec/016-Resources.md#paginated-and-previous-data),
+shown as a route in [`reagent/realworld_resources/`](../realworld_resources/))
+— treats each page as its own thing: the page number lives in `:params`, so
+"page 3" is a distinct cache entry you navigate *to*, and going back to page 2
+is a separate (cached) read. The second — this one — keeps the whole
+**accumulation together** as a single entry: you never address a page by number,
+you just ask for *more*, and the runtime always knows the next cursor because
+it's sitting right there in the tail of what you've already loaded. Numbered
+pagination is a map you jump around on; an infinite feed is a tape you keep
+pulling. Both are legitimate, and an app picks per feed.
 
 ## What this demonstrates
 
-The four facts the infinite primitive surfaces, in one cohesive app:
+Four facts fall out of the infinite primitive, and this one small app surfaces
+all of them.
 
 - **One feed, many pages.** `:infinite true` plus a `:next-page-param`
-  derivation makes the resource a growing ordered page sequence held as **one**
-  cache entry (one owner set, one freshness clock, one GC clock, one Xray row).
-  The route's `:resources` metadata ensures **page 0** on entry under a
-  `[:route route-id nav-token]` owner; the view reads the merged list passively.
-- **Load-more is a causal event.** The "Load more" button dispatches
-  `[:rf.resource/load-more …]`. The view never fetches and **never advances a
-  cursor** — the runtime derives the next page param from the loaded tail (the
-  re-frame2 divergence from TanStack `fetchNextPage()` / SWR `setSize`: views
-  stay passive, the cursor lives in the runtime entry).
-- **The terminal is `nil`.** `:next-page-param` returning `nil` is the single
-  end-of-feed signal; the view reads `:has-next-page?` and shows an end-of-feed
-  marker instead of the button. (The demo's last page's next-cursor is `nil`.)
-- **The page-error channel.** A load-more failure keeps **every accumulated
-  page visible** and surfaces `:page-error` ("couldn't load more — retry")
-  while the feed stays `:loaded`. A feed's page fetches all lower the same way,
-  so a **page 0** first-load failure lands on `:page-error` too — the feed
-  never collapses to the scalar `:error` state. The view reads `:has-data?`
-  alongside `:page-error` to split the full error screen (no data) from the
-  inline retry (data already shown). (The scalar `:error` / `:refresh-error`
-  fields stay nil for a feed.)
+  derivation turns the resource into a growing, ordered sequence of pages held
+  as **one** cache entry — one owner set, one freshness clock, one GC clock, one
+  [Xray](../../../docs/guide/glossary.md#xray) row. The timeline route's
+  `:resources` metadata ensures **page 0** on entry, under an owner keyed
+  `[:route route-id nav-token]`; the view reads the merged list passively and
+  never knows there was paging involved.
+- **Load-more is a causal event, not a method call.** The "Load more" button
+  dispatches `[:rf.resource/load-more …]` carrying a `:cause` (`[:user
+  :feed/load-more]`) — and, pointedly, **no `:owner`**: the route already owns
+  the feed for its whole lifetime, and load-more just extends that one owned
+  entry rather than minting a second lease ([owner is lifetime; cause is
+  explanation](../../../docs/resources/glossary.md#owner--cause)). The view
+  never fetches and **never advances a cursor**; the runtime derives the next
+  page param from the loaded tail. (If you've reached for TanStack's
+  `fetchNextPage()` or SWR's `setSize` before, this is the re-frame2 version of
+  the same move, except the view stays passive and the cursor lives in the
+  runtime entry instead of in component state.)
+- **The terminal is `nil`.** When `:next-page-param` returns `nil`, that *is*
+  the end-of-feed signal — there's no separate "done" flag to keep in sync. The
+  view reads `:has-next-page?` and swaps the button for an end-of-feed marker.
+  (In this demo the last page's next-cursor comes back `nil`, so the feed
+  genuinely runs out.)
+- **First-load failure and load-more failure are different channels.** These
+  are deliberately *not* the same error. A **page-0 first load** that fails with
+  no data yet settles the scalar `:error` channel (`:status :error`, exactly
+  like an ordinary scalar resource) — and the view shows a full error screen,
+  because there's nothing else to show. A **load-more failure** (page N where
+  N > 0, so you already have pages on screen) is the separate `:page-error`
+  channel: every accumulated page **stays visible**, the feed stays `:loaded`,
+  and an inline "couldn't load more — tap retry" affordance appears under the
+  list. A hiccup mid-scroll never blanks the page you were reading. The two
+  axes are read separately — `:error` drives the full screen, `:page-error`
+  drives the inline retry — and they're never conflated.
 
 The view reads the combined `[:rf.resource/infinite-state …]` view-model —
-`:items` (the merged flat list, the **headline** read), `:has-next-page?`,
-`:fetching-next?` (a load-more in flight, distinct from a whole-feed
+`:items` (the merged flat list, and the **headline** read), `:has-next-page?`,
+`:fetching-next?` (a load-more in flight, which is distinct from a whole-feed
 `:fetching?`), `:page-error`, `:loading?`, `:has-data?` — and dispatches **one**
-causal event. There is **no app-db list slice, no `:loading-more?` flag, no
-cursor threading, and no append reducer** — the runtime owns all of it. (Before
-EP-0021 an app hand-rolled every one of those by hand; that is the conspicuous
-gap this primitive closes.)
+causal event. Worth restating, because it's the payoff: there is **no app-db
+list slice, no `:loading-more?` flag, no cursor threading, and no append
+reducer**. The runtime owns every bit of it. Before EP-0021 you hand-rolled all
+four by hand on every feed you built; closing that gap is precisely what this
+primitive is for.
 
-**Enveloped pages need a `:page->items` accessor.** This feed's pages are
-`{:items [...] :page-info {…}}`, not bare vectors, so the resource declares the
-**required** `:page->items` accessor (`:items`). The runtime is **loud over
-guessing**: a non-vector page with no accessor raises
-`:rf.error/infinite-missing-page-accessor` at the merge. A feed whose pages are
-already bare vectors needs no accessor (they flatten by identity).
+**Enveloped pages need a `:page->items` accessor.** Real paginated endpoints
+rarely hand you a bare array — they wrap it: this feed's pages arrive as `{:items
+[...] :page-info {…}}`. So the resource declares the **required** `:page->items`
+accessor (here, `:items`) to tell the runtime how to pull the rows out of each
+page before flattening them into the merged list. The runtime is **loud over
+guessing**: hand it a non-vector page with no accessor and it raises
+`:rf.error/infinite-missing-page-accessor` right at the merge, rather than
+silently producing a list of nothing. (A feed whose pages are already bare
+vectors needs no accessor — those flatten by identity.)
 
-**Scope is the fail-closed leak boundary.** This feed is public — the same for
-every viewer — so it carries the explicit, auditable `:scope :rf.scope/global`
-claim. A per-user feed would carry a scope resolver instead.
+**Scope is the fail-closed leak boundary.** This feed is public — the same rows
+for every viewer — so it carries the explicit, auditable
+[`:scope`](../../../docs/resources/glossary.md#scope) `:rf.scope/global` claim.
+The claim is part of the cache identity, so it's there on purpose and an auditor
+can see it; a per-user feed would carry a scope resolver instead, and one
+principal's feed could never surface in another's cache.
 
-**No backend ships with the example.** It overrides `:rf.http/managed` with a
-**per-cursor** canned stub that synthesises one enveloped page per request
-cursor and delegates to the framework-shipped `:rf.http/managed-canned-success`
-(Spec 014 §Testing) — the same enveloped reply shape a cursor-paginated server
-would produce, so every page fetch exercises a real fetch, in-flight dedupe,
-generation/stale suppression, and the passive status flow (a 140 ms delay lets
-the load-more spinner render before each page lands).
+**No backend ships with the example.** Rather than mock `js/fetch`, it overrides
+the `:rf.http/managed` [effect](../../../docs/guide/glossary.md#effect) with a
+**per-cursor** canned stub: the stub reads the `:cursor` request param, slices a
+26-row demo dataset, and returns a `{:items [...] :page-info {:next-cursor …}}`
+envelope — the *same* shape a real cursor-paginated server would produce — then
+hands it to the framework-shipped `:rf.http/managed-canned-success`
+(Spec 014 §Testing). Because the reply flows through the real
+[managed-HTTP](../../../docs/resources/glossary.md#managed-http) path, every page
+fetch exercises a genuine fetch, in-flight dedupe, generation/stale suppression,
+and the passive status flow — none of that is faked. A small 140 ms delay (via
+the canned fx's `:after-ms`, dispatched through framework `:dispatch-later`, so
+it stays trace-visible and time-travel-safe — never raw `js/setTimeout`) lets
+the load-more spinner actually render before each page lands.
 
 ## Status
 
@@ -135,7 +179,8 @@ composition directly: route entry ensures **page 0** under a `[:route …]` owne
 `:rf.resource/load-more` appends the next page and advances the cursor (the view
 reads `:has-next-page?` / `:fetching-next?`); the demo's last page's `nil`
 next-cursor flips `:has-next-page?` false (the end-of-feed marker); and a
-load-more failure keeps the feed and surfaces `:page-error` (the third channel).
+load-more failure keeps the feed and surfaces `:page-error` (the inline-retry
+channel, distinct from a first-load `:error`).
 The generic infinite-resource runtime contract (the FSM transitions, dedupe,
 stale suppression, the R6 refetch opt-ins, the loud missing-accessor merge) is
 pinned in `implementation/resources/test/`. See the
