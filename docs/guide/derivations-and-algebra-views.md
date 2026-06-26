@@ -181,7 +181,7 @@ The lesson generalizes, and it's the trade the whole algebra makes:
 
 ### Machines: a node with memory
 
-A [machine](glossary.md#machine) is the algebra's canonical process — a stateful node whose *next* value depends on its *current* one. It's the feature that motivates the `:process` superkind in the first place: a pure derivation can't depend on its own previous value, so a machine simply isn't expressible as one. Its [snapshot](glossary.md#snapshot) is durable runtime-db state, written only by its own transitions.
+A [machine](../machines/glossary.md#machine) is the algebra's canonical process — a stateful node whose *next* value depends on its *current* one. It's the feature that motivates the `:process` superkind in the first place: a pure derivation can't depend on its own previous value, so a machine simply isn't expressible as one. Its [snapshot](../machines/glossary.md#snapshot) is durable runtime-db state, written only by its own transitions.
 
 The view, side by side with one of its selectors:
 
@@ -205,7 +205,7 @@ The view, side by side with one of its selectors:
 
 A machine's `:inputs` are the event ids its transition table listens for — every `:on` key across the whole state tree (flat, compound, hierarchical, and parallel regions), de-duplicated. (The framework's own reserved triggers — `:rf.machine/*`, the `:*` wildcard — are plumbing, not declared edges.) Its `:evaluation` is a *set*: always `:on-transition` (a transition is the only thing that advances a snapshot), plus `:scheduled` when the machine declares any `:after` delayed transition, plus `:on-reply` when it spawns child actors.
 
-That `:checkout/progress` selector's algebra view is an `:ephemeral`, `:on-demand` derivation like any other. It carries the `:machine-selector` refinement and an edge back to the machine it reads — so machines never become a second subscription system. And the selector's target is *precise*: the graph mines the machine ids it reads from its static `[:rf/machine …]` inputs, so in a multi-machine app each `:selector` edge runs from exactly the machine the selector names, never the cross product of every machine against every selector ([State machines](concepts/machines.md)).
+That `:checkout/progress` selector's algebra view is an `:ephemeral`, `:on-demand` derivation like any other. It carries the `:machine-selector` refinement and an edge back to the machine it reads — so machines never become a second subscription system. And the selector's target is *precise*: the graph mines the machine ids it reads from its static `[:rf/machine …]` inputs, so in a multi-machine app each `:selector` edge runs from exactly the machine the selector names, never the cross product of every machine against every selector ([State machines](../machines/concepts.md)).
 
 > **Going deeper — spawned actors in the live graph.** The static graph reports one node per registered machine *type*. But a spawned actor has no per-instance registration — its liveness *is* the presence of its snapshot in runtime-db. So the live graph reports one node per *concrete* snapshot, resolving each instance's type from the snapshot's reserved type discriminator and surfacing its current `:state`. This is the machine version of the parametric/realized split you saw for subscriptions: the static graph knows the *types* you registered, the live graph knows the *instances* actually running.
 

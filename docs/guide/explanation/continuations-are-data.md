@@ -1,6 +1,6 @@
 # No await: continuations are data
 
-You've met `:on-success` on [HTTP requests](../concepts/http.md), `:reply-to` on mutations, `:on-done` on [machines](../concepts/machines.md). At some point you asked the obvious question: *why am I naming a second event instead of just `await`ing the result?* This page is the answer. It's one idea — and once it clicks, every async surface in re-frame2 reads the same way.
+You've met `:on-success` on [HTTP requests](../concepts/http.md), `:reply-to` on mutations, `:on-done` on [machines](../../machines/concepts.md). At some point you asked the obvious question: *why am I naming a second event instead of just `await`ing the result?* This page is the answer. It's one idea — and once it clicks, every async surface in re-frame2 reads the same way.
 
 **The takeaway, up front: in re-frame2 a continuation is data, not a closure.** The rest of the page earns that sentence. We'll first see the one move that makes it true, then see — concretely — what `await` was quietly costing you, and finally what you get to do once the continuation is a value you can hold in your hand.
 
@@ -34,7 +34,7 @@ Under `async/await`, the continuation is a **closure**. Write `const quote = awa
 
 That event vector — `[:article/loaded]` — has none of those properties. It *has* a name (it *is* a name). It serializes. It survives a reload. And, as we're about to see, it never reads a stale world.
 
-> **From re-frame v1.** re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every [managed](../glossary.md#managed-http) async surface — HTTP, [resources](../concepts/server-state.md), mutations, [machines](../concepts/machines.md) — addresses its reply by a named event, and the result arrives as a single [uniform reply](../glossary.md#the-uniform-reply) — one [reply map](../glossary.md#reply-map), every surface. The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loud (see the trap below) — there's a sanctioned managed effect for every async job.
+> **From re-frame v1.** re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every [managed](../glossary.md#managed-http) async surface — HTTP, [resources](../concepts/server-state.md), mutations, [machines](../../machines/concepts.md) — addresses its reply by a named event, and the result arrives as a single [uniform reply](../glossary.md#the-uniform-reply) — one [reply map](../glossary.md#reply-map), every surface. The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loud (see the trap below) — there's a sanctioned managed effect for every async job.
 
 ## The bug this kills: the stale-world trap
 
@@ -115,7 +115,7 @@ The delivered event is plain data — your carried context, then the [reply map]
 
 ## The honest trade
 
-This costs you something, and pretending otherwise would be marketing. With `async/await`, three dependent steps read top-to-bottom in one function and the continuations cost zero keystrokes. Here, every continuation is named: a second event id, a second handler, the flow split across registrations that read in *dispatch* order rather than *page* order. For one request that's one extra handler. For a five-step workflow it's five — and hand-chaining them through raw events gets genuinely tedious, which is exactly the point to reach for a [state machine](../concepts/machines.md), whose job is to fold those replies into explicit states.
+This costs you something, and pretending otherwise would be marketing. With `async/await`, three dependent steps read top-to-bottom in one function and the continuations cost zero keystrokes. Here, every continuation is named: a second event id, a second handler, the flow split across registrations that read in *dispatch* order rather than *page* order. For one request that's one extra handler. For a five-step workflow it's five — and hand-chaining them through raw events gets genuinely tedious, which is exactly the point to reach for a [state machine](../../machines/concepts.md), whose job is to fold those replies into explicit states.
 
 What you buy with the ceremony: the continuation is **on the record**. Visible to every tool watching the trace, queryable while outstanding, faithful under replay, safe under races you didn't think to test, and testable by dispatching a plain data event — no mock runtime required to "resume" anything. You name the continuation yourself; in exchange, nothing about your app's future is invisible.
 
@@ -130,6 +130,6 @@ You'll meet this idea everywhere, spelled per surface but argued once, here. The
 | [HTTP](../concepts/http.md) | `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` (or the co-located `:rf/reply` sentinel — `:rf.http/managed` takes the sugar, not a bare `:rf/reply-to`) | The success handler gets `{:kind :success :value …}`; failure gets `{:kind :failure :failure …}` — the same envelope in HTTP's shorter clothing (`:kind :success` *is* `:status :ok`; `:kind :failure` *is* `:status :error`). |
 | [Resources](../concepts/server-state.md) | a `:scope` + `:params` read key — the framework owns the reply | The continuation goes in the **work ledger**; stale generations are suppressed structurally by `:work/id` + generation. |
 | Mutations | `:reply-to [:favorite/replied slug]` — the spine of [form submission](../how-to/build-a-form.md) | The same reply map appended; a superseded generation never delivers. |
-| [Machines](../concepts/machines.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
+| [Machines](../../machines/concepts.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
 
 Learn the shape once; it is the same shape everywhere. (One honest wrinkle, the same one the [glossary](../glossary.md#the-uniform-reply) flags: HTTP's public spelling is `:kind`, while resources and machines speak `:status` directly — same five outcomes, two surface vocabularies for the *one* closed set. The substrate is identical; only the public word on the slot differs.)

@@ -131,7 +131,7 @@ One validation rule, one source of truth, two readers — the handler and the bu
 Flows are a convenience for a small number of small use-cases. They are not a new dataflow paradigm, and not where derived values live by default. Here's the wrong-tool list:
 
 - **Only views consume it** → a [subscription](subscriptions.md). Lighter, cached per input, no app-db write.
-- **It has discrete states or a lifecycle** (entry/exit, transitions, timers) → a [state machine](machines.md).
+- **It has discrete states or a lifecycle** (entry/exit, transitions, timers) → a [state machine](../../machines/concepts.md).
 - **Only one handler needs it** → compute it inline in that handler. No registration needed.
 - **"I want a reactive value somewhere"** → almost always a sub.
 
@@ -141,7 +141,7 @@ A typical app has *dozens* of subscriptions and *one to a handful* of flows. Ten
 
 ## Deriving from route or machine state
 
-Most flows read app-db with bare paths. But a flow's `:inputs` can also reach into **[runtime-db](../glossary.md#runtime-db)** — the frame's *other* partition, where the framework keeps route state and [machine](../glossary.md#machine) snapshots (the full story is in [app-db](app-db.md), and the split itself in [the two partitions](../glossary.md#the-two-partitions)). Lead a path with `:rf.db/runtime` and it reads runtime-db instead of app-db; the framework strips that marker before the lookup. This lets you materialise an app-db fact *from* the URL or *from* a machine's current state:
+Most flows read app-db with bare paths. But a flow's `:inputs` can also reach into **[runtime-db](../glossary.md#runtime-db)** — the frame's *other* partition, where the framework keeps route state and [machine](../../machines/glossary.md#machine) snapshots (the full story is in [app-db](app-db.md), and the split itself in [the two partitions](../glossary.md#the-two-partitions)). Lead a path with `:rf.db/runtime` and it reads runtime-db instead of app-db; the framework strips that marker before the lookup. This lets you materialise an app-db fact *from* the URL or *from* a machine's current state:
 
 ```clojure
 (rf/reg-flow

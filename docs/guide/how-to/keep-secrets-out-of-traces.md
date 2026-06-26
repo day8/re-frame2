@@ -143,7 +143,7 @@ Carriers are **process-global** (one registration, not per-frame), and a malform
 
 ## Classify subsystem data on the subsystem
 
-Some data lives *inside* a runtime subsystem — a [machine](../glossary.md#machine)'s `:data`, a [resource](../glossary.md#resource)'s fetched data or params, a [route](../glossary.md#route)'s query string. You don't own its absolute storage path (the subsystem mints that fresh for each instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. Each time an instance is created (a machine spawns, a resource fetches), the framework translates your shape-relative declaration into a concrete path in the classification registry for that instance, and removes it again when the instance is torn down:
+Some data lives *inside* a runtime subsystem — a [machine](../../machines/glossary.md#machine)'s `:data`, a [resource](../glossary.md#resource)'s fetched data or params, a [route](../glossary.md#route)'s query string. You don't own its absolute storage path (the subsystem mints that fresh for each instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. Each time an instance is created (a machine spawns, a resource fetches), the framework translates your shape-relative declaration into a concrete path in the classification registry for that instance, and removes it again when the instance is torn down:
 
 ```clojure
 (rf/reg-machine :checkout/payment
@@ -156,7 +156,7 @@ Some data lives *inside* a runtime subsystem — a [machine](../glossary.md#mach
              :done       {}}})
 ```
 
-That `[:data :payment :token]` slot now redacts in **every** machine trace — the before/after of a [transition](../glossary.md#transition), [snapshots](../glossary.md#snapshot), [guard](../glossary.md#guard) inputs — for every spawned actor instance, with zero per-instance author code. Rename the slot in the declaration and the classification moves with it. One declaration on the *type*, applied to every instance: that's the payoff for declaring at the definition site rather than at each egress.
+That `[:data :payment :token]` slot now redacts in **every** machine trace — the before/after of a [transition](../../machines/glossary.md#transition), [snapshots](../../machines/glossary.md#snapshot), [guard](../../machines/glossary.md#guard) inputs — for every spawned actor instance, with zero per-instance author code. Rename the slot in the declaration and the classification moves with it. One declaration on the *type*, applied to every instance: that's the payoff for declaring at the definition site rather than at each egress.
 
 The same shape covers **four** subsystems. Each has its own **projection root** — the spot inside one instance that your path is measured *from*, so you only ever write the part of the path you own. The framework joins your relative path onto that instance's real runtime location, and drops the declaration when the instance goes away:
 

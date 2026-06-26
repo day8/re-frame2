@@ -57,7 +57,7 @@ When the app does something you didn't ask for, you don't reach for `println` �
 
 A recipe answers "how do I do X." Some questions sit a step *before* that — they're design decisions, not tasks, and a recipe is the wrong shape for them. Those live elsewhere:
 
-- "Where should this value live — [subscription](../glossary.md#subscription), [flow](../glossary.md#flow), [resource](../glossary.md#resource), or [machine](../glossary.md#machine)?" That's [the four homes](../glossary.md#the-four-homes-where-state-lives) decision, and it earns its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
+- "Where should this value live — [subscription](../glossary.md#subscription), [flow](../glossary.md#flow), [resource](../glossary.md#resource), or [machine](../../machines/glossary.md#machine)?" That's [the four homes](../glossary.md#the-four-homes-where-state-lives) decision, and it earns its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
 - Your task spans several features and you'd rather watch one app grow through them in order? The [RealWorld tutorial](../tutorial/index.md) builds auth, feeds, forms, and invalidation end to end — the same pieces as these recipes, assembled into one running app.
 - For everything else, [the reference map](../reference.md) indexes the complete surface.
 

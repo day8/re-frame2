@@ -39,7 +39,7 @@ Now the map itself. Every public surface gets one row below. The API page gives 
 | Core | `reg-event`, `reg-sub`, `dispatch`, `subscribe`, frames — the loop's registration and verb surface | [01 — Core](../api/01-core.md) | [001-Registration](../../spec/001-Registration.md), [002-Frames](../../spec/002-Frames.md) |
 | Views | `reg-view` and the substrate-agnostic pure-view contract | [02 — Views](../api/02-views.md) | [004-Views](../../spec/004-Views.md) |
 | Effects and interceptors | The closed `:db` + `:fx` effect map, `reg-fx` / `reg-cofx`, interceptors, fx-overrides | [03 — Effects](../api/03-effects.md) | [002-Frames](../../spec/002-Frames.md) |
-| State machines | `reg-machine` and the transition-table grammar — hierarchy, `:after`, `:spawn`, parallel regions | [04 — Machines](../api/04-machines.md) | [005-StateMachines](../../spec/005-StateMachines.md) |
+| State machines | `reg-machine` and the transition-table grammar — hierarchy, `:after`, `:spawn`, parallel regions | [04 — Machines](../machines/api.md) | [005-StateMachines](../../spec/005-StateMachines.md) |
 | Flows | `reg-flow` — derived values materialised into app-db so handlers can read them | [05 — Flows](../api/05-flows.md) | [013-Flows](../../spec/013-Flows.md) |
 | Routing | `reg-route`, navigation events, the `:route` sub, blocking and not-found | [06 — Routing](../api/06-routing.md) | [012-Routing](../../spec/012-Routing.md) |
 | HTTP | `:rf.http/managed` — decode pipeline, retry, abort, the closed failure taxonomy | [07 — HTTP](../api/07-http.md) | [014-HTTPRequests](../../spec/014-HTTPRequests.md) |

@@ -201,7 +201,6 @@ nav:
       - "Frames": guide/concepts/frames.md
       - "Images": guide/concepts/images.md
       - "Flows": guide/concepts/flows.md
-      - "Machines": guide/concepts/machines.md
       - "HTTP": guide/concepts/http.md
       - "Server state: resources": guide/concepts/server-state.md
       - "Routing": guide/concepts/routing.md
@@ -232,6 +231,12 @@ nav:
     - "From re-frame v1": guide/25-from-re-frame-v1.md
     - "Reference index": guide/reference.md
     - "Glossary": guide/glossary.md
+
+  - Machines:
+    - machines/index.md
+    - "Concepts": machines/concepts.md
+    - "API": machines/api.md
+    - "Glossary": machines/glossary.md
 
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).
@@ -293,7 +298,6 @@ nav:
     - "01 — Core": api/01-core.md
     - "02 — Views": api/02-views.md
     - "03 — Effects": api/03-effects.md
-    - "04 — Machines": api/04-machines.md
     - "05 — Flows": api/05-flows.md
     - "06 — Routing": api/06-routing.md
     - "07 — HTTP": api/07-http.md

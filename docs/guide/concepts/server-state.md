@@ -92,7 +92,7 @@ That three-branch `cond` is the canonical render shape, and the next section exp
 
 > **Coming from TanStack Query?** There is no `:select` key, and that's deliberate. `useQuery` lets you pass `select` to derive a slice. Here a projection is just an ordinary subscription layered over `[:rf.resource/data …]`, the same way you'd derive anything else in [the derivation graph](../glossary.md#the-derivation-graph) — which already gives you memoised, shared, re-render-minimal derivations for free. A query-local `:select` would be a worse version of a thing you already have.
 
-> **Gotcha — no subscription ever fetches.** This is the rule that surprises query-library refugees most. A subscription that finds no entry reads `:idle` and *stays* `:idle` until a route entry, an event, or a [machine](../glossary.md#machine) causes the fetch. So "I registered the resource but my view is a permanent skeleton" almost always means a cause hasn't fired yet — you're missing a cause, not a sub.
+> **Gotcha — no subscription ever fetches.** This is the rule that surprises query-library refugees most. A subscription that finds no entry reads `:idle` and *stays* `:idle` until a route entry, an event, or a [machine](../../machines/glossary.md#machine) causes the fetch. So "I registered the resource but my view is a permanent skeleton" almost always means a cause hasn't fired yet — you're missing a cause, not a sub.
 
 ### Three lanes — registering, causing, projecting
 
@@ -542,7 +542,7 @@ A few load-bearing edges: an `:rf.resource/ensure` (or a blocking route entry) o
 Resources earn their keep when cached server reads multiply. When they don't, reach for something simpler — pick the cheapest of [the four homes](../glossary.md#the-four-homes-where-state-lives) that fits:
 
 - **A handful of reads, no caching story.** A [managed HTTP request](http.md) plus a small app-db slice is less machinery and entirely idiomatic.
-- **Login and other commands.** Auth is a [state machine](../glossary.md#machine) driving a write — don't contort it into a cached read.
+- **Login and other commands.** Auth is a [state machine](../../machines/glossary.md#machine) driving a write — don't contort it into a cached read.
 - **GraphQL.** The transport is HTTP-only for now; GraphQL is a planned later phase.
 
 > **Don't avoid resources just because a write needs to feel instant.** A mutation *can* flip the UI immediately and reconcile when the server replies — see [Optimistic writes commit, roll back, or reconcile](#optimistic-writes-commit-roll-back-or-reconcile) above. That's a property of the mutation, not a reason to keep server state out of the cache.

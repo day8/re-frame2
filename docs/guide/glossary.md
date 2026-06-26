@@ -93,7 +93,7 @@ Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
 ### **effect map**
 
-The map an [event handler](#event-handler) — or a [machine](#machine) action — returns to describe how the world should change. The handler never makes the change itself; it's a pure function that returns this *description*, and the framework carries it out.
+The map an [event handler](#event-handler) — or a [machine](../machines/glossary.md#machine) action — returns to describe how the world should change. The handler never makes the change itself; it's a pure function that returns this *description*, and the framework carries it out.
 
 It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace app-db with this":
 
@@ -261,7 +261,7 @@ Related: [Views](concepts/views.md).
 
 ### **image**
 
-The selected set of registrations a [frame](#frame) resolves its behaviour against — [event handlers](#event-handler), [subscriptions](#subscription), [views](#view), [effect handlers](#effect-handler), [flows](#flow), [machines](#machine), and the rest. An image is a *value*: it's not a running app and holds no state.
+The selected set of registrations a [frame](#frame) resolves its behaviour against — [event handlers](#event-handler), [subscriptions](#subscription), [views](#view), [effect handlers](#effect-handler), [flows](#flow), [machines](../machines/glossary.md#machine), and the rest. An image is a *value*: it's not a running app and holds no state.
 
 Most apps use the **default image** automatically — "all the registrations already loaded." You name an image explicitly only when different frames need different behaviour: a test frame with fake effects, two examples that reuse the same event ids, or a sidecar tool like [Xray](#xray).
 
@@ -347,9 +347,9 @@ Flows registration:
 
 - `reg-flow` registers a [flow](#flow).
 
-[Machines](concepts/machines.md) registration:
+[Machines](../machines/concepts.md) registration:
 
-- `reg-machine` and `reg-machine*` register [machines](#machine).
+- `reg-machine` and `reg-machine*` register [machines](../machines/glossary.md#machine).
 
 Routing registration:
 
@@ -379,7 +379,7 @@ HTTP registration:
 
 The framework-owned half of a [frame](#frame)'s state — the other side of [the two partitions](#the-two-partitions), sitting beside the [app-db](#app-db) you own.
 
-re-frame2 keeps its own durable state here: machine [snapshots](#snapshot), the current route, [resource](#resource) caches, [mutation](#mutation) status, and similar machinery. App code reads it through subscriptions or accessors — never by editing `:rf.db/runtime` paths directly.
+re-frame2 keeps its own durable state here: machine [snapshots](../machines/glossary.md#snapshot), the current route, [resource](#resource) caches, [mutation](#mutation) status, and similar machinery. App code reads it through subscriptions or accessors — never by editing `:rf.db/runtime` paths directly.
 
 ```clojure
 [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow]
@@ -548,7 +548,7 @@ Related: [Frames](concepts/frames.md).
 
 ### **The four homes (where state lives)**
 
-[Subscription](#subscription) → [flow](#flow) → [resource](#resource) → [machine](#machine): pick the cheapest that fits, decided by the where-state-lives router. Every other concept defers here for "which one do I use?".
+[Subscription](#subscription) → [flow](#flow) → [resource](#resource) → [machine](../machines/glossary.md#machine): pick the cheapest that fits, decided by the where-state-lives router. Every other concept defers here for "which one do I use?".
 
 ```clojure
 ;; cart total → sub (or flow); the article → resource; checkout → machine
@@ -599,56 +599,6 @@ Two grades of [coeffect](#coeffect). A *recordable* one (the clock, a fresh id) 
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
-## Machines
-
-re-frame2's optional state-machine capability — modelling a feature's lifecycle as an explicit statechart rather than a scatter of boolean flags. The terms below all live within a [machine](#machine); see [Machines](concepts/machines.md) for the full guide.
-
-### **machine**
-
-A statechart-capable state machine, registered as an [event handler](#event-handler) with `reg-machine`. It models a feature's lifecycle as explicit [states](#state) and [transitions](#transition) — driven by dispatched [events](#event), with [guards](#guard), [actions](#action), timeouts, and child machines (see [spawn](#spawn)) — instead of a scatter of boolean flags in [app-db](#app-db).
-
-Its live value is a [snapshot](#snapshot) (the current state plus its `:data`), held in [runtime-db](#runtime-db) and read like any other derived state.
-
-```clojure
-(rf/reg-machine :auth.login/flow login-flow)
-```
-
-Related: [Machines](concepts/machines.md).
-
-### **snapshot**
-
-A [machine](#machine)'s live value at any moment — which state it's in, plus its `:data`. It lives in [runtime-db](#runtime-db), and you read it through a [subscription](#subscription) addressed by the machine's id.
-
-```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])   ;; {:state :authed :data {...}}
-```
-
-Related: [Machines](concepts/machines.md).
-
-### **state**
-
-One of a [machine](#machine)'s fixed, named, mutually-exclusive modes — `:idle`, `:submitting`, `:authed`. A machine is always in exactly one (or, with parallel regions, one per region).
-
-### **transition**
-
-The move from one [state](#state) to another in response to a dispatched [event](#event) — optionally gated by a [guard](#guard) and running an [action](#action) on the way. In the transition table it's an entry under a state's `:on` map. Transitions can also be *eventless* (`:always`, taken on entry when its guard passes) or *timed* (`:after`, taken after a delay that auto-cancels when the state exits).
-
-### **guard**
-
-A pure yes/no predicate that decides whether a [transition](#transition) fires. Referenced by name from the table and defined once in the machine's `:guards`, so a visualiser can read the condition right off the arrow.
-
-### **action**
-
-The side work a [transition](#transition) performs: it returns the same `{:data … :fx …}` shape an [event handler](#event-handler) returns — updating the machine's own `:data` or firing [effects](#effect) — and never writes [app-db](#app-db) directly. Defined once in the machine's `:actions`, named from the arrow.
-
-### **state tag**
-
-A label like `:auth/busy` attached to several [machine](#machine) [states](#state); the active state's tags ride on the [snapshot](#snapshot), so a [view](#view) can ask "is it busy?" (`machine-has-tag?`) instead of enumerating exact state names — *ask, don't tell*. Add a sixth busy state and no view changes.
-
-### **spawn**
-
-A declarative key that starts a *child* machine on entering a [state](#state) and tears it down on leaving; the child reports a result back through `:on-done`. (`:spawn-all` starts several in parallel and joins on completion — re-frame2's spelling of XState's `invoke`.)
-
 ## Resources & Server State
 
 re-frame2's optional server-state capability — declarative, cached reads and writes where the framework owns the cache, dedupe, staleness, and invalidation, so views read passively and never fetch. See [Server state](concepts/server-state.md).
@@ -690,7 +640,7 @@ A [resource](#resource)'s required, fail-closed leak boundary — the declaratio
 
 ### **cache tag**
 
-A structured label like `[:article slug]` a [resource](#resource) attaches to its data, declaring what the data is *about*. A [mutation](#mutation) then [invalidates](#invalidate) by tag — "I changed `[:article slug]`" — and exactly the cached reads carrying that tag refresh. (Distinct from a machine's [state tag](#state-tag).)
+A structured label like `[:article slug]` a [resource](#resource) attaches to its data, declaring what the data is *about*. A [mutation](#mutation) then [invalidates](#invalidate) by tag — "I changed `[:article slug]`" — and exactly the cached reads carrying that tag refresh. (Distinct from a machine's [state tag](../machines/glossary.md#state-tag).)
 
 ### **resource status**
 
@@ -698,7 +648,7 @@ The lifecycle a cached read reports to a [view](#view): `:idle` → `:loading` �
 
 ### **owner & cause**
 
-Two facts the runtime tracks per fetch. An **owner** is a *lease* — a route, a [machine](#machine), an explicit hold — that keeps a cached entry alive and decides whether an [invalidation](#invalidate) refetches now or merely marks the entry stale; release every owner and the entry becomes GC-eligible. A **cause** is pure provenance — *why* a fetch happened (a route entry, a click, a refresh) — recorded for the trace and never affecting liveness. *Owner = lifetime; cause = explanation.*
+Two facts the runtime tracks per fetch. An **owner** is a *lease* — a route, a [machine](../machines/glossary.md#machine), an explicit hold — that keeps a cached entry alive and decides whether an [invalidation](#invalidate) refetches now or merely marks the entry stale; release every owner and the entry becomes GC-eligible. A **cause** is pure provenance — *why* a fetch happened (a route entry, a click, a refresh) — recorded for the trace and never affecting liveness. *Owner = lifetime; cause = explanation.*
 
 ### **optimistic update & rollback**
 

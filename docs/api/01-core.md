@@ -205,7 +205,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-machine machine-id machine-spec)
   ```
-- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](04-machines.md).
+- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](../machines/api.md).
 - **Example**:
   ```clojure
   (rf/reg-machine :auth.login/flow
@@ -216,7 +216,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
 
-> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core` (rf2-wad2fl — front-porch shrink). Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](04-machines.md#re-framemachinesreg-machine).
+> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core` (rf2-wad2fl — front-porch shrink). Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](../machines/api.md#re-framemachinesreg-machine).
 
 ### `reg-app-schema`
 
@@ -472,7 +472,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
 
 ### Reading a machine's snapshot
 
-To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](04-machines.md).
+To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](../machines/api.md).
 
 **The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics live in [002 §Routing: the dispatch envelope](../../spec/002-Frames.md#routing-the-dispatch-envelope). The most common pattern is `(rf/dispatch [::save x] {:frame :todo})` to target a non-default frame.
 
@@ -517,7 +517,7 @@ The family has two sub-shapes that look alike on first read but answer different
 
 **Stamping pair** (`dispatch` / `dispatch*` and `dispatch-sync` / `dispatch-sync*`). The pair-shape question is "do you want call-site stamping or not?" The macro captures source coords for `:rf.trace/call-site`; the `*` fn-form skips the stamping for HoF composition. Both route through the same dispatcher.
 
-**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](04-machines.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
+**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](../machines/api.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
 
 The two compose: the named-target fx ultimately dispatches, so the same trace stamping fires on the resulting event.
 

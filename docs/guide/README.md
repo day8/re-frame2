@@ -24,7 +24,7 @@ There's one reader this guide deliberately *doesn't* serve: someone learning UI 
 > |---|---|---|
 > | Redux selectors / `useSelector` | [subscriptions](glossary.md#subscription) | Named, cached derivations on a graph — dependency tracking is automatic, no deps array. |
 > | TanStack Query | [resources](glossary.md#resource) | The cache lives *in* your state, where any sub can read it and Xray can show it. |
-> | XState | [machines](glossary.md#machine) | A statechart registered like an event handler; its live state is ordinary readable state. |
+> | XState | [machines](../machines/glossary.md#machine) | A statechart registered like an event handler; its live state is ordinary readable state. |
 > | React Router | [routing](glossary.md#navigate) | A route is a registry entry, navigating is dispatching an event, the URL is just a sub. |
 >
 > So the quickest way in really is the [Quickstart](quickstart.md): build the counter, recognise the loop, and let each later page click onto something you already know.

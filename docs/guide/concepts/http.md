@@ -217,7 +217,7 @@ The default `:accept` is just `{:ok decoded}` — every 2xx that decodes is a su
 
 - `:accept` runs **only after a successful 2xx decode** — that is, after status has been classified and after the body has decoded. A non-2xx response is sorted by status long before this point and never reaches `:accept`, so your `:accept` never has to think about HTTP status.
 - An `:accept` that **throws**, or returns a **malformed shape** (nil, a non-map, a map with neither `:ok` nor `:failure`, or one with *both*) still dispatches a reply — it can never strand the caller. It classifies as `:rf.http/accept-failure` with a framework-supplied `:detail`, and the pre-`:accept` value rides at `:decoded` so you can see what it choked on.
-- An accept-failure is **not retryable**. Retrying the transport won't change the body — this is a domain decision, not a transport blip. If you need "retry after refreshing X," that's a [state machine](machines.md), not `:accept`.
+- An accept-failure is **not retryable**. Retrying the transport won't change the body — this is a domain decision, not a transport blip. If you need "retry after refreshing X," that's a [state machine](../../machines/concepts.md), not `:accept`.
 
 ## Reads retry; writes don't
 
@@ -252,7 +252,7 @@ The real discipline isn't *whether* to retry but *what*. Read-only fetches are s
 
 > **Coming from Axios?** `axios-retry`'s `retryCondition` ≈ `:on`, `retryDelay` ≈ `:backoff` — except here the policy is inspectable data at the call site and every attempt is a trace row, not closure state buried inside an interceptor.
 
-> **Going deeper.** `:retry` owns **transport retry** only — decisions that are a pure function of failure category and attempt count. The moment a retry decision depends on anything else ("after a 401, refresh the token, *then* retry"; "the body says retry-after 5s"), it becomes **semantic retry**, and that belongs in a [state machine](machines.md) driving the request, with transport `:retry` still active inside each attempt the machine launches. The boundary is one test: pure-function-of-category stays here; stateful-decision graduates to a machine.
+> **Going deeper.** `:retry` owns **transport retry** only — decisions that are a pure function of failure category and attempt count. The moment a retry decision depends on anything else ("after a 401, refresh the token, *then* retry"; "the body says retry-after 5s"), it becomes **semantic retry**, and that belongs in a [state machine](../../machines/concepts.md) driving the request, with transport `:retry` still active inside each attempt the machine launches. The boundary is one test: pure-function-of-category stays here; stateful-decision graduates to a machine.
 
 ## The search-box race, cured
 
@@ -280,7 +280,7 @@ A *manual* abort is different from a supersession. Where reusing a `:request-id`
 
 If the cancel signal you want to honour already lives outside re-frame — a parent widget's lifecycle, a shared `AbortController` — hand its `.signal` straight to the request under `:abort-signal`. It attaches a cancellation source to the same one request, so you can supply it *together with* a `:request-id` and the framework guarantees exactly one terminal outcome no matter which fires first. (`:abort-signal` is browser-only — the JVM has no `AbortController`, so `:request-id` is the cross-host cancel handle.)
 
-> **Requests that die with their machine.** There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](machines.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed. Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
+> **Requests that die with their machine.** There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](../../machines/concepts.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed. Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
 
 ### Silencing a reply
 
@@ -394,7 +394,7 @@ A few rules that matter:
 
 Everything above is HTTP-specific spelling over a deeper, framework-wide contract. You don't need this section to be productive — but it's the seam that makes resources, machines, and routing feel the same, so it's worth one read.
 
-"A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](server-state.md), [state-machine async work](machines.md), and [route loaders](routing.md). Those pages lean on this section instead of re-teaching it. The normative contract is [Managed-Effects](../../../spec/Managed-Effects.md).
+"A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](server-state.md), [state-machine async work](../../machines/concepts.md), and [route loaders](routing.md). Those pages lean on this section instead of re-teaching it. The normative contract is [Managed-Effects](../../../spec/Managed-Effects.md).
 
 The envelope has two pieces. A **reply target** says where completion is dispatched. A **reply map** says what it carries. When the work completes, the runtime dispatches the target event with the reply map appended as the final argument:
 

@@ -28,7 +28,7 @@ Anything in `:fx` is a `[fx-id args]` pair. The runtime looks up `fx-id` in the 
 | `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | 014 | The canonical managed-HTTP fx. See [07 — HTTP](07-http.md). |
 | `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](06-routing.md). |
 | `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
-| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic actor instance whose snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` (in runtime-db). See [04 — Machines](04-machines.md). |
+| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic actor instance whose snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` (in runtime-db). See [04 — Machines](../machines/api.md). |
 | `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | Symmetric counterpart to `:rf.machine/spawn`. Runs the actor's `:exit` action, dissociates `[:rf.runtime/machines :snapshots <id>]` (in runtime-db), clears its event-handler registration. |
 | `[:rf.fx/reg-flow flow-map]` | flow map | v1 | 013 | Register a flow at runtime via `:fx`. See [05 — Flows](05-flows.md). |
 | `[:rf.fx/clear-flow id]` | id | v1 | 013 | Clear a registered flow at runtime via `:fx`. |

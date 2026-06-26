@@ -6,7 +6,7 @@ This is the honest, feature-by-feature comparison. The conceptual model lives in
 
 One sentence to carry through everything below:
 
-> **Same problem, different physics.** A query library is a cache wired to component lifecycle — a fetch happens because a component mounted. A re-frame2 resource is a cache wired to *causes* — a fetch happens because a route was entered, an [event](../glossary.md#event) fired, or a [machine](../glossary.md#machine) asked — and the viewer's identity (which user is this cache for?) is a required, declared part of the cache key, not something you remember to add.
+> **Same problem, different physics.** A query library is a cache wired to component lifecycle — a fetch happens because a component mounted. A re-frame2 resource is a cache wired to *causes* — a fetch happens because a route was entered, an [event](../glossary.md#event) fired, or a [machine](../../machines/glossary.md#machine) asked — and the viewer's identity (which user is this cache for?) is a required, declared part of the cache key, not something you remember to add.
 
 If "cause" and "the cache key includes the viewer" feel abstract right now, don't sweat it — every clause of that sentence gets its own section below. We build it up one idea at a time: where the cache lives, how identity ([scope](../glossary.md#scope)) works, what keeps an entry alive, why views never fetch, and how writes keep reads honest. The big parity table is at the end as a reference scorecard — read the narrative first; it explains the rows.
 
@@ -290,7 +290,7 @@ A query library is the obvious default in React because it's the *only* server-s
 > **Simpler than a resource.** Two cases where reaching for the resources artefact is over-engineering:
 >
 > - **A handful of reads, no caching story.** A [managed HTTP request](../concepts/http.md) plus a small app-db slice is less machinery and entirely idiomatic.
-> - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../concepts/machines.md), not a cached read.
+> - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../../machines/concepts.md), not a cached read.
 
 Reach for resources when cached server reads start multiplying and the per-read bookkeeping — scope, staleness, dedupe, invalidation, GC, SSR — is worth moving into the framework. [Where should this value live?](../where-state-lives.md) has the decision table, and resources are one of [the four homes](../glossary.md#the-four-homes-where-state-lives) state can take.
 
