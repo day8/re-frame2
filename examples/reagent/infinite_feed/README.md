@@ -7,7 +7,7 @@ Composed as proper re-frame2: a `reg-resource` with `:infinite true`, owned by
 the route, read entirely through the **passive** infinite subscription family,
 with accumulation driven by a **causal** `:rf.resource/load-more` event. The
 worked companion to the guide's load-more half,
-[docs/guide/how-to/paginate-a-feed.md](../../../docs/guide/how-to/paginate-a-feed.md).
+[docs/resources/how-to/paginate-a-feed.md](../../../docs/resources/how-to/paginate-a-feed.md).
 
 This is the **complement** to the numbered-pagination model
 ([Spec 016 §Paginated and previous data](../../../spec/016-Resources.md#paginated-and-previous-data),
@@ -145,6 +145,6 @@ pinned in `implementation/resources/test/`. See the
 
 - [`docs/EP/EP-0021-infinite-resources.md`](../../../docs/EP/EP-0021-infinite-resources.md) — the EP (the accepted design + the R1–R8 rulings).
 - [`spec/016-Resources.md §Infinite resources and load-more feeds`](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds) — the normative spec.
-- [`docs/guide/how-to/paginate-a-feed.md`](../../../docs/guide/how-to/paginate-a-feed.md) — the guide (numbered-vs-infinite).
+- [`docs/resources/how-to/paginate-a-feed.md`](../../../docs/resources/how-to/paginate-a-feed.md) — the guide (numbered-vs-infinite).
 - [`examples/reagent/resources/`](../resources/) — the single-page resource lifecycle (ensure / refetch / owners / causes) this feed builds on.
 - [`examples/reagent/realworld_resources/`](../realworld_resources/) — the numbered-pagination counterpart (the `:keep-previous?` model).
