@@ -133,7 +133,7 @@ Most of the config map is optional knobs you reach for later. Four keys carry th
     | **`:doc`** | a docstring the registry and Xray surface. |
     | **`:sensitive` / `:large`** | privacy/size classification — vectors of paths into the entry (e.g. `[[:data :ssn]]`) marking fields to redact or summarise at every egress boundary (trace, Xray, SSR). The whole-entry shorthands are `:sensitive?` / `:large?`. |
 
-    The request fn returns the managed-HTTP args map — `{:request {…} :decode …}` — which is itself the network layer's contract, [Spec 014](../../spec/014-HTTPRequests.md). You get its other knobs for free here: `:retry`, `:timeout-ms`, `:accept`, request headers. One restriction — the runtime owns reply addressing, so the args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`; the resource lowering derives those from the scoped key and current generation. Put one in and it's a loud reject, not a silent override.
+    The request fn returns the managed-HTTP args map — `{:request {…} :decode …}` — which is itself the network layer's contract, [Spec 014](../../../spec/014-HTTPRequests.md). You get its other knobs for free here: `:retry`, `:timeout-ms`, `:accept`, request headers. One restriction — the runtime owns reply addressing, so the args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`; the resource lowering derives those from the scoped key and current generation. Put one in and it's a loud reject, not a silent override.
 
 Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initialise`, and the three `:articles/*` subs. The resource replaces all of them, so `:app/initialise` shrinks to an empty seed:
 
@@ -271,7 +271,7 @@ One invariant about failure is worth pausing on:
 
     A failed *background* refresh does not flip the resource to `:error`. It stays `:loaded` with its prior data and records the problem in `:refresh-error`, so users keep reading last-known-good content through a flaky network. Reserve the `:error` branch for the one case where there is genuinely nothing to show yet — a first load that failed. A refresh that fails is a footnote, not a catastrophe.
 
-The two error channels carry the **same envelope** — the closed [Spec 014](../../spec/014-HTTPRequests.md) HTTP-failure shape — so you can render either with the same view. A first-load failure looks like:
+The two error channels carry the **same envelope** — the closed [Spec 014](../../../spec/014-HTTPRequests.md) HTTP-failure shape — so you can render either with the same view. A first-load failure looks like:
 
 ```clojure
 {:status :error
@@ -355,4 +355,4 @@ Step back and notice there's still just one loop here: events write state, subs 
 
 > **Going deeper.** Why does this stay "one loop" rather than becoming a second data path bolted on the side? Because a resource entry is a *value* — an immutable view-model projected from the runtime cache — and your view is a pure function of that value. The cache's mutation (fetch, settle, expire, GC) happens entirely inside the runtime; what crosses the boundary into your code is always a fresh immutable snapshot. So the substitution model you rely on for app-db subscriptions holds unchanged: same input value, same rendered output, every time. The lifecycle complexity is real, but it's *encapsulated* — it never leaks into the referential transparency your views depend on. That's the algebraic reason "new power, same shape" isn't just a slogan: the resource is a new *source* feeding the same pure reduction, not a new kind of computation.
 
-The full resources model — scopes as leak boundaries, owners vs. causes, polling, the refetch race rules — is in [Server state: resources](../concepts.md). The normative contract is [Spec 016 — Resources](../../spec/016-Resources.md).
+The full resources model — scopes as leak boundaries, owners vs. causes, polling, the refetch race rules — is in [Server state: resources](../concepts.md). The normative contract is [Spec 016 — Resources](../../../spec/016-Resources.md).
