@@ -988,6 +988,15 @@
   ;; `:rf.machine/update-snapshot` snapshot `:data` before the fx writes it.
   ["re-frame.machines" "validate-update-snapshot-data!"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "reset-timers!"]         {:tier :implementation :owner "005" :status "v1"}
+  ;; EP-0026 §Framework Standard Registrations — the machine-runtime re-seed
+  ;; (the analogue of `re-frame.events/register-set-db-standard!`): re-registers
+  ;; the reserved `:rf.machine/*` fx + `:rf/machine*` subs into BOTH the regular
+  ;; registrar AND the EP-0023 image standard registry, so they survive a test
+  ;; fixture's `registrar/clear-all!` / `clear-standards!` and stay unioned into
+  ;; every resolved image generation. Public-for-technical-reasons only (the
+  ;; late-bind reset hook + registrar-wiping tests call it) → :implementation,
+  ;; mirroring the sibling fx-impl / validator / `reset-timers!` helpers above.
+  ["re-frame.machines" "install-machine-runtime!"] {:tier :implementation :owner "005" :status "v1"}
   ;; rf2-ma0wvq — spawned-actor ownership resolver, published as the
   ;; `:machines/owning-actor-id` late-bind hook the http artefact consults.
   ["re-frame.machines" "owning-actor-id"]       {:tier :implementation :owner "005" :status "v1"}
