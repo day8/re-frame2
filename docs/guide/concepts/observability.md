@@ -12,7 +12,7 @@ If you take one idea away, take this one:
 
 ## One wire: the trace stream
 
-A [trace event](../glossary.md#trace-event) is just a map. The runtime emits one every time something worth noticing happens: an event dispatched, a handler run, app-db changed, a subscription recomputed, a view rendered, an effect fired, a [machine](../glossary.md#machine) transitioned, an error caught. Here's the shape:
+A [trace event](../glossary.md#trace-event) is just a map. The runtime emits one every time something worth noticing happens: an event dispatched, a handler run, app-db changed, a subscription recomputed, a view rendered, an effect fired, a [machine](../../machines/glossary.md#machine) transitioned, an error caught. Here's the shape:
 
 ```clojure
 {:id        18342                       ;; auto-incrementing, unique per process
@@ -35,7 +35,7 @@ You never construct these — the runtime emits them, and your job (more often a
 | `:rf.sub` | A subscription was created, recomputed, skipped (short-circuited), or disposed. |
 | `:rf.fx` | An effect was handled. |
 | `:rf.view` | A view rendered. |
-| `:rf.machine` | A [state machine](machines.md) transitioned, raised, spawned, or stopped. |
+| `:rf.machine` | A [state machine](../../machines/concepts.md) transitioned, raised, spawned, or stopped. |
 | `:flow` | A [flow](flows.md) re-derived or skipped. (The op-type is bare `:flow`; the operations under it are `:rf.flow/*`.) |
 | `:rf.cofx` | A [coeffect](../glossary.md#coeffect) was injected. |
 | `:rf.frame` | A [frame](../glossary.md#frame) was created or destroyed. |
@@ -176,7 +176,7 @@ The same verb drives three more streams, distinguished by that leading keyword. 
              "/" (count (:sub-runs epoch-record)) "sub-runs")))
 ```
 
-One subtlety the cascade-shaped view buys you: the `:epoch` callback fires once per *dequeued event*, not once per drain. If a handler's `:fx` dispatched a child event, the parent and the child are two separate epochs, and your callback fires twice — once each. The exception is work a [state machine](machines.md) does to itself: when a transition fires its own follow-up steps (an internal event it raises, or an automatic transition it takes immediately), those ride *inside* the triggering event's epoch rather than firing the callback again. So one user event stays one epoch, however much internal machinery it kicked off.
+One subtlety the cascade-shaped view buys you: the `:epoch` callback fires once per *dequeued event*, not once per drain. If a handler's `:fx` dispatched a child event, the parent and the child are two separate epochs, and your callback fires twice — once each. The exception is work a [state machine](../../machines/concepts.md) does to itself: when a transition fires its own follow-up steps (an internal event it raises, or an automatic transition it takes immediately), those ride *inside* the triggering event's epoch rather than firing the callback again. So one user event stays one epoch, however much internal machinery it kicked off.
 
 > **Halted cascades show up here too.** The `:epoch` stream is the devtools surface for *failed* cascades, not just clean ones — so the callback fires for halted drains as well, and each record's `:outcome` field tells you how it ended: `:ok` for a clean settle, `:halted-depth` if the cascade hit the re-entrancy depth guard, `:halted-destroy` if the frame was torn down mid-cascade. A partial record still carries whatever the runtime captured up to the halt, plus a `:halt-reason` descriptor. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of the callback — and remember `restore-epoch!` refuses anything that isn't `:ok`.
 
@@ -268,7 +268,7 @@ flowchart LR
 
 **The pair MCP answers: can an agent help?** It's an MCP server that lets an AI attach to your *running* app: read frames and app-db, follow epochs, dispatch events, run a dry-run cascade, time-travel — all through the same structured surfaces, with the mutating tools flagged so the agent host can gate them. The agent sees the evidence a good human debugger would ask for, instead of guessing from source. The runtime contract it rides is [Tool-Pair](../../../spec/Tool-Pair.md).
 
-**machines-viz answers: what does this machine look like?** It's a statechart renderer (think Stately Studio) that turns a [machine definition](machines.md) into an interactive chart with the live current state highlighted. It's presentation-only — both Xray's machine inspector and Story embed it.
+**machines-viz answers: what does this machine look like?** It's a statechart renderer (think Stately Studio) that turns a [machine definition](../../machines/concepts.md) into an interactive chart with the live current state highlighted. It's presentation-only — both Xray's machine inspector and Story embed it.
 
 | Question | Open | Why |
 |---|---|---|

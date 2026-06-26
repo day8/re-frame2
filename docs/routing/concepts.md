@@ -2,11 +2,11 @@
 
 Here's the whole idea in one line: **the URL is application state, and your back button is a dispatch.**
 
-Most frameworks bolt a router onto the side of your app — its own context, its own lifecycle, its own opinion about where truth lives. re-frame2 doesn't. A route is a [registration](../glossary.md#registration): one row in re-frame2's table of routes. Navigating is dispatching an [event](../glossary.md#event): a data vector sent through the app. The active route is a [subscription](../glossary.md#subscription): a read of state your [views](../glossary.md#view) watch. That's it — three things you already know, pointed at the URL.
+Most frameworks bolt a router onto the side of your app — its own context, its own lifecycle, its own opinion about where truth lives. re-frame2 doesn't. A route is a [registration](../guide/glossary.md#registration): one row in re-frame2's table of routes. Navigating is dispatching an [event](../guide/glossary.md#event): a data vector sent through the app. The active route is a [subscription](../guide/glossary.md#subscription): a read of state your [views](../guide/glossary.md#view) watch. That's it — three things you already know, pointed at the URL.
 
-Which means everything you already know about [events](events-and-the-cascade.md) and [subscriptions](subscriptions.md) is genuinely everything you need here. There is no fourth concept hiding behind the curtain. By the end of this page you'll register a route table, navigate and link between pages, branch your views on the active route, load each page's data declaratively, handle the 404, block a navigation, wire up back/forward, and — for free — run the exact same routing on the server.
+Which means everything you already know about [events](../guide/concepts/events-and-the-cascade.md) and [subscriptions](../guide/concepts/subscriptions.md) is genuinely everything you need here. There is no fourth concept hiding behind the curtain. By the end of this page you'll register a route table, navigate and link between pages, branch your views on the active route, load each page's data declaratively, handle the 404, block a navigation, wire up back/forward, and — for free — run the exact same routing on the server.
 
-> **From re-frame v1.** There was no routing in v1 — you reached for secretary, bidi, or reitit, wired a third-party router to `dispatch` by hand, and kept the active route somewhere in [app-db](../glossary.md#app-db) yourself. re-frame2 folds all of that into the framework: routes are registrations, navigation is a built-in event, and the active route is a built-in subscription. The bring-your-own-router era is over. (It's still a *separate* artefact — `day8/re-frame2-routing` — so an app with no shareable URLs ships zero routing bytes.)
+> **From re-frame v1.** There was no routing in v1 — you reached for secretary, bidi, or reitit, wired a third-party router to `dispatch` by hand, and kept the active route somewhere in [app-db](../guide/glossary.md#app-db) yourself. re-frame2 folds all of that into the framework: routes are registrations, navigation is a built-in event, and the active route is a built-in subscription. The bring-your-own-router era is over. (It's still a *separate* artefact — `day8/re-frame2-routing` — so an app with no shareable URLs ships zero routing bytes.)
 
 > **Coming from React Router or Remix?** Routes-as-data and per-route loaders will feel familiar. The deliberate divergences: there are no hooks (`useNavigate` is an event dispatch, `useLoaderData` is a subscription, `useBlocker` is a guard sub), there's no router context to thread through your tree, and the same route handler runs on the server with zero SSR-specific code.
 
@@ -58,7 +58,7 @@ Move 1 is a couple of registry rows. Move 2 is a dispatch — the same verb you 
 
 > **Gotcha — `reg-route` needs the artefact loaded.** `reg-route` (and `route-link`, `match-url`, `route-url`, the route subs) all live in the separately-packaged `day8/re-frame2-routing` artefact, not in core. Requiring `re-frame.routing` *at boot* is what wires them up — that's the `(:require … [re-frame.routing])` in the three-moves snippet above. Forget it and the first `reg-route` call **throws** `:rf.error/routing-artefact-missing`, naming the namespace to require and the Maven coordinate to add — a loud, actionable error, not a silent no-op.
 
-The `:params` and `:query` keys take [schemas](../how-to/validate-with-schemas.md), which validate *and coerce* for you, so `?page=2` arrives as the integer `2`, not the string `"2"`. That coercion is the part everyone forgets to do by hand — so let the schema own it:
+The `:params` and `:query` keys take [schemas](../guide/how-to/validate-with-schemas.md), which validate *and coerce* for you, so `?page=2` arrives as the integer `2`, not the string `"2"`. That coercion is the part everyone forgets to do by hand — so let the schema own it:
 
 ```clojure
 (rf/reg-route :app/search
@@ -89,7 +89,7 @@ One more `:query` key earns its keep early. `:query-retain` is a set of keys car
 
 ### Routes are queryable data
 
-Because routes are registry entries, the route table is *queryable data* — and that pays off. Tag a route `:tags #{:requires-auth}` and an ordinary [interceptor](interceptors.md) (a `:before`/`:after` wrapper around your navigation events) can read the tag and redirect. That's the entire auth-guard mechanism — no special router machinery, just data and a step that reads it:
+Because routes are registry entries, the route table is *queryable data* — and that pays off. Tag a route `:tags #{:requires-auth}` and an ordinary [interceptor](../guide/concepts/interceptors.md) (a `:before`/`:after` wrapper around your navigation events) can read the tag and redirect. That's the entire auth-guard mechanism — no special router machinery, just data and a step that reads it:
 
 ```clojure
 (rf/reg-route :app/admin
@@ -101,7 +101,7 @@ Because routes are registry entries, the route table is *queryable data* — and
 ;; (rf/handler-meta :route route-id) returns the metadata, :tags and all.
 ```
 
-[Add authentication](../how-to/add-auth.md) walks through it end to end.
+[Add authentication](../guide/how-to/add-auth.md) walks through it end to end.
 
 > **For JavaScript developers.** This is the inverse of React Router's `<Route>` JSX tree, where each route is a *component* and you read it by being rendered inside it. Here a route is a *data row* you can `get`, `filter`, and `map` over from anywhere — auth guards, breadcrumb generators, sitemap builders, and analytics all just query the same table.
 
@@ -122,7 +122,7 @@ When two patterns could both match one URL, a structural ranking breaks the tie:
 
 ??? note "The full grammar and ranking rules"
 
-    The full path grammar, the six-rule ranking cascade, and the per-boundary validation failure modes live in [Spec 012 — Routing](../../../spec/012-Routing.md). You won't need them for everyday routes. Worth knowing the shape of the cascade, though: (1) more static segments win; (2) the *bare* catch-all `/*` is demoted below everything; (3) longer paths win; (4) named params beat splats; (5) exact routes beat optional-group routes; (6) registration order is the final, discouraged tiebreak — and the runtime warns (`:rf.warning/route-shadowed-by-equal-score`) at registration if two routes tie all the way down.
+    The full path grammar, the six-rule ranking cascade, and the per-boundary validation failure modes live in [Spec 012 — Routing](../../spec/012-Routing.md). You won't need them for everyday routes. Worth knowing the shape of the cascade, though: (1) more static segments win; (2) the *bare* catch-all `/*` is demoted below everything; (3) longer paths win; (4) named params beat splats; (5) exact routes beat optional-group routes; (6) registration order is the final, discouraged tiebreak — and the runtime warns (`:rf.warning/route-shadowed-by-equal-score`) at registration if two routes tie all the way down.
 
 ## Move 2: navigation is an event
 
@@ -152,7 +152,7 @@ The opts map (third slot) is open; the runtime recognises four keys:
 
 Hosts and apps may add their own opts under a namespace.
 
-> **From re-frame v1.** `useNavigate`-style imperative calls and `secretary`'s `(set! js/window.location ...)` both become an ordinary `dispatch`. That means navigation is now *interceptable* and *replayable* like any other event — a navigate shows up in [Xray](../glossary.md#xray) on the same wire as your business events, and time-travel rewinds it for free, because it was never a side-channel.
+> **From re-frame v1.** `useNavigate`-style imperative calls and `secretary`'s `(set! js/window.location ...)` both become an ordinary `dispatch`. That means navigation is now *interceptable* and *replayable* like any other event — a navigate shows up in [Xray](../guide/glossary.md#xray) on the same wire as your business events, and time-travel rewinds it for free, because it was never a side-channel.
 
 !!! warning "Params is 2nd, opts is 3rd"
 
@@ -197,11 +197,11 @@ The runtime runs `match-url` on the string. If it resolves to a registered route
 
 ### What happens, in order
 
-When the navigate event runs, three things happen in a **locked order**: first the route slice in [runtime-db](../glossary.md#runtime-db) updates, then the browser URL pushes, then the route's loaders dispatch. State-before-URL is on purpose. If the URL push fails — offline, or the browser denies it — your application state is still consistent, so you never end up showing one page while the address bar swears you're on another.
+When the navigate event runs, three things happen in a **locked order**: first the route slice in [runtime-db](../guide/glossary.md#runtime-db) updates, then the browser URL pushes, then the route's loaders dispatch. State-before-URL is on purpose. If the URL push fails — offline, or the browser denies it — your application state is still consistent, so you never end up showing one page while the address bar swears you're on another.
 
 ## Move 3: the active route is a subscription
 
-The current route lives in **runtime-db** — the framework-owned partition beside your app-db (see [the two partitions](app-db.md#yours-and-the-frameworks-next-door)), addressed at `[:rf.db/runtime :rf.runtime/routing :current]`. Your code *reads* it and never *writes* it, and you read it like any other state:
+The current route lives in **runtime-db** — the framework-owned partition beside your app-db (see [the two partitions](../guide/concepts/app-db.md#yours-and-the-frameworks-next-door)), addressed at `[:rf.db/runtime :rf.runtime/routing :current]`. Your code *reads* it and never *writes* it, and you read it like any other state:
 
 ```clojure
 @(rf/subscribe [:rf/route])             ;; the full slice: {:route-id :params :query :fragment :transition :error :nav-token}
@@ -229,7 +229,7 @@ Nine subscriptions, every one a plain read — no special routing API in views. 
 
 > **Coming from TanStack Query?** That global `:transition` plays the role `isFetching` plays at the page level — except you didn't have to thread it through any component, because it's a subscription anyone can read from anywhere in the tree.
 
-Try it with the [Xray inspector](../how-to/debug-with-xray.md) open. Dispatch a navigation and watch the trace: the navigate event, the fresh nav-token allocation, then each loader dispatch, in order. Routing has no hidden machinery — everything it does shows up on the same wire as your own events, which is exactly what makes it easy to trust.
+Try it with the [Xray inspector](../guide/how-to/debug-with-xray.md) open. Dispatch a navigation and watch the trace: the navigate event, the fresh nav-token allocation, then each loader dispatch, in order. Routing has no hidden machinery — everything it does shows up on the same wire as your own events, which is exactly what makes it easy to trust.
 
 ### Fragments and scrolling
 
@@ -266,7 +266,7 @@ A route can declare what data to load when it becomes active, so a page's data-n
   "/cart")
 ```
 
-`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](effects-and-coeffects.md) (a fact the framework injects into a handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
+`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](../guide/concepts/effects-and-coeffects.md) (a fact the framework injects into a handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
 
 > **Coming from React Router or Remix?** `:on-match` *is* the route loader — but as a list of event vectors, not a function. Because it's data, you can read it, test it, and draw a dependency graph from it without running it. And it runs on the server through the exact same vector, so there's no separate "server loader" to keep in sync.
 
@@ -286,13 +286,13 @@ If any `:on-match` event errors, the runtime flips `:rf.route/transition` to `:e
       {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
 ```
 
-Routes with no `:on-error` simply leave `:transition :error` set; a view over `:rf.route/error` can render a banner. Either way, the structured-error trace still fires on the wire — `:on-error` is the route's *response*, layered over the framework's [error contract](errors.md), not a replacement for it.
+Routes with no `:on-error` simply leave `:transition :error` set; a view over `:rf.route/error` can render a banner. Either way, the structured-error trace still fires on the wire — `:on-error` is the route's *response*, layered over the framework's [error contract](../guide/concepts/errors.md), not a replacement for it.
 
-> **Two subtleties worth knowing.** (1) *Later loaders still run.* re-frame2's [run-to-completion](../glossary.md#drain--run-to-completion) drain doesn't cancel events already queued, so `:on-match [[:a] [:b]]` runs `:b` even if `:a` threw. A loader that must short-circuit on a sibling's failure reads `:rf.route/transition` and self-guards. (2) *First error wins.* If both throw, `:rf.route/error` records the first, and `:on-error` fires exactly once. The slice always lands on `:error` regardless of how the events interleave.
+> **Two subtleties worth knowing.** (1) *Later loaders still run.* re-frame2's [run-to-completion](../guide/glossary.md#drain--run-to-completion) drain doesn't cancel events already queued, so `:on-match [[:a] [:b]]` runs `:b` even if `:a` threw. A loader that must short-circuit on a sibling's failure reads `:rf.route/transition` and self-guards. (2) *First error wins.* If both throw, `:rf.route/error` records the first, and `:on-error` fires exactly once. The slice always lands on `:error` regardless of how the events interleave.
 
 ### Declaring resources instead
 
-If the page's data is [server state managed as resources](server-state.md) — a [resource](../glossary.md#resource) being a declared, cached unit of server data — declare it as data with the `:resources` key instead (available when both `re-frame.routing` and `re-frame.resources` are loaded):
+If the page's data is [server state managed as resources](../resources/concepts.md) — a [resource](../resources/glossary.md#resource) being a declared, cached unit of server data — declare it as data with the `:resources` key instead (available when both `re-frame.routing` and `re-frame.resources` are loaded):
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs
@@ -333,7 +333,7 @@ When a resource is per-user, scope it with a **named scope resolver**. Register 
  :blocking? false}
 ```
 
-The runtime resolves `{:from-db :realworld/session}` against [app-db](app-db.md) at route entry. Resolution **fails closed**: logged out, the resolver returns `nil` and the feed is simply *not planned* (surfacing as a route plan error rather than a silent fallback). It never silently falls back to a shared cache, so one user's feed can never leak into another's session. Security by construction, not by remembering to check.
+The runtime resolves `{:from-db :realworld/session}` against [app-db](../guide/concepts/app-db.md) at route entry. Resolution **fails closed**: logged out, the resolver returns `nil` and the feed is simply *not planned* (surfacing as a route plan error rather than a silent fallback). It never silently falls back to a shared cache, so one user's feed can never leak into another's session. Security by construction, not by remembering to check.
 
 ## Blocking a navigation
 
@@ -360,7 +360,7 @@ When the guard blocks, the runtime also dispatches `:rf.route/navigation-blocked
 
 > **Gotcha — the guard sub is strict.** `:can-leave` is a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` — it fails closed (deny the leave) and fails loud (raise), never open. Keep the guard sub returning a real `true`/`false`.
 
-The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/reagent/realworld_resources](../../../examples/reagent/realworld_resources/) show the shape.
+The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/reagent/realworld_resources](../../examples/reagent/realworld_resources/) show the shape.
 
 ## Not found is a route you register
 
@@ -403,7 +403,7 @@ A route slice can hold secrets — an OAuth `?token=`, a `?code=` callback param
 
 > **Gotcha — classify the query key the route promotes.** A `[:query :token]` classification path names the *keyword* `:token`, but the slice only keys a query value as a keyword when the route declares it (in `:query`, `:query-defaults`, or `:query-retain`). Classify a query key the route doesn't promote and the path silently fails open — so `reg-route` emits a `:rf.warning/route-classification-query-key-unpromoted` advisory pointing at the fix: name the key in the `:query` schema. Path params are immune (path captures are always keyword-keyed). And a structurally malformed declaration (a non-vector axis, a bad path segment) fails *loud* at registration with `:rf.error/invalid-route-classification`.
 
-Routing's classification is the [data-classification](../../../spec/015-Data-Classification.md) model applied to the singleton current-route. The full classification, privacy, and observability story lives in the spec; routes just declare the paths.
+Routing's classification is the [data-classification](../../spec/015-Data-Classification.md) model applied to the singleton current-route. The full classification, privacy, and observability story lives in the spec; routes just declare the paths.
 
 ## The browser is just another event source
 
@@ -415,11 +415,11 @@ Back/forward, deep links, and the initial page load are all, underneath, URL cha
 (rf/install-history-listener!)
 ```
 
-`:url-bound? true` declares which [frame](frames.md) — an isolated instance of your app's state (frames isolate state, not registrations) — owns the browser URL. Ownership is always *explicit*, never inferred, and only one frame may hold it (a second frame claiming `:url-bound? true` is a loud `:rf.error/duplicate-url-binding`). Non-owning frames still route internally: a [Story](observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`. With no declared owner, URL pushes and the popstate listener simply no-op. `install-history-listener!` installs the `popstate` listener (targeted at the owner) and does the initial URL-to-state sync; it's idempotent, so hot-reload is safe, and `rf/remove-history-listener!` tears it down.
+`:url-bound? true` declares which [frame](../guide/concepts/frames.md) — an isolated instance of your app's state (frames isolate state, not registrations) — owns the browser URL. Ownership is always *explicit*, never inferred, and only one frame may hold it (a second frame claiming `:url-bound? true` is a loud `:rf.error/duplicate-url-binding`). Non-owning frames still route internally: a [Story](../guide/concepts/observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`. With no declared owner, URL pushes and the popstate listener simply no-op. `install-history-listener!` installs the `popstate` listener (targeted at the owner) and does the initial URL-to-state sync; it's idempotent, so hot-reload is safe, and `rf/remove-history-listener!` tears it down.
 
-> **From re-frame v1.** This is where the inversion lands hardest. In v1 the browser URL was the source of truth and your router *reacted* to it. Here the frame's state is the source of truth and the URL is a *print-out* of it. So a back-button press is, literally, a dispatch: popstate fires, the URL-change handler runs, the slice updates, the views re-derive. And [time-travel](../how-to/debug-with-xray.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never truth, only a projection.
+> **From re-frame v1.** This is where the inversion lands hardest. In v1 the browser URL was the source of truth and your router *reacted* to it. Here the frame's state is the source of truth and the URL is a *print-out* of it. So a back-button press is, literally, a dispatch: popstate fires, the URL-change handler runs, the slice updates, the views re-derive. And [time-travel](../guide/how-to/debug-with-xray.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never truth, only a projection.
 
-> **Frames seed with events, not config.** Note the frame carries `:doc` and `:url-bound?` and nothing else — there's no `:db` or `:initial-db` config key. A frame's startup state is built by dispatching ordinary events via `:initial-events`: `(rf/reg-frame :app {:initial-events [[:rf/set-db {…}] [:app/initialise]]})`. "Events are the unit of state change" holds even for the very first state. See [Frames](frames.md) for the full lifecycle.
+> **Frames seed with events, not config.** Note the frame carries `:doc` and `:url-bound?` and nothing else — there's no `:db` or `:initial-db` config key. A frame's startup state is built by dispatching ordinary events via `:initial-events`: `(rf/reg-frame :app {:initial-events [[:rf/set-db {…}] [:app/initialise]]})`. "Events are the unit of state change" holds even for the very first state. See [Frames](../guide/concepts/frames.md) for the full lifecycle.
 
 ### Converting routes ↔ URLs by hand
 
@@ -448,7 +448,7 @@ When you need to convert between a route and a URL by hand, two pure helpers do 
 
 ## The same handler runs on the server
 
-This is the payoff of routing having no runtime of its own. During [server-side rendering](ssr.md), the request URL is fed to the *same* URL-change handler, against a per-request frame. The slice is written, `:on-match` fires, blocking `:resources` give the server its wait-point before render, and the resulting state ships to the client, where hydration installs it **without re-fetching** because the data is already there. There's no server router, no client router, and no seam between them — one place where URLs become state, one place where state becomes URLs.
+This is the payoff of routing having no runtime of its own. During [server-side rendering](../ssr/concepts.md), the request URL is fed to the *same* URL-change handler, against a per-request frame. The slice is written, `:on-match` fires, blocking `:resources` give the server its wait-point before render, and the resulting state ships to the client, where hydration installs it **without re-fetching** because the data is already there. There's no server router, no client router, and no seam between them — one place where URLs become state, one place where state becomes URLs.
 
 > **Going deeper.** This is what "the URL is a sub" buys you structurally. Because the route is a *derivable view* of state — a projection, not an independent variable — the same pure function (`match-url`) turns a request URL into a slice on the JVM and in the browser, and the same inverse (`route-url`) turns a slice back into a string on both. SSR isn't a parallel implementation that has to be kept in sync; it's the *same* implementation pointed at a different event source. The seam between server and client routing doesn't exist because there was never a second router to seam against.
 

@@ -120,7 +120,7 @@ Before submit, we need a validator. The convention fixes only the *result* shape
 
 ### Submit validates and latches
 
-The submit handler stays a pure function — `db` in, a map out — even though submitting clearly *does* something to the outside world. The trick is that [effects are data](../glossary.md#effects-are-data): the handler doesn't make the network call, it *describes* one as an [effect](../glossary.md#effect), and the framework runs it. So only when the draft is clean does submit ask for the [managed HTTP](../glossary.md#managed-http) effect, which owns the whole request lifecycle and dispatches a result event when it returns:
+The submit handler stays a pure function — `db` in, a map out — even though submitting clearly *does* something to the outside world. The trick is that [effects are data](../glossary.md#effects-are-data): the handler doesn't make the network call, it *describes* one as an [effect](../glossary.md#effect), and the framework runs it. So only when the draft is clean does submit ask for the [managed HTTP](../../resources/glossary.md#managed-http) effect, which owns the whole request lifecycle and dispatches a result event when it returns:
 
 ```clojure
 (rf/reg-event :form.login/submit
@@ -367,7 +367,7 @@ Run this list on any form before you call it done (the normative card in [Patter
 - Submit button disabled when `:can-submit?` is false.
 - Server-side validation mirrors the client schema where it applies.
 
-Want a worked audit target? Read `auth.cljs` in the [RealWorld example](../../../examples/reagent/realworld/). Its login and register forms follow this recipe, with submit handed off to an auth state [machine](../glossary.md#machine).
+Want a worked audit target? Read `auth.cljs` in the [RealWorld example](../../../examples/reagent/realworld/). Its login and register forms follow this recipe, with submit handed off to an auth state [machine](../../machines/glossary.md#machine).
 
 ## Advanced
 
@@ -404,9 +404,9 @@ A login POST can hit a 503 from a just-restarting node or a dropped connection o
         :backoff      {:base-ms 250 :factor 2 :max-ms 2000 :jitter true}}
 ```
 
-`:on` is a *closed* set drawn from `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}` — a member outside it is rejected at dispatch with `:rf.error/http-bad-retry-on`, so a typo fails loud rather than silently disabling retry. (And the value must be a *set*: a vector `:on` would silently disable retry for every category, so the runtime rejects a non-set shape too.) Don't put `:rf.http/http-4xx` here for a login: a 401 is a *correct* answer ("wrong password"), not a transient fault, and retrying it just makes the user wait. Only `:on-failure` fires after the *final* attempt, so a successful retry reaches `:submit-success` and your handler never sees the intermediate 503s — each failed attempt does leave a `:rf.http/retry-attempt` trace row, so you can still watch the backoff in [Xray](../glossary.md#xray). See [managed HTTP](../concepts/http.md) for the full retry contract.
+`:on` is a *closed* set drawn from `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}` — a member outside it is rejected at dispatch with `:rf.error/http-bad-retry-on`, so a typo fails loud rather than silently disabling retry. (And the value must be a *set*: a vector `:on` would silently disable retry for every category, so the runtime rejects a non-set shape too.) Don't put `:rf.http/http-4xx` here for a login: a 401 is a *correct* answer ("wrong password"), not a transient fault, and retrying it just makes the user wait. Only `:on-failure` fires after the *final* attempt, so a successful retry reaches `:submit-success` and your handler never sees the intermediate 503s — each failed attempt does leave a `:rf.http/retry-attempt` trace row, so you can still watch the backoff in [Xray](../glossary.md#xray). See [managed HTTP](../../resources/http.md) for the full retry contract.
 
-> **Gotcha — transport retry is not "retry after refreshing the token".** `:retry` is a pure function of *failure category × attempt count* — nothing else. The moment the decision depends on the response body ("the body says rate-limited"), on another request ("refresh the token first, then retry"), or on app state ("only if the user's still on this page"), you've left transport retry behind and you want a [state machine](../concepts/machines.md) driving the submit. The machine owns the conditional retry; `:rf.http/managed` keeps doing plain transport retry inside each attempt the machine launches. Don't try to encode "refresh-then-retry" into `:retry` — there's no slot for it, by design.
+> **Gotcha — transport retry is not "retry after refreshing the token".** `:retry` is a pure function of *failure category × attempt count* — nothing else. The moment the decision depends on the response body ("the body says rate-limited"), on another request ("refresh the token first, then retry"), or on app state ("only if the user's still on this page"), you've left transport retry behind and you want a [state machine](../../machines/concepts.md) driving the submit. The machine owns the conditional retry; `:rf.http/managed` keeps doing plain transport retry inside each attempt the machine launches. Don't try to encode "refresh-then-retry" into `:retry` — there's no slot for it, by design.
 
 ## When a form slice is wrong
 
@@ -416,6 +416,6 @@ Not everything that takes input is a form, and reaching for the slice when you d
 >
 > - **A live filter.** A search box that filters as you type has no submit and no errors. It's one key in the feature's slice and one keystroke handler — no draft, no status, no latch.
 > - **A single toggle or stepper.** Giving one checkbox a `:draft`, `:status`, and `:errors` is theatre. Just write the value on change and move on.
-> - **One button.** A "favorite" posts a request and updates on reply — a plain event, or a [mutation](../glossary.md#mutation) ([invalidate after a mutation](invalidate-after-a-mutation.md)). (A mutation is a managed server write that knows which cached reads to refresh afterwards.)
+> - **One button.** A "favorite" posts a request and updates on reply — a plain event, or a [mutation](../../resources/glossary.md#mutation) ([invalidate after a mutation](../../resources/how-to/invalidate-after-a-mutation.md)). (A mutation is a managed server write that knows which cached reads to refresh afterwards.)
 
-Two variations are worth naming. A **multi-step wizard** keeps this exact slice and puts a [state machine](../concepts/machines.md) on top for step transitions — the machine owns "which step," the slice owns "what's typed," and they don't fight over the boundary. And under [**SSR**](../concepts/ssr.md) the same slice powers a no-JS `method="POST"` form: the server validates with the same schema and re-renders errors into the same slice, while the client's `:on-submit` is purely additive — progressive enhancement falls out for free ([Pattern-FormAction](../../../spec/Pattern-FormAction.md) is the server-POST recipe).
+Two variations are worth naming. A **multi-step wizard** keeps this exact slice and puts a [state machine](../../machines/concepts.md) on top for step transitions — the machine owns "which step," the slice owns "what's typed," and they don't fight over the boundary. And under [**SSR**](../../ssr/concepts.md) the same slice powers a no-JS `method="POST"` form: the server validates with the same schema and re-renders errors into the same slice, while the client's `:on-submit` is purely additive — progressive enhancement falls out for free ([Pattern-FormAction](../../../spec/Pattern-FormAction.md) is the server-POST recipe).

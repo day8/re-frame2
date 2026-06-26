@@ -57,7 +57,7 @@ In production, `debug-enabled?` is the constant `false`, so the `when` body is d
 
 ## 3. Shipping a JVM/SSR tier? One system property
 
-On the JVM there's no Closure compiler, so the same gate becomes a runtime flag instead of a compile-time one. It defaults to *on* for dev parity. A production [SSR](../glossary.md#ssr) or webhook process facing untrusted input should flip it off, so the trace rings and epoch history don't retain user input:
+On the JVM there's no Closure compiler, so the same gate becomes a runtime flag instead of a compile-time one. It defaults to *on* for dev parity. A production [SSR](../../ssr/glossary.md#ssr) or webhook process facing untrusted input should flip it off, so the trace rings and epoch history don't retain user input:
 
 ```
 java -Dre-frame.debug=false -jar app.jar
@@ -142,7 +142,7 @@ These run in every build, dev and production alike. Each one [fails loud](../glo
 
 - **Drain depth** (default 100, per-frame `:drain-depth`) — a runaway dispatch [cascade](../glossary.md#event-cascade) halts at the ceiling with `:rf.error/drain-depth-exceeded` instead of freezing the tab. Already-settled events in the drain stay committed (each [commit](../glossary.md#commit) is atomic on its own); the offending event that tipped over the limit is the one that doesn't land. A cascade near the ceiling is a bug to fix, not a number to raise — the error's recovery is `:no-recovery` precisely because hitting it always means runaway recursion.
 - **HTTP keyword cap** (`:rf.http/max-decoded-keys`, default 10000) — a hostile JSON reply can't intern unbounded keywords and slowly kill a long-running process; the decode fails onto your `:on-failure` path.
-- **Slow-loris timeout** (`:timeout-ms`, default 30000) — every [managed HTTP](../glossary.md#managed-http) request gets a wall-clock per-attempt timeout; opting out is deliberately loud (`:timeout-ms nil`) so a reviewer sees it.
+- **Slow-loris timeout** (`:timeout-ms`, default 30000) — every [managed HTTP](../../resources/glossary.md#managed-http) request gets a wall-clock per-attempt timeout; opting out is deliberately loud (`:timeout-ms nil`) so a reviewer sees it.
 - **CRLF fail-fast** — server-side `:rf.server/*` response fx refuse to put a `\r` or `\n` on the wire: a header `:value` containing one throws with `:rf.error/header-invalid-value`, a redirect location containing one throws with `:rf.error/redirect-invalid-location`, and cookies go through structured maps that can't be string-spliced. Header injection is closed at the fx site, not normalised away.
 - **Open-redirect guard** — `:rf.server/redirect` is *caller-trusted* (you composed the location), so it only gets the CRLF check above. For a location built from untrusted input — the classic `?next=…` query param — reach for `:rf.server/safe-redirect` instead: it parses the URL, rejects `javascript:` / `data:` / `vbscript:` schemes (`:rf.error/safe-redirect-scheme-rejected`), rejects an unparseable URL (`:rf.error/safe-redirect-invalid-url`), and can gate to relative-only or an `:allow` host allowlist (`:rf.error/safe-redirect-host-disallowed`). Dispatching attacker-controlled input straight into `:rf.server/redirect` is the open-redirect bug this variant exists to close.
 - **Editor-URI scheme rejection** — click-to-source links refuse `javascript:` / `data:` / `vbscript:` schemes (everything else — `vscode:`, `idea:`, `cursor:`, future editor schemes — passes), so a custom editor template can't run script in your dev tab.

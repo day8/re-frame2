@@ -30,7 +30,7 @@ The important word is *data*. Not "data-like" — these are actual vectors, maps
 (into [:ul] (for [item items] [:li (:name item)]))
 ```
 
-Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure function that walks hiccup and emits an HTML string can run on the server (Clojure runs on the JVM there, not in a browser) — which is how [server-side rendering](ssr.md) renders the *same* views without a browser.
+Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure function that walks hiccup and emits an HTML string can run on the server (Clojure runs on the JVM there, not in a browser) — which is how [server-side rendering](../../ssr/concepts.md) renders the *same* views without a browser.
 
 > **For JavaScript developers.** Template strings can do none of this. They don't compose, they don't diff, and string-built markup is where injection bugs come from. Hiccup is closer in spirit to React's `createElement` calls — a tree of data describing the UI — except it's plain literals you can map, filter, and pass around, with no build-time transform.
 

@@ -12,8 +12,8 @@ frame, two tenant scopes coexisting in one resource cache, with the active
 scope deciding which entry a read can address.
 
 It is the live demonstrator of the guide's claim
-([`docs/guide/concepts/server-state.md` §"The scoped key: a leak boundary that
-fails closed"](../../docs/guide/concepts/server-state.md#the-scoped-key-a-leak-boundary-that-fails-closed)): the resolved scope is *in* the
+([`docs/resources/concepts.md` §"The scoped key: a leak boundary that
+fails closed"](../../docs/resources/concepts.md#the-scoped-key-a-leak-boundary-that-fails-closed)): the resolved scope is *in* the
 cache key, so two tenants' reads of the same params land on two structurally
 distinct entries — neither reachable through the other's key. EP-0013/resources
 Part-2 leak-boundary **scenario 5** (rf2-5e22yc, spun from rf2-wwhedk).
@@ -109,6 +109,6 @@ colocated `spec.cjs`, run via `npm run test:testbed-tenant-switcher`.
 
 ## Cross-references
 
-- [`docs/guide/concepts/server-state.md` §"The scoped key: a leak boundary that fails closed"](../../docs/guide/concepts/server-state.md#the-scoped-key-a-leak-boundary-that-fails-closed) — the positioning this surface demonstrates live.
+- [`docs/resources/concepts.md` §"The scoped key: a leak boundary that fails closed"](../../docs/resources/concepts.md#the-scoped-key-a-leak-boundary-that-fails-closed) — the positioning this surface demonstrates live.
 - [`spec/016` resources §Named resource-scope resolvers / §Resource identity — the scoped key](../../spec/Spec-Schemas.md) — the `reg-resource-scope` + scoped-key contract.
 - [`implementation/resources/test/re_frame/resources_scope_leak_boundary_cljs_test.cljc`](../../implementation/resources/test/re_frame/resources_scope_leak_boundary_cljs_test.cljc) — the executable leak-boundary guarantees (scenarios 1/2/3).

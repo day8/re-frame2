@@ -304,8 +304,8 @@ Two functions let you step outside the deref-driven lifecycle deliberately:
 
 The framework registers a handful of subscriptions for you — you read subsystem state through them exactly as you'd read your own:
 
-- **`[:rf/machine <machine-id>]`** returns a [state machine](../glossary.md#machine)'s [snapshot](../glossary.md#snapshot) `{:state :data}` (or `nil` before it's initialised). It's the canonical way to drive a view off a machine.
-- The router publishes a family — **`:rf/route`** (the whole route slice), **`:rf.route/id`**, **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**, **`:rf.route/chain`**, and more — covered in [Routing](routing.md).
+- **`[:rf/machine <machine-id>]`** returns a [state machine](../../machines/glossary.md#machine)'s [snapshot](../../machines/glossary.md#snapshot) `{:state :data}` (or `nil` before it's initialised). It's the canonical way to drive a view off a machine.
+- The router publishes a family — **`:rf/route`** (the whole route slice), **`:rf.route/id`**, **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**, **`:rf.route/chain`**, and more — covered in [Routing](../../routing/concepts.md).
 
 These follow the [reserved-namespace convention](../../../spec/Conventions.md): anything under `:rf/…` or `:rf.<subsystem>/…` is framework-owned. Keep your own subs out of that namespace and the two never collide.
 
@@ -316,11 +316,11 @@ Subscriptions are view-facing and pull-based: a node exists in the cache only wh
 > **Reach past a subscription when…**
 >
 > - **An event handler needs the derived value.** Handlers don't subscribe — that's what [flows](../glossary.md#flow) are for: derived values materialised *into* app-db, where a handler can read them as plain state. (`rf/subscribe-once` exists for a one-shot read, but if you reach for it routinely, the value wants to be a flow.)
-> - **The value comes from a server.** Subscriptions never fetch — computation functions are pure, no IO. Server-owned data belongs to [resources](../glossary.md#resource); subscriptions derive *over* the cached resource state.
+> - **The value comes from a server.** Subscriptions never fetch — computation functions are pure, no IO. Server-owned data belongs to [resources](../../resources/glossary.md#resource); subscriptions derive *over* the cached resource state.
 > - **The value crosses frames.** A subscription must not reach into another [frame](../glossary.md#frame)'s state; frames are isolated worlds by design.
 > - **Unsure where a value belongs at all?** [Where should this value live?](../where-state-lives.md) sorts a value into a sub, flow, resource, or machine with four questions.
 
-> **Coming from TanStack Query?** Note the split: TanStack Query gives you *one* hook (`useQuery`) that both fetches server state and derives over it. re-frame2 keeps those concerns apart — [resources](../glossary.md#resource) own the fetch-cache-invalidate lifecycle for server-owned data, and subscriptions are the pure derivation layer that computes *over* whatever's already in app-db (resource state included). When you want to fetch, that's a resource; when you want to shape what's already there, that's a sub.
+> **Coming from TanStack Query?** Note the split: TanStack Query gives you *one* hook (`useQuery`) that both fetches server state and derives over it. re-frame2 keeps those concerns apart — [resources](../../resources/glossary.md#resource) own the fetch-cache-invalidate lifecycle for server-owned data, and subscriptions are the pure derivation layer that computes *over* whatever's already in app-db (resource state included). When you want to fetch, that's a resource; when you want to shape what's already there, that's a sub.
 
 ## Advanced
 

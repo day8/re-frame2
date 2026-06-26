@@ -16,8 +16,8 @@ This is where most of your time goes: turning a feature request into stages of t
 |---|---|
 | add login and keep the user logged in | [Add authentication](add-auth.md) |
 | build a form — local edits, validation, clean submit | [Build a form](build-a-form.md) |
-| load a feed one page at a time | [Paginate a feed](paginate-a-feed.md) |
-| refetch the right server data after a write | [Invalidate after a mutation](invalidate-after-a-mutation.md) |
+| load a feed one page at a time | [Paginate a feed](../../resources/how-to/paginate-a-feed.md) |
+| refetch the right server data after a write | [Invalidate after a mutation](../../resources/how-to/invalidate-after-a-mutation.md) |
 | catch bad state and malformed events early | [Validate with schemas](validate-with-schemas.md) |
 
 ## Test it
@@ -57,8 +57,8 @@ When the app does something you didn't ask for, you don't reach for `println` �
 
 A recipe answers "how do I do X." Some questions sit a step *before* that — they're design decisions, not tasks, and a recipe is the wrong shape for them. Those live elsewhere:
 
-- "Where should this value live — [subscription](../glossary.md#subscription), [flow](../glossary.md#flow), [resource](../glossary.md#resource), or [machine](../glossary.md#machine)?" That's [the four homes](../glossary.md#the-four-homes-where-state-lives) decision, and it earns its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
-- Your task spans several features and you'd rather watch one app grow through them in order? The [RealWorld tutorial](../tutorial/index.md) builds auth, feeds, forms, and invalidation end to end — the same pieces as these recipes, assembled into one running app.
+- "Where should this value live — [subscription](../glossary.md#subscription), [flow](../glossary.md#flow), [resource](../../resources/glossary.md#resource), or [machine](../../machines/glossary.md#machine)?" That's [the four homes](../glossary.md#the-four-homes-where-state-lives) decision, and it earns its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
+- Your task spans several features and you'd rather watch one app grow through them in order? The [RealWorld tutorial](../../resources/tutorial/index.md) builds auth, feeds, forms, and invalidation end to end — the same pieces as these recipes, assembled into one running app.
 - For everything else, [the reference map](../reference.md) indexes the complete surface.
 
 > **Why split recipes from design decisions at all?** Because they fail differently. A recipe you can follow *wrong* — and you'll know, because the result won't match the page; the failure is local and reversible. A design decision you can follow *right* and still regret six months later, when the value you parked in the wrong place is wired into forty subscriptions; the failure is non-local and expensive to unwind. Recipes are reversible, placement isn't — so the two get different pages, different shapes, and different amounts of your attention.

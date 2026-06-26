@@ -120,7 +120,7 @@ Note the `:decode` schema in the sign-in example: `[:token {:sensitive? true} :s
 
 ### HTTP carriers: redact by header and query-param name
 
-There's one transient HTTP surface people forget: the **request** side. An `Authorization: Bearer …` header or a `?shop_token=…` query param is a secret travelling in the request, and [managed HTTP](../glossary.md#managed-http) records the request shape. These aren't classified by path into the body — they're classified by **name**, on the `:rf.http/managed` registration's `:carriers` block:
+There's one transient HTTP surface people forget: the **request** side. An `Authorization: Bearer …` header or a `?shop_token=…` query param is a secret travelling in the request, and [managed HTTP](../../resources/glossary.md#managed-http) records the request shape. These aren't classified by path into the body — they're classified by **name**, on the `:rf.http/managed` registration's `:carriers` block:
 
 ```clojure
 ;; extend the built-in carrier denylist with your app's own secret-bearing names
@@ -143,7 +143,7 @@ Carriers are **process-global** (one registration, not per-frame), and a malform
 
 ## Classify subsystem data on the subsystem
 
-Some data lives *inside* a runtime subsystem — a [machine](../glossary.md#machine)'s `:data`, a [resource](../glossary.md#resource)'s fetched data or params, a [route](../glossary.md#route)'s query string. You don't own its absolute storage path (the subsystem mints that fresh for each instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. Each time an instance is created (a machine spawns, a resource fetches), the framework translates your shape-relative declaration into a concrete path in the classification registry for that instance, and removes it again when the instance is torn down:
+Some data lives *inside* a runtime subsystem — a [machine](../../machines/glossary.md#machine)'s `:data`, a [resource](../../resources/glossary.md#resource)'s fetched data or params, a [route](../../routing/glossary.md#route)'s query string. You don't own its absolute storage path (the subsystem mints that fresh for each instance), so you declare `:sensitive` / `:large` **relative to the instance's shape**, right on the subsystem definition. Each time an instance is created (a machine spawns, a resource fetches), the framework translates your shape-relative declaration into a concrete path in the classification registry for that instance, and removes it again when the instance is torn down:
 
 ```clojure
 (rf/reg-machine :checkout/payment
@@ -156,7 +156,7 @@ Some data lives *inside* a runtime subsystem — a [machine](../glossary.md#mach
              :done       {}}})
 ```
 
-That `[:data :payment :token]` slot now redacts in **every** machine trace — the before/after of a [transition](../glossary.md#transition), [snapshots](../glossary.md#snapshot), [guard](../glossary.md#guard) inputs — for every spawned actor instance, with zero per-instance author code. Rename the slot in the declaration and the classification moves with it. One declaration on the *type*, applied to every instance: that's the payoff for declaring at the definition site rather than at each egress.
+That `[:data :payment :token]` slot now redacts in **every** machine trace — the before/after of a [transition](../../machines/glossary.md#transition), [snapshots](../../machines/glossary.md#snapshot), [guard](../../machines/glossary.md#guard) inputs — for every spawned actor instance, with zero per-instance author code. Rename the slot in the declaration and the classification moves with it. One declaration on the *type*, applied to every instance: that's the payoff for declaring at the definition site rather than at each egress.
 
 The same shape covers **four** subsystems. Each has its own **projection root** — the spot inside one instance that your path is measured *from*, so you only ever write the part of the path you own. The framework joins your relative path onto that instance's real runtime location, and drops the declaration when the instance goes away:
 
@@ -287,9 +287,9 @@ Two surfaces that aren't part of the everyday flow but are worth knowing exist: 
 
 ### SSR and hydration — a fourth egress boundary
 
-If you run [SSR](../concepts/ssr.md), the server hands the client a **hydration payload** — a serialised slice of app-db the browser adopts on first render. That's production egress to an untrusted client, so it's a boundary the same classification guards. But SSR is **allowlist-first**, which is the stronger posture: it asks *"which state is allowed to cross?"*, not *"which leaves are sensitive?"*. You name the slice that may ship; **unlisted state does not cross even if you never classified it**, and a frame that renders on the server with no payload policy at all **fails closed** (`:rf.error/ssr-missing-payload-policy`) rather than shipping app-db whole.
+If you run [SSR](../../ssr/concepts.md), the server hands the client a **hydration payload** — a serialised slice of app-db the browser adopts on first render. That's production egress to an untrusted client, so it's a boundary the same classification guards. But SSR is **allowlist-first**, which is the stronger posture: it asks *"which state is allowed to cross?"*, not *"which leaves are sensitive?"*. You name the slice that may ship; **unlisted state does not cross even if you never classified it**, and a frame that renders on the server with no payload policy at all **fails closed** (`:rf.error/ssr-missing-payload-policy`) rather than shipping app-db whole.
 
-Classification then composes on top as **defence-in-depth**: a sensitive child of an allowlisted slice is *still redacted* unless the SSR policy explicitly permits it. The `:rf.egress/ssr-hydration` profile from the table above is exactly the projection applied **after** the allowlist — never a parallel mechanism. (The per-frame classification registry is itself kept off the hydration wire — a classified path can embed a sensitive id like `[:by-id "user-secret" :token]`, so the declaration keys *are* sensitive structure — and the client rebuilds its own identical registry from the same app image on mount.) The allowlist opt lives on the SSR host surface, not here; see [the SSR concept page](../concepts/ssr.md) and [Spec 011](../../../spec/011-SSR.md) for its exact shape.
+Classification then composes on top as **defence-in-depth**: a sensitive child of an allowlisted slice is *still redacted* unless the SSR policy explicitly permits it. The `:rf.egress/ssr-hydration` profile from the table above is exactly the projection applied **after** the allowlist — never a parallel mechanism. (The per-frame classification registry is itself kept off the hydration wire — a classified path can embed a sensitive id like `[:by-id "user-secret" :token]`, so the declaration keys *are* sensitive structure — and the client rebuilds its own identical registry from the same app image on mount.) The allowlist opt lives on the SSR host surface, not here; see [the SSR concept page](../../ssr/concepts.md) and [Spec 011](../../../spec/011-SSR.md) for its exact shape.
 
 ### Classification and time-travel — epoch records stay raw
 

@@ -12,7 +12,7 @@ We won't reproduce the contracts here — they'd rot the moment the spec moved. 
 
 Before the surface-by-surface map, one orientation. The docs come in three layers, and it helps to know which one you're standing in.
 
-- **This guide** (tutorial, how-to, explanation) teaches you the *model* — the why and the how, prose-first. It splits three ways by *intent*: the [tutorial](tutorial/index.md) walks one app end to end; the [how-to recipes](how-to/index.md) answer "I need to do X" in isolation; the [concepts pages](concepts/index.md) explain one idea at a time, prose-first (app-db, events, subscriptions, effects, frames, machines, flows, routing, http, server-state, ssr, observability, errors). When you half-remember a concept and want the *explanation* rather than the *signature*, the concepts pages are the bridge between this map and the API reference.
+- **This guide** (tutorial, how-to, explanation) teaches you the *model* — the why and the how, prose-first. It splits three ways by *intent*: the [tutorial](../resources/tutorial/index.md) walks one app end to end; the [how-to recipes](how-to/index.md) answer "I need to do X" in isolation; the [concepts pages](concepts/index.md) explain one idea at a time, prose-first (app-db, events, subscriptions, effects, frames, machines, flows, routing, http, server-state, ssr, observability, errors). When you half-remember a concept and want the *explanation* rather than the *signature*, the concepts pages are the bridge between this map and the API reference.
 - The **[API reference](../api/README.md)** is the signature lookup, organised by domain. Go there once you know the concept and just need the call shape.
 - The **[spec](../../spec/README.md)** is the normative source: exhaustive, written for AI and implementors, and the thing every other layer is downstream of.
 
@@ -39,19 +39,19 @@ Now the map itself. Every public surface gets one row below. The API page gives 
 | Core | `reg-event`, `reg-sub`, `dispatch`, `subscribe`, frames — the loop's registration and verb surface | [01 — Core](../api/01-core.md) | [001-Registration](../../spec/001-Registration.md), [002-Frames](../../spec/002-Frames.md) |
 | Views | `reg-view` and the substrate-agnostic pure-view contract | [02 — Views](../api/02-views.md) | [004-Views](../../spec/004-Views.md) |
 | Effects and interceptors | The closed `:db` + `:fx` effect map, `reg-fx` / `reg-cofx`, interceptors, fx-overrides | [03 — Effects](../api/03-effects.md) | [002-Frames](../../spec/002-Frames.md) |
-| State machines | `reg-machine` and the transition-table grammar — hierarchy, `:after`, `:spawn`, parallel regions | [04 — Machines](../api/04-machines.md) | [005-StateMachines](../../spec/005-StateMachines.md) |
+| State machines | `reg-machine` and the transition-table grammar — hierarchy, `:after`, `:spawn`, parallel regions | [04 — Machines](../machines/api.md) | [005-StateMachines](../../spec/005-StateMachines.md) |
 | Flows | `reg-flow` — derived values materialised into app-db so handlers can read them | [05 — Flows](../api/05-flows.md) | [013-Flows](../../spec/013-Flows.md) |
-| Routing | `reg-route`, navigation events, the `:route` sub, blocking and not-found | [06 — Routing](../api/06-routing.md) | [012-Routing](../../spec/012-Routing.md) |
-| HTTP | `:rf.http/managed` — decode pipeline, retry, abort, the closed failure taxonomy | [07 — HTTP](../api/07-http.md) | [014-HTTPRequests](../../spec/014-HTTPRequests.md) |
+| Routing | `reg-route`, navigation events, the `:route` sub, blocking and not-found | [06 — Routing](../routing/api.md) | [012-Routing](../../spec/012-Routing.md) |
+| HTTP | `:rf.http/managed` — decode pipeline, retry, abort, the closed failure taxonomy | [07 — HTTP](../resources/http-api.md) | [014-HTTPRequests](../../spec/014-HTTPRequests.md) |
 | Schemas and classification | `:schema` metadata, `reg-app-schema`, the `:sensitive` / `:large` classification effects | [08 — Schemas](../api/08-schemas.md) | [010-Schemas](../../spec/010-Schemas.md), [015-Data-Classification](../../spec/015-Data-Classification.md) |
-| SSR | `render-to-string`, hydration, streaming boundaries | [09 — SSR](../api/09-ssr.md) | [011-SSR](../../spec/011-SSR.md) |
+| SSR | `render-to-string`, hydration, streaming boundaries | [09 — SSR](../ssr/api.md) | [011-SSR](../../spec/011-SSR.md) |
 | Testing | Fixtures, `dispatch-sequence`, `compute-sub`, the helper namespaces below | [10 — Testing](../api/10-testing.md) | [008-Testing](../../spec/008-Testing.md) |
 | Instrumentation | The dev trace bus, the always-on event / error emit substrates, the epoch buffer | [11 — Instrumentation](../api/11-instrumentation.md) | [009-Instrumentation](../../spec/009-Instrumentation.md), [Tool-Pair](../../spec/Tool-Pair.md) |
 | Registrar queries | `registrations`, `handler-meta` — the read-side query API tools build on | [12 — Registrar](../api/12-registrar.md) | [001-Registration](../../spec/001-Registration.md) |
 | Lifecycle | `init!` adapter selection at boot, adapter inspection, teardown | [13 — Lifecycle](../api/13-lifecycle.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
 | Adapters | The Reagent / UIx / Helix / reagent-slim substrate surfaces, `use-subscribe`, `frame-provider` | [14 — Adapters](../api/14-adapters.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
 | Removed / not shipped | What's gone since v1 and what replaced it | [15 — Removed](../api/15-removed.md) | [Migration rules](../../migration/from-re-frame-v1/README.md) |
-| Resources | `reg-resource` / `reg-mutation` — declarative server state and the invalidate-then-refetch loop | [16 — Resources](../api/16-resources.md) | [016-Resources](../../spec/016-Resources.md) |
+| Resources | `reg-resource` / `reg-mutation` — declarative server state and the invalidate-then-refetch loop | [16 — Resources](../resources/api.md) | [016-Resources](../../spec/016-Resources.md) |
 
 Want the same surface on *one* page — every signature, status, and tier in a single `Ctrl-F` target? That's [spec/API.md](../../spec/API.md). Think of the table above as the domain-by-domain reading and `API.md` as the flat search index over the very same rows.
 
@@ -99,7 +99,7 @@ The [examples catalogue](../../examples/README.md) is the runnable canon. When y
 - **Pedagogical sketches** — [`counter`](../../examples/reagent/counter/), [`login`](../../examples/reagent/login/), `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `boot`, `flows`, `websocket`, `long_running_work`. Each isolates one surface, composed end-to-end. Read these to *learn* a feature.
 - **Benchmarks** — `todomvc`, the `seven_guis` cluster, `nine_states`. Same primitives, fuller compositions — read these to see the pieces fit together under load.
 - **Server state** — [`resources`](../../examples/reagent/resources/), `resources_ssr`, `ssr_streaming`.
-- **The RealWorld pair** — [`realworld`](../../examples/reagent/realworld/) on `:rf.http/managed`, and [`realworld_resources`](../../examples/reagent/realworld_resources/) on resources + mutations. This is the "what does a *real* one look like?" answer, and the app this guide's [tutorial](tutorial/index.md) builds.
+- **The RealWorld pair** — [`realworld`](../../examples/reagent/realworld/) on `:rf.http/managed`, and [`realworld_resources`](../../examples/reagent/realworld_resources/) on resources + mutations. This is the "what does a *real* one look like?" answer, and the app this guide's [tutorial](../resources/tutorial/index.md) builds.
 - **Other substrates** — `uix/` and `helix/` each carry counter + login (the dataflow is *identical*; only the view layer differs — which is rather the point), plus one design-led example each. `reagent-slim/` carries the slim adapter's counter fixture.
 
 ## Tools, and where their docs live

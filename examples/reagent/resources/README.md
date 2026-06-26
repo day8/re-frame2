@@ -5,7 +5,7 @@ demonstrates re-frame2 **resources** (declarative, cached server-state
 reads) composed as proper re-frame2: app-db + events + subs, views
 passive, fetches caused. The worked companion to [Spec
 016](../../../spec/016-Resources.md) (the EP-0003 read-resource MVP) and
-the guide in [docs/guide/concepts/server-state.md](../../../docs/guide/concepts/server-state.md).
+the guide in [docs/resources/concepts.md](../../../docs/resources/concepts.md).
 
 ## What this demonstrates
 
@@ -71,7 +71,7 @@ causal WRITEs (`reg-mutation` / `[:rf.mutation/execute …]`) that
 invalidate / patch / populate resource entries on success — have also
 **landed**, but are **not** demonstrated here to keep the example focused on
 the read lifecycle. The mutation surface is covered in
-[docs/guide/concepts/server-state.md §Writes invalidate by tag](../../../docs/guide/concepts/server-state.md#writes-invalidate-by-tag--causally)
+[docs/resources/concepts.md §Writes invalidate by tag](../../../docs/resources/concepts.md#writes-invalidate-by-tag--causally)
 and the migration walkthrough at
 [migration/from-re-frame-v1/re-frame-query-to-resources.md](../../../migration/from-re-frame-v1/re-frame-query-to-resources.md),
 including the **scoped-invalidation** discipline (a write must invalidate
@@ -135,7 +135,7 @@ in `implementation/resources/test/`. See the [coverage table](../README.md#cover
 ## Cross-references
 
 - [`spec/016-Resources.md`](../../../spec/016-Resources.md) — the normative spec.
-- [`docs/guide/concepts/server-state.md`](../../../docs/guide/concepts/server-state.md) — the guide.
+- [`docs/resources/concepts.md`](../../../docs/resources/concepts.md) — the guide.
 - [`examples/reagent/resources_ssr/`](../resources_ssr/) — the SSR preload + hydration counterpart.
 - [`examples/reagent/managed_http_counter/`](../managed_http_counter/) — the raw `:rf.http/managed` transport resources lower onto.
 - [`examples/reagent/routing/`](../routing/) — the routing surface `:resources` metadata extends.

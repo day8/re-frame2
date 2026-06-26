@@ -154,9 +154,25 @@ extra:
       link: https://github.com/day8
 
 nav:
-  - Home: index.md
+  - Home:
+    - index.md
+    - "ClojureScript for non-Clojurians": cljs/index.md
+    - Migration:
+      - "From re-frame v1": migration/from-re-frame-v1/README.md
+      - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
+      - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
+      - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
+      - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
+      - "clj-new → deps-new template": migration/from-clj-new-template/README.md
+    - EP:
+      - EP/README.md
+      - "EP-0001 Frame App/Runtime Partitions": EP/EP-0001-frame-partitions.md
+      - "EP-0002 Explicit Frame Target Resolution": EP/EP-0002-frame-target-resolution.md
+      - "EP-0003 Resource Queries": EP/EP-0003-resource-queries.md
+      - "EP-0004 Parametric Subscription Inputs": EP/EP-0004-subscription-inputs.md
+      - "EP-0005 Machine :data Schema": EP/EP-0005-machine-data-schema.md
 
-  - Guide:
+  - Core:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
     - guide/README.md
@@ -173,23 +189,11 @@ nav:
       - "Subscriptions": guide/concepts/subscriptions.md
       - "Views": guide/concepts/views.md
       - "Effects and coeffects": guide/concepts/effects-and-coeffects.md
-    - "Tutorial: Build RealWorld":
-      - guide/tutorial/index.md
-      - "1. Pages and state": guide/tutorial/01-pages-and-state.md
-      - "2. Real data": guide/tutorial/02-server-data.md
-      - "3. Auth and forms": guide/tutorial/03-auth-and-forms.md
-      - "4. Mutations and invalidation": guide/tutorial/04-mutations-and-invalidation.md
-      - "5. Test and ship": guide/tutorial/05-test-and-ship.md
     - "More concepts":
       - "Interceptors": guide/concepts/interceptors.md
       - "Frames": guide/concepts/frames.md
       - "Images": guide/concepts/images.md
       - "Flows": guide/concepts/flows.md
-      - "Machines": guide/concepts/machines.md
-      - "HTTP": guide/concepts/http.md
-      - "Server state: resources": guide/concepts/server-state.md
-      - "Routing": guide/concepts/routing.md
-      - "Server-side rendering": guide/concepts/ssr.md
       - "Errors": guide/concepts/errors.md
       - "Observability": guide/concepts/observability.md
     - "How-to":
@@ -197,8 +201,6 @@ nav:
       - "Add auth": guide/how-to/add-auth.md
       - "Build a form": guide/how-to/build-a-form.md
       - "Validate with schemas": guide/how-to/validate-with-schemas.md
-      - "Paginate a feed": guide/how-to/paginate-a-feed.md
-      - "Invalidate after a mutation": guide/how-to/invalidate-after-a-mutation.md
       - "Test an event handler": guide/how-to/test-an-event-handler.md
       - "Test a cascade": guide/how-to/test-a-cascade.md
       - "Debug with Xray": guide/how-to/debug-with-xray.md
@@ -217,8 +219,49 @@ nav:
     - "Reference index": guide/reference.md
     - "Glossary": guide/glossary.md
 
-  - CLJS:
-    - "ClojureScript for non-Clojurians": cljs/index.md
+  - Machines:
+    - machines/index.md
+    - "Concepts": machines/concepts.md
+    - "Coming from XState": machines/coming-from-xstate.md
+    - "API": machines/api.md
+    - "Glossary": machines/glossary.md
+    - "Examples": machines/examples.md
+
+  - Resources:
+    - resources/index.md
+    - "Concepts": resources/concepts.md
+    - "HTTP": resources/http.md
+    - "Coming from TanStack Query": resources/coming-from-tanstack-query.md
+    - "Tutorial: Build RealWorld":
+      - resources/tutorial/index.md
+      - "1. Pages and state": resources/tutorial/01-pages-and-state.md
+      - "2. Real data": resources/tutorial/02-server-data.md
+      - "3. Auth and forms": resources/tutorial/03-auth-and-forms.md
+      - "4. Mutations and invalidation": resources/tutorial/04-mutations-and-invalidation.md
+      - "5. Test and ship": resources/tutorial/05-test-and-ship.md
+    - "How-to":
+      - "Paginate a feed": resources/how-to/paginate-a-feed.md
+      - "Invalidate after a mutation": resources/how-to/invalidate-after-a-mutation.md
+    - "API": resources/api.md
+    - "HTTP API": resources/http-api.md
+    - "Glossary": resources/glossary.md
+    - "Examples": resources/examples.md
+
+  - Routing:
+    - routing/index.md
+    - "Concepts": routing/concepts.md
+    - "Coming from React Router": routing/coming-from-react-router.md
+    - "API": routing/api.md
+    - "Glossary": routing/glossary.md
+    - "Examples": routing/examples.md
+
+  - SSR:
+    - ssr/index.md
+    - "Concepts": ssr/concepts.md
+    - "Coming from Next.js": ssr/coming-from-nextjs.md
+    - "API": ssr/api.md
+    - "Glossary": ssr/glossary.md
+    - "Examples": ssr/examples.md
 
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).
@@ -274,42 +317,21 @@ nav:
     - re-frame2-pair: skills/re-frame2-pair.md
     - re-frame2-pair-retro: skills/re-frame2-pair-retro.md
 
-  - EP:
-    - EP/README.md
-    - "EP-0001 Frame App/Runtime Partitions": EP/EP-0001-frame-partitions.md
-    - "EP-0002 Explicit Frame Target Resolution": EP/EP-0002-frame-target-resolution.md
-    - "EP-0003 Resource Queries": EP/EP-0003-resource-queries.md
-    - "EP-0004 Parametric Subscription Inputs": EP/EP-0004-subscription-inputs.md
-    - "EP-0005 Machine :data Schema": EP/EP-0005-machine-data-schema.md
-
   - API:
     # Section label IS the API overview page (navigation.indexes, rf2-qgpkm).
     - api/README.md
     - "01 — Core": api/01-core.md
     - "02 — Views": api/02-views.md
     - "03 — Effects": api/03-effects.md
-    - "04 — Machines": api/04-machines.md
     - "05 — Flows": api/05-flows.md
-    - "06 — Routing": api/06-routing.md
-    - "07 — HTTP": api/07-http.md
     - "08 — Schemas": api/08-schemas.md
-    - "09 — SSR": api/09-ssr.md
     - "10 — Testing": api/10-testing.md
     - "11 — Instrumentation": api/11-instrumentation.md
     - "12 — Registrar": api/12-registrar.md
     - "13 — Lifecycle": api/13-lifecycle.md
     - "14 — Adapters": api/14-adapters.md
     - "15 — Removed": api/15-removed.md
-    - "16 — Resources": api/16-resources.md
     - "Normative reference": spec/API.md
-
-  - Migration:
-    - "From re-frame v1": migration/from-re-frame-v1/README.md
-    - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
-    - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
-    - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
-    - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
-    - "clj-new → deps-new template": migration/from-clj-new-template/README.md
 
 markdown_extensions:
   - meta

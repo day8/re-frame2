@@ -128,7 +128,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-frame id metadata)
   ```
-- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. The frame owns the `:observability` sink policy (EP-0015 §9). Durable `app-db` data classification is **no longer a frame annotation** (EP-0025): a `reg-frame` config carrying `:sensitive` / `:large` now **fails loud at registration** (the durable `:app-db` block moved to the commit-plane effects, and the `:http` HTTP carrier block moved onto the `:rf.http/managed` `reg-fx` registration's `:carriers` block). Classify durable `app-db` paths by returning the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events`. See [07 — HTTP §Privacy](07-http.md), [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
+- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. The frame owns the `:observability` sink policy (EP-0015 §9). Durable `app-db` data classification is **no longer a frame annotation** (EP-0025): a `reg-frame` config carrying `:sensitive` / `:large` now **fails loud at registration** (the durable `:app-db` block moved to the commit-plane effects, and the `:http` HTTP carrier block moved onto the `:rf.http/managed` `reg-fx` registration's `:carriers` block). Classify durable `app-db` paths by returning the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events`. See [07 — HTTP §Privacy](../resources/http-api.md), [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
 - **Example**:
   ```clojure
   ;; User-defined fxs sit under a user-feature prefix per
@@ -205,7 +205,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-machine machine-id machine-spec)
   ```
-- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](04-machines.md).
+- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](../machines/api.md).
 - **Example**:
   ```clojure
   (rf/reg-machine :auth.login/flow
@@ -216,7 +216,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
 
-> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core` (rf2-wad2fl — front-porch shrink). Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](04-machines.md#re-framemachinesreg-machine).
+> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core` (rf2-wad2fl — front-porch shrink). Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](../machines/api.md#re-framemachinesreg-machine).
 
 ### `reg-app-schema`
 
@@ -276,7 +276,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-route id metadata path)
   ```
-- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](06-routing.md).
+- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](../routing/api.md).
 - **Example**:
   ```clojure
   (rf/reg-route :route/home
@@ -292,7 +292,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-head id ?metadata head-fn)
   ```
-- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](09-ssr.md).
+- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](../ssr/api.md).
 - **Example**:
   ```clojure
   (rf/reg-head :app/head
@@ -472,7 +472,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
 
 ### Reading a machine's snapshot
 
-To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](04-machines.md).
+To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](../machines/api.md).
 
 **The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics live in [002 §Routing: the dispatch envelope](../../spec/002-Frames.md#routing-the-dispatch-envelope). The most common pattern is `(rf/dispatch [::save x] {:frame :todo})` to target a non-default frame.
 
@@ -517,7 +517,7 @@ The family has two sub-shapes that look alike on first read but answer different
 
 **Stamping pair** (`dispatch` / `dispatch*` and `dispatch-sync` / `dispatch-sync*`). The pair-shape question is "do you want call-site stamping or not?" The macro captures source coords for `:rf.trace/call-site`; the `*` fn-form skips the stamping for HoF composition. Both route through the same dispatcher.
 
-**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](04-machines.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
+**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](../machines/api.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
 
 The two compose: the named-target fx ultimately dispatches, so the same trace stamping fires on the resulting event.
 

@@ -93,7 +93,7 @@ Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
 ### **effect map**
 
-The map an [event handler](#event-handler) — or a [machine](#machine) action — returns to describe how the world should change. The handler never makes the change itself; it's a pure function that returns this *description*, and the framework carries it out.
+The map an [event handler](#event-handler) — or a [machine](../machines/glossary.md#machine) action — returns to describe how the world should change. The handler never makes the change itself; it's a pure function that returns this *description*, and the framework carries it out.
 
 It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace app-db with this":
 
@@ -261,7 +261,7 @@ Related: [Views](concepts/views.md).
 
 ### **image**
 
-The selected set of registrations a [frame](#frame) resolves its behaviour against — [event handlers](#event-handler), [subscriptions](#subscription), [views](#view), [effect handlers](#effect-handler), [flows](#flow), [machines](#machine), and the rest. An image is a *value*: it's not a running app and holds no state.
+The selected set of registrations a [frame](#frame) resolves its behaviour against — [event handlers](#event-handler), [subscriptions](#subscription), [views](#view), [effect handlers](#effect-handler), [flows](#flow), [machines](../machines/glossary.md#machine), and the rest. An image is a *value*: it's not a running app and holds no state.
 
 Most apps use the **default image** automatically — "all the registrations already loaded." You name an image explicitly only when different frames need different behaviour: a test frame with fake effects, two examples that reuse the same event ids, or a sidecar tool like [Xray](#xray).
 
@@ -347,9 +347,9 @@ Flows registration:
 
 - `reg-flow` registers a [flow](#flow).
 
-[Machines](concepts/machines.md) registration:
+[Machines](../machines/concepts.md) registration:
 
-- `reg-machine` and `reg-machine*` register [machines](#machine).
+- `reg-machine` and `reg-machine*` register [machines](../machines/glossary.md#machine).
 
 Routing registration:
 
@@ -368,10 +368,10 @@ HTTP registration:
 
 - `reg-http-interceptor` registers managed-HTTP middleware.
 
-[Resource](../api/16-resources.md) registration:
+[Resource](../resources/api.md) registration:
 
-- `reg-resource` registers a [resource](#resource).
-- `reg-mutation` registers a [mutation](#mutation).
+- `reg-resource` registers a [resource](../resources/glossary.md#resource).
+- `reg-mutation` registers a [mutation](../resources/glossary.md#mutation).
 - `reg-resource-scope` registers a named resource-scope resolver.
 
 
@@ -379,7 +379,7 @@ HTTP registration:
 
 The framework-owned half of a [frame](#frame)'s state — the other side of [the two partitions](#the-two-partitions), sitting beside the [app-db](#app-db) you own.
 
-re-frame2 keeps its own durable state here: machine [snapshots](#snapshot), the current route, [resource](#resource) caches, [mutation](#mutation) status, and similar machinery. App code reads it through subscriptions or accessors — never by editing `:rf.db/runtime` paths directly.
+re-frame2 keeps its own durable state here: machine [snapshots](../machines/glossary.md#snapshot), the current route, [resource](../resources/glossary.md#resource) caches, [mutation](../resources/glossary.md#mutation) status, and similar machinery. App code reads it through subscriptions or accessors — never by editing `:rf.db/runtime` paths directly.
 
 ```clojure
 [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow]
@@ -548,7 +548,7 @@ Related: [Frames](concepts/frames.md).
 
 ### **The four homes (where state lives)**
 
-[Subscription](#subscription) → [flow](#flow) → [resource](#resource) → [machine](#machine): pick the cheapest that fits, decided by the where-state-lives router. Every other concept defers here for "which one do I use?".
+[Subscription](#subscription) → [flow](#flow) → [resource](../resources/glossary.md#resource) → [machine](../machines/glossary.md#machine): pick the cheapest that fits, decided by the where-state-lives router. Every other concept defers here for "which one do I use?".
 
 ```clojure
 ;; cart total → sub (or flow); the article → resource; checkout → machine
@@ -574,7 +574,7 @@ Every managed async surface (HTTP, resources, mutations, route loaders, machine 
 [:auth/login-reply {:kind :success :value {:token "…"}}]
 ```
 
-Related: [Managed HTTP](concepts/http.md).
+Related: [Managed HTTP](../resources/http.md).
 
 
 ### **The derivation graph**
@@ -598,177 +598,6 @@ Two grades of [coeffect](#coeffect). A *recordable* one (the clock, a fresh id) 
 ```
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
-
-## Machines
-
-re-frame2's optional state-machine capability — modelling a feature's lifecycle as an explicit statechart rather than a scatter of boolean flags. The terms below all live within a [machine](#machine); see [Machines](concepts/machines.md) for the full guide.
-
-### **machine**
-
-A statechart-capable state machine, registered as an [event handler](#event-handler) with `reg-machine`. It models a feature's lifecycle as explicit [states](#state) and [transitions](#transition) — driven by dispatched [events](#event), with [guards](#guard), [actions](#action), timeouts, and child machines (see [spawn](#spawn)) — instead of a scatter of boolean flags in [app-db](#app-db).
-
-Its live value is a [snapshot](#snapshot) (the current state plus its `:data`), held in [runtime-db](#runtime-db) and read like any other derived state.
-
-```clojure
-(rf/reg-machine :auth.login/flow login-flow)
-```
-
-Related: [Machines](concepts/machines.md).
-
-### **snapshot**
-
-A [machine](#machine)'s live value at any moment — which state it's in, plus its `:data`. It lives in [runtime-db](#runtime-db), and you read it through a [subscription](#subscription) addressed by the machine's id.
-
-```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])   ;; {:state :authed :data {...}}
-```
-
-Related: [Machines](concepts/machines.md).
-
-### **state**
-
-One of a [machine](#machine)'s fixed, named, mutually-exclusive modes — `:idle`, `:submitting`, `:authed`. A machine is always in exactly one (or, with parallel regions, one per region).
-
-### **transition**
-
-The move from one [state](#state) to another in response to a dispatched [event](#event) — optionally gated by a [guard](#guard) and running an [action](#action) on the way. In the transition table it's an entry under a state's `:on` map. Transitions can also be *eventless* (`:always`, taken on entry when its guard passes) or *timed* (`:after`, taken after a delay that auto-cancels when the state exits).
-
-### **guard**
-
-A pure yes/no predicate that decides whether a [transition](#transition) fires. Referenced by name from the table and defined once in the machine's `:guards`, so a visualiser can read the condition right off the arrow.
-
-### **action**
-
-The side work a [transition](#transition) performs: it returns the same `{:data … :fx …}` shape an [event handler](#event-handler) returns — updating the machine's own `:data` or firing [effects](#effect) — and never writes [app-db](#app-db) directly. Defined once in the machine's `:actions`, named from the arrow.
-
-### **state tag**
-
-A label like `:auth/busy` attached to several [machine](#machine) [states](#state); the active state's tags ride on the [snapshot](#snapshot), so a [view](#view) can ask "is it busy?" (`machine-has-tag?`) instead of enumerating exact state names — *ask, don't tell*. Add a sixth busy state and no view changes.
-
-### **spawn**
-
-A declarative key that starts a *child* machine on entering a [state](#state) and tears it down on leaving; the child reports a result back through `:on-done`. (`:spawn-all` starts several in parallel and joins on completion — re-frame2's spelling of XState's `invoke`.)
-
-## Resources & Server State
-
-re-frame2's optional server-state capability — declarative, cached reads and writes where the framework owns the cache, dedupe, staleness, and invalidation, so views read passively and never fetch. See [Server state](concepts/server-state.md).
-
-### **resource**
-
-A declared, cached server-state **read** (the read-side partner to a [mutation](#mutation)'s write), registered with `reg-resource`. Its [`:scope`](#scope) is a required, fail-closed leak boundary — part of the read's identity (with its `:params`) — so one user's data can't surface in another's cache.
-
-```clojure
-(rf/reg-resource :article {:scope :rf.scope/global} request-fn)
-```
-
-Related: [Server state](concepts/server-state.md). "Server state" is the category, not the noun.
-
-### **mutation**
-
-A declared server-state **write** — the write-side partner to a [resource](#resource)'s read. Its cache consequences (which cached reads it [invalidates](#invalidate), by [cache tag](#cache-tag)) are declared *once, on the registration*, never imperatively at the call site.
-
-```clojure
-(rf/reg-mutation :article/favorite {:scope :rf.scope/global} request-fn)
-```
-
-Related: [Server state](concepts/server-state.md). The reply field is `:value`; the instance sub field is `:result`.
-
-### **invalidate**
-
-A [mutation](#mutation) declares — as data on its registration, never imperatively — which cached [resource](#resource) reads it makes stale (matched by [cache tag](#cache-tag)), so they refetch.
-
-```clojure
-{:invalidates (fn [{:keys [slug]} _result]
-                {:tags #{[:article slug]}})}     ;; declared once, on the mutation
-```
-
-Related: [Server state](concepts/server-state.md).
-
-### **scope**
-
-A [resource](#resource)'s required, fail-closed leak boundary — the declaration of *whose* data a cached read belongs to (`:rf.scope/global` for a genuinely public read, or a per-user/tenant resolver). It's part of the read's cache identity, so one principal's data can never surface in another's cache; a scope that can't resolve **raises** rather than serving the wrong data.
-
-### **cache tag**
-
-A structured label like `[:article slug]` a [resource](#resource) attaches to its data, declaring what the data is *about*. A [mutation](#mutation) then [invalidates](#invalidate) by tag — "I changed `[:article slug]`" — and exactly the cached reads carrying that tag refresh. (Distinct from a machine's [state tag](#state-tag).)
-
-### **resource status**
-
-The lifecycle a cached read reports to a [view](#view): `:idle` → `:loading` → `:loaded` | `:error`, plus `:fetching` for a background refresh that keeps the old value on screen. `:error` is reserved for a *first*-load failure; a failed refresh stays `:loaded` and records the error separately, so a hiccup never blanks the page.
-
-### **owner & cause**
-
-Two facts the runtime tracks per fetch. An **owner** is a *lease* — a route, a [machine](#machine), an explicit hold — that keeps a cached entry alive and decides whether an [invalidation](#invalidate) refetches now or merely marks the entry stale; release every owner and the entry becomes GC-eligible. A **cause** is pure provenance — *why* a fetch happened (a route entry, a click, a refresh) — recorded for the trace and never affecting liveness. *Owner = lifetime; cause = explanation.*
-
-### **optimistic update & rollback**
-
-Writing a [mutation](#mutation)'s expected result into the cache *before* the server confirms, so the UI responds instantly — then, when the [reply](#reply-map) settles, committing it (on success), rolling the slice back (on failure), or reconciling. A `:stale` reply changes nothing.
-
-### **managed HTTP**
-
-The `:rf.http/managed` [effect](#effect): you describe a request as data and the runtime owns its whole lifecycle — encode, send, decode, classify failures, retry-with-backoff, abort — then [dispatches](#dispatch) the result back as an ordinary [event](#event). You never touch `js/fetch`. (A `:request-id` lets a re-issue supersede an in-flight call; reads retry, writes don't.)
-
-### **reply map**
-
-The map every managed async result arrives in — `{:kind :success :value …}` / `{:kind :failure :failure …}` for HTTP, the five-status view-model (`:ok`/`:partial`/`:error`/`:cancelled`/`:stale`) for resources. It rides as the last argument of the reply [event](#event); branch on `:kind`/`:status`, never on a stringified message. (The concrete shape of [the uniform reply](#the-uniform-reply).)
-
-## Routing
-
-re-frame2's optional routing capability — the URL is an *input* to your app, the active route is ordinary state you read through subscriptions, and navigation is just an [event](#event). See [Routing](concepts/routing.md).
-
-### **navigate**
-
-Change the route by dispatching navigation — the URL is an input, the active [route](#route) a [subscription](#subscription) you read like any other. Because it's an event, navigation is traceable, interceptable, and rewound by time-travel.
-
-```clojure
-(rf/dispatch [:rf.route/navigate :article {:id "abc"}])
-```
-
-Related: [Routing](concepts/routing.md).
-
-### **route**
-
-A URL pattern registered (`reg-route`) under an id, paired with what should happen when it matches — `:params`/`:query` schemas, a [loader](#loader) for the data it needs, a [`:can-leave`](#route-guard) guard, scroll behaviour. The route table is your app's URL map.
-
-### **route params**
-
-The active URL surfaced as state: read `:rf.route/id`, `:rf.route/params`, and `:rf.route/query` through subscriptions like any other derived value. Path params and `?query=` values (coerced and defaulted) drive your handlers and views — so `?page=2` survives the back button for free.
-
-### **loader**
-
-What a [route](#route) declares it needs on entry — `:on-match` [events](#event) the runtime dispatches, and `:resources` it ensures are loaded — so a page's data requirement lives next to its URL. Loaders run on the server too, so there's no separate SSR data-fetch to keep in sync.
-
-### **route guard**
-
-A `:can-leave` predicate consulted before leaving a [route](#route); a `false` parks the navigation as *pending* so your [view](#view) can render a "discard changes?" prompt, resolved by dispatching `:rf.route/continue` or `:rf.route/cancel`. The idiomatic home for unsaved-changes and auth-redirect logic.
-
-### **not-found**
-
-The reserved [route](#route) (`:rf.route/not-found`) the runtime activates when no pattern matches — or when a URL's params fail their schema — with the offending URL in its params. It's an ordinary route you register and design; forget it and unmatched URLs get a bare placeholder.
-
-### **url-bound?**
-
-The flag declaring that *this* [frame](#frame) owns the browser address bar. Exactly one frame is url-bound; its navigations write the URL and back/forward (popstate) dispatch to it, while other frames route in-memory only — which is how a sidecar like [Xray](#xray) coexists without fighting over the URL.
-
-## SSR
-
-re-frame2's optional server-side-rendering capability — run your real app on the JVM to ship HTML before JavaScript loads, then hand state to the client to take over. "One app, runs twice." See [SSR](concepts/ssr.md).
-
-### **SSR**
-
-Server-side rendering: rendering your app to an HTML string on the server (per request, in its own [frame](#frame)) so the first paint arrives before the client bundle runs. The same events, subscriptions, and views run on both sides — you don't write a second app. Code that must run on only one side declares `:platforms #{:client}` (or `#{:server}`), so a `localStorage` write never fires during a server render and no logic branches on `typeof window`.
-
-### **render-to-string**
-
-The pure function at the heart of SSR — `hiccup → HTML string`, no browser, no DOM, JVM-runnable. It runs your real [views](#view) against a per-request [frame](#frame), which is what makes "one app, runs twice" hold.
-
-### **hydration**
-
-The client picking up the server's already-painted HTML and *adopting* it — installing the serialized state (the **hydration payload**) and attaching event listeners — instead of throwing it away and re-rendering. The client dispatches `:rf/hydrate` with the payload before its first render.
-
-### **hydration mismatch**
-
-When the client's first render disagrees with the server's HTML. re-frame2 compares a structural hash of both and fires a trace naming *where* they diverged (default: warn-and-replace; a strict mode for CI) — turning the classic silent SSR bug into a located, debuggable one.
 
 ## Observability
 

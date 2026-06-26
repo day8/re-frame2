@@ -57,7 +57,7 @@ The prefix names the owning subsystem:
 
 - `:rf.error/*` — a genuine failure.
 - `:rf.warning/*` — recoverable misuse.
-- `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` — substrate events riding the same envelope (a platform-skipped [effect](../glossary.md#effect), a [hydration mismatch](../glossary.md#hydration-mismatch)).
+- `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` — substrate events riding the same envelope (a platform-skipped [effect](../glossary.md#effect), a [hydration mismatch](../../ssr/glossary.md#hydration-mismatch)).
 
 The vocabulary is stable and additive: existing categories are never renamed or repurposed. Pin a test to `:rf.error/no-such-fx` and it still means that next year.
 
@@ -67,7 +67,7 @@ The full catalogue — every category, its trigger, its `:tags` payload, its rec
 
 When an error fires, the runtime applies a typed, per-category default. That's the whole story. There's no app-steering error policy here: no global error handler, no hook that swallows an exception or substitutes a result.
 
-This is deliberate, and the reasoning is worth sitting with — swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
+This is deliberate, and the reasoning is worth sitting with — swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](../../resources/http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
 
 The `:recovery` vocabulary is small and readable on sight:
 
@@ -77,7 +77,7 @@ The `:recovery` vocabulary is small and readable on sight:
 - `:warned-and-replaced` — last-write-wins on a conflicting set; advisory only.
 - `:skipped` — a platform-gated effect documented out, not really an error.
 - `:retried` — the runtime retried within a bound and surfaced the result.
-- `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `dispatch` to a misspelled fx-id, a [resource](../glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
+- `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `dispatch` to a misspelled fx-id, a [resource](../../resources/glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
 
 Plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. The per-category assignments live in [the catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).
 
@@ -90,7 +90,7 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 
 > **From re-frame v1.** `reg-event-error-handler` is gone. Its observability half becomes a [listener](../glossary.md#listener) on the error channel (the `:errors` stream covered at the end of this page). Its steering half has no successor, by design — re-frame2 has no app-policy recovery hook, because recovery is a framework-owned typed default, not an app concern. The [migration page](../25-from-re-frame-v1.md) maps the translation.
 
-> **One category, three modes.** `:rf.error/no-such-handler` covers three [registrar](../glossary.md#registrar) misses, discriminated by a mandatory `:kind` tag: `:kind :event` (the dispatch case above), `:kind :route` (a URL that matched no registered [route](../glossary.md#route) pattern — see [routing](routing.md)), and `:kind :frame` (a tool surface addressing a frame-id that isn't registered). Filter on the operation keyword alone for a single "registrar miss" view; route on `:kind` when you want per-mode handling.
+> **One category, three modes.** `:rf.error/no-such-handler` covers three [registrar](../glossary.md#registrar) misses, discriminated by a mandatory `:kind` tag: `:kind :event` (the dispatch case above), `:kind :route` (a URL that matched no registered [route](../../routing/glossary.md#route) pattern — see [routing](../../routing/concepts.md)), and `:kind :frame` (a tool surface addressing a frame-id that isn't registered). Filter on the operation keyword alone for a single "registrar miss" view; route on `:kind` when you want per-mode handling.
 
 > **Gotcha — a schema failure is a dev-time hard stop that vanishes in production.** If you guard an [app-db](../glossary.md#app-db) path, an event, or an HTTP `:decode` step with a [schema](../glossary.md#schema), a value that fails it emits `:rf.error/schema-validation-failure` with recovery `:no-recovery` — it halts to surface the bug *early*, where the bad value was produced. The `:where` tag names the boundary that caught it (`:event` / `:app-db` / `:sub-return` / `:fx-args` / `:cofx` / …) and `:explain` carries the Malli explanation. The surprise is the asymmetry: production builds [*elide*](../glossary.md#elide) the check entirely, so this category fires **only in dev**. Treat schema checks as a development assertion that hardens your data at its source, not as a runtime gate you can lean on in production. (A *malformed registered schema* — a structurally broken Malli form — is the separate `:rf.error/malformed-schema`, which fails closed and rolls the commit back.)
 
@@ -239,4 +239,4 @@ This page is the *model* — the record, the taxonomy, the recovery contract. Th
 
 - **The wire itself** — the [trace stream](../glossary.md#trace-stream) these records ride, the channel split, and how [Xray](../glossary.md#xray) reads the same stream your one-line test listener just did — is [observability](observability.md).
 - **Production shipping** to a monitor is [a how-to](../how-to/report-errors-in-production.md).
-- **The server boundary** — raw error records must never leak into an HTTP response — is handled by [SSR](ssr.md), which projects them to a sanitised public shape before anything reaches the browser.
+- **The server boundary** — raw error records must never leak into an HTTP response — is handled by [SSR](../../ssr/concepts.md), which projects them to a sanitised public shape before anything reaches the browser.
