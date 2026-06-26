@@ -17,9 +17,17 @@
                                                 request locally so the example
                                                 runs without a backend.
    - Registered view (CP-4)                — Var reference (canonical); the
-                                              login form is a Form-2 view (it
-                                              holds email/password in a
-                                              component-local Reagent atom)
+                                              login form is a CONTROLLED
+                                              Pattern-Forms view — its draft
+                                              lives in app-db at
+                                              [:auth :login-form], read via the
+                                              :auth.login/draft sub, mutated via
+                                              the :auth.login/edit-field event
+                                              (no view-local atom)
+   - Form slice (Pattern-Forms)            — the email/password draft as an
+                                              app-db slice ([:auth :login-form]);
+                                              the SLICE owns the draft, the
+                                              MACHINE owns submit/auth status
    - State machine (CP-5)                  — login flow as a transition table
                                               read via [:rf.runtime/machines :snapshots :auth.login/flow]
    - State tags (Spec 005 §State tags)     — :auth/busy on :submitting,
@@ -70,7 +78,6 @@
   ;; the slim build is the only one that mounts `reagent-slim`, and it
   ;; lives under `examples/reagent-slim/`.)
   (:require [reagent.dom.client :as rdc]
-            [reagent.core :as reagent]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; The Spec 010 schema surface lives in the
@@ -190,7 +197,7 @@
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
 ;; machine's own `[:schemas :data]` (attached below) is the snapshot-validation
-;; surface, so no app-schema reg applies to the login snapshot.
+;; surface, so no app-schema reg applies to the login SNAPSHOT.
 
 ;; ============================================================================
 ;; FX  (Spec 014 + per-app demo stub)
@@ -429,10 +436,99 @@
 ;; The machine handler (registered above as :auth.login/flow via reg-machine)
 ;; is self-initialising: its `:initial` state and
 ;; `:data` seed [:rf.runtime/machines :snapshots :auth.login/flow] when the machine first runs.
-;; No separate :initialise event is required (per [005 §Restore semantics]).
+;; No separate machine :initialise event is required (per [005 §Restore
+;; semantics]).
 ;;
-;; Sub-events route in via:
-;;   (rf/dispatch [:auth.login/flow [:auth.login/submit creds]])
+;; The FORM-SLICE events below are the other half of the Pattern-Forms
+;; "machine + slice" composition (spec/Pattern-Forms.md §Variations). The
+;; SLICE owns the DRAFT — what the user is currently typing — at the app-db
+;; path [:auth :login-form]; the MACHINE owns submit/auth STATUS. This is the
+;; reason the form refactor exists: a form's draft is APPLICATION STATE, so it
+;; lives in app-db (projected via subs, mutated via events), NOT in a
+;; view-local Reagent atom / framework hook. Inputs are CONTROLLED: `:value`
+;; reads the draft sub, `:on-change` dispatches `:auth.login/edit-field`. The
+;; slice shape + the standard form events mirror the in-repo exemplar
+;; examples/reagent/realworld/auth.cljs 1:1.
+;;
+;; This whole block — slice defaults + form events + (below) the draft/slice
+;; subs — is the SUBSTRATE-AGNOSTIC artefact layer: it is byte-identical
+;; across examples/reagent/login, examples/uix/login_uix, and
+;; examples/helix/login_helix (Spec 006 §Adapter shipping convention Decision
+;; 7). Only the view syntax varies across the three.
+
+;; The login form's default (empty) draft. The draft's value shape is
+;; `Credentials` (email regex + min-8 password) — the same schema the
+;; machine's `:submit` boundary enforces.
+(def login-form-defaults {:email "" :password ""})
+
+;; Seed the slice to its standard Pattern-Forms shape. Dispatched once at
+;; boot (from `run`). `:draft` to the empty defaults; `:status :idle`.
+(rf/reg-event :auth.login/initialise-form
+  {:doc "Seed the login-form slice at [:auth :login-form] to its standard
+         Pattern-Forms shape (empty draft, :idle status)."}
+  (fn handler-login-form-initialise [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form]
+                   {:draft             login-form-defaults
+                    :submitted         nil
+                    :submit-attempted? false
+                    :status            :idle
+                    :errors            {}
+                    :touched           #{}
+                    :submit-error      nil})}))
+
+;; The user changed a single field. Update `:draft` and add the field to
+;; `:touched`. This is the ONLY thing an input's `:on-change` does — it never
+;; sets view-local state. The `:schema` rejects a malformed edit-field vector
+;; at the `:where :event` boundary.
+(rf/reg-event :auth.login/edit-field
+  {:doc    "Controlled-input edit: write one field into the login-form draft
+            and mark it touched."
+   :schema [:cat [:= :auth.login/edit-field] :keyword :string]}
+  (fn handler-login-form-edit-field [{:keys [db]} [_ field value]]
+    {:db (-> db
+             (assoc-in  [:auth :login-form :draft field] value)
+             (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
+
+;; Submit. Reads the draft out of the slice, latches `:submit-attempted?`,
+;; flips the slice `:status` to `:submitting`, and dispatches the draft INTO
+;; the machine — the only point the draft crosses into the machine (and is
+;; validated against `Credentials` at the machine's `:where :event` boundary).
+;; The machine, not the slice, then owns the in-flight / authed / error /
+;; locked status; the slice `:status` mirror keeps the slice a conformant
+;; Pattern-Forms shape.
+;;
+;; Secret-field hygiene (skills/re-frame2/patterns/forms.md §Auth): the
+;; handler reads the password off the draft and hands it to the machine, then
+;; CLEARS `[:draft :password]` in the same commit — once the request is in
+;; flight the secret has done its job, so it does not sit in durable app-db
+;; waiting for the next snapshot / recorder capture. The password's only
+;; off-box path is the HTTP request body (scrubbed by the per-request
+;; `:sensitive? true` flag); it is never written to `:submitted` or the
+;; machine `:data`.
+(rf/reg-event :auth.login/submit-form
+  {:doc "Submit the login form: read the draft from the slice, dispatch it
+         into the :auth.login/flow machine's :submit sub-event, and clear the
+         password out of the draft (secret-field hygiene)."}
+  (fn handler-login-form-submit [{:keys [db]} _]
+    (let [draft (get-in db [:auth :login-form :draft])]
+      {:db (-> db
+               (assoc-in [:auth :login-form :submit-attempted?] true)
+               (assoc-in [:auth :login-form :status] :submitting)
+               (assoc-in [:auth :login-form :draft :password] ""))
+       :fx [[:dispatch [:auth.login/flow [:auth.login/submit draft]]]]})))
+
+;; Reset the slice back to its initial (empty, :idle) shape.
+(rf/reg-event :auth.login/reset-form
+  {:doc "Clear the login-form slice back to empty defaults / :idle."}
+  (fn handler-login-form-reset [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form]
+                   {:draft             login-form-defaults
+                    :submitted         nil
+                    :submit-attempted? false
+                    :status            :idle
+                    :errors            {}
+                    :touched           #{}
+                    :submit-error      nil})}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS  (CP-2)
@@ -457,6 +553,36 @@
   (fn sub-auth-login-error [snapshot _]
     (get-in snapshot [:data :error])))
 
+;; --- Form-slice subs (Pattern-Forms; substrate-agnostic) -------------------
+;;
+;; The login-form slice lives at app-db [:auth :login-form]. The view reads
+;; the DRAFT through `:auth.login/draft` and binds each input's `:value` to it
+;; — controlled inputs. The per-field-error sub follows the Pattern-Forms
+;; visibility rule (touched OR submit-attempted?). These subs are part of the
+;; byte-identical artefact layer shared across the three substrate examples.
+
+(rf/reg-sub :auth.login/form-slice
+  {:doc "The whole login-form slice at [:auth :login-form]."}
+  (fn sub-auth-login-form-slice [db _]
+    (get-in db [:auth :login-form])))
+
+(rf/reg-sub :auth.login/draft
+  {:doc "The login-form draft — what the user has currently typed. Each input
+         binds its :value to a field of this map (controlled inputs)."}
+  :<- [:auth.login/form-slice]
+  (fn sub-auth-login-draft [slice _]
+    (:draft slice)))
+
+(rf/reg-sub :auth.login/field-error
+  {:doc "Per-field validation error for the login form. Per Pattern-Forms
+         §Error visibility: reveal a field's error once it is :touched OR once
+         the form has had its first submit click."}
+  :<- [:auth.login/form-slice]
+  (fn sub-auth-login-field-error [slice [_ field]]
+    (when (or (:submit-attempted? slice)
+              (contains? (:touched slice) field))
+      (first (get-in slice [:errors field])))))
+
 ;; ============================================================================
 ;; VIEWS  (CP-4)
 ;; ============================================================================
@@ -467,38 +593,41 @@
 ;; macro captures at render time, so they stay bound to the render-time
 ;; frame (no ambient lookup, survives async callbacks).
 
-;; Form-2 view: the outer fn captures local component state in `state`
-;; — a *reactive* `reagent.core/atom` kept across renders, the idiomatic
-;; Reagent primitive for component-local render state (matching todomvc,
-;; which reserves a bare `(atom ...)` only for non-render refs). The
-;; inner fn is the actual render fn. dispatch / subscribe are
-;; auto-injected and visible in both the outer and inner fn bodies.
+;; Controlled-input login form (Pattern-Forms). The form holds NO view-local
+;; state: there is no `reagent.core/atom`. Each input's `:value` reads the
+;; draft from the `:auth.login/draft` sub, and `:on-change` DISPATCHES
+;; `:auth.login/edit-field` (it never sets view-local state). Submit dispatches
+;; `:auth.login/submit-form`, which reads the draft from app-db and hands it to
+;; the machine. The in-flight / error state comes from the machine (the
+;; `:auth/busy` tag + the `:auth.login/error` sub) — the slice owns the draft,
+;; the machine owns submit/auth status.
 (reg-view ^{:doc "The login form view: email + password + submit button + error display."}
           login-form []
-  (let [state (reagent/atom {:email "" :password ""})]
-    (fn []
-      (let [busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)
-            err   @(subscribe [:auth.login/error])]
-        [:form.login-form
-         {:data-testid "login-form"
-          :on-submit (fn [e]
-                       (.preventDefault e)
-                       (when-not busy?
-                         (dispatch [:auth.login/flow [:auth.login/submit @state]])))}
-         [:input  {:type        "email"
-                   :placeholder "Email"
-                   :disabled    busy?
-                   :data-testid "login-email"
-                   :on-change   #(swap! state assoc :email (.. % -target -value))}]
-         [:input  {:type        "password"
-                   :placeholder "Password"
-                   :disabled    busy?
-                   :data-testid "login-password"
-                   :on-change   #(swap! state assoc :password (.. % -target -value))}]
-         [:button {:type "submit" :disabled busy?
-                   :data-testid "login-submit"}
-          (if busy? "Signing in…" "Sign in")]
-         (when err [:p.error {:data-testid "login-error"} err])]))))
+  (let [draft @(subscribe [:auth.login/draft])
+        busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)
+        err   @(subscribe [:auth.login/error])]
+    [:form.login-form
+     {:data-testid "login-form"
+      :on-submit (fn [e]
+                   (.preventDefault e)
+                   (when-not busy?
+                     (dispatch [:auth.login/submit-form])))}
+     [:input  {:type        "email"
+               :placeholder "Email"
+               :disabled    busy?
+               :data-testid "login-email"
+               :value       (:email draft)
+               :on-change   #(dispatch [:auth.login/edit-field :email (.. % -target -value)])}]
+     [:input  {:type        "password"
+               :placeholder "Password"
+               :disabled    busy?
+               :data-testid "login-password"
+               :value       (:password draft)
+               :on-change   #(dispatch [:auth.login/edit-field :password (.. % -target -value)])}]
+     [:button {:type "submit" :disabled busy?
+               :data-testid "login-submit"}
+      (if busy? "Signing in…" "Sign in")]
+     (when err [:p.error {:data-testid "login-error"} err])]))
 
 ;; Terminal lockout panel — rendered once the flow reaches :locked-out
 ;; (tagged :auth/locked). The state has no transitions, so the form is
@@ -543,6 +672,13 @@
   (rf/reg-frame :rf/default
     {:doc          "Login demo frame."
      :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
+  ;; Seed the login-form slice to its empty Pattern-Forms shape so the
+  ;; controlled inputs read a real (empty-string) draft from the first render
+  ;; — an uninitialised draft would feed React `nil` :values (uncontrolled
+  ;; inputs). The machine is self-initialising (no seed needed); the SLICE is
+  ;; app-db, so it is seeded explicitly here under the app frame.
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:auth.login/initialise-form]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

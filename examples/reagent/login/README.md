@@ -73,10 +73,23 @@ Everything else in the file hangs off that machine:
   uniform reply at work.
 
 - **Registered views, Var-reference style.** `login-form`, `locked-panel`,
-  `login-banner`, and `root-view` are all registered with `reg-view`; the
-  form is a Form-2 view holding its email/password in a component-local
-  Reagent atom. (`reg-view` auto-injects `dispatch` and `subscribe` bound to
-  the render-time frame, so they survive async callbacks.)
+  `login-banner`, and `root-view` are all registered with `reg-view`. The form
+  is a **controlled** [Pattern-Forms](../../../spec/Pattern-Forms.md) view: it
+  holds no view-local state — the email/password **draft** lives in app-db at
+  `[:auth :login-form]`, each input's `:value` reads it through the
+  `:auth.login/draft` subscription, and `:on-change` dispatches
+  `:auth.login/edit-field`. (`reg-view` auto-injects `dispatch` and `subscribe`
+  bound to the render-time frame, so they survive async callbacks.)
+
+- **The form's draft is application state, not view state.** This is the
+  Pattern-Forms *machine + slice* composition: the **slice** at
+  `[:auth :login-form]` owns the **draft** (projected via subs, mutated via the
+  standard form events — `initialise-form` / `edit-field` / `submit-form` /
+  `reset-form`); the **machine** owns submit/auth **status**. On submit, the
+  draft is read out of the slice and dispatched *into* the machine — the one
+  point it is validated against `Credentials`. The slice + events + subs are
+  byte-identical across the Reagent, UIx, and Helix variants; only the view
+  syntax differs.
 
 - **Tags, not boolean subs.** Three states carry tags — `:auth/busy` on
   `:submitting`, `:auth/authenticated` on `:authed`, `:auth/locked` on
@@ -87,12 +100,15 @@ Everything else in the file hangs off that machine:
 
 - **Open maps everywhere.** Every shape on the wire is an open map.
 
-One nice detail worth noticing: the password never touches durable app-db or
-the machine's `:data` slot — its only off-box path is the HTTP request body,
-which is scrubbed from every trace by the per-request `:sensitive? true` flag
-on the managed-HTTP call. The secret stays off the observability wire without
-any app-db classification machinery, because it never lives in app-db to
-begin with.
+One nice detail worth noticing about the password. As a controlled field it
+lives in the login-form draft while the user types — but `:submit-form` reads
+it out, hands it to the machine, and **clears `[:draft :password]` in the same
+commit** (the secret-field hygiene the Forms pattern prescribes for auth
+forms). So once the request is in flight the password is gone from app-db; the
+machine never copies it into its `:data` slot or `:submitted`. Its only
+off-box path is the HTTP request body, scrubbed from every trace by the
+per-request `:sensitive? true` flag on the managed-HTTP call — the secret
+stays off the observability wire without any app-db classification machinery.
 
 ## Why this shape
 
