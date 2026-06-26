@@ -2,19 +2,19 @@
 
 ## When to load
 
-Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider-existing` to scope a React subtree to an existing frame (or the owned `frame-provider` to have a component create-and-own a frame for its mounted lifetime), or carrying the current frame into an async callback via `frame-handle`.
+Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider`'s `{:frame …}` shape to scope a React subtree to an existing frame (or its `{:id …}` shape to ensure a named frame for a subtree), or carrying the current frame into an async callback via `frame-handle`.
 
 ## The teaching model: frame identity is carried, not found
 
-The one rule (EP-0002 carried invariant): **frame identity is a value that travels with every causal token; an operation reads its frame from the scope it runs under and never synthesises one from absence.** A single-frame app establishes exactly one frame at its root (`reg-frame` it, then scope it with `frame-provider-existing` / `with-frame`); *inside that scope* `rf/dispatch` / `rf/subscribe` stay ambient and ergonomic — no frame talk. There is **no implicit `:rf/default` floor**: a frame-scoped call issued under no scope fails loudly with `:rf.error/no-frame-context`. Reach for a frame affordance only when one of these intents applies:
+The one rule (EP-0002 carried invariant): **frame identity is a value that travels with every causal token; an operation reads its frame from the scope it runs under and never synthesises one from absence.** A single-frame app establishes exactly one frame at its root (`reg-frame` it, then scope it with `frame-provider {:frame …}` / `with-frame`); *inside that scope* `rf/dispatch` / `rf/subscribe` stay ambient and ergonomic — no frame talk. There is **no implicit `:rf/default` floor**: a frame-scoped call issued under no scope fails loudly with `:rf.error/no-frame-context`. Reach for a frame affordance only when one of these intents applies:
 
 | Intent | Affordance |
 |---|---|
 | Inside an established frame scope (the common case) | `dispatch` / `dispatch-sync` / `subscribe` — no frame talk at all |
 | Pin a lexical scope to an existing frame | `with-frame` |
 | Create + own + destroy a frame for a scope (tests / SSR) | `with-new-frame` |
-| Scope a React subtree to an **existing** frame | `frame-provider-existing` |
-| Have a component **own** a frame lifetime (create-on-mount, destroy-on-unmount) | `frame-provider` |
+| Scope a React subtree to an **existing** frame | `frame-provider {:frame …}` (SCOPE-only) |
+| Ensure a **named** frame for a subtree (create-if-absent, reuse-no-reseed) | `frame-provider {:id …}` (ENSURE) |
 | Hold a frame's ops as a value (async / closures) | `frame-handle` — the one public carry primitive |
 | One-off explicit routing (`dispatch`) | `{:frame …}` trailing opt on `dispatch` / `dispatch-sync` |
 | One-off explicit routing (`subscribe`) | leading `frame-id` arg — `(rf/subscribe :frame-id query-v)` (NOT a `{:frame …}` opt) |
@@ -26,7 +26,7 @@ A `reg-view` body needs none of these for ordinary dispatch / subscribe — the 
 
 ## What a frame is
 
-A **frame** is an isolated runtime boundary holding **two durable partitions** plus its own router queue and sub-cache. Frames are identified by keywords. Every re-frame2 app establishes at least one — registered explicitly with `reg-frame` and scoped at the root with `frame-provider-existing` / `with-frame`. `init!` installs adapters and runtime capabilities but creates **no** frame; there is no auto-registered `:rf/default`.
+A **frame** is an isolated runtime boundary holding **two durable partitions** plus its own router queue and sub-cache. Frames are identified by keywords. Every re-frame2 app establishes at least one — registered explicitly with `reg-frame` and scoped at the root with `frame-provider {:frame …}` / `with-frame`. `init!` installs adapters and runtime capabilities but creates **no** frame; there is no auto-registered `:rf/default`.
 
 The two partitions:
 
@@ -130,9 +130,9 @@ And establishing the app frame at boot (the runtime infers no frame, so you regi
    :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
 
 ;; ...then scope it at the root so bare dispatch/subscribe resolve to it
-;; (frame-provider-existing — the frame already exists from reg-frame above):
+;; (frame-provider {:frame …} — the frame already exists from reg-frame above):
 (rdc/render root
-  [rf/frame-provider-existing {:frame :app/login}
+  [rf/frame-provider {:frame :app/login}
    [app-root]])
 ```
 
@@ -149,32 +149,32 @@ The metadata map (`reg-frame` in `re-frame.frame`) accepts:
 
 User-supplied keys win on conflict with preset expansion.
 
-## The `frame-provider` name family in views (EP-0024)
+## The merged `frame-provider` in views (EP-0024)
 
-EP-0024 splits the React-context provider surface into a **name family** of two per-adapter components — choose by intent:
+`frame-provider` is **one** per-adapter React-context component with **two config shapes**, selected by the prop map (`:frame` vs `:id`) — choose by intent:
 
-- **`frame-provider-existing`** — the **scope-only** member. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `reg-frame`, a direct `make-frame`, a tool runtime, or an enclosing `frame-provider`). It takes `:frame` **only**, and creates / refreshes / destroys nothing. A lifecycle opt (`:id` / `:images` / `:initial-events`) fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`):
+- **`frame-provider {:frame existing-id}`** — the **SCOPE-only** shape. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `reg-frame`, a direct `make-frame`, a tool runtime, or an enclosing provider). It creates / refreshes / destroys nothing, and **fails loud if the frame is absent** (`:rf.error/frame-provider-frame-absent`):
 
   ```clojure
-  [rf/frame-provider-existing {:frame :stories} [my-story-shell]]
+  [rf/frame-provider {:frame :stories} [my-story-shell]]
   ```
 
-- **`frame-provider`** — the **UI-owned lifecycle** boundary. A component that **creates a frame on mount, provides its id to descendants, and destroys it on unmount** (idempotent re-mount). It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / record-config) — for view-owned frame lifetimes: comparison pages, Story canvases, embedded widgets, modal stacks, multi-instance widgets:
+- **`frame-provider {:id the-id …}`** — the **ENSURE** shape. **Creates the frame if absent, reuses it without re-seeding if present** (idempotent re-mount preserves durable state and does NOT replay `:initial-events`), and provides its id to descendants; **no destroy-on-unmount**. It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / record-config) — for view-driven named-frame lifetimes: comparison pages, Story canvases, embedded widgets:
 
   ```clojure
   [rf/frame-provider {:id :todo/left :images [todo-image] :initial-events [[:rf/set-db {...}]]} [todo-pane]]
   ```
 
-(Before EP-0024 `frame-provider` was the scope-only shortcut; that scope-only job is now `frame-provider-existing`, and the `frame-provider` name is reused for the owned lifecycle boundary. `with-frame` remains for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`.)
+(`with-frame` remains for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`. True lifetime *ownership* — destroy-on-unmount — is now explicit: `make-frame` + `destroy-frame!` inside a `create-class`, where the component declares it owns the frame's life.)
 
-`reg-view`-wrapped components participate in either provider automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default. Use `reg-view`, or capture a `(rf/frame-handle)` at render time and call its bound ops. (Per spec/004 §Plain Reagent fns; the old `:rf.warning/plain-fn-under-non-default-frame-once` warning is superseded by the loud error.)
+`reg-view`-wrapped components participate in the provider automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default. Use `reg-view`, or capture a `(rf/frame-handle)` at render time and call its bound ops. (Per spec/004 §Plain Reagent fns; the old `:rf.warning/plain-fn-under-non-default-frame-once` warning is superseded by the loud error.)
 
 ## Common gotchas
 
 - **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
-- **Wrapping plain Reagent fns in a provider (`frame-provider-existing` or `frame-provider`) doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `frame-handle`.
+- **Wrapping plain Reagent fns in a `frame-provider` doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `frame-handle`.
 - **`:rf/default` is an ordinary id, not a fallback.** The runtime never creates or infers it; it carries no privilege. You may register and scope it explicitly like any other frame (a migration sometimes picks it for familiarity), but a single-frame app is freer choosing a descriptive id like `:app/main` and establishing it at the root.
 
 ## Images, frames, and the event stream (EP-0023 — the multi-frame public model)
@@ -197,7 +197,7 @@ You almost certainly do not need to name an image. The two facts an author shoul
 
 > **The landed public surface.** `rf/image` is exported on `re-frame.core` today: `(rf/image {:select-ns {:include [<ns-glob> …]}})` returns an **inert image value** — pure data, no registrar, no side effect. `:select-ns :include` selects already-loaded registrations by their *source* namespace (`:rf.provenance/ns`), not by the registration-id namespace; the glob grammar is `*` (one segment) / `**` (zero or more), case-sensitive, whole-namespace match, and a pattern that matches **zero** descriptors fails image assembly loud; the optional `:exclude` leg subtracts. Inline `:registrations` (registrar-keyed sections mirroring `:reg-event` / `:reg-sub` / …) round out the spec map — `:id` / `:select-ns` / `:registrations` are the only three public keys (EP-0026). Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs; composition resolves by **image order** (the later image wins; read what it shadowed via `rf/frame-shadows`), and reload swaps that generation while preserving frame memory. The EP-0023 keys `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` are **retired** (EP-0026) and fail loud.
 >
-> **`make-frame` is one constructor returning the frame value (EP-0024).** EP-0024 collapsed the EP-0023 two-constructor split into **one** `make-frame` that accepts image-selection opts (`:images`) AND record-config opts (`:id` / `:initial-events` / `:fx-overrides` / …) in one call and **returns the live frame value** (a lifecycle token; read its id via `frame-value->id`). The old two-constructor split — an object constructor that raised `:rf.error/make-frame-record-only-key` on record-config keys, beside an advanced record-config constructor that gensym'd an id — is gone, along with that redirect; the advanced `re-frame.frame/make-frame` is demoted to an internal helper. A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Teach the model; for a callable frame at the app root, `reg-frame` it and scope it with `frame-provider-existing` (above); construct image *values* with `rf/image`; for a per-mount lifetime use `make-frame` + `destroy-frame!` (or the owned `frame-provider`).
+> **`make-frame` is one constructor returning the frame value (EP-0024).** EP-0024 collapsed the EP-0023 two-constructor split into **one** `make-frame` that accepts image-selection opts (`:images`) AND record-config opts (`:id` / `:initial-events` / `:fx-overrides` / …) in one call and **returns the live frame value** (a lifecycle token; read its id via `frame-value->id`). The old two-constructor split — an object constructor that raised `:rf.error/make-frame-record-only-key` on record-config keys, beside an advanced record-config constructor that gensym'd an id — is gone, along with that redirect; the advanced `re-frame.frame/make-frame` is demoted to an internal helper. A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Teach the model; for a callable frame at the app root, `reg-frame` it and scope it with `frame-provider {:frame …}` (above); construct image *values* with `rf/image`; for a view-driven named-frame lifetime use `frame-provider {:id …}` (ensure), or explicit `make-frame` + `destroy-frame!` when a component must own teardown.
 
 ### Frame isolation is the whole isolation story
 

@@ -113,7 +113,7 @@ Pop-out uses `window.open` whose JS realm connects to the opener's via `window.o
 
 ## Frame isolation — `:rf/xray`
 
-Xray's shell idempotently registers `(rf/reg-frame :rf/xray {})` and wraps its view in `[rf/frame-provider-existing {:frame :rf/xray} ...]` (scope-only — the frame already exists). Every `subscribe` / `dispatch` inside the shell resolves to the `:rf/xray` **own** frame; the host app's frame (the inspected **target** frame, whatever its id) is untouched. Xray's own registrations live under the `:rf.xray/*` namespace and operate against `:rf/xray`'s db. The host app keeps its keyspace clean — Xray never writes to the host frame. (Per EP-0002, Xray distinguishes its **own** frame `:rf/xray` from the inspected **target** frame, selected explicitly by host config or the picker; it never falls back to `:rf/default`.)
+Xray's shell idempotently registers `(rf/reg-frame :rf/xray {})` and wraps its view in `[rf/frame-provider {:frame :rf/xray} ...]` (the SCOPE-only shape — the frame already exists). Every `subscribe` / `dispatch` inside the shell resolves to the `:rf/xray` **own** frame; the host app's frame (the inspected **target** frame, whatever its id) is untouched. Xray's own registrations live under the `:rf.xray/*` namespace and operate against `:rf/xray`'s db. The host app keeps its keyspace clean — Xray never writes to the host frame. (Per EP-0002, Xray distinguishes its **own** frame `:rf/xray` from the inspected **target** frame, selected explicitly by host config or the picker; it never falls back to `:rf/default`.)
 
 ## See also
 

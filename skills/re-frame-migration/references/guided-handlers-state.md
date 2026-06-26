@@ -78,10 +78,10 @@ Present every call site with its file:line and the four options; collect the aut
 
 **Identify**:
 
-1. Find every React-context frame provider — `(rf/frame-provider-existing {:frame <id>} ...)` (scope-only) or `(rf/frame-provider {:id <id> …} ...)` (owned lifecycle) — whose frame is **not** `:rf/default`. (EP-0024 splits the React-context provider into a name family; a v2-pre-rename codebase that wrote the old scope-only `(rf/frame-provider {:frame <id>} ...)` is renamed to `frame-provider-existing` by the same wave — so match both shapes when sweeping such a codebase.)
+1. Find every React-context `(rf/frame-provider …)` — its `{:frame <id>}` SCOPE-only shape or its `{:id <id> …}` ENSURE shape — whose frame is **not** `:rf/default`. (The merged `frame-provider` dispatches on the prop map, so match both shapes when sweeping.)
 2. Walk the hiccup subtree under each such provider. List every Var-referenced function (or anonymous lambda) that is **not** registered via `rf/reg-view`. Cross-reference the `(rf/registrations :view)` registry.
 
-**Risk**: a plain Reagent function rendered inside a frame provider (`frame-provider-existing` or `frame-provider`) can't read the provider's frame (no `:contextType`), so its internal `(subscribe ...)` / `(dispatch ...)` calls carry no frame and raise `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing; the old one-time warning is superseded by this loud error). The failure surfaces at runtime when the component renders.
+**Risk**: a plain Reagent function rendered inside a `frame-provider` can't read the provider's frame (no `:contextType`), so its internal `(subscribe ...)` / `(dispatch ...)` calls carry no frame and raise `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing; the old one-time warning is superseded by this loud error). The failure surfaces at runtime when the component renders.
 
 **Decision shape** (per component-under-frame pair):
 

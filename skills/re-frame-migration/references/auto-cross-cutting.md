@@ -330,12 +330,12 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 > **A v1 app has no `init!` call site to "find". You must ADD one — and ADD it in the right place.** The `SEARCH` shape above assumes a `(rf/init!)` already exists (the v2-pre-rename case). A genuine v1 app has **no `init!` at all**: in v1 the registry is populated by `reg-event-*` at namespace-load and the global `app-db` ratom exists immediately, so v1 boot code dispatches freely — the canonical v1 boot is `(dispatch-sync [:initialize-db])` *then* `(reagent.dom/render …)`. M-40-as-a-rename does not cover this; for a v1 app, M-40 is an **add**, governed by this invariant.
 
-**The invariant:** `(rf/init! <adapter>)` MUST execute **before the first `dispatch` / `dispatch-sync` AND before the first render**. Under EP-0002 (the carried-frame invariant), `init!` installs adapters and runtime capabilities **only — it does NOT create any frame**. There is **no ambient `:rf/default`** the runtime synthesises for you; frame identity is *carried, not found*. So a v1 boot needs **two** adds, not one: (1) `init!`, and (2) an explicitly-registered **app frame** that boot-time dispatches and the render run *under*. You register it (`reg-frame`) and establish it as a lexical scope (`with-frame`) or React scope (`frame-provider-existing` — the EP-0024 scope-only React-context member, since the frame already exists from `reg-frame`).
+**The invariant:** `(rf/init! <adapter>)` MUST execute **before the first `dispatch` / `dispatch-sync` AND before the first render**. Under EP-0002 (the carried-frame invariant), `init!` installs adapters and runtime capabilities **only — it does NOT create any frame**. There is **no ambient `:rf/default`** the runtime synthesises for you; frame identity is *carried, not found*. So a v1 boot needs **two** adds, not one: (1) `init!`, and (2) an explicitly-registered **app frame** that boot-time dispatches and the render run *under*. You register it (`reg-frame`) and establish it as a lexical scope (`with-frame`) or React scope (`frame-provider` with its `{:frame …}` SCOPE-only shape, since the frame already exists from `reg-frame`).
 
 **Two distinct failure modes — both are surfaced loud now.**
 
 - **No `init!` (or `init!` too late).** The adapter/runtime isn't wired; the React-context tier of frame resolution is dead.
-- **No established frame scope.** A boot `(dispatch-sync [:initialize-db])` issued under no scope (no `with-frame`, no `frame-provider-existing`) now fails **loudly** with **`:rf.error/no-frame-context`** — the runtime refuses to synthesise a frame from absence (it does **not** silently target a default). This is *better* than the old silent no-op: the error fires at the offending call site through the always-on error axis. Cross-link the symptom from the error catalogue ([`error-events.md`](error-events.md) → [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)).
+- **No established frame scope.** A boot `(dispatch-sync [:initialize-db])` issued under no scope (no `with-frame`, no `frame-provider`) now fails **loudly** with **`:rf.error/no-frame-context`** — the runtime refuses to synthesise a frame from absence (it does **not** silently target a default). This is *better* than the old silent no-op: the error fires at the offending call site through the always-on error axis. Cross-link the symptom from the error catalogue ([`error-events.md`](error-events.md) → [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)).
 
 > **Field failure mode:** placing `(rf/init! adapter)` *inside* the render fn (e.g. a `mount-gui` defn) runs it **after** the boot code's seed `dispatch-sync` and any bootstrap dispatch. Put `init!` at the **top of the boot function**, ahead of every boot-time dispatch and the render call — and wrap the boot dispatches in the app frame's scope.
 
@@ -357,8 +357,8 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
     {:initial-events [[:initialize-db]]}) ; via :initial-events — dispatch-sync'd into
                                       ;    the fresh frame; by the time reg-frame RETURNS,
                                       ;    app-db already reflects the seed cascade.
-  (rdomc/render (rdomc/create-root el); 3. render LAST, UNDER frame-provider-existing:
-    [rf/frame-provider-existing {:frame app-frame}  ; scope-only — frame already exists
+  (rdomc/render (rdomc/create-root el); 3. render LAST, UNDER the SCOPE-only frame-provider:
+    [rf/frame-provider {:frame app-frame}  ; scope-only — frame already exists
      [app-root]]))
 ```
 
@@ -374,11 +374,11 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
   (rf/with-frame app-frame            ; establish a scope for ADDITIONAL boot work …
     (rf/dispatch-sync [:app/extra-boot-work]))  ; … a DISTINCT event, not :initialize-db
   (rdomc/render (rdomc/create-root el)
-    [rf/frame-provider-existing {:frame app-frame}
+    [rf/frame-provider {:frame app-frame}
      [app-root]]))
 ```
 
-Either way, **the render is wrapped in `frame-provider-existing` for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (`frame-provider-existing` is the EP-0024 scope-only React-context member — the frame already exists from `reg-frame`, so you scope it, not own it; the owned `rf/frame-provider`, which creates-on-mount / destroys-on-unmount, is for view-owned frame lifetimes, not the app root.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
+Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (The frame already exists from `reg-frame`, so you scope it with `{:frame …}` rather than ensure it; `frame-provider`'s other shape, `{:id …}`, would *ensure* a named frame — create-if-absent, reuse-no-reseed — which the app root doesn't need.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
 
 ---
 
