@@ -177,7 +177,12 @@ _SPEC_CONFORMANCE_DIR = re.compile(r'\]\(conformance/\)')
 # All depths are rewritten to the same absolute GitHub URL.
 _REWRITES = (
     # examples/ tree (anchor or no anchor; trailing path captured greedily
-    # up to the closing paren or whitespace).
+    # up to the closing paren or whitespace). Depth-3 (capability tutorial /
+    # how-to pages at docs/<cap>/<sub>/X.md) link ../../../examples/; depth-2
+    # (docs/<tree>/X.md) link ../../examples/; depth-1 (docs/X.md) link
+    # ../examples/. All resolve to the same GitHub blob URL.
+    (re.compile(r'\]\(\.\./\.\./\.\./examples/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/examples/\1)'),
     (re.compile(r'\]\(\.\./\.\./examples/([^)\s]*)\)'),
      rf']({GH_BLOB_BASE}/examples/\1)'),
     (re.compile(r'\]\(\.\./examples/([^)\s]*)\)'),
