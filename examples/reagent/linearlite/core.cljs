@@ -17,9 +17,9 @@
    - THE WRITE SHOWS IMMEDIATELY — each mutation declares `:optimistic`, the
      EXACT-target twin of `:patches`: `(fn [params] -> {target patch-fn})`. The
      patch runs at PHASE 1.5, before the request lowers, so the new card
-     appears / the title changes / the card moves the instant the user acts.
-     The view never mutates app-db itself — there is NO app-db issue list, no
-     `:saving?` flag, no manual optimistic copy. The runtime owns the cache.
+     appears / the title changes / the card moves the instant the user acts. The
+     runtime owns the cache and shows the optimistic value; the view just reads
+     it. (No app-db issue list, no `:saving?` flag to keep in sync.)
 
    - THE INVERSE IS RUNTIME-RECORDED — the author writes only the FORWARD
      patch. The runtime snapshots each touched entry's whole `:before` value
@@ -39,7 +39,7 @@
      optimistic change paints immediately, the request fails, and the runtime
      rolls the board back to exactly its pre-click state — the new card
      vanishes, the retitled card reverts, the moved card snaps back — with a
-     red banner naming the failure. No manual undo, no app-db bookkeeping.
+     red banner naming the failure. The runtime owns the undo.
 
    The board is read PASSIVELY through `[:rf.resource/data …]` (the resource
    sub family); each in-flight write is watched through the passive
@@ -57,8 +57,7 @@
 
    IDIOMATIC re-frame2. The board is a single managed resource; every write is
    a named `reg-mutation`; the toggle is an ordinary app-db slice driven by an
-   event and read by a sub. NO raw atoms through views, NO frame-ids as view
-   args, no vestigial timing. The example ships no backend, so it overrides
+   event and read by a sub. The example ships no backend, so it overrides
    `:rf.http/managed` with a canned stub (mirroring
    `examples/reagent/infinite_feed/`) that synthesises the board reply and,
    when armed, the 503 — so the whole optimistic lifecycle runs standalone.
@@ -119,9 +118,9 @@
 ;; route ensures it on entry; the view reads it passively. Every optimistic
 ;; write patches THIS one entry's `:data` in place (the exact-target
 ;; `:optimistic` twin of `:patches`), and the success reply re-seeds it with
-;; the server's authoritative board via `:populates`. There is no app-db issue
-;; list — the runtime owns the board value, its freshness, and the snapshot
-;; inverse that makes rollback truthful.
+;; the server's authoritative board via `:populates`. The runtime owns the board
+;; value, its freshness, and the snapshot inverse that makes rollback truthful
+;; (the board lives in the resource cache, not in app-db).
 
 (rf/reg-resource :linearlite/board
   {:doc            "The whole issue board — `{:issues [...]}` — as one managed
@@ -283,9 +282,9 @@
 ;; resources + mutations lower every read/write onto) with a stub that holds
 ;; the canonical board in a closure and synthesises the authoritative reply for
 ;; each read/write. It delegates to the framework-shipped
-;; `:rf.http/managed-canned-success` / `-failure` with `:after-ms` so the reply
-;; rides framework `:dispatch-later` (tape-visible, time-travel-safe, NOT raw
-;; js/setTimeout) — letting the optimistic value paint before the reply lands.
+;; `:rf.http/managed-canned-success` / `-failure` with `:after-ms`, so the reply
+;; rides framework `:dispatch-later` — tape-visible and time-travel-safe (not a
+;; raw js/setTimeout) — and the optimistic value paints before the reply lands.
 ;;
 ;; THE FAILURE SEAM. `fail-next-write?` is read from app-db at request time:
 ;; when armed, the stub answers the next WRITE with a 503 (via
@@ -295,9 +294,8 @@
 
 (def ^:private demo-reply-delay-ms
   "How long the demo stub defers each canned reply (via `:after-ms` →
-   `:dispatch-later` — tape-visible, NOT raw js/setTimeout). Small but non-zero
-   so the optimistic value is visibly painted before the reply lands. A
-   demo-seam knob, not a production value."
+   `:dispatch-later`). Small but non-zero so the optimistic value is visibly
+   painted before the reply lands. A demo-seam knob, not a production value."
   220)
 
 ;; The canonical server board the stub maintains across requests, so a committed
@@ -396,7 +394,7 @@
 ;; failure-seam toggle, the new-issue draft, and the id of the issue being
 ;; inline-retitled. The issue board itself is NOT in app-db (the resource owns
 ;; it). These are ordinary slices: an event writes, a sub reads, the view reads
-;; the sub. No raw atoms, no frame-ids as view args.
+;; the sub.
 
 (reg-event :linearlite/set-fail-next-write
   (fn [db [_ on?]] (assoc db :fail-next-write? on?)))
@@ -421,9 +419,9 @@
 ;;
 ;; Each write is a thin event that dispatches `:rf.mutation/execute` with a
 ;; per-issue (or per-create) instance id, then resets the relevant UI slice.
-;; The view never touches the board — it watches the mutation instance and
-;; reads the board resource passively; the runtime applies the optimistic
-;; patch, sends the request, and commits / rolls back on the reply.
+;; The view watches the mutation instance and reads the board resource
+;; passively; the runtime applies the optimistic patch, sends the request, and
+;; commits / rolls back on the reply.
 
 (reg-event :linearlite/create-issue
   (fn [{:keys [db]} [_ title]]
@@ -604,16 +602,15 @@
 ;; examples/TESTING.md §Example mount-isolation convention. EP-0002: the app
 ;; frame is created, configured, and provided in ONE spot — the render root's
 ;; `frame-provider {:id app-frame …}` ENSURE form. On first mount it creates the
-;; frame under `app-frame`, applies the config (`:url-bound? true` so it owns the
-;; browser URL, and a `:rf.http/managed` override pointing at the canned board
-;; stub so the example runs standalone), and would run any `:initial-events`
-;; once. On hot reload it REUSES the existing frame WITHOUT re-seeding, so app-db
-;; survives the reload. That id is what every in-tree dispatch/subscribe resolves
-;; against — no separate `reg-frame` or `{:frame …}` scope step.
+;; frame under `app-frame` and applies the config: `:url-bound? true` so it owns
+;; the browser URL, and a `:rf.http/managed` override pointing at the canned
+;; board stub so the example runs standalone. On hot reload it reuses that same
+;; frame and keeps its app-db. Every in-tree dispatch/subscribe resolves against
+;; that id (which is why there is no separate `reg-frame` step).
 ;;
-;; There are NO `:initial-events`: the board isn't seeded at boot but ensured on
-;; route entry by the `:linearlite.app/board` route's `:resources` metadata,
-;; driven by the initial URL sync that `rf/install-history-listener!` performs.
+;; The board is seeded by route entry, not at boot: the `:linearlite.app/board`
+;; route's `:resources` metadata ensures it, driven by the initial URL sync
+;; `rf/install-history-listener!` performs — hence no `:initial-events`.
 
 (defonce react-root (atom nil))
 
@@ -625,8 +622,9 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; ENSURE form: create + configure the app frame in one spot. First mount
-    ;; creates it under `app-frame` and applies the config; hot reload reuses it.
+    ;; ENSURE form: the app frame is created and configured in one spot. First
+    ;; mount creates it under `app-frame` and applies the config; hot reload
+    ;; reuses it.
     (rdc/render @react-root
                 [rf/frame-provider {:id           app-frame
                                     :doc          "Linearlite optimistic-board demo frame."

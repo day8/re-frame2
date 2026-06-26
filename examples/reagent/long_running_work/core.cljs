@@ -99,21 +99,19 @@
 
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; then `frame-provider {:id app-frame …}` does the rest in one spot: on
-;; first mount it CREATES the app frame, applies its config, and runs
-;; `:initial-events` (the `[:app/initialise]` boot dispatch) ONCE; on hot
-;; reload it REUSES the same frame WITHOUT re-seeding. Every in-tree
-;; `dispatch`/`subscribe` resolves to that frame. Matches the canonical
-;; mount in examples/reagent/counter/core.cljs. The work-bench wrapper's
-;; `r/with-let` cleanup (views.cljs) dispatches `[:work/flow [:cancel]]`
-;; from within render scope, so it resolves to this frame via the provider.
+;; The frame is established in one spot: the `frame-provider {:id app-frame …}`
+;; at the render root below. On first mount it creates the app frame, applies
+;; its config, and runs `:initial-events` (the `[:app/initialise]` boot
+;; dispatch) once; on hot reload it reuses the same frame and skips re-seeding.
+;; Every in-tree `dispatch`/`subscribe` resolves to that frame — including the
+;; work-bench wrapper's `r/with-let` cleanup (views.cljs), which dispatches
+;; `[:work/flow [:cancel]]` from within render scope. Matches the canonical
+;; mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the Reagent adapter, then mount the provider (which establishes
+  ;; the frame — see above).
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

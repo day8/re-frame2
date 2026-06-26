@@ -42,11 +42,11 @@
    [:start-text  :string]                    ;; raw text the user typed; we don't parse until validation
    [:return-text :string]])
 
-;; EP-0002: reg-app-schema is context-required frame-local; a
-;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (the frame the render-root `frame-provider {:id …}` creates),
-;; so name it explicitly so the schema binds to the app frame whose commits
-;; it validates.
+;; Bind the schema to the app frame so it validates that frame's commits.
+;; `reg-app-schema` is frame-local and this runs at ns-load, before the
+;; render root's `frame-provider {:id …}` creates the frame — so name the
+;; frame (`:rf/default`, matching that provider) with `with-frame`. Binding
+;; is by id, so the registration is independent of when the frame is created.
 (with-frame :rf/default
   (rf/reg-app-schema [:flight] {:schema FlightState}))
 
@@ -218,18 +218,18 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame).
-;; The render root then uses the `frame-provider` ENSURE form ({:id …}):
-;; it creates the app frame on first mount, applies its config, runs the
-;; `:initial-events` seed exactly once, and on hot reload reuses the same
-;; frame without re-seeding. Matches the canonical mount in
+;; The whole frame lifecycle lives in one spot at the render root: the
+;; `frame-provider {:id app-frame …}` below. On first mount it creates the
+;; app frame, applies its config, and runs `:initial-events` once to seed
+;; app-db. On hot reload it reuses the same frame and skips re-seeding.
+;; `app-frame` is just an id we pick — the runtime won't infer it, so we
+;; name it here and hand it to the provider. Matches the canonical mount in
 ;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; `init!` installs the reactive adapter for the process. The adapter ns
+  ;; exports an `adapter` var; require the ns and pass that var directly.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

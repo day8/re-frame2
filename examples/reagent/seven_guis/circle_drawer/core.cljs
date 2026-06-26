@@ -2,9 +2,9 @@
   "7GUIs #6 — Circle Drawer.
 
    A canvas. Click to add a circle at the click position with a default
-   diameter. Right-click a circle to open a context menu (Adjust diameter
-   or Delete). 'Adjust diameter' opens a slider in a modal dialog; closing
-   the dialog commits. Undo/Redo buttons step through the history.
+   diameter. Right-click a circle to adjust its diameter: that opens a
+   slider in a modal dialog, and closing the dialog commits the new size.
+   Undo/Redo buttons step through the history.
 
    The 7GUIs page calls this out as a test of *undo/redo*. The classic trap
    is to maintain an ad-hoc undo stack inside the component. The re-frame2
@@ -35,14 +35,13 @@
 ;; SCHEMA
 ;; ============================================================================
 
-;; EP-0010 (Causal World Inputs): a circle's `:id` is written into durable
-;; app-db (`[:drawer :circles]`), so it must be a function of prior frame-state
-;; — never an ambient `(random-uuid)` at the durable-write site (a fresh
-;; event-stream replay would mint different ids). The id is an internal handle
-;; (React `:key` + context-menu target), so we mint it deterministically as a
-;; monotonic `:int` from a db-held counter — the todomvc `allocate-next-id`
-;; idiom — rather than a uuid. Undo/redo snapshot whole `:circles` vectors, so
-;; the ids ride the snapshot and round-trip unchanged.
+;; A circle's `:id` is a monotonic `:int` minted from a db-held counter — the
+;; todomvc `allocate-next-id` idiom. It lands in durable app-db
+;; (`[:drawer :circles]`), so it must be a function of prior frame-state, not
+;; an ambient `(random-uuid)` — replaying the event stream would otherwise mint
+;; different ids (EP-0010 Causal World Inputs). The id is just an internal
+;; handle (React `:key` + context-menu target). Undo/redo snapshot whole
+;; `:circles` vectors, so the ids ride the snapshot and round-trip unchanged.
 (def Circle
   [:map
    [:id      :int]
@@ -61,11 +60,11 @@
    [:undo      [:vector :any]]                  ;; stack of prior :circles values
    [:redo      [:vector :any]]])
 
-;; EP-0002: reg-app-schema is context-required frame-local; a
-;; bare ns-load call raises :rf.error/no-frame-context. This example's app
-;; frame is :rf/default (see `app-frame` / the render root's `frame-provider`
-;; ensure form), so name it explicitly so the schema binds to the app frame
-;; whose commits it validates.
+;; Bind the schema to the app frame so it validates that frame's commits.
+;; `reg-app-schema` is frame-local, and this runs at ns-load before any
+;; provider exists, so name the frame (`:rf/default`, matching the render
+;; root's `frame-provider` below) via `with-frame` rather than relying on a
+;; frame in scope.
 (with-frame :rf/default
   (rf/reg-app-schema [:drawer] {:schema DrawerState}))
 
@@ -74,11 +73,10 @@
 ;; ============================================================================
 ;;
 ;; Captures :circles before the handler runs; pushes the prior value onto :undo
-;; and clears :redo. Events tagged as undoable reference this interceptor BY ID
-;; (`:undoable`) in their :interceptors list (EP-0022 — interceptors are
-;; registered descriptors referenced by keyword, not inline values). Continuous
-;; events (slider drag) opt out by not referencing it; only the *commit* event
-;; uses it.
+;; and clears :redo. An undoable event lists this interceptor BY ID
+;; (`:undoable`) in its :interceptors (EP-0022 — interceptors are registered
+;; descriptors referenced by keyword). Only the *commit* events carry it, so
+;; the continuous slider drag leaves the history alone.
 
 (rf/reg-interceptor :undoable
   {:doc "Snapshot :circles before an undoable handler runs; push the prior
@@ -109,12 +107,12 @@
     {:db (assoc db :drawer {:circles [] :next-id 1 :dialog nil :undo [] :redo []})}))
 
 (rf/reg-event :drawer/add-circle
-  {:doc "Click on canvas. Adds a circle of default radius. The id is minted
-         deterministically from the db-held `:next-id` counter (EP-0010 causal
-         world inputs — a durable id must be a function of prior frame-state,
-         not an ambient `(random-uuid)` read), then the counter is bumped. The
-         counter is NOT in the undoable `:circles` snapshot, so it advances
-         monotonically across undo/redo and never re-mints a live id."
+  {:doc "Click on canvas. Adds a circle of default radius. The id comes from
+         the db-held `:next-id` counter, then the counter is bumped — a durable
+         id is a function of prior frame-state, not an ambient `(random-uuid)`
+         (EP-0010 causal world inputs). The counter lives outside the undoable
+         `:circles` snapshot, so it keeps climbing across undo/redo and never
+         re-mints a live id."
    :interceptors [:undoable]}
   (fn handler-drawer-add-circle [{:keys [db]} [_ x y]]
     {:db (let [id (get-in db [:drawer :next-id])]
@@ -134,8 +132,8 @@
 
 (rf/reg-event :drawer/dialog-drag
   {:doc "Slider movement during the dialog. Updates the draft radius only;
-         the circle itself is not mutated until the dialog commits.
-         Continuous; does NOT push undo."}
+         the circle keeps its size until the dialog commits. Carries no
+         `:undoable`, so the drag adds no history steps."}
   (fn handler-drawer-dialog-drag [{:keys [db]} [_ new-radius]]
     {:db (assoc-in db [:drawer :dialog :draft-radius] new-radius)}))
 
@@ -257,18 +255,21 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame).
-;; The render root then uses the `frame-provider` ENSURE form ({:id …}):
-;; it creates the app frame on first mount, applies its config, runs the
-;; `:initial-events` seed exactly once, and on hot reload reuses the same
-;; frame without re-seeding. Matches the canonical mount in
+;; The whole frame lifecycle lives in one spot at the render root: the
+;; `frame-provider {:id app-frame …}` below. On first mount it creates the
+;; app frame, applies its config, and runs `:initial-events` once to seed
+;; app-db. Thereafter every `dispatch`/`subscribe` in the tree resolves to
+;; that frame. On hot reload the provider reuses the existing frame and
+;; skips re-seeding, so the canvas keeps its circles across re-mounts.
+;;
+;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
+;; with no framework privilege — name it here and hand it to the provider
+;; like any other id. Matches the canonical mount in
 ;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; `init!` installs the reactive adapter for the process.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

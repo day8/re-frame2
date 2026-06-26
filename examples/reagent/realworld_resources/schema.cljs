@@ -108,9 +108,10 @@
 
 (def AuthSlice
   "The auth slice. :user holds the current User payload (or nil); :token is
-   the JWT (or nil). :scope-key holds the resource cache scope this session
-   reads under (see realworld-resources.scope). :return-to is the optional
-   post-login bounce-back target stashed by the routing auth-guard."
+   the JWT (or nil). The resource cache scope is derived from :user's :username
+   by the named session resolver (see realworld-resources.scope), not stored
+   here. :return-to is the optional post-login bounce-back target stashed by
+   the routing auth-guard."
   [:map
    [:user      [:maybe User]]
    [:token     [:maybe :string]]

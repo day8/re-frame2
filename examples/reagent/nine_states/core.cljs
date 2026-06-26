@@ -730,27 +730,20 @@
 (defonce react-root (atom nil))
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; `init!` installs the Reagent adapter (EP-0002).
   (rf/init! reagent-adapter/adapter)
-  ;; EP-0002: the runtime never synthesises a frame from absence —
-  ;; the app must establish its frame explicitly. `init!` installs the
-  ;; adapter only (it does NOT create the frame).
-  ;;
-  ;; EP-0026: one-spot frame setup via the `frame-provider` ENSURE shape
-  ;; (`{:id …}`). On first mount it CREATES `:rf/default`, applies the config
-  ;; below, and runs `:initial-events` ONCE; on hot reload it REUSES the
-  ;; existing frame WITHOUT re-seeding. Create, seed, and scope-into-React all
-  ;; happen in that one spot — no separate `reg-frame` / `with-frame` boot step.
+  ;; EP-0026: the `frame-provider {:id …}` below is the one spot that owns
+  ;; the frame. On first mount it creates `:rf/default`, applies the config,
+  ;; and runs `:initial-events` once; on hot reload it reuses the existing
+  ;; frame and skips re-seeding. Config:
   ;;
   ;; - `:fx-overrides` routes `:rf.http/managed` to the in-process canned-stub
-  ;;   fxs above so the example runs standalone — no backend required.
+  ;;   fxs above, so the example runs standalone with no backend.
   ;; - `:initial-events` seeds the app via `[:nine-states.app/initialise]`.
   ;;
-  ;; The provider also scopes the frame into React so the `reg-view`-injected
-  ;; `dispatch`/`subscribe` (and `root-view`'s subs) resolve to `:rf/default`
-  ;; via context. With NO provider a `reg-view` reads the no-provider sentinel
-  ;; and those calls raise `:rf.error/no-frame-context`. The frame id is the
-  ;; same `:rf/default` that `reg-app-schema` is scoped to at ns-load above.
+  ;; The provider also scopes the frame into React, so the `reg-view`-injected
+  ;; `dispatch`/`subscribe` (and `root-view`'s subs) resolve to `:rf/default`.
+  ;; This is the same `:rf/default` the `reg-app-schema` above is scoped to.
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

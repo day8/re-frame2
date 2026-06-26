@@ -18,10 +18,10 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            ;; Routing ships in day8/re-frame2-routing.
-            ;; Requiring re-frame.routing at app boot is what triggers
-            ;; its load-time hook + reg-sub registrations; without it,
-            ;; rf/reg-route below throws :rf.error/routing-artefact-missing.
+            ;; Routing ships in day8/re-frame2-routing. Requiring it runs
+            ;; its load-time hook and reg-sub registrations, which the
+            ;; `rf/reg-route` calls below depend on. Without this require
+            ;; those calls throw :rf.error/routing-artefact-missing.
             [re-frame.routing]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -48,11 +48,10 @@
 ;; APP DATA
 ;; ============================================================================
 
-;; The articles collection lives under :routing.app/articles-list (not
-;; :routing.app/articles) so it doesn't shadow the `:routing.app/articles`
-;; route-id. The route-registry and reg-sub registries are independent,
-;; but keeping the sub-id + app-db-key separate from the route-id makes
-;; the example easier to scan.
+;; The articles collection lives under :routing.app/articles-list. Route
+;; ids and sub/app-db keys live in separate registries, so a clash is
+;; harmless — but a distinct key (not :routing.app/articles, the route
+;; id) keeps the example easy to scan.
 (rf/reg-event :routing.app/initialise
   (fn [{:keys [db]} _]
     {:db {:routing.app/articles-list
@@ -137,46 +136,32 @@
 ;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
 ;; convention: ns-load must produce no DOM side effects so co-required
 ;; example namespaces don't race `create-root` onto the shared `#app`.
-;; (`reg-view` defs `root-view`, which is what we render.)
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime
-;; never synthesises a frame from absence, and URL ownership is an EXPLICIT
-;; declaration — a frame owns the browser URL only by carrying
-;; `:url-bound? true` (Spec 012 §Multi-frame routing).
-;;
-;; The app frame is created, configured, and seeded in ONE spot: the
-;; `frame-provider {:id …}` ENSURE form at the render root (`init!` installs
-;; only the adapter). On first mount it creates the frame under `app-frame`,
-;; applies the config (`:url-bound? true` so it owns the URL), and runs
-;; `:initial-events` once to seed app-db. On hot reload it REUSES the existing
-;; frame WITHOUT re-seeding (durable app-db survives; `:initial-events` are
-;; re-recorded but not replayed). That id is what every in-tree
-;; `dispatch`/`subscribe` resolves against — no separate `reg-frame` or
-;; scope step.
-;;
-;; The popstate listener is the framework's `rf/install-history-listener!`
-;; (Spec 012 §popstate drives the URL-owner frame) — NOT a hand-rolled
-;; frameless `(rf/dispatch [:rf.route/handle-url-change …])`. It resolves the
-;; URL owner AT POP TIME via `url-owner-frame-id` and dispatches the URL-change
-;; to THAT frame, so Back/Forward restores the owner's `:rf/route` slice. It
-;; also does the initial URL→slice sync and is idempotent (hot-reload safe).
-;; A hand-rolled frameless route dispatch would raise
-;; `:rf.error/no-frame-context`; the framework listener is the canonical,
-;; owner-resolving surface.
+;; The frame id the whole app runs under. `:rf/default` is an ordinary id
+;; with no framework privilege — the runtime won't infer it for you, so you
+;; establish it like any other (the provider in `run` does that). A frame
+;; owns the browser URL by carrying `:url-bound? true`, which this app's
+;; provider sets (EP-0002, Spec 012 §Multi-frame routing).
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the Reagent adapter. Each adapter ns exports an `adapter`
+  ;; var; pass it directly to `init!`.
   (rf/init! reagent-adapter/adapter)
-  ;; Framework popstate listener + initial URL sync, targeted at the URL owner.
+  ;; Install the framework popstate listener. It does the initial
+  ;; URL→state sync now, then on each Back/Forward resolves the URL-owner
+  ;; frame at pop time and updates that frame's `:rf/route` slice. Safe to
+  ;; call again on hot reload.
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; ENSURE form: create + configure + seed the app frame in one spot.
-    ;; First mount creates it under `app-frame`, applies `:url-bound? true`,
-    ;; and runs `:initial-events` once; hot reload reuses it without re-seeding.
+    ;; The frame provider sets up the app frame in one spot. On first mount
+    ;; it creates the frame under `app-frame`, marks it `:url-bound? true` so
+    ;; it owns the URL, and runs `:initial-events` once to seed app-db. On
+    ;; hot reload it reuses the existing frame and skips the seed. Everything
+    ;; in `root-view` then dispatches and subscribes against this frame.
     (rdc/render @react-root
                 [rf/frame-provider {:id app-frame
                                     :doc "Routing demo frame."

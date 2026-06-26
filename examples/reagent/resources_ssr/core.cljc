@@ -20,9 +20,9 @@
    - On the client the framework `:rf/hydrate` installs the projection into
      the target frame's `:rf.runtime/resources` slice; the hydration reconcile
      orphans the SSR owner, recomputes the reverse indexes from `:entries`,
-     and settles a wire-stripped in-flight entry to a stable status; a fresh
-     hydrated entry renders immediately and does NOT immediately re-fetch
-     (stale / redacted / omitted entries refetch by the hydration plan).
+     and settles a wire-stripped in-flight entry to a stable status. A fresh
+     hydrated entry renders on first paint and serves from the cache (stale /
+     redacted / omitted entries refetch by the hydration plan).
 
    The SSR blocking-drain, the per-entry projection with redaction /
    omission / scoped-key privacy / index omission, and the client hydration
@@ -103,11 +103,9 @@
 ;;
 ;; Two facts ride the ensure. The OWNER `[:ssr request-id nav-token]` is a
 ;; lease: it keeps the entry alive for the duration of THIS server render and
-;; nothing longer (released on teardown; reconciled to an orphan on hydration —
-;; a server render's lease has no business surviving as a live client hold).
+;; nothing longer (released on teardown; reconciled to an orphan on hydration).
 ;; The CAUSE `:ssr-preload` is pure provenance — WHY the fetch happened,
-;; recorded for the trace, affecting no liveness. Owner = lifetime; cause =
-;; explanation.
+;; recorded for the trace. Owner = lifetime; cause = explanation.
 
 (rf/reg-event :rf/server-init
   {:doc       "Per-request server init — preload the page resource."
@@ -126,13 +124,14 @@
 ;; VIEWS — passive reads, server and client alike
 ;; ============================================================================
 ;;
-;; The view reads the resource through a subscription and never fetches — it
-;; doesn't know or care which runtime it is in. `:rf.resource/state` is the
-;; runtime-supplied derivation that turns the cache entry into a view-model
-;; (a status flag + the data). On the server the resource was preloaded; on
-;; the client the hydrated entry is already present, so the first render shows
-;; data without a fetch. Same view code both sides — the SSR/CLJS parity Spec
-;; 011 promises, now over a runtime-managed resource.
+;; The view is a passive reader: it pulls the resource through a subscription
+;; and renders whatever it finds, the same on server and client. (Reading does
+;; not trigger a fetch — the preload/hydration already warmed the cache.)
+;; `:rf.resource/state` is the runtime-supplied derivation that turns the cache
+;; entry into a view-model (a status flag + the data). On the server the
+;; resource was preloaded; on the client the hydrated entry is already present,
+;; so the first render shows data straight away. Same view code both sides —
+;; the SSR/CLJS parity Spec 011 promises, now over a runtime-managed resource.
 
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
   (let [state @(rf/subscribe [:rf.resource/state
@@ -172,13 +171,13 @@
 ;;   1. `ssr/drain-blocking-resources!` settles the `[:ssr …]`-owned blocking
 ;;      ensure (or times it out into a structured first-load failure) BEFORE
 ;;      the render walk, so the render never sees a hung `:loading` skeleton.
-;;   2. `payload-policy/project-runtime-db` projects the runtime-db to the
-;;      SERIALIZABLE allowlist — only the durable `:rf.runtime/resources`
+;;   2. `payload-policy/project-runtime-db` projects the runtime-db down to the
+;;      serializable allowlist — only the durable `:rf.runtime/resources`
 ;;      `:entries`, per-entry redacted (`:sensitive?`) / omitted (`:large?`),
-;;      with the reverse indexes EXCLUDED (recomputed on install). The example
-;;      NEVER serializes the full runtime-db. The app-db slice rides the
-;;      explicit fail-closed allowlist via `apply-policy` (here an empty
-;;      allowlist — the page state is the RESOURCE, not app-db).
+;;      with the reverse indexes dropped (they recompute on install). Ship the
+;;      projection, never the full runtime-db. The app-db slice rides the
+;;      fail-closed allowlist via `apply-policy` (here empty — the page state
+;;      is the resource, so app-db holds nothing of its own).
 
 #?(:clj
    (defn handle-request [request]
@@ -206,14 +205,13 @@
                  ;; resource `:entries`).
                  ;;
                  ;; The page state is the RESOURCE (it rides `:rf/runtime-db`),
-                 ;; so app-db carries nothing of its own — but `:payload` is
-                 ;; FAIL-CLOSED and an empty `[]` allowlist is treated as
-                 ;; MISSING policy (it throws `:rf.error/ssr-missing-payload-
-                 ;; policy`), not as a valid empty allowlist (Spec 011 §`:rf/app-db`
-                 ;; projection). The explicit, valid policy for "ship the whole
-                 ;; (here empty) app-db" is the `:rf.ssr.payload/whole-app-db`
-                 ;; opt-in keyword — it projects the empty app-db to `{}`
-                 ;; cleanly.
+                 ;; so app-db carries nothing of its own. `:payload` is
+                 ;; fail-closed, so name the intent explicitly: the
+                 ;; `:rf.ssr.payload/whole-app-db` opt-in projects the (empty)
+                 ;; app-db to `{}` cleanly. Watch out — a bare empty `[]`
+                 ;; allowlist reads as MISSING policy and throws
+                 ;; `:rf.error/ssr-missing-payload-policy`, not as "ship nothing"
+                 ;; (Spec 011 §`:rf/app-db` projection).
                  policy-opts   {:payload :rf.ssr.payload/whole-app-db}
                  payload       (payload-policy/build-payload
                                  f
@@ -222,26 +220,17 @@
                                  (assoc policy-opts
                                         :runtime-db (payload-policy/project-runtime-db
                                                       final-runtime)))
-                 ;; EP-0002: `build-payload` stamps the per-request
-                 ;; server frame (`f`) as `:rf/frame-id`, but the client
-                 ;; hydrates a FIXED app-frame (`app-frame` → `:rf/default`,
-                 ;; below). `ssr/hydrate!` VALIDATES a present payload
-                 ;; `:rf/frame-id` against the client's explicit `:frame` and
-                 ;; raises `:rf.error/hydration-frame-id-mismatch` only when the
-                 ;; two DISAGREE (Spec 011 §The hydration payload — the frame-id
-                 ;; is validation evidence, not a target resolver). The server's
-                 ;; per-request gensym would never equal the client's fixed
-                 ;; `:rf/default`, so a present stamp here would always conflict;
-                 ;; we therefore DROP it, and an absent `:rf/frame-id` is
-                 ;; explicitly NO conflict (the explicit client target stands).
-                 ;; The static `index.html` next to this file reaches the same
-                 ;; no-conflict outcome by the OTHER valid route: it stamps a
-                 ;; `:rf/frame-id :rf/default` that EQUALS this client target
-                 ;; (present-and-equal is also no conflict — a hand-written
-                 ;; stand-in can pin the matching id, where a live per-request
-                 ;; server cannot). A deployment that wants a frame-id on the
-                 ;; dynamic wire stamps a STABLE id both sides agree on, not a
-                 ;; per-request gensym.
+                 ;; Drop the payload's `:rf/frame-id`. `build-payload` stamps
+                 ;; it with this per-request gensym frame (`f`), but the client
+                 ;; hydrates a fixed app-frame (`:rf/default`, below).
+                 ;; `ssr/hydrate!` checks any present `:rf/frame-id` against the
+                 ;; client's `:frame` and raises
+                 ;; `:rf.error/hydration-frame-id-mismatch` when they differ —
+                 ;; the frame-id is validation evidence, not a hydration target
+                 ;; (Spec 011 §The hydration payload). A per-request gensym can
+                 ;; never equal the client's fixed id, so we drop it; an absent
+                 ;; frame-id is no conflict. (A deployment that wants a frame-id
+                 ;; on the wire stamps a stable id both sides agree on.)
                  payload       (dissoc payload :rf/frame-id)]
              {:status  200
               :headers {"Content-Type" "text/html"}
@@ -268,25 +257,19 @@
 ;; `ssr/hydrate!` reads the payload, dispatch-syncs `[:rf/hydrate payload]`
 ;; (which installs the resource projection into the carried frame's
 ;; `:rf.runtime/resources` slice under the locked :replace-frame-state
-;; policy), and verifies the render hash. A FRESH hydrated entry renders its
-;; data immediately and does NOT immediately re-fetch (Spec 016 §SSR client
-;; hydration); a stale entry would background-refetch by policy.
+;; policy), and verifies the render hash. A fresh hydrated entry renders its
+;; data on first paint and serves it straight from the cache — no duplicate
+;; fetch, which is the whole point of preloading (Spec 016 §SSR client
+;; hydration). A stale entry would background-refetch by policy.
 
 #?(:cljs (defonce react-root (atom nil)))
 
-;; EP-0002: the SSR hydration target is CARRIED — established
-;; explicitly here and threaded through both `ssr/hydrate!` and the root
-;; `frame-provider`. This example uses `:rf/default` as its FIXED client
-;; app-frame. `ssr/hydrate!` validates the payload's `:rf/frame-id` against
-;; this explicit target and raises `:rf.error/hydration-frame-id-mismatch`
-;; only on a present-AND-DIFFERENT value (Spec 011 §The hydration payload).
-;; The two no-conflict shapes both appear in this example: `handle-request`
-;; above DROPS `:rf/frame-id` (its per-request gensym would never equal this
-;; target, so an absent frame-id is the safe shape), while the static
-;; `index.html` next to this file carries `:rf/frame-id :rf/default` — present
-;; AND equal to this target, the other no-conflict case. The frame MUST be
-;; `:client`-platform so the `:rf.ssr/check-*` compatibility-check fxs the
-;; `:rf/hydrate` handler dispatches actually fire.
+;; The fixed client app-frame. The app names its hydration target explicitly
+;; and threads the same id through both `ssr/hydrate!` (where the server state
+;; lands) and the root `frame-provider` (where in-tree dispatch/subscribe
+;; resolve). It must be a `:client`-platform frame so the `:rf.ssr/check-*`
+;; compatibility-check fxs the `:rf/hydrate` handler dispatches actually fire
+;; (Spec 011 §The :rf/hydrate event).
 (def app-frame :rf/default)
 
 #?(:cljs

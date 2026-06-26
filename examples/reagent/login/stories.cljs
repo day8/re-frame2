@@ -196,8 +196,7 @@
   ;; the SAME `:auth.login/edit-field` events the controlled inputs fire on
   ;; keystroke, writing into the app-db login-form slice. The machine stays
   ;; `:idle` (no submit yet); the inputs render the seeded draft as their
-  ;; `:value`. (Before the Pattern-Forms refactor the draft lived in a
-  ;; component-local atom and was NOT event-reachable — see the ns docstring.)
+  ;; `:value`.
   (story/reg-variant :story.login/filled
     {:doc        "Both fields filled in, nothing submitted yet — the form
                  mid-edit. The draft was typed into the app-db login-form

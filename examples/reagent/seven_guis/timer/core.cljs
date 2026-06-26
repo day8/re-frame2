@@ -22,9 +22,8 @@
    - Controlled-input slider via dispatch on change       (CP-4)"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
-            ;; Loading the ns here registers its late-bind hooks so
-            ;; rf/reg-app-schema resolves.
+            ;; Loading `re-frame.schemas` (from day8/re-frame2-schemas)
+            ;; registers the hooks that make `rf/reg-app-schema` resolve.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -46,11 +45,10 @@
    [:tick-active? :boolean]             ;; whether a tick is in flight
    [:tick-gen :int]])                   ;; generation token; bumped on Reset to retire stale ticks
 
-;; EP-0002: reg-app-schema is context-required frame-local; a
-;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (the id the render root's `frame-provider {:id app-frame}`
-;; ensures — see `run`), so name it explicitly so the schema binds to the app
-;; frame whose commits it validates.
+;; `reg-app-schema` binds the schema to a specific frame, so it needs a frame
+;; in scope. At ns-load there is none, so we name the frame with `with-frame`.
+;; We use `:rf/default` — the same id the render root's `frame-provider` uses
+;; (see `run`) — so the schema lands on the app frame whose commits it validates.
 (with-frame :rf/default
   (rf/reg-app-schema [:timer] {:schema TimerState}))
 
@@ -178,9 +176,8 @@
                                       (js/parseInt (.. % -target -value))])}]
       [:span (.toFixed (/ duration 1000.0) 1) " s"]]
      [:div.row
-      ;; Ordinary `dispatch` — the idiom for every UI event handler.
-      ;; The 0.0 reading is made observable by the :tick-gen generation
-      ;; guard (see EVENTS header note), not by synchronous dispatch.
+      ;; Plain `dispatch`, like every UI handler. The 0.0 reading shows
+      ;; reliably thanks to the :tick-gen generation guard (see EVENTS note).
       [:button {:data-testid "timer-reset"
                 :on-click #(dispatch [:timer/reset])} "Reset"]]]))
 
@@ -194,20 +191,21 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame).
-;; The render root then uses the `frame-provider` ENSURE shape (`{:id …}`):
-;; on first mount it creates the app frame, applies its config, and runs the
-;; `:initial-events` seed ONCE; on hot reload it reuses the existing frame
-;; without re-seeding. Create, seed, and scope-into-React all happen in that
-;; one spot. The frame id is `:rf/default` — the same id the schema block
-;; above scopes its `reg-app-schema` registration to. Matches the canonical
-;; mount in examples/reagent/counter/core.cljs.
+;; The whole frame lifecycle lives in one spot at the render root: the
+;; `frame-provider {:id app-frame …}` below. On first mount it creates the
+;; app frame, applies its config, and runs `:initial-events` once to seed
+;; app-db. Thereafter every `dispatch`/`subscribe` in the tree resolves to
+;; that frame. On hot reload the provider reuses the existing frame and skips
+;; re-seeding, so the timer keeps ticking across re-mounts.
+;;
+;; `app-frame` is just an id we pick. We use `:rf/default` — the same id the
+;; schema block above binds to. Matches the canonical mount in
+;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; `init!` installs the reactive adapter for the process. It does not create
+  ;; the frame — the `frame-provider` below does that.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

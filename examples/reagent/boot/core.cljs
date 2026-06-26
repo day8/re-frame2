@@ -1,11 +1,11 @@
 (ns boot.core
   "Entry point for the boot example — Pattern-Boot demonstrated.
 
-   `run` wires the Reagent adapter, installs the per-URL canned-HTTP
-   stub override (so the example runs standalone — no backend), and
-   triggers the boot machine via `:boot/initialise`. The render runs
-   immediately; the root view stays on the boot-progress screen until
-   the boot machine reaches `:ready`.
+   `run` installs the Reagent adapter and renders the app under a
+   `frame-provider`. The provider redirects HTTP to a per-URL canned
+   stub (so the example runs standalone — no backend) and seeds the boot
+   machine on first mount. The root view stays on the boot-progress
+   screen until the boot machine reaches `:ready`.
 
    The four mocked endpoints:
      /api/config.json   → static app config (api-base, env, build)
@@ -44,9 +44,10 @@
 ;; ============================================================================
 ;;
 ;; The boot example would normally hit /api/config.json and three more
-;; endpoints; we don't ship a backend, so we override `:rf.http/managed`
-;; on the default frame to a wrapper fx that synthesises the canned
-;; reply per URL substring. Each branch delegates to
+;; endpoints; we don't ship a backend. This section defines the canned
+;; payloads and the `:boot.demo/http-stub` fx that returns one per URL
+;; substring. The provider in `run` wires this stub in as the frame's
+;; `:rf.http/managed` via `:fx-overrides`. Each reply delegates to
 ;; `:rf.http/managed-canned-success` (Spec 014 §Testing) — the same
 ;; reply shape a live server would produce.
 
@@ -129,46 +130,35 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; React root named `react-root` (not `root`) so it does NOT collide
-;; with any `root-view` registered above. Held in an atom and populated
-;; lazily inside `run` rather than at ns-load so multiple example
-;; namespaces co-required by the browser-test bundle don't race
-;; `create-root` calls onto the same shared `#app` element.
+;; The React root, held in an atom and created lazily inside `run`. Doing
+;; it in `run` (not at ns-load) lets several example namespaces share the
+;; browser-test bundle without racing `create-root` onto the same `#app`
+;; element.
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. This example uses `:rf/default` as its app frame id.
-;; `init!` installs the adapter (it does NOT create the frame); the
-;; render root then establishes the frame in one spot via the
-;; `frame-provider` ENSURE form (`{:id app-frame …}`): on first mount
-;; it CREATES the frame, applies the config, and runs `:initial-events`
-;; once; on hot reload it REUSES the existing frame without re-seeding.
-;; Every in-tree `dispatch`/`subscribe` resolves to that frame.
+;; The app frame id. Every in-tree `dispatch`/`subscribe` resolves to
+;; this frame. The render-root `frame-provider` below establishes it
+;; (see `run`). EP-0002: an app must name its frame explicitly; the
+;; runtime never invents one.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the adapter by passing its spec map directly.
   (rf/init! reagent-adapter/adapter)
 
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; ENSURE form: create + configure + seed the app frame in one
-    ;; place. `:fx-overrides` redirects `:rf.http/managed` on the frame
-    ;; so every child loader's GET routes to the per-URL canned stub
-    ;; above (frame-wide; the boot example issues no non-mocked
-    ;; requests, so a blanket override is the right grain).
+    ;; The `frame-provider` below creates, configures, and seeds the app
+    ;; frame in one place (the `{:id …}` ENSURE form):
     ;;
-    ;; `:initial-events` seeds the boot exactly once on first mount.
-    ;; The `:app/boot` machine's :initial state and :data seed
-    ;; `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on the
-    ;; eager creation kick (per Spec 005 §When creation happens — eager
-    ;; start vs lazy first event); :boot/initialise fires
-    ;; `[:app/boot [:rf.machine/start]]`, the creation marker that births
-    ;; the machine directly into :configuring and runs its :spawn
-    ;; entry-cascade, starting the boot sequence. On hot reload the frame
-    ;; is reused and the boot does NOT re-run.
+    ;; - `:fx-overrides` redirects `:rf.http/managed` on this frame to the
+    ;;   per-URL canned stub above, so every child loader's GET hits a
+    ;;   canned reply. Frame-wide is the right grain — the boot example
+    ;;   issues no other requests.
+    ;; - `:initial-events` fires `:boot/initialise` once on first mount,
+    ;;   which kicks off the boot machine. On hot reload the frame is
+    ;;   reused and the boot is not re-run.
     (rdc/render @react-root
                 [rf/frame-provider {:id             app-frame
                                     :doc            "Boot example demo frame."

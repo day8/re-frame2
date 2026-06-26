@@ -49,10 +49,10 @@
 ;; THE TRANSITION TABLE — chapter §The same flow as a transition table
 ;; ============================================================================
 ;;
-;; Pure data. `:guards` and `:actions` live with the spec — there is no
-;; global registry. References inside `:states` resolve against this
-;; map; cross-machine reuse is via Clojure vars (define a fn, name it
-;; locally in each machine's :guards / :actions).
+;; Pure data. `:guards` and `:actions` live right here in the spec, and the
+;; references inside `:states` resolve against this map. (There is no global
+;; guard/action registry to look them up in.) To reuse a guard or action across
+;; machines, define a fn and name it locally in each machine's :guards / :actions.
 ;;
 ;; This is a near-twin of the login machine in the `login` example
 ;; (examples/reagent/login/core.cljs) — same states, guards, actions, and
@@ -244,13 +244,12 @@
 
 ;; The machine snapshot lives in runtime-db at
 ;; [:rf.runtime/machines :snapshots :auth.login/flow] (per Spec 005).
-;; The framework ships `:rf/machine` as the canonical entry point onto
-;; that path; the two named subs below chain off it to project out the
-;; convenient pieces (current state, last error). The "is it busy / locked?"
-;; questions the view actually asks are NOT here — they live as the
-;; `rf/machine-has-tag?` queries in views.cljs (chapter §State tags),
-;; because discriminating on the snapshot's runtime-projected `:tags` set
-;; decouples view code from individual state-keyword identity.
+;; The framework ships `:rf/machine` as the canonical entry point onto that
+;; path. The two named subs below chain off it to project out the handy pieces:
+;; current state and last error. For the "is it busy / locked?" questions, the
+;; view asks the machine for a tag directly with `rf/machine-has-tag?`
+;; (chapter §State tags) — reading the `:tags` set keeps the view off
+;; individual state keywords.
 
 (rf/reg-sub :auth.login/draft
   {:doc "The login form draft — what the user has currently typed. The view's

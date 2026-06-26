@@ -84,13 +84,13 @@
                       docs))))}))
 
 ;; EP-0010 (Causal World Inputs): the new document's id is written into durable
-;; app-db (`:notebook/documents`), so it must be a function of prior frame-state
-;; — never an ambient `(rand-int)` read at the durable-write site (a fresh
-;; event-stream replay would mint a different id, breaking replay determinism).
-;; So we allocate it deterministically from the existing documents, the todomvc
-;; `allocate-next-id` idiom: scan the `doc-N` keyword ids already in app-db and
-;; take max+1. Seeded ids (`:welcome`, `:six-dominoes`, …) carry no `doc-`
-;; prefix, so they don't participate — the first minted id is `:doc-1`.
+;; app-db (`:notebook/documents`), so it is derived from the documents already
+;; there — the todomvc `allocate-next-id` idiom. Scan the `doc-N` keyword ids
+;; in app-db and take max+1. Because the id comes from prior state, replaying
+;; the event stream mints the same id. (Reaching for `(rand-int)` here would
+;; break that: each replay would mint a different id.) Seeded ids (`:welcome`,
+;; `:six-dominoes`, …) carry no `doc-` prefix, so the first minted id is
+;; `:doc-1`.
 (defn- allocate-next-doc-id
   "Deterministic next `:doc-N` id from the existing documents — max prior
    N + 1 (1 when none yet). A pure function of prior app-db state, so it
@@ -347,18 +347,18 @@
 
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame).
-;; The render root then establishes the app frame in ONE spot: the
-;; `frame-provider` `{:id …}` ENSURE form creates the frame on first mount,
-;; runs `:initial-events` once to seed app-db before the first paint, and on
-;; hot reload reuses the same frame WITHOUT re-seeding. Every in-tree
-;; `dispatch`/`subscribe` then resolves to that frame. Matches the canonical
+;; The whole frame is established in one spot — the render root's
+;; `frame-provider {:id app-frame}` below. On first mount it creates the app
+;; frame and runs `:initial-events` once to seed app-db before the first
+;; paint; on hot reload it reuses the same frame and skips the seed. Every
+;; in-tree `dispatch`/`subscribe` then resolves to that frame. `app-frame` is
+;; an ordinary frame id with no framework privilege. Matches the canonical
 ;; mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
+  ;; `init!` installs the Reagent adapter. The frame itself is created by the
+  ;; `frame-provider` in the render call below.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

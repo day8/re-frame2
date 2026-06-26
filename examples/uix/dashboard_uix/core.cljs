@@ -78,10 +78,10 @@
 ;; EVENTS
 ;; ============================================================================
 
-;; Each handler is pure: (coeffects, event-vector) -> effect map. They move
-;; ONE value in app-db and stop — note that none of them touch a card, a
-;; sparkline, or the grid. Turning "this tag is now off" into "these cards
-;; disappear" is the subscription's job, downstream.
+;; Each handler is pure: (coeffects, event-vector) -> effect map. Each moves
+;; ONE value in app-db and stops. The cards, sparklines, and grid all follow
+;; downstream from the subscription — turning "this tag is now off" into
+;; "these cards disappear" is the subscription's job, not the handler's.
 
 ;; Seed the whole dashboard in one write: the metrics plus the two control
 ;; values (`:active-tags` a set — chips are multi-select; `:range` one id).
@@ -346,24 +346,22 @@
 ;; This matches the sibling notebook / process_monitor_helix mount shape.
 (defonce react-root (atom nil))
 
-;; The runtime never synthesises a frame from absence — an app must establish
-;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame). The render root then uses the UIx `frame-provider` in its ENSURE
-;; shape — `{:id app-frame …}` — which creates the app frame on first mount,
-;; applies its config, and runs `:initial-events` exactly ONCE to seed app-db;
-;; on hot reload it REUSES the existing frame WITHOUT re-seeding. The provider
-;; scopes that frame into React context so the `use-subscribe` hook and the
-;; render-time `(rf/frame-handle)` capture resolve to it. There is no
-;; `:rf/default` floor: a UIx tree rendered with NO provider observes the
-;; no-provider sentinel and any `use-subscribe` / `frame-handle` raises
-;; `:rf.error/no-frame-context`.
+;; The frame id this app runs under. The `frame-provider` at the render root
+;; (in `run` below) does the frame work: it creates this frame, seeds app-db,
+;; and scopes the frame into React context for `use-subscribe` and
+;; `(rf/frame-handle)`.
 (def app-frame :rf/default)
 
 (defn run []
+  ;; `init!` installs the UIx adapter so re-frame2 knows how to render.
   (rf/init! uix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
+    ;; The `frame-provider` is the one spot the frame is set up. `{:id …}`
+    ;; creates the app frame on first mount and runs `:initial-events` once
+    ;; to seed app-db; a hot reload reuses the same frame without re-seeding.
+    ;; Everything under it reads from this frame.
     (uix-dom/render-root
       ($ uix-adapter/frame-provider {:id app-frame
                                      :initial-events [[:dashboard/initialise]]}

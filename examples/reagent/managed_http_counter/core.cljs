@@ -342,21 +342,22 @@
 
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame).
-;; The render root then wraps the tree in a `frame-provider` keyed by
-;; `:id`: that one spot creates the app frame on first mount, applies its
-;; config, runs `:initial-events` once (the `[:counter/initialise]` seed),
-;; and on hot reload reuses the existing frame without re-seeding — so
-;; every in-tree `dispatch`/`subscribe` resolves to the app frame.
-;; `:rf/default` is an ordinary frame id with no framework privilege —
-;; just the name this app chose. Matches the canonical mount in
-;; examples/reagent/counter/core.cljs.
+;; The app establishes its frame explicitly, in one spot: the render
+;; root's `frame-provider {:id app-frame}`. On first mount it creates the
+;; app frame, applies its config, and runs `:initial-events` once (the
+;; `[:counter/initialise]` seed); on hot reload it reuses that frame and
+;; skips the seed. Every in-tree `dispatch`/`subscribe` then resolves to
+;; the app frame.
+;;
+;; `:rf/default` is just the id this app chose — an ordinary frame id with
+;; no framework privilege, so the runtime won't infer it for you. Matches
+;; the canonical mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; `init!` installs the Reagent adapter. Pass the adapter spec map
+  ;; (each adapter ns exports an `adapter` var) directly. It installs the
+  ;; adapter only; the frame-provider below creates the frame.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

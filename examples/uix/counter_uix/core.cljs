@@ -2,18 +2,16 @@
   "UIx variant of the counter example.
 
    Same dataflow as examples/reagent/counter, rendered through the UIx
-   adapter — React hooks all the way down rather than Reagent's reactive
-   atoms. The point of the example is the substrate boundary: everything
-   above the view layer is byte-for-byte the Reagent counter's, and the
-   only thing that moves is how a component reads state and gets hold of
-   `dispatch`. Demonstrates:
+   adapter — React hooks rather than Reagent's reactive atoms. The point
+   is the substrate boundary: everything above the view layer is the
+   Reagent counter's code verbatim, and the only thing that moves is how
+   a component reads state and gets hold of `dispatch`. Demonstrates:
 
      - `reg-event` / `reg-sub` (substrate-agnostic — identical to Reagent)
      - `rf/init!` with the UIx adapter
      - `use-subscribe` hook (the UIx-idiomatic subscription read)
      - `(:dispatch (rf/frame-handle))` for click handlers — a UIx
-       component reaches for dispatch / use-subscribe explicitly; there
-       is no auto-injection
+       component reads dispatch and subscriptions off explicit calls
      - frame resolution via React context — `use-subscribe` and the
        `frame-handle` capture read the surrounding frame-provider
 
@@ -29,10 +27,10 @@
 ;;
 ;; Each handler is a pure (coeffects, event-vector) -> effect map fn: it
 ;; returns `{:db …}` ("replace app-db with this") and the runtime commits
-;; it atomically at the end of the cascade. This whole block is
-;; byte-for-byte identical to the Reagent and Helix counters — same ids,
-;; same bodies. That sameness IS the cross-substrate parity: the artefact
-;; layer does not know which reactive substrate renders it.
+;; it atomically at the end of the cascade. This whole block is identical
+;; to the Reagent and Helix counters — same ids, same bodies. That
+;; sameness is the cross-substrate parity: events and subs are pure data
+;; and logic, independent of whichever substrate renders the views.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -49,13 +47,12 @@
 ;; -- Views (the only substrate-specific code in this file) -------------------
 ;;
 ;; Everything above is shared with the Reagent and Helix counters; the
-;; substrate boundary is here. `reg-view` (the macro that auto-injects
-;; `dispatch`/`subscribe`) stays Reagent-only — UIx is plain React, so a
-;; component is a `defui` and reaches for what it needs explicitly:
-;; `use-subscribe` reads a sub (a real hook), and `dispatch` comes off a
-;; `(rf/frame-handle)`. The handle is the frame captured as a *value*, so
-;; the closed-over `dispatch` keeps targeting this frame even when a click
-;; fires later — grab it at render time, while the frame is in scope.
+;; substrate boundary is here. UIx is plain React, so a view is a `defui`
+;; component that reads what it needs explicitly: `use-subscribe` is a
+;; hook that reads a subscription, and `dispatch` comes off a
+;; `(rf/frame-handle)`. The handle captures the in-scope frame as a value,
+;; so the closed-over `dispatch` still targets this frame when a click
+;; fires later. Grab it at render time, while the frame is in scope.
 
 (defui counter-buttons []
   (let [count    (uix-adapter/use-subscribe [:counter/value])
@@ -77,26 +74,24 @@
 
 (defonce react-root (atom nil))
 
-;; The runtime never synthesises a frame from absence — an app must establish
-;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame), and the render is wrapped in `frame-provider` in its ENSURE shape:
-;; `{:id app-frame …}`. That one call creates the app frame on first mount,
-;; applies its config, and runs `:initial-events` ONCE to seed app-db — so the
-;; whole frame lifecycle lives in a single spot at the render root. On hot
-;; reload the provider REUSES the existing frame without re-seeding, so the
-;; counter keeps its current value across `:dev/after-load` re-mounts. That
-;; context is what lets the `use-subscribe` hook and the render-time
-;; `(rf/frame-handle)` capture resolve to the app frame. There is no
-;; `:rf/default` floor: a UIx tree rendered with NO provider observes the
-;; no-provider sentinel and any `use-subscribe` / `frame-handle` raises
-;; `:rf.error/no-frame-context`.
+;; The whole frame lifecycle lives in one spot at the render root: the
+;; `frame-provider {:id app-frame …}` below. On first mount it creates the
+;; app frame, applies its config, and runs `:initial-events` once to seed
+;; app-db. That context is what lets the `use-subscribe` hook and the
+;; render-time `(rf/frame-handle)` capture resolve to the app frame. On hot
+;; reload the provider reuses the existing frame and skips re-seeding, so
+;; the counter keeps its value across re-mounts. (Render a UIx tree with no
+;; provider and `use-subscribe` / `frame-handle` raise
+;; `:rf.error/no-frame-context` — the app must establish its frame.)
 ;;
-;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
-;; migration may reach for it out of habit, but the runtime won't infer it.
+;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
+;; with no framework privilege — the runtime won't infer it, so we name it
+;; here and hand it to the provider like any other id.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; `init!` installs the UIx reactive adapter for the process. Each adapter
+  ;; ns exports an `adapter` var; require the ns and pass that var directly.
   (rf/init! uix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

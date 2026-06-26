@@ -32,22 +32,16 @@
 ;; SCHEMA
 ;; ============================================================================
 ;;
-;; EP-0002: `reg-app-schema` is context-required frame-local and
-;; raises `:rf.error/no-frame-context` under no frame scope — so a bare ns-load
-;; registration is wrong, and a naive `with-frame :rf/default`
-;; would bind the schema to the client frame ONLY, leaving the per-request
-;; SERVER frame (where the SSR commits actually validate) unschema'd. Streaming
-;; SSR has TWO frame families: the per-request server frame (gensym, in
-;; `handle-request`) and the FIXED client hydration frame (`app-frame` →
-;; `:rf/default`, in `run`). The schema is the same contract for both, so we
-;; hold it as a value and register it explicitly against EACH frame at its
-;; entry point with the `{:frame …}` override. Holding it as a def also keeps
-;; ns-load side-effect-free — the entry namespace loads without any ambient
-;; frame fixture.
-;; `[:maybe …]` because the slice is ABSENT (nil) until `:rf/server-init`
-;; seeds it on the server / the client hydrates it — a bare `[:map-of …]` would
-;; reject the legitimate pre-seed `nil` and roll the commit back. (The bug was
-;; masked because validation never actually ran on these frames.)
+;; We hold the schema as a plain value and register it per-frame at each
+;; entry point with the `{:frame …}` override. Streaming SSR runs two frame
+;; families — the per-request server frame (gensym, in `handle-request`) and
+;; the fixed client hydration frame (`app-frame` → `:rf/default`, in `run`)
+;; — and both need the same contract, so each registers it explicitly.
+;; `reg-app-schema` is frame-local (EP-0002), so holding the schema as a def
+;; also keeps ns-load side-effect-free: the namespace loads under no frame.
+;; `[:maybe …]` because the `:cards` slice is nil until `:rf/server-init`
+;; seeds it on the server / the client hydrates it. A bare `[:map-of …]`
+;; would reject that legitimate nil and roll the commit back.
 (def CardsSchema
   [:maybe [:map-of :keyword [:map [:title :string] [:value [:maybe :int]]]]])
 
@@ -186,18 +180,16 @@
                              fid render-hash
                              {:version 1
                               :payload :rf.ssr.payload/whole-app-db}))
-           ;; EP-0002: `streaming-build-final-payload` stamps the
-           ;; per-request server frame (`fid`) as `:rf/frame-id`, but the
-           ;; client hydrates a FIXED app-frame (`app-frame` → `:rf/default`,
-           ;; below). `ssr/hydrate!` VALIDATES a present payload `:rf/frame-id`
-           ;; against the client's explicit `:frame` and raises
-           ;; `:rf.error/hydration-frame-id-mismatch` on disagreement (Spec 011
-           ;; §The hydration payload). The server's per-request gensym would
-           ;; always conflict with the client's fixed frame, so we DROP it —
-           ;; an absent `:rf/frame-id` is explicitly NO conflict (the explicit
-           ;; client target stands), matching the static `index.html` next to
-           ;; this file. A deployment that wants a frame-id on the wire stamps
-           ;; a STABLE id both sides agree on, not a per-request gensym.
+           ;; Drop the payload's `:rf/frame-id`. `streaming-build-final-payload`
+           ;; stamps this per-request server frame (`fid`), but the client
+           ;; hydrates a fixed app-frame (`app-frame` → `:rf/default`, below).
+           ;; `ssr/hydrate!` checks a present `:rf/frame-id` against the client's
+           ;; explicit `:frame` and raises `:rf.error/hydration-frame-id-mismatch`
+           ;; on disagreement (Spec 011 §The hydration payload); the per-request
+           ;; gensym would always disagree. With no frame-id on the wire the
+           ;; client's explicit target stands — matching the static `index.html`
+           ;; next to this file. A deployment that wants a frame-id on the wire
+           ;; stamps a stable id both sides agree on, not a per-request gensym.
            final-payload (dissoc final-payload :rf/frame-id)
            _ (rf/destroy-frame! fid)]
        {:shell shell-html
@@ -260,27 +252,21 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 #?(:cljs (defonce react-root (atom nil)))
 
-;; EP-0002: the SSR hydration target is CARRIED —
-;; established explicitly by the app and threaded through the streaming
-;; `install!`, `ssr/hydrate!`, AND the root `frame-provider`. The runtime
-;; never synthesises a frame from absence. This example uses `:rf/default`
-;; as its client app-frame id; it MUST be a `:client`-platform frame so the
-;; `:rf.ssr/check-*` compatibility-check fxs the `:rf/hydrate` handler
-;; dispatches actually fire (Spec 011 §The :rf/hydrate event). BOTH the static
-;; `index.html` payload AND the dynamic `handle-request` final-payload above
-;; carry NO `:rf/frame-id`: the server renders under a per-request gensym
-;; frame the client can't know ahead of time, and the client hydrates this
-;; FIXED app-frame, so an absent frame-id is the correct shape (it is NOT a
-;; hydration-frame-id conflict — the explicit `:frame` stands). A present-but-
-;; different stamp (the server's per-request gensym against this `:rf/default`
-;; client target) WOULD surface `:rf.error/hydration-frame-id-mismatch` (Spec
-;; 011 §The hydration payload), which is why `handle-request` drops it.
+;; The client app-frame id. The app carries it explicitly — the same id
+;; flows to the streaming `install!`, `ssr/hydrate!`, AND the root
+;; `frame-provider` (EP-0002). This example uses `:rf/default`. It must be a
+;; `:client`-platform frame so the `:rf.ssr/check-*` compatibility-check fxs
+;; the `:rf/hydrate` handler dispatches actually fire (Spec 011 §The
+;; :rf/hydrate event). Both the static `index.html` payload and the dynamic
+;; `handle-request` final-payload carry no `:rf/frame-id`: the server renders
+;; under a per-request gensym frame, the client hydrates this fixed frame, so
+;; an absent frame-id is the right shape — the explicit `:frame` is the target.
 #?(:cljs (def app-frame :rf/default))
 
 #?(:cljs
    (defn run []
-     ;; `init!` installs the adapter but does NOT create a frame — EP-0002:
-     ;; the app establishes its frame explicitly (below).
+     ;; `init!` installs the Reagent adapter. The app then creates its
+     ;; frame explicitly below (init! does not create one — EP-0002).
      (rf/init! reagent-adapter/adapter)
      ;; Establish the carried client app-frame BEFORE installing the
      ;; streaming runtime / hydrating into it. `reg-frame` is a surgical

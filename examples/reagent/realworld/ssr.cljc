@@ -37,17 +37,13 @@
    :rf.runtime/machines])
 
 (defn exportable-app-db [app-db]
-  ;; Secrets do not cross the SSR seam. The bearer JWT lives at
-  ;; [:auth :token]; embedding it in server-rendered HTML would leak a
-  ;; live credential into page source (view-source-visible, proxy-logged,
-  ;; CDN-cacheable). Redact it at the payload boundary — the client
-  ;; re-establishes [:auth :token] on hydrate via `:auth/initialise`
-  ;; (auth.cljs), which folds the RECORDABLE-GENERATOR `:auth.session/token`
-  ;; coeffect — a registered supplier reading localStorage at processing-start,
-  ;; recorded onto the boot dispatch token (EP-0017).
-  ;; The durable token slot is thus a function of a recorded boot coeffect, not
-  ;; an ambient write-site read, so dropping it from the payload costs nothing
-  ;; and stays replay-sound.
+  ;; Keep secrets out of the SSR payload. The bearer JWT lives at [:auth :token];
+  ;; embedding it in server-rendered HTML would leak a live credential into page
+  ;; source (view-source-visible, proxy-logged, CDN-cacheable). Redact it at the
+  ;; payload boundary. The client re-establishes [:auth :token] on hydrate via
+  ;; `:auth/initialise` (auth.cljs), which reads it back from localStorage
+  ;; through the `:auth.session/token` recordable-generator coeffect (EP-0017).
+  ;; So dropping the token from the payload costs nothing and stays replay-sound.
   (cond-> (select-keys app-db ssr-app-slice-keys)
     (contains? app-db :auth) (update :auth dissoc :token)))
 
@@ -72,10 +68,9 @@
        (reader/read-string (.-textContent el)))))
 
 #?(:cljs
-   ;; EP-0002: the caller names the frame to hydrate explicitly —
-   ;; no zero-arity `:rf/default` convenience. Under the carried invariant the
-   ;; hydration target is a deliberate choice, not an inferred default; a
-   ;; non-default / multi-frame client must pass its own frame-id.
+   ;; EP-0002: the caller names the frame to hydrate. Making the target explicit
+   ;; lets a non-default or multi-frame client hydrate the right frame by passing
+   ;; its own frame-id.
    (defn hydrate-client! [frame-id]
      (when-let [payload (read-server-payload)]
        (rf/dispatch-sync [:rf/hydrate payload] {:frame frame-id})

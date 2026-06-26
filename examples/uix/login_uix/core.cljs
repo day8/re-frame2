@@ -16,8 +16,8 @@
    substrate's hook idiom differs. The terminal `:locked-out` state is
    surfaced as a non-interactive locked-account panel.
 
-   `reg-view` stays Reagent-only; UIx components are plain `defui`.
-   There is no auto-injection."
+   UIx views are plain `defui` components: each one reads its subscriptions
+   with the `use-subscribe` hook and pulls `dispatch` off `(rf/frame-handle)`."
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
@@ -34,14 +34,11 @@
 ;; SCHEMAS
 ;; ============================================================================
 
-;; The EP-0025 commit-plane `:sensitive` / `:large` classification effects (a
-;; `reg-event` returns them alongside `:db`) are the durable app-db
-;; classification mechanism. The password never lands in app-db (it rides the
-;; machine EVENT-arg schema and the HTTP body), so there is no app-db path to
-;; classify. The managed-HTTP request below
-;; carries `:sensitive? true` to scrub the password off the wire — a
-;; different axis (Spec 014 §Privacy) and the working, observable
-;; redaction. Parity across reagent/login + helix.
+;; Shape of valid login credentials: an email and a min-8 password. The
+;; password only ever rides this event-arg schema and the HTTP body — it is
+;; never written to app-db. The request body that carries it is scrubbed from
+;; traces by `:sensitive? true` on the managed-HTTP request below (Spec 014
+;; §Privacy). Same schema across reagent/login + helix.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
@@ -98,11 +95,10 @@
    [:attempts {:default 0} :int]
    [:error    [:maybe :string]]])
 
-;; Machine snapshots are runtime-db state, not app-db — a `reg-app-schema` on a
-;; machine-snapshot path validates nothing (app schemas validate the app-db
-;; partition only). The machine's own `[:schemas :data]` (attached to the spec map
-;; below) is the live validation surface for `:data`, so no app-schema reg is
-;; needed.
+;; The machine's `:data` is validated by its own `[:schemas :data]` (attached to
+;; the spec map below). Machine snapshots live in runtime-db, not app-db, so a
+;; `reg-app-schema` would not see them — app schemas validate the app-db
+;; partition only.
 
 ;; ============================================================================
 ;; FX
@@ -259,23 +255,12 @@
     {:tags #{:auth/locked}
      :meta {:terminal? true}}}})
 
-;; A machine that ALSO validates its outer event vector. The canonical
-;; surface for registering a machine is `reg-machine` / `reg-machine*`
-;; (Spec 005 §reg-machine — the form tools, examples, and scaffolds default
-;; to). This login flow needs BOTH a live machine `[:schemas :data]` AND an
-;; event-vector `:schema` (`AuthLoginEvent`, the `:where :event` boundary on
-;; the dispatched vector) — the machine + event-vector-schema shape — so it
-;; uses `reg-machine`'s event-`:schema` arity: the optional opts map carries
-;; the event `:schema` alongside the machine spec.
-;;
-;; `reg-machine` is the single registration home: it stamps the `:rf/machine?`
-;; / `:rf/machine` metadata that `(machine-meta :auth.login/flow)` reads (so
-;; the `:where :machine-data` walker resolves the `[:schemas :data]` and it
-;; VALIDATES). EP-0025: durable machine `:data` snapshot-egress classification
-;; is a projection-relative `:sensitive` / `:large` declaration on the machine
-;; spec — NOT a `[:schemas :data]` prop (which now drives only
-;; validation-failure-trace redaction); this machine's `:data` holds no secret,
-;; so it declares none.
+;; Register the machine (Spec 005 §reg-machine). This flow validates on two
+;; surfaces: the machine's `:data` slot via `[:schemas :data]`, and the
+;; dispatched event vector via `:schema` (`AuthLoginEvent`, the `:where :event`
+;; boundary). The opts map carries the event `:schema` alongside the machine
+;; spec, and `reg-machine` stamps the `:rf/machine` metadata that makes the
+;; `[:schemas :data]` validation live.
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}
@@ -288,10 +273,9 @@
 ;; The FORM-SLICE events below are the other half of the Pattern-Forms
 ;; "machine + slice" composition (spec/Pattern-Forms.md §Variations). The
 ;; SLICE owns the DRAFT — what the user is currently typing — at the app-db
-;; path [:auth :login-form]; the MACHINE owns submit/auth STATUS. This is the
-;; reason the form refactor exists: a form's draft is APPLICATION STATE, so it
-;; lives in app-db (projected via subs, mutated via events), NOT in a
-;; view-local Reagent atom / framework hook. Inputs are CONTROLLED: `:value`
+;; path [:auth :login-form]; the MACHINE owns submit/auth STATUS. A form's draft
+;; is application state, so it lives in app-db (projected via subs, mutated via
+;; events), not in a view-local atom or hook. Inputs are CONTROLLED: `:value`
 ;; reads the draft sub, `:on-change` dispatches `:auth.login/edit-field`. The
 ;; slice shape + the standard form events mirror the in-repo exemplar
 ;; examples/reagent/realworld/auth.cljs 1:1.
@@ -307,8 +291,8 @@
 ;; machine's `:submit` boundary enforces.
 (def login-form-defaults {:email "" :password ""})
 
-;; Seed the slice to its standard Pattern-Forms shape. Dispatched once at
-;; boot (from `run`). `:draft` to the empty defaults; `:status :idle`.
+;; Seed the slice to its standard Pattern-Forms shape: empty `:draft`,
+;; `:status :idle`. Runs once via the frame-provider's `:initial-events`.
 (rf/reg-event :auth.login/initialise-form
   {:doc "Seed the login-form slice at [:auth :login-form] to its standard
          Pattern-Forms shape (empty draft, :idle status)."}
@@ -430,17 +414,16 @@
 ;; VIEWS  (UIx — defui + use-subscribe)
 ;; ============================================================================
 ;;
-;; This is the whole substrate seam. The Reagent twin registers these with
-;; `reg-view` and gets injected `dispatch`/`subscribe`; UIx has no such
-;; registry, so a view is a plain `defui`, reads a subscription through the
-;; `use-subscribe` hook, and takes `dispatch` off a `(rf/frame-handle)` by
-;; hand. The subscription vectors and event vectors are unchanged — only the
-;; way a React component plugs into them differs.
+;; This is the whole substrate seam. A UIx view is a plain `defui`: it reads
+;; each subscription through the `use-subscribe` hook and gets `dispatch` off
+;; `(rf/frame-handle)`. The Reagent twin instead registers these with `reg-view`
+;; and is handed `dispatch`/`subscribe`. The subscription vectors and event
+;; vectors are identical — only the way a React component plugs into them differs.
 ;;
-;; The form holds NO view-local state: there is no `uix/use-state` for the
-;; email/password. Each input's `:value` reads the draft from the
-;; `:auth.login/draft` sub, and `:on-change` DISPATCHES `:auth.login/edit-field`
-;; (it never sets view-local state) — controlled inputs, the Pattern-Forms way.
+;; The inputs are controlled: each `:value` reads the draft from the
+;; `:auth.login/draft` sub, and `:on-change` dispatches `:auth.login/edit-field`.
+;; The draft lives in app-db, so there is no `uix/use-state` here — the
+;; Pattern-Forms way.
 (defui login-form []
   (let [draft    (uix-adapter/use-subscribe [:auth.login/draft])
         busy?    (uix-adapter/use-subscribe [:rf/machine-has-tag?
@@ -505,29 +488,24 @@
 (defonce react-root (atom nil))
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the UIx adapter.
   (rf/init! uix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
-    ;; ONE-SPOT frame setup — the ENSURE `frame-provider` (`{:id …}`): on the
-    ;; first mount it CREATES the `:rf/default` frame, applies the config
-    ;; (`:fx-overrides` redirects `:rf.http/managed` to the demo stub), and runs
-    ;; `:initial-events` ONCE; on hot reload it REUSES the existing frame
-    ;; WITHOUT re-running them. There is no separate `reg-frame` / seed step.
+    ;; One-spot frame setup. The `frame-provider` at the render root owns the
+    ;; frame: on the first mount it creates the `:rf/default` frame, applies the
+    ;; config (`:fx-overrides` redirects `:rf.http/managed` to the demo stub),
+    ;; and runs `:initial-events` once. On hot reload it reuses the existing
+    ;; frame and skips the events. The `:id :rf/default` names the frame that the
+    ;; `use-subscribe` hook and the `(rf/frame-handle)` in `login-form` resolve
+    ;; to — those reads need a provider above them in the tree.
     ;;
-    ;; The MACHINE handler is self-initialising — its `:initial`/`:data` seed
-    ;; [:rf.runtime/machines :snapshots :auth.login/flow] when the flow first
-    ;; runs (per Spec 005 §Restore semantics), so it needs no seeding. The form
-    ;; SLICE is app-db, so it IS seeded via `:initial-events`
-    ;; ([:auth.login/initialise-form]) to its empty Pattern-Forms shape —
-    ;; otherwise the controlled inputs would read a nil draft on the first
-    ;; render (uncontrolled inputs).
-    ;;
-    ;; Providing `:id :rf/default` also makes the `use-subscribe` hook + the
-    ;; render-time `(rf/frame-handle)` capture in `login-form` resolve to
-    ;; `:rf/default`. With NO provider the tree observes the no-provider
-    ;; sentinel and those reads raise `:rf.error/no-frame-context`.
+    ;; `:initial-events` seeds the form SLICE ([:auth.login/initialise-form]) to
+    ;; its empty Pattern-Forms shape, so the controlled inputs read an empty
+    ;; draft (not nil) on the first render. The MACHINE needs no seeding: its
+    ;; `:initial`/`:data` seed [:rf.runtime/machines :snapshots :auth.login/flow]
+    ;; the first time the flow runs (Spec 005 §Restore semantics).
     (uix-dom/render-root
       ($ uix-adapter/frame-provider {:id              :rf/default
                                      :doc             "Login (UIx) demo frame."
