@@ -59,7 +59,7 @@
   machine, and a variant frame's hosted machines need the machine runtime in
   their generation — but those reserved `:rf.machine/*` / `:rf/machine*`
   registrations are FRAMEWORK STANDARDS (registered as standards by
-  `re-frame.machines/register-machine-runtime-standards!`, EP-0026 §Framework
+  `re-frame.machines/install-machine-runtime!`, EP-0026 §Framework
   Standard Registrations), so they are unioned into EVERY generation
   automatically. Selecting their namespace here would be both redundant and a
   fail-loud `:rf.error/image-standard-replacement-forbidden` collision against
