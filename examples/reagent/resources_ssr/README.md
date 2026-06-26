@@ -1,127 +1,136 @@
 # resources_ssr — Spec 016 §SSR worked example
 
-The sibling [`examples/reagent/ssr/`](../ssr/) ships an articles page where the
-server *bakes the fetched list into app-db* and hands that frozen value to the
-client. This example asks the harder question: what if the page's server-state
-isn't a value you froze, but a re-frame2 **resource** — a live cache the
-framework owns, with its own identity, scope, and staleness? Now SSR has to
-ship more than data. It has to ship *the cache*, faithfully enough that the
-client picks up where the server left off — renders the list on the first paint
+This example renders a server page whose state is a re-frame2
+**resource** — a live cache the framework owns — and ships that cache to
+the client so the page hydrates without re-fetching.
+
+The sibling [`examples/reagent/ssr/`](../ssr/) is simpler: the server
+bakes a fetched list into app-db and hands that frozen value across. Here
+the state isn't a value you froze. It's the framework's
+[resource](../../../docs/resources/glossary.md#resource) cache — with its
+own identity, scope, and staleness. So SSR has to ship the cache itself,
+faithfully enough that the client renders the list on the first paint
 **and** knows not to re-fetch something it was just handed fresh.
 
-That's the load-bearing idea: a hydrated resource isn't a snapshot pasted into
-app-db, it's the runtime's resource cache reconstituted on the client, so the
-view reads it passively — no fetch, no flicker — exactly as if the client had
-fetched it itself a moment ago. Everything below is the discipline that makes
-that handoff safe.
+That's the load-bearing idea. A hydrated resource isn't a snapshot pasted
+into app-db. It's the runtime's resource cache rebuilt on the client, so
+the [view](../../../docs/guide/glossary.md#view) reads it passively — no
+fetch, no flicker — just as if the client had fetched it a moment ago.
+Everything below is the discipline that makes that handoff safe.
 
-One artefact, two runtimes: it's `.cljc`, so the very same code runs server-side
-on the JVM (the `:clj` branches) and client-side in the browser (the `:cljs`
-branches), with the reader macros picking the side. Read it as the worked
+One artefact, two runtimes: the code is `.cljc`, so the same file runs on
+the server (the `:clj` branches) and in the browser (the `:cljs`
+branches), with reader macros picking the side. Read it as the worked
 companion to [Spec 016 §SSR and hydration](../../../spec/016-Resources.md)
-riding over [Spec 011 SSR](../../../spec/011-SSR.md); the narrative version,
-if you'd rather read the story than the code, lives at
+riding over [Spec 011 SSR](../../../spec/011-SSR.md). For the narrative
+version, see
 [docs/resources/concepts.md §SSR and hydration](../../../docs/resources/concepts.md#ssr-and-hydration).
 
 ## What this demonstrates
 
-The whole resource SSR contract, read top to bottom as one request and its
-client pickup. The recurring theme: a process-global cache would leak one
-user's data into another's render, so SSR is *aggressively* per-request, and the
-wire payload is *aggressively* minimal.
+The whole resource SSR contract, read top to bottom as one request and
+its client pickup. The recurring theme: a process-global cache would leak
+one user's data into another's render, so SSR keeps everything
+per-request, and the wire payload stays minimal.
 
-- **A frame per request — because the cache is shared state.** SSR resources run
-  in a per-request [frame](../../../docs/guide/glossary.md#frame), never a
-  process-global one. The cache lives in the frame's
-  [runtime-db](../../../docs/guide/glossary.md#runtime-db), so two concurrent
-  renders are two isolated caches that can't see each other — the same frame
-  isolation that powers tests and stories, now buying you the privacy guarantee
-  that matters most when you're rendering N users' pages in one JVM.
-  `handle-request` (`:clj`) mints the frame, dispatches
-  `:rf/server-init`, renders, and tears it down in a `finally` on **every** exit
-  path — success or throw, no leaked frame per request.
+- **A frame per request — because the cache is shared state.** SSR
+  resources run in a per-request
+  [frame](../../../docs/guide/glossary.md#frame), never a process-global
+  one. The cache lives in that frame's
+  [runtime-db](../../../docs/guide/glossary.md#runtime-db), so two
+  concurrent renders are two isolated caches that can't see each other.
+  It's the same frame isolation that powers tests and stories — here it
+  buys the privacy you most need when rendering many users' pages in one
+  JVM. `handle-request` (`:clj`) mints the frame, dispatches
+  `:rf/server-init`, renders, and tears the frame down in a `finally` on
+  **every** exit path — success or throw, no leak.
 
-- **Blocking preload, then drain — so the render never sees a skeleton.** A
-  resource is normally async: ask for it, get a `:loading` view-model, fill in
-  the data when the reply lands. That's wrong for SSR, where there's no second
-  render to fill anything in. So `:rf/server-init`
-  [ensures](../../../docs/resources/glossary.md#owner--cause) the page resource
-  under an `[:ssr request-id nav-token]`
+- **Block on the preload, so the render never sees a skeleton.** A
+  resource is normally async: ask for it, get a `:loading` view-model,
+  fill in the data when the reply lands. That's wrong for SSR, where
+  there's no second render to fill anything in. So `:rf/server-init`
+  [ensures](../../../docs/resources/glossary.md#owner--cause) the page
+  resource under an `[:ssr request-id nav-token]`
   [owner](../../../docs/resources/glossary.md#owner--cause) with
-  [cause](../../../docs/resources/glossary.md#owner--cause) `:ssr-preload`, and
-  then `handle-request` calls `ssr/drain-blocking-resources!` to *wait* for that
-  ensure to settle — reach `:loaded`, or time out into a structured first-load
-  failure — **before** the render walk runs. The
+  [cause](../../../docs/resources/glossary.md#owner--cause)
+  `:ssr-preload`. Then `handle-request` calls
+  `ssr/drain-blocking-resources!` to **wait** for that ensure to settle —
+  reach `:loaded`, or time out into a structured first-load failure —
+  before the render runs. The
   [view](../../../docs/guide/glossary.md#view) reads through the passive
-  `[:rf.resource/state …]` [subscription](../../../docs/guide/glossary.md#subscription)
-  and, by the time it runs, the data is simply *there*. No hung `:loading`
-  skeleton makes it into the HTML.
+  `[:rf.resource/state …]`
+  [subscription](../../../docs/guide/glossary.md#subscription), and by the
+  time it runs the data is simply *there*. No hung `:loading` skeleton
+  reaches the HTML.
 
-- **A ruthless allowlist on the way out — never the whole cache.** The resource
-  cache is a rich runtime structure: entries, a tag-index, an owner-index, host
-  fetch handles. Almost none of that should cross the wire. `handle-request`
-  projects the runtime-db through `payload-policy/project-runtime-db`, which
-  ships **only** the durable resource `:entries` onto the payload's
-  `:rf/runtime-db`. Per entry it honours
-  [data classification](../../../docs/guide/glossary.md#data-classification) —
-  a `:sensitive?` value is **redacted**, a `:large?` value is **omitted**. The
-  reverse indexes (`:tag-index` / `:owner-index`) are **excluded** entirely
-  because they *recompute from `:entries`* the moment the client installs them —
-  shipping them would be sending derived data you're about to rebuild anyway.
+- **An allowlist on the way out — never the whole cache.** The resource
+  cache is a rich runtime structure: entries, a tag-index, an
+  owner-index, host fetch handles. Almost none of that should cross the
+  wire. `handle-request` projects the runtime-db through
+  `payload-policy/project-runtime-db`, which ships **only** the durable
+  resource `:entries` onto the payload's `:rf/runtime-db`. Per entry it
+  honours [data
+  classification](../../../docs/guide/glossary.md#data-classification): a
+  `:sensitive?` value is **redacted**, a `:large?` value is **omitted**.
+  The reverse indexes (`:tag-index` / `:owner-index`) are **excluded** —
+  the client recomputes them from `:entries` the moment it installs them,
+  so shipping them would just be sending data you're about to rebuild.
   Host handles never serialize. The
-  [app-db](../../../docs/guide/glossary.md#app-db) slice rides the explicit,
-  fail-closed allowlist (`apply-policy`) the real Ring host uses — empty here,
-  because on this page *the resource is the state*, and app-db carries nothing
-  of its own.
+  [app-db](../../../docs/guide/glossary.md#app-db) slice rides the same
+  fail-closed allowlist (`apply-policy`) the real Ring host uses — empty
+  here, because on this page *the resource is the state* and app-db
+  carries nothing of its own.
 
 - **No double-fetch on the client — the payoff.** On the browser side the
-  framework's `:rf/hydrate` installs the projection into the client frame's
-  `:rf.runtime/resources` slice. The
-  [hydration](../../../docs/ssr/glossary.md#hydration) reconcile does the
-  cleanup the wire couldn't carry: it orphans the now-defunct SSR owner,
-  recomputes the reverse indexes from `:entries`, and settles any
+  framework's `:rf/hydrate` installs the projection into the client
+  frame's `:rf.runtime/resources` slice. The
+  [hydration](../../../docs/ssr/glossary.md#hydration) reconcile then does
+  the cleanup the wire couldn't carry: it orphans the now-defunct SSR
+  owner, recomputes the reverse indexes from `:entries`, and settles any
   wire-stripped in-flight entry to a stable
-  [status](../../../docs/resources/glossary.md#resource-status). The result is
-  the whole point of the exercise — a **fresh** hydrated entry renders its data
-  immediately and does **not** turn around and re-fetch it. (A stale, redacted,
-  or omitted entry *does* refetch — by the hydration refetch plan — because for
-  those the client genuinely doesn't have usable data in hand.)
+  [status](../../../docs/resources/glossary.md#resource-status). The
+  result is the whole point: a **fresh** hydrated entry renders its data
+  immediately and does **not** re-fetch it. (A stale, redacted, or
+  omitted entry *does* refetch — because for those the client genuinely
+  has no usable data in hand.)
 
-- **Scope is a wall hydration may never climb.** The resource declares
-  `:scope :rf.scope/global` — the auditable claim that this article list is
-  identical for every user. [Scope](../../../docs/resources/glossary.md#scope)
-  is part of a resource's cache identity, and hydration **must never cross
-  scopes**: a request-local SSR frame and the serialized payload have to *agree*
-  on scope before the client treats hydrated data as usable. A user-scoped page
-  would carry a scope resolver instead; the global claim here is the explicit,
-  checkable statement that this particular handoff is safe.
+- **Scope is a wall hydration may never cross.** The resource declares
+  `:scope :rf.scope/global` — the auditable claim that this article list
+  is identical for every user.
+  [Scope](../../../docs/resources/glossary.md#scope) is part of a
+  resource's cache identity, and hydration **must never cross scopes**: a
+  request-local SSR frame and the serialized payload have to *agree* on
+  scope before the client treats hydrated data as usable. A user-scoped
+  page would carry a scope resolver instead; the global claim here is the
+  explicit, checkable statement that this handoff is safe.
 
-The SSR-resource runtime is **real**: `handle-request` drives the actual server
-path rather than a skeleton stand-in — the blocking drain, the per-entry
-projection (redaction / omission / scoped-key privacy / index omission), and the
-client hydration reconcile + refetch plan all run end-to-end.
+The SSR-resource runtime is **real**: `handle-request` drives the actual
+server path, not a skeleton stand-in. The blocking drain, the per-entry
+projection (redaction / omission / scoped-key privacy / index omission),
+and the client hydration reconcile + refetch plan all run end-to-end.
 
-The `index.html` next to this file carries a **pre-baked** hydration payload — a
-`:loaded` `:articles/list` entry under `[:rf.scope/global :articles/list {}]` —
-so the browser-side `run` is runnable without a Clojure server in the box. It's
-an **illustrative** stand-in for the projection `handle-request` emits when a
-real server sits in front — not a byte-exact capture. One visible difference is
-the frame-id: this hand-written payload pins `:rf/frame-id :rf/default` (present
-*and equal* to the client's fixed target — a valid no-conflict shape a static
-file can hand-pick), whereas `handle-request` *drops* `:rf/frame-id` because its
-per-request gensym frame would never equal that target (an absent id is the
-other no-conflict shape). Both hydrate cleanly; both are correct. This mirrors
-the sibling [`examples/reagent/ssr/`](../ssr/), which likewise bakes a plain SSR
-payload into *its* `index.html`.
+The `index.html` next to this file carries a **pre-baked** hydration
+payload — a `:loaded` `:articles/list` entry under
+`[:rf.scope/global :articles/list {}]` — so the browser-side `run` runs
+without a Clojure server in the box. It's an **illustrative** stand-in
+for what `handle-request` emits behind a real server, not a byte-exact
+capture. One visible difference is the frame-id. This hand-written
+payload pins `:rf/frame-id :rf/default` — present *and equal* to the
+client's fixed target, a valid no-conflict shape a static file can
+hand-pick. `handle-request` instead *drops* `:rf/frame-id`, because its
+per-request gensym frame would never equal that target (an absent id is
+the other no-conflict shape). Both hydrate cleanly; both are correct.
+This mirrors the sibling [`examples/reagent/ssr/`](../ssr/), which
+likewise bakes a plain SSR payload into *its* `index.html`.
 
 ## Deferred — not built here
 
 - **Mutation with invalidation** — the next slice (EP-0003 slice 11). No
-  [mutation](../../../docs/resources/glossary.md#mutation) example is built; see
-  [`../resources/README.md`](../resources/README.md).
+  [mutation](../../../docs/resources/glossary.md#mutation) example is
+  built; see [`../resources/README.md`](../resources/README.md).
 - **GraphQL** — a deferred later phase.
-  [`:rf.http/managed`](../../../docs/resources/glossary.md#managed-http) is the
-  single built-in transport. No GraphQL example is built.
+  [`:rf.http/managed`](../../../docs/resources/glossary.md#managed-http)
+  is the single built-in transport. No GraphQL example is built.
 
 ## Files
 
@@ -138,9 +147,9 @@ resources_ssr/
 shadow-cljs watch examples/resources-ssr
 ```
 
-Then serve this folder's [`index.html`](index.html) alongside the build output
-and open it — its pre-baked payload lets the page hydrate without a Clojure
-server in the box.
+Then serve this folder's [`index.html`](index.html) alongside the build
+output and open it. Its pre-baked payload lets the page hydrate without a
+Clojure server in the box.
 
 ## Cross-references
 

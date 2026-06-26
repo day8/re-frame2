@@ -1,45 +1,49 @@
 # Nine States of UI — worked example
 
-Most apps ship one state: the happy one. The mock-up showed a tidy list
-of three rows, so that's what got built — and then production served up
-an empty account, a slow network, a fat-fingered form, and a list of
-four thousand items, none of which anyone designed for. There's a
-well-known UX taxonomy that names **nine** states a data-driven screen
-typically passes through: *Nothing, Loading, Empty, One, Some, Too Many,
-Incorrect, Correct, Done.* This example builds all nine, for one small
-domain — a **todos list** — and shows that the honest way to handle them
-isn't nine booleans and a tower of `cond`, but a single
+A data-driven screen passes through more states than the happy one. An
+empty account, a slow network, a rejected form, a list of four thousand
+items — all real, all easy to forget. A well-known UX taxonomy names
+**nine** states such a screen typically goes through: *Nothing, Loading,
+Empty, One, Some, Too Many, Incorrect, Correct, Done.*
+
+This example builds all nine for one small domain — a **todos list** —
+and shows the clean way to handle them: not nine booleans and a tower of
+`cond`, but a single
 [state machine](../../../docs/machines/concepts.md).
 
-Here's the load-bearing idea, and it's worth saying plainly before the
-details bury it. Those nine states aren't one axis — they're **three
-independent questions** asked at the same time. *How much data have we
-got?* (the cardinality axis: nothing → loading → empty/one/some/too-many
-→ error). *Is the form input any good?* (neutral → correct/incorrect).
-*Is this list still live, or archived?* (active → done). Model that as
-one flat enum and you get the combinatorial explosion every junior dev
-discovers the hard way — `:loading-and-form-invalid-and-active` and its
-twenty-six cousins. Model it as a `:type :parallel`
-[machine](../../../docs/machines/glossary.md#machine) with three
-**regions**, each its own little chart, and the axes stay orthogonal:
-three regions of a handful of [states](../../../docs/machines/glossary.md#state)
-each, not their cross-product. The
-[snapshot](../../../docs/machines/glossary.md#snapshot)'s `:state` becomes
-a *map* of region → state, all three running at once.
+The key idea is that the nine states aren't one axis. They're **three
+independent questions**, asked at the same time:
 
-The second trick is how the [view](../../../docs/guide/glossary.md#view)
-decides what to draw. It does **not** read the three regions and reason
-about combinations — that would just move the `cond` tower into the
-render function. Instead every state carries
-[tags](../../../docs/machines/glossary.md#state-tag) describing its
-intent (`:data/loading`, `:form/invalid`, `:mode/read-only`, …), the
-runtime unions every active state's tags onto the snapshot, and one
-plain-data `render-priority` table — consulted top to bottom by a single
-selector [subscription](../../../docs/guide/glossary.md#subscription),
-`:ui/render` — collapses that tag union to *one* render-model keyword.
-The root view's entire branching logic is then a single `case` over that
-keyword. Nine states, three regions, one branch site. That's the whole
-shape; the rest of this page is the guided tour.
+- **How much data have we got?** — `nothing → loading → empty / one /
+  some / too-many → error`
+- **Is the form input any good?** — `neutral → correct / incorrect`
+- **Is this list still live, or archived?** — `active → done`
+
+Model that as one flat enum and the answers multiply: you get
+`:loading-and-form-invalid-and-active` and a long tail of its cousins.
+Model it instead as a `:type :parallel`
+[machine](../../../docs/machines/glossary.md#machine) with three
+**regions** — one per question — and the axes stay separate. Each region
+is a small chart of a few
+[states](../../../docs/machines/glossary.md#state). The
+[snapshot](../../../docs/machines/glossary.md#snapshot)'s `:state` is then
+a *map* of region → state, with all three running at once.
+
+The second idea is how the
+[view](../../../docs/guide/glossary.md#view) decides what to draw. It does
+**not** read the three regions and reason about their combinations — that
+just moves the `cond` tower into render. Instead:
+
+- Every state carries [tags](../../../docs/machines/glossary.md#state-tag)
+  describing its intent (`:data/loading`, `:form/invalid`,
+  `:mode/read-only`, …).
+- The runtime unions every active state's tags onto the snapshot.
+- One plain-data `render-priority` table — read top to bottom by a single
+  [subscription](../../../docs/guide/glossary.md#subscription),
+  `:ui/render` — collapses that tag union to *one* render-model keyword.
+
+The view's whole branching logic is then a single `case` over that
+keyword. Nine states, three regions, one branch site.
 
 ## The nine states
 
@@ -55,64 +59,60 @@ shape; the rest of this page is the guided tour.
 | 8 | **Correct**   | Form submission succeeded; "Todo added." confirmation. | type a 3+ char title, submit |
 | 9 | **Done**      | Mode region reached `:done`; terminal, read-only. | `[:ui/nine-states [:archive {}]]` |
 
-A small control panel at the top of the demo lets you trigger each
-transition — so you can walk the whole taxonomy by clicking.
+A control panel at the top of the demo triggers each transition, so you
+can walk the whole taxonomy by clicking.
 
 ## How the model is structured
 
-One machine, three regions. Read each as a self-contained little
-lifecycle that happens to share the machine's `:data` map with its
-siblings:
+One machine, three regions. Read each region as a self-contained little
+lifecycle that shares the machine's `:data` map with its siblings:
 
-- **`:data` region** — the cardinality axis, and the place this example
-  quietly absorbs the whole remote-data lifecycle: `:nothing → :loading
-  → :resolving → {:empty | :one | :some | :too-many} | :error`. The
-  region's *state keyword is the status* — there's no separate
-  `:status :loading` field sitting in app-db getting out of sync with
-  reality, because being in the `:loading` state **is** the loading
-  status. `:resolving` is a clever little transient: it holds no UI of
-  its own, and the moment a fetch's items land an eventless
-  [`:always`](../../../docs/machines/concepts.md) cascade reads the item
-  count straight off the shared `:data` and falls through to the right
-  cardinality bucket on a single microstep — first guard that matches
-  wins.
+- **`:data` region** — the cardinality axis: `:nothing → :loading →
+  :resolving → {:empty | :one | :some | :too-many} | :error`. The
+  region's *state keyword is the status*. There's no separate
+  `:status :loading` field in app-db drifting out of sync with reality,
+  because being in the `:loading` state **is** the loading status.
+  `:resolving` is a transient step: it has no UI of its own. The moment a
+  fetch's items land, an eventless
+  [`:always`](../../../docs/machines/concepts.md) transition reads the
+  item count off the shared `:data` and falls through to the right
+  cardinality bucket in a single step — first guard that matches wins.
 - **`:form` region** — the form's validation lifecycle: `:neutral →
   {:correct | :incorrect}`. `:correct` is transient too; the next `:edit`
-  event returns the region to `:neutral`, so the "✓ Todo added"
-  acknowledgement clears itself the instant the user starts typing the
-  next one. (The form's *runtime* — the draft text, the per-field
-  errors, which fields have been touched — lives in app-db at
-  `:new-todo`, validated by a [schema](../../../docs/guide/glossary.md#schema);
-  the region tracks only *which stage of the lifecycle* the form is in.
-  Two different homes for two different kinds of fact.)
+  event returns the region to `:neutral`, so the "✓ Todo added" message
+  clears itself the moment the user starts typing the next one. (The
+  form's *runtime* — the draft text, per-field errors, which fields have
+  been touched — lives in app-db at `:new-todo`, validated by a
+  [schema](../../../docs/guide/glossary.md#schema). The region tracks only
+  *which stage of the lifecycle* the form is in. Two kinds of fact, two
+  homes.)
 - **`:mode` region** — the live/archived axis: `:active → :done`.
-  `:done` is terminal and tagged `:mode/read-only`. Note what the view
-  does with that: the form and the control buttons disable themselves by
-  asking `machine-has-tag?` for `:mode/read-only` — *ask, don't tell*.
-  The view never needs to know *which* state of *which* region carries
-  the read-only intent; it asks a question about intent and gets a
-  yes/no.
+  `:done` is terminal and tagged `:mode/read-only`. The form and the
+  control buttons disable themselves by asking `machine-has-tag?` for
+  `:mode/read-only` — *ask, don't tell*. The view never needs to know
+  *which* state of *which* region carries the read-only intent; it asks a
+  question and gets a yes/no.
 
 Every state declares `:tags` for its per-axis intent. The
 `render-priority` table over those tags is the one place the page's
-display priorities live — and the priorities encode a real product
-decision, readable at a glance: `:mode` wins outright (an archived list
-replaces everything), `:form` acknowledgements overlay next (they're
-transient), and the `:data` cardinality bucket is the fallback. Change
-which state beats which, and you edit one table, not ten views.
+display priorities live — and they encode a real product decision,
+readable at a glance: `:mode` wins outright (an archived list replaces
+everything), `:form` acknowledgements overlay next (they're transient),
+and the `:data` cardinality bucket is the fallback. To change which state
+beats which, you edit one table, not ten views.
 
 ## What this example demonstrates
 
 - **Parallel regions + tags.** Three orthogonal axes declared in one
   machine; tags compose across regions; a single selector subscription
-  folds the tag union into a render keyword so the view branches exactly
+  folds the tag union into a render keyword, so the view branches exactly
   once. This is the headline. See
   [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md)
   and [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md)
   §Parallel regions / §State tags.
 - **A remote-data lifecycle, folded into a region.** A real
   [managed-HTTP](../../../docs/guide/glossary.md#effect) request drives
-  the fetch; its reply comes back the re-frame2 way — as a dispatched
+  the fetch. Its reply comes back the re-frame2 way — as a dispatched
   [event](../../../docs/guide/glossary.md#event) carrying a reply map
   ([the uniform reply](../../../docs/guide/glossary.md#the-uniform-reply)),
   which the demo events forward into the machine as `:fetch-succeeded` /
@@ -120,22 +120,22 @@ which state beats which, and you edit one table, not ten views.
   state graph. See
   [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md).
 - **A form, the data-oriented way.** The `{:draft :errors :touched}`
-  slice in app-db carries the form's working state; a pure validator
-  decides correct-vs-incorrect; the form region carries the lifecycle.
-  See [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md).
+  slice in app-db holds the form's working state; a pure validator decides
+  correct-vs-incorrect; the form region tracks the lifecycle. See
+  [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md).
 - **Inspectability bias.** The non-trivial guards and actions
   (`:too-many?`, `:set-items`, `:stamp-archived`, …) are *named* entries
   in the machine's `:guards` / `:actions` maps, so a diagram or a tool
-  reads the condition right off the arrow; only the genuinely trivial
-  transitions use inline anonymous fns. The machine declaration is
-  meant to be read.
+  reads the condition right off the arrow. Only the genuinely trivial
+  transitions use inline anonymous fns. The machine declaration is meant
+  to be read.
 
 ## Legacy variant
 
 This example is the canonical implementation of Pattern-NineStates. The
-pre-parallel-regions variant — nine boolean discriminator subs plus a
-priority `cond` — still works and is supported, but it's the shape this
-example exists to retire. Reach for the machine.
+older variant — nine boolean discriminator subs plus a priority `cond` —
+still works and is supported, but it's the shape this example exists to
+retire. Reach for the machine.
 
 ## File layout
 
@@ -154,16 +154,16 @@ examples/reagent/nine_states/
 ```
 
 The three `stories*` files are an auxiliary Story showcase layered over
-this example: they source `nine-states.core`'s real parallel machine and
+this example. They source `nine-states.core`'s real parallel machine and
 `:ui/render` selector and enumerate the nine canonical render keywords
 (plus the async fetch-lifecycle) as Story variants, with the Xray preload
 wired so the `load → loading → loaded/error` cascade is inspectable. See
 [How to run](#how-to-run) for the showcase command.
 
-For brevity the whole example is one file. In a real codebase you'd split
+The whole example is one file for brevity. In a real codebase you'd split
 it the way re-frame2 conventions recommend — `schema.cljc / machine.cljc
 / events.cljs / subs.cljs / views.cljs` — but a single readable file
-makes the shape easier to take in at a sitting.
+makes the shape easier to take in at one sitting.
 
 ## How to run
 
