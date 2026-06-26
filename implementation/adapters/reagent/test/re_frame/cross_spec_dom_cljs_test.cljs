@@ -358,13 +358,13 @@
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/dispatch-sync [:seed] {:frame target-frame})
       (with-trace-recorder! [traces]
-        ;; Mount under frame-provider-existing so the subtree is scoped to
+        ;; Mount under frame-provider so the subtree is scoped to
         ;; the ALREADY-CREATED target-frame in the React-context tier
         ;; (the frame is constructed above via reg-frame + dispatch-sync
         ;; seed; this is a SCOPE, not an owned create — EP-0024). Even
         ;; though the render fn reads via frame/app-db-container directly,
         ;; the scope-provider mount path is the documented user-facing
-        ;; shape (per Spec 004 §frame-provider-existing) and exercises the
+        ;; shape (per Spec 004 §frame-provider) and exercises the
         ;; same substrate code-path the spec describes.
         (let [root (rdc/create-root mount-node)]
           ;; Reagent 2's render is flushSync — by the time `rdc/render`
@@ -372,7 +372,7 @@
           ;; render-fn's destroy-frame! call therefore ran inside the
           ;; commit cycle.
           (try
-            ;; Hiccup head is the frame-provider-existing fn; Reagent
+            ;; Hiccup head is the frame-provider fn; Reagent
             ;; treats `[fn-head args & children]` as an inline
             ;; component invocation.
             ;;
@@ -385,7 +385,7 @@
             ;; render commits, then disposal runs).
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider-existing
+                (rdc/render root [rf/frame-provider
                                   {:frame target-frame}
                                   [render-fn]])))
             (catch :default e
@@ -495,7 +495,7 @@
             (react-dom/flushSync
               (fn []
                 (rdc/render root
-                            [rf/frame-provider-existing {:frame target-frame}
+                            [rf/frame-provider {:frame target-frame}
                              [plain-fn]]))))
           (is (some? @render-error)
               "a plain fn's subscribe (no :contextType) raised rather than falling through to :rf/default")
@@ -575,7 +575,7 @@
         (try
           (react-dom/flushSync
             (fn []
-              (rdc/render root [rf/frame-provider-existing {:frame target-frame}
+              (rdc/render root [rf/frame-provider {:frame target-frame}
                                 [render-fn]])))
           (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
                                    (:operation %))
@@ -648,7 +648,7 @@
             (binding [frame/*current-frame* nil]
               (react-dom/flushSync
                 (fn []
-                  (rdc/render root [rf/frame-provider-existing {:frame target-frame}
+                  (rdc/render root [rf/frame-provider {:frame target-frame}
                                     [render-fn]]))))
             (is (= target-frame @resolved-frame)
                 "current-frame inside the reg-view reads the surrounding provider's frame, not :rf/default")
@@ -780,7 +780,7 @@
           (binding [frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider-existing {:frame target-frame}
+                (rdc/render root [rf/frame-provider {:frame target-frame}
                                   [render-fn]]))))
           (is (= :here (:stamped (rf/app-db-value target-frame)))
               "dispatch routed to the provider's frame — its app-db carries the stamp")

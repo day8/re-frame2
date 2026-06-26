@@ -1132,7 +1132,7 @@
 ;; the observer, leaking into the observed app's render tape. Root cause:
 ;; `shell-view` is a `reg-view` (its :rf.view/rendered carries
 ;; `(provider/current-frame)`), but mount.cljs rendered it BARE — its own
-;; `[frame-provider-existing {:frame :rf/xray}]` sat INSIDE its body around the panels —
+;; `[frame-provider {:frame :rf/xray}]` sat INSIDE its body around the panels —
 ;; so `shell-view`'s OWN render resolved `current-frame` to `:rf/default` by
 ;; fall-through and back-filled into the inspected app's boot epoch.
 ;;

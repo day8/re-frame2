@@ -135,41 +135,6 @@
       (:children props)
       're-frame.adapter.uix/frame-provider)))
 
-(defui frame-provider-existing
-  "User-facing SCOPE-ONLY component (EP-0024 §Scope, carry, and ownership).
-  It provides an ALREADY-CREATED frame's id to descendants via the shared
-  React context and creates / refreshes / destroys NOTHING — the frame is
-  owned elsewhere. The scope-INTO-React counterpart to `rf/with-frame` (a
-  dynamic var cannot cross React's render boundary). UIx call shape — the
-  idiomatic `$` TRAILING-CHILDREN form:
-
-      ($ frame-provider-existing {:frame :session}
-         ($ header)
-         ($ main))
-
-  `:frame` is REQUIRED (EP-0002 carried invariant) and must be a KEYWORD
-  frame id. A missing or `nil` `:frame` is a CONFIGURATION ERROR: the spine
-  core `build-frame-provider-element` emits `:rf.error/no-frame-context` and
-  throws rather than synthesising `:rf/default` (Spec 002 §Frame target
-  resolution). A non-nil but non-keyword `:frame` emits the distinct
-  `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo). A
-  frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-events`
-  / …) is a MISUSE: the owned-frame core emits + throws
-  `:rf.error/frame-provider-existing-lifecycle-opt` pointing the caller at
-  the OWNED `frame-provider`, because a scope-only provider neither creates
-  nor owns a frame.
-
-  Native shell above the prop-marshalling seam (rf2-z7hfp): a real `defui`,
-  so UIx's `$` reconstructs the lossless CLJS props map; the body rejects
-  lifecycle opts then delegates the clean `:frame` + children to the
-  substrate-agnostic spine core `build-frame-provider-element` (the
-  scope-only provide tier)."
-  [props]
-  (owned-frame/reject-lifecycle-opts!
-    (dissoc props :children)
-    're-frame.adapter.uix/frame-provider-existing)
-  (spine/build-frame-provider-element (:frame props) (:children props)))
-
 (def use-subscribe
   "UIx hook that reads a re-frame subscription. Returns the current
   value; re-renders the calling component when the value changes.

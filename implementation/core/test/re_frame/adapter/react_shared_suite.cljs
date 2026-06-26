@@ -3064,7 +3064,7 @@
   it is mounted via the substrate's OWN `$` (the documented call shape)
   rather than invoked directly. The entry file supplies a
   `:frame-provider-mount-element` thunk `(fn [frame-kw child-el] ...)`
-  that builds `($ frame-provider-existing {:frame frame-kw} child-el)` in the
+  that builds `($ frame-provider {:frame frame-kw} child-el)` in the
   substrate's idiom — the idiomatic TRAILING-CHILDREN shape (rf2-7kii2),
   no `:children` prop-map key — exercising the native shell through `$`,
   the exact surface the old per-substrate prop-mangling defect (rf2-9ok1s

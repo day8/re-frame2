@@ -12,9 +12,7 @@
 
     - the ENSURE create / reuse-no-reseed algebra (`acquire-ensure-frame!`);
     - the SCOPE-only fail-loud-if-absent guard (`require-live-frame-for-scope!`);
-    - the ENSURE `:id` guard (`require-ensure-frame-id!`);
-    - the retained legacy `frame-provider-existing` lifecycle-opt guard
-      (`reject-lifecycle-opts!`).
+    - the ENSURE `:id` guard (`require-ensure-frame-id!`).
 
   The React function component (`ensure-frame-fc`) + the hot-reload
   reuse-no-reseed behaviour under a real remount are exercised under a real DOM
@@ -195,28 +193,6 @@
           (owned-frame/require-live-frame-for-scope! :scope/gone 'rf/frame-provider))
         "scoping a destroyed frame fails loud")))
 
-;; ---- fail-loud: legacy frame-provider-existing rejects lifecycle opts -----
-
-(deftest reject-lifecycle-opts-passes-frame-only
-  (testing "frame-provider-existing accepts a :frame-only prop map"
-    (is (nil? (owned-frame/reject-lifecycle-opts!
-                {:frame :scope/x}
-                'rf/frame-provider-existing))
-        "a clean {:frame …} map is accepted (returns nil)")))
-
-(deftest reject-lifecycle-opts-fails-loud-on-construction-opts
-  (testing "frame-provider-existing rejects each frame-construction / lifecycle opt"
-    (doseq [bad [{:frame :scope/x :id :scope/x}
-                 {:frame :scope/x :images []}
-                 {:frame :scope/x :initial-events [[:rf/set-db {}]]}
-                 ;; the retired construction keys are still rejected here (kept in
-                 ;; lifecycle-opt-keys) so a stale caller fails loud, not silently:
-                 {:frame :scope/x :initial-db {}}
-                 {:frame :scope/x :on-create (fn [_])}]]
-      (is (thrown-with-msg? :default #":rf.error/frame-provider-existing-lifecycle-opt"
-            (owned-frame/reject-lifecycle-opts! bad 'rf/frame-provider-existing))
-          (str "rejects lifecycle opt in " (pr-str (dissoc bad :frame)))))))
-
 ;; ---- end-to-end: the Reagent user-facing surfaces validate ----------------
 ;;
 ;; These don't mount (node has no DOM); they call the public Reagent
@@ -243,14 +219,3 @@
       (is (= :scope/surface-live (second tree))
           "the frame keyword threads through to the scope tier"))))
 
-(deftest frame-provider-existing-rejects-lifecycle-opt-at-the-surface
-  (testing "rf/frame-provider-existing fails loud when handed an owned-style :id"
-    (is (thrown-with-msg? :default #":rf.error/frame-provider-existing-lifecycle-opt"
-          (rf/frame-provider-existing {:frame :scope/y :id :scope/y} [:span]))
-        "a lifecycle opt on the scope-only surface fails loud")))
-
-(deftest frame-provider-existing-scopes-frame-only
-  (testing "rf/frame-provider-existing with a clean :frame composes to a Provider"
-    (let [tree (rf/frame-provider-existing {:frame :scope/z} [:span "child"])]
-      (is (vector? tree) "produces a hiccup vector")
-      (is (= :scope/z (second tree)) "the frame keyword threads through to the scope tier"))))

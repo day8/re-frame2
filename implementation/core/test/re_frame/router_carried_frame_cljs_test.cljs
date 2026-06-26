@@ -66,7 +66,7 @@
     (rf/reg-frame :app/provided {:doc "frame the provider supplies"})
     (rf/reg-event :app/inc {:frame :app/provided}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    ;; Simulate being inside a `frame-provider-existing {:frame :app/provided}`
+    ;; Simulate being inside a `frame-provider {:frame :app/provided}`
     ;; render: the React-context tier reports the frame, the dynamic var
     ;; is unbound.
     (reset! provider-frame :app/provided)
