@@ -64,15 +64,15 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```
 - **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
 
-### `uix-adapter/frame-provider` / `uix-adapter/frame-provider-existing`
+### `uix-adapter/frame-provider`
 
-- **Kind**: UIx components (functions)
+- **Kind**: UIx component (function — one component, two config shapes)
 - **Signatures**:
   ```clojure
-  ($ uix-adapter/frame-provider {:id :session :images [session-image]} child…)  ;; own (create/destroy)
-  ($ uix-adapter/frame-provider-existing {:frame :session} child…)              ;; scope an existing frame
+  ($ uix-adapter/frame-provider {:frame :session} child…)                        ;; SCOPE an existing frame
+  ($ uix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
   ```
-- **Description**: The UIx-shaped frame providers — `frame-provider` owns a frame lifecycle (create-on-mount / destroy-on-unmount, `make-frame` opts); `frame-provider-existing` scopes an already-created frame (`:frame` only). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other UIx component (no `:children` prop-map key).
+- **Description**: The UIx-shaped merged frame provider, dispatched on the prop map: `{:frame …}` scopes an already-created frame (fails loud if absent), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts, no destroy-on-unmount). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other UIx component (no `:children` prop-map key).
 
 ### `uix-adapter/wrap-view`
 
@@ -154,15 +154,15 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ```
 - **Description**: "What frame am I in?"
 
-### `helix-adapter/frame-provider` / `helix-adapter/frame-provider-existing`
+### `helix-adapter/frame-provider`
 
-- **Kind**: Helix components (functions)
+- **Kind**: Helix component (function — one component, two config shapes)
 - **Signatures**:
   ```clojure
-  ($ helix-adapter/frame-provider {:id :session :images [session-image]} child…)  ;; own (create/destroy)
-  ($ helix-adapter/frame-provider-existing {:frame :session} child…)              ;; scope an existing frame
+  ($ helix-adapter/frame-provider {:frame :session} child…)                        ;; SCOPE an existing frame
+  ($ helix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
   ```
-- **Description**: The Helix-shaped frame providers — `frame-provider` owns a frame lifecycle (create-on-mount / destroy-on-unmount, `make-frame` opts); `frame-provider-existing` scopes an already-created frame (`:frame` only). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other Helix component (no `:children` prop-map key).
+- **Description**: The Helix-shaped merged frame provider, dispatched on the prop map: `{:frame …}` scopes an already-created frame (fails loud if absent), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts, no destroy-on-unmount). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other Helix component (no `:children` prop-map key).
 
 ### `helix-adapter/wrap-view`
 

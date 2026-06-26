@@ -128,7 +128,7 @@ The fix is one line of ceremony at your root: register a frame and scope your tr
                                           [:boot]]})        ;; then your boot event(s), in order
 
 (rdc/render root
-  [rf/frame-provider-existing {:frame :app/main}
+  [rf/frame-provider {:frame :app/main}
    [app-root]])
 ```
 
@@ -155,7 +155,7 @@ The capture is one line, and it's worth seeing concretely because it's the most 
 
 You can also pass `(rf/frame-handle frame-id)` to capture a *named* frame rather than the ambient one. Read its app-db with `(rf/app-db-value (:frame h))` — the handle carries operations, not state.
 
-> **Coming from React Context?** `frame-provider-existing` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a `frame-handle` while the scope was live. Same lesson, louder failure.
+> **Coming from React Context?** The merged `frame-provider {:frame …}` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a `frame-handle` while the scope was live. Same lesson, louder failure.
 
 ### Views render under a frame scope
 

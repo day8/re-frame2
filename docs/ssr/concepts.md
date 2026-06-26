@@ -148,13 +148,13 @@ The client's job is to land in the state the server finished in, without redoing
       ;; No payload script — a client-only first load. Seed normally.
       (rf/dispatch-sync [:app/initialise] {:frame :app})))
   (rdc/render react-root
-    [rf/frame-provider-existing {:frame :app}
+    [rf/frame-provider {:frame :app}
      [(rf/view :app/root)]]))
 ```
 
 Two things to hold onto:
 
-- **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider-existing`. That's [frame identity is carried, not found](../guide/glossary.md#frame-identity-is-carried-not-found), applied at boot. An absent `:frame` raises `:rf.error/no-frame-context`; the runtime never invents a default. The payload can also carry a `:rf/frame-id` (the frame the *server* rendered under) — it's validation evidence, not a target. If it's present and disagrees with the `:frame` you passed, hydration fails closed with `:rf.error/hydration-frame-id-mismatch` rather than installing the server's slice into the wrong frame; if it's absent (the common case — the server renders under a per-request frame the client can't name ahead of time), your explicit `:frame` just stands.
+- **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider {:frame …}`. That's [frame identity is carried, not found](../guide/glossary.md#frame-identity-is-carried-not-found), applied at boot. An absent `:frame` raises `:rf.error/no-frame-context`; the runtime never invents a default. The payload can also carry a `:rf/frame-id` (the frame the *server* rendered under) — it's validation evidence, not a target. If it's present and disagrees with the `:frame` you passed, hydration fails closed with `:rf.error/hydration-frame-id-mismatch` rather than installing the server's slice into the wrong frame; if it's absent (the common case — the server renders under a per-request frame the client can't name ahead of time), your explicit `:frame` just stands.
 - **Hydration replaces; the server is authoritative.** `:rf/hydrate` installs the server's [app-db](../guide/glossary.md#app-db) *and* its serialisable [runtime-db](../guide/glossary.md#runtime-db) slice (machine snapshots, the route) in one atomic step — [both partitions](../guide/glossary.md#the-two-partitions) at once — replacing whatever the client pre-seeded. A malformed payload is rejected wholesale (fail-closed); a missing one just means a normal client-only load — that's the `when-not` branch above.
 
 > **Coming from React?** This is `hydrateRoot` with the gloss removed. React hydrates by walking the DOM and reattaching listeners, and trusts that your component re-renders the same tree. Here the server's *state* rides along explicitly in the payload, `:rf/hydrate` installs it before the first render, and then the substrate [adapter](../guide/glossary.md#adapter) attaches listeners to the existing DOM. You never re-fetch on the client to "catch up" — the state the server computed is already in app-db.
