@@ -26,7 +26,7 @@ Anything in `:fx` is a `[fx-id args]` pair. The runtime looks up `fx-id` in the 
 | `[:dispatch event-vec]` | event vector | v1 | 002 | "Schedule this event on the same queue." Async — runs after the current cascade completes. |
 | `[:dispatch-later {:ms ms :event event-vec}]` | options map | v1 | 002 | "Schedule this event after N ms." |
 | `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | 014 | The canonical managed-HTTP fx. See [07 — HTTP](../resources/http-api.md). |
-| `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](06-routing.md). |
+| `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](../routing/api.md). |
 | `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
 | `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic actor instance whose snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` (in runtime-db). See [04 — Machines](../machines/api.md). |
 | `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | Symmetric counterpart to `:rf.machine/spawn`. Runs the actor's `:exit` action, dissociates `[:rf.runtime/machines :snapshots <id>]` (in runtime-db), clears its event-handler registration. |
@@ -34,7 +34,7 @@ Anything in `:fx` is a `[fx-id args]` pair. The runtime looks up `fx-id` in the 
 | `[:rf.fx/clear-flow id]` | id | v1 | 013 | Clear a registered flow at runtime via `:fx`. |
 | `[:http args]` | impl-specific | — | — | User-registered via `reg-fx`. The legacy un-managed shape; new code uses `:rf.http/managed`. |
 
-SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/redirect`, etc.) are rowed in [09 — SSR](09-ssr.md). Their `:platforms` metadata gates them off the client.
+SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/redirect`, etc.) are rowed in [09 — SSR](../ssr/api.md). Their `:platforms` metadata gates them off the client.
 
 ## Standard interceptors
 
@@ -157,4 +157,4 @@ At the pattern level (`(rf/dispatch event {:fx-overrides {:my/fx :other-fx-id}})
 
 - [01 — Core](01-core.md) — `reg-event`, `reg-fx`, `reg-cofx`, `dispatch` rowed in the registration and dispatch sections.
 - [10 — Testing](10-testing.md) — `with-fx-overrides` and the testing fixtures that use it.
-- [09 — SSR](09-ssr.md) — `:platforms` metadata on `reg-fx` for client vs server gating.
+- [09 — SSR](../ssr/api.md) — `:platforms` metadata on `reg-fx` for client vs server gating.

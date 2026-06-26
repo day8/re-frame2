@@ -100,6 +100,6 @@ example tree is test-free per [`examples/README.md`](../../README.md).
 
 - [`spec/016-Resources.md`](../../../spec/016-Resources.md) — the normative spec (§SSR and hydration).
 - [`spec/011-SSR.md`](../../../spec/011-SSR.md) — the SSR substrate this rides.
-- [`docs/guide/concepts/server-state.md`](../../../docs/guide/concepts/server-state.md#ssr-and-hydration) — the guide (§SSR and hydration).
+- [`docs/resources/concepts.md`](../../../docs/resources/concepts.md#ssr-and-hydration) — the guide (§SSR and hydration).
 - [`examples/reagent/resources/`](../resources/) — the client-side resource patterns.
 - [`examples/reagent/ssr/`](../ssr/) — plain SSR (server-state into app-db, not a resource).

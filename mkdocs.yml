@@ -194,8 +194,6 @@ nav:
       - "Frames": guide/concepts/frames.md
       - "Images": guide/concepts/images.md
       - "Flows": guide/concepts/flows.md
-      - "Routing": guide/concepts/routing.md
-      - "Server-side rendering": guide/concepts/ssr.md
       - "Errors": guide/concepts/errors.md
       - "Observability": guide/concepts/observability.md
     - "How-to":
@@ -244,6 +242,18 @@ nav:
     - "API": resources/api.md
     - "HTTP API": resources/http-api.md
     - "Glossary": resources/glossary.md
+
+  - Routing:
+    - routing/index.md
+    - "Concepts": routing/concepts.md
+    - "API": routing/api.md
+    - "Glossary": routing/glossary.md
+
+  - SSR:
+    - ssr/index.md
+    - "Concepts": ssr/concepts.md
+    - "API": ssr/api.md
+    - "Glossary": ssr/glossary.md
 
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).
@@ -306,9 +316,7 @@ nav:
     - "02 — Views": api/02-views.md
     - "03 — Effects": api/03-effects.md
     - "05 — Flows": api/05-flows.md
-    - "06 — Routing": api/06-routing.md
     - "08 — Schemas": api/08-schemas.md
-    - "09 — SSR": api/09-ssr.md
     - "10 — Testing": api/10-testing.md
     - "11 — Instrumentation": api/11-instrumentation.md
     - "12 — Registrar": api/12-registrar.md

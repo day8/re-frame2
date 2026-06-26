@@ -61,7 +61,7 @@ Because the slice is just an [app-db](../../guide/glossary.md#app-db) path, bind
 
 The check is dev-only — it [elides](../../guide/glossary.md#elide) in production along with the rest of the schema surface — so it costs nothing shipped. (`reg-app-schemas` is the bulk form; `reg-app-schema` registers one path at a time.)
 
-Now wire the event up so it actually fires. Each form gets a [route](../../guide/glossary.md#route), and each route's `:on-match` runs the initialise event whenever that route matches — so navigating to `/login` always lands you on a fresh form:
+Now wire the event up so it actually fires. Each form gets a [route](../../routing/glossary.md#route), and each route's `:on-match` runs the initialise event whenever that route matches — so navigating to `/login` always lands you on a fresh form:
 
 ```clojure
 (rf/reg-route :conduit.auth/login

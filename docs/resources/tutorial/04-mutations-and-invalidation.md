@@ -456,7 +456,7 @@ And here's the point this part exists to land: `[:editor/replied]` is **data**. 
 
 ## Guard the half-written draft
 
-One gap is left. Write half an article, click the site logo, and the draft silently vanishes — which is exactly the kind of thing users never forgive. Routes close this with a [`:can-leave` guard](../../guide/glossary.md#route-guard), a [subscription](../../guide/glossary.md#subscription) the router consults before navigating away:
+One gap is left. Write half an article, click the site logo, and the draft silently vanishes — which is exactly the kind of thing users never forgive. Routes close this with a [`:can-leave` guard](../../routing/glossary.md#route-guard), a [subscription](../../guide/glossary.md#subscription) the router consults before navigating away:
 
 ```clojure
 ;; src/conduit/editor.cljs

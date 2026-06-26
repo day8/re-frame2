@@ -213,7 +213,7 @@ That `:checkout/progress` selector's algebra view is an `:ephemeral`, `:on-deman
 
 A route lowers the same way, with a twist worth pausing on: every route materializes the *same* route fact — `:rf/route`, the one consumer-facing name for the route slice in runtime-db — with the per-route id recorded in `:source-form` and evaluation `:on-route`. Its `:inputs` are the framework route-transition events (`:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/handle-url-change`), the same across every route, because the same events materialize the slice no matter which route matched. Forty routes, one fact.
 
-A route's `:resources` declaration becomes a route-owned **activation edge** into the resource it ensures ([Routing: the URL is a sub](concepts/routing.md)):
+A route's `:resources` declaration becomes a route-owned **activation edge** into the resource it ensures ([Routing: the URL is a sub](../routing/concepts.md)):
 
 ```clojure
 ;; one :resources entry → one route-owned activation edge under :resource-edges

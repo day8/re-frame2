@@ -60,9 +60,9 @@ That's the minimum. A real list usually tunes a few more optional keys:
 
 ### 2. Let the URL carry the page
 
-Quick question: where should the *current page number* live? It's tempting to drop it into app-db — but the page number is really telling you *where the user is*, and "where the user is" is the URL's job. Put it in the URL and you get shareable links, working Back/Forward, and a reload that lands on the same page, all for free. (This is the [routing](../../guide/concepts/routing.md) ethos in one move: the URL is an input, not a thing you sync.)
+Quick question: where should the *current page number* live? It's tempting to drop it into app-db — but the page number is really telling you *where the user is*, and "where the user is" is the URL's job. Put it in the URL and you get shareable links, working Back/Forward, and a reload that lands on the same page, all for free. (This is the [routing](../../routing/concepts.md) ethos in one move: the URL is an input, not a thing you sync.)
 
-The [route](../../guide/glossary.md#route) validates the `?page=` query param, feeds it into the resource's params, and opts into keeping the old page visible while the new one loads:
+The [route](../../routing/glossary.md#route) validates the `?page=` query param, feeds it into the resource's params, and opts into keeping the old page visible while the new one loads:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs
@@ -82,7 +82,7 @@ Each `:resources` entry is a small declaration. The four keys above:
 
 - `:resource` names the registered resource;
 - `:params` is a pure `(fn [route] …)` computing its params from the route match;
-- `:blocking?` keeps the route transition pending (and gives [SSR](../../guide/glossary.md#ssr) a wait point) until this resource's first load lands;
+- `:blocking?` keeps the route transition pending (and gives [SSR](../../ssr/glossary.md#ssr) a wait point) until this resource's first load lands;
 - `:keep-previous?` is the no-flicker key from step 4.
 
 Two more keys earn their place on real tables:
@@ -96,7 +96,7 @@ Two more keys earn their place on real tables:
 
 ### 3. Page by navigating, not by fetching
 
-Here's the mental shift, and it's the whole numbered-pages trick: **changing pages is a [navigation](../../guide/glossary.md#navigate), not a fetch.** You swap `?page=` in the URL and the route does the rest. Drop the param entirely for page 1, so the first page has one canonical URL rather than `/` and `/?page=1` both pointing at the same list:
+Here's the mental shift, and it's the whole numbered-pages trick: **changing pages is a [navigation](../../routing/glossary.md#navigate), not a fetch.** You swap `?page=` in the URL and the route does the rest. Drop the param entirely for page 1, so the first page has one canonical URL rather than `/` and `/?page=1` both pointing at the same list:
 
 ```clojure
 (rf/reg-event :home/go-to-page
@@ -426,7 +426,7 @@ The contract is worth knowing, because it's the same *owner-driven* model the re
 
 ### Feeds and pages under SSR
 
-Both shapes ride [SSR](../../guide/glossary.md#ssr) with no extra work, because a resource entry is the same runtime-owned value on the server as in the browser. A `:blocking?` route resource is the wait point: the server drains it before render, serializes the settled entry through the egress projection (a numbered page, or the feed's accumulated pages — typically just page 0 from the server), and the client [hydrates](../../guide/glossary.md#hydration) it instead of refetching. For an infinite feed the nice consequence is that **load-more resumes from the hydrated tail** — the client reads `:next-page-param` off the page-0 the server already painted and the first "Load more" continues the sequence, no double-fetch of what shipped in the HTML.
+Both shapes ride [SSR](../../ssr/glossary.md#ssr) with no extra work, because a resource entry is the same runtime-owned value on the server as in the browser. A `:blocking?` route resource is the wait point: the server drains it before render, serializes the settled entry through the egress projection (a numbered page, or the feed's accumulated pages — typically just page 0 from the server), and the client [hydrates](../../ssr/glossary.md#hydration) it instead of refetching. For an infinite feed the nice consequence is that **load-more resumes from the hydrated tail** — the client reads `:next-page-param` off the page-0 the server already painted and the first "Load more" continues the sequence, no double-fetch of what shipped in the HTML.
 
 > **Gotcha — a blocking SSR resource needs a deadline, and a slow upstream surfaces as a typed failure.** Blocking governs the server's *wait-before-render* point, so a hung backend can't be allowed to hang the request forever. A blocking resource that exceeds the render deadline settles as a structured first-load failure for that server frame — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, inside the same closed `:rf.http/*` taxonomy every resource `:error` carries — so your error branch (which already gates on `:error` + `(not (:has-data? state))`) renders an error or skeleton rather than the page never arriving. The `:reason` lets you tell an SSR-deadline miss apart from a genuine upstream timeout; the `:kind` keeps it in one taxonomy. A non-blocking route resource never blocks render at all — if it hasn't settled by serialize time it simply ships no data and the client fetches it on hydration.
 

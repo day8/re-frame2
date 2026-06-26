@@ -599,64 +599,6 @@ Two grades of [coeffect](#coeffect). A *recordable* one (the clock, a fresh id) 
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
-## Routing
-
-re-frame2's optional routing capability — the URL is an *input* to your app, the active route is ordinary state you read through subscriptions, and navigation is just an [event](#event). See [Routing](concepts/routing.md).
-
-### **navigate**
-
-Change the route by dispatching navigation — the URL is an input, the active [route](#route) a [subscription](#subscription) you read like any other. Because it's an event, navigation is traceable, interceptable, and rewound by time-travel.
-
-```clojure
-(rf/dispatch [:rf.route/navigate :article {:id "abc"}])
-```
-
-Related: [Routing](concepts/routing.md).
-
-### **route**
-
-A URL pattern registered (`reg-route`) under an id, paired with what should happen when it matches — `:params`/`:query` schemas, a [loader](#loader) for the data it needs, a [`:can-leave`](#route-guard) guard, scroll behaviour. The route table is your app's URL map.
-
-### **route params**
-
-The active URL surfaced as state: read `:rf.route/id`, `:rf.route/params`, and `:rf.route/query` through subscriptions like any other derived value. Path params and `?query=` values (coerced and defaulted) drive your handlers and views — so `?page=2` survives the back button for free.
-
-### **loader**
-
-What a [route](#route) declares it needs on entry — `:on-match` [events](#event) the runtime dispatches, and `:resources` it ensures are loaded — so a page's data requirement lives next to its URL. Loaders run on the server too, so there's no separate SSR data-fetch to keep in sync.
-
-### **route guard**
-
-A `:can-leave` predicate consulted before leaving a [route](#route); a `false` parks the navigation as *pending* so your [view](#view) can render a "discard changes?" prompt, resolved by dispatching `:rf.route/continue` or `:rf.route/cancel`. The idiomatic home for unsaved-changes and auth-redirect logic.
-
-### **not-found**
-
-The reserved [route](#route) (`:rf.route/not-found`) the runtime activates when no pattern matches — or when a URL's params fail their schema — with the offending URL in its params. It's an ordinary route you register and design; forget it and unmatched URLs get a bare placeholder.
-
-### **url-bound?**
-
-The flag declaring that *this* [frame](#frame) owns the browser address bar. Exactly one frame is url-bound; its navigations write the URL and back/forward (popstate) dispatch to it, while other frames route in-memory only — which is how a sidecar like [Xray](#xray) coexists without fighting over the URL.
-
-## SSR
-
-re-frame2's optional server-side-rendering capability — run your real app on the JVM to ship HTML before JavaScript loads, then hand state to the client to take over. "One app, runs twice." See [SSR](concepts/ssr.md).
-
-### **SSR**
-
-Server-side rendering: rendering your app to an HTML string on the server (per request, in its own [frame](#frame)) so the first paint arrives before the client bundle runs. The same events, subscriptions, and views run on both sides — you don't write a second app. Code that must run on only one side declares `:platforms #{:client}` (or `#{:server}`), so a `localStorage` write never fires during a server render and no logic branches on `typeof window`.
-
-### **render-to-string**
-
-The pure function at the heart of SSR — `hiccup → HTML string`, no browser, no DOM, JVM-runnable. It runs your real [views](#view) against a per-request [frame](#frame), which is what makes "one app, runs twice" hold.
-
-### **hydration**
-
-The client picking up the server's already-painted HTML and *adopting* it — installing the serialized state (the **hydration payload**) and attaching event listeners — instead of throwing it away and re-rendering. The client dispatches `:rf/hydrate` with the payload before its first render.
-
-### **hydration mismatch**
-
-When the client's first render disagrees with the server's HTML. re-frame2 compares a structural hash of both and fires a trace naming *where* they diverged (default: warn-and-replace; a strict mode for CI) — turning the classic silent SSR bug into a located, debuggable one.
-
 ## Observability
 
 re-frame2's observability surface — everything tools read to show you the loop. The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)); the always-on error and event streams survive production. See [Observability](concepts/observability.md).

@@ -1,6 +1,6 @@
 # state_machine_walkthrough — runnable companion to the machines chapter
 
-The login-flow chapter ([`docs/guide/concepts/machines.md`](../../../docs/guide/concepts/machines.md))
+The login-flow chapter ([`docs/machines/concepts.md`](../../../docs/machines/concepts.md))
 as executable code. Every prose snippet in the chapter appears here
 in the order the chapter introduces it; each section ends with a
 smoke-test fn that drives the machine through the scenario the
@@ -40,7 +40,7 @@ JVM REPL. One artefact, two runtimes.
 
 ## Why this shape
 
-Read the [machines chapter](../../../docs/guide/concepts/machines.md)
+Read the [machines chapter](../../../docs/machines/concepts.md)
 first; then come here for the executable form. Read
 [`examples/reagent/login/`](../login/) first if you want the live UI
 wiring; read this for the testing progression.
@@ -78,7 +78,7 @@ the example source stays test-free. They run under the JVM test suite.
 
 ## Cross-references
 
-- [`docs/guide/concepts/machines.md`](../../../docs/guide/concepts/machines.md) — the chapter this example accompanies.
+- [`docs/machines/concepts.md`](../../../docs/machines/concepts.md) — the chapter this example accompanies.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the normative machine spec.
 - [`examples/reagent/login/`](../login/) — the same machine wired into a live Reagent view.
 - [`examples/reagent/nine_states/`](../nine_states/) — parallel regions and tags; next-step companion.

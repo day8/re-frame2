@@ -150,8 +150,8 @@ And everything else is built *on* the loop, never beside it:
 | Modes and transitions made explicit | [State machines](../../machines/concepts.md) |
 | The managed HTTP request | [HTTP](../../resources/http.md) |
 | Server data, cached and invalidated | [Server state: resources](../../resources/concepts.md) |
-| The URL as just another input | [Routing: the URL is a sub](routing.md) |
-| Rendering on the server | [Server-side rendering](ssr.md) |
+| The URL as just another input | [Routing: the URL is a sub](../../routing/concepts.md) |
+| Rendering on the server | [Server-side rendering](../../ssr/concepts.md) |
 | Cross-cutting behaviour around handlers | [Interceptors](interceptors.md) |
 | Which registrations a frame runs | [Images](images.md) |
 | Failures as structured data | [Errors: dossiers, not log lines](errors.md) |

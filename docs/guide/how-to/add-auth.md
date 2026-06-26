@@ -14,7 +14,7 @@ We'll grow it one step at a time: a tiny token slice in [app-db](../glossary.md#
 
 > **Auth is a slice, a guard, and a teardown — not a library.**
 
-Two add-on artefacts do the heavy lifting: [routing](../concepts/routing.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../../resources/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../../resources/concepts.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
+Two add-on artefacts do the heavy lifting: [routing](../../routing/concepts.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../../resources/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../../resources/concepts.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
 
 ## 1. The token slice
 
@@ -47,7 +47,7 @@ A page reload throws away app-db, so to stay logged in across refreshes the toke
 
 One [effect handler](../glossary.md#effect-handler), two behaviours, called from exactly one place each. That `:platforms #{:client}` is doing real work — see the next callout.
 
-> **Gotcha — this effect is client-only.** Under [SSR](../glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and an `:auth.session/persist` row is a no-op rather than a crash.
+> **Gotcha — this effect is client-only.** Under [SSR](../../ssr/glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and an `:auth.session/persist` row is a no-op rather than a crash.
 
 > **Why this matters — a localStorage token is readable by any script on your page.** If XSS is in your threat model, use the http-only cookie and drop this effect; the rest of the recipe stands unchanged. The slice, the guard, and the teardown never care *how* the credential was persisted — they only read it back from app-db.
 
@@ -256,7 +256,7 @@ The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` — the public sh
 
 > **Gotcha — don't rewrite the event in place.** The runtime picks the handler from the *original* event id, so editing the event in `:before` would just run the wrong handler. Use skip-and-dispatch instead. And stash the target in app-db, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
 
-> **Gotcha — a bad URL is a non-match, not a crash.** If `match-url` can't resolve a path — an unknown route, or path params that fail the route's `:params` schema (`:validation-failed? true`) — it returns a non-match (`nil`), and `nav-target` short-circuits the guard for that event. The runtime's own URL-change handler routes the same non-match to [`:rf.route/not-found`](../glossary.md#not-found). So a logged-out user pasting a garbage protected-looking URL lands on not-found, never inside a guarded slice.
+> **Gotcha — a bad URL is a non-match, not a crash.** If `match-url` can't resolve a path — an unknown route, or path params that fail the route's `:params` schema (`:validation-failed? true`) — it returns a non-match (`nil`), and `nav-target` short-circuits the guard for that event. The runtime's own URL-change handler routes the same non-match to [`:rf.route/not-found`](../../routing/glossary.md#not-found). So a logged-out user pasting a garbage protected-looking URL lands on not-found, never inside a guarded slice.
 
 ### Wire the guard frame-wide
 
@@ -290,7 +290,7 @@ The init event from step 1 restores the saved session and classifies the token p
 
 > **From re-frame v1 (and a frame gotcha) — `reg-frame` is a create-and-register, atomically.** There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event cascade](../glossary.md#event-cascade) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (Per [EP-0027](../../../spec/002-Frames.md).)
 
-> **Gotcha — exactly one frame owns the URL.** `:url-bound? true` ([`url-bound?`](../glossary.md#url-bound)) is what makes this frame's `:rf.route/navigate` push to the browser address bar and makes Back/Forward dispatch back into it — and it's *exclusive*. A second frame that also declares `:url-bound? true` is rejected fail-loud with `:rf.error/duplicate-url-binding`. This matters the moment you run a sidecar app on the same page — [Xray](../glossary.md#xray), a story, a second mounted instance: leave the sidecar's frame URL-unbound so it routes in memory only and never fights your app for the URL. (The same isolation that lets a second logged-in tab keep its own token, from step 1, is what lets the sidecar coexist here.)
+> **Gotcha — exactly one frame owns the URL.** `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) is what makes this frame's `:rf.route/navigate` push to the browser address bar and makes Back/Forward dispatch back into it — and it's *exclusive*. A second frame that also declares `:url-bound? true` is rejected fail-loud with `:rf.error/duplicate-url-binding`. This matters the moment you run a sidecar app on the same page — [Xray](../glossary.md#xray), a story, a second mounted instance: leave the sidecar's frame URL-unbound so it routes in memory only and never fights your app for the URL. (The same isolation that lets a second logged-in tab keep its own token, from step 1, is what lets the sidecar coexist here.)
 
 ## 5. Bounce back after login
 

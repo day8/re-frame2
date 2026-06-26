@@ -305,7 +305,7 @@ Two functions let you step outside the deref-driven lifecycle deliberately:
 The framework registers a handful of subscriptions for you — you read subsystem state through them exactly as you'd read your own:
 
 - **`[:rf/machine <machine-id>]`** returns a [state machine](../../machines/glossary.md#machine)'s [snapshot](../../machines/glossary.md#snapshot) `{:state :data}` (or `nil` before it's initialised). It's the canonical way to drive a view off a machine.
-- The router publishes a family — **`:rf/route`** (the whole route slice), **`:rf.route/id`**, **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**, **`:rf.route/chain`**, and more — covered in [Routing](routing.md).
+- The router publishes a family — **`:rf/route`** (the whole route slice), **`:rf.route/id`**, **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**, **`:rf.route/chain`**, and more — covered in [Routing](../../routing/concepts.md).
 
 These follow the [reserved-namespace convention](../../../spec/Conventions.md): anything under `:rf/…` or `:rf.<subsystem>/…` is framework-owned. Keep your own subs out of that namespace and the two never collide.
 

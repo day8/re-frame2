@@ -129,7 +129,7 @@ Reads are a small, passive family of subscriptions — you never poke at the raw
  :has-data? true}
 ```
 
-Staleness and invalidation come built in too: ensuring a stale entry refetches in the background while old data stays on screen, and a write elsewhere invalidates by tag. ([Server state: resources](../resources/concepts.md) is the full story; the most common cause of all is a route declaring its `:resources`, covered in [Routing](concepts/routing.md); the transport underneath is [managed HTTP](../resources/http.md).)
+Staleness and invalidation come built in too: ensuring a stale entry refetches in the background while old data stays on screen, and a write elsewhere invalidates by tag. ([Server state: resources](../resources/concepts.md) is the full story; the most common cause of all is a route declaring its `:resources`, covered in [Routing](../routing/concepts.md); the transport underneath is [managed HTTP](../resources/http.md).)
 
 > **The read-side scope footgun.** A subscription can't run a `(route, ctx)` resolver — it's pure — so a `:rf.scope/from-caller` resource that a route ensured under one scope, then a view subscribes to *without* passing the same `:scope`, fails closed. If the scope is unresolvable you get a loud `:rf.error/resource-sub-unresolved-scope`; if it resolves to a *different* key the view reads `:idle` forever (a permanent skeleton), and the framework emits a dev warning naming the active scope you probably meant. The fix is always the same: subscribe with the same `:scope` the owning route or event ensured under.
 

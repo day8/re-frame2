@@ -159,7 +159,7 @@ Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card da
 - SSR patterns: [`../../patterns/form-action.md`](../../patterns/form-action.md) (handling an HTML form POST — progressive enhancement, CSRF, multipart); [`../../patterns/ssr-loaders.md`](../../patterns/ssr-loaders.md) (parallel data fetch via `:spawn-all` before render). A page typically uses Loaders for the GET render and FormAction for subsequent POSTs.
 - Spec normative: [`spec/011-SSR.md §Head/meta contract`](../../../../spec/011-SSR.md) (`reg-head` / `render-head` / `active-head`); [`§The :rf/hydrate event`](../../../../spec/011-SSR.md) (check fxs).
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
-- Guide concept: [`docs/guide/concepts/ssr.md`](../../../../docs/guide/concepts/ssr.md) — narrative walkthrough, head/meta and hydration sections.
+- Guide concept: [`docs/ssr/concepts.md`](../../../../docs/ssr/concepts.md) — narrative walkthrough, head/meta and hydration sections.
 - Worked example: [`examples/reagent/ssr/core.cljc`](../../../../examples/reagent/ssr/core.cljc) — the reference `:rf/hydrate` body matches this leaf verbatim.
 - Production observability: [`production-observability.md`](production-observability.md) — the always-on event/error-emit listeners. Note `:rf.ssr/*` diagnostics do NOT ride the error-emit substrate (they elide with the trace channel unless separately promoted); instrument SSR drift via your own app event through those listeners, or the `:rf/public-error` projector server-side.
 - Trace catalogue: [`spec/009-Instrumentation.md §Error event catalogue`](../../../../spec/009-Instrumentation.md) — `:rf.ssr/*` keywords.

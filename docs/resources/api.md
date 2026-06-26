@@ -414,5 +414,5 @@ Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db p
 - [EP-0003 — Resource Queries](../EP/EP-0003-resource-queries.md) — rationale and prior-art benchmark.
 - [Migration: re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md) — moving off `shipclojure/re-frame-query` or a hand-rolled Pattern-RemoteData cache.
 - [07 — HTTP](http-api.md) — the `:rf.http/managed` transport and the `:rf.http/*` failure taxonomy.
-- [06 — Routing](../api/06-routing.md) — `:resources` route metadata.
-- [09 — SSR](../api/09-ssr.md) — the hydration install path.
+- [06 — Routing](../routing/api.md) — `:resources` route metadata.
+- [09 — SSR](../ssr/api.md) — the hydration install path.

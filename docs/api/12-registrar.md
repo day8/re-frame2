@@ -163,5 +163,5 @@ The pattern: dynamic-ID queries don't throw on absent frames — they return `ni
 ## See also
 
 - [01 — Core](01-core.md) — the write-side surface (`reg-*` / `clear-*`).
-- [04 — Machines](../machines/api.md), [05 — Flows](05-flows.md), [06 — Routing](06-routing.md), [08 — Schemas](08-schemas.md), [09 — SSR](09-ssr.md) — the feature-specific surfaces each register their own kind into the registrar.
+- [04 — Machines](../machines/api.md), [05 — Flows](05-flows.md), [06 — Routing](../routing/api.md), [08 — Schemas](08-schemas.md), [09 — SSR](../ssr/api.md) — the feature-specific surfaces each register their own kind into the registrar.
 - [11 — Instrumentation](11-instrumentation.md) — the trace bus is what Xray and the pair tools layer on top of the registrar to give "what's running" alongside "what's registered."

@@ -394,7 +394,7 @@ A few rules that matter:
 
 Everything above is HTTP-specific spelling over a deeper, framework-wide contract. You don't need this section to be productive — but it's the seam that makes resources, machines, and routing feel the same, so it's worth one read.
 
-"A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../guide/glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](concepts.md), [state-machine async work](../machines/concepts.md), and [route loaders](../guide/concepts/routing.md). Those pages lean on this section instead of re-teaching it. The normative contract is [Managed-Effects](../../spec/Managed-Effects.md).
+"A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../guide/glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](concepts.md), [state-machine async work](../machines/concepts.md), and [route loaders](../routing/concepts.md). Those pages lean on this section instead of re-teaching it. The normative contract is [Managed-Effects](../../spec/Managed-Effects.md).
 
 The envelope has two pieces. A **reply target** says where completion is dispatched. A **reply map** says what it carries. When the work completes, the runtime dispatches the target event with the reply map appended as the final argument:
 

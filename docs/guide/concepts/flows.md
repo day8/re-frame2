@@ -83,7 +83,7 @@ Reach for a flow only when **all** of these hold:
 
 - The value is part of the application's **state**, not just a view's render input.
 - Other event handlers, other flows, or registered schemas need to read it as **plain app-db data**.
-- It should **survive** [SSR hydration](ssr.md), time-travel restore, and app-db serialisation — a sub-cache does not survive the wire.
+- It should **survive** [SSR hydration](../../ssr/concepts.md), time-travel restore, and app-db serialisation — a sub-cache does not survive the wire.
 - The derivation is **stable enough to be worth registering** — not a one-off computation inside a single handler.
 
 The RealWorld editor's submit gate is the canonical case. "Can the user submit?" means *the draft is valid AND differs from the loaded baseline*. The **submit handler** needs that answer, not just the button — and that single requirement is what tips the value from view-input to state:

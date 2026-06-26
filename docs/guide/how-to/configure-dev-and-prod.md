@@ -57,7 +57,7 @@ In production, `debug-enabled?` is the constant `false`, so the `when` body is d
 
 ## 3. Shipping a JVM/SSR tier? One system property
 
-On the JVM there's no Closure compiler, so the same gate becomes a runtime flag instead of a compile-time one. It defaults to *on* for dev parity. A production [SSR](../glossary.md#ssr) or webhook process facing untrusted input should flip it off, so the trace rings and epoch history don't retain user input:
+On the JVM there's no Closure compiler, so the same gate becomes a runtime flag instead of a compile-time one. It defaults to *on* for dev parity. A production [SSR](../../ssr/glossary.md#ssr) or webhook process facing untrusted input should flip it off, so the trace rings and epoch history don't retain user input:
 
 ```
 java -Dre-frame.debug=false -jar app.jar

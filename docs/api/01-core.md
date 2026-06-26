@@ -276,7 +276,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-route id metadata path)
   ```
-- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](06-routing.md).
+- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](../routing/api.md).
 - **Example**:
   ```clojure
   (rf/reg-route :route/home
@@ -292,7 +292,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-head id ?metadata head-fn)
   ```
-- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](09-ssr.md).
+- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](../ssr/api.md).
 - **Example**:
   ```clojure
   (rf/reg-head :app/head

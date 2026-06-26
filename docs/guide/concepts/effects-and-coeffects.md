@@ -73,7 +73,7 @@ You aren't limited to the shipped effect set. When you need a new one, register 
 
 That `reg-fx` is now the *only* place in your codebase that writes to `js/localStorage`, so side-effects don't scatter across handlers. Each effect is named, registered, and addressable by id — which is exactly what lets a test redirect it, the [trace stream](../glossary.md#trace-stream) record it, and [Xray](../glossary.md#xray) display it.
 
-The `:platforms #{:client}` declaration says where the effect may run. During [server-side rendering](ssr.md) the runtime skips a `:client`-only effect and emits a `:rf.fx/skipped-on-platform` trace event, so handlers never branch on platform. A `:platforms` set with more than one member runs on each listed platform; omit the key and the effect runs everywhere.
+The `:platforms #{:client}` declaration says where the effect may run. During [server-side rendering](../../ssr/concepts.md) the runtime skips a `:client`-only effect and emits a `:rf.fx/skipped-on-platform` trace event, so handlers never branch on platform. A `:platforms` set with more than one member runs on each listed platform; omit the key and the effect runs everywhere.
 
 > **Gotcha — register before you use it.** An `:fx` row naming an effect-id that was never `reg-fx`'d [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/no-such-handler`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration *ordering* across files doesn't matter — the lookup happens when the row runs, not when the handler is defined.
 
