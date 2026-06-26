@@ -587,6 +587,20 @@
          ;; can empty that registry; this re-seed (idempotent, mirrors `init!`)
          ;; restores it at the head of every reset so the next ns is clean.
          (events/register-set-db-standard!)
+         ;; EP-0026 §Framework Standard Registrations: re-install the framework-
+         ;; standard MACHINE runtime (`:rf.machine/*` fx + `:rf/machine*` subs)
+         ;; into BOTH the regular registrar AND the image standard registry on
+         ;; every reset, the SAME way `:rf/set-db` is re-seeded above. A reset
+         ;; wipes the registrar (`clear-kind!` below) and a sibling ns's
+         ;; `clear-standards!` empties the standard registry; a Story variant
+         ;; frame resolves the machine runtime through the standard union in its
+         ;; sealed generation, and a no-generation `compute-sub [:rf/machine …]`
+         ;; resolves it through the registrar — so both surfaces must be restored.
+         ;; Reached via a late-bind hook because `machines` ships in a separate
+         ;; Maven coordinate (test_support must not static-require it); a no-op
+         ;; when machines is not loaded.
+         (when-let [install (late-bind/get-fn :machines/install-runtime!)]
+           (install))
          (doseq [k clear-kinds]
            (registrar/clear-kind! k))
          ;; App-db schemas live OUTSIDE the registrar (rf2-cq1ak); the

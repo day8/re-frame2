@@ -455,6 +455,24 @@
    ;; selection' (or the neutral default).
    [:viewport   {:optional true} ViewportSlot]
    [:background {:optional true} BackgroundSlot]
+   ;; EP-0026 §Default Image — the story-level APP image. A Story declares the
+   ;; `rf/image`(s) its variants resolve behaviour against ONCE here; every
+   ;; variant under the story INHERITS this image and may LAYER its own
+   ;; `:images` on top (the Variant `:images` slot). The runtime threads the
+   ;; resolved composition `[story-images… variant-images… runtime-image]` into
+   ;; each variant frame at allocation (`re-frame.story.frames/allocate!` →
+   ;; `compose-variant-images`), so a MULTI-app testbed scopes each story's
+   ;; variant frames to its own app namespace (`:select-ns`) rather than the
+   ;; whole co-loaded store. Absent ⇒ the variant frames resolve the EP-0026
+   ;; DEFAULT image (the whole-store projection) — the convenient single-app /
+   ;; standalone-testbed case.
+   ;;
+   ;; Loose `:vector` here on purpose, mirroring the Variant `:images` slot: the
+   ;; framework's `re-frame.core/image` constructor + `re-frame.image-assembly`
+   ;; own the rigorous shape validation (a non-image entry, a zero-match
+   ;; `:select-ns :include` glob all FAIL LOUDLY at frame creation). Story does
+   ;; not fork that validation — one source of truth.
+   [:images     {:optional true} [:vector :any]]
    ;; The Form-B combined-form sugar. Variant-name keys map to variant
    ;; bodies — the macro expands these into N independent reg-variant
    ;; calls. Validated separately when the macro desugars.

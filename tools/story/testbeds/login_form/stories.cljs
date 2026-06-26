@@ -36,11 +36,30 @@
   network — the variant body never makes a real HTTP request; the stub
   resolves the request with the canned-success / canned-failure shape
   per Spec 014 §Testing."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.core  :as rf]
+            [re-frame.story :as story]
             ;; Sourcing these via :require fires the registrations.
             [login-form.events]
             [login-form.subs]
             [login-form.views]))
+
+;; ---------------------------------------------------------------------------
+;; App image (EP-0026 §Default Image)
+;;
+;; Co-loaded with other apps in the `node-test` build, so the variant frames
+;; scope their registration resolution to THIS app's namespace rather than the
+;; whole co-loaded store (whose cross-app same-`[kind id]` registrations would
+;; collide in the EP-0026 default-image projection). The parent story declares
+;; this app image on `:images`; every variant inherits it, and the runtime
+;; composes the canonical Story runtime image on top, so each variant frame sees
+;; exactly this app + the Story machinery. `:select-ns` SELECTS by
+;; `:rf.provenance/ns`; it does not LOAD.
+;; ---------------------------------------------------------------------------
+
+(def app-image
+  (rf/image
+    {:id        :login-form/app
+     :select-ns {:include ["login-form.**"]}}))
 
 (defn register-all!
   "Register the login-form testbed's Story artefacts. Idempotent.
@@ -84,6 +103,7 @@
                  five-state scenario, as runnable variants."
      :component  :login-form.views/login-card
      :args       {:heading "Sign in"}
+     :images     [app-image]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 

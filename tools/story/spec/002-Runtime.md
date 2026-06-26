@@ -23,38 +23,68 @@ At variant-unmount the runtime calls `(rf/destroy-frame! variant-id)`.
 Hot-reload preserves the side-table; a re-registration of the same
 variant calls `reset-frame!` and re-runs the lifecycle.
 
-### Behaviour-variant images (EP-0023)
+### Image composition + the Story runtime image (EP-0026)
 
-When a variant declares `:images` (see
-[001-Authoring.md §`:images`](001-Authoring.md)), `frames/allocate!` ALSO
-registers a live frame **object** under the variant id carrying the resolved,
-sealed image generation, per
-[EP-0023 §Stories](../../../docs/EP/EP-0023-image-loaded-frames.md):
+Under [EP-0026 §Default Image](../../../spec/002-Frames.md) every frame created
+with `rf/make-frame` ALWAYS carries a resolved image generation: a PRESENT
+`:images` resolves the selected generation; an ABSENT `:images` resolves the
+**default image** — the implicit selector over the WHOLE registration source
+store, FAILING LOUD on a cross-namespace same-`[kind id]` collision. A variant
+frame is created by `frames/allocate!`, and the framework's
+`call-with-frame-resolution` routes every `{:frame variant-id}` dispatch —
+event-handler lookup, declared cofx, the whole fx walk — through THAT frame's
+own generation ([EP-0023 §Frame-derived live registration
+resolution](../../../docs/EP/EP-0023-image-loaded-frames.md)).
 
-1. `(rf/make-frame {:id variant-id :images [<image> …]})` — creates the
-   backing runnable record AND the live frame object whose
-   `:rf.frame/generation` is the assembled, sealed generation the images
-   resolve to. Runs FIRST so the framework's image validation fails loud at
-   frame creation.
-2. `(rf/reg-frame variant-id {…story config…})` — SURGICAL-UPDATES that
-   record's config with the Story preset / `:fx-overrides` / classification /
-   `:rf/images` (the image ids, for tooling read-back), preserving the
-   freshly-made app-db. The live frame object (in the separate live-frame
-   registry) is untouched.
+So `allocate!` ALWAYS composes the variant frame's `:images` vector
+(`frames/compose-variant-images`), in IMAGE ORDER — **the later image wins**
+([EP-0026 §Layered Resolution](../../../spec/002-Frames.md)):
 
-The framework's `call-with-frame-resolution` then routes every
-`{:frame variant-id}` dispatch — event-handler lookup, declared cofx, the
-whole fx walk — through the variant frame's OWN image generation rather than
-the shared default registrar (EP-0023 §Frame-derived live registration
-resolution). Two variants reusing the SAME global event/sub id under
-DIFFERENT images resolve it to their own image's descriptor — **behaviour
-variant -> image**, with NO global-registrar clobber between runs.
+```
+[<story-images…> <variant-images…> runtime-image]
+```
 
-A variant with no `:images` skips `make-frame` entirely and resolves against
-the shared default registrar exactly as before (absence-is-default). The
-resolved image ids are reported on the run-result `:images` slot and on the
-variant frame-meta `:rf/images` slot
-(`re-frame.story.frames/variant-image-ids`).
+- **story images** — the parent story's `:images` slot (see
+  [001-Authoring.md §`:images`](001-Authoring.md)). A Story declares its
+  **application image** ONCE; every variant under it inherits the image.
+- **variant images** — the variant body's own `:images`, layered ON TOP of the
+  story image (a **behaviour variant** overriding specific `[kind id]`s with
+  its own image — **behaviour variant -> image**: two variants reusing the SAME
+  global event/sub id under DIFFERENT images resolve it to their own image's
+  descriptor, with NO global-registrar clobber between runs).
+- **runtime image** — the canonical Story **runtime image**
+  (`re-frame.story.runtime-image/runtime-image`), composed LAST. It selects
+  Story's own runtime registrations (`:select-ns {:include
+  ["re-frame.story.**"]}` — the lifecycle machine, the `:rf.assert/*` handlers,
+  the fx-stub redirects, the runtime helper events, the toolbar cofx), so the
+  Story machinery is ALWAYS live in the variant frame regardless of which
+  application image the variant resolves against — and, as the LAST image, is
+  never shadowed out by an app image. Authors NEVER hand-write it; it is the
+  library's contract, composed by `allocate!`.
+
+#### Image-less fallback = the default image
+
+When NO application image resolves anywhere — none on the variant, none on its
+parent story, none at testbed level — `compose-variant-images` yields nothing
+and `allocate!` creates the frame with NO `:images`, so `rf/make-frame`
+resolves the EP-0026 **default image** (the whole-store projection). This keeps
+the convenient single-app / standalone-testbed case zero-ceremony: such a
+testbed sees its whole store (which already includes the Story machinery), so
+the runtime image is NOT composed on the default path (it would be redundant,
+and an `:images` vector carrying ONLY the runtime image would scope the frame
+to the Story machinery alone, hiding the app).
+
+A MULTI-app testbed — several apps co-loaded into one process — MUST declare a
+story `:images` selecting its own app namespace (`:select-ns`), because the
+default image's whole-store projection would otherwise fail loud on the
+cross-app same-`[kind id]` registrations (e.g. `[:route :rf.route/not-found]`)
+the co-loaded apps share. Scoping each story to its app is the app-isolation
+mechanism — requested through the SAME image API as every other selection, not
+a new scope concept.
+
+The AUTHORED image ids (story + variant images, NOT the library-composed
+runtime image) are reported on the run-result `:images` slot and on the variant
+frame-meta `:rf/images` slot (`re-frame.story.frames/variant-image-ids`).
 
 ### Machine lifecycle on variant unmount
 

@@ -63,6 +63,23 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
+;; ---- app image (EP-0026 §Default Image) ----------------------------------
+;;
+;; This suite's counter handlers (`:counter/initialise` / `:counter/seed-ten`)
+;; register at TEST time from THIS namespace, so their `:rf.provenance/ns` is
+;; this test ns. Co-loaded with the rest of the `node-test` build, an image-less
+;; variant frame would resolve the EP-0026 default image (the whole co-loaded
+;; store), whose cross-app same-`[kind id]` registrations collide. Scoping the
+;; story's `:images` to THIS namespace selects exactly the test-registered
+;; handlers; the runtime composes the Story runtime image on top. The handlers
+;; are registered (in `register-counter-host!` / the inline fixture) BEFORE the
+;; selection edge allocates the variant frame, so the `:select-ns` is non-empty
+;; at frame-creation time (no `:rf.error/image-zero-match`).
+(def ^:private app-image
+  (rf/image
+    {:id        :story-xray-wiring/app
+     :select-ns {:include ["re-frame.story.story-xray-wiring-cljs-test"]}}))
+
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- install-selection-watcher!
@@ -95,7 +112,8 @@
 (defn- register-counter-story! []
   (register-counter-host!)
   (story/reg-story :story.counter
-    {:doc "Counter parent story for the Story-Xray wiring contract test."})
+    {:doc    "Counter parent story for the Story-Xray wiring contract test."
+     :images [app-image]})
   (story/reg-variant variant-id
     {:doc    "Counter seeded at 5 — its :events cascade must land in
               Xray's trace-buffer on selection."
@@ -176,7 +194,7 @@
            (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
          (rf/reg-event :counter/seed-ten
            (fn [{:keys [db]} _event] {:db {:counter/value 10}}))
-         (story/reg-story :story.counter {})
+         (story/reg-story :story.counter {:images [app-image]})
          (story/reg-variant :story.counter/loaded
            {:events [[:counter/initialise]]})
          (story/reg-variant :story.counter/ten

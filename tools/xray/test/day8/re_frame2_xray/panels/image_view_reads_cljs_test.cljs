@@ -217,14 +217,18 @@
       (is (true? (:images? data)) "a live image-loaded frame → :images? true")
       (is (some? row) "the registered frame is projected")
       ;; EP-0023 §Image: the resolved generation = the 2 selected application
-      ;; descriptors + the framework-standard registrations the assembly unions
-      ;; into EVERY generation. TWO framework standards ride in today:
-      ;; `:rf.interceptor/path` (the interceptor standard, stamped :standard
-      ;; true; rf2-32siq3.41) and `:rf/set-db` (the EP-0027 app-db-seeding event
-      ;; standard; rf2-v1xzoo) — so the frame resolves 4 [kind id] entries, not 2.
-      (is (= 4 (:descriptor-count (:image row)))
-          "the frame's resolved image carries its 2 app descriptors + the
-           2 framework standards the assembly unions in")
+      ;; descriptors + EVERY framework-standard registration the assembly unions
+      ;; into EVERY generation. The standard set is computed off the live
+      ;; standard registry (NOT hardcoded) so adding a framework standard does
+      ;; not break this gate — today it carries `:rf.interceptor/path` (the
+      ;; interceptor standard; rf2-32siq3.41), `:rf/set-db` (the EP-0027 app-db-
+      ;; seeding event standard; rf2-v1xzoo), and the EP-0026 machine runtime
+      ;; standards (`:rf.machine/*` fx + `:rf/machine*` subs), when machines is
+      ;; loaded into this test artefact.
+      (let [n-standards (count (image-assembly/standard-descriptors))]
+        (is (= (+ 2 n-standards) (:descriptor-count (:image row)))
+            "the frame's resolved image carries its 2 app descriptors + every
+             framework standard the assembly unions in"))
       (is (contains? kids [:event :counter/inc])
           "the resolved descriptor set is the frame's image as a value")
       (is (contains? kids [:interceptor :rf.interceptor/path])
