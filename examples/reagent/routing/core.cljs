@@ -130,11 +130,7 @@
     :rf.route/not-found         [not-found-page]))
 
 ;; ============================================================================
-;; ROUTER WIRING
-;; ============================================================================
-
-;; ============================================================================
-;; MOUNT
+;; MOUNT (+ router wiring)
 ;; ============================================================================
 
 ;; The React root is held in an atom and materialised lazily inside `run`
@@ -151,8 +147,12 @@
 ;;   1. is registered explicitly (`init!` installs only the adapter),
 ;;   2. declares `:url-bound? true` so it owns the URL, and
 ;;   3. seeds its app-db under `with-frame`.
-;; The render is wrapped in a `frame-provider` so every in-tree
-;; `dispatch`/`subscribe` resolves to it.
+;; Because the frame is created up-front by `reg-frame`, the render is
+;; wrapped in `frame-provider-existing` (the SCOPE-only member of the
+;; provider family — it provides an already-created frame id through React
+;; context and creates/destroys nothing; contrast the owned `frame-provider`,
+;; which mounts its own frame). That scope is what every in-tree
+;; `dispatch`/`subscribe` resolves against.
 ;;
 ;; The popstate listener is the framework's `rf/install-history-listener!`
 ;; (Spec 012 §popstate drives the URL-owner frame) — NOT a hand-rolled

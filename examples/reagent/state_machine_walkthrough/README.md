@@ -76,9 +76,12 @@ shows you both ends of that.
   and it's why an async boundary needs no glue code here. In both the
   demo and the tests the network is swapped out via the
   [`:fx-overrides`](../../../docs/guide/glossary.md#effect) seam, which
-  redirects `:rf.http/managed` to the framework-shipped
-  `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
-  stubs (Spec 014 §Testing). No real traffic, identical reply shape.
+  redirects `:rf.http/managed` to the example's own
+  `:auth.login/canned-success` / `:auth.login/canned-failure` wrapper
+  effects in [`core.cljc`](core.cljc) — thin pins over the
+  framework-shipped `:rf.http/managed-canned-success` /
+  `:rf.http/managed-canned-failure` stubs (Spec 014 §Testing) that fix
+  this example's payloads. No real traffic, identical reply shape.
 
 ## Why .cljc
 
@@ -95,14 +98,16 @@ Read the [machines chapter](../../../docs/machines/concepts.md) first
 for the narrative; come here for the executable form when you want to
 run it rather than read it. This example is a near-twin of the login
 machine in [`examples/reagent/login/`](../login/) — same five states,
-same core guards and actions — with one deliberate divergence: this
-variant tags `:locked-out` and drives a dedicated lockout panel off
-that tag, because its whole point is the lockout scenario. The two
-examples teach different things *around* the machine: `login` is the
-full feature scaffold wired into a complete UI; this walkthrough
-foregrounds the testing progression. Reach for `login` if you want the
-end-to-end wiring, this one if you want to see a machine tested as pure
-data.
+same core guards and actions, and both tag `:locked-out` with
+`:auth/locked` and swap in a dedicated lockout panel off that tag. What
+the two examples teach *around* the machine is what differs: `login` is
+the full feature scaffold — Malli schemas on the event and the machine
+`:data`, a `:sensitive?` privacy flag on the request, a demo stub that
+routes by password — wired into a complete UI; this walkthrough strips
+all that away to foreground the testing progression, so the request is
+wired to always fail and the headless scenarios are the point. Reach
+for `login` if you want the end-to-end wiring, this one if you want to
+see a machine tested as pure data.
 
 ## Files
 

@@ -94,10 +94,15 @@ and interaction hold up on its substrate; it deliberately skips the
 platform features (managed HTTP, state machines, routing) that other
 examples already cover, so the dataflow stays the star.
 
-A word on the folder name. The `_uix` suffix isn't decoration: this
-example and its Reagent sibling both want the obvious top-level
-namespace, and Clojure namespaces are global, so the suffix keeps
-`dashboard-uix.core` from colliding with a `dashboard.core` next door.
+A word on the folder name. The `_uix` suffix isn't decoration: it's the
+uniform per-substrate naming convention every UIx example follows
+(`counter_uix`, `login_uix`, and this one), and Clojure namespaces are
+global, so the suffix keeps each UIx namespace unique. It earns its keep
+on the examples that share a base name across substrates — `counter` /
+`counter_uix` / `counter_helix` would otherwise all want `counter.core`
+— and it's applied here for consistency even though this app's design-led
+Reagent counterpart carries its own name (`notebook`), so there's no
+literal `dashboard.core` to collide with today.
 The mount itself is the ordinary re-frame2 boot dance —
 [`init!`](../../../docs/guide/glossary.md#init) installs the UIx
 adapter, [`reg-frame`](../../../docs/guide/glossary.md#registration)

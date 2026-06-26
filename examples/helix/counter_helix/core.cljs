@@ -97,11 +97,17 @@
 ;; The runtime never synthesises a frame from absence — an app must establish
 ;; its frame explicitly. `init!` installs the adapter (it does NOT create the
 ;; frame), `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in the Helix `frame-provider` so the
-;; `use-subscribe` hook and the render-time `(rf/frame-handle)` capture resolve
-;; to the app frame via React context. There is no `:rf/default` floor: a Helix
-;; tree rendered with NO provider observes the no-provider sentinel and any
-;; `use-subscribe` / `frame-handle` raises `:rf.error/no-frame-context`.
+;; `with-frame`, and the render is wrapped in the Helix `frame-provider-existing`
+;; — the scope-only provider that threads this already-registered frame's id down
+;; the React tree (the owning `frame-provider` would *create* a frame; we already
+;; own ours). That context is what lets the `use-subscribe` hook and the
+;; render-time `(rf/frame-handle)` capture resolve to the app frame. There is no
+;; `:rf/default` floor: a Helix tree rendered with NO provider observes the
+;; no-provider sentinel and any `use-subscribe` / `frame-handle` raises
+;; `:rf.error/no-frame-context`.
+;;
+;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
+;; migration may reach for it out of habit, but the runtime won't infer it.
 (def app-frame :rf/default)
 
 (defn run []

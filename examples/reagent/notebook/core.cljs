@@ -27,8 +27,9 @@
    features other examples already cover.
 
    Markdown rendering is intentionally a tiny pure-CLJS parser (headings,
-   bold, italic, links, paragraphs, lists) — keeps the bundle small and
-   the example free of an extra npm dependency."
+   bold, italic, inline code, links, paragraphs, ordered + unordered
+   lists) — keeps the bundle small and the example free of an extra npm
+   dependency."
   ;; Substrate note: STOCK Reagent (`reagent.dom.client` +
   ;; `re-frame.adapter.reagent`), like the rest of the `examples/reagent/`
   ;; catalogue. notebook is the Reagent member of the three-substrate
@@ -179,8 +180,9 @@
    elements (already-parsed hiccup) pass through untouched.
 
    Robust to the (count parts) ≠ (count matches) ± 1 trap that
-   bit the first pass: we iterate `(re-seq)` and pull `lastIndex`-
-   style substrings from the source manually."
+   bit the first pass: we loop `re-find` one match at a time and pull
+   the before/after substrings from the source manually (via
+   `.indexOf` + `subs`), recurring on the remaining tail."
   [coll re mk]
   (mapcat
     (fn [x]
@@ -349,9 +351,11 @@
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider` so every
-;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
-;; canonical mount in examples/reagent/counter/core.cljs.
+;; `with-frame`, and the render is wrapped in `frame-provider-existing`
+;; (the frame already exists, so the provider just threads its id down —
+;; it does not create one) so every in-tree `dispatch`/`subscribe`
+;; resolves to the app frame. Matches the canonical mount in
+;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []

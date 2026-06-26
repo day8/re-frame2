@@ -10,10 +10,11 @@
   pure handler.
 
   Buttons:
-    +1                — GET /api/inc.json (static asset; success path)
-    Fail              — GET /api/does-not-exist (404 → :rf.http/http-4xx)
-    Retry-recover     — GET /api/retry-recover (canned-stub at app level
-                                                synthesises retry success)
+    +1                — GET api/inc.json (static asset; success path)
+    Fail              — GET api/does-not-exist (404 → :rf.http/http-4xx)
+    Retry-recover     — :rf.http/managed-canned-success at app level
+                        (the canned-stub seam synthesises a retry-success
+                        reply — no real request is issued)
     Start long        — seeds a GENUINE in-flight request handle in the
                         framework registry (a request that stays pending,
                         deterministically — no real long-running endpoint)
@@ -138,7 +139,8 @@
 ;; ============================================================================
 ;;
 ;; Same shape as +1, exercising the failure side of the uniform reply.
-;; Branch on :kind, then on the :rf.http/* failure category inside it.
+;; Branch on the reply's :kind; on :failure, record the failure map
+;; wholesale — its own :kind is the :rf.http/* category the view surfaces.
 
 (rf/reg-event :counter/fail
   (fn [{:keys [db]} [_ msg]]

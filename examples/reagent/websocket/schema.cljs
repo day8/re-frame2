@@ -54,10 +54,11 @@
    [:queue          [:vector :any]]
    [:in-flight      [:map-of :any InFlightEntry]]
    [:error          [:maybe :any]]
-   ;; Runtime-managed stamps — see implementation/machines/src/re_frame/machines.cljc
-   ;; ¶ "stamp framework-reserved keys into the spawned actor's
-   ;;    initial :data".  Optional because the parent machine never
-   ;; receives them — only spawned actors do.
+   ;; Runtime-managed stamps — see
+   ;; implementation/machines/src/re_frame/machines/lifecycle_fx/spawn.cljc
+   ;; (the `stamp-framework-data` fn, which stamps these framework-reserved
+   ;; keys into the spawned actor's initial :data). Optional because the
+   ;; parent machine never receives them — only spawned actors do.
    [:rf/self-id     {:optional true} :any]
    [:rf/parent-id   {:optional true} :any]
    [:rf/invoke-id  {:optional true} :any]])

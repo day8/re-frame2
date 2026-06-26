@@ -55,7 +55,7 @@
             ;; explicit opt-in.
             [re-frame.http.test-support]
             ;; SSR ships in day8/re-frame2-ssr. Loading
-            ;; the ns here registers the six `:rf.server/*` server-only
+            ;; the ns here registers the seven `:rf.server/*` server-only
             ;; fxs, the `:rf/hydrate` event, and the
             ;; `:rf.ssr/default-error-projector`, and publishes the
             ;; late-bind hooks (`:ssr/render-tree-hash`,
@@ -305,8 +305,14 @@
                  ;; server's per-request gensym here would always conflict
                  ;; with the client's fixed frame; an ABSENT `:rf/frame-id` is
                  ;; explicitly NO conflict (the explicit client target
-                 ;; stands), so the dynamic server output matches the static
-                 ;; `index.html` next to this file exactly. A deployment that
+                 ;; stands), so the dynamic server output and the static
+                 ;; `index.html` next to this file agree on the frame-id
+                 ;; question (neither carries one). The hand-written
+                 ;; `index.html` is an ILLUSTRATIVE stand-in, not a byte-exact
+                 ;; capture of this payload: it omits `:rf/render-hash` (it
+                 ;; doesn't recompute the FNV-1a hash) and carries a sample
+                 ;; `:rf.runtime/routing` slice this article-only render never
+                 ;; populates. A deployment that
                  ;; WANTS the round-trip to carry a frame-id stamps a STABLE
                  ;; id both sides agree on (or has the client read the
                  ;; payload's frame-id as its hydration target) — not a

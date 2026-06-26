@@ -30,11 +30,12 @@ This is the one genuinely subtle thing in the example, and it's worth a minute.
 
 You *could* just read `localStorage` inside the boot handler. It would work — right up until you try to replay or time-travel that boot, at which point the handler re-reads whatever localStorage holds *now*, not what it held *then*, and the replay diverges. A durable write has to be a pure function of prior state plus the facts that arrived with the event — never of an ambient read smuggled in at the write site.
 
-So the example does the host read **once**, at the boundary, in `core.cljs`'s `run`, and stamps the value onto the boot dispatch as a **recordable** coeffect:
+So the example *registers* the host read as a **recordable** coeffect — a `reg-cofx` supplier whose generator reads localStorage (`db.cljs`). Because the boot read decides a durable write, the app supplies it the canonical way: a **registered recordable generator**, not a value stamped at the dispatch site (that `:rf.cofx` dispatch opt is a unit-test seam, never a production shape).
 
 ```clojure
-(rf/dispatch-sync [:todo/initialise]
-                  {:rf.cofx {:todo.storage/todos (db/read-todos-from-storage)}})
+(rf/reg-cofx :todo.storage/todos
+  {:recordable? true :doc "…"}
+  (fn [] (read-todos-from-storage)))   ;; the generator: reads the host once
 ```
 
 The handler then just declares it needs that fact and folds it into app-db — pure, no IO:
@@ -46,7 +47,7 @@ The handler then just declares it needs that fact and folds it into app-db — p
     {:db (assoc db/default-db :todos todos)}))
 ```
 
-Because the value was *recorded* with the dispatch, a replay or epoch-restore re-presents the captured snapshot verbatim instead of re-reading the world. (If you want the full theory, this is the "recordable vs ambient coeffects" distinction from the glossary, and the persistence write itself is an ordinary registered effect — effects are data, performed by the runtime, kept out of the pure handler.) It's a lot of ceremony for a todo list, granted — but TodoMVC is exactly the right size to show the *shape* of replayable persistence without burying it under a real domain.
+The boot dispatch stays **plain** — `core.cljs` seeds the frame with `:initial-events [[:todo/initialise] …]` and carries no cofx; the registered generator is the supplier. The generator runs once at processing-start, its value is recorded onto the causal token, and a replay or epoch-restore re-presents the captured snapshot verbatim instead of re-reading the world. (If you want the full theory, this is the "recordable vs ambient coeffects" distinction from the glossary, and the persistence write itself is an ordinary registered effect — effects are data, performed by the runtime, kept out of the pure handler.) It's a lot of ceremony for a todo list, granted — but TodoMVC is exactly the right size to show the *shape* of replayable persistence without burying it under a real domain.
 
 ### Why localStorage?
 

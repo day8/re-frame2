@@ -11,9 +11,11 @@
   Why .cljc: the chapter promises 'runs in microseconds on the JVM, no
   browser, no network.' The same source compiles under shadow-cljs for the
   CLJS surface; the :clj branch is what the JVM test (require ...)s. The HTTP
-  side never hits the wire — it is redirected via :fx-overrides to the
-  framework-shipped `:rf.http/managed-canned-success` /
-  `:rf.http/managed-canned-failure` stubs (Spec 014 §Testing).
+  side never hits the wire — it is redirected via :fx-overrides to this
+  example's `:auth.login/canned-success` / `:auth.login/canned-failure`
+  wrapper fxs below, which delegate to the framework-shipped
+  `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
+  stubs (Spec 014 §Testing).
 
   Read alongside docs/machines/concepts.md."
   (:require [re-frame.core :as rf]
@@ -54,19 +56,20 @@
 ;;
 ;; This is a near-twin of the login machine in the `login` example
 ;; (examples/reagent/login/core.cljs) — same states, guards, actions, and
-;; transitions. The one deliberate divergence: this variant tags `:locked-out`
-;; with `:auth/locked` because the walkthrough's root-view renders a dedicated
-;; lockout panel that branches on that tag (views.cljs); the `login` example
-;; omits the tag since its view never distinguishes lockout. The two examples
-;; register the id `:auth.login/flow` independently — a machine id is a
-;; per-frame registry key, not a global handle, and the two never co-load
-;; (this walkthrough runs JVM-headless with `remove-ns` between runs; login
-;; builds standalone), so the shared name is parallel, not a collision.
-;; The two examples also differ in what they teach AROUND the machine: `login`
-;; wires it into a live Reagent feature; this walkthrough drives it HEADLESSLY
-;; to show the pure machine-transition + drain testing story from
-;; docs/machines/concepts.md. Read `login` first for the UI wiring; read this
-;; for the testing progression.
+;; transitions, and both tag `:locked-out` with `:auth/locked` and render a
+;; dedicated lockout panel that branches on that tag (here the root-view in
+;; views.cljs; there the login-banner). The two register the id
+;; `:auth.login/flow` independently — a machine id is a per-frame registry key,
+;; not a global handle, and the two never co-load (this walkthrough runs
+;; JVM-headless with `remove-ns` between runs; login builds standalone), so the
+;; shared name is parallel, not a collision.
+;; Where the two examples diverge is what they teach AROUND the machine:
+;; `login` is the full feature scaffold (Malli event/`:data` schemas, a
+;; `:sensitive?` request flag, a password-routing demo stub) wired into a live
+;; Reagent feature; this walkthrough strips that down to drive the machine
+;; HEADLESSLY, foregrounding the pure machine-transition + drain testing story
+;; from docs/machines/concepts.md. Read `login` first for the UI wiring; read
+;; this for the testing progression.
 
 (def login-flow
   {:initial :idle

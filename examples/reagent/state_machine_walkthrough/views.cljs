@@ -25,9 +25,11 @@
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view ^{:doc "The login form view. Captures email + password in a Reagent
-                  atom across renders (Form-2 outer/inner shape) and dispatches
-                  :auth.login/flow → :auth.login/submit on submit.
+(reg-view ^{:doc "The login form view. Captures email + password in a plain
+                  atom across renders (Form-2 outer/inner shape) — the inputs
+                  are uncontrolled, so the atom is only read in the submit
+                  handler, never in the render body, and needs no reactivity.
+                  Dispatches :auth.login/flow → :auth.login/submit on submit.
 
                   View-side discriminators read the machine's runtime-projected
                   `:tags` set (chapter §State tags) via `rf/machine-has-tag?`, not boolean

@@ -212,22 +212,32 @@
 ;; Streaming hydration shape (per Spec 011 §Streaming SSR — Client-side
 ;; hydration semantics):
 ;;
-;;  1. First chunk lands — the browser paints the shell with skeleton
-;;     fallbacks. The `<script src="main.js">` reference at the end of
-;;     `<body>` begins downloading.
+;;  1. First chunk lands — the browser receives the shell, whose slow
+;;     regions are inline `<template data-rf2-suspense-fallback>`
+;;     placeholders. A `<template>`'s content is INERT by the HTML spec
+;;     (its `.content` is a detached DocumentFragment, never painted), so
+;;     the skeletons do NOT paint on the raw bytes; they paint when
+;;     `streaming-install!` (step 2) materialises each inert `<template>`
+;;     into a live, visible `<rf-suspense data-rf2-suspense-mount>` mount.
+;;     The `<script src="main.js">` reference at the end of `<body>`
+;;     begins downloading.
 ;;  2. Resolved-card chunks stream in via Transfer-Encoding: chunked.
 ;;     Each one is `<template data-rf2-suspense-resolved=…>…</template>`
 ;;     plus `<script data-rf2-suspense-hydrate=…>…</script>`. The
 ;;     client-side streaming runtime (`ssr/streaming-install!`, per
-;;     Spec 011 §Streaming SSR — client-side hydration semantics) swaps
-;;     each fallback `<template>` for the resolved content in-place and
-;;     merges the per-subtree delta into the client app-db AS each chunk
-;;     arrives — progressive hydration, before the final payload. `run`
-;;     installs it below before the first render so it catches both
-;;     chunks that already streamed in and any still arriving.
+;;     Spec 011 §Streaming SSR — client-side hydration semantics) first
+;;     materialises the inert fallback `<template>`s into live
+;;     `<rf-suspense>` mounts (the skeletons now paint), then swaps each
+;;     mount's content for the resolved subtree in-place and merges the
+;;     per-subtree delta into the client app-db AS each chunk arrives —
+;;     progressive hydration, before the final payload. `run` installs it
+;;     below before the first render so it catches both chunks that
+;;     already streamed in and any still arriving.
 ;;  3. The final `<script id="__rf_payload">` is the canonical full
 ;;     payload; `run` dispatches `:rf/hydrate` against it (via
-;;     `ssr/hydrate!`), which runs :replace-app-db semantics — the
+;;     `ssr/hydrate!`), which runs :replace-frame-state semantics (the
+;;     payload's `:rf/app-db` + serialisable runtime-db slice replace the
+;;     whole client frame-state in one step) — the
 ;;     per-card deltas were progressive-render speed props; the final
 ;;     payload is the correctness lock. The streaming runtime
 ;;     auto-disconnects once it sees `__rf_payload`, so no late delta can
@@ -291,7 +301,7 @@
      ;; `__rf_payload`.
      (ssr/streaming-install! {:frame app-frame})
      ;; Reconcile against the canonical payload: read `__rf_payload` +
-     ;; dispatch `:rf/hydrate` (:replace-app-db) into the EXPLICIT `:frame`.
+     ;; dispatch `:rf/hydrate` (:replace-frame-state) into the EXPLICIT `:frame`.
      ;; The deltas were speculative; this is the correctness lock.
      ;; (`:render-tree-fn` is omitted — the static demo shell carries a
      ;; placeholder render-hash, so hash-mismatch verification would always
