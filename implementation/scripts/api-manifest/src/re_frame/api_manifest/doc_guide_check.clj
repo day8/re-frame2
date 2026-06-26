@@ -7,6 +7,14 @@
   no longer resolves. This check extracts every call-position `(rf/<var>`
   reference and asserts each resolves to a manifest `re-frame.core` row.
 
+  CAPABILITY CONCEPT DOCS (rf2-earvtz). The #4961 docs reorg moved each
+  capability's CONCEPT doc out of the flat `docs/guide/` tree into
+  per-capability `docs/<cap>/concepts.md` files (machines / resources /
+  routing / ssr). Those concept docs teach the same worked code and so are
+  scanned by this gate alongside `docs/guide/` — the `docs/*/concepts.md`
+  glob folds them in (and auto-covers a future capability dir). Without this,
+  a broken `(rf/<var>` reference in a moved concept doc would slip through CI.
+
   SCOPE — same call-position discipline as the skills check (anchor on the
   leading `(` so the `:rf/*` reserved keyword namespace is excluded, not
   swept in as bogus var references).
@@ -88,7 +96,17 @@
         dir          (proj/repo-file "docs" "guide")
         ;; require-markdown-files (rf2-utvst): fail loudly if docs/guide/
         ;; moves or is renamed, rather than silently checking zero files.
-        files        (proj/require-markdown-files "docs/guide/" dir)
+        guide-files  (proj/require-markdown-files "docs/guide/" dir)
+        ;; Per-capability CONCEPT docs (rf2-earvtz). The #4961 docs reorg moved
+        ;; each capability's concept doc out of the flat docs/guide/ tree into
+        ;; docs/<cap>/concepts.md (machines/resources/routing/ssr). The
+        ;; docs/*/concepts.md glob folds those moved files back under this
+        ;; gate's scan so a broken `(rf/<var>` reference in them goes RED; it
+        ;; auto-covers a future capability dir with no gate edit, and fails
+        ;; loudly (require-*) if the layout moves again.
+        concept-files (proj/require-capability-doc-files
+                        "docs/*/concepts.md" "concepts.md")
+        files        (concat guide-files concept-files)
         references   (for [file files
                            ref  (proj/alias-call-references "rf" (proj/numbered-lines file))]
                        (assoc ref :file (proj/repo-relative file)))
@@ -103,7 +121,8 @@
         ;; reintroduction goes RED here too.
         kw-problems  (proj/keyword-drift-problems-over-files files)
         problems     (concat var-problems kw-problems)]
-    (proj/report-with-floor! "docs/guide/" (count references) min-references problems)))
+    (proj/report-with-floor! "docs/guide/ + docs/*/concepts.md"
+                             (count references) min-references problems)))
 
 (defn -main [& _]
   (System/exit (if (check!) 0 1)))

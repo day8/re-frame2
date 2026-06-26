@@ -64,6 +64,10 @@ on:
       # the tools/** entry above.)
       - 'skills/**'
       - 'docs/guide/**'
+      # Per-capability CONCEPT docs (rf2-earvtz): the #4961 reorg moved each
+      # capability's concept doc to docs/<cap>/concepts.md; doc-guide-check now
+      # scans them, so a PR touching only one must run the api-manifest job.
+      - 'docs/*/concepts.md'
       # Human-doc API-reference projection surfaces (rf2-vzupmg): the three
       # API-reference trees the doc-api-check scans are manifest projections
       # too; a PR touching them must run the api-manifest job's doc-api-check
@@ -73,6 +77,10 @@ on:
       - 'spec/Privacy.md'
       - 'docs/api/**'
       - 'docs/story/api/**'
+      # Per-capability API docs (rf2-earvtz): the #4961 reorg moved each
+      # capability's API reference to docs/<cap>/api.md; doc-api-check now scans
+      # them, so a PR touching only one must run the api-manifest job.
+      - 'docs/*/api.md'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # above). The lint surface is re-applied job-side via the `detect` job.
   pull_request:
@@ -144,14 +152,18 @@ jobs:
               # The skills + doc-guide are secondary manifest projections
               # (rf2-gkp0t): a var rename there is caught by the api-manifest
               # job's skills-check / doc-guide-check. A pure-skills or
-              # pure-doc-guide PR must still run the drift-check.
-              skills/*|docs/guide/*)
+              # pure-doc-guide PR must still run the drift-check. The
+              # per-capability concept docs (docs/<cap>/concepts.md from the
+              # #4961 reorg) are scanned by doc-guide-check now too (rf2-earvtz).
+              skills/*|docs/guide/*|docs/*/concepts.md)
                 lint_surface=true ;;
               # The three human-doc API-reference trees are manifest
               # projections too (rf2-vzupmg): a removed/renamed public surface
               # named there is caught by the api-manifest job's doc-api-check.
-              # A pure-doc PR touching them must still run the drift-check.
-              spec/Privacy.md|docs/api/*|docs/story/api/*)
+              # A pure-doc PR touching them must still run the drift-check. The
+              # per-capability API docs (docs/<cap>/api.md from the #4961 reorg)
+              # are scanned by doc-api-check now too (rf2-earvtz).
+              spec/Privacy.md|docs/api/*|docs/story/api/*|docs/*/api.md)
                 lint_surface=true ;;
             esac
           done <<< "$files"
