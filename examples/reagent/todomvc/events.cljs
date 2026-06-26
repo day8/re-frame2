@@ -102,3 +102,58 @@
                                      (sorted-map)
                                      items)))]
       (persist-db next-db))))
+
+;; ---- UI / form state (the `:ui` slice) ------------------------------------
+;;
+;; These events own the form/UI state that TodoMVC used to keep in view-local
+;; atoms. The inputs are CONTROLLED: a view's `:value` reads a draft sub and its
+;; `:on-change` dispatches `:todo.ui/edit-field` — it never sets view-local
+;; state. "Which row is being edited" is application state, so it lives at
+;; `[:ui :editing-id]`, toggled by `:todo.ui/start-edit` / `:todo.ui/stop-edit`.
+;;
+;; Drafts and editing-id are pure UI — they are NOT persisted (no localStorage
+;; write), so these handlers return a plain `{:db ...}` rather than going through
+;; `persist-db`. Only the todo facts themselves (`:todos`) are durable.
+
+(rf/reg-event :todo.ui/edit-field
+  {:doc "User typed into a controlled input. `which` is `:new` (header input)
+         or `:edit` (the edit-in-place input for the row in `:editing-id`)."}
+  (fn [{:keys [db]} [_ which value]]
+    {:db (assoc-in db [:ui :drafts which] value)}))
+
+(rf/reg-event :todo.ui/start-edit
+  {:doc "Enter edit-in-place on a row: record which id is editing and seed the
+         edit draft from that todo's current title."}
+  (fn [{:keys [db]} [_ id]]
+    (let [title (get-in db [:todos id :title] "")]
+      {:db (-> db
+               (assoc-in [:ui :editing-id] id)
+               (assoc-in [:ui :drafts :edit] title))})))
+
+(rf/reg-event :todo.ui/stop-edit
+  {:doc "Leave edit-in-place without saving (Escape, or after a save): clear
+         the editing id and the edit draft."}
+  (fn [{:keys [db]} _]
+    {:db (-> db
+             (assoc-in [:ui :editing-id] nil)
+             (assoc-in [:ui :drafts :edit] ""))}))
+
+(rf/reg-event :todo.ui/commit-new
+  {:doc "Save the header input: read the `:new` draft, add the todo (which
+         trims + ignores blanks), then clear the draft for the next entry."}
+  (fn [{:keys [db]} _]
+    (let [title (get-in db [:ui :drafts :new])]
+      {:db (assoc-in db [:ui :drafts :new] "")
+       :fx [[:dispatch [:todo/add title]]]})))
+
+(rf/reg-event :todo.ui/commit-edit
+  {:doc "Save the edit-in-place input: read the `:edit` draft, save it onto the
+         editing row (a blank title deletes the todo, same as before), then
+         leave edit mode."}
+  (fn [{:keys [db]} _]
+    (let [id    (get-in db [:ui :editing-id])
+          title (get-in db [:ui :drafts :edit])]
+      (cond-> {:db (-> db
+                       (assoc-in [:ui :editing-id] nil)
+                       (assoc-in [:ui :drafts :edit] ""))}
+        id (assoc :fx [[:dispatch [:todo/save id title]]])))))
