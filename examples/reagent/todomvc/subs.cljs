@@ -53,3 +53,23 @@
   :<- [:todo/completed-count]
   (fn [[todos completed-count] _]
     [(- (count todos) completed-count) completed-count]))
+
+;; ---- UI / form state projections (the `:ui` slice) ------------------------
+;;
+;; Views read these instead of holding view-local atoms: `:value` reads a draft
+;; sub, and `:todo.ui/editing?` answers "is THIS row the one being edited?" so a
+;; row renders its controlled edit input only when it owns the editing id.
+
+(rf/reg-sub :todo.ui/editing-id
+  (fn [db _]
+    (get-in db [:ui :editing-id])))
+
+(rf/reg-sub :todo.ui/editing?
+  :<- [:todo.ui/editing-id]
+  (fn [editing-id [_ id]]
+    (= editing-id id)))
+
+(rf/reg-sub :todo.ui/draft
+  {:doc "The live value of a controlled input. `which` is `:new` or `:edit`."}
+  (fn [db [_ which]]
+    (get-in db [:ui :drafts which])))

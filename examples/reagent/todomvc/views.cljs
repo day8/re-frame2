@@ -7,7 +7,6 @@
   fn), and hiccup as data-as-markup. A view reads derived state and dispatches
   events on interaction; no business logic lives here."
   (:require [clojure.string :as str]
-            [reagent.core :as reagent]
             [re-frame.core :as rf]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -18,77 +17,80 @@
     :completed "#/completed"
     "#/"))
 
-(defn todo-input [{:keys [title on-save on-stop]}]
-  (let [input-node    (atom nil)
-        suppress-blur (atom false)
-        stop          #(do
-                         (when-let [node @input-node]
-                           (set! (.-value node) ""))
-                         (when on-stop (on-stop)))
-        save          #(when-let [node @input-node]
-                         (on-save (.-value node))
-                         (stop))
-        handle-keydown
+;; A CONTROLLED text input, re-frame2 style. `:value` reads a draft sub; every
+;; keystroke dispatches `on-change` (which writes the draft into app-db) — the
+;; input NEVER holds its own value. Enter commits (dispatches `on-commit`),
+;; Escape cancels (dispatches `on-cancel`), and blur commits. There is no DOM
+;; node ref for VALUE and no blur-suppression flag: cancel re-renders the input
+;; away, so the blur that follows has nothing to save.
+;;
+;; `:autofocus?` opts into focusing the input when it first mounts. The edit
+;; input wants this (a row just entered edit mode). It is handled by a bare
+;; `:ref` callback that ONLY calls `.focus()` on the live node — it reads and
+;; writes no value, so the input stays fully controlled by the draft sub.
+(defn todo-input [{:keys [draft on-change on-commit on-cancel autofocus?] :as props}]
+  (let [handle-keydown
         (fn [event]
           (case (.-key event)
-            "Enter"  (do (.preventDefault event) (save))
-            "Escape" (do (.preventDefault event)
-                         (reset! suppress-blur true)
-                         (stop))
+            "Enter"  (do (.preventDefault event) (on-commit))
+            "Escape" (do (.preventDefault event) (on-cancel))
             nil))]
-    (fn [props]
-      [:input
-       (merge
-         (dissoc props :title :on-save :on-stop)
-         {:type "text"
-          :default-value (or title "")
-          :autoFocus true
-          :ref #(reset! input-node %)
-          :on-key-down handle-keydown
-          :on-blur
-          (fn [_]
-            (if @suppress-blur
-              (reset! suppress-blur false)
-              (save)))})])))
+    [:input
+     (merge
+       (dissoc props :draft :on-change :on-commit :on-cancel :autofocus?)
+       {:type        "text"
+        :value       (or draft "")
+        :on-change   (fn [e] (on-change (.. e -target -value)))
+        :on-key-down handle-keydown
+        :on-blur     (fn [_] (on-commit))}
+       (when autofocus?
+         ;; Focus-only ref: move the cursor into the freshly-mounted edit input.
+         ;; It touches focus, never the value — `:value` stays bound to the sub.
+         {:ref (fn [node] (when node (.focus node)))}))]))
 
-(defn todo-item [dispatch]
-  ;; `editing?` is local component state by design — it isn't in app-db, so it
-  ;; isn't persisted or inspected. That's the canonical TodoMVC tradeoff: an
-  ;; ephemeral, per-row UI flag that no other view needs to read.
-  (let [editing? (reagent/atom false)]
-    (fn [_dispatch {:keys [id title completed]}]
-      [:li {:class (str/join " " (cond-> []
+(defn todo-item [dispatch subscribe {:keys [id title completed]}]
+  ;; A plain form-1 fn now that the per-row editing flag lives in app-db: the
+  ;; row reads "am I the editing row?" from a sub keyed by its id, so no
+  ;; component-local atom is needed.
+  (let [editing? @(subscribe [:todo.ui/editing? id])]
+    [:li {:class (str/join " " (cond-> []
                                  completed (conj "completed")
-                                 @editing? (conj "editing")))}
-       [:div.view
-        ;; Controlled checkbox, re-frame2 style: `:checked` reads the fact from
-        ;; app-db, `:on-click` dispatches the event that changes it, and
-        ;; `:readOnly` silences React's onChange warning (the state round-trips
-        ;; through app-db and the cascade, not through React's own state).
-        [:input.toggle
-         {:type "checkbox"
-          :checked completed
-          :readOnly true
-          :on-click #(dispatch [:todo/toggle-completed id])}]
-        [:label {:on-double-click #(reset! editing? true)}
-         title]
-        [:button.destroy
-         {:on-click #(dispatch [:todo/delete id])}]]
-       (when @editing?
-         [todo-input
-          {:class "edit"
-           :title title
-           :on-save #(dispatch [:todo/save id %])
-           :on-stop #(reset! editing? false)}])])))
+                                 editing?  (conj "editing")))}
+     [:div.view
+      ;; Controlled checkbox, re-frame2 style: `:checked` reads the fact from
+      ;; app-db, `:on-click` dispatches the event that changes it, and
+      ;; `:readOnly` silences React's onChange warning (the state round-trips
+      ;; through app-db and the cascade, not through React's own state).
+      [:input.toggle
+       {:type "checkbox"
+        :checked completed
+        :readOnly true
+        :on-click #(dispatch [:todo/toggle-completed id])}]
+      [:label {:on-double-click #(dispatch [:todo.ui/start-edit id])}
+       title]
+      [:button.destroy
+       {:on-click #(dispatch [:todo/delete id])}]]
+     (when editing?
+       [todo-input
+        {:class       "edit"
+         :draft       @(subscribe [:todo.ui/draft :edit])
+         :autofocus?  true
+         :on-change   #(dispatch [:todo.ui/edit-field :edit %])
+         :on-commit   #(dispatch [:todo.ui/commit-edit])
+         :on-cancel   #(dispatch [:todo.ui/stop-edit])}])]))
 
-(defn task-entry [dispatch]
+(defn task-entry [dispatch subscribe]
   [:header.header
    [:h1 "todos"]
    [todo-input
-    {:id "new-todo"
-     :class "new-todo"
+    {:id          "new-todo"
+     :class       "new-todo"
      :placeholder "What needs to be done?"
-     :on-save #(dispatch [:todo/add %])}]])
+     :draft       @(subscribe [:todo.ui/draft :new])
+     :on-change   #(dispatch [:todo.ui/edit-field :new %])
+     :on-commit   #(dispatch [:todo.ui/commit-new])
+     ;; The header input has nothing to cancel — Escape just clears the draft.
+     :on-cancel   #(dispatch [:todo.ui/edit-field :new ""])}]])
 
 (defn task-list [dispatch subscribe]
   [:section.main {:id "main"}
@@ -101,7 +103,7 @@
    [:ul.todo-list {:id "todo-list"}
     (for [{:keys [id] :as todo} @(subscribe [:todo/visible-todos])]
       ^{:key id}
-      [todo-item dispatch todo])]])
+      [todo-item dispatch subscribe todo])]])
 
 (defn- filter-link [showing filter-kw label]
   [:a {:href (hash-for-filter filter-kw)
@@ -138,7 +140,7 @@
   (let [todos @(subscribe [:todo/todos])]
     [:<>
      [:section.todoapp
-      [task-entry dispatch]
+      [task-entry dispatch subscribe]
       (when (seq todos)
         [task-list dispatch subscribe])
       (when (seq todos)

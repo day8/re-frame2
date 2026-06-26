@@ -11,8 +11,21 @@
 ;; The default db carries no `:showing` slot — Spec 012's :route slice owns
 ;; that fact. The :showing sub (in subs.cljs) derives :all/:active/:completed
 ;; from :rf.route/id.
+;;
+;; The `:ui` slice holds the form/UI state TodoMVC used to keep in view-local
+;; atoms. It is APPLICATION state — "which row is being edited" and the live
+;; input drafts — so it lives in app-db, is projected via subs, and is mutated
+;; only by events. Inputs read `:drafts` for their `:value` (controlled) and
+;; dispatch edit events on `:on-change`; `:editing-id` names the single row in
+;; edit-in-place mode (nil = none). Two draft slots are enough: one for the
+;; new-todo header input, one shared by the single editing row.
+(def default-ui
+  {:editing-id nil
+   :drafts     {:new "" :edit ""}})
+
 (def default-db
-  {:todos (sorted-map)})
+  {:todos (sorted-map)
+   :ui    default-ui})
 
 (def ls-key "todos-reframe2")
 
