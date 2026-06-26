@@ -20,7 +20,6 @@
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
-            [helix.hooks        :as helix-hooks]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [re-frame.schemas]
@@ -302,6 +301,101 @@
   auth-login-machine)
 
 ;; ============================================================================
+;; FORM SLICE  (Pattern-Forms — substrate-agnostic)
+;; ============================================================================
+;;
+;; The FORM-SLICE events below are the other half of the Pattern-Forms
+;; "machine + slice" composition (spec/Pattern-Forms.md §Variations). The
+;; SLICE owns the DRAFT — what the user is currently typing — at the app-db
+;; path [:auth :login-form]; the MACHINE owns submit/auth STATUS. This is the
+;; reason the form refactor exists: a form's draft is APPLICATION STATE, so it
+;; lives in app-db (projected via subs, mutated via events), NOT in a
+;; view-local Reagent atom / framework hook. Inputs are CONTROLLED: `:value`
+;; reads the draft sub, `:on-change` dispatches `:auth.login/edit-field`. The
+;; slice shape + the standard form events mirror the in-repo exemplar
+;; examples/reagent/realworld/auth.cljs 1:1.
+;;
+;; This whole block — slice defaults + form events + (below) the draft/slice
+;; subs — is the SUBSTRATE-AGNOSTIC artefact layer: it is byte-identical
+;; across examples/reagent/login, examples/uix/login_uix, and
+;; examples/helix/login_helix (Spec 006 §Adapter shipping convention Decision
+;; 7). Only the view syntax varies across the three.
+
+;; The login form's default (empty) draft. The draft's value shape is
+;; `Credentials` (email regex + min-8 password) — the same schema the
+;; machine's `:submit` boundary enforces.
+(def login-form-defaults {:email "" :password ""})
+
+;; Seed the slice to its standard Pattern-Forms shape. Dispatched once at
+;; boot (from `run`). `:draft` to the empty defaults; `:status :idle`.
+(rf/reg-event :auth.login/initialise-form
+  {:doc "Seed the login-form slice at [:auth :login-form] to its standard
+         Pattern-Forms shape (empty draft, :idle status)."}
+  (fn handler-login-form-initialise [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form]
+                   {:draft             login-form-defaults
+                    :submitted         nil
+                    :submit-attempted? false
+                    :status            :idle
+                    :errors            {}
+                    :touched           #{}
+                    :submit-error      nil})}))
+
+;; The user changed a single field. Update `:draft` and add the field to
+;; `:touched`. This is the ONLY thing an input's `:on-change` does — it never
+;; sets view-local state. The `:schema` rejects a malformed edit-field vector
+;; at the `:where :event` boundary.
+(rf/reg-event :auth.login/edit-field
+  {:doc    "Controlled-input edit: write one field into the login-form draft
+            and mark it touched."
+   :schema [:cat [:= :auth.login/edit-field] :keyword :string]}
+  (fn handler-login-form-edit-field [{:keys [db]} [_ field value]]
+    {:db (-> db
+             (assoc-in  [:auth :login-form :draft field] value)
+             (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
+
+;; Submit. Reads the draft out of the slice, latches `:submit-attempted?`,
+;; flips the slice `:status` to `:submitting`, and dispatches the draft INTO
+;; the machine — the only point the draft crosses into the machine (and is
+;; validated against `Credentials` at the machine's `:where :event` boundary).
+;; The machine, not the slice, then owns the in-flight / authed / error /
+;; locked status; the slice `:status` mirror keeps the slice a conformant
+;; Pattern-Forms shape.
+;;
+;; Secret-field hygiene (skills/re-frame2/patterns/forms.md §Auth): the
+;; handler reads the password off the draft and hands it to the machine, then
+;; CLEARS `[:draft :password]` in the same commit — once the request is in
+;; flight the secret has done its job, so it does not sit in durable app-db
+;; waiting for the next snapshot / recorder capture. The password's only
+;; off-box path is the HTTP request body (scrubbed by the per-request
+;; `:sensitive? true` flag); it is never written to `:submitted` or the
+;; machine `:data`.
+(rf/reg-event :auth.login/submit-form
+  {:doc "Submit the login form: read the draft from the slice, dispatch it
+         into the :auth.login/flow machine's :submit sub-event, and clear the
+         password out of the draft (secret-field hygiene)."}
+  (fn handler-login-form-submit [{:keys [db]} _]
+    (let [draft (get-in db [:auth :login-form :draft])]
+      {:db (-> db
+               (assoc-in [:auth :login-form :submit-attempted?] true)
+               (assoc-in [:auth :login-form :status] :submitting)
+               (assoc-in [:auth :login-form :draft :password] ""))
+       :fx [[:dispatch [:auth.login/flow [:auth.login/submit draft]]]]})))
+
+;; Reset the slice back to its initial (empty, :idle) shape.
+(rf/reg-event :auth.login/reset-form
+  {:doc "Clear the login-form slice back to empty defaults / :idle."}
+  (fn handler-login-form-reset [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form]
+                   {:draft             login-form-defaults
+                    :submitted         nil
+                    :submit-attempted? false
+                    :status            :idle
+                    :errors            {}
+                    :touched           #{}
+                    :submit-error      nil})}))
+
+;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
@@ -320,6 +414,36 @@
 (rf/reg-sub :auth.login/error
   :<- [:rf/machine :auth.login/flow]
   (fn [snapshot _] (get-in snapshot [:data :error])))
+
+;; --- Form-slice subs (Pattern-Forms; substrate-agnostic) -------------------
+;;
+;; The login-form slice lives at app-db [:auth :login-form]. The view reads
+;; the DRAFT through `:auth.login/draft` and binds each input's `:value` to it
+;; — controlled inputs. The per-field-error sub follows the Pattern-Forms
+;; visibility rule (touched OR submit-attempted?). These subs are part of the
+;; byte-identical artefact layer shared across the three substrate examples.
+
+(rf/reg-sub :auth.login/form-slice
+  {:doc "The whole login-form slice at [:auth :login-form]."}
+  (fn sub-auth-login-form-slice [db _]
+    (get-in db [:auth :login-form])))
+
+(rf/reg-sub :auth.login/draft
+  {:doc "The login-form draft — what the user has currently typed. Each input
+         binds its :value to a field of this map (controlled inputs)."}
+  :<- [:auth.login/form-slice]
+  (fn sub-auth-login-draft [slice _]
+    (:draft slice)))
+
+(rf/reg-sub :auth.login/field-error
+  {:doc "Per-field validation error for the login form. Per Pattern-Forms
+         §Error visibility: reveal a field's error once it is :touched OR once
+         the form has had its first submit click."}
+  :<- [:auth.login/form-slice]
+  (fn sub-auth-login-field-error [slice [_ field]]
+    (when (or (:submit-attempted? slice)
+              (contains? (:touched slice) field))
+      (first (get-in slice [:errors field])))))
 
 ;; ============================================================================
 ;; ──────────────────────────  SUBSTRATE BOUNDARY  ──────────────────────────
@@ -343,37 +467,39 @@
 ;; named sub. To the call site they're identical — both are just subscriptions.
 
 (defnc login-form []
-  (let [busy?    (helix-adapter/use-subscribe [:rf/machine-has-tag?
+  (let [draft    (helix-adapter/use-subscribe [:auth.login/draft])
+        busy?    (helix-adapter/use-subscribe [:rf/machine-has-tag?
                                                :auth.login/flow :auth/busy])
         err      (helix-adapter/use-subscribe [:auth.login/error])
         ;; No global dispatch in re-frame2 — every dispatch goes to a frame.
         ;; Pull this frame's `dispatch` off the render-time frame-handle; it
         ;; resolves to `:rf/default` via the provider in `run`.
-        dispatch (:dispatch (rf/frame-handle))
-        ;; Transient pre-submit input lives in component-local use-state — it
-        ;; isn't application state, it's keystrokes in flight. It crosses into
-        ;; the machine (and gets validated) only at the :on-submit dispatch.
-        [email    set-email!]    (helix-hooks/use-state "")
-        [password set-password!] (helix-hooks/use-state "")]
+        dispatch (:dispatch (rf/frame-handle))]
+    ;; The form holds NO view-local state: there is no `use-state` for the
+    ;; email/password. Each input's `:value` reads the draft from the
+    ;; `:auth.login/draft` sub, and `:on-change` DISPATCHES
+    ;; `:auth.login/edit-field` (it never sets view-local state) — controlled
+    ;; inputs, the Pattern-Forms way. The draft crosses into the machine (and
+    ;; is validated) at the :on-submit dispatch of `:auth.login/submit-form`.
     (d/form
        {:class "login-form"
         :data-testid "login-form"
         :on-submit (fn [e]
                      (.preventDefault e)
                      (when-not busy?
-                       (dispatch [:auth.login/flow
-                                  [:auth.login/submit {:email email
-                                                       :password password}]])))}
+                       (dispatch [:auth.login/submit-form])))}
        (d/input  {:type        "email"
                   :placeholder "Email"
                   :disabled    busy?
                   :data-testid "login-email"
-                  :on-change   #(set-email! (.. % -target -value))})
+                  :value       (:email draft)
+                  :on-change   #(dispatch [:auth.login/edit-field :email (.. % -target -value)])})
        (d/input  {:type        "password"
                   :placeholder "Password"
                   :disabled    busy?
                   :data-testid "login-password"
-                  :on-change   #(set-password! (.. % -target -value))})
+                  :value       (:password draft)
+                  :on-change   #(dispatch [:auth.login/edit-field :password (.. % -target -value)])})
        (d/button {:type "submit" :disabled busy?
                   :data-testid "login-submit"}
           (if busy? "Signing in…" "Sign in"))

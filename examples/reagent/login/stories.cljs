@@ -20,6 +20,10 @@
    highest-fidelity requirement, mirroring the nine_states showcase:
 
      :story.login/empty               — fresh `:idle` form.
+     :story.login/filled              — a draft typed into the app-db
+                                        login-form slice via real
+                                        `:auth.login/edit-field` events;
+                                        still `:idle`, nothing submitted.
      :story.login/submitting          — request in flight, `:submitting`
                                         (`:auth/busy`), inputs disabled.
      :story.login/invalid-credentials — a malformed `:submit` rejected
@@ -33,18 +37,16 @@
      :story.login/success             — `:authed` welcome banner; the
                                         canonical screenshot.
 
-   ### Why no `:filled` variant
+   ### The `:filled` variant is event-reachable now
 
-   The bead's conceptual list names a `filled` state. In this example
-   the form's email/password live in a component-LOCAL Reagent atom
-   (idiomatic Form-2; see `login.core/login-form`), NOT in app-db. A
-   Story `:setup` drives EVENTS, which cannot seed component-local
-   state — so `:filled` (and a free-standing `:validating` /
-   `:invalid-field` form state) is not event-reachable here. Rather
-   than synthetically seed it (which the fidelity rule forbids), the
-   form's input/validation story collapses onto `:invalid-credentials`
-   — a real schema-boundary rejection — keeping every variant honest
-   at fidelity `:event`.
+   The bead's conceptual list names a `filled` state. Since the login
+   form was refactored to Pattern-Forms, the email/password DRAFT lives
+   in app-db at `[:auth :login-form]` (NOT a component-local Reagent
+   atom), mutated by the `:auth.login/edit-field` event. A Story
+   `:setup` drives EVENTS — so `:filled` is now honestly reachable at
+   fidelity `:event` by dispatching real edit-field events to seed the
+   draft, exactly the way a user's keystrokes would. No synthetic
+   `:db-seed` is needed; the variant below stays event-honest.
 
    ## Xray-richness — the auth-submit cascade
 
@@ -189,6 +191,24 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
+  ;; Filled — the user has typed into both fields but not yet submitted.
+  ;; Event-honest at fidelity `:event`: the draft is seeded by dispatching
+  ;; the SAME `:auth.login/edit-field` events the controlled inputs fire on
+  ;; keystroke, writing into the app-db login-form slice. The machine stays
+  ;; `:idle` (no submit yet); the inputs render the seeded draft as their
+  ;; `:value`. (Before the Pattern-Forms refactor the draft lived in a
+  ;; component-local atom and was NOT event-reachable — see the ns docstring.)
+  (story/reg-variant :story.login/filled
+    {:doc        "Both fields filled in, nothing submitted yet — the form
+                 mid-edit. The draft was typed into the app-db login-form
+                 slice via real `:auth.login/edit-field` events, so the
+                 inputs show their `:value` and the flow is still `:idle`."
+     :setup      [[:auth.login/flow [:auth.login/dismiss]]
+                  [:auth.login/edit-field :email "ada@example.com"]
+                  [:auth.login/edit-field :password "correct-horse"]]
+     :tags       #{:dev :docs}
+     :substrates #{:reagent}})
+
   ;; Submitting — a submit is in flight. `force-fx-stub` intercepts the
   ;; `:rf.http/managed` fx the `:issue-request` action emits: the stub
   ;; records the call (visible in Side Effects) but resolves NOTHING, so
@@ -297,10 +317,11 @@
 
   (story/reg-workspace :Workspace.login/all-states
     {:doc      "Every login state, side by side in narrative order:
-               empty → submitting → invalid → auth-error → locked-out
-               → success."
+               empty → filled → submitting → invalid → auth-error →
+               locked-out → success."
      :layout   :grid
      :variants [:story.login/empty
+                :story.login/filled
                 :story.login/submitting
                 :story.login/invalid-credentials
                 :story.login/auth-error
