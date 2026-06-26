@@ -19,6 +19,14 @@
   `(rf/<var>` / `(story/<var>` reference must resolve to a manifest row, so a
   reference to a renamed / removed / never-manifested public surface goes RED.
 
+  CAPABILITY API DOCS (rf2-earvtz). The #4961 docs reorg moved each
+  capability's API REFERENCE out of the flat `docs/api/` tree into
+  per-capability `docs/<cap>/api.md` files (machines / resources / routing /
+  ssr). Those API docs are the same projection class — they name public vars
+  in call position — and so are scanned here via the `docs/*/api.md` glob
+  (which auto-covers a future capability dir). Without this, a removed /
+  renamed public surface named in a moved API doc would slip through CI.
+
   SCOPE — call-position discipline (same as doc-guide / skills checks).
   References are anchored on the leading `(` so the `:rf/*` reserved keyword
   namespace is excluded (a bare `rf/<token>` sweep would drown in
@@ -134,6 +142,15 @@
                                 (proj/require-markdown-files
                                   label (apply proj/repo-file segs)))
                               dir-surfaces)
+        ;; Per-capability API docs (rf2-earvtz). The #4961 docs reorg moved
+        ;; each capability's API reference out of the flat docs/api/ tree into
+        ;; docs/<cap>/api.md (machines/resources/routing/ssr). The
+        ;; docs/*/api.md glob folds those moved files back under this gate's
+        ;; scan so a removed/renamed public surface named there goes RED; it
+        ;; auto-covers a future capability dir with no gate edit, and fails
+        ;; loudly (require-*) if the layout moves again.
+        cap-api-files (proj/require-capability-doc-files
+                        "docs/*/api.md" "api.md")
         ;; spec/Privacy.md — a single EXPECTED file; fail loud if it moves.
         privacy-file  (apply proj/repo-file privacy-file-segs)
         _             (when-not (.isFile ^java.io.File privacy-file)
@@ -144,7 +161,7 @@
                                       "against a non-existent surface; reconcile "
                                       "the path.")
                                  {:file (str privacy-file)})))
-        files         (cons privacy-file dir-files)
+        files         (concat [privacy-file] dir-files cap-api-files)
         references    (references-in-files files)
         var-problems  (reconcile {:references    references
                                   :manifest-vars manifest-vars
@@ -155,7 +172,7 @@
         kw-problems   (proj/keyword-drift-problems-over-files files)
         problems      (concat var-problems kw-problems)]
     (proj/report-with-floor!
-      "spec/Privacy.md + docs/api/ + docs/story/api/"
+      "spec/Privacy.md + docs/api/ + docs/story/api/ + docs/*/api.md"
       (count references) min-references problems)))
 
 (defn -main [& _]

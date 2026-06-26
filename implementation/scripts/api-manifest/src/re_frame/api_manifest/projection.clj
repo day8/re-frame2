@@ -123,6 +123,54 @@
                {:label label :dir (str dir)}))))
   (markdown-files dir))
 
+(defn require-capability-doc-files
+  "Resolve the per-capability documentation files named `filename` (e.g.
+   `\"concepts.md\"`, `\"api.md\"`) that live as immediate children of the
+   capability directories directly under `docs/` — i.e. the `docs/*/<filename>`
+   glob (`docs/machines/concepts.md`, `docs/routing/api.md`, …).
+
+   THE SHAPE (rf2-earvtz). The #4961 docs reorg moved each capability's
+   CONCEPT and API reference out of the flat `docs/guide/` and `docs/api/`
+   trees into per-capability directories `docs/<cap>/{concepts,api}.md`. The
+   doc-guide / doc-api projection gates scanned only the old flat trees, so
+   the moved files went UNSCANNED — a broken `(rf/<var>` reference in them
+   would slip through CI. This resolves the moved files by glob so the gates
+   cover them, and AUTO-COVERS future capability dirs (a new
+   `docs/<cap>/concepts.md` is picked up with no gate edit).
+
+   SCOPE DISCIPLINE. The glob is anchored on a SINGLE path segment between
+   `docs/` and the filename, so it matches ONLY immediate-child capability
+   files. It never sweeps in the flat trees the gates already own
+   (`docs/guide/` / `docs/api/` are directories, not `docs/api.md` files) nor
+   nested API trees (`docs/story/api/` is a directory; `docs/story/api.md`
+   does not exist). The match excludes directories defensively.
+
+   NON-VACUOUS FLOOR (rf2-utvst discipline, mirroring
+   `require-markdown-files`). These capability files are an EXPECTED surface
+   today, so a zero-match result — a further reorg that renames or relocates
+   them — throws loudly rather than silently scanning nothing and turning the
+   gate into a vacuous green. `label` names the surface for the error.
+
+   Returns the matched files as an `io/file` seq, sorted by path for
+   deterministic reporting."
+  [label filename]
+  (let [docs-dir (repo-file "docs")
+        matches  (when (.isDirectory ^java.io.File docs-dir)
+                   (->> (.listFiles ^java.io.File docs-dir)
+                        (filter #(.isDirectory ^java.io.File %))
+                        (map #(io/file % filename))
+                        (filter #(.isFile ^java.io.File %))
+                        (sort-by #(.getPath ^java.io.File %))))]
+    (when (empty? matches)
+      (throw (ex-info
+               (format (str "%s: no capability doc files matched docs/*/%s — the "
+                            "projection gate cannot run against a non-existent "
+                            "surface (a moved/renamed capability-doc layout would "
+                            "otherwise pass vacuously). Reconcile the surface path.")
+                       label filename)
+               {:label label :glob (str "docs/*/" filename)})))
+    matches))
+
 ;; ---------------------------------------------------------------------------
 ;; Reference extraction.
 ;; ---------------------------------------------------------------------------
