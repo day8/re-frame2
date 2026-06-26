@@ -90,49 +90,60 @@
 (defonce react-root (atom nil))
 
 ;; The runtime never synthesises a frame from absence — an app must
-;; establish its frame explicitly. `init!` installs the adapter (it does
-;; NOT create the frame), `reg-frame` registers the app frame, the boot
-;; dispatch runs under `with-frame`, and the client render is wrapped in
-;; `frame-provider` so every in-tree `dispatch`/`subscribe`
-;; resolves to the app frame. `frame-provider` is the scope-only
-;; sibling — it provides the ALREADY-registered frame; the lifecycle-owning
-;; `frame-provider` (which would create a frame on mount) is deliberately
-;; not used, since `reg-frame` already established it. Matches the canonical
-;; mount in examples/reagent/counter/core.cljs.
+;; establish its frame explicitly. So the boot below does two things in
+;; order: `init!` installs the adapter (it does NOT create the frame),
+;; then the render's `frame-provider {:id app-frame}` does the rest in
+;; one spot — on first mount it CREATES the app frame, applies its
+;; config, and runs `:initial-events` once to seed it (the
+;; `[:counter/initialise]` boot dispatch); thereafter every in-tree
+;; `dispatch`/`subscribe` resolves to that frame. On hot reload the
+;; provider REUSES the existing frame and does NOT re-seed. Matches the
+;; canonical mount in examples/reagent/counter/core.cljs.
+;;
+;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
+;; migration may reach for it out of habit, but the runtime won't infer
+;; it; you establish it like any other.
 (def app-frame :rf/default)
 
 (defn boot!
   "The one canonical boot sequence for this example: install the slim
-   adapter, register the app frame, dispatch the boot event under the frame
-   scope, then lazily mount `counter-app` into `#app` under a
-   `frame-provider` (the scope-only sibling — `reg-frame` already
-   created the frame, so the mount only re-scopes into it, not re-creates it).
+   adapter, then lazily mount `counter-app` into `#app` under a
+   `frame-provider {:id app-frame …}`. The whole frame is established in
+   that one spot — on first mount the provider CREATES the app frame,
+   applies its config, and runs `:initial-events` once to seed it; on hot
+   reload it REUSES the existing frame and does NOT re-seed.
 
    `boot!` is the single source of truth for the boot so the teaching path
    (`run` below) and the gate-owned path
    (`counter-slim-and-fast.bundle-isolation-entry/run`) cannot drift: both
    call this fn, so a future EP/API boot change is made in one place.
 
-   `on-frame` is an optional thunk run inside the `with-frame` scope, after
-   the boot dispatch and before the client mount. The teaching `run` passes
-   nothing; only the bundle-isolation entry uses it, to weave its pure-CLJS
-   SSR exercise into the frame scope at the one point its ordering requires.
-   Keeping the seam here — rather than re-copying the boot in the entry — is
-   what keeps `core` free of fixture plumbing while preventing drift."
+   `on-frame` is an optional thunk run in a TRANSIENT frame scope, before
+   the client mount. The teaching `run` passes nothing; only the
+   bundle-isolation entry uses it, to weave its pure-CLJS SSR exercise into
+   a frame scope at the one point its ordering requires. The exercise is a
+   throwaway static render, so it gets its own short-lived frame
+   (`with-new-frame`, auto-destroyed on exit) rather than touching the app
+   frame the provider creates at mount. Keeping the seam here — rather than
+   re-copying the boot in the entry — is what keeps `core` free of fixture
+   plumbing while preventing drift."
   ([] (boot! nil))
   ([on-frame]
    ;; Slim adapter — the difference from `examples/reagent/counter` is
    ;; right here. Same `rf/init!` signature; different adapter Var.
    (rf/init! reagent-slim-adapter/adapter)
-   (rf/reg-frame app-frame {})
-   (rf/with-frame app-frame
-     (rf/dispatch-sync [:counter/initialise])
-     (when on-frame (on-frame)))
+   (when on-frame
+     ;; Fixture-only seam: scope the pre-mount SSR exercise to a throwaway
+     ;; frame (destroyed on exit) so it never touches the app frame the
+     ;; provider creates below.
+     (rf/with-new-frame [_ (rf/make-frame {})]
+       (on-frame)))
    (when (exists? js/document)
      (when-not @react-root
        (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
      (rdc/render @react-root
-                 [rf/frame-provider {:frame app-frame}
+                 [rf/frame-provider {:id app-frame
+                                     :initial-events [[:counter/initialise]]}
                   [counter-app]]))))
 
 (defn run []

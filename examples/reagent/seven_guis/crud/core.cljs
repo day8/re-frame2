@@ -12,6 +12,10 @@
    re-frame2 approach: the inputs *are* a sub of the selection. Editing
    them dispatches into a 'draft' slice; the list shows committed values.
 
+   The whole frame is established in one spot: the render root's
+   `frame-provider {:id …}` creates the app frame, configures it, and
+   runs its `:initial-events` seed once (reused, not re-seeded, on reload).
+
    Demonstrates:
    - List operations (add / update / delete)              (CP-1)
    - Selection as state, not as React component identity  (P8: low hidden context)
@@ -57,8 +61,10 @@
 
 ;; EP-0002: reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
-;; schema binds to the app frame whose commits it validates.
+;; :rf/default (the frame the render-root `frame-provider {:id app-frame}`
+;; establishes), so name it explicitly here so the schema binds to that frame
+;; whose commits it validates. This `with-frame` only sets the frame-context
+;; label for the registration — it does not require the frame to exist yet.
 (with-frame :rf/default
   (rf/reg-app-schema [:crud] {:schema CrudState}))
 
@@ -229,24 +235,25 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
+;; EP-0002 / EP-0026: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider` so every
-;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
+;; explicitly. So the boot below does two things in order: `init!` installs
+;; the adapter (it does NOT create the frame), then the render's
+;; `frame-provider {:id app-frame}` does the rest in ONE spot — on first
+;; mount it CREATES the app frame, applies its config, and runs
+;; `:initial-events` once to seed it (`:crud/initialise`); thereafter every
+;; in-tree `dispatch`/`subscribe` resolves to that frame. On hot reload the
+;; provider REUSES the existing frame and does NOT re-seed. Matches the
 ;; canonical mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:crud/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id             app-frame
+                                    :initial-events [[:crud/initialise]]}
                  [crud-view]])))

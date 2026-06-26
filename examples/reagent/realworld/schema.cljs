@@ -256,7 +256,10 @@
 ;;
 ;; EP-0002: reg-app-schemas is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (see `core/run`'s `reg-frame :rf/default`), so name it here.
+;; :rf/default (the app frame `core/run` ensures at its render root via the
+;; `frame-provider {:id :rf/default …}` ENSURE form), so name it here. The
+;; schemas register against the frame-id at ns-load; the frame picks them up
+;; when the ENSURE provider creates it.
 (with-frame :rf/default
  (rf/reg-app-schemas
   {[:auth]                          AuthSlice

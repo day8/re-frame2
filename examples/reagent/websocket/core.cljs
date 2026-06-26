@@ -78,23 +78,22 @@
 
 ;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider` so every
-;; in-tree `dispatch`/`subscribe` resolves to the app frame. The frame id is
-;; `:rf/default` — the same id `schema.cljs` scopes its `reg-app-schema`
-;; registration to. Matches the canonical mount in
-;; examples/reagent/counter/core.cljs.
+;; explicitly. `init!` installs the adapter (it does NOT create the frame).
+;; The render root then uses the `frame-provider` ENSURE shape (`{:id ...}`):
+;; on first mount it creates the app frame, applies its config, and runs the
+;; `:initial-events` seed ONCE; on hot reload it reuses the existing frame
+;; without re-seeding. Everything — create, seed, and scope-into-React —
+;; happens in that one spot. The frame id is `:rf/default` — the same id
+;; `schema.cljs` scopes its `reg-app-schema` registration to. Matches the
+;; canonical mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:ws.app/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:ws.app/initialise]]}
                  [views/root-view]])))

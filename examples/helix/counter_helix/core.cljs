@@ -96,15 +96,14 @@
 
 ;; The runtime never synthesises a frame from absence — an app must establish
 ;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame), `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in the Helix `frame-provider`
-;; — the scope-only provider that threads this already-registered frame's id down
-;; the React tree (the owning `frame-provider` would *create* a frame; we already
-;; own ours). That context is what lets the `use-subscribe` hook and the
-;; render-time `(rf/frame-handle)` capture resolve to the app frame. There is no
-;; `:rf/default` floor: a Helix tree rendered with NO provider observes the
-;; no-provider sentinel and any `use-subscribe` / `frame-handle` raises
-;; `:rf.error/no-frame-context`.
+;; frame); the Helix `frame-provider` does everything else in ONE spot. Given an
+;; `:id`, the provider CREATES the frame on first mount, applies its config, and
+;; runs `:initial-events` exactly once to seed it. On hot reload it REUSES the
+;; existing frame WITHOUT re-seeding, so the count you were looking at survives.
+;; That context is what lets the `use-subscribe` hook and the render-time
+;; `(rf/frame-handle)` capture resolve to the app frame. There is no `:rf/default`
+;; floor: a Helix tree rendered with NO provider observes the no-provider sentinel
+;; and any `use-subscribe` / `frame-handle` raises `:rf.error/no-frame-context`.
 ;;
 ;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
 ;; migration may reach for it out of habit, but the runtime won't infer it.
@@ -113,12 +112,10 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! helix-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
     (.render @react-root
-             ($ helix-adapter/frame-provider {:frame app-frame}
+             ($ helix-adapter/frame-provider {:id app-frame
+                                              :initial-events [[:counter/initialise]]}
                 ($ counter-app)))))

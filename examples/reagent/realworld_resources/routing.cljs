@@ -229,9 +229,10 @@
 
 ;; EP-0022: the guard is a REGISTERED interceptor referenced BY ID
 ;; (`:realworld-resources.routing/auth-guard`) from the demo frame's
-;; `:interceptors` chain in core.cljs — not an inline value. `reg-interceptor`
-;; is a top-level load-time registration; core.cljs requires this ns, so the
-;; descriptor is registered before `reg-frame` resolves the reference.
+;; `:interceptors` chain — set in the `frame-provider {:id …}` ENSURE form in
+;; core.cljs, not an inline value. `reg-interceptor` is a top-level load-time
+;; registration; core.cljs requires this ns, so the descriptor is registered
+;; before the provider's config resolves the reference at frame creation.
 (rf/reg-interceptor :realworld-resources.routing/auth-guard
   {:doc "Route-level auth guard (Spec 012 §Redirects and guards): redirect
          unauthenticated users away from `:requires-auth`-tagged routes to

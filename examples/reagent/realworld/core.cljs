@@ -3,9 +3,10 @@
 
    Wires the app together:
    - Pulls in every feature namespace (each registers its own events/subs/fx).
-   - Defines :app/initialise (the boot event, dispatched under with-frame).
+   - Defines :app/initialise (the boot event, run via the frame's :initial-events).
    - Defines the root-view that switches on :rf.route/id.
-   - Mounts the React root and installs the URL listener.
+   - Mounts the React root (the `frame-provider {:id …}` ENSURE form creates +
+     seeds the app frame in one spot) and installs the URL listener.
 
    This is single-file glue; the per-feature work lives in:
      auth.cljs             — login / register / session-restore
@@ -512,8 +513,9 @@
   ;; Override :rf.http/managed on the default frame so all the realworld
   ;; feature HTTP calls land on the demo stub (no real backend required).
   ;; The auth-guard interceptor (registered in routing.cljs via
-  ;; `reg-interceptor` and referenced here BY ID per EP-0022) is prepended to
-  ;; every event in this frame (Spec 002 §reg-frame :interceptors) — it short-circuits
+  ;; `reg-interceptor` and referenced BY ID per EP-0022 in the provider's
+  ;; `:interceptors` below) is prepended to
+  ;; every event in this frame (Spec 002 §`:interceptors`) — it short-circuits
   ;; for all non-navigation events and redirects unauthenticated
   ;; `:rf.route/navigate` to `:requires-auth`-tagged routes to login (Spec
   ;; 012 §Redirects and guards). This is what makes the `:requires-auth`
@@ -522,13 +524,16 @@
   ;; EP-0002: the runtime never synthesises a frame
   ;; from absence, and URL ownership is an EXPLICIT declaration — this frame
   ;; carries `:url-bound? true` so it owns the browser URL (Spec 012
-  ;; §Multi-frame routing). The boot dispatch runs under `with-frame` and the
-  ;; render is wrapped in a `frame-provider` below.
+  ;; §Multi-frame routing). The frame is CREATED, configured, and SEEDED in ONE
+  ;; spot: the `frame-provider {:id …}` ENSURE form at the render root below.
+  ;; First mount creates `:rf/default`, applies this config, and runs
+  ;; `:initial-events` once; hot reload REUSES the frame WITHOUT re-seeding
+  ;; (durable app-db survives; `:initial-events` are re-recorded, not replayed).
   ;; EP-0025 (durable egress classification): the JWT lives at [:auth :token]
   ;; in app-db, so that path is classified `:sensitive`. Classification rides
-  ;; the commit-plane `:sensitive` effect (`:auth/classify-token`, run from the
-  ;; frame's `:initial-events` at frame creation, before any boot dispatch or
-  ;; off-box egress). Projection happens at the trust boundary, so any off-box
+  ;; the commit-plane `:sensitive` effect (`:auth/classify-token`, the FIRST of
+  ;; the frame's `:initial-events` at frame creation, before the session-restore
+  ;; token write and any off-box egress). Projection happens at the trust boundary, so any off-box
   ;; egress — Xray/observability capture, an off-box tool, an SSR hydration
   ;; payload — sees the token redacted while on-box rendering (the navbar, the
   ;; live header the request actually sends) keeps the raw value.
@@ -545,44 +550,65 @@
   ;; password draft is transient form state, owned by its registration, not a
   ;; durable frame fact (and is never sent off-box from app-db). This is the
   ;; canonical issue-5 case from the EP, surfaced only where the data is real.
-  (rf/reg-frame :rf/default {:doc             "Realworld demo frame."
-                             :url-bound?      true
-                             :initial-events  [[:auth/classify-token]]
-                             :interceptors    [:realworld.routing/auth-guard]
-                             :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot. Order matters:
-  ;; before :app/initialise dispatches, since session-restore will fire
+  ;; before the frame's `:initial-events` run, since session-restore will fire
   ;; authenticated requests as soon as the JWT is hydrated.
   (rf/reg-http-interceptor :realworld/bearer-auth
                            {:before bearer-auth-interceptor})
   ;; The orchestrator serves this example at /realworld/; strip that
   ;; prefix before the route matcher sees the URL so :realworld/home (path "/")
-  ;; matches.
+  ;; matches. Set before the ENSURE provider renders so the `:initial-events`
+  ;; URL sync (below) and the popstate listener see the stripped URL.
   (routing/set-base-path! "/realworld")
-  (rf/with-frame :rf/default
-    ;; EP-0017: session restore consumes the RECORDABLE-GENERATOR
-    ;; `:auth.session/token` coeffect and folds it into durable [:auth :token].
-    ;; The dispatch is PLAIN — it carries no `:rf.cofx` (a production dispatch
-    ;; never stamps a coeffect; that is a unit-test stub seam). The registered
-    ;; generator (auth.cljs) reads localStorage ONCE at processing-start; its
-    ;; value rides this boot dispatch token as the flat recordable coeffect, so
-    ;; it is recorded and replay / epoch-restore re-presents the captured token
-    ;; verbatim rather than re-reading localStorage then. It is dispatched here
-    ;; directly (not via the `:app/initialise` `:dispatch` fan-out, which does
-    ;; not forward `:rf.cofx`), and BEFORE `:app/initialise` so the token is in
-    ;; app-db before the bearer-auth interceptor fires any authenticated request.
-    (rf/dispatch-sync [:auth/initialise])
-    (rf/dispatch-sync [:app/initialise])
-    ;; install-router! does the initial URL→slice sync (a dispatch-sync) and
-    ;; wires the popstate listener; the sync runs under the frame scope, and
-    ;; the listener captures the URL owner per dispatch (see routing.cljs).
-    (routing/install-router!))
+  ;; Wire the popstate listener for Back/Forward (Spec 012 §popstate drives the
+  ;; URL owner). This example serves from a `/realworld/` sub-path and strips it
+  ;; in `current-url`, so it keeps its own base-path-aware listener rather than
+  ;; the framework's `rf/install-history-listener!`. The listener targets the
+  ;; URL owner resolved AT POP TIME and is idempotent (hot-reload safe). The
+  ;; INITIAL URL→slice sync is seeded once via the frame's `:initial-events`
+  ;; (`:rf.route/handle-url-change` below), which run synchronously at frame
+  ;; creation — so a deep link lands on the right route on first paint without
+  ;; depending on React's render-flush timing.
+  (routing/install-router!)
   ;; Conformance-contract surface — NOT a re-frame2 pattern; see
   ;; install-conduit-debug! above. The external RealWorld suite may read it.
   (install-conduit-debug! :rf/default)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    ;; ENSURE form: create + configure + seed the app frame in ONE spot. First
+    ;; mount creates `:rf/default`, applies `:url-bound? true` + the demo
+    ;; `:fx-overrides` + the auth-guard interceptor, and runs `:initial-events`
+    ;; once; hot reload reuses it without re-seeding.
+    ;;
+    ;; `:initial-events` run in order at frame creation:
+    ;;   - `:auth/classify-token` — classify the durable JWT path [:auth :token]
+    ;;     `:sensitive` (EP-0025) BEFORE the token is written, so it is redacted
+    ;;     off-box from the first write on.
+    ;;   - `:auth/initialise` — EP-0017 session restore. It declares
+    ;;     `:rf.cofx/requires [:auth.session/token]`, a RECORDABLE GENERATOR
+    ;;     (auth.cljs) whose supplier reads localStorage ONCE at processing-start;
+    ;;     the value rides this setup-step's dispatch token and is recorded, so
+    ;;     replay / epoch-restore re-presents the captured token verbatim rather
+    ;;     than re-reading localStorage. Ordered BEFORE `:app/initialise` so the
+    ;;     token is in app-db before the bearer-auth interceptor fires any
+    ;;     authenticated request. (A unit test stamps `{:rf.cofx …}` at the
+    ;;     dispatch site as a node-side stub; in the browser the generator
+    ;;     supplies the value, so no explicit cofx is needed here.)
+    ;;   - `:app/initialise` — fans out to the per-feature initialisers.
+    ;;   - `:rf.route/handle-url-change` — the initial URL→slice sync, computed
+    ;;     once from the base-path-stripped current URL. Ordered LAST so the
+    ;;     auth-guard interceptor sees the restored session when redirecting an
+    ;;     unauthenticated deep link to a `:requires-auth` route.
     (rdc/render @react-root
-                [rf/frame-provider {:frame :rf/default}
+                [rf/frame-provider {:id              :rf/default
+                                    :doc             "Realworld demo frame."
+                                    :url-bound?      true
+                                    :initial-events  [[:auth/classify-token]
+                                                      [:auth/initialise]
+                                                      [:app/initialise]
+                                                      [:rf.route/handle-url-change
+                                                       (routing/current-url)]]
+                                    :interceptors    [:realworld.routing/auth-guard]
+                                    :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}}
                  [root-view]])))

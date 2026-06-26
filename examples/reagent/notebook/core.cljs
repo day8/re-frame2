@@ -349,23 +349,21 @@
 
 ;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in `frame-provider`
-;; (the frame already exists, so the provider just threads its id down —
-;; it does not create one) so every in-tree `dispatch`/`subscribe`
-;; resolves to the app frame. Matches the canonical mount in
-;; examples/reagent/counter/core.cljs.
+;; explicitly. `init!` installs the adapter (it does NOT create the frame).
+;; The render root then establishes the app frame in ONE spot: the
+;; `frame-provider` `{:id …}` ENSURE form creates the frame on first mount,
+;; runs `:initial-events` once to seed app-db before the first paint, and on
+;; hot reload reuses the same frame WITHOUT re-seeding. Every in-tree
+;; `dispatch`/`subscribe` then resolves to that frame. Matches the canonical
+;; mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:notebook/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:notebook/initialise]]}
                  [notebook]])))

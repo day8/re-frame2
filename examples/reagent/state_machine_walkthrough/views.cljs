@@ -116,26 +116,27 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  ;; Install the canned-failure override on the default frame so every
-  ;; `:rf.http/managed` request resolves :failure. The chapter's
-  ;; lockout scenario depends on three consecutive failures.
-  ;; EP-0002: the runtime never synthesises a frame from absence —
-  ;; register the app frame explicitly and wrap the render in a `frame-provider`
-  ;; so the `reg-view`-injected `dispatch`/`subscribe` (and the login machine
-  ;; reads) resolve to it (a no-provider render reads the no-provider sentinel
-  ;; and raises :rf.error/no-frame-context). The login machine is
-  ;; self-initialising; the form DRAFT slice is not, so it is seeded with one
-  ;; boot `dispatch-sync` scoped to this frame BEFORE first render — the
-  ;; controlled inputs read `:value` off `[:auth :login-form :draft]`, so the
-  ;; slot must exist as empty strings on the first paint (a nil there would make
-  ;; React treat the inputs as uncontrolled).
-  (rf/reg-frame :rf/default
-    {:doc          "State-machines walkthrough demo frame."
-     :fx-overrides {:rf.http/managed :auth.login/canned-failure}})
-  (rf/dispatch-sync [:auth.login/initialise-form] {:frame :rf/default})
+  ;; One spot creates, configures and seeds the app frame: the ENSURE form
+  ;; `frame-provider {:id …}`. On first mount it CREATES the `:rf/default`
+  ;; frame, applies the config, and runs `:initial-events` once; on hot reload
+  ;; it REUSES the same frame WITHOUT re-seeding. The `reg-view`-injected
+  ;; `dispatch`/`subscribe` (and the login machine reads) resolve to it.
+  ;;
+  ;; `:fx-overrides` installs the canned-failure stub so every
+  ;; `:rf.http/managed` request resolves :failure — the chapter's lockout
+  ;; scenario depends on three consecutive failures.
+  ;;
+  ;; The login machine is self-initialising; the form DRAFT slice is not, so it
+  ;; is seeded via `:initial-events` BEFORE first render — the controlled inputs
+  ;; read `:value` off `[:auth :login-form :draft]`, so the slot must exist as
+  ;; empty strings on the first paint (a nil there would make React treat the
+  ;; inputs as uncontrolled).
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame :rf/default}
+                [rf/frame-provider {:id              :rf/default
+                                    :doc             "State-machines walkthrough demo frame."
+                                    :fx-overrides    {:rf.http/managed :auth.login/canned-failure}
+                                    :initial-events  [[:auth.login/initialise-form]]}
                  [root-view]])))

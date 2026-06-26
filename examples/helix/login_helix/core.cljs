@@ -545,23 +545,28 @@
 (defonce react-root (atom nil))
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the adapter spec once, before the first render — no registry.
   (rf/init! helix-adapter/adapter)
-  (rf/reg-frame :rf/default
-    {:doc          "Login (Helix) demo frame."
-     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
-  ;; No `dispatch-sync` seed here (unlike counter / dashboard): the
-  ;; machine handler is self-initialising — its `:initial`/`:data` seed
-  ;; [:rf.runtime/machines :snapshots :auth.login/flow] when the flow first runs (per
-  ;; Spec 005 §Restore semantics), so no separate :initialise is needed.
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    ;; Wrap the render in the Helix `frame-provider` so the `use-subscribe` hook
-    ;; + the render-time `(rf/frame-handle)` capture in `login-form` resolve to
-    ;; `:rf/default` via React context. With NO provider the tree observes the
-    ;; no-provider sentinel and those reads raise `:rf.error/no-frame-context`
-    ;; (there is no `:rf/default` floor).
+    ;; Wrap the render in the Helix `frame-provider` ENSURE shape (`{:id …}`):
+    ;; one spot CREATES `:rf/default` on first mount, applies the frame config
+    ;; (`:doc` + the managed-HTTP `:fx-overrides`), and REUSES the same frame on
+    ;; hot reload WITHOUT re-running setup — so the demo's state survives a
+    ;; reload. No `:initial-events`: the machine handler is self-initialising —
+    ;; its `:initial`/`:data` seed [:rf.runtime/machines :snapshots
+    ;; :auth.login/flow] when the flow first runs (per Spec 005 §Restore
+    ;; semantics), so there is nothing to seed here.
+    ;;
+    ;; The provider also gives the `use-subscribe` hook + the render-time
+    ;; `(rf/frame-handle)` capture in `login-form` a frame to resolve to via
+    ;; React context. With NO provider the tree observes the no-provider
+    ;; sentinel and those reads raise `:rf.error/no-frame-context` (there is no
+    ;; `:rf/default` floor).
     (.render @react-root
-             ($ helix-adapter/frame-provider {:frame :rf/default}
+             ($ helix-adapter/frame-provider
+                {:id           :rf/default
+                 :doc          "Login (Helix) demo frame."
+                 :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}}
                 ($ root-view)))))

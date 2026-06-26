@@ -337,11 +337,16 @@
 ;; ============================================================================
 ;;
 ;; The React root is materialised lazily inside `run` (not at ns-load) per
-;; examples/TESTING.md §Example mount-isolation convention. EP-0002: the app
-;; establishes its frame explicitly (`reg-frame`), declares `:url-bound? true`
-;; so it owns the browser URL, overrides `:rf.http/managed` with the per-cursor
-;; canned stub (the example runs standalone), and wraps the render in a
-;; `frame-provider` so every in-tree dispatch/subscribe resolves to it.
+;; examples/TESTING.md §Example mount-isolation convention. EP-0002 + EP-0024:
+;; the app establishes its frame in ONE spot — the render-root
+;; `frame-provider {:id …}` ENSURE shape. On first mount it CREATES the
+;; `app-frame`, applies its config (declares `:url-bound? true` so it owns the
+;; browser URL, overrides `:rf.http/managed` with the per-cursor canned stub so
+;; the example runs standalone), and scopes that frame so every in-tree
+;; dispatch/subscribe resolves to it. On hot reload it REUSES the same frame
+;; without re-creating it. There is no separate `reg-frame` step and no boot
+;; seed: route entry's `:resources` plan ensures PAGE 0, so the feed needs no
+;; `:initial-events`.
 
 (defonce react-root (atom nil))
 
@@ -349,14 +354,16 @@
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame
-    {:doc          "Infinite-feed demo frame."
-     :url-bound?   true
-     :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}})
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    ;; ENSURE shape (EP-0024): CREATE the app frame on first mount with its
+    ;; config, REUSE it on hot reload without re-seeding. The route's
+    ;; `:resources` plan ensures PAGE 0, so there are no `:initial-events`.
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id           app-frame
+                                    :doc          "Infinite-feed demo frame."
+                                    :url-bound?   true
+                                    :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}}
                  [root-view]])))

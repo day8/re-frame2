@@ -128,9 +128,9 @@
 ;; page, stashing the original target under `:return-to` so a post-login
 ;; handler could bounce the user back.
 ;;
-;; It is wired into the demo frame via `reg-frame :interceptors` in
-;; core.cljs (`:interceptors` are "prepended to every event in this
-;; frame", Spec 002 §reg-frame). To keep it cheap and correct it short-
+;; It is wired into the demo frame via the `frame-provider {:id …}`
+;; `:interceptors` in core.cljs (`:interceptors` are "prepended to every
+;; event in this frame", Spec 002 §`:interceptors`). To keep it cheap and correct it short-
 ;; circuits to the unchanged ctx for everything except a navigation
 ;; event, and gates EVERY navigation ENTRY POINT so a `:requires-auth`
 ;; route is unreachable logged-out by ANY access path:
@@ -211,7 +211,8 @@
 ;; (`:realworld.routing/auth-guard`) from the demo frame's `:interceptors`
 ;; chain in core.cljs — not an inline value. `reg-interceptor` is a top-level
 ;; load-time registration; core.cljs requires this ns, so the descriptor is
-;; registered before `reg-frame` resolves the reference.
+;; registered before the `frame-provider {:id …}` ENSURE form resolves the
+;; reference when it creates the frame.
 (rf/reg-interceptor :realworld.routing/auth-guard
   {:doc "Route-level auth guard (Spec 012 §Redirects and guards): redirect
          unauthenticated users away from `:requires-auth`-tagged routes to

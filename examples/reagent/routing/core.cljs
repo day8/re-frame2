@@ -143,16 +143,17 @@
 ;; EP-0002: under the carried invariant the runtime
 ;; never synthesises a frame from absence, and URL ownership is an EXPLICIT
 ;; declaration — a frame owns the browser URL only by carrying
-;; `:url-bound? true` (Spec 012 §Multi-frame routing). So the app frame:
-;;   1. is registered explicitly (`init!` installs only the adapter),
-;;   2. declares `:url-bound? true` so it owns the URL, and
-;;   3. seeds its app-db under `with-frame`.
-;; Because the frame is created up-front by `reg-frame`, the render is
-;; wrapped in `frame-provider` (the SCOPE-only member of the
-;; provider family — it provides an already-created frame id through React
-;; context and creates/destroys nothing; contrast the owned `frame-provider`,
-;; which mounts its own frame). That scope is what every in-tree
-;; `dispatch`/`subscribe` resolves against.
+;; `:url-bound? true` (Spec 012 §Multi-frame routing).
+;;
+;; The app frame is created, configured, and seeded in ONE spot: the
+;; `frame-provider {:id …}` ENSURE form at the render root (`init!` installs
+;; only the adapter). On first mount it creates the frame under `app-frame`,
+;; applies the config (`:url-bound? true` so it owns the URL), and runs
+;; `:initial-events` once to seed app-db. On hot reload it REUSES the existing
+;; frame WITHOUT re-seeding (durable app-db survives; `:initial-events` are
+;; re-recorded but not replayed). That id is what every in-tree
+;; `dispatch`/`subscribe` resolves against — no separate `reg-frame` or
+;; scope step.
 ;;
 ;; The popstate listener is the framework's `rf/install-history-listener!`
 ;; (Spec 012 §popstate drives the URL-owner frame) — NOT a hand-rolled
@@ -168,14 +169,17 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {:doc "Routing demo frame." :url-bound? true})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:routing.app/initialise]))
   ;; Framework popstate listener + initial URL sync, targeted at the URL owner.
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    ;; ENSURE form: create + configure + seed the app frame in one spot.
+    ;; First mount creates it under `app-frame`, applies `:url-bound? true`,
+    ;; and runs `:initial-events` once; hot reload reuses it without re-seeding.
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :doc "Routing demo frame."
+                                    :url-bound? true
+                                    :initial-events [[:routing.app/initialise]]}
                  [root-view]])))

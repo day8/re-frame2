@@ -1,12 +1,13 @@
 (ns todomvc.core
-  "Entry point: install the adapter, register and seed the frame, mount the view.
+  "Entry point: install the adapter, mount the view, ensure-and-seed the frame.
 
   Demonstrates the boot wiring the other files lean on — `init!` (installs the
-  Reagent adapter; it does NOT create a frame), `reg-frame` with `:url-bound?`
-  (this frame owns the address bar) and `:initial-events` (the frame seeds itself
-  at creation), and the hash → route adapter that turns a `#/active` URL change
-  into a `:rf.route/handle-url-change` event. \"The URL is an input; navigation
-  is an event.\""
+  Reagent adapter; it does NOT create a frame), the `frame-provider {:id …}`
+  ensure form (creates the URL-owning app frame on first mount, with `:url-bound?`
+  so it owns the address bar, and seeds it once via `:initial-events`), and the
+  hash → route adapter that turns a `#/active` URL change into a
+  `:rf.route/handle-url-change` event. \"The URL is an input; navigation is an
+  event.\""
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -38,9 +39,9 @@
   (hash->path (.. js/window -location -hash)))
 
 ;; EP-0002: under the carried invariant the runtime never synthesises a frame
-;; from absence, and URL ownership is an EXPLICIT declaration — the app frame is
-;; registered with `:url-bound? true` so it owns the URL (Spec 012 §Multi-frame
-;; routing), and the render is wrapped in `frame-provider`.
+;; from absence, and URL ownership is an EXPLICIT declaration — the render root's
+;; `frame-provider {:id app-frame …}` ensures the app frame with `:url-bound?
+;; true` so it owns the URL (Spec 012 §Multi-frame routing).
 (def app-frame :rf/default)
 
 ;; Named handler so the listener install is idempotent: a repeated `boot!`
@@ -66,8 +67,10 @@
 ;; don't race `create-root` onto the shared `#app`. `defonce` keeps the root
 ;; across hot reloads (React 18 rejects a second `create-root` on a live node),
 ;; and `mount!` is `^:dev/after-load` — shadow re-invokes it on every reload to
-;; re-render the (possibly edited) views WITHOUT re-running `boot!`, so app-db
-;; and the URL listener survive the reload.
+;; re-render the (possibly edited) views. The render root's `frame-provider
+;; {:id app-frame …}` ENSURES the frame: it creates and seeds it once on first
+;; mount, then REUSES it on reload WITHOUT re-seeding, so app-db survives the
+;; reload (and the URL listener, installed in `boot!`, survives too).
 
 (defonce react-root (atom nil))
 
@@ -76,27 +79,28 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id             app-frame
+                                    :doc            "TodoMVC demo frame."
+                                    :url-bound?     true
+                                    :initial-events [[:todo/initialise]
+                                                     [:rf.route/handle-url-change (current-path)]]}
                  [views/root-view]])))
 
 ;; ---- Boot ------------------------------------------------------------------
 ;;
-;; `boot!` runs once, at shadow's :init-fn. `init!` installs the adapter (it does
-;; NOT create the frame); `reg-frame` registers the URL-owning app frame and
-;; seeds it via `:initial-events`, fired synchronously into the freshly-created
-;; frame: `[:todo/initialise]` folds the saved todos — supplied by the registered
-;; `:todo.storage/todos` recordable coeffect (db.cljs) — into app-db, then
-;; `[:rf.route/handle-url-change …]` resolves the initial URL. Seeding through
-;; `:initial-events` is what removes the manual `with-frame` / `dispatch-sync`
-;; dance and the dispatch-site coeffect plumbing.
+;; `boot!` runs once, at shadow's :init-fn, BEFORE the first render. It installs
+;; the adapter (`init!` does NOT create the frame) and installs the `hashchange`
+;; listener. The frame itself is created and seeded by the render root's
+;; `frame-provider {:id app-frame …}` ensure form (see `mount!`): its
+;; `:initial-events` fire once into the freshly-created frame — `[:todo/initialise]`
+;; folds the saved todos (supplied by the registered `:todo.storage/todos`
+;; recordable coeffect in db.cljs) into app-db, then `[:rf.route/handle-url-change …]`
+;; resolves the initial URL. Ensuring + seeding in that one spot removes the
+;; manual `with-frame` / `dispatch-sync` dance and the dispatch-site coeffect
+;; plumbing.
 
 (defn- boot! []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame
-    {:doc            "TodoMVC demo frame."
-     :url-bound?     true
-     :initial-events [[:todo/initialise]
-                      [:rf.route/handle-url-change (current-path)]]})
   (doto js/window
     (.removeEventListener "hashchange" on-hashchange)
     (.addEventListener "hashchange" on-hashchange)))

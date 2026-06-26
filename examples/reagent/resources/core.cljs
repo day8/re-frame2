@@ -503,10 +503,12 @@
 ;; ============================================================================
 ;;
 ;; The React root is materialised lazily inside `run` (not at ns-load) per
-;; examples/TESTING.md §Example mount-isolation convention. The app
-;; establishes its frame explicitly (`reg-frame`), declares `:url-bound?
-;; true` so it owns the browser URL, and wraps the render in a
-;; `frame-provider` so every in-tree dispatch/subscribe resolves to it. The
+;; examples/TESTING.md §Example mount-isolation convention. The app frame is
+;; CREATED + CONFIGURED in ONE spot — the render-root `frame-provider {:id …}`
+;; (ENSURE shape): it creates the frame on first mount, applies its config
+;; (`:url-bound? true` so it owns the browser URL, plus the HTTP-stub
+;; override), and on hot reload REUSES the same frame WITHOUT re-creating or
+;; re-seeding it. Every in-tree dispatch/subscribe resolves to it. The
 ;; framework `install-history-listener!` does the initial URL→slice sync and
 ;; popstate handling, targeted at the URL owner.
 
@@ -514,23 +516,25 @@
 
 ;; `:rf/default` is an ORDINARY frame id with no framework privilege — `init!`
 ;; does not create it. This app earns URL ownership by DECLARING `:url-bound?
-;; true` on the frame below, not by naming the frame anything special.
+;; true` on the ENSURE `frame-provider` below, not by naming the frame
+;; anything special.
 (def app-frame :rf/default)
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  ;; Override `:rf.http/managed` on the app frame so every resource ensure
-  ;; routes to the per-URL canned stub above — the example runs standalone
-  ;; with no backend. The override applies frame-wide; this example issues no
-  ;; non-mocked requests, so a blanket override is the right grain.
-  (rf/reg-frame app-frame
-    {:doc          "Resources demo frame."
-     :url-bound?   true
-     :fx-overrides {:rf.http/managed :resources.demo/http-stub}})
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    ;; ENSURE shape ({:id …}): create + configure the app frame in this ONE
+    ;; spot, reuse-without-reseed on hot reload. The `:fx-overrides` routes
+    ;; every `:rf.http/managed` resource ensure to the per-URL canned stub
+    ;; above — the example runs standalone with no backend. The override
+    ;; applies frame-wide; this example issues no non-mocked requests, so a
+    ;; blanket override is the right grain.
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id           app-frame
+                                    :doc          "Resources demo frame."
+                                    :url-bound?   true
+                                    :fx-overrides {:rf.http/managed :resources.demo/http-stub}}
                  [root-view]])))

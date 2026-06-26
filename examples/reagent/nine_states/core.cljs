@@ -136,7 +136,8 @@
 
 ;; EP-0002: reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (see `run`/`reg-frame :rf/default`), so name it explicitly.
+;; :rf/default (the same id `run`'s `frame-provider {:id …}` ENSURES), so
+;; name it explicitly here.
 (with-frame :rf/default
   (rf/reg-app-schema [:new-todo] {:schema NewTodoSlice}))
 
@@ -731,22 +732,31 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  ;; Install the demo override so `:rf.http/managed` calls route to the
-  ;; in-process canned-stub fxs above. The example runs standalone — no
-  ;; backend required.
   ;; EP-0002: the runtime never synthesises a frame from absence —
-  ;; register the app frame explicitly, seed under `with-frame`, and wrap the
-  ;; render in a `frame-provider` so the `reg-view`-injected
-  ;; `dispatch`/`subscribe` resolve to it (a no-provider render reads the
-  ;; no-provider sentinel and raises :rf.error/no-frame-context).
-  (rf/reg-frame :rf/default
-    {:doc          "Nine-states demo frame."
-     :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
-  (rf/with-frame :rf/default
-    (rf/dispatch-sync [:nine-states.app/initialise]))
+  ;; the app must establish its frame explicitly. `init!` installs the
+  ;; adapter only (it does NOT create the frame).
+  ;;
+  ;; EP-0026: one-spot frame setup via the `frame-provider` ENSURE shape
+  ;; (`{:id …}`). On first mount it CREATES `:rf/default`, applies the config
+  ;; below, and runs `:initial-events` ONCE; on hot reload it REUSES the
+  ;; existing frame WITHOUT re-seeding. Create, seed, and scope-into-React all
+  ;; happen in that one spot — no separate `reg-frame` / `with-frame` boot step.
+  ;;
+  ;; - `:fx-overrides` routes `:rf.http/managed` to the in-process canned-stub
+  ;;   fxs above so the example runs standalone — no backend required.
+  ;; - `:initial-events` seeds the app via `[:nine-states.app/initialise]`.
+  ;;
+  ;; The provider also scopes the frame into React so the `reg-view`-injected
+  ;; `dispatch`/`subscribe` (and `root-view`'s subs) resolve to `:rf/default`
+  ;; via context. With NO provider a `reg-view` reads the no-provider sentinel
+  ;; and those calls raise `:rf.error/no-frame-context`. The frame id is the
+  ;; same `:rf/default` that `reg-app-schema` is scoped to at ns-load above.
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame :rf/default}
+                [rf/frame-provider {:id             :rf/default
+                                    :doc            "Nine-states demo frame."
+                                    :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
+                                    :initial-events [[:nine-states.app/initialise]]}
                  [root-view]])))
