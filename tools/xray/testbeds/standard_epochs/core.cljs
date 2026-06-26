@@ -850,7 +850,7 @@
   ;; run-step event. The runner cursor lives in app-db `:step`.
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the host frame, scope the boot dispatch, and wrap the render
-  ;; in a `frame-provider-existing` (scope-only — the host frame is
+  ;; in a `frame-provider` (scope-only — the host frame is
   ;; already `reg-frame`'d; the carried invariant).
   (rf/reg-frame host-frame {})
   ;; Register the frame-local FLOW + APP-SCHEMA now the host frame is LIVE
@@ -860,4 +860,4 @@
   (register-frame-local-features! host-frame)
   (rf/with-frame host-frame
     (rf/dispatch-sync [:standard-epochs/reset]))
-  (rdc/render react-root [rf/frame-provider-existing {:frame host-frame} [standalone]]))
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [standalone]]))

@@ -60,7 +60,7 @@
   perturb layout. Cleared on mouseleave.
 
   Pure hiccup — frame isolation via the enclosing
-  `[rf/frame-provider-existing {:frame :rf/xray}]` in the shell."
+  `[rf/frame-provider {:frame :rf/xray}]` in the shell."
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]

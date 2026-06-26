@@ -74,7 +74,7 @@
   ## Frame isolation
 
   Same discipline as the Dynamic shell. The Static shell is wrapped
-  in `[rf/frame-provider-existing {:frame :rf/xray}]`; every subscribe +
+  in `[rf/frame-provider {:frame :rf/xray}]`; every subscribe +
   dispatch inside the shell resolves to `:rf/xray`. Every subscribing
   region is `reg-view`-registered so its rendered component carries
   `:contextType frame-context` (Spec 004 §Plain Reagent fns do not

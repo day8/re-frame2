@@ -62,7 +62,7 @@
 ;; to the shared story-host as the live-app root view (mirrors
 ;; counter-with-stories.core).
 (defn live-app-root []
-  [rf/frame-provider-existing {:frame :rf/default} [login-app]])
+  [rf/frame-provider {:frame :rf/default} [login-app]])
 
 ;; ---------------------------------------------------------------------------
 ;; Hash-routing between the live app and the Story shell
@@ -104,7 +104,7 @@
     (rf/dispatch-sync [:login/flow [:login/dismiss]]))
   ;; Wire the live-app↔Story-shell hash router (shared helper). The live-app
   ;; root is frame-scoped via `live-app-root` (the
-  ;; `frame-provider-existing` wrapper — scope-only into the already-
+  ;; `frame-provider` wrapper — scope-only into the already-
   ;; registered `:rf/default` frame).
   ;; The `:source-subdir` opt hands the host this testbed's
   ;; tool-relative source subdir; the host resolves the on-disk

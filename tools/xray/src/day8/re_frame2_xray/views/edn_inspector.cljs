@@ -3262,7 +3262,7 @@
   synthetic-event timing has popped the dynamic frame context.
 
   The popup stack-view (`edn-inspector-popup-stack` in `shell.cljs`) is
-  mounted inside the shell's `[rf/frame-provider-existing {:frame frame-id}]`, so
+  mounted inside the shell's `[rf/frame-provider {:frame frame-id}]`, so
   it subscribes against the SAME instance frame the affordance
   dispatches into — the write and the read meet on the instance frame,
   not a global `:rf/xray` literal. This supersedes the rf2-7sdja fix,

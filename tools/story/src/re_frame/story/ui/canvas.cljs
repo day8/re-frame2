@@ -23,7 +23,6 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.adapter.context :as adapter-context]
             [re-frame.story.config :as config]
             [re-frame.story.loaders :as story-loaders]
             [re-frame.story.registrar :as registrar]
@@ -41,53 +40,6 @@
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]
             [re-frame.story.theme.depth :as depth]))
-
-;; ---- namespace-preserving frame-provider --------------------------------
-;;
-;; Stock Reagent's `convert-prop-value` calls
-;; `(name kw)` on named prop values, so a `[:> Provider {:value
-;; :story.counter/clicked-three-times}]` reaches React with
-;; `value="clicked-three-times"` — the namespace is dropped before the
-;; subscribe-time `coerce-context-value` can read it. The reagent-slim
-;; adapter narrows this so non-HTML props pass keywords
-;; through unchanged, but Story's reference example targets stock
-;; Reagent (and the repro is on stock Reagent).
-;;
-;; The fix: bypass Reagent's prop conversion by emitting the React
-;; element directly via `adapter-context/provider-element`, which uses
-;; `React.createElement` with the raw `#js {:value frame-kw}` — no
-;; conversion, no name-stripping. The keyword survives the
-;; React-context round trip and the variant's frame is what subscribe
-;; resolves under.
-
-(defn frame-provider-ns-safe
-  "A Reagent component that scopes a namespaced frame keyword to its
-  subtree via the React context backing `rf/frame-provider-existing` —
-  but bypasses Reagent's prop-conversion so the namespace is preserved.
-  Scope-only: the variant's frame is already allocated by `allocate!`'s
-  `rf/make-frame`, so this neither creates nor owns a frame (it is the
-  namespace-preserving twin of `rf/frame-provider-existing`, never the
-  owned-lifecycle `rf/frame-provider`).
-
-  Usage:
-    [frame-provider-ns-safe {:frame :story.counter/clicked-three-times}
-     [child-component args]]
-
-  The component returns a single React element built via
-  `React.createElement` directly. Reagent treats fn-returning-element
-  as a valid render result, so this drops into normal hiccup trees."
-  [props child]
-  ;; EP-0002 — the provider scopes the EXPLICIT variant frame
-  ;; (every caller passes `{:frame variant-id}`). The `:frame` prop is
-  ;; threaded through verbatim; there is NO `:rf/default` synthesis when it
-  ;; is absent (a frame-scoped render must name its frame — under the
-  ;; carried invariant `:rf/default` is an ordinary id, never an
-  ;; absence-repair floor, per Spec 002 §Frame target resolution). An
-  ;; absent prop establishes the no-provider sentinel, so descendant
-  ;; subscribes fail loud (`:rf.error/no-frame-context`) rather than
-  ;; silently reading a synthesised default frame.
-  (let [frame-kw (:frame props)]
-    (adapter-context/provider-element frame-kw (r/as-element child))))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -599,20 +551,20 @@
        ;; single-substrate path; otherwise Reagent subscriptions fall
        ;; back to the live app/default frame.
        ^{:key (str "multi-" variant-id)}
-       [frame-provider-ns-safe {:frame variant-id}
+       [rf/frame-provider {:frame variant-id}
         [multi-substrate/multi-substrate-grid variant-id]]
 
        :else
        (let [resolved-view (rf/view view-id)]
          (if resolved-view
            ;; The variant's frame is already allocated; scope the
-           ;; rendered view's subscribe / dispatch to it (scope-only,
-           ;; like `rf/frame-provider-existing`) via a provider that
-           ;; preserves the namespace of a `:story.x/y`-shaped
-           ;; variant id (the namespace-preserving provider). The
-           ;; standard `rf/frame-provider-existing` uses Reagent's `:>`
-           ;; interop which calls `(name kw)` on prop values and drops
-           ;; the namespace before React sees it.
+           ;; rendered view's subscribe / dispatch to it (scope-only)
+           ;; via the merged `rf/frame-provider {:frame …}` shape, which
+           ;; routes through Reagent's `:r>` interop head so the namespace
+           ;; of a `:story.x/y`-shaped variant id survives the
+           ;; React-context round trip (a plain `[:> Provider …]` mount
+           ;; calls `(name kw)` on prop values and drops the namespace
+           ;; before React sees it).
            ;;
            ;; Stamp `data-rf-story-variant-root` on the
            ;; immediate wrapper around the user-authored decorated view
@@ -625,7 +577,7 @@
            ;; wrong: Story chrome a11y is Story's concern, not the
            ;; variant author's.
            ^{:key (str "single-" variant-id)}
-           [frame-provider-ns-safe {:frame variant-id}
+           [rf/frame-provider {:frame variant-id}
             [:div {:key (str "variant-root:" (pr-str variant-id))
                    :data-rf-story-variant-root (pr-str variant-id)}
              ;; Bind the variant's resolved view-state

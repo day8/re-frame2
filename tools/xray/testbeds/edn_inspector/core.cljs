@@ -567,12 +567,12 @@
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the single, plain host frame, scope the boot dispatch, and
-  ;; wrap the render in a `frame-provider-existing` (the frame is already
+  ;; wrap the render in a `frame-provider` (the frame is already
   ;; created by `reg-frame`; carried invariant).
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:edn-inspector/reset]))
-  (rdc/render react-root [rf/frame-provider-existing {:frame host-frame} [root]])
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]])
   ;; Mount the inline Xray sidecar (Epoch + App-db panels) into
   ;; `[data-rf-xray-host]`, standard_epochs-style. `init!` is the public
   ;; manual alternative to the `:preloads` wiring (so no shadow-cljs.edn

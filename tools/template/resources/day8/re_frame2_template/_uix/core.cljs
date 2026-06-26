@@ -49,5 +49,5 @@
     (schema/register-schema!)
     (rf/dispatch-sync [:counter/initialise]))
   (uix-dom/render-root
-    ($ uix-adapter/frame-provider-existing {:frame :rf/default} ($ views/counter-app))
+    ($ uix-adapter/frame-provider {:frame :rf/default} ($ views/counter-app))
     root))

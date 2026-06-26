@@ -56,7 +56,7 @@
 ;; `:rf/default` frame so `counter-app`'s reg-view-injected dispatch/subscribe
 ;; resolve. Passed to the shared story-host as the live-app root view.
 (defn live-app-root []
-  [rf/frame-provider-existing {:frame :rf/default} [counter-app]])
+  [rf/frame-provider {:frame :rf/default} [counter-app]])
 
 ;; -- Routing between app and story shell ----------------------------------
 ;;
@@ -88,7 +88,7 @@
   ;; testbed's `:rf/default` app frame explicitly, then run the frame-local
   ;; boot work (seed dispatch + elision listener install) inside its scope.
   ;; The live-app render is frame-scoped via `live-app-root` (the
-  ;; `frame-provider-existing` wrapper passed to the host below — the
+  ;; `frame-provider` wrapper passed to the host below — the
   ;; `:rf/default` frame is already `reg-frame`'d above).
   ;;
   ;; EP-0025: durable app-db size/sensitivity classification rides the

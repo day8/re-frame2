@@ -153,7 +153,7 @@ strategy for `:variants-grid`:
 
 - `:isolated` (default) — every cell mounts in parallel; each wraps
   its rendered view in a per-variant scope provider (the
-  namespace-preserving `frame-provider-existing` twin — the variant
+  namespace-preserving `frame-provider` twin — the variant
   frame is already allocated). Baseline frame-isolation contract.
 - `:shared` — cells mount ONE at a time with a prev/next navigator
   (◀ N/total ▶). Same serialised-mount strategy `:tabs` (rf2-ktnl8)
@@ -392,7 +392,7 @@ Each mount fn:
 1. Installs Xray's handler registry (idempotent).
 2. Ensures the `:rf/xray` frame exists (idempotent
    `rf/reg-frame`).
-3. Wraps the panel view in `[rf/frame-provider-existing {:frame :rf/xray}
+3. Wraps the panel view in `[rf/frame-provider {:frame :rf/xray}
    [<Panel>]]` so the panel's `:rf.xray/*` subscribes resolve to
    Xray's state-isolation frame regardless of host React-context.
 4. Delegates to the host's `substrate-adapter/render` to mount the

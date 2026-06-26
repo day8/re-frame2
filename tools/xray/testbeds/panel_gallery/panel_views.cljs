@@ -8,7 +8,7 @@
   via `(rf/view <id>)` (per
   `tools/story/src/re_frame/story/ui/canvas.cljs`). The variant
   frame-provider has already wrapped the rendered tree with
-  `[frame-provider-existing {:frame variant-id}]`, so any subscribe inside the
+  `[frame-provider {:frame variant-id}]`, so any subscribe inside the
   panel resolves to the variant frame's app-db.
 
   Each gallery component is a thin wrapper around either a single
@@ -43,7 +43,7 @@
   the shell's app-db lives in the VARIANT frame — N chrome cells in one
   workspace are fully isolated and each variant's `:events` seed THAT
   frame directly. (Pre rf2-1w07r the shell hardcoded a scope-only
-  `[frame-provider-existing {:frame :rf/xray}]`, so every cell's reads
+  `[frame-provider {:frame :rf/xray}]`, so every cell's reads
   collided on the one global `:rf/xray` app-db regardless of the
   variant frame.)
 
@@ -206,7 +206,7 @@
   open-state) lives in the VARIANT frame — each chrome cell in a
   `:variants-grid` workspace is then fully isolated, and the variant's
   `:events` seed THAT frame directly. (Pre rf2-1w07r the shell
-  hardcoded `[frame-provider-existing {:frame :rf/xray}]`, so every cell
+  hardcoded `[frame-provider {:frame :rf/xray}]`, so every cell
   collided on the one `:rf/xray` app-db — driving one drove all; the
   gallery had to serialise rendering with a `:tabs` workspace + a
   re-seed-on-activation shim. The parameterized shell retires that

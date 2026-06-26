@@ -7,7 +7,7 @@
 
     1. Installs Xray's handlers (idempotent).
     2. Registers `:rf/xray` (idempotent).
-    3. Wraps the panel view in `[rf/frame-provider-existing {:frame _} [Panel]]`.
+    3. Wraps the panel view in `[rf/frame-provider {:frame _} [Panel]]`.
     4. Delegates to `substrate-adapter/render` with the wrapped tree.
     5. Returns the adapter's unmount fn.
 
@@ -19,7 +19,7 @@
 
     - Calls the mount fn against a sentinel mount-point.
     - Asserts the captured tree has the canonical
-      `[rf/frame-provider-existing {:frame :rf/xray} [Panel]]` shape.
+      `[rf/frame-provider {:frame :rf/xray} [Panel]]` shape.
     - Asserts the substrate-adapter render was invoked exactly once.
     - Asserts the returned value is the (stubbed) unmount fn — the
       host's lifecycle anchor.
@@ -87,10 +87,10 @@
 
 (defn- frame-provider-wrap?
   "True when the captured tree is the canonical
-  `[rf/frame-provider-existing {:frame :rf/xray} [Panel]]` shape."
+  `[rf/frame-provider {:frame :rf/xray} [Panel]]` shape."
   [tree expected-panel-view]
   (and (vector? tree)
-       (= rf/frame-provider-existing (first tree))
+       (= rf/frame-provider (first tree))
        (= {:frame :rf/xray} (second tree))
        (vector? (nth tree 2))
        (= expected-panel-view (first (nth tree 2)))))
@@ -99,7 +99,7 @@
 
 (deftest mount-epoch-panel-wraps-in-frame-provider-and-delegates-to-adapter
   (testing "rf2-crhr8 + rf2-5gl5r — mount-epoch-panel! installs
-            handlers, wraps epoch-panel/Panel in `[rf/frame-provider-existing
+            handlers, wraps epoch-panel/Panel in `[rf/frame-provider
             {:frame :rf/xray} [Panel]]`, delegates to substrate-
             adapter/render, and returns the adapter's unmount fn.
             (Replaces the prior mount-event-detail! coverage; the
@@ -193,7 +193,7 @@
 (deftest mount-shell-renders-shell-view-without-extra-wrapper
   (testing "rf2-crhr8 — mount-shell! delegates the full 4-layer shell.
             The shell-view itself installs its own scope provider
-            (`frame-provider-existing`, per the shell docstring) so the
+            (`frame-provider`, per the shell docstring) so the
             mount fn renders [shell-view {:mode :inline}] directly — no
             outer wrapper."
     (let [[capture _ render-stub] (make-render-stub)]
@@ -232,7 +232,7 @@
       (with-redefs [substrate-adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-point {:frame :my-app/cart})
         (let [tree (captured-tree capture)]
-          (is (= rf/frame-provider-existing (first tree)))
+          (is (= rf/frame-provider (first tree)))
           (is (= {:frame :my-app/cart} (second tree))
               "explicit :frame opt overrides the default :rf/xray"))))))
 

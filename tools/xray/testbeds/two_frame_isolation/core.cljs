@@ -229,9 +229,9 @@
      "Switch frames in Xray (right) with the frame picker to compare "
      "trace / events / epochs per frame."]]
    [:div {:style {:display "flex" :flex-direction "column"}}
-    [rf/frame-provider-existing {:frame frame-above}
+    [rf/frame-provider {:frame frame-above}
      [frame-card "above" frame-above "standard-epochs-above" run-step-above]]
-    [rf/frame-provider-existing {:frame frame-below}
+    [rf/frame-provider {:frame frame-below}
      [frame-card "below" frame-below "standard-epochs-below" run-step-below]]]])
 
 ;; ============================================================================

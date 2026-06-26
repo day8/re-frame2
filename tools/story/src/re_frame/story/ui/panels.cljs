@@ -39,7 +39,6 @@
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.a11y :as a11y]
-            [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.chrome-a11y :as chrome-a11y]
             [re-frame.story.ui.schema-validation :as schema-validation]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
@@ -115,8 +114,8 @@
   ensures Reagent's reaction-tracking observes the deref at render
   time — under the registered-view path the user fn is wrapped by
   `reg-view*`'s `frame-aware-view`, and the panel-host additionally
-  wraps it in `frame-provider-ns-safe` (which calls `r/as-element`
-  on the child). The form-1 shape worked in isolation but didn't
+  wraps it in `rf/frame-provider {:frame …}`. The form-1 shape worked
+  in isolation but didn't
   re-render through the wrapper chain; the form-2 inner-fn shape is
   the canonical Reagent idiom that survives nested wrapping.
 
@@ -228,7 +227,7 @@
   scope into the (already-allocated) variant frame — otherwise the
   view's ambient `rf/subscribe` resolves `:rf/default` and the deref
   returns nil, throwing in the view. We wrap each panel in
-  `frame-provider-existing {:frame variant-id}`.
+  `frame-provider {:frame variant-id}`.
 
   Returns a hiccup vector wrapping the resolved panels."
   [placement variant-id panel-visibility]
@@ -252,11 +251,11 @@
            [:span {:style {:color (:text-tertiary colors/tokens)}} (str pid)]]
           (if view-fn
             ;; rf2-zme7: scope the panel view's subscribe / dispatch to
-            ;; the active variant's frame. The namespace-preserving
-            ;; provider (canvas/frame-provider-ns-safe) keeps the
-            ;; `:story.x/y`-shaped variant-id intact across the React
-            ;; context boundary (rf2-c5jz).
-            [canvas/frame-provider-ns-safe {:frame variant-id}
+            ;; the active variant's frame. The merged `rf/frame-provider
+            ;; {:frame …}` shape keeps the `:story.x/y`-shaped variant-id
+            ;; intact across the React context boundary (it routes through
+            ;; Reagent's `:r>` interop head, rf2-c5jz).
+            [rf/frame-provider {:frame variant-id}
              [view-fn variant-id]]
             [:div {:style {:padding "8px" :color (:text-secondary colors/tokens)
                            :font-style "italic" :font-size (:micro typography/type-scale)}}
