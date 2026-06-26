@@ -222,13 +222,16 @@ nav:
   - Machines:
     - machines/index.md
     - "Concepts": machines/concepts.md
+    - "Coming from XState": machines/coming-from-xstate.md
     - "API": machines/api.md
     - "Glossary": machines/glossary.md
+    - "Examples": machines/examples.md
 
   - Resources:
     - resources/index.md
     - "Concepts": resources/concepts.md
     - "HTTP": resources/http.md
+    - "Coming from TanStack Query": resources/coming-from-tanstack-query.md
     - "Tutorial: Build RealWorld":
       - resources/tutorial/index.md
       - "1. Pages and state": resources/tutorial/01-pages-and-state.md
@@ -242,18 +245,23 @@ nav:
     - "API": resources/api.md
     - "HTTP API": resources/http-api.md
     - "Glossary": resources/glossary.md
+    - "Examples": resources/examples.md
 
   - Routing:
     - routing/index.md
     - "Concepts": routing/concepts.md
+    - "Coming from React Router": routing/coming-from-react-router.md
     - "API": routing/api.md
     - "Glossary": routing/glossary.md
+    - "Examples": routing/examples.md
 
   - SSR:
     - ssr/index.md
     - "Concepts": ssr/concepts.md
+    - "Coming from Next.js": ssr/coming-from-nextjs.md
     - "API": ssr/api.md
     - "Glossary": ssr/glossary.md
+    - "Examples": ssr/examples.md
 
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).

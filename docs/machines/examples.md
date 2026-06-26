@@ -1,0 +1,9 @@
+# Machines examples
+
+Worked, runnable apps that put the machine spec through its paces — read the [Concepts](concepts.md) chapter first, then come here for the executable form.
+
+- **state_machine_walkthrough** — the Concepts login flow as runnable code: a self-contained transition table (guards and actions live *with* the spec, not in a global registry), driven headlessly to show the pure-transition + drain testing story. — [../../examples/reagent/state_machine_walkthrough/](../../examples/reagent/state_machine_walkthrough/)
+- **nine_states** — one `:type :parallel` machine with three orthogonal regions (`:data` / `:form` / `:mode`) and `:fsm/tags`; a render-priority table over the tag union collapses all nine canonical UI states into a single `case` in the root view. — [../../examples/reagent/nine_states/](../../examples/reagent/nine_states/)
+- **long_running_work** — cancellable long-running work via `:spawn-all`: one parent coordinator spawns N parallel worker children, with per-step progress as an internal self-transition and a cooperative cancellation cascade that fires on every exit path (including unmount). — [../../examples/reagent/long_running_work/](../../examples/reagent/long_running_work/)
+- **websocket** — the canonical connection machine: a hierarchical compound `:active` state parenting connect/auth/connected, a `:spawn`'d socket actor bound to that state, `:after` exponential backoff, `:always` queue-flush on reconnect, and connection-epoch staleness against the live socket id. — [../../examples/reagent/websocket/](../../examples/reagent/websocket/)
+- **process_monitor_helix** — a Helix two-pane process monitor. It demonstrates Helix consuming subs via `use-subscribe` and a live `:dispatch-later` tick loop, but is a design-led example with *no* state machine — included here only as the Helix sibling if you want substrate variety. — [../../examples/helix/process_monitor_helix/](../../examples/helix/process_monitor_helix/)
