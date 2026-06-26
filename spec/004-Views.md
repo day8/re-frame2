@@ -446,7 +446,7 @@ To re-point children to an **already-existing** frame, scope them with `rf/with-
 Reusable-component concerns are addressed by:
 
 1. **Reusable widgets need to subscribe and dispatch** — `reg-view`'s frame-bound injection.
-2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — the frame scope established by a `with-frame` or a [UI-owned `frame-provider`](002-Frames.md#the-merged-config-shaped-frame-provider-cljs-reference) plus user-defined React contexts for non-frame state.
+2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — the frame scope established by a `with-frame` or a [`frame-provider`](002-Frames.md#the-merged-config-shaped-frame-provider-cljs-reference) (the merged config-shaped provider — scope an existing frame with `{:frame …}` or ensure a named one with `{:id …}`) plus user-defined React contexts for non-frame state.
 
 ## View antipatterns
 
