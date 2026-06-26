@@ -258,14 +258,22 @@
 ;; the cached-read mechanics. A tiny reader machine: it ensures the article
 ;; on entry, and the resource is released when the instance is destroyed.
 
-;; The reader is started by the UI with `[:resources.app/reader
-;; [:rf.machine/start slug instance-id]]` — the creation marker carries the
-;; slug + instance-id this workflow owns. The `:reading` `:entry` action runs
-;; once on the initial-entry cascade: it reads slug + instance-id from the
-;; start `:event`, assigns them into the snapshot `:data` (so the owner is
-;; self-describing for tools / SSR), and ensures the article under a
-;; `[:machine machine-id instance-id]` owner (Spec 016 §Machine-owned
-;; resource). The runtime releases that owner when the actor is destroyed.
+;; The reader is started by the UI in two steps: BIRTH the actor with the bare
+;; `[:rf.machine/start]` creation marker, then dispatch a real first event
+;; `[:reader/load slug instance-id]` INTO the live actor. The split is
+;; deliberate and idiomatic: the framework's initial-entry cascade synthesises
+;; the birth `:entry` actions with NO event (it threads only the bare start
+;; marker), so an `:entry` action cannot read args off the start marker — they
+;; would arrive nil. A real event dispatched after birth DOES thread its args,
+;; so the slug + instance-id this workflow owns ride on `:reader/load`.
+;;
+;; The `:reading` state handles `:reader/load` with the `:ensure-article`
+;; action (a targetless internal transition — no `:target`, so the actor stays
+;; in `:reading`): it reads slug + instance-id from the load `:event`, assigns them into the
+;; snapshot `:data` (so the owner is self-describing for tools / SSR), and
+;; ensures the article under a `[:machine machine-id instance-id]` owner (Spec
+;; 016 §Machine-owned resource). The runtime releases that owner when the actor
+;; is destroyed.
 (rf/reg-machine :resources.app/reader
   {:doc     "A reader workflow that owns the article it is reading."
    :initial :reading
@@ -281,21 +289,32 @@
                              :owner    [:machine :resources.app/reader instance-id]
                              :cause    [:machine-action :resources.app/reader.reading]}]]]}))}
    :states
-   {:reading {:entry :ensure-article}}})
+   ;; `:reader/load` is a TARGETLESS internal transition (a candidate map with
+   ;; an `:action` ref and no `:target`): the actor stays in `:reading` and
+   ;; runs `:ensure-article`. A bare `{:reader/load :ensure-article}` would read
+   ;; `:ensure-article` as a sibling-state TARGET (and fail to resolve), so the
+   ;; action ref must ride inside the `{:action …}` candidate map.
+   {:reading {:on {:reader/load {:action :ensure-article}}}}})
 
-;; The UI starts/stops the reader through these events. Starting fires the
-;; `[:rf.machine/start slug instance-id]` creation marker (which runs the
-;; reader's `:reading` entry → ensure) and records the active instance-id in
-;; app-db so the view can read the machine-owned article + offer a stop
-;; affordance. Stopping emits the reserved `[:rf.machine/destroy …]` fx,
-;; which runs the actor's `:exit` cascade and releases its `[:machine …]`
-;; resource owner so the entry can GC, then clears the slice.
+;; The UI starts/stops the reader through these events. Starting BIRTHS the
+;; actor with the bare `[:rf.machine/start]` marker, then dispatches the real
+;; `[:reader/load slug instance-id]` event into it — that event (unlike the
+;; birth marker) threads its args, so the `:reading` `:reader/load` action
+;; reads the slug + instance-id and ensures the article under the
+;; `[:machine … instance-id]` owner. The two dispatches order naturally: the
+;; start marker's birth cascade runs first, then the load event drives the
+;; ensure on the now-live actor. The event also records the active instance-id
+;; in app-db so the view can read the machine-owned article + offer a stop
+;; affordance. Stopping emits the reserved `[:rf.machine/destroy …]` fx, which
+;; runs the actor's `:exit` cascade and releases its `[:machine …]` resource
+;; owner so the entry can GC, then clears the slice.
 (rf/reg-event :resources.app/start-reader
   {:doc "Start the reader workflow that owns the given article for its lifetime."}
   (fn [{:keys [db]} [_ slug]]
     (let [instance-id (str "reader-" slug)]
       {:db (assoc db :resources.app/reader {:slug slug :instance-id instance-id})
-       :fx [[:dispatch [:resources.app/reader [:rf.machine/start slug instance-id]]]]})))
+       :fx [[:dispatch [:resources.app/reader [:rf.machine/start]]]
+            [:dispatch [:resources.app/reader [:reader/load slug instance-id]]]]})))
 
 (rf/reg-event :resources.app/stop-reader
   {:doc "Destroy the reader actor — releases its machine-owned resource."}
