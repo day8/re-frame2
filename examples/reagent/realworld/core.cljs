@@ -78,13 +78,11 @@
 
 (rf/reg-event :app/initialise
   {:doc "App boot. Fans out to per-feature initialisers. `:auth/initialise` is
-         NOT in this fan-out — it consumes the RECORDABLE+PROVIDED
-         `:auth.session/token` coeffect, whose value the host boundary
-         (`run`) reads ONCE and stamps onto a dedicated boot dispatch token
-         (EP-0017). The `:dispatch` fx does not forward `:rf.cofx`
-         (it only inherits the cascade-propagated keys), so the session-restore
-         boot dispatch is issued directly at the boundary in `run`, where the
-         supplied token rides the token and is recorded."}
+         NOT in this fan-out — it consumes the RECORDABLE-GENERATOR
+         `:auth.session/token` coeffect (EP-0017). The `:dispatch` fx does not
+         forward `:rf.cofx`, so issuing it as a plain boundary dispatch in `run`
+         (rather than through this fan-out) keeps the generated token on its own
+         boot dispatch token, where it is recorded."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:articles/initialise]]
           [:dispatch [:article/initialise]]
@@ -561,19 +559,18 @@
   ;; matches.
   (routing/set-base-path! "/realworld")
   (rf/with-frame :rf/default
-    ;; EP-0017: session restore consumes the RECORDABLE+PROVIDED
+    ;; EP-0017: session restore consumes the RECORDABLE-GENERATOR
     ;; `:auth.session/token` coeffect and folds it into durable [:auth :token].
-    ;; The host read happens ONCE here at the boundary; its value rides this
-    ;; boot dispatch token as the flat recordable coeffect, so it is recorded
-    ;; and replay / epoch-restore re-presents the captured token verbatim rather
-    ;; than re-reading localStorage then. It is dispatched directly at the
-    ;; boundary (not via the `:app/initialise` `:dispatch` fan-out, which does
+    ;; The dispatch is PLAIN — it carries no `:rf.cofx` (a production dispatch
+    ;; never stamps a coeffect; that is a unit-test stub seam). The registered
+    ;; generator (auth.cljs) reads localStorage ONCE at processing-start; its
+    ;; value rides this boot dispatch token as the flat recordable coeffect, so
+    ;; it is recorded and replay / epoch-restore re-presents the captured token
+    ;; verbatim rather than re-reading localStorage then. It is dispatched here
+    ;; directly (not via the `:app/initialise` `:dispatch` fan-out, which does
     ;; not forward `:rf.cofx`), and BEFORE `:app/initialise` so the token is in
-    ;; app-db before the bearer-auth interceptor fires any authenticated
-    ;; request. Tests / replay supply the value the same way — never by
-    ;; re-registering an ambient supplier.
-    (rf/dispatch-sync [:auth/initialise]
-                      {:rf.cofx {:auth.session/token (auth/read-jwt-from-storage)}})
+    ;; app-db before the bearer-auth interceptor fires any authenticated request.
+    (rf/dispatch-sync [:auth/initialise])
     (rf/dispatch-sync [:app/initialise])
     ;; install-router! does the initial URL→slice sync (a dispatch-sync) and
     ;; wires the popstate listener; the sync runs under the frame scope, and

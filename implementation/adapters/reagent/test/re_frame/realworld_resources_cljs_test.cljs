@@ -409,3 +409,23 @@
       (is (= "alice" (:username (rf/compute-sub [:auth/user] (state-value f))))
           "the session user is stored")
       (is (true? (rf/compute-sub [:auth/authenticated?] (state-value f)))))))
+
+;; ============================================================================
+;; 7. SESSION-TOKEN COFX SHAPE — recordable generator (not provided-at-dispatch)
+;; ============================================================================
+
+(deftest session-token-cofx-is-a-recordable-generator
+  (testing "examples/reagent/realworld_resources — the saved JWT is an app-owned
+            world-read that feeds durable [:auth :token], so it is a recordable
+            GENERATOR (a `:recordable? true` reg-cofx whose supplier reads
+            localStorage), NOT a provided fact stamped at the dispatch site
+            (cofx.md §Decision tree). The generator runs at processing-start, is
+            recorded onto the causal token, and replay re-presents the captured
+            value verbatim."
+    (let [cofx-meta (registrar/handler-meta :cofx :realworld-resources.session/token)]
+      (is (true? (:recordable? cofx-meta))
+          "the cofx is recordable — its value rides the recorded token")
+      (is (not (:provided? cofx-meta))
+          "the cofx is NOT provided — it is generator-backed (the app supplies it)")
+      (is (fn? (:handler-fn cofx-meta))
+          "a recordable generator carries a value-returning supplier fn"))))

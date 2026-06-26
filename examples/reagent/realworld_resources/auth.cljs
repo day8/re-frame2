@@ -71,42 +71,42 @@
         (.setItem ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
-;; EP-0017 (recordable coeffects): the saved JWT is a STORAGE world
-;; fact that `:auth/initialise` folds into durable app-db (and that drives
-;; session restore). A durable write must be a function of prior frame-state
-;; plus the causal token — not of an ambient `localStorage` read at the write
-;; site, which replay/epoch-restore could not reproduce. So
-;; `:realworld-resources.session/token` is registered RECORDABLE + PROVIDED
-;; (EP-0017 §2, the `:rf/time-ms` shape): it carries NO generator — its value is
-;; STAMPED onto the boot dispatch token by its owner
-;; (`realworld-resources.core/run`, reading the host once at the boundary),
-;; recorded with the token, and re-presented verbatim under replay /
-;; epoch-restore. This closes the determinism hole the ambient grade left open:
-;; replay re-folds the captured token, never a live re-read of localStorage.
+;; EP-0017 (recordable coeffects): the saved JWT is a STORAGE world fact that
+;; `:auth/initialise` folds into durable app-db (and that drives session
+;; restore). A durable write must fold a RECORDED fact, not an ambient
+;; `localStorage` read at the write site, which replay / epoch-restore could not
+;; reproduce. The JWT is an APP-OWNED world-read that feeds durable state, so the
+;; canonical shape is a recordable GENERATOR (cofx.md §Decision tree):
+;; `:realworld-resources.session/token` is a `:recordable? true` registration
+;; whose value-returning supplier reads localStorage. The generator runs at
+;; processing-start on the boot dispatch, its value is recorded onto the causal
+;; token, and replay / epoch-restore re-presents the captured token verbatim
+;; rather than re-reading whatever localStorage holds now. (PROVIDED — no
+;; generator, value stamped at a boundary — is reserved for facts the app cannot
+;; supply itself, e.g. an SSR server stamp; a JWT the app reads from the host is
+;; not one of those.)
 (defn read-jwt-from-storage
-  "Host-boundary read of the saved JWT from localStorage (or nil). Called from
-   `realworld-resources.core/run` so the value is STAMPED onto the boot dispatch
-   token's `:rf.cofx` as a recordable causal fact rather than being read
-   ambiently in a durable handler. nil when absent / unavailable."
+  "Read the saved JWT from localStorage (or nil) — the supplier body for the
+   `:realworld-resources.session/token` recordable generator. nil when absent /
+   unavailable."
   []
   (some-> (.-localStorage js/globalThis)
           (.getItem "jwtToken")))
 
 (rf/reg-cofx :realworld-resources.session/token
   {:recordable? true
-   :provided?   true
-   :doc "Recordable, PROVIDED coeffect (EP-0017 §2): the saved JWT (or nil)
-         read from localStorage. It has NO generator — its value is stamped
-         onto the boot dispatch token by `realworld-resources.core/run` (the
-         host read happens ONCE there), recorded with the token, and
-         re-presented verbatim under replay / epoch-restore. A handler that
-         folds it into durable app-db declares
-         `:rf.cofx/requires [:realworld-resources.session/token]` and reads it
-         flat; absent from the token it is `:rf.error/missing-required-cofx`
-         (the boot dispatch always supplies it). Tests / replay supply the value
-         directly on the dispatch token —
-         `{:rf.cofx {:realworld-resources.session/token \"…\"}}` — never
-         re-register a supplier."})
+   :doc "Recordable GENERATOR coeffect (EP-0017): the saved JWT (or nil), read
+         from localStorage. The registered supplier runs at processing-start on
+         the boot dispatch; its value is recorded onto the causal token and
+         re-presented verbatim under replay / epoch-restore — so the durable
+         write that folds it (`:auth/initialise` → [:auth :token]) replays the
+         captured token, never a live localStorage re-read. A handler folds it
+         by declaring `:rf.cofx/requires [:realworld-resources.session/token]`
+         and reading it flat. A production dispatch carries NO cofx — the
+         generator IS the source; tests pin an exact value via the dispatch-site
+         `:rf.cofx` stub seam
+         (`{:rf.cofx {:realworld-resources.session/token \"…\"}}`)."}
+  (fn [] (read-jwt-from-storage)))
 
 ;; ============================================================================
 ;; SESSION SUPPORT EVENTS
