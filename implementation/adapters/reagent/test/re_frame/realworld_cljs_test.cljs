@@ -143,21 +143,23 @@
     (is (nil? (rf/compute-sub [:auth/user] (rf/frame-state-value f))))))
 
 (defn- session-token-cofx-shape-test []
-  ;; EP-0017 cofx contract (rf2-16ck78) — the :auth.session/token cofx is a
-  ;; RECORDABLE + PROVIDED fact: it carries NO generator (its value is stamped
-  ;; onto the boot dispatch token by `realworld.core/run`, which reads the host
-  ;; once at the boundary), is recorded with the token, and replay re-presents
-  ;; the captured value verbatim rather than re-reading localStorage. The
-  ;; contract under test: the registration carries the provided-recordable grade
-  ;; and NO supplier fn (a declaring handler receives the supplied value FLAT
-  ;; under `:auth.session/token` via `:rf.cofx/requires`).
+  ;; EP-0017 cofx contract — the :auth.session/token cofx is a RECORDABLE
+  ;; GENERATOR: the saved JWT is an APP-OWNED world-read that feeds durable
+  ;; state, so the app registers a value-returning supplier (reading localStorage)
+  ;; rather than stamping the value at the dispatch site (cofx.md §Decision tree).
+  ;; The generator runs at processing-start on the boot dispatch, its value is
+  ;; recorded onto the causal token, and replay re-presents the captured value
+  ;; verbatim. The contract under test: the registration is recordable, is NOT
+  ;; provided (it has a generator), and carries a supplier fn (the localStorage
+  ;; read). A declaring handler receives the generated value FLAT under
+  ;; `:auth.session/token` via `:rf.cofx/requires`.
   (let [cofx-meta (registrar/handler-meta :cofx :auth.session/token)]
     (is (true? (:recordable? cofx-meta))
         "the cofx is recordable — its value rides the recorded token")
-    (is (true? (:provided? cofx-meta))
-        "the cofx is provided — its owner stamps the value; no generator")
-    (is (nil? (:handler-fn cofx-meta))
-        "a provided recordable fact carries no supplier fn — the boundary stamps it")))
+    (is (not (:provided? cofx-meta))
+        "the cofx is NOT provided — it is generator-backed (the app supplies it)")
+    (is (fn? (:handler-fn cofx-meta))
+        "a recordable generator carries a value-returning supplier fn")))
 
 (defn- login-failure-test []
   (reg-canned-failure! :realworld.test/login-failure
@@ -926,7 +928,7 @@
     (login-happy-path-test))
   (testing "login failure surfaces error and dismiss returns to :idle"
     (login-failure-test))
-  (testing ":auth.session/token cofx assoc-shape regression guard (rf2-gg4dz)"
+  (testing ":auth.session/token is a recordable generator (not provided-at-dispatch)"
     (session-token-cofx-shape-test)))
 
 (deftest realworld-articles-feed

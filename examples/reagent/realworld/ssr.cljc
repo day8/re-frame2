@@ -42,8 +42,9 @@
   ;; live credential into page source (view-source-visible, proxy-logged,
   ;; CDN-cacheable). Redact it at the payload boundary — the client
   ;; re-establishes [:auth :token] on hydrate via `:auth/initialise`
-  ;; (auth.cljs), which folds the RECORDABLE+PROVIDED `:auth.session/token`
-  ;; coeffect the boot boundary stamps from localStorage (EP-0017).
+  ;; (auth.cljs), which folds the RECORDABLE-GENERATOR `:auth.session/token`
+  ;; coeffect — a registered supplier reading localStorage at processing-start,
+  ;; recorded onto the boot dispatch token (EP-0017).
   ;; The durable token slot is thus a function of a recorded boot coeffect, not
   ;; an ambient write-site read, so dropping it from the payload costs nothing
   ;; and stays replay-sound.
