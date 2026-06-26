@@ -1,17 +1,26 @@
 (ns re-frame.owned-frame-lifecycle-cljs-test
-  "Node-runnable unit tests for the substrate-agnostic core of the
-  UI-OWNED frame-provider (EP-0024) and the fail-loud guards shared by
-  the `frame-provider` name family — `re-frame.views.owned-frame`.
+  "Node-runnable unit tests for the substrate-agnostic core of the MERGED
+  config-shaped `rf/frame-provider` (EP-0024 amended) and the fail-loud guards
+  it shares — `re-frame.views.owned-frame`.
 
-  These exercise the parts that need NO React mount: the
-  create-on-mount / deferred-cancellable-destroy registry
-  (`acquire-owned-frame!` / `release-owned-frame!` / `pending-destroy?`)
-  and the two fail-loud guards (`require-owned-frame-id!` for the OWNED
-  provider, `reject-lifecycle-opts!` for the SCOPE-only
-  `frame-provider-existing`). The React function component (`owned-frame-fc`)
-  + the StrictMode double-invoke behaviour are exercised under a real DOM in
-  the adapter DOM-test target; this suite locks the lifecycle ALGEBRA the
-  component drives."
+  EP-0024 amendment (provider collapse). The owned create-on-mount /
+  destroy-on-unmount lifecycle is RETIRED (it had zero product consumers). The
+  merged `rf/frame-provider` serves two non-owning jobs, dispatched on the prop
+  map: `{:frame existing-id}` SCOPE-ONLY (fail loud if absent) and
+  `{:id …}` ENSURE (create-if-absent, reuse-if-present NO re-seed, NO
+  destroy-on-unmount). These tests exercise the parts that need NO React mount:
+
+    - the ENSURE create / reuse-no-reseed algebra (`acquire-ensure-frame!`);
+    - the SCOPE-only fail-loud-if-absent guard (`require-live-frame-for-scope!`);
+    - the ENSURE `:id` guard (`require-ensure-frame-id!`);
+    - the retained legacy `frame-provider-existing` lifecycle-opt guard
+      (`reject-lifecycle-opts!`).
+
+  The React function component (`ensure-frame-fc`) + the hot-reload
+  reuse-no-reseed behaviour under a real remount are exercised under a real DOM
+  in the adapter DOM-test target (the HOT-RELOAD GATE,
+  `frame_provider_context_dom_cljs_test`); this suite locks the lifecycle
+  ALGEBRA the component drives."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -21,7 +30,7 @@
 
 ;; ---- app image (EP-0026 §Default Image) ----------------------------------
 ;;
-;; These tests are direct `make-frame` / `acquire-owned-frame!` callers (NOT
+;; These tests are direct `make-frame` / `acquire-ensure-frame!` callers (NOT
 ;; Story). Co-loaded with the rest of the `node-test` build, an image-less frame
 ;; would resolve the EP-0026 default image (the whole co-loaded store), whose
 ;; cross-app same-`[kind id]` registrations collide. Each frame is created with
@@ -56,42 +65,53 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; ---- create-on-mount + idempotent re-mount --------------------------------
+;; ---- ENSURE: create-if-absent + reuse-no-reseed ---------------------------
 
-(deftest acquire-creates-and-returns-id
-  (testing "acquire-owned-frame! runs make-frame and returns the resolved id"
-    (let [id (owned-frame/acquire-owned-frame! {:id :owned/alpha :images [app-image] :initial-events [[:rf/set-db {:n 1}]]})]
+(deftest acquire-ensure-creates-and-returns-id
+  (testing "acquire-ensure-frame! runs make-frame and returns the resolved id"
+    (let [id (owned-frame/acquire-ensure-frame! {:id :owned/alpha :images [app-image] :initial-events [[:rf/set-db {:n 1}]]})]
       (is (= :owned/alpha id) "returns the frame id off the constructed frame value")
       (is (some? (frame/frame :owned/alpha)) "the frame is live in the registry")
       (is (= {:n 1} (rf/app-db-value :owned/alpha)) ":rf/set-db seeded app-db"))))
 
-(deftest re-acquire-is-idempotent-and-preserves-durable-state
-  (testing "re-acquiring the same id preserves durable app-db (EP-0024 idempotent replacement)"
+(deftest re-acquire-ensure-reuses-without-reseed
+  (testing "re-acquiring the same id REUSES the live frame WITHOUT re-seeding
+            (EP-0024 amended ENSURE: idempotent replacement + reg-frame
+            re-records-but-does-not-replay :initial-events). This is the
+            reuse-no-reseed contract the hot-reload gate pins under a real DOM."
     ;; Register the dispatch handler BEFORE the acquire so it is in the
     ;; frame's app-image-scoped generation (the generation is sealed at
     ;; make-frame time; its `:select-ns` over this ns picks the handler up).
     (rf/reg-event :owned/bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
-    (owned-frame/acquire-owned-frame! {:id :owned/beta :images [app-image] :initial-events [[:rf/set-db {:count 0}]]})
+    (owned-frame/acquire-ensure-frame! {:id :owned/beta :images [app-image] :initial-events [[:rf/set-db {:count 0}]]})
     ;; Mutate durable state through a dispatch path.
     (rf/dispatch-sync [:owned/bump] {:frame :owned/beta})
     (is (= {:count 1} (rf/app-db-value :owned/beta)) "durable state advanced")
     ;; A re-acquire under the SAME id (the hot-reload / StrictMode remount
-    ;; shape) must NOT reset durable state.
-    (let [id2 (owned-frame/acquire-owned-frame! {:id :owned/beta :images [app-image] :initial-events [[:rf/set-db {:count 99}]]})]
+    ;; shape) must NOT reset durable state and must NOT re-run :initial-events.
+    (let [id2 (owned-frame/acquire-ensure-frame! {:id :owned/beta :images [app-image] :initial-events [[:rf/set-db {:count 99}]]})]
       (is (= :owned/beta id2))
       (is (= {:count 1} (rf/app-db-value :owned/beta))
-          "re-acquire preserved durable state (idempotent replacement, not reset)"))))
+          "re-acquire preserved durable state — NOT re-seeded to {:count 99} (reuse-no-reseed)"))))
 
-(deftest acquire-setup-escaping-throw-rethrows-and-leaves-no-frame
-  (testing "rf2-83fwld: an owned-provider acquire whose :initial-events step
-            THROWS out of dispatch-sync rethrows out of acquire-owned-frame! AND
-            leaves NO frame registered (the EP frame-provider acceptance
-            criterion: a setup throw destroys the just-created frame, then
-            rethrows). Transitively: acquire -> make-frame -> reg-frame ->
-            run-setup-events! tears down the partial frame and rethrows
-            :rf.error/initial-events-step-failed, which propagates through
-            acquire (the cancel-pending-destroy! after make-frame never runs).
-            This is the ESCAPING-throw detection route."
+(deftest ensure-passes-url-bound-through-as-record-config
+  (testing "an ensure-provider opt like :url-bound? flows verbatim through
+            make-frame onto the frame record-config (it is not a provider-only
+            opt; the ensure provider just hands the whole opts map to make-frame)."
+    (owned-frame/acquire-ensure-frame!
+      {:id :owned/urlbound :images [app-image] :url-bound? true
+       :initial-events [[:rf/set-db {:n 0}]]})
+    (is (true? (:url-bound? (frame/frame-meta :owned/urlbound)))
+        ":url-bound? landed on the frame meta (record-config passthrough)")))
+
+(deftest acquire-ensure-setup-escaping-throw-rethrows-and-leaves-no-frame
+  (testing "rf2-83fwld: an ensure-provider acquire whose :initial-events step
+            THROWS out of dispatch-sync rethrows out of acquire-ensure-frame! AND
+            leaves NO frame registered (a setup throw destroys the just-created
+            frame, then rethrows). Transitively: acquire -> make-frame ->
+            reg-frame -> run-setup-events! tears down the partial frame and
+            rethrows :rf.error/initial-events-step-failed. This is the
+            ESCAPING-throw detection route."
     ;; A step that requires an UNREGISTERED cofx: cofx resolution throws OUT of
     ;; dispatch-sync (:rf.error/unregistered-cofx via throw-error!), so this is
     ;; the ESCAPING-throw case — run-setup-events! tears down the partial frame
@@ -101,102 +121,81 @@
       (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
     (let [thrown (atom nil)]
       (try
-        (owned-frame/acquire-owned-frame!
+        (owned-frame/acquire-ensure-frame!
           {:id :owned/boom
            :images [app-image]
            :initial-events [[:rf/set-db {:seeded true}]
                             [:owned/needs-missing-cofx]]})
         (catch :default e (reset! thrown e)))
       (is (some? @thrown)
-          "the setup throw RETHROWS out of acquire-owned-frame! (not swallowed)")
+          "the setup throw RETHROWS out of acquire-ensure-frame! (not swallowed)")
       (is (= :rf.error/initial-events-step-failed
              (:rf.error/id (ex-data @thrown)))
           "the rethrown error is the setup-step failure naming the throwing step")
       (is (nil? (frame/frame :owned/boom))
           "no half-created frame is left registered — the partial frame was torn down"))))
 
-(deftest acquire-setup-in-band-handler-throw-rethrows-and-leaves-no-frame
-  (testing "rf2-vw5h1r: the EP frame-provider guarantee — 'a throwing acquire
-            destroys the just-created frame, then rethrows' — now holds for an
-            IN-BAND handler-body throw too, not just an escaping throw. A
-            [:rf/set-db :not-a-map] bad-arg step raises :rf.error/set-db-bad-value
-            from inside the handler; the chain catches it (in-band
-            :rf.error/handler-exception) and dispatch-sync returns nil NORMALLY.
-            Under strict construction run-setup-events! detects that captured
-            in-band failure, tears the partial frame down, and rethrows
+(deftest acquire-ensure-setup-in-band-handler-throw-rethrows-and-leaves-no-frame
+  (testing "rf2-vw5h1r: a throwing acquire destroys the just-created frame, then
+            rethrows — holds for an IN-BAND handler-body throw too, not just an
+            escaping throw. A [:rf/set-db :not-a-map] bad-arg step raises
+            :rf.error/set-db-bad-value from inside the handler; the chain catches
+            it (in-band :rf.error/handler-exception) and dispatch-sync returns nil
+            NORMALLY. Under strict construction run-setup-events! detects that
+            captured in-band failure, tears the partial frame down, and rethrows
             :rf.error/initial-events-step-failed — which propagates out of
-            acquire-owned-frame!. Before the fix the frame was LEFT ALIVE and
-            acquire returned the id with no signal (the owned-provider bug)."
+            acquire-ensure-frame!."
     (let [thrown (atom nil)]
       (try
-        (owned-frame/acquire-owned-frame!
+        (owned-frame/acquire-ensure-frame!
           {:id :owned/setdb-boom
            :images [app-image]
            :initial-events [[:rf/set-db {:seeded true}]
                             [:rf/set-db :not-a-map]]})
         (catch :default e (reset! thrown e)))
       (is (some? @thrown)
-          "the in-band handler-body throw RETHROWS out of acquire-owned-frame!")
+          "the in-band handler-body throw RETHROWS out of acquire-ensure-frame!")
       (is (= :rf.error/initial-events-step-failed
              (:rf.error/id (ex-data @thrown)))
           "the rethrown error is the setup-step failure naming the failing step")
       (is (nil? (frame/frame :owned/setdb-boom))
-          "no half-created frame is left registered — the partial frame was torn down
-           (the bug left it ALIVE wrongly-seeded and acquire returned the id)"))))
+          "no half-created frame is left registered — the partial frame was torn down"))))
 
-;; ---- deferred + cancellable destroy (StrictMode tolerance) ----------------
-;;
-;; The registry ALGEBRA is tested synchronously here: release schedules a
-;; DEFERRED destroy (the frame stays live in the same task), and a re-acquire
-;; before the timer fires CANCELS it. The actual macrotask FIRE (and the real
-;; React unmount → destroy timing) is exercised under a real DOM in the
-;; adapter DOM-test target; node-side we lock that release is deferred (not
-;; synchronous) and that a re-acquire cancels the pending destroy.
+;; ---- fail-loud: ENSURE provider needs a keyword :id ----------------------
 
-(deftest release-defers-destroy-not-synchronous
-  (testing "release-owned-frame! schedules a DEFERRED destroy — frame stays live synchronously"
-    (owned-frame/acquire-owned-frame! {:id :owned/gamma :images [app-image]})
-    (is (some? (frame/frame :owned/gamma)) "frame live before release")
-    (owned-frame/release-owned-frame! :owned/gamma)
-    (is (owned-frame/pending-destroy? :owned/gamma)
-        "a destroy is scheduled (deferred), not run synchronously")
-    (is (some? (frame/frame :owned/gamma))
-        "frame still LIVE synchronously after release — destroy is deferred")
-    ;; Tidy: cancel the pending destroy so the fixture's reset is clean (a
-    ;; re-acquire is the cancel path).
-    (owned-frame/acquire-owned-frame! {:id :owned/gamma :images [app-image]})
-    (is (not (owned-frame/pending-destroy? :owned/gamma)) "tidy: destroy cancelled")))
-
-(deftest re-acquire-cancels-pending-destroy
-  (testing "a re-acquire before the deferred destroy fires CANCELS it (StrictMode remount)"
-    (owned-frame/acquire-owned-frame! {:id :owned/delta :images [app-image] :initial-events [[:rf/set-db {:v :keep}]]})
-    ;; Simulate the StrictMode unmount: schedule the deferred destroy ...
-    (owned-frame/release-owned-frame! :owned/delta)
-    (is (owned-frame/pending-destroy? :owned/delta) "destroy pending after release")
-    ;; ... then the immediate remount re-acquires the SAME id, which must
-    ;; cancel the pending destroy synchronously.
-    (owned-frame/acquire-owned-frame! {:id :owned/delta :images [app-image]})
-    (is (not (owned-frame/pending-destroy? :owned/delta))
-        "the re-acquire cancelled the pending destroy")
-    (is (some? (frame/frame :owned/delta))
-        "frame survives the would-be destroy window (StrictMode tolerant)")
-    (is (= {:v :keep} (rf/app-db-value :owned/delta))
-        "durable state preserved across the unmount→remount cycle")))
-
-;; ---- fail-loud: OWNED provider needs a keyword :id ------------------------
-
-(deftest require-owned-frame-id-fails-loud-on-missing-id
-  (testing "the owned provider requires a keyword :id"
-    (is (= :owned/ok (owned-frame/require-owned-frame-id! :owned/ok 'rf/frame-provider))
+(deftest require-ensure-frame-id-fails-loud-on-missing-id
+  (testing "the ensure provider requires a keyword :id"
+    (is (= :owned/ok (owned-frame/require-ensure-frame-id! :owned/ok 'rf/frame-provider))
         "a keyword :id passes through unchanged")
-    (is (thrown-with-msg? :default #":rf.error/owned-frame-provider-missing-id"
-          (owned-frame/require-owned-frame-id! nil 'rf/frame-provider))
+    (is (thrown-with-msg? :default #":rf.error/ensure-frame-provider-missing-id"
+          (owned-frame/require-ensure-frame-id! nil 'rf/frame-provider))
         "a missing/nil :id fails loud")
-    (is (thrown-with-msg? :default #":rf.error/owned-frame-provider-missing-id"
-          (owned-frame/require-owned-frame-id! "owned/str" 'rf/frame-provider))
+    (is (thrown-with-msg? :default #":rf.error/ensure-frame-provider-missing-id"
+          (owned-frame/require-ensure-frame-id! "owned/str" 'rf/frame-provider))
         "a non-keyword :id fails loud")))
 
-;; ---- fail-loud: SCOPE-only provider rejects lifecycle opts ----------------
+;; ---- fail-loud: SCOPE-only shape needs a LIVE frame ----------------------
+
+(deftest require-live-frame-for-scope-passes-a-live-frame
+  (testing "require-live-frame-for-scope! returns the keyword for a LIVE frame"
+    (owned-frame/acquire-ensure-frame! {:id :scope/live :images [app-image]})
+    (is (= :scope/live
+           (owned-frame/require-live-frame-for-scope! :scope/live 'rf/frame-provider))
+        "a live frame passes through unchanged")))
+
+(deftest require-live-frame-for-scope-fails-loud-on-absent-frame
+  (testing "require-live-frame-for-scope! fails loud when the named frame is absent"
+    (is (thrown-with-msg? :default #":rf.error/frame-provider-frame-absent"
+          (owned-frame/require-live-frame-for-scope! :scope/never-created 'rf/frame-provider))
+        "scoping a never-created frame fails loud")
+    ;; A created-then-destroyed frame is also absent.
+    (owned-frame/acquire-ensure-frame! {:id :scope/gone :images [app-image]})
+    (rf/destroy-frame! :scope/gone)
+    (is (thrown-with-msg? :default #":rf.error/frame-provider-frame-absent"
+          (owned-frame/require-live-frame-for-scope! :scope/gone 'rf/frame-provider))
+        "scoping a destroyed frame fails loud")))
+
+;; ---- fail-loud: legacy frame-provider-existing rejects lifecycle opts -----
 
 (deftest reject-lifecycle-opts-passes-frame-only
   (testing "frame-provider-existing accepts a :frame-only prop map"
@@ -223,6 +222,26 @@
 ;; These don't mount (node has no DOM); they call the public Reagent
 ;; component fns directly to confirm the surface-level validation wiring
 ;; (the hiccup-emission level, like runtime_cljs_test does).
+
+(deftest merged-frame-provider-ensure-validates-id-at-the-surface
+  (testing "rf/frame-provider {:id …} ENSURE shape fails loud on a bad :id"
+    (is (thrown-with-msg? :default #":rf.error/ensure-frame-provider-missing-id"
+          (rf/frame-provider {:id "not-a-keyword"} [:span]))
+        "a non-keyword :id on the ensure shape fails loud")))
+
+(deftest merged-frame-provider-scope-fails-loud-on-absent-frame-at-the-surface
+  (testing "rf/frame-provider {:frame absent} SCOPE shape fails loud when the frame is absent"
+    (is (thrown-with-msg? :default #":rf.error/frame-provider-frame-absent"
+          (rf/frame-provider {:frame :scope/surface-absent} [:span]))
+        "scoping an absent frame at the surface fails loud")))
+
+(deftest merged-frame-provider-scope-scopes-a-live-frame-at-the-surface
+  (testing "rf/frame-provider {:frame live} SCOPE shape composes to a Provider"
+    (owned-frame/acquire-ensure-frame! {:id :scope/surface-live :images [app-image]})
+    (let [tree (rf/frame-provider {:frame :scope/surface-live} [:span "child"])]
+      (is (vector? tree) "produces a hiccup vector")
+      (is (= :scope/surface-live (second tree))
+          "the frame keyword threads through to the scope tier"))))
 
 (deftest frame-provider-existing-rejects-lifecycle-opt-at-the-surface
   (testing "rf/frame-provider-existing fails loud when handed an owned-style :id"
