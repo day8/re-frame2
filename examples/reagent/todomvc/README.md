@@ -48,9 +48,9 @@ The handler then just declares it needs that fact and folds it into app-db — p
 
 Because the value was *recorded* with the dispatch, a replay or epoch-restore re-presents the captured snapshot verbatim instead of re-reading the world. (If you want the full theory, this is the "recordable vs ambient coeffects" distinction from the glossary, and the persistence write itself is an ordinary registered effect — effects are data, performed by the runtime, kept out of the pure handler.) It's a lot of ceremony for a todo list, granted — but TodoMVC is exactly the right size to show the *shape* of replayable persistence without burying it under a real domain.
 
-### Why localStorage and not `:rf.http/managed`?
+### Why localStorage?
 
-Persisting locally keeps the example small and dependency-free — no backend to stand up, no request lifecycle to follow. The canonical demonstration of managed HTTP (`:rf.http/managed`) lives with the [`realworld`](../realworld/) example instead. If you came here to learn the request shape, that's where to look; here, persistence is deliberately the simplest thing that could possibly work.
+Persisting locally keeps the example small and dependency-free — no backend to stand up, no request lifecycle to follow. TodoMVC is exactly the right size to show the *shape* of replayable persistence on its own, and localStorage is the simplest thing that does the job.
 
 ## Official assets
 
@@ -96,4 +96,4 @@ gates (see [`examples/README.md`](../../README.md)).
 
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the routing surface the filter rides on.
 - [`examples/reagent/routing/`](../routing/) — routing on its own, as the focused worked example.
-- [`examples/reagent/realworld/`](../realworld/) — where the managed-HTTP (`:rf.http/managed`) persistence shape lives instead.
+- [`examples/reagent/realworld/`](../realworld/) — the full Conduit app on the same primitives, if you want to see them at scale.
