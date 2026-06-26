@@ -207,6 +207,38 @@
 (rf/reg-machine :auth.login/flow login-flow)
 
 ;; ============================================================================
+;; FORM DRAFT SLICE — Pattern-Forms §Variations (machine + slice)
+;; ============================================================================
+;;
+;; The machine owns submit/auth STATUS; the slice owns the DRAFT. Form drafts
+;; are application state, so the email/password the user types lives in app-db
+;; — projected via a sub, mutated via an event — never in a view-local atom.
+;; The login form's inputs are CONTROLLED off `:auth.login/draft`; `:on-change`
+;; dispatches `:auth.login/edit-field`, and submit reads the draft back out of
+;; the slice rather than out of the view.
+;;
+;; This walkthrough strips the slice to its single teaching point — the draft —
+;; rather than the full 7-key Pattern-Forms slice (touched / errors /
+;; submit-attempted? / …): the chapter foregrounds the MACHINE, so the slice
+;; carries only what must leave the view. The fuller slice shape lives in
+;; examples/reagent/realworld/auth.cljs.
+
+(def login-form-defaults {:email "" :password ""})
+
+(rf/reg-event :auth.login/initialise-form
+  {:doc "Seed the login draft to empty defaults. The machine spawns itself on
+         its first event; this only owns the draft slice."}
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form :draft] login-form-defaults)}))
+
+(rf/reg-event :auth.login/edit-field
+  {:doc "User changed a single login field. Writes the draft slot in app-db —
+         the controlled input's `:on-change` dispatches this; it NEVER sets
+         view-local state."}
+  (fn [{:keys [db]} [_ field value]]
+    {:db (assoc-in db [:auth :login-form :draft field] value)}))
+
+;; ============================================================================
 ;; SUBSCRIPTIONS — chapter §Registering and running it
 ;; ============================================================================
 
@@ -219,6 +251,12 @@
 ;; `rf/machine-has-tag?` queries in views.cljs (chapter §State tags),
 ;; because discriminating on the snapshot's runtime-projected `:tags` set
 ;; decouples view code from individual state-keyword identity.
+
+(rf/reg-sub :auth.login/draft
+  {:doc "The login form draft — what the user has currently typed. The view's
+         controlled inputs read `:value` off this; submit reads it to hand the
+         creds to the machine."}
+  (fn [db _] (get-in db [:auth :login-form :draft])))
 
 (rf/reg-sub :auth.login/state
   :<- [:rf/machine :auth.login/flow]
