@@ -245,7 +245,7 @@ Related: [Frames](concepts/frames.md).
 
 ### **frame-provider**
 
-The React component that scopes a [frame](#frame) to a view subtree, so `dispatch`/`subscribe` inside resolve to it. `frame-provider` *creates* a frame on mount and destroys it on unmount (view-owned widgets, modals, stories); `frame-provider-existing` just threads an already-created frame's id down. (The everyday expression of [frame identity is carried, not found](#frame-identity-is-carried-not-found).)
+The React component that scopes a [frame](#frame) to a view subtree, so `dispatch`/`subscribe` inside resolve to it. One component, two config shapes chosen by the prop map: `{:frame existing-id}` *scopes* an already-created frame's id down (creating and destroying nothing; fails loud if the frame is absent), while `{:id …}` *ensures* a named frame — creating it if absent, reusing it without re-seeding if present, with no destroy-on-unmount. (The everyday expression of [frame identity is carried, not found](#frame-identity-is-carried-not-found).)
 
 Related: [Frames](concepts/frames.md).
 
@@ -541,7 +541,7 @@ Related: [Errors](concepts/errors.md).
 An operation reads its [frame](#frame) from its scope (provider / running handler / captured handle); the runtime never invents one. A rootless call is `:rf.error/no-frame-context`.
 
 ```clojure
-[rf/frame-provider-existing {:frame :app} [app-root]]   ;; scope carries the frame downward
+[rf/frame-provider {:frame :app} [app-root]]   ;; scope carries the frame downward
 ```
 
 Related: [Frames](concepts/frames.md).

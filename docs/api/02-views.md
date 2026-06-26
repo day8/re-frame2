@@ -112,25 +112,19 @@ A tool's own chrome — Story's panel grid, Xray's inspector views — is regist
 
 ## The substrate-agnostic ergonomic surface
 
-These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope** (`frame-provider-existing`, `with-frame`), **own** (`frame-provider`, `with-new-frame`), **hold** (`frame-handle` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
+These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope or ensure a frame** (`frame-provider`, `with-frame`, `with-new-frame`), **hold** (`frame-handle` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
 
 ### `frame-provider`
 
-- **Kind**: Reagent component (UI-owned lifecycle boundary)
-- **Signature**:
+- **Kind**: Reagent component (one component, two config shapes)
+- **Signatures**:
   ```clojure
-  [rf/frame-provider {:id :todo :images [todo-image]} & children]
+  [rf/frame-provider {:frame :todo} & children]                     ;; SCOPE: scope an existing frame
+  [rf/frame-provider {:id :todo :images [todo-image]} & children]   ;; ENSURE: create-if-absent / reuse
   ```
-- **Description**: The view-owned lifecycle boundary — it **creates** the frame on mount (via `make-frame`, taking the same constructor opts: `:id` / `:images` / record-config incl. `:initial-events`), provides its id to descendants, and **destroys** it on unmount. Reach for it when a component should own a frame for exactly as long as it is mounted (comparison pages, Story canvases, embedded widgets, modal stacks). To merely *scope* an already-created frame, use `frame-provider-existing` (below).
-
-### `frame-provider-existing`
-
-- **Kind**: Reagent component (scope-only)
-- **Signature**:
-  ```clojure
-  [rf/frame-provider-existing {:frame :todo} & children]
-  ```
-- **Description**: "Children inside this provider see `:todo` as their current frame." Scopes a React subtree to a frame that **already exists** (created by `make-frame` / `reg-frame`, a tool runtime, or an enclosing `frame-provider`); creates / refreshes / destroys nothing. Takes `:frame` **only** — a lifecycle opt fails loud. The scope-into-React counterpart to `with-frame` (which a dynamic var cannot serve across React's render boundary).
+- **Description**: One component, two config shapes chosen by the prop map.
+  - **`{:frame existing-id}` — SCOPE.** "Children inside this provider see `:todo` as their current frame." Scopes a React subtree to a frame that **already exists** (created by `make-frame` / `reg-frame`, a tool runtime, or an enclosing `frame-provider`); creates / refreshes / destroys nothing. **Fails loud** (`:rf.error/frame-provider-frame-absent`) when the named frame is absent. `:frame` must be a keyword — a `nil` `:frame` is `:rf.error/no-frame-context`, a non-keyword `:frame` is `:rf.error/bad-frame-provider-arg`. The scope-into-React counterpart to `with-frame` (which a dynamic var cannot serve across React's render boundary).
+  - **`{:id the-id …}` — ENSURE.** Creates the frame if absent (via `make-frame`, taking the same constructor opts: `:id` / `:images` / record-config incl. `:initial-events`), **reuses it without re-seeding** if present (an idempotent re-mount preserves durable state and does not replay `:initial-events`), and provides its id to descendants. There is **no destroy-on-unmount**. Reach for it when a view should bring its own frame into being for as long as it is mounted (comparison pages, Story canvases, embedded widgets). `:id` is required and must be a keyword (`:rf.error/ensure-frame-provider-missing-id` otherwise). True ownership — tearing the frame down when the component unmounts — stays explicit: `make-frame` + `destroy-frame!` inside a `create-class`.
 
 ### `with-frame` / `with-new-frame`
 
@@ -267,15 +261,15 @@ In the entries below, `<adapter>` stands for the adapter namespace alias the con
   ```
 - **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
 
-### `<adapter>/frame-provider` / `<adapter>/frame-provider-existing`
+### `<adapter>/frame-provider`
 
-- **Kind**: components (functions)
+- **Kind**: component (function — one component, two config shapes)
 - **Signatures**:
   ```clojure
-  ($ frame-provider {:id :session :images [session-image] :children […]})     ;; own (create/destroy)
-  ($ frame-provider-existing {:frame :session :children […]})                 ;; scope an existing frame
+  ($ frame-provider {:frame :session} child-1 child-2)                  ;; SCOPE an existing frame
+  ($ frame-provider {:id :session :images [session-image]} child-1 child-2)  ;; ENSURE create-if-absent / reuse
   ```
-- **Description**: The component-shaped equivalents of Reagent's `frame-provider` (UI-owned lifecycle) and `frame-provider-existing` (scope-only). The underlying React Context (`re-frame.adapter.context`) is **shared** across all three substrates, so a mixed-substrate app's provider chain composes across substrate boundaries.
+- **Description**: The component-shaped equivalent of Reagent's merged `frame-provider`, dispatched on the prop map: `{:frame …}` scopes an existing frame (failing loud if absent), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed / provide id, no destroy-on-unmount). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map. The underlying React Context (`re-frame.adapter.context`) is **shared** across all three substrates, so a mixed-substrate app's provider chain composes across substrate boundaries.
 
 ### `<adapter>/wrap-view`
 

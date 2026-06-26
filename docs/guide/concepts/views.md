@@ -277,7 +277,7 @@ The injected `dispatch` / `subscribe` always read *the frame the view is renderi
    (str "Other tab: " their-total)])
 ```
 
-This is the deliberate escape hatch, not the daily path — reaching across frames is the exception that proves the isolation rule. To re-point a whole *subtree* of children at an existing frame instead of opt-ing call by call, scope them with `rf/with-frame` (or `rf/frame-provider-existing` across a React boundary) — see [Frames](frames.md).
+This is the deliberate escape hatch, not the daily path — reaching across frames is the exception that proves the isolation rule. To re-point a whole *subtree* of children at an existing frame instead of opt-ing call by call, scope them with `rf/with-frame` (or `rf/frame-provider {:frame …}` across a React boundary) — see [Frames](frames.md).
 
 ## The substrate seam, in one paragraph
 

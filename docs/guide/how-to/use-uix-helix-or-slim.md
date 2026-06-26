@@ -139,35 +139,35 @@ The no-arg `(rf/frame-handle)` captures the *ambient* frame at call time, which 
 
 ## Step 4 — Mount it: scope a frame into the subtree
 
-Step 3 said the surrounding provider supplies a view's ambient frame. This is that provider. [`frame-provider-existing`](../glossary.md#frame-provider) wraps a chunk of your React tree and declares "everything rendered below me reads from *this* frame" — so the `use-subscribe` hooks underneath it know which world to read, and the `frame-handle` captures underneath it know which world to dispatch into. (It's the React-context counterpart to the lexical `rf/with-frame` you may have met elsewhere: same idea, scoped through the component tree instead of through a `let`.)
+Step 3 said the surrounding provider supplies a view's ambient frame. This is that provider. [`frame-provider`](../glossary.md#frame-provider) — in its `{:frame …}` scope shape — wraps a chunk of your React tree and declares "everything rendered below me reads from *this* frame" — so the `use-subscribe` hooks underneath it know which world to read, and the `frame-handle` captures underneath it know which world to dispatch into. (It's the React-context counterpart to the lexical `rf/with-frame` you may have met elsewhere: same idea, scoped through the component tree instead of through a `let`.)
 
-So the last move is to mount the root inside it. The provider takes a `:frame` opt naming an already-registered frame, with the subtree as idiomatic `$` trailing children:
+So the last move is to mount the root inside it. The scope shape takes a `:frame` opt naming an already-registered frame, with the subtree as idiomatic `$` trailing children:
 
 ```clojure
 ;; react-root is your (uix-dom/create-root (js/document.getElementById "app"))
 (uix-dom/render-root
-  ($ uix-adapter/frame-provider-existing {:frame :rf/default}
+  ($ uix-adapter/frame-provider {:frame :rf/default}
      ($ counter-app))
   react-root)
 ```
 
-Children ride the native `$` trailing-args channel — `($ frame-provider-existing {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx/Helix component uses. There's no `:children` prop-map key to remember (forgetting it used to silently drop the subtree; that footgun is gone by construction).
+Children ride the native `$` trailing-args channel — `($ frame-provider {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx/Helix component uses. There's no `:children` prop-map key to remember (forgetting it used to silently drop the subtree; that footgun is gone by construction).
 
-> **For JavaScript developers.** `frame-provider-existing` is your `<Provider store={...}>`. Same job as react-redux's `<Provider>` — make a store (here, a frame) available to everything rendered beneath it — except it never *creates* the store; it just scopes an existing one. The `use-subscribe` hooks below it resolve their frame through this provider, exactly as `useSelector` reads through `<Provider>`.
+> **For JavaScript developers.** `frame-provider {:frame …}` is your `<Provider store={...}>`. Same job as react-redux's `<Provider>` — make a store (here, a frame) available to everything rendered beneath it — except this shape never *creates* the store; it just scopes an existing one. The `use-subscribe` hooks below it resolve their frame through this provider, exactly as `useSelector` reads through `<Provider>`.
 
-> **A missing provider fails loud, on purpose.** A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. And `frame-provider-existing` itself is strict: its `:frame` is **required** and must be a keyword. A missing or `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` but non-keyword `:frame` (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
+> **A missing provider fails loud, on purpose.** A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. And the scope shape is itself strict: its `:frame` is **required** and must be a keyword. A `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` but non-keyword `:frame` (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`; and naming a `:frame` that was never created (or has been destroyed) raises `:rf.error/frame-provider-frame-absent`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
 
-That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` views that read with `use-subscribe` (Step 2) and dispatch off the handle (Step 3), and mount inside `frame-provider-existing` (Step 4). Everything from here builds on those four moves.
+That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` views that read with `use-subscribe` (Step 2) and dispatch off the handle (Step 3), and mount inside `frame-provider {:frame …}` (Step 4). Everything from here builds on those four moves.
 
-## Step 5 — Own a frame's lifetime
+## Step 5 — Ensure a view's own frame
 
-`frame-provider-existing` scopes a frame that already exists. Its sibling `frame-provider` instead *owns* one — a modal, a tab, a per-tenant panel that creates its frame on mount and tears it down on unmount. The two providers and the ownership split are detailed in [Frames — Two providers](../concepts/frames.md#two-providers-who-owns-the-frames-life); picking the wrong one is the most common mount-time stumble, so here are the opts each takes and the matched errors when you cross them:
+The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. The same `frame-provider`'s other shape, `{:id …}`, instead *ensures* one — a modal, a tab, a per-tenant panel that brings its frame into being on first mount. The two config shapes are detailed in [Frames — Two config shapes](../concepts/frames.md#two-config-shapes-scope-an-existing-frame-or-ensure-a-named-one); picking the wrong key is the most common mount-time stumble, so here are the opts each shape takes and the matched errors when you cross them:
 
-- **`frame-provider-existing`** — *scope only* (Step 4). One opt: `:frame` (a required keyword id). Creates and destroys nothing.
-- **`frame-provider`** — *own the lifetime*. Takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the [image](../glossary.md#image) — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation).
+- **`{:frame …}` (scope)** — Step 4. One opt: `:frame` (a required keyword id). Creates and destroys nothing.
+- **`{:id …}` (ensure)** — brings the frame into being. Takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the [image](../glossary.md#image) — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation). Creates the frame if absent, reuses it without re-seeding if present; **no destroy-on-unmount**.
 
 ```clojure
-;; OWN a frame's lifetime: create on mount, run its setup, destroy on unmount.
+;; ENSURE a view's frame: create on first mount, run its setup, reuse on remount.
 ($ uix-adapter/frame-provider
    {:id :checkout
     :images [checkout-image]
@@ -175,21 +175,23 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
    ($ checkout-app))
 ```
 
-> **Gotcha — `:frame` vs `:id`.** These are not interchangeable, and the framework will tell you so. `frame-provider` (the owning one) wants `:id`; pass it a `:frame` key with no `:id` and it raises `:rf.error/owned-frame-provider-missing-id` — the message points you straight at the fix (use `:id`, or switch to `frame-provider-existing` if you only meant to scope). Conversely, hand a lifecycle opt (`:id` / `:images` / `:initial-events`) to the *scope-only* `frame-provider-existing` and it raises `:rf.error/frame-provider-existing-lifecycle-opt`, because a scope-only provider neither creates nor owns a frame. The two errors are a matched pair: each one names the provider you probably meant to call.
+> **Gotcha — the prop map selects the shape.** A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
 
-> **Idempotent re-mount is safe.** Re-mounting a `frame-provider` under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state. `make-frame` is idempotent replacement, and the destroy-on-unmount is deferred and cancelled by a re-acquire. You don't have to special-case dev tooling.
+> **Idempotent re-mount is safe.** Re-mounting the ensure shape under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state or replay `:initial-events`. `make-frame` is idempotent replacement: a remount refreshes config and the image while preserving `app-db`, the sub-cache, and the queue. You don't have to special-case dev tooling.
 
-> **Gotcha — a captured handle can outlive its owned frame.** Because `frame-provider` *destroys* its frame on unmount, a handle you captured inside it (or a `frame-handle :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the modal/tab/panel has closed — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when the owning subtree unmounts, or hold the data in a longer-lived frame if it must outlast the widget.
+> **True ownership is explicit.** The ensure shape deliberately does *not* destroy the frame on unmount — a genuine unmount leaves the frame live, and a remount reuses it. When a component should own a frame's whole lifetime (a modal that wants its world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns both the birth and the death.
+
+> **Gotcha — a captured handle can outlive a destroyed frame.** If you *do* take explicit ownership and `destroy-frame!` a frame, a handle you captured against it (a `frame-handle :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the teardown — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when you destroy the frame, or hold the data in a longer-lived frame if it must outlast the widget.
 
 > **From re-frame v1.** There's no `:db` / `:initial-db` / `:on-create` here — a frame always starts `app-db = {}` and you seed it with `[:rf/set-db {…}]` as the first `:initial-events` step, as the `:checkout` example does. [Frames — Seeding initial state](../concepts/frames.md#seeding-initial-state) is the full init surface.
 
 ## Step 6 — Helix is the same moves, different notation
 
-Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` (this time from `re-frame.adapter.helix`), the same `frame-handle` dispatch, and the same `($ helix-adapter/frame-provider-existing {:frame ...} ...)` mount — here over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) line-for-line with [`examples/uix/counter_uix/`](../../../examples/uix/counter_uix/); the diff is notation, nothing more.
+Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` (this time from `re-frame.adapter.helix`), the same `frame-handle` dispatch, and the same `($ helix-adapter/frame-provider {:frame ...} ...)` mount — here over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) line-for-line with [`examples/uix/counter_uix/`](../../../examples/uix/counter_uix/); the diff is notation, nothing more.
 
 All three React-shaped adapters read the *same* React context object for frame routing, which means a provider chain even composes across substrates — a Reagent provider wrapping a UIx subtree resolves correctly.
 
-> **For JavaScript developers.** UIx and Helix differ from each other the way they would in any React-CLJS project, not in any re-frame2-specific way. UIx ships a richer, more instrumented hook layer; Helix is the deliberately *minimal* React wrapper — a smaller surface, no hook auto-instrumentation. For re-frame2's purposes the view-author-facing trio (`use-subscribe`, `frame-handle` dispatch, `frame-provider-existing` mount) is byte-identical between them.
+> **For JavaScript developers.** UIx and Helix differ from each other the way they would in any React-CLJS project, not in any re-frame2-specific way. UIx ships a richer, more instrumented hook layer; Helix is the deliberately *minimal* React wrapper — a smaller surface, no hook auto-instrumentation. For re-frame2's purposes the view-author-facing trio (`use-subscribe`, `frame-handle` dispatch, `frame-provider {:frame …}` mount) is byte-identical between them.
 
 ## Step 7 — reagent-slim: kilobytes for capability
 
@@ -230,8 +232,8 @@ Once you've seen all four substrates, the whole port collapses to one table. The
 | Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (rf/frame-handle))` | `(:dispatch (rf/frame-handle))` |
 | View form | `reg-view` + hiccup | `defui` + `$` | `defnc` + `helix.dom` |
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` | `(rf/reg-view* id render-fn)` |
-| Scope an existing frame | `[rf/frame-provider-existing {:frame f} [app]]` | `($ uix-adapter/frame-provider-existing {:frame f} ($ app))` | `($ helix-adapter/frame-provider-existing {:frame f} ($ app))` |
-| Own a frame's lifetime | `[rf/frame-provider {:id f :images […]} [app]]` | `($ uix-adapter/frame-provider {:id f :images […]} ($ app))` | `($ helix-adapter/frame-provider {:id f :images […]} ($ app))` |
+| Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` | `($ helix-adapter/frame-provider {:frame f} ($ app))` |
+| Ensure a named frame | `[rf/frame-provider {:id f :images […]} [app]]` | `($ uix-adapter/frame-provider {:id f :images […]} ($ app))` | `($ helix-adapter/frame-provider {:id f :images […]} ($ app))` |
 | Flush renders in a test | Reagent's own `r/flush!` / `act` harness | `(uix-adapter/flush-views!)` | `(helix-adapter/flush-views!)` |
 
 There's one Reagent footgun that doesn't port at all, and that's good news: the lazy-seq deref trap — the *"Reactive deref not supported in lazy seq, it should be wrapped in doall"* warning. It exists because Reagent tracks derefs *during* render, and a lazy seq can defer a deref until after render has finished. On Reagent the fix is to realise the seq inside the render fn — `(doall (for …))`, `(mapv child @sub)`, or `(into [:<>] (map child) @sub)`.

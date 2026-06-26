@@ -174,7 +174,7 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:app/initialise]))   ;; 3. seed app-db before first render
   (rdc/render root
-    [rf/frame-provider-existing {:frame :rf/default} ;; 4. the whole tree runs in this frame
+    [rf/frame-provider {:frame :rf/default} ;; 4. the whole tree runs in this frame
      [shell]]))
 ```
 
@@ -191,7 +191,7 @@ What's genuinely new beyond syntax is the **boot**, the part the quickstart's br
 
 **Move 3 — `with-frame` + `dispatch-sync` seeds state.** Out here, outside the rendered tree, there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. And it's [`dispatch-sync`](../../guide/glossary.md#dispatch-sync) — a dispatch that runs the [event cascade](../../guide/glossary.md#event-cascade) immediately rather than queuing it — because plain [`dispatch`](../../guide/glossary.md#dispatch) would let the first render race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of the handful of legitimate uses of `dispatch-sync`; the others are tests and REPL exploration. What they share is that they all run *outside* any handler — `dispatch-sync` from inside a running handler is rejected with `:rf.error/dispatch-sync-in-handler`, because the cascade is already draining synchronously and a second one would convey nothing.
 
-**Move 4 — `frame-provider-existing` wraps the tree.** The [provider](../../guide/glossary.md#frame-provider) carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `-existing` suffix is load-bearing: this provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
+**Move 4 — `frame-provider` wraps the tree.** The [provider](../../guide/glossary.md#frame-provider) carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `{:frame …}` config shape is load-bearing: handed a `:frame` key, the provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
 
 That's the whole boot. Four moves: install the substrate, register the frame, seed it, scope the tree to it.
 
@@ -216,13 +216,13 @@ By the time `reg-frame` returns, that cascade has settled and `app-db` holds wha
 
 > **Going deeper — why an event and not a `:db` key?** Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same [event cascade](../../guide/glossary.md#event-cascade) that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` [effect map](../../guide/glossary.md#effect-map). The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes [time-travel](../../guide/glossary.md#time-travel) and replay possible.
 
-### Two providers: scope vs lifecycle
+### Two config shapes: scope vs ensure
 
-The family has two providers, scope-only and lifecycle, and they take different keys: `frame-provider-existing` (the one on this page) just scopes the tree to a frame you already registered, while `frame-provider` (no suffix) *creates* a frame on mount keyed by `:id` and destroys it on unmount — the one you reach for when a view should own a frame for as long as it's mounted (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../../guide/concepts/frames.md) is the full picture; the slip to watch for here is crossing their keys:
+`frame-provider` is one component with two config shapes, chosen by the prop map you hand it. The `{:frame …}` *scope* shape (the one on this page) just scopes the tree to a frame you already registered. The `{:id …}` *ensure* shape instead brings a frame into being — keyed by `:id`, it creates the frame on first mount and reuses it without re-seeding on remount (no destroy-on-unmount) — the one you reach for when a view should bring its own frame into being (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../../guide/concepts/frames.md) is the full picture; the slip to watch for here is crossing their keys:
 
-> **Gotcha — don't hand a lifecycle opt to the scope-only provider.** Pass something like `:initial-events` to `frame-provider-existing` and it fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`), pointing you at the owned `frame-provider` instead of silently doing nothing — a scope-only provider neither creates nor owns a frame, so it has nowhere to *put* construction opts.
+> **Gotcha — the `{:frame …}` shape scopes an *existing* frame.** Hand it a `:frame` that was never registered (or has been destroyed) and it fails loud (`:rf.error/frame-provider-frame-absent`) rather than silently scoping descendants to a phantom frame. Register the frame first (`reg-frame` / `make-frame`), or use the `{:id …}` ensure shape to create it.
 
-> **Gotcha — and the mirror: `frame-provider` wants `:id`, not `:frame`.** The two providers take different keys, and crossing them is the easy slip. The lifecycle `frame-provider` *requires* `:id` (the token it creates and later tears down); hand it `{:frame …}` — the scope-only key — and it fails loud with `:rf.error/owned-frame-provider-missing-id`, because to it `:frame` is an unknown opt and the required `:id` is simply absent. The fix is in the message: switch to `:id` if you meant to *own* a frame, or to `frame-provider-existing` if you only meant to *scope* to one that already exists.
+> **Gotcha — the mirror: leave out `:frame` and you've selected the *ensure* shape.** The shape is chosen by the prop map: a `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So an empty `{}` (or a prop map with neither `:frame` nor `:id`) is read as an ensure provider with no id and fails loud with `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:frame` if you meant to *scope* an existing frame, or `:id` if you meant to *ensure* one.
 
 ### When the boot goes wrong
 
@@ -232,7 +232,7 @@ Each of the four moves has a named way of failing. The good news: every failure 
 |---|---|---|
 | `:rf.error/no-adapter-installed` | Something rendered or subscribed before any `init!` ran — usually a refactor that moved the boot and dropped Move 1 on the floor. | Install the adapter first; everything else comes after. |
 | `:rf.error/no-frame-context` (at a dispatch) | An event was dispatched with no frame in scope. The classic case is a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. | Boot-time events belong inside `run`, under `with-frame`, after `reg-frame`. |
-| `:rf.error/no-frame-context` (at a subscribe) | The tree rendered *without* the provider, so the first `subscribe` in a view has no frame to read. No fallback exists underneath. | Wrap the root in `frame-provider-existing` (Move 4). |
+| `:rf.error/no-frame-context` (at a subscribe) | The tree rendered *without* the provider, so the first `subscribe` in a view has no frame to read. No fallback exists underneath. | Wrap the root in `frame-provider {:frame …}` (Move 4). |
 | `:rf.error/no-such-handler` | A dispatch reached the runtime but nothing is registered under that id. Once the app spans files (Part 1 on), the usual cause isn't a typo — it's a feature namespace never `:require`d from `core`, so its registrations never ran. | `:require` the feature namespace from `core` so its registrations run at load. |
 | `:rf.error/no-such-fx` | The same story for an [effect](../../guide/glossary.md#effect) — a side-effect the framework performs for you — whose [effect handler](../../guide/glossary.md#effect-handler) lives in a namespace that never loaded. | This is why Part 2 requires the HTTP artefact at boot, so its effects register. |
 

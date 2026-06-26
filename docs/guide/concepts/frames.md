@@ -50,11 +50,11 @@ Two pieces of syntax show up in the view below, so here they are up front: insid
   (rf/init! reagent-adapter/adapter)        ;; install the adapter (creates no frame)
   (rf/reg-frame :app {:initial-events [[:app/initialise]]})
   (rdc/render react-root
-    [rf/frame-provider-existing {:frame :app}
+    [rf/frame-provider {:frame :app}
      [main-view]]))
 ```
 
-Three lines do the work. `init!` installs the [substrate](../glossary.md#substrate) [adapter](../glossary.md#adapter) — and creates *no* frame. `reg-frame` then creates the `:app` frame explicitly and runs its `:initial-events`. Finally `frame-provider-existing` scopes that frame for everything underneath it, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without ever naming it.
+Three lines do the work. `init!` installs the [substrate](../glossary.md#substrate) [adapter](../glossary.md#adapter) — and creates *no* frame. `reg-frame` then creates the `:app` frame explicitly and runs its `:initial-events`. Finally `frame-provider {:frame :app}` scopes that already-registered frame for everything underneath it, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without ever naming it.
 
 That last point is the payoff: the frame is **invisible inside its own scope**. Your views and handlers never mention `:app` — that's why the injected `dispatch` and `subscribe` in `main-view` above just *worked* without naming a frame, and it's exactly what lets you go multi-frame later without touching a line of app code.
 
@@ -133,15 +133,15 @@ Here's the split pane, end to end. Watch how little changes from the one-frame c
 
 (rf/reg-view split-screen []
   [:div.split
-   [rf/frame-provider-existing {:frame :pane/left}  [counter-panel "Left"]]
-   [rf/frame-provider-existing {:frame :pane/right} [counter-panel "Right"]]])
+   [rf/frame-provider {:frame :pane/left}  [counter-panel "Left"]]
+   [rf/frame-provider {:frame :pane/right} [counter-panel "Right"]]])
 
 ;; At boot — after (rf/init! ...) — register the pane frames, then render.
 (rf/reg-frame :pane/left  {:initial-events [[::init]]})
 (rf/reg-frame :pane/right {:initial-events [[::init]]})
 
 (rdc/render react-root
-  [rf/frame-provider-existing {:frame :app}
+  [rf/frame-provider {:frame :app}
    [split-screen]])
 ```
 
@@ -151,30 +151,33 @@ Click `+` on the left and only the left number moves. Open [Xray](../glossary.md
 
 > **Borderline case? Ask one question.** This is where people hesitate. The discriminator: *would these two things ever sensibly share a piece of state?* If yes, they are two views over slices of *one* frame's app-db — views on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter, and that "no" is the signal.
 
-### Two providers: who owns the frame's life?
+### Two config shapes: scope an existing frame, or ensure a named one?
 
-The split pane used [`frame-provider-existing`](../glossary.md#frame-provider) — and the name is precise. It **scopes** an *already-registered* frame into a React subtree; it creates nothing and destroys nothing. You registered `:pane/left` with `reg-frame` at boot, and the provider just establishes its scope for descendants. Pass it a `:frame` keyword and nothing else — a lifecycle option (`:images`, `:initial-events`) fails loud, because this provider doesn't own a lifecycle.
+`frame-provider` is one component with two config shapes, chosen by the prop map you hand it. The split pane used the **scope** shape, `{:frame …}` — and it's precise. It **scopes** an *already-registered* frame into a React subtree; it creates nothing and destroys nothing. You registered `:pane/left` with `reg-frame` at boot, and the provider just establishes its scope for descendants. Pass it a `:frame` keyword; scoping a frame that was never created (or has been destroyed) fails loud with `:rf.error/frame-provider-frame-absent`, because a silent mis-scope is a debugging nightmare.
 
-Its sibling, `frame-provider`, **owns** one. It creates the frame when the view mounts and destroys it when the view unmounts — the React tree's lifecycle *is* the frame's lifecycle. You give it the frame's recipe inline rather than a pre-registered id:
+Its other shape, `{:id …}`, **ensures** a named frame. It creates the frame the first time the view mounts (running `:initial-events`), and on every later mount/remount under the same id it *reuses* the live frame without re-seeding — there is **no destroy-on-unmount**. You give it the frame's recipe inline rather than a pre-registered id:
 
 ```clojure
-;; A view that owns its frame's lifetime. Mount creates the frame
-;; (and runs :initial-events); unmount destroys it. No boot-time reg-frame,
-;; no manual teardown — the React tree does both.
+;; A view that ensures its frame. The first mount creates the frame
+;; (and runs :initial-events); a remount under the same :id reuses it
+;; without re-seeding. No boot-time reg-frame needed — the provider ensures it.
 (rf/reg-view counter-widget [label]
-  [rf/frame-provider {:images         [counter-image]
+  [rf/frame-provider {:id             :counter/widget
+                      :images         [counter-image]
                       :initial-events [[:rf/set-db {:n 0}]]}
    [counter-panel label]])
 ```
 
-So the choice is just "who controls when this frame lives and dies?"
+So the choice is "do I already have this frame, or do I want the provider to ensure it?"
 
-- **`frame-provider-existing`** — *you* control the lifetime (you `reg-frame` it, you `destroy-frame!` it, or it lives for the whole program). The provider only scopes. This is the split-pane shape above and the normal root-of-app shape.
-- **`frame-provider`** — *the view* controls the lifetime. Mount creates, unmount destroys. Reach for it when a frame should exist exactly as long as a piece of UI is on screen — a modal that wants its own throwaway world, a dynamically-added widget, a devcard.
+- **`{:frame …}` (scope)** — the frame exists already (you `reg-frame` it at boot, or an enclosing provider ensured it). The provider only scopes. This is the split-pane shape above and the normal root-of-app shape.
+- **`{:id …}` (ensure)** — the provider creates the frame if absent and reuses it if present, keyed by `:id`. Reach for it when a view should bring its own frame into being — a Story canvas, an embedded widget, a comparison pane.
 
-> **For JavaScript developers.** `frame-provider` is the React mental model you already have: a component owns a resource for the duration of its mount, like a `useEffect` that creates on mount and cleans up on unmount. `frame-provider-existing` is the less common React pattern of *providing* a resource someone else owns — closer to a context Provider wrapping a store you created at the app root.
+> **For JavaScript developers.** The `{:frame …}` shape is the React pattern you already know: *providing* a store someone else created — a context `Provider` wrapping a store made at the app root. The `{:id …}` shape is closer to a `useState`/`useRef` that lazily initialises a resource on first render and keeps it stable across re-renders — except the resource (the frame) deliberately *survives* unmount; tearing it down is an explicit `destroy-frame!`, not a cleanup effect.
 
-> **Gotcha — re-mounting `frame-provider` under the same id is idempotent.** If a `frame-provider` carries an `:id` and the view re-mounts (a hot reload, a Story re-evaluation, a key change), the existing frame's durable state is *preserved*, not blown away — re-mount updates config and refreshes the image without resetting `app-db`. That's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
+> **True ownership is explicit.** Neither shape destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns the birth *and* the death.
+
+> **Gotcha — re-mounting the `{:id …}` shape is idempotent.** If the view re-mounts (a hot reload, a Story re-evaluation, a key change), the existing frame's durable state is *preserved*, not blown away — re-mount updates config and refreshes the image without resetting `app-db` or replaying `:initial-events`. That's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
 
 ## The one rule: frame identity is carried, not found
 
@@ -295,7 +298,7 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
   (is (= 1 (count (:items (rf/app-db-value (rf/frame-value->id f)))))))
 ```
 
-`with-frame` is the lexical counterpart of `frame-provider-existing` (scope only); `with-new-frame` is the counterpart of `frame-provider` (it *owns* the lifetime — guaranteed teardown on block exit). Inside either, plain `dispatch` / `subscribe` resolve to the bound frame. `make-frame` is the one frame constructor; it hands back a live frame *value*, and `app-db-value` reads an app-db given that frame's **id** — hence `(rf/frame-value->id f)` to bridge the two.
+`with-frame` is the lexical counterpart of the scope-only `frame-provider {:frame …}`; `with-new-frame` is the lexical form that *owns* a frame's lifetime — guaranteed teardown on block exit. Inside either, plain `dispatch` / `subscribe` resolve to the bound frame. `make-frame` is the one frame constructor; it hands back a live frame *value*, and `app-db-value` reads an app-db given that frame's **id** — hence `(rf/frame-value->id f)` to bridge the two.
 
 Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.)
 
