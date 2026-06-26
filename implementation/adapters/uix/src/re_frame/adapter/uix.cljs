@@ -13,6 +13,7 @@
   `uix.core` macros expand to these)."
   (:require [uix.core          :as uix :refer-macros [defui]]
             [uix.hooks.alpha   :as uix-hooks]
+            [re-frame.frame             :as frame]
             [re-frame.substrate.spine   :as spine]
             [re-frame.views.owned-frame :as owned-frame]))
 
@@ -56,16 +57,25 @@
   (:use-current-frame spine-fns))
 
 (defui frame-provider
-  "User-facing component — the UI-OWNED frame LIFECYCLE boundary (EP-0024
-  §Scope, carry, and ownership). It CREATES a frame on mount, PROVIDES its
-  id to descendants, and DESTROYS it on unmount. NOT a scope-only component
-  — scoping descendants to a frame that ALREADY EXISTS is
-  `frame-provider-existing` (scope-into-React) or `rf/with-frame` (lexical).
+  "User-facing component — the MERGED config-shaped frame-provider (EP-0024
+  §Scope, carry, and ownership, amended). ONE component, TWO config shapes,
+  dispatched on the prop map:
+
+    - `{:frame existing-id}` → SCOPE-ONLY: provide an ALREADY-CREATED frame's
+      id to descendants; create / refresh / destroy NOTHING; FAIL LOUD when
+      the frame is absent (`:rf.error/frame-provider-frame-absent`).
+    - `{:id the-id …}` → ENSURE: CREATE the frame if absent, REUSE it WITHOUT
+      re-seeding if present, provide its id to descendants; NO
+      destroy-on-unmount.
+
   UIx call shape — the idiomatic `$` TRAILING-CHILDREN form, identical to
   every other UIx component and mirroring Reagent's trailing-hiccup mental
   model (rf2-7kii2):
 
-      ($ frame-provider {:id :session :images [session-image] :initial-events []}
+      ($ frame-provider {:frame :session}            ;; SCOPE-ONLY
+         ($ header))
+
+      ($ frame-provider {:id :session :images [session-image] :initial-events []} ;; ENSURE
          ($ header)
          ($ main))
 
@@ -74,24 +84,24 @@
   subtree silently — that footgun is gone by construction). A single
   child works too: `($ frame-provider {:id :session} ($ app))`.
 
-  `frame-provider` OWNS a frame lifetime, so it takes the same `:id` /
-  `:images` (plus record-config, incl. `:initial-events`) opts as `rf/make-frame`,
-  runs that one constructor on mount, and tears the frame down on unmount.
-  `:id` is REQUIRED and must be a KEYWORD: a missing / nil / non-keyword
-  `:id` is a CONFIGURATION ERROR — the owned-frame core emits + throws
-  `:rf.error/owned-frame-provider-missing-id` (a `:frame` key with no `:id`
-  is the common mistake and trips this guard — switch to `:id`, or use
-  `frame-provider-existing {:frame …}` to merely scope). The three
-  React-shaped adapters share one React Context (the shared-context
-  decision — rf2-3yij Decision 2, carried into the Helix adapter as
-  rf2-2qit Decision 2) so a subtree under any frame-provider sees the
-  right frame regardless of which substrate rendered the provider.
+  The SHAPE is selected by the presence of `:frame` vs `:id`. The ENSURE shape
+  takes the same `:id` / `:images` (plus record-config, incl.
+  `:initial-events` / `:url-bound?`) opts as `rf/make-frame`. `:id` is REQUIRED
+  and must be a KEYWORD: a missing / nil / non-keyword `:id` is a CONFIGURATION
+  ERROR — the ensure core emits + throws
+  `:rf.error/ensure-frame-provider-missing-id`. The three React-shaped adapters
+  share one React Context (the shared-context decision — rf2-3yij Decision 2,
+  carried into the Helix adapter as rf2-2qit Decision 2) so a subtree under any
+  frame-provider sees the right frame regardless of which substrate rendered
+  the provider.
 
-  Idempotent re-mount (hot reload / React StrictMode dev double-invoke /
-  Story re-evaluation): re-mounting under the same `:id` MUST NOT destroy
-  durable state — `make-frame` is idempotent replacement and the
-  destroy-on-unmount is DEFERRED + cancelled by a re-acquire (see
-  `re-frame.views.owned-frame`).
+  Idempotent re-mount of the ENSURE shape (hot reload / React StrictMode dev
+  double-invoke / Story re-evaluation): re-mounting under the same `:id` MUST
+  NOT destroy durable state NOR re-run `:initial-events` — `make-frame` is
+  idempotent replacement and `reg-frame` RE-RECORDS but does NOT REPLAY
+  `:initial-events` (see `re-frame.views.owned-frame`). The owned
+  destroy-on-unmount of the pre-amendment provider is RETIRED; true ownership
+  stays expressible as `rf/make-frame` + `rf/destroy-frame!`.
 
   Native shell above the prop-marshalling seam (rf2-z7hfp — Mike-ruled
   C, MOVE THE SEAM UP). This is a NATIVE UIx `defui` component, NOT a
@@ -101,18 +111,29 @@
   the original CLJS props map with keyword values intact (namespace
   preserved) AND folds the native trailing children into the `:children` key
   (UIx's `$`/`glue-args` contract: `($ Comp props c1 c2)` arrives as `{...
-  :children #js [c1 c2]}`). The body reads the clean CLJS props map and
-  delegates to the substrate-agnostic owned-frame core
-  `owned-frame-react-element` (`:id` validation + lifecycle element-build).
-  The prop-mangling class — UIx's `react-component-element` →
+  :children #js [c1 c2]}`). The body reads the clean CLJS props map, DISPATCHES
+  on `:frame` vs `:id`, and delegates to the substrate-agnostic core
+  (`build-frame-provider-element` for SCOPE-ONLY, `ensure-frame-react-element`
+  for ENSURE). The prop-mangling class — UIx's `react-component-element` →
   `interpret-attrs` stringifying keyword prop values and dropping the
   namespace — is impossible by construction: there is no plain fn under `$`
   for the element macro to mangle."
   [props]
-  (owned-frame/owned-frame-react-element
-    props
-    (:children props)
-    're-frame.adapter.uix/frame-provider))
+  (if (contains? props :frame)
+    ;; SCOPE-ONLY shape: validate the keyword `:frame` (nil →
+    ;; :rf.error/no-frame-context, non-keyword → :rf.error/bad-frame-provider-arg)
+    ;; FIRST, then fail loud if the frame is absent, then scope via the spine's
+    ;; scope-only core.
+    (let [frame-kw (frame/require-keyword-frame-provider-arg!
+                     (:frame props) 're-frame.adapter.uix/frame-provider)]
+      (owned-frame/require-live-frame-for-scope!
+        frame-kw 're-frame.adapter.uix/frame-provider)
+      (spine/build-frame-provider-element frame-kw (:children props)))
+    ;; ENSURE shape: validate `:id` + build the ensure element.
+    (owned-frame/ensure-frame-react-element
+      props
+      (:children props)
+      're-frame.adapter.uix/frame-provider)))
 
 (defui frame-provider-existing
   "User-facing SCOPE-ONLY component (EP-0024 §Scope, carry, and ownership).
