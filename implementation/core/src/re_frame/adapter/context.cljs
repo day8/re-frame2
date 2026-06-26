@@ -92,7 +92,7 @@
 
   Shared by `re-frame.substrate.spine/build-frame-provider-element` (the
   scope-only provider core) and `re-frame.views.owned-frame`'s
-  `owned-frame-fc` / `owned-frame-react-element` (the UI-owned provider
+  `ensure-frame-fc` / `ensure-frame-react-element` (the ENSURE provider
   cores) so the three element builders normalise children one identical
   way — `(apply provider-element frame-kw (normalize-children children))`."
   [children]

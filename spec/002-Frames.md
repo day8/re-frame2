@@ -33,10 +33,11 @@ This Spec inherits the constraints and goals from 000 and adds three frame-speci
 (rf/reset-frame! :todo)                                    ;; explicit full replace — re-dispatches the recorded :initial-events
 (rf/destroy-frame! :todo)                                  ;; tear down — remove the unified value from the one registry
 
-;; View ergonomics — own a frame lifetime vs scope to an existing one (EP-0024)
-[rf/frame-provider {:id :todo :images [todo-image]}     ;; UI-OWNED lifecycle: create-on-mount, provide id, destroy-on-unmount
+;; View ergonomics — ensure a named frame vs scope to an existing one (EP-0024 amended)
+[rf/frame-provider {:id :todo :images [todo-image]}     ;; ENSURE: create-if-absent, reuse-no-reseed, provide id, NO destroy-on-unmount
  [todo-list]]
-[rf/with-frame :todo [todo-list]]                       ;; SCOPE to an existing frame: no lifecycle, just establishes context
+[rf/frame-provider {:frame :todo} [todo-list]]          ;; SCOPE an existing frame into a React subtree (fails loud if absent)
+[rf/with-frame :todo [todo-list]]                       ;; SCOPE to an existing frame (lexical / non-React): just establishes context
 (rf/reg-view counter [label] ,,,)               ;; defn-shape; injects frame-bound `dispatch`/`subscribe`
 
 ;; Plain (non-view) APIs — frame-aware variants
@@ -808,9 +809,11 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 (rf/reg-frame :counter {:initial-events [[:counter/init]]})  ;; the front-porch named path is unchanged
 
 (defn counter-widget [label]
-  ;; A component that OWNS a frame lifetime uses the UI-owned provider boundary,
-  ;; which creates-on-mount and destroys-on-unmount for you (EP-0024):
-  [rf/frame-provider {:images [counter-image] :initial-events [[:rf/set-db {:count 0}]]}
+  ;; A view that needs a named frame for its mounted lifetime uses the merged
+  ;; provider's ENSURE shape — create-if-absent, reuse-no-reseed, no
+  ;; destroy-on-unmount (EP-0024 amended). True ownership (explicit teardown)
+  ;; stays make-frame + destroy-frame! in a create-class.
+  [rf/frame-provider {:id :counter/widget :images [counter-image] :initial-events [[:rf/set-db {:count 0}]]}
    [counter-view label]])
 ```
 
@@ -820,7 +823,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 
 > **Behaviour change from EP-0023.** EP-0023 shipped a *two-constructor* split: an object `rf/make-frame` that built from `:images` and **raised `:rf.error/make-frame-record-only-key`** on any record-config key, alongside an advanced record-config `re-frame.frame/make-frame` that owned the record-config surface (and gensym'd a `:rf.frame/<gensym>` id). EP-0024 collapses these into one constructor: `make-frame` honours both key families, and the advanced `re-frame.frame/make-frame` becomes internal or disappears. The fail-loud record-only-key redirect is gone — it existed only to enforce the now-removed split.
 
-**Lifecycle ownership.** A `make-frame` call you make directly is paired with an explicit `destroy-frame!` (creation and teardown are explicit ownership operations — see [§The multi-frame surface](#the-multi-frame-surface--choose-by-intent)). For view-owned lifetimes prefer the UI-owned `frame-provider` boundary, which runs create-on-mount / destroy-on-unmount for you (see [§What `frame-provider` is](#the-frame-provider-name-family-cljs-reference)). The canonical signature row is [API §Registration — `make-frame`](API.md#registration); the `image → frame → event stream` model it constructs is owned by [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) and [§Frame addressing](#frames-reference-realms).
+**Lifecycle ownership.** A `make-frame` call you make directly is paired with an explicit `destroy-frame!` (creation and teardown are explicit ownership operations — see [§The multi-frame surface](#the-multi-frame-surface--choose-by-intent)). For a view that just needs a named frame to exist while it is mounted, prefer the merged `frame-provider`'s ENSURE shape (`{:id …}`), which creates-if-absent and reuses-without-reseeding — but does **not** destroy on unmount (see [§the merged `frame-provider`](#the-merged-config-shaped-frame-provider-cljs-reference)). When a view genuinely owns a frame's teardown (a modal that should drop its frame when it closes), pair `make-frame` with `destroy-frame!` explicitly inside a `create-class`. The canonical signature row is [API §Registration — `make-frame`](API.md#registration); the `image → frame → event stream` model it constructs is owned by [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) and [§Frame addressing](#frames-reference-realms).
 
 Tests use the direct-constructor pattern as their fixture lifecycle:
 
@@ -1250,22 +1253,24 @@ Form-1/2/3 component handling, plain Reagent fns and the `frame-handle` affordan
 The frame affordances are organised by **what you are trying to do**, not by mechanism (a front-porch / back-room split). They are the three carried-invariant intents of [§Frame target resolution](#frame-target-resolution--the-carried-invariant) plus the read surface:
 
 - **Ambient (inside an established scope):** `dispatch`, `dispatch-sync`, `subscribe` — resolve the active frame from the surrounding *scope*. They require a scope: with none established, they fail with `:rf.error/no-frame-context` (they do not select a default).
-- **Scope** — establish context for an **existing** frame (no lifecycle): `with-frame` (pin to an existing frame in a lexical/non-React region; synchronous, evaporates at an async hop) and `frame-provider-existing` (scope an *existing* frame into a React subtree — the scope-into-React counterpart `with-frame` cannot serve because a dynamic var cannot cross React's render boundary).
-- **Own** — create + destroy a frame lifetime: `make-frame` + `destroy-frame!` (explicit), `with-new-frame` (create + bind + destroy on block exit), and `frame-provider` (the UI-owned boundary — create-on-mount, provide the id to descendants, destroy-on-unmount, idempotent re-mount).
+- **Scope** — establish context for an **existing** frame (no lifecycle): `with-frame` (pin to an existing frame in a lexical/non-React region; synchronous, evaporates at an async hop) and `frame-provider {:frame …}` (scope an *existing* frame into a React subtree — the scope-into-React counterpart `with-frame` cannot serve because a dynamic var cannot cross React's render boundary; fails loud if the frame is absent).
+- **Ensure** — create-if-absent + reuse-if-present (no re-seed), no teardown: `frame-provider {:id …}` (the merged provider's ENSURE shape — ensures a named frame for as long as the subtree is mounted; durable state and `:initial-events` survive a remount; **no destroy-on-unmount**).
+- **Own** — create + destroy a frame lifetime (explicit teardown): `make-frame` + `destroy-frame!`, `with-new-frame` (create + bind + destroy on block exit), or `make-frame` + `destroy-frame!` inside a `create-class` for a view that owns a frame's lifetime. (The retired owned `frame-provider` destroy-on-unmount is no longer an ownership affordance; teardown is always explicit.)
 - **Hold (carry a frame's ops as a value, across async):** `frame-handle` (the public carry primitive). The robust carrier — the **primary** model for async and tooling. (`frame-bound-fn` / `frame-bound-fn*` are retiered to internal namespaces under EP-0024 where `frame-handle` expresses the real use cases — see [§frame-bound-fn](#frame-bound-fn--frame-bound-fn--frame-capturing-closures-cljs-reference).)
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
 - **Reads:** `app-db-value`, `runtime-db-value`, `frame-state-value`, `current-frame-id`, `frame-value->id` (value → id accessor), `snapshot-of`, `frame-ids`, `frame-meta`.
 
-**`scope` vs `own` vs `carry` are three separate jobs (EP-0024), one spelling each:**
+**`scope` vs `ensure` vs `own` vs `carry` are separate jobs (EP-0024 amended), one spelling each:**
 
 | Job | Public spelling | Contract |
 |---|---|---|
 | **Scope** descendants to an **existing** frame (lexical / non-React) | `with-frame` | Does not create or destroy the frame. Establishes context only. |
-| **Scope** an **existing** frame into a React subtree | `frame-provider-existing` | Provides an already-created frame id through React context. Creates / refreshes / destroys nothing. `:frame` only — a lifecycle opt fails loud. |
+| **Scope** an **existing** frame into a React subtree | `frame-provider {:frame …}` | Provides an already-created frame id through React context. Creates / refreshes / destroys nothing. `:frame` only. **Fails loud when the frame is absent** (`:rf.error/frame-provider-frame-absent`). |
+| **Ensure** a named frame for a React subtree's mounted lifetime | `frame-provider {:id …}` | Creates the frame if absent, reuses it without re-seeding if present, provides its id to descendants. **No destroy-on-unmount.** Same constructor opts as `make-frame`. |
 | **Carry** a frame across async callback boundaries | `frame-handle` | Captures operations targeted at the current or explicit frame. |
-| **Own** a frame lifetime | `make-frame` + `destroy-frame!`, `with-new-frame`, and the UI-owned boundary `frame-provider` | Creation and teardown are explicit ownership operations. |
+| **Own** a frame lifetime (explicit teardown) | `make-frame` + `destroy-frame!`, `with-new-frame`, or `make-frame`/`destroy-frame!` inside a `create-class` | Creation and teardown are explicit ownership operations. |
 
-The user's question stays small: *"I already have a frame; how do I scope children?"* → `with-frame` (lexical) or `frame-provider-existing` (into a React subtree). *"This component owns a frame lifetime."* → `frame-provider`. *"This callback will fire later."* → `frame-handle`. (Per [EP-0024 §Scope, carry, and ownership are separate](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#scope-carry-and-ownership-are-separate). The scope-only job that the old `frame-provider` served is now `frame-provider-existing`; `frame-provider` now *owns* lifecycle.)
+The user's question stays small: *"I already have a frame; how do I scope children?"* → `with-frame` (lexical) or `frame-provider {:frame …}` (into a React subtree). *"This subtree needs a named frame to exist while it's mounted."* → `frame-provider {:id …}` (ENSURE). *"This component owns a frame lifetime, teardown included."* → `make-frame` + `destroy-frame!` (in a `create-class`). *"This callback will fire later."* → `frame-handle`. (Per [EP-0024 §Scope, carry, and ownership are separate](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#scope-carry-and-ownership-are-separate), as amended. The merged `frame-provider` serves both the scope job (`{:frame …}`) and the ensure job (`{:id …}`); owned destroy-on-unmount is retired in favour of explicit teardown.)
 
 ### `frame-handle` — the keystone affordance (CLJS reference)
 
@@ -1456,16 +1461,31 @@ A closure over `(:frame m)` keeps each call site terse:
 
 `(rf/frame-handle)` (capture-at-creation, used in fx and views) and `frame-bound-fn` (the macro form, used in view callbacks) are the same idea applied at different boundaries: capture the frame at definition time, re-establish it when the closure fires.
 
-### The `frame-provider` name family (CLJS reference)
+### The merged config-shaped `frame-provider` (CLJS reference)
 
-> **EP-0024 — the `frame-provider` name family (two per-adapter React-context components).** Before EP-0024, `frame-provider` was a *scope-only* React-context shortcut — it took an already-existing `{:frame :todo}` and put that keyword into context, creating and destroying nothing. EP-0024 splits the surface into a **name family** of two per-adapter React-context components:
+> **EP-0024 (amended) — the merged config-shaped `frame-provider`.** Before EP-0024, `frame-provider` was a *scope-only* React-context shortcut — it took an already-existing `{:frame :todo}` and put that keyword into context, creating and destroying nothing. The original EP-0024 split the surface into a name family — an OWNED `frame-provider` (create-on-mount + **destroy-on-unmount**) plus a scope-only `frame-provider-existing`. The amendment **collapses that family into ONE config-shaped `rf/frame-provider`** with two shapes dispatched on the prop map, and **retires the owned destroy-on-unmount** (it had zero product consumers):
 >
-> - **`rf/frame-provider`** is **reused for the UI-owned *lifecycle* boundary** — the component that creates a frame on mount, provides its id to descendants, and destroys it on unmount. It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / record-config). See immediately below.
-> - **`rf/frame-provider-existing`** is the *scope-only* component that carries the old behaviour forward: it provides an **already-created** frame id through the same React context and creates / refreshes / destroys nothing. It takes `:frame` **only** — a lifecycle opt fails loud. See [§`frame-provider-existing`](#what-frame-provider-existing-is-cljs-reference).
+> - **`rf/frame-provider {:frame existing-id}`** — **SCOPE-only.** Provides an **already-created** frame id through React context and creates / refreshes / destroys nothing. **Fails loud when the frame is absent** (`:rf.error/frame-provider-frame-absent`) — the guardrail Story + Xray rely on. `:frame` must be a keyword; a missing `:frame` is `:rf.error/no-frame-context`, a non-keyword `:frame` is `:rf.error/bad-frame-provider-arg`.
+> - **`rf/frame-provider {:id the-id …}`** — **ENSURE.** Creates the frame if absent (via `make-frame`), **reuses it WITHOUT re-seeding if present**, and provides its id to descendants. There is **NO destroy-on-unmount**. It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / `:url-bound?` / record-config). `:id` is required and must be a keyword (a missing/non-keyword `:id` → `:rf.error/ensure-frame-provider-missing-id`).
 >
-> Why two components rather than `rf/with-frame` for the scope job: `with-frame` binds a dynamic var, which **cannot cross React's render boundary**, so scope-into-React needs a React-context component — `frame-provider-existing`. `with-frame` remains for lexical / non-React ambient scoping.
+> The shape is selected by the presence of `:frame` vs `:id`. Why a React-context component rather than `rf/with-frame` for the scope job: `with-frame` binds a dynamic var, which **cannot cross React's render boundary**, so scope-into-React needs a React-context component. `with-frame` remains for lexical / non-React ambient scoping.
+>
+> **True ownership is explicit, not the provider's job.** Retiring destroy-on-unmount does not lose the lifetime-owning use case (modals, multi-instance widgets): it stays expressible as `rf/make-frame` + `rf/destroy-frame!` inside a `create-class` (where the component declares it owns the lifetime — what Story already does). The merged provider serves the two non-owning jobs every product call site actually needs: scope an existing frame, and ensure a named frame.
+>
+> The legacy `rf/frame-provider-existing` (scope-only) remains during the migration window as an alias for the SCOPE-only shape; its call sites migrate to `rf/frame-provider {:frame …}`. See [§`frame-provider-existing`](#what-frame-provider-existing-is-cljs-reference).
 
-`frame-provider` is the answer for view-owned frame lifetimes: comparison pages, Story canvases, embedded widgets, modal stacks, multi-instance widgets, and any place a component should own a frame for exactly as long as it is mounted. It takes the **same constructor opts as `make-frame`** (image-selection + record-config) and does the create/provide/destroy lifecycle for you:
+**SCOPE-only shape.** Scope a React subtree to a frame that already exists (Story canvas mounting an app's frame, an Xray panel reading a tool frame, a child subtree reusing the parent's frame):
+
+```clojure
+;; The frame :rf/xray was created elsewhere (e.g. at shell mount); the
+;; provider only SCOPES the panel subtree to it — no lifecycle. A
+;; never-created / destroyed :rf/xray fails loud (:rf.error/frame-provider-frame-absent).
+[rf/frame-provider {:frame :rf/xray}
+ [panel-a]
+ [panel-b]]
+```
+
+**ENSURE shape.** Ensure a named frame exists for as long as the subtree is mounted — create it the first time, reuse it on every subsequent mount/remount without re-running its setup. This is the answer for comparison pages, Story canvases, embedded widgets, and hot-reload-safe view-driven frame lifetimes:
 
 ```clojure
 [rf/frame-provider {:id :todo/left
@@ -1474,25 +1494,25 @@ A closure over `(:frame m)` keeps each call site terse:
  [todo-root]]
 ```
 
-`frame-provider` **creates the frame on mount** (via `make-frame`), **provides its frame id to descendants** (so `reg-view`-registered children resolve to it at render time without threading `{:frame …}`), and **destroys the frame on unmount** (via `destroy-frame!`). Lifecycle ownership is the provider's job — the descendant views never call `make-frame` or `destroy-frame!`.
+The ENSURE shape **creates the frame if absent** (via `make-frame`), **reuses it without re-seeding if present**, and **provides its frame id to descendants** (so `reg-view`-registered children resolve to it at render time without threading `{:frame …}`). There is **no destroy-on-unmount** — a genuine unmount leaves the frame live. Lifecycle teardown, when wanted, is an explicit ownership operation (`destroy-frame!`), not a side effect of the provider unmounting.
 
-**`:initial-events` runs once per frame-id lifetime.** The provider dispatches the recorded `:initial-events` only on the **first creation** of a frame id. On a genuine **remount / re-acquire** under the same id (React StrictMode, a true unmount→mount, Story re-eval) the setup is re-recorded but **not** replayed, and durable state is preserved (idempotent re-registration); an ordinary prop-change re-render does not re-call `make-frame` at all, so it neither re-records nor replays. A setup step that throws during acquire **destroys the just-created frame, then rethrows**. Because provider setup runs during React render, keep it **effect-light** (seed app-db, light init), and drive heavier side-effecting init from app-db state via the view (per [EP-0027 §Frame provider](../docs/EP/EP-0027-frame-initial-events.md)).
+**`:initial-events` runs once per frame-id lifetime.** The ENSURE shape dispatches the recorded `:initial-events` only on the **first creation** of a frame id. On a genuine **remount / re-acquire** under the same id (React StrictMode, a true unmount→mount, hot reload, Story re-eval) the setup is re-recorded but **not** replayed, and durable state (app-db, sub-cache, queue) is preserved (idempotent re-registration); an ordinary prop-change re-render does not re-call `make-frame` at all, so it neither re-records nor replays. A setup step that throws during ensure **destroys the just-created frame, then rethrows**. Because provider setup runs during React render, keep it **effect-light** (seed app-db, light init), and drive heavier side-effecting init from app-db state via the view (per [EP-0027 §Frame provider](../docs/EP/EP-0027-frame-initial-events.md)).
 
-**`frame-provider` is realized per-adapter, against a shared contract.** It is **not** a single component: each substrate (Reagent / UIx / Helix) ships its own `frame-provider` that hooks the substrate's native lifecycle (exactly as the scope-only provider was per-adapter before EP-0024). What this spec fixes is the **shared lifecycle contract** every adapter realisation MUST satisfy:
+**`frame-provider` is realized per-adapter, against a shared contract.** It is **not** a single component: each substrate (Reagent / UIx / Helix) ships its own `frame-provider` that dispatches on the prop shape and hooks the substrate's native render. What this spec fixes is the **shared contract** every adapter realisation MUST satisfy:
 
-- **create-on-mount** — the frame is constructed when the component mounts, from the constructor opts;
-- **provide the frame id to descendants** — the frame **id** (not the value) flows down through the host's React-context primitive, so descendant ambient `dispatch`/`subscribe` resolve to it;
-- **destroy-on-unmount** — `destroy-frame!` runs as the component unmounts;
-- **idempotent re-mount** — re-mounting under the same `:id` is **idempotent replacement** (per [§Duplicate id](#duplicate-id--idempotent-replacement)), not destroy-then-recreate, so hot-reload-under-the-same-id **must not destroy durable state**.
+- **dispatch on shape** — `{:frame …}` selects SCOPE-only; otherwise the ENSURE `:id` shape applies;
+- **SCOPE-only: provide-or-fail** — provide the named frame's id through the host's React-context primitive; **fail loud** (`:rf.error/frame-provider-frame-absent`) when no live frame is registered under that id;
+- **ENSURE: ensure-on-render** — `make-frame` runs during render (idempotent), so a descendant that subscribes/dispatches on first render observes a live frame; the resolved id is cached so re-renders reuse it and the context `:value` is stable;
+- **ENSURE: reuse-without-reseed** — re-mounting under the same `:id` is **idempotent replacement** (per [§Duplicate id](#duplicate-id--idempotent-replacement)), not destroy-then-recreate: durable app-db / runtime-db / sub-cache / queue survive, and `:initial-events` are re-recorded but **not** replayed;
+- **no destroy-on-unmount** — the ENSURE shape arms **no** teardown effect; a genuine unmount leaves the frame live.
 
-Each adapter's `frame-provider` realisation MUST address its substrate's lifecycle concerns against that contract:
+Each adapter's ENSURE realisation MUST tolerate its substrate's render concerns against that contract:
 
-- **React effect-cleanup timing** — exactly when `destroy-frame!` runs relative to the unmount commit;
-- **StrictMode double-invoke in dev** (mount → unmount → mount) — the create/destroy pair must tolerate an extra cycle without corrupting durable state;
-- **`destroy-frame!`-on-unmount ordering against in-flight subscriptions and event drains** — teardown must not race outstanding per-frame work;
-- **hot-reload-under-the-same-id** — re-mount is idempotent replacement, not destroy-then-recreate, so durable app-db / runtime-db survive a recompile.
+- **StrictMode double-invoke in dev** (mount → unmount → mount) — the render-phase `make-frame` is idempotent, so the extra cycle neither double-creates nor corrupts durable state, and (there being no destroy effect) nothing tears the frame down between the two mounts;
+- **hot-reload-under-the-same-id** — re-mount is idempotent replacement, so durable app-db / runtime-db survive a recompile and the re-seeding `:initial-events` of the recompiled form are re-recorded but not replayed;
+- **concurrent rendering** — the cached resolved id keeps the provider's context `:value` stable across React's re-renders.
 
-Implementation skeleton (Reagent flavour — create-on-mount / provide / destroy-on-unmount):
+Implementation skeleton (Reagent flavour — dispatch on shape; ENSURE creates-on-render with no teardown):
 
 ```clojure
 ;; The React-context default is a NO-PROVIDER SENTINEL, not :rf/default —
@@ -1502,27 +1522,26 @@ Implementation skeleton (Reagent flavour — create-on-mount / provide / destroy
 (defonce ^:private frame-context (js/React.createContext ::no-frame))
 
 (defn frame-provider [props & children]
-  ;; `props` are make-frame constructor opts (image-selection + record-config).
-  ;; create-on-mount / destroy-on-unmount; re-mount under the same :id is
-  ;; idempotent replacement (durable state preserved), not destroy-then-recreate.
-  (r/with-let [f  (rf/make-frame props)              ; create on mount
-               id (rf/frame-value->id f)]
-    ;; `:r>` bypasses Reagent's `convert-prop-value`; the props map flows
-    ;; to React as a raw JS object. That bypass preserves the namespace
-    ;; of namespaced frame keywords (`:tenant/admin`), which stock
-    ;; Reagent's `convert-prop-value` would otherwise strip via
-    ;; `(name kw)`. Children remain hiccup.
-    (into [:r> (.-Provider frame-context) #js {:value id}]  ; provide the ID to descendants
-          children)
-    (finally
-      (rf/destroy-frame! f))))                       ; destroy on unmount
+  (if (contains? props :frame)
+    ;; SCOPE-only: provide an EXISTING frame's id; fail loud if absent.
+    (let [id (:frame props)]
+      (when-not (rf/frame id)
+        (throw (ex-info ":rf.error/frame-provider-frame-absent" {:frame id})))
+      (into [:r> (.-Provider frame-context) #js {:value id}] children))
+    ;; ENSURE: create-if-absent / reuse-no-reseed; NO destroy-on-unmount.
+    ;; `make-frame` runs on every render but is idempotent replacement, so a
+    ;; remount reuses the live frame (durable state preserved, :initial-events
+    ;; NOT replayed). `:r>` bypasses Reagent's `convert-prop-value`, preserving
+    ;; namespaced frame keywords (`:tenant/admin`) the way `(name kw)` would strip.
+    (let [id (rf/frame-value->id (rf/make-frame props))]
+      (into [:r> (.-Provider frame-context) #js {:value id}] children))))
 ```
 
-A provider whose constructor opts establish no usable frame (e.g. an empty props map with no `:images` and no `:id`) is a configuration error — descendant ambient calls fail with `:rf.error/no-frame-context` (per [§Frame target resolution](#frame-target-resolution--the-carried-invariant)) rather than targeting a conventional default. There is no `:rf/default` floor. (The exact migration of the React-context default, the corrupted-context detector, and the shared substrate spine is the EP-0002 root/view chain bead.)
+A SCOPE-only provider naming an absent frame, or an ENSURE provider whose opts establish no usable frame (an empty props map with neither `:frame` nor `:id`), is a configuration error — it fails loud rather than scoping descendants to a conventional default. There is no `:rf/default` floor.
 
-`rf/frame-provider` is the canonical user-facing API; the lower-level `re-frame.views/build-frame-provider` factory remains as the **substrate hook** (per [Spec 006 §`(register-context-provider frame-keyword)`](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component)) — adapter implementors register a lifecycle-bearing context-provider component through it against the shared contract above, and `rf/frame-provider` delegates to whatever the active adapter returned.
+`rf/frame-provider` is the canonical user-facing API; the lower-level `re-frame.views/build-frame-provider` factory remains as the **substrate hook** (per [Spec 006 §`(register-context-provider frame-keyword)`](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component)) — adapter implementors register the scope-only context-provider component through it, and both the SCOPE-only shape and the ENSURE shape's provide tier delegate to whatever the active adapter returned.
 
-Other React-on-CLJS adapters (UIx, Helix) realise the same create/provide/destroy/idempotent contract with their host's lifecycle + React-context primitives — adapter-style, modelling React's `Context.Provider`. Other in-scope JS-cross-compile-language ports realise it through their host's React binding's context + effect-cleanup primitives: TypeScript-React's `React.createContext` + `useEffect` cleanup, Fable's Feliz / Fable.React `createContext`, PureScript's `React.Basic.Hooks` `createContext`, Kotlin-React's `createContext`, ReasonReact / Melange's `React.createContext`. Mechanism varies by binding; the *contract* — a UI boundary that creates a frame on mount, provides its frame id to descendants, and destroys it on unmount (idempotent on re-mount) — survives all of these. See [000-Vision §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) and the View Ergonomics top-of-section banner above.
+Other React-on-CLJS adapters (UIx, Helix) realise the same dispatch-on-shape / scope-or-fail / ensure-no-reseed contract with their host's React-context + render primitives — adapter-style, modelling React's `Context.Provider`. Other in-scope JS-cross-compile-language ports realise it through their host's React binding's context primitives: TypeScript-React's `React.createContext`, Fable's Feliz / Fable.React `createContext`, PureScript's `React.Basic.Hooks` `createContext`, Kotlin-React's `createContext`, ReasonReact / Melange's `React.createContext`. Mechanism varies by binding; the *contract* — a UI boundary that scopes an existing frame (failing loud if absent) or ensures a named frame (create-if-absent, reuse-no-reseed, no destroy-on-unmount) — survives all of these. See [000-Vision §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) and the View Ergonomics top-of-section banner above.
 
 ### What `frame-provider-existing` is (CLJS reference)
 
@@ -1541,10 +1560,12 @@ This is the **scope-into-React** counterpart to `rf/with-frame`. `with-frame` bi
 Contract:
 
 - **`:frame` only, and REQUIRED** — a keyword frame id (EP-0002 carried invariant). A missing `:frame` is a configuration error (`:rf.error/no-frame-context`, no `:rf/default` floor); a non-nil non-keyword `:frame` is the distinct `:rf.error/bad-frame-provider-arg`.
-- **Lifecycle opts fail loud** — passing any frame-**construction** / lifecycle opt (`:id`, `:images`, `:initial-events`, …) raises `:rf.error/frame-provider-existing-lifecycle-opt`, pointing the caller at the owned `rf/frame-provider`. A scope-only provider neither creates nor owns a frame, so a caller who expected create-semantics is told loudly to switch components rather than silently getting a no-op.
-- **Per-adapter, shared context** — like `frame-provider`, it is realized per substrate (Reagent / UIx / Helix) and all three read the SAME `React.createContext` object, so a subtree under any provider (of either kind) resolves the right frame regardless of which substrate rendered it.
+- **Lifecycle opts fail loud** — passing any frame-**construction** / lifecycle opt (`:id`, `:images`, `:initial-events`, …) raises `:rf.error/frame-provider-existing-lifecycle-opt`, pointing the caller at the ENSURE shape `rf/frame-provider {:id …}`. A scope-only provider neither creates nor owns a frame, so a caller who expected create-semantics is told loudly to switch shapes rather than silently getting a no-op.
+- **Per-adapter, shared context** — like the merged `frame-provider`, it is realized per substrate (Reagent / UIx / Helix) and all three read the SAME `React.createContext` object, so a subtree under any provider (of either shape) resolves the right frame regardless of which substrate rendered it.
 
-`frame-provider-existing` reuses the lower-level scope-only provide tier (`re-frame.views/build-frame-provider` on Reagent, `re-frame.substrate.spine/build-frame-provider-element` on the React-hook substrates) — the same tier the owned `frame-provider` reaches once it has created its frame, and the tier adapters install at the [Spec 006 §`register-context-provider`](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component) substrate hook.
+> **Migration note (EP-0024 amended).** `frame-provider-existing` is retained during the migration window as an alias for the merged provider's SCOPE-only shape (`rf/frame-provider {:frame …}`). Its call sites migrate to the merged spelling; new code should prefer `rf/frame-provider {:frame …}`. The one behavioural difference the merged SCOPE-only shape adds is the **fail-loud-if-absent** guard (`:rf.error/frame-provider-frame-absent`) — scoping a never-created / destroyed frame is now a loud configuration error rather than a silent mis-scope.
+
+`frame-provider-existing` reuses the lower-level scope-only provide tier (`re-frame.views/build-frame-provider` on Reagent, `re-frame.substrate.spine/build-frame-provider-element` on the React-hook substrates) — the same tier the merged provider's SCOPE-only shape and the ENSURE shape's provide tier reach, and the tier adapters install at the [Spec 006 §`register-context-provider`](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component) substrate hook.
 
 ## REPL and test ergonomics
 
@@ -2482,14 +2503,14 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 
 | Decision | Pointer |
 |---|---|
-| Unified frame identity & lifecycle (EP-0024, accepted 2026-06-18) — **one live frame value backed by one registry** (it owns the id, both partitions, runtime subsystems, queue/drain, caches, lifecycle hooks, and the **resolved image generation** — no second backing-record registry); the **frame id is the public routing address** (`{:frame id}` / `with-frame`), the frame value is a lifecycle token with a hidden representation read via **one id accessor**; **scope vs own vs carry** are three separate jobs — `with-frame` (lexical) / `frame-provider-existing` (into a React subtree) scope to an *existing* frame (no lifecycle), `frame-provider` is the per-adapter UI-**owned** lifecycle boundary (create-on-mount / provide id / destroy-on-unmount / idempotent re-mount; the old scope-only `frame-provider` is **renamed** `frame-provider-existing`), `frame-handle` carries across async; **one `make-frame`** over image-selection + record-config opts (the old two-constructor split + `:rf.error/make-frame-record-only-key` redirect are gone); **duplicate-id is idempotent replacement** (behaviour change from blanket fail-loud — preserves durable state on re-mount, irreconcilable conflicts still fail loud); `frame-bound-fn`/`frame-bound-fn*`/`make-frame-handle`/`subscribe*`/frame-first arities retiered to internal; **one teardown ownership path** | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor), [§What `frame-provider` is](#the-frame-provider-name-family-cljs-reference), [§Destroy](#destroy), [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) |
+| Unified frame identity & lifecycle (EP-0024, accepted 2026-06-18) — **one live frame value backed by one registry** (it owns the id, both partitions, runtime subsystems, queue/drain, caches, lifecycle hooks, and the **resolved image generation** — no second backing-record registry); the **frame id is the public routing address** (`{:frame id}` / `with-frame`), the frame value is a lifecycle token with a hidden representation read via **one id accessor**; **scope vs own vs carry** are three separate jobs — `with-frame` (lexical) / `frame-provider-existing` (into a React subtree) scope to an *existing* frame (no lifecycle), `frame-provider` is the per-adapter UI-**owned** lifecycle boundary (create-on-mount / provide id / destroy-on-unmount / idempotent re-mount; the old scope-only `frame-provider` is **renamed** `frame-provider-existing`), `frame-handle` carries across async; **one `make-frame`** over image-selection + record-config opts (the old two-constructor split + `:rf.error/make-frame-record-only-key` redirect are gone); **duplicate-id is idempotent replacement** (behaviour change from blanket fail-loud — preserves durable state on re-mount, irreconcilable conflicts still fail loud); `frame-bound-fn`/`frame-bound-fn*`/`make-frame-handle`/`subscribe*`/frame-first arities retiered to internal; **one teardown ownership path** | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor), [§What `frame-provider` is](#the-merged-config-shaped-frame-provider-cljs-reference), [§Destroy](#destroy), [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) |
 | Frame target resolution — the carried invariant (EP-0002) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is an ordinary id the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism** | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
 | Two-partition frame contract (EP-0001, 14 rulings) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); `reset-frame!` resets the whole frame; accessors `app-db-value`/`runtime-db-value`/`frame-state-value`, mutators `replace-app-db!`/`replace-runtime-db!`/`replace-frame-state!` | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
 | Frame presets — closed v1 set `:default` / `:test` / `:story` / `:ssr-server`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fifth preset is a Spec-change-only operation; `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise) considered and not adopted in v1 | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |
 | `reg-frame` re-registration is a surgical update by default; `reset-frame!` is the opt-in full replace; `destroy-frame!` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame! — full replace, opt-in](#reset-frame--full-replace-opt-in) |
 | `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:initial-events` (seed app-db via a leading `[:rf/set-db {…}]` step) | [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) |
 | Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |
-| The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context. **EP-0024**: the `frame-provider` name family — `frame-provider` is repurposed into the per-adapter UI-**owned** lifecycle boundary (create-on-mount / provide id / destroy-on-unmount / idempotent re-mount), and the old scope-only shortcut is renamed `frame-provider-existing`; scoping to an existing frame is `with-frame` (lexical) or `frame-provider-existing` (into a React subtree) | [§View ergonomics](#view-ergonomics-the-hard-part), [§What `frame-provider` is](#the-frame-provider-name-family-cljs-reference), [011-SSR.md](011-SSR.md) |
+| The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context. **EP-0024**: the `frame-provider` name family — `frame-provider` is repurposed into the per-adapter UI-**owned** lifecycle boundary (create-on-mount / provide id / destroy-on-unmount / idempotent re-mount), and the old scope-only shortcut is renamed `frame-provider-existing`; scoping to an existing frame is `with-frame` (lexical) or `frame-provider-existing` (into a React subtree) | [§View ergonomics](#view-ergonomics-the-hard-part), [§What `frame-provider` is](#the-merged-config-shaped-frame-provider-cljs-reference), [011-SSR.md](011-SSR.md) |
 | Plain Reagent fns can't read the surrounding `frame-provider`'s frame; an ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through; supersedes the old warn-once) | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-the-footgun-is-now-a-loud-error) |
 | Per-instance frames via the one `make-frame` constructor (EP-0024 — image-selection + record-config opts in one call; returns the frame value; id via one accessor) for per-mount lifecycles | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor) |
 | Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`; frame-level `:interceptors` ref chain (per-call additive `:interceptors` removed — EP-0022) | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
