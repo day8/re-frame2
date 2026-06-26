@@ -189,4 +189,4 @@
   ;; synthesises a frame from absence (the carried invariant).
   (rf/with-frame :rf/default
     (rf/dispatch-sync [::initialise]))
-  (rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [root]]))
+  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

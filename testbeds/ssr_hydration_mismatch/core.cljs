@@ -184,7 +184,7 @@
         ;; [:rf/hydration :server-hash] so verify-hydration! can compare
         ;; against the client's computed hash.
         (rf/dispatch-sync [:rf/hydrate payload])))
-    (rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [root]])
+    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
 
     ;; HOT PATH — the trigger site for :rf.ssr/hydration-mismatch.
     ;; The resolved tree hashes to a value that won't equal the

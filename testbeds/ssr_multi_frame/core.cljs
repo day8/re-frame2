@@ -19,7 +19,7 @@
     :counter/b → {:n 99}                                    -> 'B: n=99'
     :log       → {:entries [{:from :ssr :note 'hello'} ...]}-> log entries
 
-  Post-hydrate, three sibling `[rf/frame-provider-existing {:frame ...}]`
+  Post-hydrate, three sibling `[rf/frame-provider {:frame ...}]`
   subtrees render the three panels. Each subtree reads ONLY its own
   frame's app-db — `:counter/a`'s `:n` sub fires against `:counter/a`'s
   app-db, never `:counter/b`'s. A `data-testid='hydration-summary'`
@@ -155,11 +155,11 @@
    [:h1 "ssr-multi-frame testbed"]
    [hydration-summary]
    [:div {:style {:display :flex :flex-wrap :wrap :align-items :flex-start}}
-    [rf/frame-provider-existing {:frame frame-a}
+    [rf/frame-provider {:frame frame-a}
      [counter-panel "A" "A"]]
-    [rf/frame-provider-existing {:frame frame-b}
+    [rf/frame-provider {:frame frame-b}
      [counter-panel "B" "B"]]
-    [rf/frame-provider-existing {:frame frame-log}
+    [rf/frame-provider {:frame frame-log}
      [log-panel]]]])
 
 ;; ----------------------------------------------------------------------------
