@@ -9,15 +9,15 @@
 ;; resolve them, no last-write-wins). `:images []` is an ERROR: pass at least one
 ;; image, or OMIT `:images` for the default.
 ;;
-;; SCOPE NOTE — this fixture pins the SHIPPED pure-assembler default path
+;; SCOPE NOTE — this fixture pins the pure-assembler default path
 ;; (`re-frame.image-assembly/assemble-default`, exercised via the
 ;; `:assemble-image` op's omit-`:images` / `:default? true` branch). EP-0026
-;; ALSO rules that `make-frame {}` (omit `:images` at the frame boundary) should
-;; resolve the default generation, but that OMIT→default BOUNDARY WIRING is
-;; DEFERRED (follow-up bead rf2-59orj0): the shipped `make-frame {}` still
-;; carries NO generation (an ordinary configured frame). This fixture
-;; deliberately does NOT pin the deferred make-frame-{}=default behavior — only
-;; the shipped default-projection assembler + the `:images []` error.
+;; ALSO rules that `make-frame {}` (omit `:images` at the frame boundary)
+;; resolves the default generation — that omit→default boundary is now WIRED at
+;; the frame constructor (a `make-frame {}` carries the default image generation
+;; over the active source store). This fixture pins the underlying
+;; default-projection assembler + the `:images []` error; the frame-boundary
+;; behavior is covered by the reference implementation's make-frame tests.
 ;;
 ;; Mode-B `:assemble-image` call op. The default-projection calls OMIT `:images`
 ;; (the op routes to `assemble-default :pool`); the `:images []` error uses the
@@ -27,7 +27,7 @@
 {:fixture/id           :image/default-image
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/image}
- :fixture/doc          "EP-0026 default image (shipped assemble-default path): omitting :images projects the WHOLE pool + framework standards; an empty pool is a valid empty projection (no zero-match fail); a cross-namespace same-[kind id] collision in the default projection fails loud with :rf.error/image-duplicate-id (no last-write-wins). :images [] is an error (:rf.error/make-frame-bad-images). Does NOT pin the deferred make-frame-{}=default boundary (rf2-59orj0)."
+ :fixture/doc          "EP-0026 default image (shipped assemble-default path): omitting :images projects the WHOLE pool + framework standards; an empty pool is a valid empty projection (no zero-match fail); a cross-namespace same-[kind id] collision in the default projection fails loud with :rf.error/image-duplicate-id (no last-write-wins). :images [] is an error (:rf.error/make-frame-bad-images). The make-frame {} frame-boundary default wiring is covered by the reference implementation's make-frame tests."
 
  :fixture/registry {}
  :fixture/handlers {}

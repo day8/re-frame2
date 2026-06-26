@@ -484,11 +484,12 @@
   EP-0026 (rf2-dlvmpc) removed image-declared host capabilities end-to-end —
   there is no frame-boundary capability check.
 
-  Note: this is only called when `images` is PRESENT (make-frame) or supplied to
-  reload / reprojection — the OMIT-`:images` default-image boundary wiring is
-  deferred (see `make-frame`), so `images` here is always a real composition. A
-  reprojected default-image frame carries `[default-image]` (a non-empty marker
-  vector) on its `:rf.gen/images`, so reprojection still resolves cleanly. A
+  Note: this resolves a PRESENT non-empty `:images` composition (make-frame's
+  explicit-image path, reload, reprojection). The ABSENT-`:images` default-image
+  path (`make-frame {}`) goes DIRECTLY through `image-assembly/assemble-default`,
+  not here — so `images` here is always a real composition. A reprojected
+  default-image frame carries `[default-image]` (a non-empty marker vector) on its
+  `:rf.gen/images`, so reprojection still resolves cleanly through `assemble`. A
   cross-namespace same-`[kind id]` collision in the resolved generation FAILS
   LOUD (`:rf.error/image-duplicate-id`)."
   [images descriptors]
@@ -515,18 +516,21 @@
                    a vector, even for a single image). Resolved into ONE sealed
                    image generation via `re-frame.image-assembly/assemble`; a
                    non-vector OR an EMPTY `:images []` fails loud
-                   (`:rf.error/make-frame-bad-images`). EP-0026 (ruled
-                   2026-06-22): `:images []` is an error — pass at least one
-                   image, or OMIT `:images`. OPTIONAL — an ABSENT `:images`
-                   currently carries NO generation (an ordinary configured frame
-                   on the shared registrar); the EP-0026 ruling that omitting
-                   `:images` should resolve the DEFAULT IMAGE is a DEFERRED
-                   boundary-wiring follow-up (a design-level conflict with the
-                   Story player / owned-frame lifecycle, which deliberately
-                   create image-less registrar-backed frames). A NON-EMPTY
-                   `:images` resolves the selected generation, failing loud on a
-                   cross-namespace same-`[kind id]` collision
-                   (`:rf.error/image-duplicate-id`).
+                   (`:rf.error/make-frame-bad-images`). The THREE-WAY EP-0026
+                   boundary (ruled 2026-06-22):
+                     * PRESENT non-empty `:images` → the SELECTED generation,
+                       failing loud on a cross-namespace same-`[kind id]`
+                       collision (`:rf.error/image-duplicate-id`);
+                     * PRESENT empty `:images []`  → an ERROR — pass at least one
+                       image, or OMIT `:images` for the default;
+                     * ABSENT `:images` (`make-frame {}`) → the DEFAULT IMAGE
+                       generation over the active source store
+                       (`assemble-default`): the implicit selector over the WHOLE
+                       store + framework standards, FAILING LOUD on a
+                       cross-namespace same-`[kind id]` collision the SAME way
+                       (`:rf.error/image-duplicate-id` — load order never decides
+                       the survivor). App isolation is requested through the same
+                       image API (`rf/image` + `:select-ns`), not a new scope.
     :id            the frame id (optional). When supplied, the frame is
                    registered under this id in the ONE `frames` registry;
                    re-`make-frame`-ing the same id is IDEMPOTENT REPLACEMENT —
@@ -594,20 +598,30 @@
          ;; Resolve the generation FIRST so a bad `:images` fails loud BEFORE any
          ;; record is created — a conflict leaves no half-created frame.
          ;;
-         ;; EP-0026 §Default Image (ruled 2026-06-22) ALSO says OMITTING `:images`
-         ;; (`make-frame {}`) should resolve the DEFAULT image generation. That
-         ;; OMIT→default BOUNDARY WIRING is DEFERRED (rf2-fsd822 surfaced a
-         ;; design-level conflict: the Story player and owned-frame lifecycle
-         ;; deliberately create image-LESS frames that resolve against the shared
-         ;; registrar — "absence-is-default" — and the consolidated test bundle's
-         ;; shared source store carries cross-app `[kind id]` collisions a
-         ;; whole-store default projection fails on). So for now an ABSENT `:images`
-         ;; still carries NO generation (the EP-0023/EP-0024 ordinary configured
-         ;; frame); a PRESENT `:images` must be a NON-EMPTY vector — `:images []`
-         ;; is an error (`validate-images!`) — and resolves the SELECTED generation.
-         ;; The OMIT→default boundary is tracked as follow-up bead rf2-59orj0.
-         generation  (when (some? images)
-                       (resolve-generation! images descriptors))
+         ;; EP-0026 §Default Image (ruled 2026-06-22) — the THREE-WAY `:images`
+         ;; boundary, wired here:
+         ;;   * PRESENT non-empty `:images`  → resolve the SELECTED generation
+         ;;     (`resolve-generation!`), failing loud on a cross-namespace
+         ;;     same-`[kind id]` collision (`:rf.error/image-duplicate-id`);
+         ;;   * PRESENT empty `:images []`   → an ERROR (`validate-images!` rejects
+         ;;     it: pass at least one image, or OMIT `:images` for the default);
+         ;;   * ABSENT `:images` (`make-frame {}`) → resolve the DEFAULT image
+         ;;     generation over the ACTIVE source store (`assemble-default`) — the
+         ;;     implicit selector over the whole store + framework standards. The
+         ;;     default projection FAILS LOUD on a cross-namespace same-`[kind id]`
+         ;;     collision the SAME way (`:rf.error/image-duplicate-id`); load order
+         ;;     never silently decides the survivor on the default path either.
+         ;; App isolation is requested through the same image API as every other
+         ;; selection (`rf/image` + `:select-ns`), NOT a new scope concept — a
+         ;; frame that must see only its own registrations passes an explicit image.
+         ;; The two arities mirror `assemble`/`assemble-default`: the LIVE source
+         ;; store (`descriptors` nil) or an explicit descriptor pool (tests /
+         ;; harnesses / a pre-snapshotted store).
+         generation  (if (some? images)
+                       (resolve-generation! images descriptors)
+                       (if (nil? descriptors)
+                         (asm/assemble-default)
+                         (asm/assemble-default descriptors)))
          ;; Everything outside the image-selection/value keys is record-config
          ;; passed verbatim to `reg-frame` — `:initial-events` / `:fx-overrides` /
          ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification.
@@ -618,12 +632,17 @@
          ;; construction (and a retired `:initial-db` / `:on-create` likewise flows
          ;; through to reg-frame's fail-loud guard). We thread two reserved
          ;; construction inputs through the config:
-         ;;   :rf.frame/generation   — the resolved generation (nil ⇒ ordinary
-         ;;                            configured frame when `:images` is absent;
-         ;;                            the EP-0026 omit→default boundary is a
-         ;;                            deferred follow-up). reg-frame seats it into
-         ;;                            the `:generation` slot and strips it from
-         ;;                            the stored config. Installed BEFORE the
+         ;;   :rf.frame/generation   — the resolved generation. ALWAYS present now
+         ;;                            (EP-0026 §Default Image): a PRESENT `:images`
+         ;;                            resolves the selected generation; an ABSENT
+         ;;                            `:images` resolves the DEFAULT image
+         ;;                            generation over the active source store. So
+         ;;                            every frame carries a generation and resolves
+         ;;                            through it — the absence-is-default
+         ;;                            registrar-atom fall-through no longer fires
+         ;;                            on the make-frame path. reg-frame seats it
+         ;;                            into the `:generation` slot and strips it
+         ;;                            from the stored config. Installed BEFORE the
          ;;                            `:initial-events` setup runs, so a setup
          ;;                            cascade resolves through the frame's OWN
          ;;                            image generation, not the global registrar.

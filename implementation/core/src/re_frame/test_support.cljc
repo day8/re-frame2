@@ -117,6 +117,23 @@
             ;; …]]` could not resolve `:rf/set-db` through its sealed generation.
             ;; (`events` is already in the dep graph via `router`; no new cycle.)
             [re-frame.events :as events]
+            ;; EP-0026 §Default Image: `make-frame {}` now projects the DEFAULT
+            ;; image over the active SOURCE STORE. Every `reg-*` writes a
+            ;; provenance-tagged descriptor into `source-store` (in lockstep with
+            ;; the registrar resolver map — `registrar/register!`), so the source
+            ;; store ACCUMULATES across the consolidated node-test bundle exactly
+            ;; the way the registrar would without snapshot/restore. Two sibling
+            ;; test namespaces registering the same `[kind id]` under different
+            ;; provenance namespaces leave a cross-namespace collision in the
+            ;; shared store, and the next test's `make-frame {}` default projection
+            ;; FAILS LOUD (`:rf.error/image-duplicate-id`) — correctly, per the
+            ;; default-image semantics. The fixture isolates each test's source
+            ;; store (snapshot/restore + generation-cache clear) so a default
+            ;; projection sees ONLY this test's own registrations. The
+            ;; resolved-generation cache is keyed on the source-store generation,
+            ;; so clearing it on reset stops a stale default generation leaking.
+            [re-frame.source-store :as source-store]
+            [re-frame.image-assembly :as image-assembly]
             ;; The flows / schemas / machines / routing / http-managed /
             ;; epoch artefacts ship in separate Maven coordinates and are
             ;; reached only through late-bind hooks — see the
@@ -345,6 +362,22 @@
 
   ## Run-order independence (rf2-7hwnu)
 
+  ## Source-store isolation (EP-0026 §Default Image)
+
+  `make-frame {}` (omitted `:images`) resolves the DEFAULT image — the implicit
+  selector over the whole active SOURCE STORE plus the framework standards. Every
+  `reg-*` writes a provenance-tagged descriptor into the source store in lockstep
+  with the registrar resolver map (`registrar/register!`), so without isolation
+  the source store accumulates across the consolidated node-test bundle: two
+  sibling namespaces registering the same `[kind id]` under different provenance
+  namespaces leave a cross-namespace collision in the shared store, and the next
+  test's default projection FAILS LOUD (`:rf.error/image-duplicate-id`). The
+  fixture captures the source store's ns-load contents at build time (the same
+  stable-baseline moment as the registrar) and RESTORES the store to that baseline
+  before and after each test, clearing the resolved-generation cache (keyed on the
+  source-store generation) on each reset. Each test's default projection therefore
+  sees only its own registrations plus the ns-load set — no cross-bundle leakage.
+
   The registrar baseline is captured ONCE, when the fixture is built —
   i.e. when the test ns's `(use-fixtures :each ...)` form is evaluated,
   which is AT THIS TEST NS'S LOAD (after its `:require` chain has
@@ -363,7 +396,9 @@
   Per call (i.e. per test), the fixture:
 
     0. Reinstates the stable ns-load baseline over the live registrar
-       (run-order independence — see above).
+       (run-order independence — see above), and RESTORES the source store
+       to its ns-load baseline + clears the resolved-generation cache
+       (EP-0026 source-store isolation — see below).
     1. Captures the current (baseline-reinstated) registrar (so user-test
        registrations can be rolled back without losing ns-load-time
        framework / example registrations).
@@ -482,6 +517,17 @@
    ;; (`ns-load-registrar` + `reinstate-todomvc-registrations`) and
    ;; conformance-corpus (`pretest-registrar`) tests carried.
    (let [ns-load-baseline (snapshot-registrar)
+         ;; EP-0026 source-store isolation (b1). Capture the source store's
+         ;; ns-load contents ALONGSIDE the registrar baseline, at fixture-build
+         ;; time — the same stable-baseline moment, so it carries exactly the
+         ;; framework / example registrations live by this ns's load. Unlike the
+         ;; registrar (which MERGES the baseline so a later-loading ns's
+         ;; registrations survive), the source store is RESTORED to this baseline
+         ;; before each test: isolation is the goal — a default projection must
+         ;; see only this test's own registrations plus the ns-load set, never the
+         ;; cross-bundle accumulation that leaves same-`[kind id]` collisions a
+         ;; whole-store default projection fails loud on.
+         source-store-baseline @source-store/kind->id->ns->descriptor
          ambient-frame    (if (contains? opts :ambient-frame)
                             (:ambient-frame opts)
                             :rf/default)]
@@ -502,6 +548,15 @@
      ;; populated, so this ns's tests no longer depend on run-order luck.
      (restore-registrar!
        (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
+     ;; EP-0026 source-store isolation (b1): restore the source store to its
+     ;; ns-load baseline BEFORE the test, dropping any cross-bundle accumulation
+     ;; a sibling test's `reg-*` leaked into the shared store. Clear the
+     ;; resolved-generation cache too — it is keyed on the source-store
+     ;; generation, and the reset above (and the store change here) must not let
+     ;; a stale default generation survive into this test. Each test then sees a
+     ;; default projection over its own registrations plus the ns-load set.
+     (reset! source-store/kind->id->ns->descriptor source-store-baseline)
+     (image-assembly/clear-generation-cache!)
      (let [snap          (snapshot-registrar)
            snapshot-fn   (late-bind/get-fn :schemas/snapshot-by-frame)
            clear-fn      (late-bind/get-fn :schemas/clear-by-frame!)
@@ -597,6 +652,13 @@
          (finally
            (restore-registrar! snap)
            (when restore-fn (restore-fn schemas-snap))
+           ;; EP-0026 source-store isolation (b1): restore the source store to the
+           ;; ns-load baseline and clear the resolved-generation cache for symmetry
+           ;; with the registrar restore, so a `reg-*` the test body issued (and
+           ;; the default generation it produced) never survives into the next
+           ;; fixture run. Mirrors the registrar `restore-registrar! snap` above.
+           (reset! source-store/kind->id->ns->descriptor source-store-baseline)
+           (image-assembly/clear-generation-cache!)
            ;; Reset the ONE `frames` registry in the finally too (rf2-rjml45), so
            ;; a frame (and its `:generation`) seated by the test body never
            ;; survives into the next fixture run. The dissolved second registry
