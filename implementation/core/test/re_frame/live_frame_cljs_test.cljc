@@ -215,17 +215,42 @@
         (is (lf/frame-object? frame))
         (is (some? (asm/resolve-descriptor (lf/frame-generation frame) :event :x)))))))
 
-(deftest absent-images-currently-carries-no-generation-omit-default-deferred
-  (testing "EP-0026 omit→default boundary wiring is DEFERRED (rf2-fsd822): an
-            ABSENT :images (make-frame {}) currently carries NO generation — the
-            EP-0023/EP-0024 ordinary configured frame on the shared registrar —
-            rather than resolving the default image. (Tracked as a follow-up
-            decision bead rf2-59orj0; the assembly-layer default mechanics are
-            already in place and exercised by image-assembly-default-cljs-test.)"
-    (let [frame (lf/make-frame {} counter-pool)]
+(deftest absent-images-resolves-the-default-image-generation
+  (testing "EP-0026 §Default Image: an ABSENT :images (make-frame {}) resolves the
+            DEFAULT image generation over the active source store (here the
+            explicit pool) — the implicit selector over the WHOLE pool + framework
+            standards. The frame is image-loaded: its record carries a generation
+            and that generation resolves every pool descriptor."
+    (let [frame (lf/make-frame {} counter-pool)
+          gen   (lf/frame-generation frame)]
       (is (lf/frame-object? frame))
-      (is (nil? (lf/frame-generation frame))
-          "absent :images ⇒ no image-loaded generation on the record (deferred)"))))
+      (is (some? gen)
+          "absent :images ⇒ the DEFAULT image generation on the record (EP-0026)")
+      (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+          "the default projection resolves the pool's :counter/inc event")
+      (is (some? (asm/resolve-descriptor gen :sub :counter/value))
+          "the default projection resolves the pool's :counter/value sub")))
+  (testing "an EMPTY pool default projection is a VALID empty generation — a frame
+            with no app registrations resolving only the framework standards (no
+            zero-match fail, unlike an :select-ns :include glob)"
+    (let [frame (lf/make-frame {} [])]
+      (is (lf/frame-object? frame))
+      (is (some? (lf/frame-generation frame))
+          "an empty default projection still carries a (standards-only) generation")))
+  (testing "a cross-namespace same-[kind id] collision in the default projection
+            FAILS LOUD at the make-frame boundary — the default image does NOT
+            guess and does NOT let load order win (:rf.error/image-duplicate-id)"
+    (let [colliding-pool
+          [(reg-desc "examples.todo.boot"    :event :boot/init ::todo)
+           (reg-desc "examples.counter.boot" :event :boot/init ::counter)]]
+      (is (= :rf.error/image-duplicate-id
+             (err-id #(lf/make-frame {} colliding-pool)))
+          "two namespaces registering one [kind id] reject the default projection")
+      (testing "and no frame is registered as a side effect of the rejected default"
+        (let [before (lf/live-frame-ids)]
+          (err-id #(lf/make-frame {:id :dup/default} colliding-pool))
+          (is (= before (lf/live-frame-ids))
+              "a rejected default projection leaves the live-frame registry untouched"))))))
 
 ;; ===========================================================================
 ;; 2. :id registers an image-loaded record in the ONE `frames` registry
