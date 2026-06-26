@@ -124,7 +124,7 @@ id='__rf_payload'>` — exactly the shape `handle-request` would emit if
 a real Clojure server sat in front. The browser-side `run` calls
 `ssr/hydrate!` (read the payload → dispatch `:rf/hydrate` → verify the
 render-hash) and renders against the now-seeded state through the
-carried frame's `frame-provider-existing`.
+carried frame's `frame-provider`.
 
 ## Files
 

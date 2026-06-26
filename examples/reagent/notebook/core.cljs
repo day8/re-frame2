@@ -351,7 +351,7 @@
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in `frame-provider-existing`
+;; `with-frame`, and the render is wrapped in `frame-provider`
 ;; (the frame already exists, so the provider just threads its id down —
 ;; it does not create one) so every in-tree `dispatch`/`subscribe`
 ;; resolves to the app frame. Matches the canonical mount in
@@ -367,5 +367,5 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider-existing {:frame app-frame}
+                [rf/frame-provider {:frame app-frame}
                  [notebook]])))

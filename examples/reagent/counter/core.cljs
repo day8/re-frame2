@@ -69,7 +69,7 @@
 ;; establish its frame explicitly. So the boot below does four things in
 ;; order: `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in `frame-provider-existing`
+;; `with-frame`, and the render is wrapped in `frame-provider`
 ;; so every in-tree `dispatch`/`subscribe` resolves to the app frame.
 ;;
 ;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
@@ -89,5 +89,5 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider-existing {:frame app-frame}
+                [rf/frame-provider {:frame app-frame}
                  [counter-app]])))

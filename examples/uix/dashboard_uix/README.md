@@ -100,7 +100,7 @@ The mount is the ordinary re-frame2 boot.
 app [frame](../../../docs/guide/glossary.md#frame). A
 [`dispatch-sync`](../../../docs/guide/glossary.md#dispatch-sync) seeds
 the [app-db](../../../docs/guide/glossary.md#app-db) before the first
-paint. Then the tree renders inside a `frame-provider-existing`, so every
+paint. Then the tree renders inside a `frame-provider`, so every
 `use-subscribe` and `frame-handle` resolves to that frame through React
 context. Render with *no* provider and the hooks raise
 `:rf.error/no-frame-context` — [identity is carried, not

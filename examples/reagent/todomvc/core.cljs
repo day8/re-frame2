@@ -40,7 +40,7 @@
 ;; EP-0002: under the carried invariant the runtime never synthesises a frame
 ;; from absence, and URL ownership is an EXPLICIT declaration — the app frame is
 ;; registered with `:url-bound? true` so it owns the URL (Spec 012 §Multi-frame
-;; routing), and the render is wrapped in `frame-provider-existing`.
+;; routing), and the render is wrapped in `frame-provider`.
 (def app-frame :rf/default)
 
 ;; Named handler so the listener install is idempotent: a repeated `boot!`
@@ -76,7 +76,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider-existing {:frame app-frame}
+                [rf/frame-provider {:frame app-frame}
                  [views/root-view]])))
 
 ;; ---- Boot ------------------------------------------------------------------

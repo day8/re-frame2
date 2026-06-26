@@ -80,7 +80,7 @@
 ;; The runtime never synthesises a frame from absence — an app must establish
 ;; its frame explicitly. `init!` installs the adapter (it does NOT create the
 ;; frame), `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in `frame-provider-existing` — the
+;; `with-frame`, and the render is wrapped in `frame-provider` — the
 ;; scope-only provider that threads this already-registered frame's id down
 ;; the React tree (the owning `frame-provider` would *create* a frame; we
 ;; already own ours). That context is what lets the `use-subscribe` hook and
@@ -103,6 +103,6 @@
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider-existing {:frame app-frame}
+      ($ uix-adapter/frame-provider {:frame app-frame}
          ($ counter-app))
       @react-root)))
