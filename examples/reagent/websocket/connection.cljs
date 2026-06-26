@@ -22,10 +22,11 @@
    independent regions, see `examples/reagent/nine_states/` — Pattern-
    NineStates' canonical worked example.)
 
-   `:fsm/tags` carry the queryable connection-state predicates — the view
-   asks `:websocket/connected?` and `:websocket/reconnecting?` via
-   `rf/machine-has-tag?` without needing to know which leaf carries the
-   `:connected` intent.
+   State tags carry the queryable connection-state predicates — the view
+   asks `:ws/connected?` / `:ws/reconnecting?` (the per-tag subs below,
+   each a `contains?` over the snapshot's `:tags` union — the same
+   containment the framework's `:rf/machine-has-tag?` sub answers)
+   without needing to know which leaf carries the `:connected` intent.
 
    Pattern-StaleDetection composes in twice:
 
@@ -391,6 +392,11 @@
   :<- [:ws/snapshot]
   (fn [snap _] (:state snap)))
 
+;; The per-tag predicate subs: each is a `contains?` over the snapshot's
+;; `:tags` union, so a view asks "is it connected?" rather than matching
+;; the hierarchical `:state` vector. (The framework's `:rf/machine-has-tag?`
+;; sub answers the same containment question; these are the app-named
+;; shorthand the views read.)
 (rf/reg-sub :ws/connecting?
   :<- [:ws/snapshot]
   (fn [snap _] (contains? (:tags snap) :websocket/connecting)))

@@ -73,11 +73,15 @@
 ;; RESOURCE
 ;; ============================================================================
 ;;
-;; The page's server-state, declared once. `:scope :rf.scope/global` is the
-;; explicit auditable claim that this article list is the same for every
-;; user (a user-scoped page would carry a scope resolver; SSR hydration
-;; MUST NEVER cross scopes — request-local frames + serialized scopes must
-;; agree before the client treats hydrated data as usable).
+;; The page's server-state, declared once. You describe WHAT the read is and
+;; HOW to fetch it; the runtime owns the cache, dedupe, and staleness.
+;;
+;; `:scope :rf.scope/global` is the explicit, auditable claim that this article
+;; list is the SAME for every user. Scope is part of the read's cache identity,
+;; so one principal's data can never surface in another's cache — and it is
+;; load-bearing for hydration: the serialized scope and the client's scope must
+;; agree before the client treats hydrated data as usable. SSR hydration MUST
+;; NEVER cross scopes (a user-scoped page would carry a scope resolver instead).
 
 (rf/reg-resource :articles/list
   {:doc            "Recent articles (public, SSR-preloaded)."
@@ -93,13 +97,18 @@
 ;; SERVER-SIDE PRELOAD EVENT
 ;; ============================================================================
 ;;
-;; On the server, `:rf/server-init` (dispatched at per-request frame
-;; creation) ensures the page resource under an SSR owner with cause
-;; `:ssr-preload`. `:blocking?`-style preload means the renderer waits for
-;; the resource to settle before rendering (Spec 016 §SSR §Server route
-;; handling). The `[:ssr request-id nav-token]` owner belongs to THIS server
-;; render and is released on request teardown — it never survives as a live
-;; client lease (it reconciles to an orphan on hydration).
+;; On the server, `:rf/server-init` (dispatched at per-request frame creation)
+;; ensures the page resource — fetch it if the cache is cold — so the render
+;; finds it warm. The renderer then waits for it to settle before rendering
+;; (Spec 016 §SSR §Server route handling).
+;;
+;; Two facts ride the ensure. The OWNER `[:ssr request-id nav-token]` is a
+;; lease: it keeps the entry alive for the duration of THIS server render and
+;; nothing longer (released on teardown; reconciled to an orphan on hydration —
+;; a server render's lease has no business surviving as a live client hold).
+;; The CAUSE `:ssr-preload` is pure provenance — WHY the fetch happened,
+;; recorded for the trace, affecting no liveness. Owner = lifetime; cause =
+;; explanation.
 
 (rf/reg-event :rf/server-init
   {:doc       "Per-request server init — preload the page resource."
@@ -118,10 +127,13 @@
 ;; VIEWS — passive reads, server and client alike
 ;; ============================================================================
 ;;
-;; The view reads the resource passively. On the server the resource was
-;; preloaded; on the client the hydrated entry is already present, so the
-;; first render shows data without a fetch. Same view code both sides —
-;; the SSR/CLJS parity Spec 011 promises, now over a resource.
+;; The view reads the resource through a subscription and never fetches — it
+;; doesn't know or care which runtime it is in. `:rf.resource/state` is the
+;; runtime-supplied derivation that turns the cache entry into a view-model
+;; (a status flag + the data). On the server the resource was preloaded; on
+;; the client the hydrated entry is already present, so the first render shows
+;; data without a fetch. Same view code both sides — the SSR/CLJS parity Spec
+;; 011 promises, now over a runtime-managed resource.
 
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
   (let [state @(rf/subscribe [:rf.resource/state

@@ -41,7 +41,7 @@
      vanishes, the retitled card reverts, the moved card snaps back — with a
      red banner naming the failure. No manual undo, no app-db bookkeeping.
 
-   The board is read PASSIVELY through `[:rf.resource/value …]` (the resource
+   The board is read PASSIVELY through `[:rf.resource/data …]` (the resource
    sub family); each in-flight write is watched through the passive
    `[:rf.mutation/state {:instance …}]` view-model — including the derived
    `:optimistic?` flag (Rider 1), true while a live optimistic apply is showing

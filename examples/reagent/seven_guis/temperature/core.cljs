@@ -95,14 +95,16 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
-;; Three subs:
-;;   :temp/active        — which input is the user editing
-;;   :temp/celsius-text  — what to show in the Celsius input
-;;   :temp/fahrenheit-text — what to show in the Fahrenheit input
+;; Two layers. Three small Layer-2 subs read the slice directly
+;; (:temp/active, :temp/canonical-celsius, :temp/typing); two Layer-3
+;; `-text` subs chain off all three via `:<-` to produce what each input
+;; shows. The view only ever reads the two `-text` subs.
 ;;
-;; The `-text` subs return the user's raw typing for the active input and a
-;; derived value for the inactive one. This is the key insight: a single sub
-;; per field that knows whether to passthrough or derive.
+;; The key insight lives in those `-text` subs: for the input the user is
+;; *currently editing* they pass the raw typing straight through; for the
+;; *other* input they show the derived value. One sub per field that knows
+;; whether to passthrough or derive — which is why partial input like "1."
+;; doesn't round-trip into jitter while your finger's still on the key.
 
 (rf/reg-sub :temp/active
   (fn sub-temp-active [db _] (get-in db [:temp :input-source])))

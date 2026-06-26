@@ -1,6 +1,12 @@
 (ns login.core
   "Worked end-to-end example: a login feature using the current re-frame2 API.
 
+   The one idea: a feature's whole lifecycle — idle, submitting, error,
+   success, lockout — modelled as a single state MACHINE rather than a
+   scatter of boolean flags. Five states, named transitions, a `:data`
+   slot for the attempt counter; you are always in exactly one state, and
+   every legal move is readable off the transition table below.
+
    Demonstrates:
    - Feature scaffold (CP-6)              — the :auth.login/* registry slice
    - Schema attachment (CP-8)              — Malli schema for the machine snapshot
@@ -255,10 +261,12 @@
 ;; STATE MACHINE  (CP-5)
 ;; ============================================================================
 ;;
-;; The login flow is a finite state machine. Five states, named events. All
-;; non-trivial guards and actions live in the machine's :guards / :actions
-;; maps and are referenced by keyword from the transition table; resolution
-;; is machine-local (no global registry).
+;; The login flow is a finite state machine. Five states, named events. The
+;; spec map below is INERT DATA — a description of legal moves; its live part
+;; is the snapshot ({:state … :data …}) in runtime-db, read like any derived
+;; state. All non-trivial guards and actions live in the machine's :guards /
+;; :actions maps and are referenced by keyword from the transition table;
+;; resolution is machine-local (no global registry).
 
 ;; The login flow's machine spec.
 (def auth-login-machine
@@ -343,11 +351,16 @@
                                 :action :clear-error}}}
 
       :submitting
-      ;; :auth/busy tag — views query (rf/machine-has-tag? :auth.login/flow
-      ;; :auth/busy) to disable inputs and re-label the submit button
-      ;; while the request is in flight.
+      ;; State tag — *ask, don't tell*. Views query (rf/machine-has-tag?
+      ;; :auth.login/flow :auth/busy) to disable inputs and re-label the
+      ;; submit button, rather than asking "are we exactly :submitting?".
+      ;; Tag a sixth busy-ish state :auth/busy later and no view changes.
       {:tags  #{:auth/busy}
        :entry :issue-request
+       ;; The failure branch is an ORDERED list of candidate transitions:
+       ;; the first whose :guard passes fires. Under the retry limit → show
+       ;; the error and let them retry; otherwise (no guard = fallthrough)
+       ;; → lock the account. The whole retry-then-lockout policy is here.
        :on    {:auth.login/success {:target :authed
                                     :action :store-session}
                :auth.login/failure [{:target :error-shown

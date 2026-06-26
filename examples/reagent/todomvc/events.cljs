@@ -1,4 +1,12 @@
 (ns todomvc.events
+  "The only writers of app-db, plus the routes and the persistence effect.
+
+  Demonstrates: `reg-event` (one pure handler per state change — add, toggle,
+  save, delete, clear-completed, toggle-all; each `(coeffects, event-vector) →
+  effect map`), `reg-fx` (the `:todo.storage/save` effect handler that performs
+  the localStorage write the handlers only *describe* as data), and `reg-route`
+  (the URL as an input — `/`, `/active`, `/completed`, plus the not-found
+  fallback)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; Routing ships in day8/re-frame2-routing.

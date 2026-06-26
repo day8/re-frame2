@@ -1,9 +1,11 @@
 (ns counter-helix.core
   "Helix variant of the counter example.
 
-   Exercises the same dataflow as examples/reagent/counter and
-   examples/uix/counter_uix but renders it through the Helix adapter —
-   the React state model is hooks all the way down. Demonstrates:
+   The one idea: the dataflow doesn't know which React-family library
+   draws the pixels. Exercises the SAME events and sub as
+   examples/reagent/counter and examples/uix/counter_uix — only the view
+   and mount change — but renders through the Helix adapter, where the
+   React state model is hooks all the way down. Demonstrates:
 
      - `rf/init!` with the Helix adapter
      - `reg-event` / `reg-sub` (substrate-agnostic)
@@ -73,8 +75,8 @@
 ;; targets the right frame even from an async callback.
 
 (defnc counter-buttons []
-  (let [count    (helix-adapter/use-subscribe [:counter/value])
-        dispatch (:dispatch (rf/frame-handle))]
+  (let [count    (helix-adapter/use-subscribe [:counter/value])  ;; read: re-renders when :counter/value moves
+        dispatch (:dispatch (rf/frame-handle))]                  ;; write: dispatch off a handle, no auto-injection
     (d/div
        (d/button {:on-click #(dispatch [:counter/dec])} "-")
        (d/span {:style {:margin "0 1em"} :data-testid "counter-value"} count)

@@ -1,11 +1,13 @@
 (ns login-uix.core
-  "UIx variant of the login example.
+  "UIx variant of the login example — the same feature, a different substrate.
 
-   Same dataflow, schemas, machine, and HTTP stub as examples/reagent/login,
-   but views are written as UIx `defui` components and consume subs
-   via the `use-subscribe` hook. Demonstrates that the Spec 005 state
-   machine, Spec 010 schemas, and Spec 014 managed-HTTP surfaces are
-   substrate-agnostic — only the view layer differs across substrates.
+   Everything below the views is byte-for-byte the same as
+   examples/reagent/login: the Spec 005 state machine, the Spec 010 schemas,
+   and the Spec 014 managed-HTTP effect. Only the view layer changes idiom —
+   here views are UIx `defui` components that read subscriptions via the
+   `use-subscribe` hook, where the Reagent twin used `reg-view`. The point of
+   the file is to show exactly how narrow the substrate boundary is: the
+   machine, schemas, and effects are substrate-agnostic.
 
    Cross-substrate parity is exercised end-to-end: machine states carry
    Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`, `:auth/locked`)
@@ -302,6 +304,13 @@
 ;; ============================================================================
 ;; VIEWS  (UIx — defui + use-subscribe)
 ;; ============================================================================
+;;
+;; This is the whole substrate seam. The Reagent twin registers these with
+;; `reg-view` and gets injected `dispatch`/`subscribe`; UIx has no such
+;; registry, so a view is a plain `defui`, reads a subscription through the
+;; `use-subscribe` hook, and takes `dispatch` off a `(rf/frame-handle)` by
+;; hand. The subscription vectors and event vectors are unchanged — only the
+;; way a React component plugs into them differs.
 
 (defui login-form []
   (let [busy?    (uix-adapter/use-subscribe [:rf/machine-has-tag?

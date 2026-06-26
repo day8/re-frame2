@@ -7,10 +7,12 @@
    Demonstrates:
 
      - Helix components (`defnc`) consuming subs via `use-subscribe`
-     - signal-graph subscriptions (filter chips → visible process list,
-       process selection → relevant log slice)
+     - signal-graph subscriptions: two independent inputs (the level-filter
+       chips, the selected process) fold into one derived sub, the visible
+       log slice — pure derivation, recomputed only when an input changes
      - a recurring `:dispatch-later` tick that appends synthetic log
-       lines (`:process-monitor/tick`) — proves a real reactive loop, not a
+       lines (`:process-monitor/tick`), owned by the component lifecycle and
+       kept idempotent by a generation guard — a real reactive loop, not a
        static screenshot
      - per-row dispatch from inside a `defnc` row component
 
@@ -95,6 +97,9 @@
             :process-monitor/level-filter #{:info :warn :error}
             :process-monitor/selected   nil
             :process-monitor/tick-gen   next-gen}
+       ;; Arm the loop by describing the first tick as data — the handler
+       ;; never touches setTimeout; the :dispatch-later effect handler does.
+       ;; The tick carries `next-gen` so it can recognise a retired chain.
        :fx [[:dispatch-later {:ms 1800 :event [:process-monitor/tick next-gen]}]]})))
 
 (rf/reg-event :process-monitor/tick
@@ -164,6 +169,9 @@
 (rf/reg-sub :process-monitor/selected
   (fn [db _] (:process-monitor/selected db)))
 
+;; First derived sub: a pure node hanging off the base subs above. `:<-`
+;; names its inputs; the runtime recomputes it only when an input changes
+;; by `=`, so the tiles don't re-render when an unrelated key moves.
 (rf/reg-sub :process-monitor/totals
   :<- [:process-monitor/processes]
   (fn [processes _]
@@ -173,6 +181,9 @@
      :cpu     (reduce + 0 (map :cpu processes))
      :mem     (reduce + 0 (map :mem processes))}))
 
+;; The signal-graph node: two independent UI inputs (the level filter, the
+;; selected process) plus the raw logs and processes fold into the slice the
+;; log pane shows. The view does no filtering itself — it reads this.
 (rf/reg-sub :process-monitor/visible-logs
   :<- [:process-monitor/logs]
   :<- [:process-monitor/level-filter]
@@ -209,6 +220,9 @@
     (d/div {:class "pm-tile-label"} label)
     (d/div {:class "pm-tile-value"} value)))
 
+;; First sub-reading view. `use-subscribe` is the Helix hook form of
+;; `subscribe`: it returns a plain value (not a reaction) and re-renders this
+;; component when that value changes. Call it at the top of the body.
 (defnc tiles []
   (let [totals (helix-adapter/use-subscribe [:process-monitor/totals])]
     (d/div {:class "pm-tiles"}
@@ -218,6 +232,9 @@
       ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu totals) 1) "%")})
       ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
+;; First dispatching view. To dispatch, grab `dispatch` off a frame-handle —
+;; `(rf/frame-handle)` captures the current frame as a value, so the click
+;; handler dispatches into this app's frame, not some ambient default.
 (defnc level-chips []
   (let [active   (helix-adapter/use-subscribe [:process-monitor/level-filter])
         dispatch (:dispatch (rf/frame-handle))]

@@ -9,16 +9,20 @@
 
    Two things to notice as you read the views:
 
-   1. The status indicator reads `:websocket/connecting`,
-      `:websocket/authenticating`, `:websocket/connected`,
-      `:websocket/reconnecting`, `:websocket/failed` via
-      `rf/machine-has-tag?` — every pill branch is tag-driven. The view
-      doesn't need to know *which* leaf carries the `:connected` intent,
-      only that the tag is present. This is what `:fsm/tags` buys.
+   1. The status indicator branches on the connection machine's state
+      tags — `:websocket/connecting`, `:websocket/authenticating`,
+      `:websocket/connected`, `:websocket/reconnecting`,
+      `:websocket/failed`. It reads them through this example's own
+      per-tag subs (`:ws/connected?` and friends in `connection.cljs`,
+      each a `contains?` over the snapshot's `:tags` union — the same
+      containment question the framework's `:rf/machine-has-tag?` sub
+      answers). Every pill branch is tag-driven, so the view never needs
+      to know *which* leaf carries the `:connected` intent — only that
+      the tag is present. This is what state tags buy: ask, don't tell.
 
-   2. The send form's `disabled` attribute is driven by an explicit
-      :ws/connected? sub (rather than a `:cond` over the snapshot's
-      raw `:state` vector) — same idea, different ergonomics."
+   2. The send form's `disabled` attribute is driven by the explicit
+      `:ws/connected?` sub rather than a `cond` over the snapshot's raw
+      hierarchical `:state` vector — same idea, friendlier ergonomics."
   (:require [re-frame.core :as rf]
             [re-frame.views]
             [websocket.messages]
@@ -29,11 +33,11 @@
 ;; STATUS — the machine's connection state, rendered
 ;; ============================================================================
 
-(reg-view ^{:doc "Reads the connection machine's tag union via
-                  `:rf/machine-has-tag?` and renders a single status
-                  pill. The view's render priority — failed > reconnecting
-                  > connected > connecting > disconnected — collapses
-                  the multi-tag union to one visible word.
+(reg-view ^{:doc "Reads the connection machine's state-tag union (through
+                  this example's per-tag subs) and renders a single
+                  status pill. The view's render priority — failed >
+                  reconnecting > connected > connecting > disconnected —
+                  collapses the multi-tag union to one visible word.
 
                   A sibling `:ws-reconnect-attempts` counter surfaces
                   the machine's `:retries` slot directly — this lets a

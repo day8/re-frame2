@@ -1,4 +1,11 @@
 (ns todomvc.views
+  "The TodoMVC markup, as hiccup.
+
+  Demonstrates: `reg-view` for the root (inside its body `subscribe` and
+  `dispatch` are already in scope), plain helper fns for the sub-views (which
+  take `dispatch`/`subscribe` as explicit args — the honest shape for a plain
+  fn), and hiccup as data-as-markup. A view reads derived state and dispatches
+  events on interaction; no business logic lives here."
   (:require [clojure.string :as str]
             [reagent.core :as reagent]
             [re-frame.core :as rf]
@@ -45,14 +52,19 @@
               (save)))})])))
 
 (defn todo-item [dispatch]
-  ;; editing? is local component state by design — matches the canonical TodoMVC; not in app-db so it isn't persisted/inspected (TodoMVC tradeoff).
+  ;; `editing?` is local component state by design — it isn't in app-db, so it
+  ;; isn't persisted or inspected. That's the canonical TodoMVC tradeoff: an
+  ;; ephemeral, per-row UI flag that no other view needs to read.
   (let [editing? (reagent/atom false)]
     (fn [_dispatch {:keys [id title completed]}]
       [:li {:class (str/join " " (cond-> []
                                  completed (conj "completed")
                                  @editing? (conj "editing")))}
        [:div.view
-        ;; React's controlled-checkbox pattern: :on-click mutates app-db, :readOnly silences React's onChange warning, :checked reads from app-db.
+        ;; Controlled checkbox, re-frame2 style: `:checked` reads the fact from
+        ;; app-db, `:on-click` dispatches the event that changes it, and
+        ;; `:readOnly` silences React's onChange warning (the state round-trips
+        ;; through app-db and the cascade, not through React's own state).
         [:input.toggle
          {:type "checkbox"
           :checked completed

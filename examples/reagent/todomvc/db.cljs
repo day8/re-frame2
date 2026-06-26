@@ -1,4 +1,11 @@
 (ns todomvc.db
+  "The shape of app-db, and the boot read that fills it.
+
+  Demonstrates: the single source of truth (`default-db` — todos and *nothing
+  else*; the active filter is derived from the route, never stored), and a
+  recordable coeffect (`reg-cofx :todo.storage/todos`) that carries saved todos
+  *in* at boot so the durable write stays replayable instead of reaching for
+  localStorage inside a handler."
   (:require [re-frame.core :as rf]))
 
 ;; The default db carries no `:showing` slot — Spec 012's :route slice owns

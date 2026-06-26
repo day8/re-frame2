@@ -2,13 +2,15 @@
   "Worked example for the EP-0021 INFINITE RESOURCE primitive
    ([Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)).
 
-   A single growing feed — a load-more / infinite-scroll timeline — composed
-   as proper re-frame2: a `reg-resource` with `:infinite true`, owned by the
-   route, read entirely through the PASSIVE infinite subscription family, with
-   accumulation driven by a CAUSAL `:rf.resource/load-more` event. There is no
-   app-db list slice, no `:loading-more?` flag, no cursor threading, and no
-   append reducer — the runtime owns all of it (that is the whole point of the
-   primitive: without it, an app hand-rolls every one of those by hand).
+   The one idea: a load-more / infinite-scroll timeline is ONE growing resource
+   the runtime owns. The view reads the merged list passively and dispatches a
+   single CAUSAL `:rf.resource/load-more`; it never threads a cursor and never
+   writes an append reducer. Composed as proper re-frame2: a `reg-resource` with
+   `:infinite true`, owned by the route, read through the PASSIVE infinite
+   subscription family. There is no app-db list slice, no `:loading-more?` flag,
+   no cursor threading, and no append reducer — the runtime owns all of it (that
+   is the whole point of the primitive: without it, an app hand-rolls every one
+   of those by hand).
 
    It teaches, in one cohesive app, the four facts the primitive surfaces:
 

@@ -39,6 +39,11 @@
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
+;;
+;; These four forms are the substrate-agnostic core: pure handlers, a pure
+;; subscription, all over plain data. They are byte-for-byte the stock
+;; counter's, and they survive the substrate swap untouched — only the boot
+;; below changes. That invariance is the whole point of this example.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -55,10 +60,11 @@
 ;; -- Views -------------------------------------------------------------------
 ;;
 ;; reg-view is substrate-agnostic — the macro expands to a plain
-;; React-component shape that consults the active adapter's
+;; React-component shape that consults the *active* adapter's
 ;; `register-context-provider` / `current-component` seams at render
-;; time. With the slim adapter installed (see `run` below), the
-;; rendered component reads frame state through
+;; time. So the very same view form renders through whichever substrate
+;; was installed at boot. With the slim adapter installed (see `boot!`
+;; below), the rendered component reads frame state through
 ;; `reagent2.core/current-component` rather than stock Reagent's.
 
 (reg-view counter-buttons []

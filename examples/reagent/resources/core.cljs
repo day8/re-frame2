@@ -1,6 +1,6 @@
 (ns resources.core
   "Worked example for [Spec 016 Resources](../../../spec/016-Resources.md)
-   (the EP-0003 read-resource MVP). A small server-state app — an articles
+   (the read-resource surface). A small server-state app — an articles
    list and an article detail — demonstrating the resource surface
    composed as proper re-frame2: app-db + events + subs, views passive,
    fetches caused.
@@ -37,7 +37,7 @@
    refetch regardless.
 
    Resources is a POST-V1 optional artefact. The read-resource runtime
-   (EP-0003) provides `reg-resource`, the `:rf.resource/*` passive
+   provides `reg-resource`, the `:rf.resource/*` passive
    subs, route `:resources` metadata, and the causal `:rf.resource/ensure` /
    `:rf.resource/refetch` / `:rf.resource/invalidate-tags` /
    `:rf.resource/release-owner` event bodies. This example covers the READ
@@ -312,7 +312,7 @@
 
 ;; A derived read over the list resource's data — projections are ordinary
 ;; subs LAYERED over the passive `[:rf.resource/data …]` sub (Spec 016 §No
-;; :select key), NOT a resource-local hook. The EP-0004 input-fn is a pure
+;; :select key), NOT a resource-local hook. The sub's input-fn is a pure
 ;; `(fn [query-v])` returning a VECTOR OF QUERY VECTORS — never a deref'd
 ;; subscribe (a deref'd-subscribe input-fn raises
 ;; :rf.error/sub-input-fn-bad-return). The compute fn then receives the
@@ -392,8 +392,8 @@
   (let [state        @(subscribe [:rf.resource/state {:resource :articles/list :params {}}])
         preview-slug @(subscribe [:resources.app/preview-slug])
         reader       @(subscribe [:resources.app/reader])
-        ;; A LAYERED PROJECTION over the list resource (EP-0004 input-fn) — the
-        ;; top article's slug, used by the quick-preview button below.
+        ;; A LAYERED PROJECTION over the list resource (an ordinary input-fn
+        ;; sub) — the top article's slug, used by the quick-preview button below.
         top-slug     @(subscribe [:resources.app/first-slug])]
     [:div
      [:h1 "Articles"]
@@ -484,7 +484,7 @@
 ;; ============================================================================
 ;;
 ;; The React root is materialised lazily inside `run` (not at ns-load) per
-;; examples/TESTING.md §Example mount-isolation convention. EP-0002: the app
+;; examples/TESTING.md §Example mount-isolation convention. The app
 ;; establishes its frame explicitly (`reg-frame`), declares `:url-bound?
 ;; true` so it owns the browser URL, and wraps the render in a
 ;; `frame-provider` so every in-tree dispatch/subscribe resolves to it. The
@@ -493,6 +493,9 @@
 
 (defonce react-root (atom nil))
 
+;; `:rf/default` is an ORDINARY frame id with no framework privilege — `init!`
+;; does not create it. This app earns URL ownership by DECLARING `:url-bound?
+;; true` on the frame below, not by naming the frame anything special.
 (def app-frame :rf/default)
 
 (defn run []

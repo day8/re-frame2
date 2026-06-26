@@ -507,11 +507,15 @@
 
 ;; ---- render-priority + :ui/render selector ----
 ;;
-;; The render-priority table is plain data: a vector of {:tag :render}
-;; pairs consulted in order. The :ui/render sub reads the machine's tag
-;; union and returns the first :render whose :tag is present. This is
-;; the **single** place the page's render priorities live; the root
-;; view's `case` just maps the resolved keyword to a view fn.
+;; This is where the nine states collapse to one keyword. The render
+;; decision is a pure function over the snapshot's tag union, and it
+;; lives in exactly one readable place — no if-tower whose precedence
+;; you reverse-engineer later. The render-priority table is plain data:
+;; a vector of {:tag :render} pairs consulted in order. The :ui/render
+;; sub reads the machine's tag union and returns the first :render whose
+;; :tag is present. This is the **single** place the page's render
+;; priorities live; the root view's `case` just maps the resolved
+;; keyword to a view fn.
 ;;
 ;; Priority rationale: :mode wins outright (the archived view replaces
 ;; everything); :form wins next (the success / inline-error

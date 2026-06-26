@@ -1,16 +1,20 @@
 (ns routing.core
   "Worked example for [Construction Prompt CP-7](../../../spec/Construction-Prompts.md)
    and [Spec 012 Routing](../../../spec/012-Routing.md). A small three-page app:
-   home, articles list, article detail. Demonstrates URL ↔ frame state,
-   navigation as event, route as sub, and route-aware root-view dispatch.
+   home, articles list, article detail.
+
+   The one idea: the URL is application state you read through a subscription,
+   and navigation is just an event. A route is a registration, the active route
+   is a sub, and `root-view` is a `case` over `:rf.route/id`. No router object,
+   no route context to thread through the tree.
 
    This example uses the current runtime routing surface directly:
 
    - `reg-route` for the route table
-   - `:rf.route/navigate` for programmatic navigation
-   - `:rf.route/handle-url-change` for popstate / initial load
-   - `:rf.route/id` and `:rf.route/params` for route reads
-   - `:rf/url-requested` for user-initiated anchor clicks"
+   - `:rf.route/id` and `:rf.route/params` for reading the active route as subs
+   - `route-link` for links that drive navigation
+   - `:rf/url-requested` for user-initiated anchor clicks
+   - `install-history-listener!` for popstate + initial-load URL→state sync"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]

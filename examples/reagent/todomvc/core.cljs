@@ -1,4 +1,12 @@
 (ns todomvc.core
+  "Entry point: install the adapter, register and seed the frame, mount the view.
+
+  Demonstrates the boot wiring the other files lean on — `init!` (installs the
+  Reagent adapter; it does NOT create a frame), `reg-frame` with `:url-bound?`
+  (this frame owns the address bar), the recordable boot read that seeds app-db
+  via `:rf.cofx`, and the hash → route adapter that turns a `#/active` URL change
+  into a `:rf.route/handle-url-change` event. \"The URL is an input; navigation
+  is an event.\""
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]

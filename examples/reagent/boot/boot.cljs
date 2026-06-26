@@ -84,17 +84,22 @@
 ;; STAGING-SLOT WRITER
 ;; ============================================================================
 ;;
-;; The child loader dispatches this event with its loaded payload
-;; before transitioning into its terminal `:done` state. The boot
-;; machine reads `[:boot/staging <staging-key>]` on the
-;; :hydrating transition to write the loaded values into the
-;; top-level app-db slices.
+;; How does a :spawn-all child hand its payload back to the parent? Not on
+;; the completion event — the runtime intercepts :spawn-all join events for
+;; its own bookkeeping and never feeds them into the parent's :on lookup, so
+;; there is no event to carry data on (see the ns docstring). The canonical
+;; Pattern-Boot answer is a staging slot in app-db: each child loader writes
+;; its payload into `[:boot/staging <staging-key>]` just before signalling
+;; completion, and the parent reads the whole slot once on the :hydrating
+;; transition. Bonus: the loaded data lives in app-db the whole time —
+;; inspectable in pair-tools, snapshottable for SSR — never in-flight-and-
+;; unobservable on an event.
 
 (rf/reg-event :boot/stage-payload
   {:doc "Write a child-loaded payload into the boot machine's
          staging slot. Dispatched by the :boot/loader child's
-         :dispatch-done action just before it fires the join-completion
-         event back to the parent."}
+         :dispatch-done action just before it dispatches the
+         join-completion event back to the parent."}
   (fn handler-boot-stage-payload [{:keys [db]} [_ staging-key payload]]
     {:db (assoc-in db [:boot/staging staging-key] payload)}))
 
@@ -147,7 +152,7 @@
 
     :dispatch-done
     ;; Terminal-state entry. First write the loaded payload into
-    ;; [:boot/staging <staging-key>], then fire the child-completion
+    ;; [:boot/staging <staging-key>], then dispatch the child-completion
     ;; event back to the parent. The completion event carries both the
     ;; child-id AND the loaded payload:
     ;;   - In :configuring (a single :spawn), this event lands in the
@@ -183,10 +188,10 @@
     :loading
     {:entry :begin-fetch
      :on    {:asset/replied
-             ;; Guarded fork on the reply kind. The runtime appends
-             ;; the reply payload as the LAST element of the event
-             ;; vector, so the event arrives as
-             ;; [:asset/replied :success {:kind :success :value ...}]
+             ;; Guarded fork on the reply kind: the first branch whose
+             ;; `:guard` passes wins. The runtime appends the reply payload
+             ;; as the LAST element of the event vector, so the event arrives
+             ;; as [:asset/replied :success {:kind :success :value ...}]
              ;; — we pick the value out from the 3rd-position arg.
              [{:guard (fn [{ev :event}] (= :success (nth ev 1 nil)))
                :target :done
