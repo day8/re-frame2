@@ -41,8 +41,8 @@
             ;; EP-0023 behaviour-variant image fixtures (rf2-fpr0b5): two
             ;; namespaces register the SAME event id with DIFFERENT meanings;
             ;; a variant's `:images` `:select-ns` selects one or the other.
-            [re-frame.story.test-helpers.image-behaviour-v1]
-            [re-frame.story.test-helpers.image-behaviour-v2]))
+            [story.test-helpers.image-behaviour-v1]
+            [story.test-helpers.image-behaviour-v2]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -803,17 +803,17 @@
     ;; top-level `reg-event`s from the source store, so re-run their loads
     ;; before building the selecting images (a zero-match `:select-ns :include`
     ;; fails loud by design).
-    (require 're-frame.story.test-helpers.image-behaviour-v1 :reload)
-    (require 're-frame.story.test-helpers.image-behaviour-v2 :reload)
+    (require 'story.test-helpers.image-behaviour-v1 :reload)
+    (require 'story.test-helpers.image-behaviour-v2 :reload)
     ;; Variant A mounts under the v1 image (adds 1).
     (story/reg-variant :story.img/v1
       {:images [(rf/image {:id :img/behaviour-v1
-                           :select-ns {:include ["re-frame.story.test-helpers.image-behaviour-v1"]}})]
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]
        :events [[:img.counter/step]]})
     ;; Variant B mounts under the v2 image (adds 100) — SAME event id.
     (story/reg-variant :story.img/v2
       {:images [(rf/image {:id :img/behaviour-v2
-                           :select-ns {:include ["re-frame.story.test-helpers.image-behaviour-v2"]}})]
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v2"]}})]
        :events [[:img.counter/step]]})
     (let [ra (async/deref-blocking (story/run-variant :story.img/v1) 5000)
           rb (async/deref-blocking (story/run-variant :story.img/v2) 5000)]
@@ -835,10 +835,10 @@
   (testing "EP-0023 — a behaviour variant's image ids land on frame-meta
             (`frames/variant-image-ids`); a state variant (no `:images`)
             reports none and resolves against the shared default registrar."
-    (require 're-frame.story.test-helpers.image-behaviour-v1 :reload)
+    (require 'story.test-helpers.image-behaviour-v1 :reload)
     (story/reg-variant :story.img/meta
       {:images [(rf/image {:id :img/behaviour-v1
-                           :select-ns {:include ["re-frame.story.test-helpers.image-behaviour-v1"]}})]
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]
        :events [[:img.counter/step]]})
     (story/reg-variant :story.img/state-only
       {:events []})
