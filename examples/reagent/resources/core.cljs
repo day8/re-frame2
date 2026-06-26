@@ -42,8 +42,8 @@
    `:rf.resource/refetch` / `:rf.resource/invalidate-tags` /
    `:rf.resource/release-owner` event bodies. This example covers the READ
    side only; mutations (`reg-mutation` / `:rf.mutation/execute`) are covered
-   in the guide (docs/guide/concepts/server-state.md §Writes invalidate by
-   tag) and the migration walkthrough. GraphQL is a deferred later phase. The
+   in the guide (docs/resources/concepts.md §Writes invalidate by tag —
+   causally) and the migration walkthrough. GraphQL is a deferred later phase. The
    example tree is test-free; resource-contract coverage lives in
    `implementation/resources/test/` and the conformance fixtures."
   (:require [reagent.dom.client :as rdc]

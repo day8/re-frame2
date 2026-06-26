@@ -241,7 +241,7 @@
          :spawn-all; joins on :all; cancels mid-flight on :cancel
          or on the parent's :working state being exited by any means
          (including user-driven unmount → :cancel dispatch from the
-         component's :will-unmount cleanup)."
+         work-bench view's `r/with-let` finally cleanup)."
 
    :initial :idle
 

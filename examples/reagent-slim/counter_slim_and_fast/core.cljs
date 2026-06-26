@@ -92,15 +92,21 @@
 ;; The runtime never synthesises a frame from absence — an app must
 ;; establish its frame explicitly. `init!` installs the adapter (it does
 ;; NOT create the frame), `reg-frame` registers the app frame, the boot
-;; dispatch runs under `with-frame`, and the client render is wrapped in a
-;; `frame-provider` so every in-tree `dispatch`/`subscribe` resolves to the
-;; app frame. Matches the canonical mount in examples/reagent/counter/core.cljs.
+;; dispatch runs under `with-frame`, and the client render is wrapped in
+;; `frame-provider-existing` so every in-tree `dispatch`/`subscribe`
+;; resolves to the app frame. `frame-provider-existing` is the scope-only
+;; sibling — it provides the ALREADY-registered frame; the lifecycle-owning
+;; `frame-provider` (which would create a frame on mount) is deliberately
+;; not used, since `reg-frame` already established it. Matches the canonical
+;; mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn boot!
   "The one canonical boot sequence for this example: install the slim
    adapter, register the app frame, dispatch the boot event under the frame
-   scope, then lazily mount `counter-app` into `#app` under a frame-provider.
+   scope, then lazily mount `counter-app` into `#app` under a
+   `frame-provider-existing` (the scope-only sibling — `reg-frame` already
+   created the frame, so the mount only re-scopes into it, not re-creates it).
 
    `boot!` is the single source of truth for the boot so the teaching path
    (`run` below) and the gate-owned path

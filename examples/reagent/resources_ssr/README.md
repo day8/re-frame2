@@ -97,9 +97,15 @@ wire payload is *aggressively* minimal.
 The `index.html` next to this file carries a **pre-baked** hydration payload — a
 `:loaded` `:articles/list` entry under `[:rf.scope/global :articles/list {}]` —
 so the browser-side `run` is runnable without a Clojure server in the box. It's
-a stand-in for exactly what `handle-request` emits when a real server sits in
-front, the same way the sibling [`examples/reagent/ssr/`](../ssr/) bakes a plain
-SSR payload into *its* `index.html`.
+an **illustrative** stand-in for the projection `handle-request` emits when a
+real server sits in front — not a byte-exact capture. One visible difference is
+the frame-id: this hand-written payload pins `:rf/frame-id :rf/default` (present
+*and equal* to the client's fixed target — a valid no-conflict shape a static
+file can hand-pick), whereas `handle-request` *drops* `:rf/frame-id` because its
+per-request gensym frame would never equal that target (an absent id is the
+other no-conflict shape). Both hydrate cleanly; both are correct. This mirrors
+the sibling [`examples/reagent/ssr/`](../ssr/), which likewise bakes a plain SSR
+payload into *its* `index.html`.
 
 ## Landed behaviour
 

@@ -9,7 +9,8 @@
    the boot-machine snapshot itself, and the child loader's `:data`.
 
    Two schema surfaces appear here, picked by what each schema validates
-   (Spec 010 §Machine data schema + Spec 005 §Schema validation):
+   (Spec 010 §Per-step recovery, row 7 — machine `:data` +
+   Spec 005 §Schema validation):
 
    - **App-db slices** — the `[:boot/staging]` slot and the four
      top-level slices (`[:config]`, `[:flags]`, `[:user]`, `[:routes]`)
@@ -92,8 +93,8 @@
 ;; `:failed` (terminal) reached if any child errors. `:data` carries the
 ;; per-phase progress slot and the loaded payloads.
 ;;
-;; `BootData` describes the `:data` SLOT only (Spec 010 §Machine data
-;; schema — the machine `[:schemas :data]` validates `:data`, not the whole
+;; `BootData` describes the `:data` SLOT only (Spec 005 §Schema
+;; validation — the machine `[:schemas :data]` validates `:data`, not the whole
 ;; `{:state … :data …}` snapshot and not an app-db path). It is attached
 ;; via the `:app/boot` machine's top-level `[:schemas :data]` on `reg-machine`
 ;; (see `boot.cljs`) and validates at the `:where :machine-data` boundary.

@@ -29,7 +29,7 @@ counter is exactly two things:
 
 Everything else — `:counter/initialise`, `:counter/inc`, `:counter/dec`,
 the `:counter/value` subscription, the two views, the lazy mount under a
-`frame-provider` — is character-for-character the canonical counter. The
+`frame-provider-existing` — is character-for-character the canonical counter. The
 same event cascade flows through a different reactive substrate and nobody
 downstream can tell. That's the demonstration.
 

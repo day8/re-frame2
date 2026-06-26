@@ -15,7 +15,7 @@
    - **`:always` cascades** — `:reconnecting`'s max-retries guard, and
      `:connected`'s queue-flush on entry.
 
-   - **`:fsm/tags`** — `:websocket/connected`, `:websocket/reconnecting`,
+   - **`:tags`** — `:websocket/connected`, `:websocket/reconnecting`,
      `:websocket/failed` so the view asks tag-shaped questions instead
      of unfolding the snapshot's hierarchical `:state` vector.
 

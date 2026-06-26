@@ -20,8 +20,8 @@
       `implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`;
       the example tree is test-free). The stub state lives in
       the `mock-server-state` atom; plain exported fns are the delivery
-      seams — `set-mock-sync!` flips the stub between async (microtask)
-      and sync (immediate `dispatch-sync`) delivery, `send-server-push!`
+      seams — `set-mock-sync!` flips the stub between async (`setTimeout`-
+      deferred) and sync (immediate `dispatch-sync`) delivery, `send-server-push!`
       and `simulate-disconnect!` push inbound `:received` / disconnect
       events from view click handlers, and `reset-mock-server!` clears
       the side-table between tests. Sync mode lets the headless tests
@@ -73,14 +73,15 @@
 ;;   (2) Manual `(send-server-push! body)` and `(simulate-disconnect!)`
 ;;       seams the views call from button handlers.
 ;;
-;; The mock is deliberately synchronous-ish: `connect` resolves on the
-;; next microtask (via js/Promise.resolve) so the `:open` event lands
-;; after the dispatch returns, not inside it.
+;; The mock is deliberately synchronous-ish: inbound deliveries land on
+;; the next task tick (via `js/setTimeout _ 0`, in the `later` helper
+;; below) so transport events fire after the dispatch returns, not inside
+;; it.
 
 (defonce ^:private mock-server-state (atom {:sockets {} :sync? false}))
 
 (defn set-mock-sync!
-  "Toggle the mock server between async (default, microtask-delivered)
+  "Toggle the mock server between async (default, `setTimeout`-deferred)
    and sync (immediate-delivery) modes. Sync mode is used by the
    headless tests so `rf/dispatch-sync` observes the full
    request/reply round-trip without yielding to the JS event loop."
@@ -98,7 +99,7 @@
 (defn- later
   "Run `f` synchronously in mock-sync mode; via `setTimeout` otherwise.
    This is the only knob that separates headless-test mode (sync) from
-   the browser-driven example (async, microtask-delivered)."
+   the browser-driven example (async, `setTimeout`-deferred)."
   [f]
   (if (:sync? @mock-server-state)
     (f)
@@ -156,7 +157,7 @@
                 (case (:type msg)
                   :auth
                   ;; Auth — produce :auth-ok / :auth-failed on the same
-                  ;; channel after a microtask.
+                  ;; channel on the next task tick (via `later`).
                   (later
                     #(deliver-to-actor! dispatch actor-id :received
                                         (mock-encode-auth-reply (:token msg))))

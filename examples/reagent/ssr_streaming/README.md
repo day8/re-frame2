@@ -69,7 +69,9 @@ named at the bottom of this file.) It's the worked companion to
   region early. The final `<script id="__rf_payload">` arrives last
   carrying the canonical, whole-app-db state, and `ssr/hydrate!`
   dispatches `:rf/hydrate` against it with
-  [replace-app-db](../../../docs/ssr/glossary.md#hydration) semantics.
+  [replace-frame-state](../../../docs/ssr/glossary.md#hydration) semantics
+  (the server's `:rf/app-db` — and any serialisable runtime-db slice —
+  replaces the client's whole frame-state in one step).
   If a speculative delta and the canonical payload ever disagree, the
   payload wins, every time. You get the *latency* of streaming with the
   *correctness* of a single authoritative hydrate — and a client that

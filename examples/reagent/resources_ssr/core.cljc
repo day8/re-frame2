@@ -228,14 +228,21 @@
                  ;; hydrates a FIXED app-frame (`app-frame` → `:rf/default`,
                  ;; below). `ssr/hydrate!` VALIDATES a present payload
                  ;; `:rf/frame-id` against the client's explicit `:frame` and
-                 ;; raises `:rf.error/hydration-frame-id-mismatch` on
-                 ;; disagreement (Spec 011 §The hydration payload). The server's
-                 ;; per-request gensym would always conflict with the client's
-                 ;; fixed frame, so we DROP it — an absent `:rf/frame-id` is
-                 ;; explicitly NO conflict (the explicit client target stands),
-                 ;; matching the static `index.html` next to this file. A
-                 ;; deployment that wants a frame-id on the wire stamps a STABLE
-                 ;; id both sides agree on, not a per-request gensym.
+                 ;; raises `:rf.error/hydration-frame-id-mismatch` only when the
+                 ;; two DISAGREE (Spec 011 §The hydration payload — the frame-id
+                 ;; is validation evidence, not a target resolver). The server's
+                 ;; per-request gensym would never equal the client's fixed
+                 ;; `:rf/default`, so a present stamp here would always conflict;
+                 ;; we therefore DROP it, and an absent `:rf/frame-id` is
+                 ;; explicitly NO conflict (the explicit client target stands).
+                 ;; The static `index.html` next to this file reaches the same
+                 ;; no-conflict outcome by the OTHER valid route: it stamps a
+                 ;; `:rf/frame-id :rf/default` that EQUALS this client target
+                 ;; (present-and-equal is also no conflict — a hand-written
+                 ;; stand-in can pin the matching id, where a live per-request
+                 ;; server cannot). A deployment that wants a frame-id on the
+                 ;; dynamic wire stamps a STABLE id both sides agree on, not a
+                 ;; per-request gensym.
                  payload       (dissoc payload :rf/frame-id)]
              {:status  200
               :headers {"Content-Type" "text/html"}
@@ -271,13 +278,16 @@
 ;; EP-0002: the SSR hydration target is CARRIED — established
 ;; explicitly here and threaded through both `ssr/hydrate!` and the root
 ;; `frame-provider`. This example uses `:rf/default` as its FIXED client
-;; app-frame. `handle-request` above renders under a per-request gensym frame
-;; but DROPS `:rf/frame-id` from the wire payload (an absent frame-id is no
-;; conflict with this explicit target); a present-but-different stamp would
-;; raise `:rf.error/hydration-frame-id-mismatch` in `ssr/hydrate!` (Spec 011
-;; §The hydration payload). The frame MUST be `:client`-platform so the
-;; `:rf.ssr/check-*` compatibility-check fxs the `:rf/hydrate` handler
-;; dispatches actually fire.
+;; app-frame. `ssr/hydrate!` validates the payload's `:rf/frame-id` against
+;; this explicit target and raises `:rf.error/hydration-frame-id-mismatch`
+;; only on a present-AND-DIFFERENT value (Spec 011 §The hydration payload).
+;; The two no-conflict shapes both appear in this example: `handle-request`
+;; above DROPS `:rf/frame-id` (its per-request gensym would never equal this
+;; target, so an absent frame-id is the safe shape), while the static
+;; `index.html` next to this file carries `:rf/frame-id :rf/default` — present
+;; AND equal to this target, the other no-conflict case. The frame MUST be
+;; `:client`-platform so the `:rf.ssr/check-*` compatibility-check fxs the
+;; `:rf/hydrate` handler dispatches actually fire.
 (def app-frame :rf/default)
 
 #?(:cljs

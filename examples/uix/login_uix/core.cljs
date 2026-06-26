@@ -1,9 +1,9 @@
 (ns login-uix.core
   "UIx variant of the login example — the same feature, a different substrate.
 
-   Everything below the views is byte-for-byte the same as
-   examples/reagent/login: the Spec 005 state machine, the Spec 010 schemas,
-   and the Spec 014 managed-HTTP effect. Only the view layer changes idiom —
+   Everything below the views carries the same ids and the same registered
+   shapes as examples/reagent/login: the Spec 005 state machine, the Spec 010
+   schemas, and the Spec 014 managed-HTTP effect. Only the view layer changes idiom —
    here views are UIx `defui` components that read subscriptions via the
    `use-subscribe` hook, where the Reagent twin used `reg-view`. The point of
    the file is to show exactly how narrow the substrate boundary is: the
@@ -389,11 +389,16 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
-    ;; Wrap the render in the UIx `frame-provider` so the `use-subscribe` hook +
-    ;; the render-time `(rf/frame-handle)` capture in `login-form` resolve to
-    ;; `:rf/default` via React context. With NO provider the tree observes the
-    ;; no-provider sentinel and those reads raise `:rf.error/no-frame-context`
-    ;; (there is no `:rf/default` floor).
+    ;; Scope the render into the already-created `:rf/default` frame (built by
+    ;; the `reg-frame` above) with the SCOPE-ONLY `frame-provider-existing` —
+    ;; it provides that frame's id to descendants over React context and
+    ;; creates / owns nothing (the lifecycle-owning `frame-provider`, which
+    ;; takes `:id` and constructs a frame, is the other component and is not
+    ;; what's wanted here). The scope makes the `use-subscribe` hook + the
+    ;; render-time `(rf/frame-handle)` capture in `login-form` resolve to
+    ;; `:rf/default`. With NO provider the tree observes the no-provider
+    ;; sentinel and those reads raise `:rf.error/no-frame-context` (there is no
+    ;; `:rf/default` floor).
     (uix-dom/render-root
       ($ uix-adapter/frame-provider-existing {:frame :rf/default}
          ($ root-view))

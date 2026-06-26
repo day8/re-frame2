@@ -62,17 +62,22 @@ all of them.
   view reads `:has-next-page?` and swaps the button for an end-of-feed marker.
   (In this demo the last page's next-cursor comes back `nil`, so the feed
   genuinely runs out.)
-- **First-load failure and load-more failure are different channels.** These
-  are deliberately *not* the same error. A **page-0 first load** that fails with
-  no data yet settles the scalar `:error` channel (`:status :error`, exactly
-  like an ordinary scalar resource) — and the view shows a full error screen,
-  because there's nothing else to show. A **load-more failure** (page N where
-  N > 0, so you already have pages on screen) is the separate `:page-error`
-  channel: every accumulated page **stays visible**, the feed stays `:loaded`,
-  and an inline "couldn't load more — tap retry" affordance appears under the
-  list. A hiccup mid-scroll never blanks the page you were reading. The two
-  axes are read separately — `:error` drives the full screen, `:page-error`
-  drives the inline retry — and they're never conflated.
+- **First-load failure and load-more failure are separate channels.** An
+  infinite feed carries **three** error channels, and they're deliberately *not*
+  the same error ([Spec 016 §Causal event](../../../spec/016-Resources.md#causal-event--rfresourceload-more-r2)).
+  A **page-0 first load** that fails with no data yet settles the scalar
+  `:error` channel (`:status :error`, exactly like an ordinary scalar resource)
+  — and the view shows a full error screen, because there's nothing else to
+  show. A **load-more failure** (page N where N > 0, so you already have pages
+  on screen) is the separate `:page-error` channel: every accumulated page
+  **stays visible**, the feed stays `:loaded`, and an inline "couldn't load
+  more — tap retry" affordance appears under the list. A hiccup mid-scroll
+  never blanks the page you were reading. (The third channel, `:refresh-error`,
+  records a failed *whole-feed* background refresh — the inherited scalar
+  channel; this next-only demo never triggers a whole-feed refresh, so it stays
+  `nil`.) The two channels the **view reads** are kept separate — `:error`
+  drives the full screen, `:page-error` drives the inline retry — and they're
+  never conflated.
 
 The view reads the combined `[:rf.resource/infinite-state …]` view-model —
 `:items` (the merged flat list, and the **headline** read), `:has-next-page?`,

@@ -115,8 +115,11 @@ the happy path alone:
   present payload frame-id as *validation evidence* (a mismatch fails
   closed with `:rf.error/hydration-frame-id-mismatch`), never as a
   target resolver — so an *absent* id is exactly right: the explicit
-  client `:frame` stands, and the dynamic server output matches the
-  static `index.html` next to this file byte-for-byte.
+  client `:frame` stands, and the dynamic server output agrees with the
+  static `index.html` next to this file on the frame-id question (neither
+  carries one). The `index.html` is an illustrative stand-in, not a
+  byte-exact capture — it omits the `:rf/render-hash` and carries a
+  sample routing slice this article-only render never populates.
 
 Runnable form: the hand-written `index.html` ships with pre-rendered
 HTML inside `<div id='app'>` and a pre-baked `<script

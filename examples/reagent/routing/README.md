@@ -40,9 +40,12 @@ to [Construction Prompt CP-7](../../../spec/Construction-Prompts.md) and
   It's the canonical surface for the job: a hand-rolled, frameless
   `:rf.route/handle-url-change` dispatch would have nowhere to land and
   would raise `:rf.error/no-frame-context`.
-- **The same routing runs on the server** — the route handler is
-  side-agnostic, so the [SSR example](../ssr/) reuses this exact surface
-  with no SSR-specific routing code.
+- **The same routing runs on the server** — the routing artefact is
+  `.cljc` and side-agnostic, so this exact `reg-route` table works on a
+  JVM server too. There's no browser-only path baked in: the same
+  `:rf.route/handle-url-change` handler that popstate and the initial load
+  drive on the client is the one a server render uses — the server just
+  feeds it the request URL (Spec 012 §URL changes are events).
 
 ## Why this shape
 
@@ -89,7 +92,7 @@ lives in `implementation/routing/test/` and the conformance fixtures.
 
 - [Construction Prompts CP-7](../../../spec/Construction-Prompts.md) — the prompt this example instantiates.
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the normative spec.
-- [`examples/reagent/ssr/`](../ssr/) — SSR over a routed app reuses the same handler.
-- [`examples/reagent/realworld/`](../realworld/) — broader sketch with routing folded in.
+- [`examples/reagent/ssr/`](../ssr/) — the sibling server-render + hydration example (the other half of the side-agnostic `.cljc` story; it renders an HTTP-fetched page rather than a routed one).
+- [`examples/reagent/realworld/`](../realworld/) — a fuller app that folds this routing surface in alongside auth, `:can-leave` guards, and `:rf.route/navigate`.
 </content>
 </invoke>

@@ -16,7 +16,10 @@
                                                 demo stub that resolves the
                                                 request locally so the example
                                                 runs without a backend.
-   - Registered view (CP-4)                — Var reference (canonical), Form-1 only
+   - Registered view (CP-4)                — Var reference (canonical); the
+                                              login form is a Form-2 view (it
+                                              holds email/password in a
+                                              component-local Reagent atom)
    - State machine (CP-5)                  — login flow as a transition table
                                               read via [:rf.runtime/machines :snapshots :auth.login/flow]
    - State tags (Spec 005 §State tags)     — :auth/busy on :submitting,
@@ -70,10 +73,14 @@
             [reagent.core :as reagent]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            ;; The Spec 010 schema-attachment ns lives in
-            ;; the day8/re-frame2-schemas artefact. The require here
-            ;; loads the ns so its late-bind hooks register before
-            ;; `(rf/reg-app-schema ...)` runs below.
+            ;; The Spec 010 schema surface lives in the
+            ;; day8/re-frame2-schemas artefact. Requiring the ns here
+            ;; installs its Malli validator adapter so the machine's
+            ;; `[:schemas :data]` validation (the `:where :machine-data`
+            ;; boundary, configured on the `reg-machine` spec below)
+            ;; resolves. (This example attaches no app-db schema — there
+            ;; is no `reg-app-schema` call; machine snapshots are
+            ;; runtime-db, not app-db. See :182-186 + :405-412 below.)
             [re-frame.schemas]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here

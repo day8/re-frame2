@@ -161,8 +161,9 @@
   ;; the app frame (a bare dispatch-sync would raise
   ;; :rf.error/no-frame-context under the carried invariant). The
   ;; `:app/boot` machine's :initial state and :data seed
-  ;; `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on first
-  ;; dispatch (per Spec 005 §Restore semantics); :boot/initialise fires
+  ;; `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on the
+  ;; eager creation kick (per Spec 005 §When creation happens — eager
+  ;; start vs lazy first event); :boot/initialise fires
   ;; `[:app/boot [:rf.machine/start]]`, the creation marker that births
   ;; the machine directly into :configuring and runs its :spawn
   ;; entry-cascade, starting the boot sequence.

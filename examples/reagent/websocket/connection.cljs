@@ -13,14 +13,15 @@
      :reconnecting                        ;; :after backoff
      :failed                              ;; terminal until manual :ws/connect
 
-   Why parallel-regions when this looks linear? Pattern-WebSocket §The
-   connection state machine lists three orthogonal axes — the connection
-   lifecycle, the subscription/request bookkeeping, and the live-socket
-   identity. The subscription set + the in-flight map + the queue all
-   share *one* domain (this connection), so the **shared-:data + compound
-   `:active`** shape is the right one here. (For a small example with
-   independent regions, see `examples/reagent/nine_states/` — Pattern-
-   NineStates' canonical worked example.)
+   Why a compound `:active` rather than parallel regions? Pattern-WebSocket
+   §The connection state machine describes a hierarchical machine: the three
+   success-path leaves share one critical invariant — the live socket actor
+   must outlive all of them. The subscription set + the in-flight map + the
+   queue + the socket id all belong to *one* domain (this connection) and
+   ride a single `:data` map, so the **shared-:data + compound `:active`**
+   shape is the right one here. Parallel regions are for axes that *don't*
+   share data; for that case see `examples/reagent/nine_states/` —
+   Pattern-NineStates' canonical worked example.
 
    State tags carry the queryable connection-state predicates — the view
    asks `:ws/connected?` / `:ws/reconnecting?` (the per-tag subs below,

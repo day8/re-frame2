@@ -18,12 +18,12 @@ is *how little* sits between a keystroke and the rendered preview, and
 where the one sharp edge — untrusted text becoming HTML — gets sanded
 down. Three ideas carry it.
 
-**Every pane is a registered view, all the way down.** There's no
+**Every pane is a registered view.** There's no
 top-level "render the app" function juggling the three panes by hand.
 The shell is a [view](../../../docs/guide/glossary.md#view); so are the
-sidebar, the editor, and the preview; so is each document row inside
-the sidebar. Each is its own `reg-view` Var, and the whole UI is just
-those Vars composed:
+sidebar, the editor, and the preview. Each is its own `reg-view` Var,
+and the whole UI is just those Vars composed (the document rows inside
+the sidebar are ordinary inline hiccup, not their own registration):
 
 ```clojure
 (reg-view notebook []

@@ -200,6 +200,6 @@ reset-round-trip scenarios each have a `deftest` there.
 - [`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md) — the pattern.
 - [`spec/005-StateMachines.md` §Spawn-and-join via `:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all) — the substrate.
 - [`spec/005-StateMachines.md` §Cancellation cascade](../../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — the cancel contract.
-- [`spec/conformance/fixtures/invoke-all-*.edn`](../../../spec/conformance/fixtures/) — the runtime contract these examples sit on.
+- [`spec/conformance/fixtures/spawn-all-*.edn`](../../../spec/conformance/fixtures/spawn-all-join-all-completes.edn) — the runtime contract these examples sit on.
 - [`examples/reagent/realworld/`](../realworld/) — the layout convention this example mirrors.
 - [`examples/reagent/nine_states/`](../nine_states/) — single-machine sibling example using `:fsm/tags`.

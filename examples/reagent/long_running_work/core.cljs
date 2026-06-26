@@ -103,8 +103,10 @@
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider` so every
-;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
+;; `with-frame`, and the render is wrapped in `frame-provider-existing` so
+;; every in-tree `dispatch`/`subscribe` resolves to the app frame (it scopes
+;; the subtree to the frame `reg-frame` already created; it creates nothing).
+;; Matches the
 ;; canonical mount in examples/reagent/counter/core.cljs. The work-bench
 ;; wrapper's `r/with-let` cleanup (views.cljs) dispatches `[:work/flow
 ;; [:cancel]]` from within render scope, so it resolves to this frame via

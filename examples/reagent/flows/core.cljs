@@ -186,8 +186,8 @@
           [:dispatch [:cart/touch]]]}))
 
 ;; No-op drain — Spec 013 §Sequencing's `:wizard/settle` verbatim:
-;; `(fn [db _] db)`, no schema, dispatched with no args. It writes
-;; NOTHING. Its sole purpose is to make a drain happen on this frame so
+;; `(fn [{:keys [db]} _] {:db db})`, no schema, dispatched with no args. It
+;; writes NOTHING. Its sole purpose is to make a drain happen on this frame so
 ;; the flow transform re-walks with the just-(de)registered discount flow
 ;; now visible in the registry — materialising the one-drain-lagged
 ;; output. The toggle is the `:rf.fx/reg-flow` / `:rf.fx/clear-flow`

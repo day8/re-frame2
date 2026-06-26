@@ -46,8 +46,9 @@
 ;;             global). The state-keyword tells the view which app-db
 ;;             slice's items to read from (`:articles` for :global and
 ;;             :tag-feed; `:feed` for :user-feed). Driven by the
-;;             `:home/show-*` events which navigate the route's `?feed=`
-;;             and `?tag=` query params.
+;;             home navigation events: the following toggle rides the
+;;             `?feed=following` query, and the tag filter is the
+;;             `/tag/:tag` PATH route (`:realworld/home-tag`).
 ;;
 ;;   :filter — whether a tag filter is active. Always `:tagged` whenever
 ;;             :feed is :tag-feed; tracked as a separate region so views
@@ -179,8 +180,9 @@
               :reset         :global}}
 
       :tag-feed
-      ;; `?tag=X`. Still reads from the :articles slice; the tag
-      ;; modifies the request URL upstream.
+      ;; The `/tag/:tag` PATH route. Still reads from the :articles slice;
+      ;; the tag modifies the request URL upstream (the WIRE stays
+      ;; `/articles?tag=…`).
       {:tags #{:feed/tag-feed}
        :on   {:show-global    {:target :global    :action :clear-count}
               :show-user-feed {:target :user-feed :action :clear-count}
@@ -221,9 +223,11 @@
 ;; ============================================================================
 
 (rf/reg-event :articles/load
-  {:doc "Fetch the global articles list, optionally filtered by the route's
-         `?tag=` query parameter. Uses :rf.http/managed (Spec 014) with
-         a Malli-decoded response and the standard data-fetch retry policy.
+  {:doc "Fetch the global articles list, optionally filtered by the active
+         tag (the `/tag/:tag` route's PATH param, read off the route params;
+         the WIRE query stays `/articles?tag=…`). Uses :rf.http/managed
+         (Spec 014) with a Malli-decoded response and the standard
+         data-fetch retry policy.
          The request is tagged with `:request-id :articles/load` so a
          re-issue (e.g., user changes tag mid-load) supersedes the prior
          in-flight request and an `:articles/cancel` fx aborts cleanly.

@@ -218,8 +218,9 @@
 ;; ----------------------------------------------------------------------------
 ;; DEMO STUBS
 ;;
-;; The realworld example would normally hit https://api.realworld.io/api,
-;; which is unreliable for headless smoke and slow for a demo. Override
+;; The realworld example would normally hit the hosted Conduit API
+;; (https://api.realworld.show/api — `realworld.http/api-base`), which is
+;; unreliable for headless smoke and slow for a demo. Override
 ;; :rf.http/managed with a small in-process stub that synthesises the
 ;; canonical Spec 014 reply shape for the routes the demo actually
 ;; exercises (global feed, tags, profile). Anything not covered resolves

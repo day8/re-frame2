@@ -48,7 +48,7 @@
      — folded into the `:data` region; the region's state-keyword IS
      the status, so the slice's separate `:status` field disappears.
    - **Pattern-Forms** (`spec/Pattern-Forms.md`) — the
-     `{:draft :submitted :errors :touched}` slice carries the form
+     `{:draft :errors :touched}` slice carries the form
      runtime; the form region's state tracks the validation/submission
      lifecycle.
    - **Inspectability bias** — non-trivial guards / actions are named
@@ -86,10 +86,11 @@
             ;; (used below in the load-todos fx) would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http.managed]
-            ;; :fx-overrides redirect :rf.http/managed to the canned
-            ;; stubs (:rf.http/managed-canned-success/failure) below.
-            ;; The canned-stub fx ids register from
-            ;; re-frame.http.test-support.
+            ;; Registers the framework canned-stub fxs
+            ;; (:rf.http/managed-canned-success / -failure). The per-app
+            ;; demo stub below (:nine-states.http/managed-demo, the
+            ;; :fx-overrides target for :rf.http/managed) delegates to
+            ;; them, so without this require those lookups would miss.
             [re-frame.http.test-support]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -149,13 +150,13 @@
 ;; the write site (a fresh-event-stream replay would mint a different id and the
 ;; snapshot/keys would not reproduce). The EP-0017 authoring surface for an
 ;; app-owned generator is a RECORDABLE `reg-cofx`: the generator runs at
-;; context-assembly, the minted value is recorded onto the causal token, and
+;; processing-start, the minted value is recorded onto the causal token, and
 ;; replay re-presents it verbatim (mint-policy `:strict` re-feeds the recorded
 ;; value instead of re-minting). `:new-todo/submit` DECLARES it via
 ;; `:rf.cofx/requires` and reads it flat from the coeffects map — the handler
 ;; stays pure and replayable. A uuid is valid EDN (`#uuid`), so it is a legal
-;; recordable value; the generator runs in slice B and the minted uuid is
-;; recorded onto the token (matching the `gen-todos` seed-data id type).
+;; recordable value, recorded onto the token verbatim (matching the
+;; `gen-todos` seed-data id type).
 (rf/reg-cofx :new-todo/todo-id
   {:recordable? true
    :doc "Replayable fresh id for a newly-submitted todo (EP-0017)."}

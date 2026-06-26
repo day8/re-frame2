@@ -65,7 +65,8 @@
    `:api-base` into the next phase (mechanism 3 → mechanism 2 above).
 
    Trigger boot once at app start via `[:app/boot [:rf.machine/start]]`.
-   The machine self-initialises (per Spec 005 §Restore semantics): the
+   The machine comes alive on that eager creation kick (per Spec 005
+   §When creation happens — eager start vs lazy first event): the
    `:initial` state and `:data` seed `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) when
    the dispatch lands."
   (:require [re-frame.core :as rf]
@@ -211,8 +212,9 @@
 (rf/reg-machine :app/boot
   {:initial :configuring
    ;; Validates the `:app/boot` snapshot's `:data` slot at the
-   ;; `:where :machine-data` boundary (Spec 010 §Machine data schema +
-   ;; Spec 005 §Schema validation). `BootData` describes `:data` only —
+   ;; `:where :machine-data` boundary (Spec 010 §Per-step recovery,
+   ;; row 7 — machine `:data` + Spec 005 §Schema validation). `BootData`
+   ;; describes `:data` only —
    ;; the singleton's snapshot is runtime-db, so its `[:schemas :data]` (not
    ;; an `reg-app-schema`) is the snapshot-validation surface, symmetric
    ;; with the `:boot/loader` child above.
@@ -260,7 +262,8 @@
    {;; ---- :configuring — the :initial state; a single :spawn fetches /config
     ;; Per Pattern-Boot the boot machine is BORN directly into its first
     ;; work state. The init-kick `[:app/boot [:rf.machine/start]]` is a
-    ;; PURE creation marker (Spec 005 §F‴ / transition/start-marker): it
+    ;; PURE creation marker (Spec 005 §Synthetic creation marker —
+    ;; `[:rf.machine/start]`): it
     ;; runs the initial-entry cascade — here `:configuring`'s `:spawn` —
     ;; and STOPS; it is NEVER fed into an `:on` map as a trigger. So there
     ;; is no `:idle` parking spot and no start-marker transition: the
@@ -347,8 +350,8 @@
              ;; re-runs the boot from :configuring. Re-boot uses a REAL
              ;; event, NOT the `:rf.machine/start` creation marker: the
              ;; marker is a pure init-kick that is never fed into an `:on`
-             ;; map (Spec 005 §F‴), so once the machine exists a start
-             ;; marker is inert. The terminal? meta is still true so
+             ;; map (Spec 005 §Synthetic creation marker), so once the
+             ;; machine exists a start marker is inert. The terminal? meta is still true so
              ;; visualisers / conformance harnesses see :failed as a
              ;; terminal state; the re-entry transition is the explicit
              ;; re-boot, not the default end of the flow.

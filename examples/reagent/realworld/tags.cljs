@@ -1,5 +1,6 @@
 (ns realworld.tags
-  "Popular-tags list plus home-page query helpers (`?tag=` / `?feed=`).
+  "Popular-tags list plus home-page navigation helpers (the `/tag/:tag`
+   PATH route + the `?feed=` / `?page=` query).
 
    This namespace demonstrates the **`:data-region` machine variant** of
    Pattern-RemoteData: the popular-tags lifecycle is modelled
@@ -250,12 +251,14 @@
      :page (:page query)}))
 
 (rf/reg-event :home/load
-  {:doc "Route :on-match handler for `:realworld/home`. Reads the route's
-         query params and:
+  {:doc "Route :on-match handler for BOTH `:realworld/home` and
+         `:realworld/home-tag`. Reads the normalised home context (the active
+         tag off the `/tag/:tag` route's PATH params, the feed + page off the
+         query) and:
            - broadcasts the `:feed` region into `:user-feed` / `:tag-feed`
-             / `:global` per `?feed=` and `?tag=`,
+             / `:global` per `?feed=` and the active tag,
            - broadcasts the `:filter` region into `:tagged` / `:none`
-             per `?tag=`,
+             per the active tag,
            - kicks the per-feed fetch (`:articles/load` or `:feed/load`).
          Each fetch handler in turn broadcasts `:fetch-started` into the
          home machine's `:data` region (per articles.cljs and
