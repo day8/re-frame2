@@ -195,5 +195,5 @@ restore-dangle) is pinned in `implementation/resources/test/`. See the
 - [`docs/EP/EP-0019-optimistic-mutation-rollback.md`](../../../docs/EP/EP-0019-optimistic-mutation-rollback.md) — the EP (the accepted design + the riders).
 - [`spec/016-Resources.md §Optimistic mutations`](../../../spec/016-Resources.md#optimistic-mutations) — the normative spec (forward plan, snapshot inverse, settle protocol, `:on-conflict`).
 - [`examples/reagent/realworld_resources/`](../realworld_resources/) — the **`:optimistic-tags`** (tag-addressed) counterpart: a favorite that flips across the detail, every list, and the session feed at once.
-- [`examples/reagent/infinite_feed/`](../infinite_feed/) — the read-side EP-0021 load-more dogfood this is the write-side flagship sibling to.
+- [`examples/reagent/infinite_feed/`](../infinite_feed/) — the read-side EP-0021 load-more dogfood; this example is its write-side flagship sibling.
 - [`examples/reagent/resources/`](../resources/) — the single-page resource lifecycle (ensure / refetch / owners / causes) the board read builds on.

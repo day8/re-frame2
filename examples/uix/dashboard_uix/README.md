@@ -103,6 +103,7 @@ on the examples that share a base name across substrates — `counter` /
 — and it's applied here for consistency even though this app's design-led
 Reagent counterpart carries its own name (`notebook`), so there's no
 literal `dashboard.core` to collide with today.
+
 The mount itself is the ordinary re-frame2 boot dance —
 [`init!`](../../../docs/guide/glossary.md#init) installs the UIx
 adapter, [`reg-frame`](../../../docs/guide/glossary.md#registration)

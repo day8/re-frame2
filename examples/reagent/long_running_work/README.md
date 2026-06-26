@@ -156,21 +156,20 @@ examples/reagent/long_running_work/
   README.md       this file
 ```
 
-The example tree is test-free. The headless fixtures that
-exercise the parent + child flows were folded into the integration test
-in the framework test tree (see below).
-
-Per the test-free examples policy there is no per-example
-Playwright spec; real-regression coverage lives in the substrate
-contract tests (`npm run test:cljs`) and the framework gates (see
+The example tree is test-free, which raises the obvious question of where
+the regression coverage for something this stateful actually lives — and
+the answer is *not* a per-example Playwright spec. Per the test-free
+examples policy, real-regression coverage lives in the substrate contract
+tests (`npm run test:cljs`) and the framework gates (see
 [`examples/README.md`](../../README.md)).
 
-The headless fixtures that exercise the parent + child flows live in the
-integration test at
+Concretely, the headless fixtures that drive the parent + child flows fold
+into one integration namespace at
 [`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs)
-— the helper fns and their `deftest` bodies are folded into that one ns
-(folded inline), so the example source stays test-free. Same pattern as
-`nine-states-cljs-test` and `realworld-cljs-test`.
+— helper fns and `deftest` bodies in the same file, so the example source
+stays pristine. It's the same trick `nine-states-cljs-test` and
+`realworld-cljs-test` use: the example reads like a clean app, and the
+exercising lives next door in the test tree where it belongs.
 
 ## How to run
 
@@ -190,10 +189,12 @@ npx shadow-cljs watch examples/long-running-work
 # Then open the URL the watch command prints.
 ```
 
-The headless coverage runs from the integration test
-(`re-frame.long-running-work-cljs-test`) under `npm run test:cljs`. The
-spawn-cascade / happy-path-join / cancel-cascade / parent-unmount /
-reset-round-trip scenarios each have a `deftest` there.
+Either way, the real assertions run from the integration test
+(`re-frame.long-running-work-cljs-test`) under `npm run test:cljs`. If you
+want to see the cancellation story pinned down from every angle, that's
+where to look: spawn-cascade, happy-path-join, cancel-cascade,
+parent-unmount, and reset-round-trip each get their own `deftest` — one
+per exit path the prose above promised the machine would handle.
 
 ## Cross-references
 

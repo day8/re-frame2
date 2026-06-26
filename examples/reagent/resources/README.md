@@ -64,7 +64,7 @@ the same reply shape a live server would produce. So each ensure genuinely
 exercises in-flight tracking, dedupe, reply addressing, and the passive status
 flow; a small 120 ms delay (deferred through framework `:dispatch-later`, not raw
 `setTimeout`, so it stays tape-visible and time-travel-safe) gives the loading
-skeleton a moment on screen before the reply lands. And re-ensure an entry that's
+skeleton a moment on screen before the reply lands. Re-ensure an entry that's
 still inside its `:stale-after-ms` window and the runtime **fresh-skips** it — no
 refetch, just a `:rf.resource/cache-hit` — while the manual Refresh forces one
 regardless. That's the staleness model you'd get against a real backend, running

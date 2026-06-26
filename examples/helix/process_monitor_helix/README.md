@@ -16,6 +16,11 @@ the interesting part.
 
 ## What this demonstrates
 
+The fun of this example isn't the terminal aesthetic; it's how
+unremarkable the wiring stays even as the UI starts moving on its own.
+Four things carry it — and the live tick loop, third below, is where the
+real care went.
+
 - **Helix views read state through a hook.** Each pane is a `defnc`
   component that pulls its slice of state off a [subscription](../../../docs/guide/glossary.md#subscription)
   at the top of its body — `(helix-adapter/use-subscribe [:process-monitor/totals])`
@@ -40,21 +45,23 @@ the interesting part.
   `:process-monitor/tick`, appends a synthetic log line and reschedules
   itself via the [`:dispatch-later`](../../../docs/guide/glossary.md#effect)
   effect — so the pane keeps moving with no interaction, proving this is a
-  real reactive loop and not a screenshot. The subtle bit is that
-  `:dispatch-later` has *no cancel API*, and a naive self-rescheduling
-  chain leaks: re-init it (a hot reload, a re-mount) and you've now got
-  two chains both appending lines forever, into a [frame](../../../docs/guide/glossary.md#frame)
-  that might not even be on screen. The fix is a **generation guard** —
-  every scheduled tick carries the `:process-monitor/tick-gen` it was armed
-  under, and a stale tick from a retired generation simply no-ops when it
-  lands. `:process-monitor/initialise` bumps the generation to retire the old
-  chain; `:process-monitor/stop` bumps it *without* rescheduling, killing the
-  chain dead. Both are wired to the `monitor` component's `use-effect`:
-  mount arms the loop, unmount retires it. The upshot is exactly one live
-  tick per interval no matter how many times the component churns, and
-  zero ticks once it unmounts. (This mirrors the 7GUIs timer's
-  `:tick-gen` guard — the local precedent for the same cancel-less
-  constraint.)
+  real reactive loop and not a screenshot. Here's the catch.
+  `:dispatch-later` has *no cancel API*, so a naive self-rescheduling
+  chain has no off switch: re-init the app (a hot reload, a re-mount) and
+  the old chain doesn't stop — it just gains a sibling, and now two of
+  them append lines forever into a [frame](../../../docs/guide/glossary.md#frame)
+  that may not even be on screen. The fix is a **generation guard**, and
+  it's pleasingly small: every scheduled tick carries the
+  `:process-monitor/tick-gen` it was armed under, and a tick from a retired
+  generation simply no-ops when it lands — no cancellation needed, because
+  a stale tick just declines to do anything. `:process-monitor/initialise`
+  bumps the generation to retire any old chain; `:process-monitor/stop`
+  bumps it *without* rescheduling, which kills the chain dead. Both hang
+  off the `monitor` component's `use-effect` — mount arms the loop,
+  unmount retires it — so you get exactly one live tick per interval no
+  matter how many times the component churns, and zero once it unmounts.
+  (This is the same move the 7GUIs timer makes with its `:tick-gen`
+  guard — the local precedent for living without a cancel API.)
 
 - **Per-row dispatch, captured the right way across the hook
   boundary.** Each process row and each filter chip is a `defnc` that
@@ -139,19 +146,24 @@ yourself.
 ## Design-led runtime — what to copy, and a manual checklist
 
 This is the Helix member of the design-led trio, so its job is to prove
-*polished interaction*, not merely that it compiles. The automated
+*polished interaction*, not merely that it compiles — and those are two
+different claims. The automated
 [`test:examples-compile`](../../TESTING.md#compile-coverage-gate-testexamples-compile)
 gate catches namespace / `:init-fn` / `:require` / Helix-form regressions,
-but it **never serves the page** — so a blank render, a broken `_shared`
-asset path, a stalled tick loop, dead filter chips, or mobile overflow can
-still sail past a green compile. Examples are **test-free** (no `*.spec.cjs`
-under `examples/`, per [rf2-8cevm](../../README.md)), so this design-led
-class of regression is guarded by the manual checklist below rather than a
-per-example browser spec — the same policy the UIx
+but it **never serves the page**. So everything that only goes wrong once
+the page is actually live — a blank render, a broken `_shared` asset path,
+a stalled tick loop, dead filter chips, mobile overflow — sails straight
+past a green compile without a murmur.
+
+That gap is covered by hand on purpose. Examples are **test-free** (no
+`*.spec.cjs` under `examples/`, per [rf2-8cevm](../../README.md)), so this
+design-led class of regression is guarded by the manual checklist below
+rather than a per-example browser spec — the same policy the UIx
 [`dashboard_uix`](../../uix/dashboard_uix/) sibling follows. The shared
 stylesheet's WCAG palette-contrast + focus-ring contracts are already
 enforced statically by `check-examples-assets` (`npm run test:script-policy`);
-the items here are the live render + interaction that need an eye.
+the items here are the live render + interaction that still need a human
+eye.
 
 Run it (`npm run dev:example -- examples/process-monitor-helix`) whenever
 you touch this example's markup, CSS, or dataflow:

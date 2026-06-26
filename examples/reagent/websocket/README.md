@@ -186,12 +186,13 @@ CONNECTED` on its own — the whole reconnect cascade, driven by the machine.
 
 ## Headless tests
 
-The headless tests are pure-CLJS browserless fixtures. The example tree
-is test-free, so the connection + message fixtures and the
-test-only re-registration scaffolding (which recovers from upstream
-`clear-all!` callers) were folded into the integration test at
-[`implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs)
-(folded inline). Each fixture is one `deftest` there, so the `:each` fixture
+The headless tests are pure-CLJS, browserless fixtures — they exercise the whole
+machine without a DOM in sight. Since the example tree is test-free, the
+connection + message fixtures and the test-only re-registration scaffolding
+(which recovers from upstream `clear-all!` callers) all live, folded inline, in
+the integration test at
+[`implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs).
+Each fixture is one `deftest` there, so the `:each` fixture
 (which resets the mock server + re-registers everything) runs around
 each individually:
 
