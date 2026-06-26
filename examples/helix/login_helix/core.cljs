@@ -15,8 +15,8 @@
    substrate's hook idiom differs. The terminal `:locked-out` state is
    surfaced as a non-interactive locked-account panel.
 
-   `reg-view` stays Reagent-only; Helix components are plain `defnc`.
-   There is no auto-injection."
+   Views are plain Helix `defnc` components that read subs via
+   `use-subscribe` and take `dispatch` off the frame-handle."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
@@ -326,8 +326,8 @@
 ;; machine's `:submit` boundary enforces.
 (def login-form-defaults {:email "" :password ""})
 
-;; Seed the slice to its standard Pattern-Forms shape. Dispatched once at
-;; boot (from `run`). `:draft` to the empty defaults; `:status :idle`.
+;; Seed the form slice to its standard Pattern-Forms shape: empty `:draft`,
+;; `:status :idle`.
 (rf/reg-event :auth.login/initialise-form
   {:doc "Seed the login-form slice at [:auth :login-form] to its standard
          Pattern-Forms shape (empty draft, :idle status)."}
@@ -341,10 +341,10 @@
                     :touched           #{}
                     :submit-error      nil})}))
 
-;; The user changed a single field. Update `:draft` and add the field to
-;; `:touched`. This is the ONLY thing an input's `:on-change` does — it never
-;; sets view-local state. The `:schema` rejects a malformed edit-field vector
-;; at the `:where :event` boundary.
+;; The user changed a single field. Update `:draft` and mark the field
+;; `:touched`. This is all an input's `:on-change` does — the draft lives in
+;; app-db, not view-local state. The `:schema` rejects a malformed edit-field
+;; vector at the `:where :event` boundary.
 (rf/reg-event :auth.login/edit-field
   {:doc    "Controlled-input edit: write one field into the login-form draft
             and mark it touched."
@@ -459,28 +459,26 @@
 ;; ============================================================================
 ;;
 ;; The Helix view idiom, and the only place this example differs from the
-;; Reagent reference: a view is a plain `defnc`; it reads a subscription
-;; through the adapter's `use-subscribe` hook; and it takes `dispatch` off a
-;; `frame-handle` rather than having it lexically injected (`reg-view` is
-;; Reagent-only — there is no auto-injection here). `:rf/machine-has-tag?`
-;; reads are *ask, don't tell* state-tag queries; `:auth.login/error` is a
-;; named sub. To the call site they're identical — both are just subscriptions.
+;; Reagent reference. A view is a plain `defnc`. It reads a subscription
+;; through the adapter's `use-subscribe` hook, and takes `dispatch` off a
+;; `frame-handle`. `:rf/machine-has-tag?` reads are *ask, don't tell* state-tag
+;; queries; `:auth.login/error` is a named sub. To the call site they're
+;; identical — both are just subscriptions.
 
 (defnc login-form []
   (let [draft    (helix-adapter/use-subscribe [:auth.login/draft])
         busy?    (helix-adapter/use-subscribe [:rf/machine-has-tag?
                                                :auth.login/flow :auth/busy])
         err      (helix-adapter/use-subscribe [:auth.login/error])
-        ;; No global dispatch in re-frame2 — every dispatch goes to a frame.
-        ;; Pull this frame's `dispatch` off the render-time frame-handle; it
-        ;; resolves to `:rf/default` via the provider in `run`.
+        ;; Take `dispatch` off the render-time frame-handle. It resolves to
+        ;; this frame (`:rf/default`) through the provider in `run`. Every
+        ;; dispatch goes to a frame; there is no global dispatch.
         dispatch (:dispatch (rf/frame-handle))]
-    ;; The form holds NO view-local state: there is no `use-state` for the
-    ;; email/password. Each input's `:value` reads the draft from the
-    ;; `:auth.login/draft` sub, and `:on-change` DISPATCHES
-    ;; `:auth.login/edit-field` (it never sets view-local state) — controlled
-    ;; inputs, the Pattern-Forms way. The draft crosses into the machine (and
-    ;; is validated) at the :on-submit dispatch of `:auth.login/submit-form`.
+    ;; Controlled inputs, the Pattern-Forms way: each input's `:value` reads
+    ;; the draft from the `:auth.login/draft` sub, and `:on-change` dispatches
+    ;; `:auth.login/edit-field`. The draft lives in app-db, not in a `use-state`
+    ;; hook. It crosses into the machine (and is validated) at the :on-submit
+    ;; dispatch of `:auth.login/submit-form`.
     (d/form
        {:class "login-form"
         :data-testid "login-form"
@@ -545,25 +543,24 @@
 (defonce react-root (atom nil))
 
 (defn run []
-  ;; Install the adapter spec once, before the first render — no registry.
+  ;; Install the Helix adapter once, before the first render.
   (rf/init! helix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    ;; Wrap the render in the Helix `frame-provider` ENSURE shape (`{:id …}`):
-    ;; one spot CREATES `:rf/default` on first mount, applies the frame config
-    ;; (`:doc` + the managed-HTTP `:fx-overrides`), and REUSES the same frame on
-    ;; hot reload WITHOUT re-running setup — so the demo's state survives a
-    ;; reload. No `:initial-events`: the machine handler is self-initialising —
-    ;; its `:initial`/`:data` seed [:rf.runtime/machines :snapshots
-    ;; :auth.login/flow] when the flow first runs (per Spec 005 §Restore
-    ;; semantics), so there is nothing to seed here.
+    ;; One-spot frame setup. The Helix `frame-provider` ENSURE shape (`{:id …}`)
+    ;; creates the `:rf/default` frame on first mount and applies the config
+    ;; below (`:doc`, and `:fx-overrides` routing `:rf.http/managed` to the demo
+    ;; stub). On hot reload it reuses the existing frame and its state, so the
+    ;; demo survives a reload. The machine snapshot needs no seeding: the machine
+    ;; handler is self-initialising — its `:initial`/`:data` seed
+    ;; [:rf.runtime/machines :snapshots :auth.login/flow] when the flow first
+    ;; runs (Spec 005 §Restore semantics).
     ;;
-    ;; The provider also gives the `use-subscribe` hook + the render-time
-    ;; `(rf/frame-handle)` capture in `login-form` a frame to resolve to via
-    ;; React context. With NO provider the tree observes the no-provider
-    ;; sentinel and those reads raise `:rf.error/no-frame-context` (there is no
-    ;; `:rf/default` floor).
+    ;; The provider also scopes the frame into React context, so the
+    ;; `use-subscribe` hook and the `(rf/frame-handle)` capture in `login-form`
+    ;; resolve to it. The provider is required — without it those reads raise
+    ;; `:rf.error/no-frame-context`.
     (.render @react-root
              ($ helix-adapter/frame-provider
                 {:id           :rf/default

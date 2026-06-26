@@ -207,12 +207,11 @@
 
     nil))
 
-;; EP-0022: the guard is a REGISTERED interceptor referenced BY ID
-;; (`:realworld.routing/auth-guard`) from the demo frame's `:interceptors`
-;; chain in core.cljs — not an inline value. `reg-interceptor` is a top-level
-;; load-time registration; core.cljs requires this ns, so the descriptor is
-;; registered before the `frame-provider {:id …}` ENSURE form resolves the
-;; reference when it creates the frame.
+;; EP-0022: register the guard as a named interceptor here, then reference it
+;; by id (`:realworld.routing/auth-guard`) from the demo frame's `:interceptors`
+;; in core.cljs. `reg-interceptor` runs at load time, and core.cljs requires
+;; this ns, so the descriptor is in place before the frame-provider creates the
+;; frame and resolves the id.
 (rf/reg-interceptor :realworld.routing/auth-guard
   {:doc "Route-level auth guard (Spec 012 §Redirects and guards): redirect
          unauthenticated users away from `:requires-auth`-tagged routes to
@@ -265,23 +264,20 @@
       (str (.. js/window -location -search)
            (.. js/window -location -hash))))
 
-;; Named handler so the listener install is idempotent: repeated
-;; `install-router!` (shadow hot reload, or a co-required test host
-;; invoking run twice) must not stack duplicate popstate listeners,
-;; mirroring the `when-not @react-root` mount guard. We remove-then-add
-;; the same Var so the registration is deduped even when the Var is
-;; redefined on reload.
+;; A named handler so the listener install is idempotent: repeated
+;; `install-router!` (shadow hot reload, or a co-required test host invoking run
+;; twice) remove-then-add the same Var, so duplicate popstate listeners never
+;; stack — the same idea as the `when-not @react-root` mount guard.
 ;;
-;; EP-0002: the URL-change dispatch is targeted at
-;; the explicitly-declared URL owner resolved AT CALL TIME via
-;; `routing/url-owner-frame-id` (Spec 012 §popstate drives the URL-owner
-;; frame) — NOT a frameless `(rf/dispatch …)`, which would raise
-;; `:rf.error/no-frame-context`. This example serves from a `/realworld/`
-;; sub-path and strips it in `current-url`, so it keeps its own base-path-aware
-;; listener rather than the framework's `rf/install-history-listener!` (which
-;; reads the unstripped browser URL); the owner-targeting is the same contract
-;; that listener implements. The owner is the `:url-bound? true` demo frame
-;; registered in `core/run`.
+;; The URL-change dispatch targets the URL-owner frame, resolved at call time
+;; via `routing/url-owner-frame-id` (Spec 012 §popstate drives the URL owner).
+;; The owner is the `:url-bound? true` demo frame the frame-provider creates in
+;; core.cljs. Targeting it explicitly matters: a bare `(rf/dispatch …)` with no
+;; frame would raise `:rf.error/no-frame-context`. This example uses its own
+;; base-path-aware listener (rather than the framework's
+;; `rf/install-history-listener!`, which reads the unstripped browser URL),
+;; because it serves from a `/realworld/` sub-path and strips it in
+;; `current-url`; the owner-targeting contract is the same either way.
 (defn- on-popstate [_]
   (when-let [owner (routing/url-owner-frame-id)]
     (rf/dispatch [:rf.route/handle-url-change (current-url)] {:frame owner})))

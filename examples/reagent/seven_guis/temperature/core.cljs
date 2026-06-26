@@ -8,10 +8,10 @@
    classic trap is to wire the two fields to each other directly, which
    creates an update loop or a stale-value race.
 
-   The re-frame2 solution: there is *one source of truth* in app-db, plus
-   *one event* that updates it. Both inputs read from the same source through
-   subscriptions; both write to it through the same event. No bidirectional
-   wiring; the architecture eliminates the trap.
+   The re-frame2 solution: *one source of truth* in app-db, plus *one event*
+   that updates it. Both inputs read from that source through subscriptions
+   and write to it through the same event. The fields never touch each other,
+   so the trap never arises.
 
    Demonstrates:
    - Single source of truth in app-db                    (Goal 7 / application-state)
@@ -45,11 +45,10 @@
    [:input-source [:enum :celsius :fahrenheit]]
    [:typing       :string]])              ;; the literal text the user is typing
 
-;; EP-0002: reg-app-schema is context-required frame-local; a
-;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (the id the render root's `frame-provider {:id …}` establishes),
-;; so name it explicitly so the schema binds to the app frame whose commits it
-;; validates.
+;; A schema is frame-local, so it binds inside a frame. The render root's
+;; `frame-provider {:id …}` runs this app in `:rf/default`, so we name that
+;; frame here and register the schema against it. Every commit to its
+;; `[:temp]` slice is then validated.
 (with-frame :rf/default
   (rf/reg-app-schema [:temp] {:schema TempState}))
 
@@ -166,20 +165,21 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. So the boot below does two things in order: `init!` installs
-;; the adapter (it does NOT create the frame), then the render's
-;; `frame-provider {:id app-frame}` does the rest in one spot — on first
-;; mount it CREATES the app frame, applies its config, and runs
-;; `:initial-events` once to seed it; thereafter every in-tree
-;; `dispatch`/`subscribe` resolves to that frame. On hot reload the provider
-;; REUSES the existing frame and does NOT re-seed. Matches the canonical
-;; mount in examples/reagent/counter/core.cljs.
+;; The whole frame lifecycle lives in one spot at the render root: the
+;; `frame-provider {:id app-frame …}` below. On first mount it creates the
+;; app frame, applies its config, and runs `:initial-events` once to seed
+;; app-db. Thereafter every `dispatch`/`subscribe` in the tree resolves to
+;; that frame. On hot reload the provider reuses the existing frame and
+;; skips re-seeding, so the converter keeps its value across re-mounts.
+;;
+;; `app-frame` is just an id we pick. The runtime won't infer it, so we name
+;; it here and hand it to the provider. Matches the canonical mount in
+;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; `init!` installs the reactive adapter for the process. Each adapter ns
+  ;; exports an `adapter` var; require the ns and pass that var directly.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

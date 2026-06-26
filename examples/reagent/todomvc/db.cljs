@@ -69,9 +69,8 @@
   "Read the saved TodoMVC items from localStorage, normalised to a sorted-map —
    the supplier body for the `:todo.storage/todos` recordable coeffect. nil/empty
    localStorage (first run, or a server with no localStorage) yields an empty
-   sorted-map, so it never clobbers `default-db`'s `(sorted-map)` — which would
-   break allocate-next-id's `(last (keys todos))` max-id invariant once the map
-   promotes to an unordered PersistentHashMap past 8 entries."
+   sorted-map. A sorted-map matters: allocate-next-id picks the max id via
+   `(last (keys todos))`, which only holds while the map stays sorted."
   []
   (or (some-> (.-localStorage js/globalThis)
               (.getItem ls-key)

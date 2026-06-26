@@ -4,13 +4,11 @@
 
    The one idea: a load-more / infinite-scroll timeline is ONE growing resource
    the runtime owns. The view reads the merged list passively and dispatches a
-   single CAUSAL `:rf.resource/load-more`; it never threads a cursor and never
-   writes an append reducer. Composed as proper re-frame2: a `reg-resource` with
-   `:infinite true`, owned by the route, read through the PASSIVE infinite
-   subscription family. There is no app-db list slice, no `:loading-more?` flag,
-   no cursor threading, and no append reducer — the runtime owns all of it (that
-   is the whole point of the primitive: without it, an app hand-rolls every one
-   of those by hand).
+   single CAUSAL `:rf.resource/load-more`. The runtime holds the page list, the
+   cursor, the in-flight flag, and the append — so the app writes none of them.
+   Composed as proper re-frame2: a `reg-resource` with `:infinite true`, owned
+   by the route, read through the PASSIVE infinite subscription family. That is
+   the whole point of the primitive — without it, an app hand-rolls all of that.
 
    It teaches, in one cohesive app, the four facts the primitive surfaces:
 
@@ -19,11 +17,11 @@
      ONE cache entry. Route entry ensures PAGE 0; the view reads the merged
      list passively.
    - LOAD-MORE IS A CAUSAL EVENT — the \"Load more\" button dispatches
-     `[:rf.resource/load-more …]`. The view never fetches and never advances
-     a cursor; the runtime derives the next page param from the loaded tail.
-     It carries a `:cause` but NO `:owner` — the ROUTE already owns the feed
-     for its lifetime; load-more extends that one owned entry, it does not
-     mint a second owner (owner keeps alive; cause explains why).
+     `[:rf.resource/load-more …]` and the runtime derives the next page param
+     from the loaded tail. The event carries a `:cause` but NO `:owner`: the
+     ROUTE already owns the feed for its lifetime, so load-more extends that one
+     owned entry rather than minting a second owner (owner keeps it alive; cause
+     explains why it grew).
    - THE TERMINAL IS `nil` — `:next-page-param` returning nil is the single
      end-of-feed signal; the view reads `:has-next-page?` and shows an
      end-of-feed marker instead of the button.
@@ -164,8 +162,8 @@
 ;; cursor-paginated server would produce, so the feed lifecycle (page-0 ensure,
 ;; load-more cursor derivation, in-flight dedupe, the nil terminal) runs end to
 ;; end. It delegates to the framework-shipped `:rf.http/managed-canned-success`
-;; with `:after-ms` so the reply rides framework `:dispatch-later` (tape-
-;; visible, time-travel-safe, NOT raw js/setTimeout). Mirrors
+;; with `:after-ms`, so the reply rides framework `:dispatch-later` and stays
+;; tape-visible and time-travel-safe. Mirrors
 ;; examples/reagent/resources/core.cljs's stub.
 
 (def ^:private total-items 26)
@@ -176,9 +174,8 @@
          {:id i :title (str "Activity item #" (inc i))})))
 
 (def ^:private demo-reply-delay-ms
-  "How long the demo stub defers each canned reply (via the canned-success fx's
-   `:after-ms`, dispatched through `:dispatch-later` — tape-visible, NOT raw
-   js/setTimeout). Small but non-zero so the load-more spinner is observable. A
+  "How long the demo stub defers each canned reply (the canned-success fx's
+   `:after-ms`). Small but non-zero so the load-more spinner is observable. A
    demo-seam knob, not a production value."
   140)
 
@@ -193,12 +190,11 @@
     {:items     items
      :page-info {:next-cursor (when (< next total-items) next)}}))
 
-;; The resource runtime lowers every page fetch onto `:rf.http/managed`; this
-;; override stands in for the backend. It synthesises the per-cursor page and
-;; delegates to `:rf.http/managed-canned-success` (calling it via the registrar
-;; with `:after-ms` so the canned reply rides framework `:dispatch-later`, and
-;; the reply addressing the resource runtime put on the args-map — the PAGE
-;; reply handlers — is preserved).
+;; This override stands in for the backend. It synthesises the per-cursor page,
+;; then hands the rest to `:rf.http/managed-canned-success` via the registrar,
+;; adding `:after-ms` so the reply rides framework `:dispatch-later`. It reuses
+;; the incoming args-map, which keeps the reply addressing (the PAGE reply
+;; handlers the resource runtime set) intact.
 (rf/reg-fx :infinite-feed.demo/http-stub
   {:doc       "Demo override for `:rf.http/managed`: synthesises one enveloped
                page per request cursor so the feed runs standalone, then
@@ -273,12 +269,11 @@
        [:p {:data-testid "feed-skeleton"} "Loading the feed…"]
 
        ;; First load (page 0) failed with no usable data → full error screen.
-       ;; A page-0 FIRST-load failure with no accumulated pages settles the
-       ;; first-load `:error` channel + `:status :error` (Spec 016 §Status
-       ;; semantics — `:error` is reserved for first-load failure), exactly
-       ;; like a scalar resource; it is NOT the `:page-error` load-more channel
-       ;; (which is reserved for a page N>0 failure that keeps the feed). The
-       ;; whole-feed `:refresh-error` channel stays nil here.
+       ;; A page-0 failure with no accumulated pages settles the first-load
+       ;; `:error` channel + `:status :error` (Spec 016 §Status semantics —
+       ;; `:error` is reserved for first-load failure), exactly like a scalar
+       ;; resource. This is a different axis from `:page-error`, which a
+       ;; load-more (page N>0) failure uses while keeping the feed.
        (:error feed)
        [:p.error {:data-testid "feed-error"} "Could not load the feed."]
 
@@ -293,19 +288,19 @@
 
         ;; A LOAD-MORE failure (page N>0 — we have data) keeps every page
         ;; visible and surfaces :page-error — the inline "couldn't load more —
-        ;; retry" affordance (the THIRD error channel, distinct from the
-        ;; first-load :error full-screen above; a load-more failure never
-        ;; collapses the feed).
+        ;; retry" affordance. This is the THIRD error channel: a load-more
+        ;; failure leaves the feed intact, unlike the first-load :error
+        ;; full-screen above.
         (when (:page-error feed)
           [:p.warn {:data-testid "feed-page-error"}
            "Couldn't load more — tap retry."])
 
         ;; The load-more affordance: a spinner while a page is in flight, the
         ;; button while there is a next page, an end-of-feed marker otherwise.
-        ;; The view NEVER advances the cursor — it dispatches one causal event
-        ;; (a `:cause`, NO `:owner`: the route already owns the feed, load-more
-        ;; just extends it) and the runtime derives the next page param from
-        ;; the loaded tail.
+        ;; The button dispatches one causal event and the runtime derives the
+        ;; next page param from the loaded tail. The event carries a `:cause`
+        ;; but no `:owner` — the route already owns the feed, so load-more just
+        ;; extends it.
         (cond
           (:fetching-next? feed)
           [:p {:data-testid "feed-loading-more"} "Loading more…"]
@@ -337,16 +332,15 @@
 ;; ============================================================================
 ;;
 ;; The React root is materialised lazily inside `run` (not at ns-load) per
-;; examples/TESTING.md §Example mount-isolation convention. EP-0002 + EP-0024:
-;; the app establishes its frame in ONE spot — the render-root
-;; `frame-provider {:id …}` ENSURE shape. On first mount it CREATES the
-;; `app-frame`, applies its config (declares `:url-bound? true` so it owns the
-;; browser URL, overrides `:rf.http/managed` with the per-cursor canned stub so
-;; the example runs standalone), and scopes that frame so every in-tree
-;; dispatch/subscribe resolves to it. On hot reload it REUSES the same frame
-;; without re-creating it. There is no separate `reg-frame` step and no boot
-;; seed: route entry's `:resources` plan ensures PAGE 0, so the feed needs no
-;; `:initial-events`.
+;; examples/TESTING.md §Example mount-isolation convention. The app establishes
+;; its frame in ONE spot: the render-root `frame-provider {:id …}` (EP-0002 +
+;; EP-0024). On first mount the provider CREATES the `app-frame` and applies its
+;; config — `:url-bound? true` so the frame owns the browser URL, and the
+;; `:rf.http/managed` override that points page fetches at the canned stub so the
+;; example runs standalone. The provider also scopes that frame, so every in-tree
+;; dispatch/subscribe resolves to it. On hot reload it REUSES the same frame.
+;; The feed itself needs no boot seed: route entry's `:resources` plan ensures
+;; PAGE 0, so the frame carries no `:initial-events`.
 
 (defonce react-root (atom nil))
 
@@ -358,9 +352,8 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; ENSURE shape (EP-0024): CREATE the app frame on first mount with its
-    ;; config, REUSE it on hot reload without re-seeding. The route's
-    ;; `:resources` plan ensures PAGE 0, so there are no `:initial-events`.
+    ;; The provider creates the app frame (with its config) on first mount and
+    ;; reuses it on hot reload. Route entry ensures PAGE 0, so no `:initial-events`.
     (rdc/render @react-root
                 [rf/frame-provider {:id           app-frame
                                     :doc          "Infinite-feed demo frame."

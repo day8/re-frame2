@@ -61,21 +61,19 @@
 
 ;; -- The live-app frame ----------------------------------------------------
 ;;
-;; The live `#/` surface needs the example's demo HTTP override on its
-;; frame so `:rf.http/managed` routes to the in-process
-;; `:nine-states.http/managed-demo` stub (no backend). This mirrors what
-;; `nine-states.core/run` installs on `:rf/default`; we register it here
-;; so the host owns the full boot (the host does not call
-;; `core/run`, which hardcodes its own stock-Reagent mount lifecycle).
+;; This host owns its own boot; it does not call `core/run` (which carries
+;; its own stock-Reagent mount lifecycle). So it registers the live-app
+;; frame here. The frame gives the live `#/` surface the example's demo HTTP
+;; override, routing `:rf.http/managed` to the in-process
+;; `:nine-states.http/managed-demo` stub (no backend).
 
 (defn- install-live-frame! []
   (rf/reg-frame :rf/default
     {:doc          "Nine-states showcase live-app frame."
      :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
-  ;; EP-0002: `init!` installs the adapter only — a frameless
-  ;; `dispatch-sync` raises `:rf.error/no-frame-context`. Run the seed
-  ;; dispatch inside the showcase's `:rf/default` frame scope (symmetric to
-  ;; nine_states.core/run, which wraps its initialise in `with-frame`).
+  ;; Seed the frame. `dispatch-sync` runs inside `with-frame :rf/default` so
+  ;; it targets that frame (a frameless dispatch raises
+  ;; `:rf.error/no-frame-context`, EP-0002).
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:nine-states.app/initialise])))
 
@@ -90,13 +88,11 @@
     " on either surface to open Xray and inspect the fetch cascade."]
    [core/root-view]])
 
-;; EP-0002: the runtime never synthesises a frame from absence,
-;; so the live-app `#/` surface must render under an explicit frame scope. The
-;; Story shell side (`#/stories`) allocates its own per-variant frames; this
-;; wrapper scopes only the live-app surface to the showcase's `:rf/default`
-;; frame so `nine-states-app`'s reg-view-injected dispatch/subscribe (and
-;; `core/root-view`'s subs) resolve. Passed to the shared story-host as the
-;; live-app root view (mirrors counter-with-stories.core).
+;; Scope the live `#/` surface into the showcase's `:rf/default` frame, so
+;; `nine-states-app`'s reg-view-injected dispatch/subscribe (and
+;; `core/root-view`'s subs) resolve to it (EP-0002). The Story shell side
+;; (`#/stories`) allocates its own per-variant frames. Passed to the shared
+;; story-host as the live-app root view (mirrors counter-with-stories.core).
 (defn live-app-root []
   [rf/frame-provider {:frame :rf/default} [nine-states-app]])
 

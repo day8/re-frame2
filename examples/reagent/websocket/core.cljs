@@ -76,16 +76,15 @@
 
 (defonce react-root (atom nil))
 
-;; EP-0002: under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame).
-;; The render root then uses the `frame-provider` ENSURE shape (`{:id ...}`):
-;; on first mount it creates the app frame, applies its config, and runs the
-;; `:initial-events` seed ONCE; on hot reload it reuses the existing frame
-;; without re-seeding. Everything — create, seed, and scope-into-React —
-;; happens in that one spot. The frame id is `:rf/default` — the same id
-;; `schema.cljs` scopes its `reg-app-schema` registration to. Matches the
-;; canonical mount in examples/reagent/counter/core.cljs.
+;; The frame lives in one spot: the `frame-provider` at the render root.
+;; `run` calls `init!` to install the adapter, then renders
+;; `[frame-provider {:id ...} ...]`. The provider's `{:id}` shape creates
+;; the app frame on first mount, applies its config, and runs the
+;; `:initial-events` seed once; on hot reload it reuses that frame and
+;; skips the seed. So create, seed, and scope-into-React all happen there.
+;; The frame id is `:rf/default` — the same id `schema.cljs` scopes its
+;; `reg-app-schema` to. Matches the canonical mount in
+;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []

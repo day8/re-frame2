@@ -19,8 +19,9 @@
 ;; -- Events / subs (the registrar is process-global) -------------------------
 ;;
 ;; Each handler is a pure (coeffects, event-vector) -> effect map fn. It
-;; doesn't perform the change; it returns `{:db …}` ("replace app-db with
-;; this") and the runtime commits it atomically at the end of the cascade.
+;; returns a description of the change — `{:db …}` means "replace app-db
+;; with this" — and the runtime commits it atomically at the end of the
+;; cascade. The handler computes the new value; it never mutates app-db.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -37,16 +38,15 @@
 ;; -- Views -------------------------------------------------------------------
 ;;
 ;; A view is a pure fn from subscription values to hiccup. This one reads
-;; state by dereffing a `subscribe` and dispatches an event on click —
-;; no business logic; the inc/dec live in the handlers above.
+;; state by dereffing a `subscribe` and dispatches an event on click. It
+;; holds no business logic — the inc/dec live in the handlers above.
 ;;
-;; Per Spec 004 §reg-view, the defn-shape macro auto-injects `dispatch`
-;; and `subscribe` as lexical bindings (so they aren't imported here);
-;; both resolve at render time to the frame in scope — see the boot
-;; below, where `frame-provider {:id app-frame}` scopes this tree to the
-;; app frame. The macro also auto-defs a Var named after the supplied
-;; symbol and registers the view under (keyword *ns* sym), so
-;; `counter-app` can reference it directly.
+;; `reg-view` (Spec 004 §reg-view) auto-injects `dispatch` and `subscribe`
+;; as lexical bindings, so they need no require here. Both resolve at
+;; render time to the frame in scope — the `frame-provider` in the boot
+;; below scopes this tree to the app frame. `reg-view` also defs a Var
+;; named after the symbol and registers the view under (keyword *ns* sym),
+;; so `counter-app` can reference `counter-buttons` directly.
 
 (reg-view counter-buttons []
   [:div
@@ -54,9 +54,8 @@
    [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
-;; The root `counter-app` view just renders `counter-buttons`; the boot
-;; in `run` scopes the whole tree to `app-frame` and seeds it via the
-;; provider's `:initial-events`.
+;; The root `counter-app` view just renders `counter-buttons`. The boot in
+;; `run` wraps this tree in the `frame-provider` that establishes the frame.
 
 (reg-view counter-app []
   [counter-buttons])
@@ -70,24 +69,21 @@
 
 (defonce react-root (atom nil))
 
-;; The runtime never synthesises a frame from absence — an app must
-;; establish its frame explicitly. So the boot below does two things in
-;; order: `init!` installs the adapter (it does NOT create the frame),
-;; then the render's `frame-provider {:id app-frame}` does the rest in
-;; one spot — on first mount it CREATES the app frame, applies its
-;; config, and runs `:initial-events` once to seed it; thereafter every
-;; in-tree `dispatch`/`subscribe` resolves to that frame. On hot reload
-;; the provider REUSES the existing frame and does NOT re-seed.
+;; The whole frame lifecycle lives in one spot at the render root: the
+;; `frame-provider {:id app-frame …}` below. On first mount it creates the
+;; app frame, applies its config, and runs `:initial-events` once to seed
+;; app-db. Thereafter every `dispatch`/`subscribe` in the tree resolves to
+;; that frame. On hot reload the provider reuses the existing frame and
+;; skips re-seeding, so the counter keeps its value across re-mounts.
 ;;
-;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
-;; migration may reach for it out of habit, but the runtime won't infer
-;; it; you establish it like any other.
+;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
+;; with no framework privilege — the runtime won't infer it, so we name it
+;; here and hand it to the provider like any other id.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; rf/init! takes the adapter spec map directly. Each adapter
-  ;; ns exports an `adapter` var; consumers require the ns and pass the
-  ;; var explicitly. There is no default-adapter registry.
+  ;; `init!` installs the reactive adapter for the process. Each adapter ns
+  ;; exports an `adapter` var; require the ns and pass that var directly.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

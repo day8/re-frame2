@@ -181,7 +181,7 @@
 ;; owner `[:route route-id nav-token]` and ensures it with cause
 ;; `[:route-entry route-id nav-token]`; on route leave it releases the
 ;; owner by token and suppresses any stale reply by generation. The view
-;; never fetches — it only reads.
+;; only reads — the fetch is caused for it.
 
 (rf/reg-route :resources.app/home
   {:doc  "Landing page."} "/")
@@ -502,22 +502,20 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; The React root is materialised lazily inside `run` (not at ns-load) per
-;; examples/TESTING.md §Example mount-isolation convention. The app frame is
-;; CREATED + CONFIGURED in ONE spot — the render-root `frame-provider {:id …}`
-;; (ENSURE shape): it creates the frame on first mount, applies its config
-;; (`:url-bound? true` so it owns the browser URL, plus the HTTP-stub
-;; override), and on hot reload REUSES the same frame WITHOUT re-creating or
-;; re-seeding it. Every in-tree dispatch/subscribe resolves to it. The
-;; framework `install-history-listener!` does the initial URL→slice sync and
-;; popstate handling, targeted at the URL owner.
+;; `run` materialises the React root lazily on first call (the mount-isolation
+;; convention in examples/TESTING.md). The app frame is created + configured in
+;; one spot: the render-root `frame-provider {:id …}` (the ENSURE shape). On
+;; first mount it creates the frame and applies its config — `:url-bound? true`
+;; so the frame owns the browser URL, plus the HTTP-stub override. On hot reload
+;; it reuses that same frame as-is. Every in-tree dispatch/subscribe resolves to
+;; it. `install-history-listener!` does the initial URL→slice sync and popstate
+;; handling, targeted at the URL owner.
 
 (defonce react-root (atom nil))
 
-;; `:rf/default` is an ORDINARY frame id with no framework privilege — `init!`
-;; does not create it. This app earns URL ownership by DECLARING `:url-bound?
-;; true` on the ENSURE `frame-provider` below, not by naming the frame
-;; anything special.
+;; The id this app's frame is created under. `:rf/default` is an ordinary frame
+;; id (it carries no special privilege); URL ownership comes from `:url-bound?
+;; true` on the `frame-provider` below, not from the id.
 (def app-frame :rf/default)
 
 (defn run []
@@ -526,12 +524,11 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; ENSURE shape ({:id …}): create + configure the app frame in this ONE
-    ;; spot, reuse-without-reseed on hot reload. The `:fx-overrides` routes
-    ;; every `:rf.http/managed` resource ensure to the per-URL canned stub
-    ;; above — the example runs standalone with no backend. The override
-    ;; applies frame-wide; this example issues no non-mocked requests, so a
-    ;; blanket override is the right grain.
+    ;; The `frame-provider {:id …}` creates and configures the app frame.
+    ;; `:fx-overrides` routes every `:rf.http/managed` resource ensure to the
+    ;; per-URL canned stub above, so the example runs standalone with no backend.
+    ;; The override applies frame-wide; this example issues no non-mocked
+    ;; requests, so a blanket override is the right grain.
     (rdc/render @react-root
                 [rf/frame-provider {:id           app-frame
                                     :doc          "Resources demo frame."

@@ -10,8 +10,8 @@
      - `rf/init!` with the Helix adapter
      - `reg-event` / `reg-sub` (substrate-agnostic)
      - `use-subscribe` hook (Helix idiomatic)
-     - `(:dispatch (rf/frame-handle))` for click handlers (components
-       call dispatch / use-subscribe directly, no auto-injection)
+     - `(:dispatch (rf/frame-handle))` for click handlers — the
+       component reads its own sub and takes its own dispatch
      - The shared frame-context — the same React Context
        object the Reagent and UIx adapters consume
 
@@ -67,16 +67,15 @@
 ;; ABOVE this divider and differ only in what sits BELOW it (Reagent
 ;; `reg-view`, UIx `defui` + `use-subscribe`, Helix `defnc` + `use-subscribe`).
 ;;
-;; `reg-view` (the macro) stays Reagent-only;
-;; Helix users write `defnc` directly. There is no auto
-;; injection — the component calls `use-subscribe` and takes
-;; `dispatch` off a `(rf/frame-handle)` explicitly. The handle
+;; Helix users write `defnc` directly (the `reg-view` macro stays
+;; Reagent-only). The component reads its sub with `use-subscribe`
+;; and takes `dispatch` off a `(rf/frame-handle)` itself. The handle
 ;; captures the render-time frame, so the closed-over `dispatch`
 ;; targets the right frame even from an async callback.
 
 (defnc counter-buttons []
   (let [count    (helix-adapter/use-subscribe [:counter/value])  ;; read: re-renders when :counter/value moves
-        dispatch (:dispatch (rf/frame-handle))]                  ;; write: dispatch off a handle, no auto-injection
+        dispatch (:dispatch (rf/frame-handle))]                  ;; write: take dispatch off the render-time handle
     (d/div
        (d/button {:on-click #(dispatch [:counter/dec])} "-")
        (d/span {:style {:margin "0 1em"} :data-testid "counter-value"} count)
@@ -94,27 +93,22 @@
 
 (defonce react-root (atom nil))
 
-;; The runtime never synthesises a frame from absence — an app must establish
-;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame); the Helix `frame-provider` does everything else in ONE spot. Given an
-;; `:id`, the provider CREATES the frame on first mount, applies its config, and
-;; runs `:initial-events` exactly once to seed it. On hot reload it REUSES the
-;; existing frame WITHOUT re-seeding, so the count you were looking at survives.
-;; That context is what lets the `use-subscribe` hook and the render-time
-;; `(rf/frame-handle)` capture resolve to the app frame. There is no `:rf/default`
-;; floor: a Helix tree rendered with NO provider observes the no-provider sentinel
-;; and any `use-subscribe` / `frame-handle` raises `:rf.error/no-frame-context`.
-;;
-;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
-;; migration may reach for it out of habit, but the runtime won't infer it.
+;; The frame id this app runs in. `:rf/default` is an ordinary id with no
+;; framework privilege; we just pick it. The provider below builds the frame
+;; under this id and the `use-subscribe` hook + render-time `(rf/frame-handle)`
+;; resolve to it.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the Helix adapter. Pass the adapter spec map directly — no registry.
   (rf/init! helix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
+    ;; The frame lives in one spot: the provider. Given `:id`, it creates the
+    ;; frame on first mount and runs `:initial-events` once to seed it. On hot
+    ;; reload it reuses the existing frame and skips seeding, so the count you
+    ;; were looking at survives.
     (.render @react-root
              ($ helix-adapter/frame-provider {:id app-frame
                                               :initial-events [[:counter/initialise]]}

@@ -21,16 +21,15 @@
    that path; the dedicated worked demo of resource SSR preload + hydration is
    `examples/reagent/resources_ssr/`.)
 
-   The SESSION-scoped personalised feed is now ALSO a declarative route
-   resource (EP-0016 D3): the home route declares it with `:scope {:from-db
+   The SESSION-scoped personalised feed is a declarative route resource too
+   (EP-0016 D3): the home route declares it with `:scope {:from-db
    :realworld/session}`, a named-resolver reference (see scope.cljs) the runtime
-   resolves against the navigation handler's app-db at route entry — so the
+   resolves against the navigation handler's app-db at route entry. So the
    route owns the feed under its nav-token and releases it on leave, exactly
-   like the public reads. This retires the prior `:home/on-match` event +
-   app-minted lease the variant needed before named scope resolvers existed (a
-   route `:scope` resolver couldn't see app-db, so the feed had to be ensured
-   from an event that could). Logged out, the reference resolves nil and the
-   feed entry is simply not planned (fail-closed — no feed to load).
+   like the public reads — the named resolver lets a route `:scope` derive from
+   app-db, so a session read joins the same declarative route plan as the
+   public ones. Logged out, the reference resolves nil and the feed entry is
+   simply not planned (fail-closed — no feed to load).
 
    The resources artefact LATE-BINDS the `:resources` route-metadata key into
    routing, so loading both `re-frame.resources` and `re-frame.routing` is what
@@ -77,11 +76,11 @@
    ;; The personalised feed — a declarative route resource scoped by the
    ;; named `{:from-db :realworld/session}` resolver (EP-0016 D3). The runtime
    ;; resolves the scope against the navigation handler's app-db at route
-   ;; entry, owns it under the route nav-token, and releases it on leave —
-   ;; replacing the prior `:home/on-match` event + app-minted lease. Logged
-   ;; out the reference resolves nil, so the feed is simply not planned (no
-   ;; scope, no fetch — the feed never leaks across users). The `?page=` flows
-   ;; into params here like every other paginated list.
+   ;; entry, owns it under the route nav-token, and releases it on leave, just
+   ;; like the public reads above. Logged out the reference resolves nil, so
+   ;; the feed is simply not planned (no scope, no fetch — the feed never leaks
+   ;; across users). The `?page=` flows into params here like every other
+   ;; paginated list.
    {:resource  :realworld/feed
     :scope     {:from-db :realworld/session}
     ;; Default to page 1 — the feed subscription reads `(or (:page q) 1)`
@@ -96,8 +95,8 @@
            feed (the official-contract token — NOT `?feed=your`) and `?page=`
            paginates — both flow into the resources' params. `:keep-previous?`
            keeps the prior page visible while the next first-loads (no
-           flicker). The tag filter is its own `/tag/:tag` PATH route below
-           (route-shape conformance — no `?tag=` query)."
+           flicker). The tag filter is its own `/tag/:tag` PATH route below —
+           the tag is a route param, matching the official Conduit route shape."
    :query [:map
            [:feed {:optional true} :string]
            [:page {:optional true} :int]]
@@ -106,10 +105,10 @@
 
 (rf/reg-route :realworld/home-tag
   {:doc   "The tag-filtered article list at the official RealWorld `/tag/:tag`
-           PATH route (replacing the prior `?tag=` query). The
-           active tag is a route PARAM that flows into the articles resource's
-           params, so each tag is a distinct cache entry; `?page=` paginates
-           within it (`/tag/:tag?page=2`). Same three reads as the home route."
+           PATH route. The active tag is a route PARAM that flows into the
+           articles resource's params, so each tag is a distinct cache entry;
+           `?page=` paginates within it (`/tag/:tag?page=2`). Same three reads
+           as the home route."
    :params [:map [:tag :string]]
    :query  [:map [:page {:optional true} :int]]
    :scroll :top

@@ -63,7 +63,7 @@
 ;; ============================================================================
 ;;
 ;; The tick chain is driven by `:dispatch-later`, which has no cancel API.
-;; If `run` / `:process-monitor/initialise` is invoked more than once in the same JS
+;; If `:process-monitor/initialise` is dispatched more than once in the same JS
 ;; runtime (a shadow watch reload, a manual re-init, a future browser wrapper,
 ;; or any harness that calls the entrypoint repeatedly), a naive chain would
 ;; leave the prior chain's ticks still firing — every stale cascade would keep
@@ -232,9 +232,9 @@
       ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu totals) 1) "%")})
       ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
-;; First dispatching view. To dispatch, grab `dispatch` off a frame-handle —
+;; First dispatching view. To dispatch, grab `dispatch` off a frame-handle:
 ;; `(rf/frame-handle)` captures the current frame as a value, so the click
-;; handler dispatches into this app's frame, not some ambient default.
+;; handler dispatches into this app's frame.
 (defnc level-chips []
   (let [active   (helix-adapter/use-subscribe [:process-monitor/level-filter])
         dispatch (:dispatch (rf/frame-handle))]
@@ -300,18 +300,18 @@
                       :entry entry}))))))
 
 (defnc monitor []
-  ;; The recurring tick loop is owned by this component's lifecycle, not by
-  ;; `run`. `(:dispatch (rf/frame-handle))` is captured at render-time so it
-  ;; carries the surrounding frame into the (post-commit) effect body and
-  ;; cleanup — see the Helix adapter README §use-effect. Empty deps ⇒ the
-  ;; effect runs once on mount and the cleanup runs once on unmount.
+  ;; This component owns the recurring tick loop: mount arms it, unmount stops
+  ;; it. `(:dispatch (rf/frame-handle))` is captured at render-time so it carries
+  ;; the surrounding frame into the (post-commit) effect body and cleanup — see
+  ;; the Helix adapter README §use-effect.
   (let [dispatch (:dispatch (rf/frame-handle))]
     (helix-hooks/use-effect
       ;; Empty deps ⇒ run once on mount, clean up once on unmount.
       []
       ;; Mount: (re-)arm the loop. Idempotent — the `:process-monitor/tick-gen`
-      ;; guard retires any chain `run` already started, so exactly one
-      ;; live chain survives, and a hot-reload re-mount re-arms cleanly.
+      ;; guard retires any chain already in flight (from the provider's seed, or
+      ;; a prior mount), so exactly one live chain survives and a hot-reload
+      ;; re-mount re-arms cleanly.
       (dispatch [:process-monitor/initialise])
       ;; Unmount: retire the live chain so it never dispatches into a frame
       ;; that is no longer rendered.
@@ -339,28 +339,26 @@
 ;; This matches the sibling notebook / dashboard_uix mount shape.
 (defonce react-root (atom nil))
 
-;; The runtime never synthesises a frame from absence — an app must establish
-;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame). The Helix `frame-provider` does the rest in one spot: the `{:id …}`
-;; ENSURE form CREATES the app frame on first mount, then runs `:initial-events`
-;; ONCE to seed it. On hot reload it REUSES the existing frame without
-;; re-seeding. The `use-subscribe` hook and the render-time `(rf/frame-handle)`
-;; capture inside `monitor` (the tick-loop arm/stop dispatches) resolve to that
-;; frame via React context. There is no `:rf/default` floor.
+;; The frame id this app runs under. The Helix `frame-provider` at the render
+;; root (in `run` below) does the frame work in one spot: it creates this frame,
+;; seeds app-db, and scopes the frame into React context. The `use-subscribe`
+;; hook and the render-time `(rf/frame-handle)` capture inside `monitor` (the
+;; tick-loop arm/stop dispatches) resolve to that frame via the context.
 (def app-frame :rf/default)
 
 (defn run []
+  ;; `init!` installs the Helix adapter so re-frame2 knows how to render.
   (rf/init! helix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    ;; One-spot frame setup: `{:id app-frame}` ensures the frame exists (creating
-    ;; it on first mount) and `:initial-events` seeds it exactly once. The seed
-    ;; arms the first tick; the `monitor` component's mount `use-effect` re-arms
-    ;; (idempotently, via the `:process-monitor/tick-gen` guard) so the loop is
-    ;; owned by the component lifecycle from then on — unmount stops it (see
-    ;; `:process-monitor/stop`). Reuse-no-reseed on reload keeps the running
-    ;; clock/logs intact across hot reloads.
+    ;; The `frame-provider` is the one spot the frame is set up. `{:id …}`
+    ;; creates the app frame on first mount and runs `:initial-events` once to
+    ;; seed app-db; a hot reload reuses the same frame without re-seeding so the
+    ;; running clock/logs stay intact. The seed arms the first tick; from then on
+    ;; the loop is owned by the `monitor` component lifecycle — its mount
+    ;; `use-effect` re-arms idempotently (the `:process-monitor/tick-gen` guard)
+    ;; and unmount stops it (see `:process-monitor/stop`).
     (.render @react-root
              ($ helix-adapter/frame-provider {:id app-frame
                                               :initial-events [[:process-monitor/initialise]]}

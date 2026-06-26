@@ -26,20 +26,20 @@
 ;; ============================================================================
 
 (reg-view ^{:doc "The login form view. The email + password DRAFT is application
-                  state, so it lives in app-db (the `:auth.login/draft` slice),
-                  NOT a view-local atom — projected via the `:auth.login/draft`
-                  sub, mutated via the `:auth.login/edit-field` event. The inputs
-                  are CONTROLLED: `:value` reads from the draft sub, `:on-change`
-                  DISPATCHES an edit-field event (it never sets view-local state).
-                  Submit reads the draft back out of the sub and hands it to the
-                  machine via :auth.login/flow → :auth.login/submit.
+                  state, so it lives in app-db (the `:auth.login/draft` slice):
+                  read via the `:auth.login/draft` sub, written via the
+                  `:auth.login/edit-field` event. The inputs are CONTROLLED —
+                  `:value` reads from the draft sub, `:on-change` dispatches an
+                  edit-field event. Submit reads the draft back out of the sub
+                  and hands it to the machine via :auth.login/flow →
+                  :auth.login/submit.
 
                   The machine owns submit/auth STATUS; the slice owns the DRAFT
                   (Pattern-Forms §Variations: machine + slice). View-side
-                  discriminators read the machine's runtime-projected `:tags` set
-                  (chapter §State tags) via `rf/machine-has-tag?`, not boolean
-                  state-predicate subs — so adding a new busy-ish state changes
-                  no view."}
+                  discriminators ask the machine for a tag via
+                  `rf/machine-has-tag?` (chapter §State tags), reading its
+                  runtime-projected `:tags` set rather than the current state
+                  keyword — so adding a new busy-ish state changes no view."}
           login-form []
   (let [busy?   @(rf/machine-has-tag? :auth.login/flow :auth/busy)
         locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)
@@ -114,23 +114,24 @@
 (defonce react-root (atom nil))
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the Reagent adapter — pass its spec map straight to init!.
   (rf/init! reagent-adapter/adapter)
-  ;; One spot creates, configures and seeds the app frame: the ENSURE form
-  ;; `frame-provider {:id …}`. On first mount it CREATES the `:rf/default`
-  ;; frame, applies the config, and runs `:initial-events` once; on hot reload
-  ;; it REUSES the same frame WITHOUT re-seeding. The `reg-view`-injected
-  ;; `dispatch`/`subscribe` (and the login machine reads) resolve to it.
+  ;; `frame-provider {:id …}` is the one spot that creates, configures and
+  ;; seeds the app frame. On first mount it creates the `:rf/default` frame,
+  ;; applies the config, and runs `:initial-events` once. On hot reload it
+  ;; reuses that frame and skips re-seeding, so your typed-in draft survives.
+  ;; The `reg-view`-injected `dispatch`/`subscribe` (and the login machine
+  ;; reads) resolve to this frame.
   ;;
-  ;; `:fx-overrides` installs the canned-failure stub so every
-  ;; `:rf.http/managed` request resolves :failure — the chapter's lockout
-  ;; scenario depends on three consecutive failures.
+  ;; `:fx-overrides` swaps `:rf.http/managed` for the canned-failure stub, so
+  ;; every login request fails — the chapter's lockout scenario needs three
+  ;; failures in a row.
   ;;
-  ;; The login machine is self-initialising; the form DRAFT slice is not, so it
-  ;; is seeded via `:initial-events` BEFORE first render — the controlled inputs
-  ;; read `:value` off `[:auth :login-form :draft]`, so the slot must exist as
-  ;; empty strings on the first paint (a nil there would make React treat the
-  ;; inputs as uncontrolled).
+  ;; The login machine spawns itself on its first event. The form DRAFT slice
+  ;; does not, so `:initial-events` seeds it before first render: the controlled
+  ;; inputs read `:value` off `[:auth :login-form :draft]`, and that slot must
+  ;; already hold empty strings (a nil there makes React treat the inputs as
+  ;; uncontrolled).
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

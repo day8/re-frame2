@@ -31,17 +31,9 @@
             [counter-slim-and-fast.bundle-isolation-fixture :as fixture]))
 
 (defn run []
-  ;; Delegate to the ONE canonical boot in `core/boot!` (init the slim adapter,
-  ;; then lazily mount under a `frame-provider {:id …}` that creates + seeds the
-  ;; app frame in one spot). There is no copied boot sequence to drift from
-  ;; `core/run`. The only fixture concern is woven in via the `on-frame`
-  ;; pre-mount hook:
-  ;;
-  ;; Bundle-isolation fixture, not app practice. The static render derefs
-  ;; `[:counter/value]`, so it must run inside a frame scope; `boot!` opens a
-  ;; transient one for the hook (before the client mount). It caches an orphaned
-  ;; reaction with no component to unmount it, so the fixture clears the
-  ;; sub-cache in a `finally`. Because the hook runs before the client mount,
-  ;; the browser mount starts from a clean sub-cache and owns the only live
-  ;; `[:counter/value]` reaction.
+  ;; Run the one canonical boot in `core/boot!`, passing the SSR fixture as
+  ;; its `on-frame` pre-mount hook. `boot!` runs the hook in a transient
+  ;; frame before the client mount; the fixture clears the sub-cache when it
+  ;; finishes, so the browser mount owns the only live `[:counter/value]`
+  ;; reaction. (Mechanics: `fixture/prove-pure-cljs-ssr!` and the docstring.)
   (core/boot! #(fixture/prove-pure-cljs-ssr! [core/counter-app])))

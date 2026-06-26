@@ -21,15 +21,13 @@
    docs/guide/how-to/use-uix-helix-or-slim.md and
    implementation/adapters/reagent-slim/DESIGN-RATIONALE.md §7.
 
-   The slim adapter's bundle-isolation proof is NOT here: it is kept out
-   of this teaching surface entirely, behind the gate-owned entrypoint
-   `counter-slim-and-fast.bundle-isolation-entry` (which the
-   `:examples/counter-slim-and-fast` build uses as its `:init-fn`). That
-   entry boots the SAME app through the shared `boot!` helper below — it
-   does not re-copy the boot sequence — and passes a pre-mount hook that
-   exercises the pure-CLJS SSR path the gate inspects; nothing about that
-   fixture plumbing leaks into this namespace, and the two boot paths
-   cannot drift because there is only one."
+   The slim adapter's bundle-isolation proof lives in its own gate-owned
+   entrypoint, `counter-slim-and-fast.bundle-isolation-entry` (the
+   `:init-fn` of the `:examples/counter-slim-and-fast` build), so this
+   teaching file stays free of fixture plumbing. That entry boots the
+   same app through the shared `boot!` helper below and passes a pre-mount
+   hook that exercises the pure-CLJS SSR path the gate inspects. Because
+   both paths call the one `boot!`, they cannot drift."
   (:require [reagent2.dom.client                :as rdc]
             [re-frame.core                      :as rf]
             [re-frame.views]
@@ -59,12 +57,11 @@
 
 ;; -- Views -------------------------------------------------------------------
 ;;
-;; reg-view is substrate-agnostic — the macro expands to a plain
-;; React-component shape that consults the *active* adapter's
-;; `register-context-provider` / `current-component` seams at render
-;; time. So the very same view form renders through whichever substrate
-;; was installed at boot. With the slim adapter installed (see `boot!`
-;; below), the rendered component reads frame state through
+;; reg-view is substrate-agnostic. The macro expands to a plain
+;; React-component shape that reads through the active adapter at render
+;; time, so the same view form renders on whichever substrate was
+;; installed at boot. Here the slim adapter is installed (see `boot!`
+;; below), so the view reads frame state through
 ;; `reagent2.core/current-component` rather than stock Reagent's.
 
 (reg-view counter-buttons []
@@ -78,54 +75,45 @@
 
 ;; -- Mount -------------------------------------------------------------------
 ;;
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
+;; The React root is held in an atom and created lazily inside `boot!`,
+;; not at ns-load, per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects, so co-required
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 ;; This mirrors the behavioural twin `examples/reagent/counter` — the one
-;; blessed mount shape across the whole example tree. The only intentional
-;; divergence from the twin is the substrate swap (the `reagent2.*` imports
-;; + the slim adapter Var).
+;; blessed mount shape across the example tree. The only divergence from
+;; the twin is the substrate swap (the `reagent2.*` imports + the slim
+;; adapter Var).
 
 (defonce react-root (atom nil))
 
-;; The runtime never synthesises a frame from absence — an app must
-;; establish its frame explicitly. So the boot below does two things in
-;; order: `init!` installs the adapter (it does NOT create the frame),
-;; then the render's `frame-provider {:id app-frame}` does the rest in
-;; one spot — on first mount it CREATES the app frame, applies its
-;; config, and runs `:initial-events` once to seed it (the
-;; `[:counter/initialise]` boot dispatch); thereafter every in-tree
-;; `dispatch`/`subscribe` resolves to that frame. On hot reload the
-;; provider REUSES the existing frame and does NOT re-seed. Matches the
-;; canonical mount in examples/reagent/counter/core.cljs.
+;; The app frame is established in one spot: the `frame-provider {:id
+;; app-frame …}` at the render root below. On first mount the provider
+;; creates the frame, applies its config, and runs `:initial-events`
+;; once to seed it (the `[:counter/initialise]` boot dispatch). From then
+;; on every in-tree `dispatch`/`subscribe` resolves to that frame. On hot
+;; reload the provider reuses the existing frame and skips re-seeding.
+;; Matches the canonical mount in examples/reagent/counter/core.cljs.
 ;;
-;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
-;; migration may reach for it out of habit, but the runtime won't infer
-;; it; you establish it like any other.
+;; `:rf/default` is an ordinary frame id with no special privilege — you
+;; establish it like any other (the runtime won't infer it for you).
 (def app-frame :rf/default)
 
 (defn boot!
-  "The one canonical boot sequence for this example: install the slim
-   adapter, then lazily mount `counter-app` into `#app` under a
-   `frame-provider {:id app-frame …}`. The whole frame is established in
-   that one spot — on first mount the provider CREATES the app frame,
-   applies its config, and runs `:initial-events` once to seed it; on hot
-   reload it REUSES the existing frame and does NOT re-seed.
+  "Boots the example: install the slim adapter, then lazily mount
+   `counter-app` into `#app` under a `frame-provider {:id app-frame …}`.
+   The provider creates and seeds the app frame (see the comment above).
 
-   `boot!` is the single source of truth for the boot so the teaching path
+   This is the single source of truth for the boot. Both the teaching path
    (`run` below) and the gate-owned path
-   (`counter-slim-and-fast.bundle-isolation-entry/run`) cannot drift: both
-   call this fn, so a future EP/API boot change is made in one place.
+   (`counter-slim-and-fast.bundle-isolation-entry/run`) call it, so a
+   future boot change is made in one place and the two paths cannot drift.
 
-   `on-frame` is an optional thunk run in a TRANSIENT frame scope, before
-   the client mount. The teaching `run` passes nothing; only the
-   bundle-isolation entry uses it, to weave its pure-CLJS SSR exercise into
-   a frame scope at the one point its ordering requires. The exercise is a
-   throwaway static render, so it gets its own short-lived frame
-   (`with-new-frame`, auto-destroyed on exit) rather than touching the app
-   frame the provider creates at mount. Keeping the seam here — rather than
-   re-copying the boot in the entry — is what keeps `core` free of fixture
+   `on-frame` is an optional thunk the bundle-isolation entry uses; the
+   teaching `run` passes nothing. It runs once before the client mount,
+   inside its own short-lived frame (`with-new-frame`, auto-destroyed on
+   exit), so the fixture's pre-mount SSR exercise stays clear of the app
+   frame the provider creates at mount. Keeping this seam in `boot!`
+   instead of re-copying the boot is what keeps `core` free of fixture
    plumbing while preventing drift."
   ([] (boot! nil))
   ([on-frame]
@@ -133,9 +121,8 @@
    ;; right here. Same `rf/init!` signature; different adapter Var.
    (rf/init! reagent-slim-adapter/adapter)
    (when on-frame
-     ;; Fixture-only seam: scope the pre-mount SSR exercise to a throwaway
-     ;; frame (destroyed on exit) so it never touches the app frame the
-     ;; provider creates below.
+     ;; Fixture-only seam: run the hook in a throwaway frame (destroyed on
+     ;; exit) so it stays clear of the app frame the provider creates below.
      (rf/with-new-frame [_ (rf/make-frame {})]
        (on-frame)))
    (when (exists? js/document)

@@ -17,17 +17,16 @@
     :completed "#/completed"
     "#/"))
 
-;; A CONTROLLED text input, re-frame2 style. `:value` reads a draft sub; every
-;; keystroke dispatches `on-change` (which writes the draft into app-db) — the
-;; input NEVER holds its own value. Enter commits (dispatches `on-commit`),
-;; Escape cancels (dispatches `on-cancel`), and blur commits. There is no DOM
-;; node ref for VALUE and no blur-suppression flag: cancel re-renders the input
-;; away, so the blur that follows has nothing to save.
+;; A CONTROLLED text input, re-frame2 style. `:value` reads a draft sub and every
+;; keystroke dispatches `on-change`, which writes the draft into app-db; the input
+;; never holds its own value. Enter commits (dispatches `on-commit`), Escape
+;; cancels (dispatches `on-cancel`), and blur commits. Cancel re-renders the input
+;; away, so a trailing blur has nothing left to save.
 ;;
-;; `:autofocus?` opts into focusing the input when it first mounts. The edit
-;; input wants this (a row just entered edit mode). It is handled by a bare
-;; `:ref` callback that ONLY calls `.focus()` on the live node — it reads and
-;; writes no value, so the input stays fully controlled by the draft sub.
+;; `:autofocus?` focuses the input when it first mounts — the edit input wants
+;; this, since the row just entered edit mode. A bare `:ref` callback does it by
+;; calling `.focus()` on the live node; it touches focus only, leaving `:value`
+;; bound to the sub.
 (defn todo-input [{:keys [draft on-change on-commit on-cancel autofocus?] :as props}]
   (let [handle-keydown
         (fn [event]
@@ -44,23 +43,21 @@
         :on-key-down handle-keydown
         :on-blur     (fn [_] (on-commit))}
        (when autofocus?
-         ;; Focus-only ref: move the cursor into the freshly-mounted edit input.
-         ;; It touches focus, never the value — `:value` stays bound to the sub.
+         ;; Focus-only ref: move the cursor into the freshly-mounted input.
          {:ref (fn [node] (when node (.focus node)))}))]))
 
 (defn todo-item [dispatch subscribe {:keys [id title completed]}]
-  ;; A plain form-1 fn now that the per-row editing flag lives in app-db: the
-  ;; row reads "am I the editing row?" from a sub keyed by its id, so no
-  ;; component-local atom is needed.
+  ;; A plain form-1 fn. The per-row editing flag lives in app-db, so the row just
+  ;; reads "am I the editing row?" from a sub keyed by its id.
   (let [editing? @(subscribe [:todo.ui/editing? id])]
     [:li {:class (str/join " " (cond-> []
                                  completed (conj "completed")
                                  editing?  (conj "editing")))}
      [:div.view
       ;; Controlled checkbox, re-frame2 style: `:checked` reads the fact from
-      ;; app-db, `:on-click` dispatches the event that changes it, and
-      ;; `:readOnly` silences React's onChange warning (the state round-trips
-      ;; through app-db and the cascade, not through React's own state).
+      ;; app-db and `:on-click` dispatches the event that changes it. The state
+      ;; round-trips through app-db, so `:readOnly` is set to silence React's
+      ;; onChange warning for a checkbox React doesn't itself control.
       [:input.toggle
        {:type "checkbox"
         :checked completed
@@ -129,13 +126,11 @@
          :on-click #(dispatch [:todo/clear-completed])}
         "Clear completed"])]))
 
-;; Sub-views (task-entry, task-list, todo-item, footer-controls) above
-;; are plain Reagent helper fns, not reg-views. They take `dispatch` /
-;; `subscribe` as explicit args because that's the right shape for plain
-;; fns; if they were reg-views they would read both from the surrounding
-;; reg-view scope automatically (Spec 004 §reg-view auto-inject). Plain
-;; fns are the cleanest read for these internal helpers — no need for
-;; per-sub-piece registry slots or auto-defed Vars.
+;; The sub-views above (task-entry, task-list, todo-item, footer-controls) are
+;; plain Reagent helper fns that take `dispatch` / `subscribe` as explicit args —
+;; the clearest shape for internal helpers. `reg-view` is for the root: inside
+;; its body `dispatch` and `subscribe` are auto-injected into scope (Spec 004
+;; §reg-view auto-inject), which is why the root threads them down to the helpers.
 (reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]
     [:<>

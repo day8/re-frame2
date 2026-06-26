@@ -16,8 +16,7 @@
    flow ONLY when the derived value is part of the application's *state*:
 
      - other event handlers read it as plain `app-db` data (here:
-       `:checkout/place-order` reads `[:cart :total]` directly — no
-       subscribe ceremony inside a handler);
+       `:checkout/place-order` reads `[:cart :total]` straight off the db);
      - it should survive SSR hydration / time-travel revert / app-db
        serialisation (sub-cache contents do not survive the wire);
      - the derivation is stable enough to be worth registering.
@@ -32,9 +31,9 @@
       settle in one walk — right after the handler, before the db install.
    3. RUNTIME-TOGGLEABLE DERIVATION — the discount is a feature gate. The
       `:rf.fx/reg-flow` / `:rf.fx/clear-flow` fx register and clear the
-      `:cart/discount-rate` flow from a handler, mid-event. Flows are
-      runtime-registered and runtime-clearable — the derivation can be
-      switched on or off as state changes, not fixed at registration time.
+      `:cart/discount-rate` flow from a handler, mid-event. A flow can be
+      switched on or off as state changes — registered and cleared at
+      runtime, not just at boot.
 
    Demonstrates:
    - `rf/reg-flow`                                  (Spec 013 §Registration shape)
@@ -89,14 +88,13 @@
 ;; single walk, run right after the handler before the db install
 ;; (Spec 013 §Topological sort and cycle detection).
 ;;
-;; `:cart/discount-rate` is NOT registered at boot. When absent, its path
-;; is nil and `:cart/total`'s `:derive` treats it as 0% off. The "Apply
-;; 10% discount" button registers it via `:rf.fx/reg-flow`; "Remove
-;; discount" clears it via `:rf.fx/clear-flow` (which `dissoc-in`s the
-;; path back to nil). While registered it derives a flat 10% off the live
-;; subtotal — a constant rate today, but reading `[:cart :subtotal]` keeps
-;; it honest: a tiered "5% over $50" rule would slot straight in, and the
-;; rate stays fresh as the cart changes without re-registration.
+;; The discount starts off: `:cart/discount-rate` has no flow yet, so its
+;; path is nil and `:cart/total`'s `:derive` treats it as 0% off. The "Apply
+;; 10% discount" button registers the flow via `:rf.fx/reg-flow`; "Remove
+;; discount" clears it via `:rf.fx/clear-flow` (which `dissoc-in`s the path
+;; back to nil). While registered it derives a flat 10% off the live
+;; subtotal. It reads `[:cart :subtotal]` so the rate stays fresh as the cart
+;; changes, and a tiered "5% over $50" rule would slot straight in.
 (rf/reg-flow
   {:id     :cart/total
    :doc    "Subtotal less the active discount. Reads :cart/subtotal's
@@ -159,9 +157,9 @@
 ;; whose ONLY job is to drain: by the time it runs, the new flow is in the
 ;; registry, so the flow transform on that drain materialises
 ;; `[:cart :discount-rate]` (and the dependent `[:cart :total]`) at the
-;; discounted figure. The re-walk is driven by the dispatched event
-;; draining — NOT by `:cart/touch` writing anything (it writes nothing).
-;; This is the spec's own `:wizard/settle` pattern (§Sequencing).
+;; discounted figure. It is the drain itself that drives the re-walk;
+;; `:cart/touch` writes nothing. This is the spec's own `:wizard/settle`
+;; pattern (§Sequencing).
 (rf/reg-event :cart/apply-discount
   {:doc "Engage the 10%-off feature gate by registering a flow that writes
          the discount rate, then nudge a re-walk so :cart/total recomputes."}
@@ -186,12 +184,12 @@
           [:dispatch [:cart/touch]]]}))
 
 ;; No-op drain — Spec 013 §Sequencing's `:wizard/settle` verbatim:
-;; `(fn [{:keys [db]} _] {:db db})`, no schema, dispatched with no args. It
-;; writes NOTHING. Its sole purpose is to make a drain happen on this frame so
-;; the flow transform re-walks with the just-(de)registered discount flow
-;; now visible in the registry — materialising the one-drain-lagged
-;; output. The toggle is the `:rf.fx/reg-flow` / `:rf.fx/clear-flow`
-;; registration itself; this event is the drain that surfaces its effect.
+;; `(fn [{:keys [db]} _] {:db db})`. It returns the db unchanged; its job is
+;; to make one more drain happen on this frame. On that drain the flow
+;; transform re-walks with the just-(de)registered discount flow now visible
+;; in the registry, materialising the one-drain-lagged output. The toggle is
+;; the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` itself; this event is the
+;; drain that surfaces it.
 (rf/reg-event :cart/touch
   {:doc "No-op drain. Exists only to trigger the re-walk that materialises
          the one-event-lagged discount flow output (Spec 013 §Sequencing)."}
@@ -199,9 +197,9 @@
 
 ;; Reading a flow's output inside an event handler — Spec 013 §Sub
 ;; integration (a). The handler reads [:cart :total] as plain `app-db`
-;; data; no subscribe, no special flow accessor. This is the central
-;; reason the total is a flow and not a sub: a sub's value lives in the
-;; view-facing sub-cache and is awkward to read from a handler.
+;; data. This is the central reason the total is a flow and not a sub: a
+;; sub's value lives in the view-facing sub-cache, which a handler can't
+;; easily reach.
 (rf/reg-event :checkout/place-order
   {:doc "Place the order. Reads the materialised :cart/total straight off
          app-db — the flow output IS ordinary application state."}
@@ -229,8 +227,7 @@
 
 (rf/reg-sub :cart/subtotal
   {:doc "Reads the :cart/subtotal flow's output at its :output-path — pattern (b)
-         from Spec 013 §Sub integration. No special flow sub-id; just an
-         app-db read."}
+         from Spec 013 §Sub integration. A plain app-db read, like any sub."}
   (fn [db _] (get-in db [:cart :subtotal])))
 
 (rf/reg-sub :cart/total
@@ -297,21 +294,18 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002: the runtime never synthesises a frame from absence. The
-;; `frame-provider` ENSURE shape (`{:id …}`) does the whole job at the render
-;; root in one spot: on first mount it CREATES the frame, then runs its
-;; `:initial-events` ONCE to seed it (here `[:cart/initialise]`); on hot reload
-;; it REUSES the existing frame WITHOUT re-seeding. Wrapping the render also
-;; makes the `reg-view`-injected `dispatch`/`subscribe` resolve to that frame
-;; (a no-provider render reads the no-provider sentinel and raises
-;; :rf.error/no-frame-context). The frame id is `:rf/default` — the same id the
-;; ns-load `with-frame` flow registrations are scoped to above. (Note that
-;; `:rf/default` is an ordinary frame id with no framework privilege; `init!`
-;; never creates it for you, which is why the provider names the id here.)
+;; The `frame-provider` `{:id …}` shape sets up the frame in one spot at the
+;; render root (EP-0002). On first mount it creates the frame and runs its
+;; `:initial-events` once to seed it (here `[:cart/initialise]`); on hot reload
+;; it reuses the existing frame and skips the seed. Wrapping the render also
+;; makes the `reg-view`-injected `dispatch`/`subscribe` resolve to this frame —
+;; a render with no provider raises :rf.error/no-frame-context. The id is
+;; `:rf/default`, the same id the `with-frame` flow registrations use above.
+;; `:rf/default` is just an ordinary frame id, so the provider names it here.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Pass the adapter spec map directly — no registry.
+  ;; Install the Reagent adapter so frames render through React.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
