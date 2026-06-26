@@ -395,12 +395,17 @@ proves the variant accessible.
 
 The `:violations` vec is live runtime DOM state — each axe-core node
 carries `:html` (the violating element's outerHTML), so a value
-rendered into the DOM lands verbatim there. `:violations` is
-PATH-projected against the variant frame's classification by default
-on BOTH egress axes. **EP-0025 FAIL-OPEN:** a value rendered into a node
-`:html` is a RE-KEYED DOM position the classification path cannot reach, so
-it ships RAW — value-match was removed; classify the app-db PATH to redact
-a value before it reaches the DOM. `:include-sensitive true` opts out, following the
+rendered into the DOM lands verbatim there. axe DOM nodes are an
+inherently RE-KEYED runtime payload class, so `:violations` route through
+the named re-keyed-runtime egress exception (rf2-jwggld) — the same one
+`record-as-variant`'s event vectors take. Under a LIVE variant frame
+**EP-0025 FAIL-OPEN** holds: a value rendered into a node `:html` is a
+RE-KEYED DOM position the classification path cannot reach, so it ships
+RAW — value-match was removed; classify the app-db PATH to redact a value
+before it reaches the DOM. Under a NON-LIVE frame (common in the JVM tool
+process) the nodes ship raw under the documented carve-out — path-scrub is a
+no-op even live, so fail-closing would destroy the tool with zero
+leak-delta. `:include-sensitive true` opts out, following the
 same `--allow-sensitive-reads` boot gate as `preview-variant`
 (rf2-g9fje) — one of the six value-surfacing tools that carry the
 opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,

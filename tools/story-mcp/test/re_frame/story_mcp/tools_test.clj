@@ -1898,37 +1898,51 @@
             re-presents the recorded recordable coeffects (provided facts +
             the framework :rf/time-ms) rather than restamping"
     (config/set-allow-writes! true)
-    ;; Drive a single dispatch carrying a recorded flat :rf.cofx map.
-    (drive-events-during-recording
-      [[:counter/inc]]
-      [{:rf/time-ms 1781078400123 :counter/delta 7}])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id     "story.button/primary"
-                     :new-variant-id "story.button/cofx-recorded"
-                     :duration-ms    100
-                     :write-back     true})
-          s (:structuredContent r)
-          n (:recorded-event-count s)]
-      (is (success? r))
-      (is (true? (:written-back? s)))
-      (is (pos? n) "the recorder captured at least one event")
-      ;; The written-back :script body carries the cofx envelope on each
-      ;; recorded dispatch step — [:dispatch [:counter/inc] {:rf.cofx {…}}].
-      (let [body  (story/variant->edn :story.button/cofx-recorded)
-            steps (:script (:play-script body))]
-        (is (every? (fn [step]
-                      (and (= :dispatch (first step))
-                           (= [:counter/inc] (second step))
-                           (= {:rf/time-ms 1781078400123 :counter/delta 7}
-                              (:rf.cofx (nth step 2 nil)))))
-                    steps)
-            "every written-back dispatch step carries the recorded :rf.cofx map"))
-      ;; The rendered snippet text surfaces the cofx envelope too (it is
-      ;; rendered FROM the scrubbed events + parallel cofx).
-      (is (re-find #":rf.cofx" (:play-snippet s))
-          "the snippet text carries the :rf.cofx envelope")
-      (is (re-find #":rf/time-ms 1781078400123" (:play-snippet s))
-          "the recorded :rf/time-ms is surfaced verbatim (always-safe per EP-0017)"))))
+    ;; rf2-jwggld: cofx routes through the fail-closed `scrub-captured-cofx`
+    ;; boundary, so the snippet only carries the captured cofx when the source
+    ;; frame is LIVE (a non-live frame fails the cofx CLOSED — covered by the
+    ;; dedicated split tests below). Allocate the source frame so this test
+    ;; exercises the realistic live-frame snippet-cofx path. No path is
+    ;; classified, so the cofx (`:counter/delta`, not at a declared-sensitive
+    ;; path) ships raw under EP-0025 fail-open and surfaces in the snippet.
+    (rf/reg-frame :story.button/primary
+                  {:doc "live source frame for the cofx-preservation test"})
+    (try
+      ;; Drive a single dispatch carrying a recorded flat :rf.cofx map.
+      (drive-events-during-recording
+        [[:counter/inc]]
+        [{:rf/time-ms 1781078400123 :counter/delta 7}])
+      (let [r (invoke "record-as-variant"
+                      {:variant-id     "story.button/primary"
+                       :new-variant-id "story.button/cofx-recorded"
+                       :duration-ms    100
+                       :write-back     true})
+            s (:structuredContent r)
+            n (:recorded-event-count s)]
+        (is (success? r))
+        (is (true? (:written-back? s)))
+        (is (pos? n) "the recorder captured at least one event")
+        ;; The written-back :script body carries the cofx envelope on each
+        ;; recorded dispatch step — [:dispatch [:counter/inc] {:rf.cofx {…}}].
+        ;; (Write-back uses the RAW cofx on-box, unaffected by wire egress.)
+        (let [body  (story/variant->edn :story.button/cofx-recorded)
+              steps (:script (:play-script body))]
+          (is (every? (fn [step]
+                        (and (= :dispatch (first step))
+                             (= [:counter/inc] (second step))
+                             (= {:rf/time-ms 1781078400123 :counter/delta 7}
+                                (:rf.cofx (nth step 2 nil)))))
+                      steps)
+              "every written-back dispatch step carries the recorded :rf.cofx map"))
+        ;; The rendered snippet text surfaces the cofx envelope too (it is
+        ;; rendered FROM the scrubbed events + parallel cofx). Under the LIVE
+        ;; frame with no classified path, the cofx path-projects to itself.
+        (is (re-find #":rf.cofx" (:play-snippet s))
+            "the snippet text carries the :rf.cofx envelope (live frame, no classified path)")
+        (is (re-find #":rf/time-ms 1781078400123" (:play-snippet s))
+            "the recorded :rf/time-ms is surfaced verbatim (always-safe per EP-0017)"))
+      (finally
+        ((requiring-resolve 're-frame.frame/destroy-frame!) :story.button/primary)))))
 
 (deftest record-as-variant-no-cofx-is-byte-identical
   (testing "rf2-l2cn5d: a recording with no captured coeffects writes the
@@ -3064,8 +3078,8 @@
           (is (tree-contains? out "label")
               "benign leaves are preserved"))))))
 
-(deftest scrub-frame-value-large-value-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: the non-live captured/runtime scrub (scrub-frame-value) ships a re-keyed :large value RAW"
+(deftest scrub-re-keyed-runtime-large-value-re-keyed-ships-raw-fail-open
+  (testing "EP-0025 fail-open: the re-keyed-runtime scrub (scrub-re-keyed-runtime) ships a re-keyed :large value RAW under a LIVE frame"
     (with-clean-frame [vid :story.button/primary]
       (let [blob   (vec (range 5000))
             db     {:public "ok" :blob blob}
@@ -3074,12 +3088,150 @@
             tree   [[:evt/load {:payload blob}]]]
         (seed-app-db! vid db)
         (declare-large! vid [:blob])
-        (let [scrub-frame-value (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-frame-value)
-              out               (scrub-frame-value tree vid false)]
+        (let [scrub-re-keyed-runtime (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-re-keyed-runtime)
+              out                    (scrub-re-keyed-runtime tree vid false)]
           (is (tree-contains? out blob)
               "fail-open: the re-keyed large blob ships raw in the captured payload")
           (is (not (tree-contains-marker? out))
               "no large-elided marker — the captured slot is not at the declared app-db path"))))))
+
+;; ---------------------------------------------------------------------------
+;; The narrowed-hybrid re-keyed-runtime egress exception + cofx split
+;; (rf2-jwggld, ruled by Mike 2026-06-26).
+;;
+;; The permanent rule replaces the rf2-vl0jur interim. Two distinct postures:
+;;
+;;   (A) `scrub-re-keyed-runtime` — captured event vectors + axe DOM nodes.
+;;       LIVE frame ⇒ PATH-project (re-keyed copies fail-open, tested above);
+;;       NON-LIVE frame ⇒ RAW under the NAMED, narrow carve-out (the path-scrub
+;;       is a no-op even live, so fail-closing would destroy the tool with zero
+;;       leak-delta).
+;;
+;;   (B) `scrub-captured-cofx` — a flat :rf.cofx map is ORDINARY, possibly
+;;       app-shaped EDN (a reg-cofx value classified :sensitive mirrors the
+;;       app-db shape), so it is NOT inherently re-keyed and does NOT take the
+;;       carve-out. LIVE frame ⇒ a classified cofx value path-redacts; NON-LIVE
+;;       frame ⇒ FAIL CLOSED (the whole cofx map → :rf/redacted) rather than
+;;       ship raw — EP-0017 names secrets-as-recordable-cofx review discipline,
+;;       not a structural guarantee; this is the structural backstop.
+;;
+;; A non-live frame is one that was never allocated (or has been destroyed);
+;; `egress/variant-frame-live?` reads `re-frame.core/frame-ids`. These tests
+;; control liveness directly so they hit the ACTUAL scrub branch, not a tool
+;; that routes around it.
+;; ---------------------------------------------------------------------------
+
+(deftest scrub-re-keyed-runtime-non-live-frame-ships-raw-under-named-exception
+  (testing "rf2-jwggld: a NON-LIVE variant frame ships the re-keyed runtime payload RAW under the named exception (not fail-closed)"
+    (with-clean-frame [vid :story.nonlive/never-allocated]
+      ;; Never allocate the frame — it is NON-LIVE. (with-clean-frame only
+      ;; binds + tears down; it does not allocate.)
+      (is (not (contains? (rf/frame-ids) vid))
+          "precondition: the variant frame is non-live (never allocated)")
+      (let [scrub-re-keyed-runtime (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-re-keyed-runtime)
+            ;; a captured-event-style payload carrying a distinctive literal
+            tree                   [[:auth/login "NONLIVE-REKEYED-SECRET"]]
+            out                    (scrub-re-keyed-runtime tree vid false)]
+        (is (= tree out)
+            "non-live re-keyed-runtime payload ships RAW under the named carve-out — NOT redacted to :rf/redacted")
+        (is (not= :rf/redacted out)
+            "the framework fail-closed marker must NOT apply to the re-keyed-runtime exception")))))
+
+(deftest scrub-re-keyed-runtime-non-live-frame-include?-true-still-raw
+  (testing "rf2-jwggld: include? true forwards the non-live re-keyed payload raw (trusted-local opt-out)"
+    (with-clean-frame [vid :story.nonlive/never-allocated]
+      (is (not (contains? (rf/frame-ids) vid)))
+      (let [scrub-re-keyed-runtime (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-re-keyed-runtime)
+            tree                   [[:auth/login "NONLIVE-REKEYED-SECRET"]]
+            out                    (scrub-re-keyed-runtime tree vid true)]
+        (is (identical? tree out) "include? true returns the input unchanged")))))
+
+(deftest scrub-captured-cofx-live-frame-app-shaped-value-redacts-by-path
+  (testing "rf2-jwggld: under a LIVE frame, an app-shaped cofx value at a declared-sensitive path IS redacted (the cofx is NOT carved out)"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The cofx map mirrors the app-db shape: [:session :token] is the
+      ;; classified path, and the cofx carries :session {:token …} at exactly
+      ;; that position, so the PATH-walk reaches it and redacts. (This is the
+      ;; genuine gap the split closes — a cofx CAN be app-shaped EDN.)
+      (seed-app-db! vid {:session {:token "ok"}})
+      (declare-sensitive! vid [:session :token])
+      (is (contains? (rf/frame-ids) vid) "precondition: the frame is live")
+      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)
+            cofx                {:rf/time-ms 1781078400123
+                                 :session    {:token "LIVE-COFX-SECRET"}}
+            out                 (scrub-captured-cofx cofx vid false)]
+        (is (= :rf/redacted (get-in out [:session :token]))
+            "the app-shaped cofx value at the classified path redacts under a live frame")
+        (is (= 1781078400123 (:rf/time-ms out))
+            ":rf/time-ms is always safe and surfaces verbatim (EP-0017 §3)")))))
+
+(deftest scrub-captured-cofx-non-live-frame-fails-closed
+  (testing "rf2-jwggld: under a NON-LIVE frame, the captured cofx map FAILS CLOSED to :rf/redacted (does NOT silently ship raw)"
+    (with-clean-frame [vid :story.nonlive/never-allocated]
+      (is (not (contains? (rf/frame-ids) vid))
+          "precondition: the variant frame is non-live (never allocated)")
+      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)
+            cofx                {:rf/time-ms 1781078400123
+                                 :session    {:token "NONLIVE-COFX-SECRET"}}
+            out                 (scrub-captured-cofx cofx vid false)]
+        (is (= :rf/redacted out)
+            "non-live cofx fails CLOSED to :rf/redacted — NOT shipped raw (the structural backstop)")
+        (is (not (tree-contains? out "NONLIVE-COFX-SECRET"))
+            "no part of the cofx map crosses raw off a non-live frame")))))
+
+(deftest scrub-captured-cofx-non-live-frame-include?-true-forwards-raw
+  (testing "rf2-jwggld: include? true (the trusted-local opt-out) forwards the raw cofx even off a non-live frame"
+    (with-clean-frame [vid :story.nonlive/never-allocated]
+      (is (not (contains? (rf/frame-ids) vid)))
+      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)
+            cofx                {:rf/time-ms 1 :session {:token "NONLIVE-COFX-SECRET"}}
+            out                 (scrub-captured-cofx cofx vid true)]
+        (is (identical? cofx out)
+            "include? true returns the input cofx unchanged — the operator signed off")))))
+
+(deftest scrub-captured-cofx-nil-is-passthrough
+  (testing "rf2-jwggld: a nil cofx member (index-aligned padding) passes through untouched"
+    (with-clean-frame [vid :story.nonlive/never-allocated]
+      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)]
+        (is (nil? (scrub-captured-cofx nil vid false))
+            "nil cofx returns nil (no fail-closed marker — there is nothing to redact)")))))
+
+(deftest record-as-variant-live-frame-app-shaped-cofx-redacts-on-wire-keeps-raw-on-box
+  (testing "rf2-jwggld: end-to-end — under a LIVE source frame, an app-shaped cofx
+            value at a declared-sensitive path is REDACTED on the wire snippet,
+            while the write-back body keeps the RAW value for replay fidelity"
+    (config/set-allow-writes! true)
+    (with-clean-frame [vid :story.button/primary]
+      ;; Classify an app-shaped cofx path on the LIVE source frame. The captured
+      ;; cofx mirrors the app-db shape (:session {:token …}), so the PATH-walk
+      ;; reaches it and redacts at egress — this is the genuine cofx gap closed.
+      (seed-app-db! vid {:session {:token "seed"}})
+      (declare-sensitive! vid [:session :token])
+      (is (contains? (rf/frame-ids) vid) "precondition: source frame is live")
+      (drive-events-during-recording
+        [[:counter/inc]]
+        [{:rf/time-ms 1781078400123 :session {:token "WIRE-COFX-SECRET"}}])
+      (let [r (invoke "record-as-variant"
+                      {:variant-id     "story.button/primary"
+                       :new-variant-id "story.button/cofx-redacted"
+                       :duration-ms    100
+                       :write-back     true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (pos? (:recorded-event-count s)) "the recorder captured the dispatch")
+        ;; WIRE: the snippet's cofx slot redacts the classified value at egress.
+        (is (not (re-find #"WIRE-COFX-SECRET" (:play-snippet s)))
+            "the app-shaped cofx secret is REDACTED out of the wire snippet (path-projected at egress)")
+        (is (re-find #":rf/time-ms 1781078400123" (:play-snippet s))
+            ":rf/time-ms is always safe and surfaces verbatim under the live frame")
+        ;; ON-BOX: the write-back body keeps the RAW cofx for replay fidelity.
+        (let [body  (story/variant->edn :story.button/cofx-redacted)
+              steps (:script (:play-script body))]
+          (is (every? (fn [step]
+                        (= {:rf/time-ms 1781078400123 :session {:token "WIRE-COFX-SECRET"}}
+                           (:rf.cofx (nth step 2 nil))))
+                      steps)
+              "the write-back body re-registers the RAW cofx on-box (--allow-writes registration, not a wire egress)"))))))
 
 (deftest scrub-explain-values-large-value-re-keyed-ships-raw-fail-open
   (testing "EP-0025 fail-open: explain value slots ship a re-keyed :large value RAW"
@@ -3556,16 +3708,20 @@
 ;; :html outerHTML) must not cross the AI/off-box MCP boundary unredacted: a
 ;; sensitive value rendered into the DOM (e.g. `<input value="<token>">`)
 ;; lands verbatim in node :html, and read-a11y-violations is :readOnlyHint
-;; true (agent hosts AUTO-APPROVE it), so an unscrubbed runtime read would be
-;; the wrong shape. :violations route through `egress/scrub-frame-value`
-;; (the same value-based primitive explain/record use), fail-closed by
-;; default + the :include-sensitive opt-in.
+;; true (agent hosts AUTO-APPROVE it). axe DOM nodes are an inherently RE-KEYED
+;; runtime payload class, so :violations route through the named
+;; `egress/scrub-re-keyed-runtime` exception (rf2-jwggld) — the same exception
+;; record-as-variant's event vectors take.
 ;;
-;; The helpers (`seed-app-db!` / `declare-sensitive!`) establish the frame's
-;; declared-sensitive value; `scrub-frame-value` reads that frame's live
-;; app-db itself to collect the secret-candidate set, then redacts any
-;; matching leaf in the violations tree. The co-hosted violations atom is
-;; supplied via the same var-of-atom stand-in the populated-path test uses.
+;; The helpers (`seed-app-db!` / `declare-sensitive!`) allocate the frame and
+;; establish its declared-sensitive path; `scrub-re-keyed-runtime` reads that
+;; frame's live app-db itself and PATH-projects the violations tree. EP-0025
+;; removed value-match, so a value rendered into a node :html (a RE-KEYED DOM
+;; position the app-db path cannot reach) ships RAW under a LIVE frame
+;; (fail-open) — the cases below pin that shipped behaviour. A non-live frame
+;; ships the nodes raw under the documented carve-out (covered by the dedicated
+;; non-live split tests above). The co-hosted violations atom is supplied via
+;; the same var-of-atom stand-in the populated-path test uses.
 ;; ---------------------------------------------------------------------------
 
 (defn- a11y-stand-in

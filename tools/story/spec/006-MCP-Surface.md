@@ -117,12 +117,30 @@ data, so the egress classifies each payload as runtime/captured VALUE
   routinely NON-LIVE variant frame, and their payloads are inherently
   RE-KEYED** (event vectors, DOM `:html`): a path-scrub is a no-op for them
   even under a live frame, so failing the whole payload closed would destroy
-  the tool without closing a real leak. The permanent option for these
-  non-live re-keyed scrubs (require a live frame / structured refusal /
-  explicit local-raw) is a genuine design fork filed for the maintainer
-  (rf2-vl0jur step iv); the **interim** is an explicit, bead-tracked non-live
-  branch that returns the re-keyed payload raw (loud, not the retired silent
-  carve-out). The `--allow-sensitive-reads` + per-call `:include-sensitive`
+  the tool without closing a real leak. These two re-keyed runtime payload
+  classes take a **named, narrow Story-MCP re-keyed-runtime egress exception**
+  (`re-frame.story-mcp.tools.egress/scrub-re-keyed-runtime`, ruled by Mike
+  2026-06-26): a live frame PATH-projects (re-keyed copies fail-open); a
+  non-live frame returns the payload **raw** under the documented carve-out,
+  because the path-scrub is a no-op even live, so the leak-delta versus the
+  live case is zero. The exception is **NOT** a broad `:rf.egress/local-raw`
+  profile and **NOT** a general raw escape hatch — it is narrow to exactly
+  these two inherently-re-keyed runtime classes; any other payload uses the
+  fail-closed boundary. The framework `project-egress` boundary STAYS
+  fail-closed; this is a story-mcp-local carve-out.
+  **Captured `:rf.cofx` maps are explicitly NOT in this exception.** A flat
+  `:rf.cofx` map is ordinary, possibly app-shaped EDN (a `reg-cofx` value
+  classified `:sensitive` mirrors the app-db shape), so under a live frame a
+  cofx value at a classified path WOULD path-redact. Cofx therefore routes
+  through the plain fail-closed boundary
+  (`re-frame.story-mcp.tools.egress/scrub-captured-cofx`): live ⇒ PATH-project;
+  **non-live ⇒ FAIL CLOSED** (the whole cofx map redacts to `:rf/redacted`)
+  rather than ship raw. EP-0017 names secrets-as-recordable-cofx a normative
+  rule and review discipline, not a structural guarantee; this fail-closed
+  boundary is the structural backstop. `record-as-variant`'s on-box write-back
+  uses the RAW cofx (an `--allow-writes` registration, not a wire egress), so
+  replay fidelity is untouched.
+  The `--allow-sensitive-reads` + per-call `:include-sensitive`
   opt-in is the deliberate way to cross any payload raw.
   This path-projection covers the live-state tools' `:app-db` /
   `:rendered-hiccup` / `:snapshot` / evidence slots and assertion records

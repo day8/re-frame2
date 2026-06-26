@@ -30,20 +30,35 @@
   rather than ship raw — the earlier carve-out that shipped the raw tree on a
   non-live frame was retired. `scrub-rendered` (the LIVE-state tools'
   `:rendered-hiccup` / `:snapshot` / `:effective-args`) and the live arm of
-  `scrub-frame-value` therefore redact-or-fail-closed by frame liveness.
+  the re-keyed-runtime scrub therefore redact-or-fail-closed by frame liveness.
+
+  ## The Story-MCP re-keyed-runtime egress exception (`scrub-re-keyed-runtime`)
 
   TWO story-mcp surfaces scrub against a routinely NON-LIVE variant frame —
-  `record-as-variant` (global captured events) and `read-a11y-violations`
-  (browser-panel axe-core nodes). Their payloads are inherently RE-KEYED (event
-  vectors, DOM `:html`), so a path-scrub is a no-op for them even under a live
-  frame. Routing them through the now-fail-closed boundary would redact the
-  WHOLE payload and destroy the tool — without closing any leak a live frame
-  would have closed. Choosing the permanent option (require a live frame /
-  structured refusal / explicit local-raw) is a GENUINE design fork, so per
-  rf2-vl0jur step iv it is filed for Mike's ruling and NOT guessed: the INTERIM
-  is an EXPLICIT (not silent), bead-tracked non-live branch in
-  `scrub-frame-value` that returns the re-keyed payload raw. See
-  `scrub-frame-value` for the full fork write-up.
+  `record-as-variant` (the GLOBAL captured event stream) and
+  `read-a11y-violations` (the browser-panel axe-core nodes). Their payloads are
+  inherently RE-KEYED (event vectors, DOM `:html`), so a path-scrub is a no-op
+  for them EVEN under a live frame (EP-0025 fail-open ships them raw under a live
+  frame regardless). Routing them through the now-fail-closed framework boundary
+  would redact the WHOLE captured-events / violations payload to `:rf/redacted`
+  and destroy the tool — a snippet built from `:rf/redacted` is meaningless —
+  without closing any leak a live frame would have closed.
+
+  The permanent rule (Mike, 2026-06-26) is a NARROWED HYBRID: keep scrub-if-live,
+  and carve these two re-keyed runtime payload classes out of the fail-closed
+  boundary under a NAMED, narrow Story-MCP exception — `scrub-re-keyed-runtime`.
+  It is NOT a broad `:rf.egress/local-raw` profile and NOT a general raw escape
+  hatch: it applies ONLY to the inherently-re-keyed runtime payload classes whose
+  path-scrub is a no-op even live (captured event vectors, axe DOM nodes). The
+  framework `project-egress` boundary STAYS fail-closed; this is a
+  story-mcp-local carve-out for exactly those two classes. See
+  `scrub-re-keyed-runtime` for the full rationale.
+
+  Captured `:rf.cofx` maps are explicitly NOT in this exception — they are
+  ordinary, possibly app-shaped EDN that CAN path-redact under a live frame
+  (a `reg-cofx` value classified `:sensitive` mirrors the app-db shape), so
+  they route through the plain `scrub-rendered` boundary and FAIL CLOSED on a
+  non-live frame rather than ship raw. See `scrub-captured-cofx`.
 
   In story-mcp the two surfaces that ship live-state reads are
   `preview-variant` / `run-variant` (which return the variant frame's
@@ -54,7 +69,7 @@
   effects a `reg-event` returns, `:source :effect`) from the named frame's
   runtime-db partition; the `:frame variant-id` opts slot is load-bearing.
 
-  ## Non-live runtime/captured value scrub (`scrub-frame-value`, rf2-12f2q)
+  ## Non-live runtime/captured value scrub (rf2-12f2q)
 
   The wire-elision contract (`tools/story/spec/006-MCP-Surface.md`)
   promises EVERY Story-MCP payload crosses elided — not just the three
@@ -62,15 +77,19 @@
   VALUES that can sit at a frame's frame-declared `:sensitive` `:app-db`
   paths (EP-0015 §8):
   `explain-variant`'s plan-RESOLVED value slots (`:effective-args` /
-  `:args` / `:substitutions` / `:network` / `:db-seed`) and
+  `:args` / `:substitutions` / `:network` / `:db-seed`),
   `record-as-variant`'s `:captured` event vectors (+ the `:play-snippet`
-  rendered from them). `scrub-frame-value` gives those payloads the SAME
+  rendered from them) and captured `:rf.cofx` maps, and
+  `read-a11y-violations`'s axe DOM nodes. Each payload class gets the SAME
   PATH-based projection `scrub-rendered` applies to live derived trees,
-  keyed to the variant frame — it reads the frame's app-db itself rather
-  than receiving it. Author-published STATIC registration metadata
-  (story/variant bodies, registry enumerations, the explain plan-
-  STRUCTURE slots) is intentionally public and NOT scrubbed; see
-  `scrub-frame-value` for the runtime-vs-authored split.
+  keyed to the variant frame — reading the frame's app-db itself rather
+  than receiving it. The two inherently-re-keyed classes (event vectors,
+  axe DOM) take the narrow `scrub-re-keyed-runtime` exception on a non-live
+  frame; the cofx maps fail closed (`scrub-captured-cofx`). Author-published
+  STATIC registration metadata (story/variant bodies, registry
+  enumerations, the explain plan-STRUCTURE slots) is intentionally public
+  and NOT scrubbed; see `scrub-re-keyed-runtime` for the runtime-vs-authored
+  split.
 
   ## Path-based redaction (`elide-app-db`, `scrub-assertions+count`)
 
@@ -351,34 +370,47 @@
 ;; The three live-state tools (`preview-variant` / `run-variant` /
 ;; `read-failures`) hold the post-run `:app-db` in hand and feed it to
 ;; `elide-app-db` (path) + `scrub-rendered` (value). But the NON-live
-;; tools — `explain-variant`'s plan-resolved value slots and
-;; `record-as-variant`'s captured event vectors — also cross the
-;; AI/off-box boundary carrying runtime/captured VALUES that can sit at a
-;; frame's declared-`:sensitive?` paths: a `:network` route reply seeded
-;; with a real token, an `:effective-args` slot resolved from a sensitive
-;; arg, a captured event dispatched with a secret payload.
+;; tools also cross the AI/off-box boundary carrying runtime/captured VALUES
+;; that can sit at a frame's declared-`:sensitive?` paths:
 ;;
-;; Those tools route their value-bearing slots through the SAME PATH-based
-;; derived-tree projection `scrub-rendered` applies to the live derived
-;; trees (rf2-12f2q), keyed to the variant frame's classification. Under a LIVE
-;; variant frame, EP-0025 FAIL-OPEN: a value that occupies a classified path
-;; WITHIN the slot redacts; a value re-keyed to a non-matching position (a
-;; captured-event payload, a `:network` reply) ships RAW.
+;;   - `explain-variant`'s plan-resolved value slots (scrubbed via
+;;     `scrub-explain-values`, always against the live explain frame).
+;;   - `record-as-variant`'s captured event vectors + the captured `:rf.cofx`
+;;     maps (the recording is GLOBAL; the target variant frame is allocated
+;;     lazily by run/preview, so it is routinely NON-LIVE during recording).
+;;   - `read-a11y-violations`'s in-browser axe-core violation nodes (the
+;;     variant frame may not be live in the JVM tool process).
 ;;
-;; rf2-vl0jur retired the framework's derived-tree carve-out: a derived-tree
-;; with NO live frame now FAILS CLOSED at the `project-egress` boundary (the
-;; whole tree redacts to `:rf/redacted`). For these two surfaces the variant
-;; frame is routinely NON-LIVE and the payload is inherently RE-KEYED, so
-;; failing closed would redact the whole payload and break the tool without
-;; closing a real leak. Picking the permanent option (require a live frame /
-;; structured refusal / explicit local-raw) is a GENUINE design fork; per
-;; rf2-vl0jur step iv it is filed for Mike, NOT guessed. The INTERIM is an
-;; EXPLICIT, bead-tracked non-live branch in `scrub-frame-value` (raw payload,
-;; loud — not the silent carve-out). The wire-elision contract in
-;; `tools/story/spec/006-MCP-Surface.md` reflects this: a live frame
-;; path-projects (re-keyed copies fail-open); a non-live frame fails closed at
-;; the framework boundary, with the two re-keyed non-live surfaces an explicit
-;; pending fork.
+;; Two distinct payload SHAPES travel through here, and they take two distinct
+;; non-live postures (Mike, 2026-06-26 — the narrowed-hybrid rule, rf2-jwggld):
+;;
+;;   (A) RE-KEYED runtime payloads — captured event VECTORS and axe DOM nodes.
+;;       The secret rides a position the app-db classification path cannot reach
+;;       (an event PAYLOAD, a node `:html` outerHTML), so a PATH-scrub is a NO-OP
+;;       for them EVEN under a live frame (EP-0025 fail-open ships them raw under
+;;       a live frame regardless). Routing them through the now-fail-closed
+;;       framework boundary on a non-live frame would redact the WHOLE payload to
+;;       `:rf/redacted` and destroy the tool WITHOUT closing any real leak. These
+;;       take the NAMED Story-MCP `scrub-re-keyed-runtime` exception: live ⇒
+;;       PATH-project; non-live ⇒ raw under the documented carve-out.
+;;
+;;   (B) CAPTURED COFX maps — a flat `:rf.cofx` map is ordinary, possibly
+;;       app-shaped EDN (a `reg-cofx` value classified `:sensitive` mirrors the
+;;       app-db shape), so it is NOT inherently re-keyed: under a LIVE frame a
+;;       cofx value at a classified path WOULD path-redact. It must therefore
+;;       NOT silently ship raw off a non-live frame. Cofx routes through the
+;;       plain `scrub-captured-cofx` boundary, which FAILS CLOSED on a non-live
+;;       frame (`:rf/redacted`) — the same fail-closed posture every direct-read
+;;       egress uses. EP-0017 names secrets-as-recordable-cofx a normative rule
+;;       AND review discipline, not a structural guarantee, so fail-closed here
+;;       is the structural backstop. The on-box WRITE-BACK path uses the RAW cofx
+;;       (an operator-gated `--allow-writes` registration, not a wire egress) so
+;;       replay fidelity is untouched; only the wire snippet's cofx slot is
+;;       redacted, and `event->step` drops a redacted cofx to the bare 2-element
+;;       step so the snippet stays valid.
+;;
+;; The framework `project-egress` boundary STAYS fail-closed; (A) is the only
+;; story-mcp-local carve-out, narrow to the two re-keyed runtime payload classes.
 ;;
 ;; INTENTIONALLY-PUBLIC (NOT scrubbed): the docs-discovery surfaces that
 ;; return author-published STATIC registration prose — `get-story` /
@@ -396,58 +428,64 @@
 ;; own published fixture data. See `tools/story/spec/006-MCP-Surface.md`
 ;; §Wire-elision boundary for the single-sourced classification.
 
-(defn- variant-frame-live?
+(defn variant-frame-live?
   "True when `variant-id` names a registered, non-destroyed frame (the
   framework's frame-liveness predicate, `re-frame.core/frame-ids`). The
   derived-tree projection redacts by PATH only against a LIVE frame's
-  classification; a non-live frame is the rf2-vl0jur fail-closed boundary."
+  classification; a non-live frame is the rf2-vl0jur fail-closed boundary
+  (and the gate for the `scrub-re-keyed-runtime` exception)."
   [variant-id]
   (contains? (rf/frame-ids) variant-id))
 
-(defn scrub-frame-value
-  "PATH-redact a non-live, value-bearing payload `tree` keyed to variant
-  `variant-id`'s frame, before wire egress (rf2-12f2q). Reads the frame's live
-  `:app-db` itself (via `re-frame.core/app-db-value`) — the non-live handlers do
-  not already hold it — to seed the projection's `:source-db`.
+(defn scrub-re-keyed-runtime
+  "PATH-redact an inherently RE-KEYED runtime payload `tree` keyed to variant
+  `variant-id`'s frame, before wire egress (rf2-12f2q). This is the NAMED,
+  narrow Story-MCP re-keyed-runtime egress exception (Mike, 2026-06-26,
+  rf2-jwggld) — it applies to EXACTLY two runtime payload classes:
 
-  ## LIVE variant frame — PATH-projected (the common Category-A path)
+    - `record-as-variant`'s captured event VECTORS (the secret rides an event
+      payload, a non-app-db position).
+    - `read-a11y-violations`'s axe-core DOM nodes (the secret rides a node
+      `:html` outerHTML, a non-app-db position).
 
-  When `variant-id`'s frame IS live (`run-variant` / `preview-variant` /
-  `explain-variant` allocated it; the panel recorded against it), this is a thin
-  wrapper over `scrub-rendered`: the same PATH-based projection through
-  `re-frame.core/project-egress` (the `:rf.observe/derived-tree` boundary).
-  EP-0025 FAIL-OPEN under a live frame — a value at a classified path WITHIN
-  `tree` redacts; a value re-keyed to a non-matching position ships RAW.
+  It is NOT a broad `:rf.egress/local-raw` profile and NOT a general raw escape
+  hatch. It applies only to these re-keyed runtime classes whose PATH-scrub is a
+  no-op even under a live frame; any other payload must use the fail-closed
+  `scrub-rendered` / `scrub-captured-cofx` boundary.
 
-  ## NON-LIVE variant frame — an OPEN design fork (rf2-vl0jur step iv → rf2-jwggld)
+  Reads the frame's live `:app-db` itself (via `re-frame.core/app-db-value`) —
+  the non-live handlers do not already hold it — to seed the projection's
+  `:source-db`.
+
+  ## LIVE variant frame — PATH-projected (scrub-if-live)
+
+  When `variant-id`'s frame IS live (the panel recorded against it; a
+  run/preview allocated it), this is a thin wrapper over `scrub-rendered`: the
+  same PATH-based projection through `re-frame.core/project-egress` (the
+  `:rf.observe/derived-tree` boundary). EP-0025 FAIL-OPEN under a live frame — a
+  value at a classified path WITHIN `tree` redacts; a value re-keyed to a
+  non-matching position ships RAW.
+
+  ## NON-LIVE variant frame — RAW under the named exception (the carve-out)
 
   `record-as-variant` records the GLOBAL event stream and `read-a11y-violations`
   reads the in-browser panel's stored axe-core nodes — NEITHER allocates the
   target variant frame, so `variant-id`'s frame is routinely NON-LIVE here.
-  Their payloads are also inherently RE-KEYED (event vectors, DOM `:html`): a
+  Their payloads are inherently RE-KEYED (event vectors, DOM `:html`): a
   path-scrub is a NO-OP for them EVEN under a live frame (EP-0025 fail-open), so
   the value ships raw under a live frame regardless.
 
-  The rf2-vl0jur core fix made the framework `project-egress` FAIL CLOSED on a
-  non-live frame (correct for an app-db-shaped tree that COULD path-redact under
-  a live frame). But routing these inherently-re-keyed non-live payloads through
-  that boundary would redact the WHOLE captured-events / violations payload to
-  `:rf/redacted` — destroying the tool's primary function (a snippet built from
-  `:rf/redacted` is meaningless), NOT closing any real leak the live-frame case
-  would have closed. Mike ruled (rf2-vl0jur step iv) that the RIGHT option per
-  scrub must be chosen from {require a live variant frame | structured refusal |
-  explicit local-raw profile}, and to STOP + report a genuine fork rather than
-  guess. This IS a genuine fork (allocate-a-frame-for-recording changes the
-  tool's semantics; a refusal breaks the common case; a blanket local-raw
-  over-permits), so it is filed for Mike's ruling and NOT guessed here.
-
-  INTERIM (explicit, NOT silent — bead rf2-jwggld tracks the ruling): a NON-LIVE
-  variant frame returns the payload RAW, exactly as before the carve-out
-  retirement, so `record-as-variant` / `read-a11y-violations` keep working. This
-  is loud — gated behind an explicit `variant-frame-live?` branch and documented
-  here — pending Mike's choice of the permanent option. It does NOT reintroduce
-  the framework carve-out (the framework boundary stays fail-closed); it is a
-  story-mcp-local interim for two inherently-re-keyed non-live surfaces.
+  rf2-vl0jur made the framework `project-egress` FAIL CLOSED on a non-live frame
+  (correct for an app-db-shaped tree that COULD path-redact under a live frame).
+  Routing these inherently-re-keyed non-live payloads through that boundary would
+  redact the WHOLE captured-events / violations payload to `:rf/redacted` —
+  destroying the tool's primary function (a snippet built from `:rf/redacted` is
+  meaningless) — without closing any real leak the live-frame case would have
+  closed. So a non-live frame returns the payload RAW under this named, narrow
+  exception (NOT a general escape hatch): the leak-delta versus the live-frame
+  case is zero, because the live case already ships these re-keyed copies raw.
+  The framework boundary stays fail-closed; this is a story-mcp-local carve-out
+  for exactly these two re-keyed runtime classes.
 
   `include?` is the same `--allow-sensitive-reads` + per-call
   `:include-sensitive` opt-out the live tools honour — when true the raw
@@ -460,9 +498,47 @@
     ;; boundary; a live frame redacts by path / fail-opens a re-keyed value.
     (variant-frame-live? variant-id)
     (scrub-rendered tree (rf/app-db-value variant-id) variant-id include?)
-    ;; NON-LIVE frame ⇒ the open fork (rf2-vl0jur step iv). Return raw as the
-    ;; EXPLICIT, bead-tracked interim — see the docstring. NOT silent.
+    ;; NON-LIVE frame ⇒ the named re-keyed-runtime exception. Return raw: the
+    ;; payload is inherently re-keyed, so the live case already ships it raw and
+    ;; fail-closing here would destroy the tool with zero leak-delta.
     :else       tree))
+
+(defn scrub-captured-cofx
+  "PATH-redact a captured `:rf.cofx` map `cofx` keyed to variant `variant-id`'s
+  frame, before it crosses the wire in `record-as-variant`'s rendered snippet
+  (the narrowed-hybrid cofx arm, Mike 2026-06-26, rf2-jwggld).
+
+  A flat `:rf.cofx` map is ORDINARY, possibly app-shaped EDN — NOT an inherently
+  re-keyed runtime payload. A `reg-cofx` value classified `:sensitive` (EP-0015
+  §Registration-owned transient classification) mirrors the app-db shape, so a
+  cofx value at a classified path WOULD path-redact under a live frame. It must
+  therefore NOT take the `scrub-re-keyed-runtime` carve-out and silently ship raw
+  off a non-live frame.
+
+  Cofx routes through the plain `scrub-rendered` boundary (always — no
+  liveness short-circuit), so:
+
+    - LIVE frame ⇒ PATH-project: a classified cofx value redacts to
+      `:rf/redacted`; a re-keyed cofx value ships raw (EP-0025 fail-open).
+    - NON-LIVE frame ⇒ FAIL CLOSED: `project-egress` redacts the whole cofx map
+      to `:rf/redacted` rather than ship raw — the same fail-closed posture
+      every direct-read egress uses. EP-0017 names secrets-as-recordable-cofx a
+      normative rule AND review discipline, not a structural guarantee; this
+      fail-closed boundary is the structural backstop so a recorded cofx that
+      DID carry a secret cannot cross a non-live wire raw.
+
+  Replay fidelity is untouched: `record-as-variant` write-back uses the RAW cofx
+  on-box (an operator-gated `--allow-writes` registration, not a wire egress).
+  Only the wire snippet's cofx slot is redacted, and `event->step` drops a
+  non-map (`:rf/redacted`) cofx to the bare 2-element step so the snippet stays
+  valid EDN.
+
+  `include?` is the same `--allow-sensitive-reads` + per-call
+  `:include-sensitive` opt-out — when true the raw cofx crosses."
+  [cofx variant-id include?]
+  (if (nil? cofx)
+    cofx
+    (scrub-rendered cofx (rf/app-db-value variant-id) variant-id include?)))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-egress indicator counts (rf2-koq5m).

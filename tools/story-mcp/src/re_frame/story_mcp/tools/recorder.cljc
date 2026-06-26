@@ -175,14 +175,20 @@
                               captured event payloads (default false).
                               Gated by --allow-sensitive-reads.
 
-  Wire-egress posture (EP-0025 fail-open): the captured event vectors cross
-  the AI/off-box boundary in both the `:captured` slot and the `:play-snippet`
-  text. They are PATH-projected against the source variant frame's
-  classification before egress (the SAME PATH-based projection the live-state
-  tools apply to their derived trees). EP-0025 removed value-match, so a
-  declared-sensitive value in an event PAYLOAD (a re-keyed position) ships
-  RAW — classify the app-db PATH to redact it. The WRITE-BACK path
-  re-registers the RAW events on-box (an operator-gated registration via
+  Wire-egress posture (EP-0025 fail-open + the narrowed-hybrid rule,
+  rf2-jwggld): the captured event vectors cross the AI/off-box boundary in both
+  the `:captured` slot and the `:play-snippet` text. Event vectors are an
+  inherently RE-KEYED runtime payload class, so they route through the NAMED
+  `egress/scrub-re-keyed-runtime` exception: a live source frame PATH-projects
+  (EP-0025 removed value-match, so a declared-sensitive value in an event
+  PAYLOAD — a re-keyed position — ships RAW; classify the app-db PATH to redact
+  it), and a NON-LIVE source frame returns the events raw under the documented
+  carve-out (path-scrub is a no-op even live, so fail-closing would destroy the
+  tool with zero leak-delta). The captured `:rf.cofx` maps are NOT re-keyed
+  (a `reg-cofx` value classified `:sensitive` mirrors the app-db shape), so they
+  route through `egress/scrub-captured-cofx`, which FAILS CLOSED on a non-live
+  frame (`:rf/redacted`) rather than ship raw. The WRITE-BACK path re-registers
+  the RAW events + cofx on-box (an operator-gated registration via
   `--allow-writes`, not a wire egress) so replay keeps full fidelity.
 
   Output:
@@ -319,30 +325,38 @@
                       ;; and the `:play-snippet` text. A recorded event can
                       ;; carry a declared-sensitive value in its payload (an
                       ;; auth token, a PII field dispatched into the canvas).
-                      ;; We PATH-project the events against the source frame's
-                      ;; declared-sensitive paths before egress — the SAME
-                      ;; PATH-based projection the live tools apply to their
-                      ;; derived trees. EP-0025 FAIL-OPEN: an event PAYLOAD is
-                      ;; a re-keyed position the app-db path cannot reach, so a
-                      ;; secret in it ships RAW — classify the app-db PATH to
-                      ;; redact it before it is dispatched into an event. The
-                      ;; snippet is rendered FROM the projected events.
-                      ;; `:include-sensitive true` opts out (gated by
-                      ;; --allow-sensitive-reads). The WRITE-BACK path below
-                      ;; re-registers the RAW events on-box (an on-box
+                      ;; Event vectors are an inherently RE-KEYED runtime
+                      ;; payload class, so they route through the NAMED
+                      ;; `scrub-re-keyed-runtime` exception (rf2-jwggld): live
+                      ;; frame ⇒ PATH-project (EP-0025 FAIL-OPEN — an event
+                      ;; PAYLOAD is a re-keyed position the app-db path cannot
+                      ;; reach, so a secret in it ships RAW; classify the app-db
+                      ;; PATH to redact it before it is dispatched); NON-LIVE
+                      ;; frame ⇒ raw under the carve-out (path-scrub is a no-op
+                      ;; even live, so fail-closing would destroy the tool with
+                      ;; zero leak-delta). The snippet is rendered FROM the
+                      ;; projected events. `:include-sensitive true` opts out
+                      ;; (gated by --allow-sensitive-reads). The WRITE-BACK path
+                      ;; below re-registers the RAW events on-box (an on-box
                       ;; registration the operator gated via --allow-writes,
                       ;; not a wire egress) so replay keeps full fidelity.
-                      wire-events (egress/scrub-frame-value events vk incl?)
-                      ;; EP-0017: the captured `:rf.cofx` maps are
-                      ;; value-bearing and cross the wire in the rendered snippet
-                      ;; (and, for parity with the events, conceptually in
-                      ;; `:captured`). PATH-project each captured-cofx leaf the
-                      ;; SAME way as the events. EP-0025 fail-open: a recordable
-                      ;; fact in a re-keyed cofx position ships RAW — classify the
-                      ;; app-db PATH to redact it. `:rf/time-ms` is an int and
-                      ;; always safe to surface (EP-0017 §3). The WRITE-BACK path
-                      ;; threads the RAW cofx on-box for replay fidelity.
-                      wire-cofx   (mapv #(egress/scrub-frame-value % vk incl?) cofx)
+                      wire-events (egress/scrub-re-keyed-runtime events vk incl?)
+                      ;; EP-0017: the captured `:rf.cofx` maps are value-bearing
+                      ;; and cross the wire in the rendered snippet. Unlike the
+                      ;; event vectors, a flat `:rf.cofx` map is ordinary,
+                      ;; possibly app-shaped EDN (a `reg-cofx` value classified
+                      ;; `:sensitive` mirrors the app-db shape) — NOT inherently
+                      ;; re-keyed — so it does NOT take the re-keyed-runtime
+                      ;; carve-out. It routes through `scrub-captured-cofx`,
+                      ;; which FAILS CLOSED on a non-live frame (rf2-jwggld):
+                      ;; live ⇒ PATH-project (a classified cofx value redacts;
+                      ;; `:rf/time-ms`, an int, is always safe per EP-0017 §3);
+                      ;; non-live ⇒ the whole cofx map redacts to `:rf/redacted`
+                      ;; rather than ship raw. `event->step` drops a redacted
+                      ;; (non-map) cofx to the bare 2-element step, so the
+                      ;; snippet stays valid. The WRITE-BACK path threads the
+                      ;; RAW cofx on-box for replay fidelity.
+                      wire-cofx   (mapv #(egress/scrub-captured-cofx % vk incl?) cofx)
                       snippet     (story/gen-play-snippet
                                     wire-events
                                     (cond-> {:variant-id target-vid :extends extends
@@ -367,7 +381,7 @@
   per IMPL-SPEC §7.3."
   [{:name           "record-as-variant"
     :category       :write
-    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Each captured dispatch preserves its flat `:rf.cofx` envelope (the framework `:rf/time-ms` plus any provided recordable facts, EP-0017) so replay re-presents the recorded coeffects instead of restamping — a step with a recorded envelope renders as `[:dispatch evec {:rf.cofx …}]` (bare 2-element step when nothing was captured). The captured event payloads AND `:rf.cofx` values (in both the `:captured` slot and the `:play-snippet` text) are PATH-projected against the source frame's classification before egress (rf2-12f2q). EP-0025 FAIL-OPEN: a declared-sensitive value in an event/cofx PAYLOAD is a re-keyed position the app-db path cannot reach, so it ships RAW — classify the app-db PATH to redact it before it is dispatched. `:rf/time-ms` is always safe and surfaces verbatim; pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). Optional `:write-back` re-registers the variant with the captured recording translated to a live `:script` slot (the public phase-4 play surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`); write-back re-registers the RAW events + cofx on-box for replay fidelity. Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
+    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Each captured dispatch preserves its flat `:rf.cofx` envelope (the framework `:rf/time-ms` plus any provided recordable facts, EP-0017) so replay re-presents the recorded coeffects instead of restamping — a step with a recorded envelope renders as `[:dispatch evec {:rf.cofx …}]` (bare 2-element step when nothing was captured). The captured event payloads (in both the `:captured` slot and the `:play-snippet` text) are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception (rf2-jwggld): a live source frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a declared-sensitive value in an event PAYLOAD is a re-keyed position the app-db path cannot reach, so it ships RAW; classify the app-db PATH to redact it), and a non-live source frame ships the events raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). The captured `:rf.cofx` maps are NOT re-keyed, so they route through `scrub-captured-cofx`, which FAILS CLOSED on a non-live frame (the whole cofx map → `:rf/redacted`) rather than ship raw; under a live frame a classified cofx value redacts. `:rf/time-ms` is always safe and surfaces verbatim under a live frame; pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). Optional `:write-back` re-registers the variant with the captured recording translated to a live `:script` slot (the public phase-4 play surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`); write-back re-registers the RAW events + cofx on-box for replay fidelity. Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
                          "Examples: "
                          "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :script {:auto-run? true :script [[:dispatch-sync [:cart/add ...]]]}})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
                          "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
