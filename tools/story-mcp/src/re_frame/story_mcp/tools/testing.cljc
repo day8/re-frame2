@@ -201,17 +201,21 @@
   Each axe-core violation NODE carries `:html` (the violating element's
   outerHTML), `:target` (CSS selectors) and `:failureSummary`; a sensitive
   value rendered into the DOM (`<input value=\"<token>\">`, a `data-*`
-  attribute, a PII text node) lands verbatim in node `:html`.
-  `:violations` is PATH-projected against the variant frame's classification
-  via `egress/scrub-frame-value` — on BOTH egress axes — the SAME PATH-based
-  projection `explain-variant` / `record-as-variant` and the live-state tools
-  apply. EP-0025 FAIL-OPEN: a value rendered into a node `:html` is a RE-KEYED
+  attribute, a PII text node) lands verbatim in node `:html`. axe DOM nodes
+  are an inherently RE-KEYED runtime payload class (the secret rides node
+  `:html`, a non-app-db position), so `:violations` route through the NAMED
+  `egress/scrub-re-keyed-runtime` exception (rf2-jwggld) — the SAME projection
+  `record-as-variant`'s event vectors take. Under a LIVE variant frame
+  EP-0025 FAIL-OPEN holds: a value rendered into a node `:html` is a RE-KEYED
   DOM position the classification path cannot reach, so it ships RAW
   (value-match removed; classify the app-db PATH to redact a value before it
-  reaches the DOM). Pass `:include-sensitive true` to opt out (gated by
-  `--allow-sensitive-reads`, per spec/Tool-Pair.md §Direct-read privacy
-  posture). `read-a11y-violations` is `:readOnlyHint true` (agent hosts
-  auto-approve it)."
+  reaches the DOM). Under a NON-LIVE frame (common in the JVM tool process,
+  where the variant frame may not be allocated) the nodes ship raw under the
+  documented carve-out — path-scrub is a no-op even live, so fail-closing
+  would destroy the tool with zero leak-delta. Pass `:include-sensitive true`
+  to opt out (gated by `--allow-sensitive-reads`, per spec/Tool-Pair.md
+  §Direct-read privacy posture). `read-a11y-violations` is `:readOnlyHint true`
+  (agent hosts auto-approve it)."
   [arguments]
   (targs/with-variant-id arguments
     (fn [vk]
@@ -222,7 +226,7 @@
                        (catch Throwable _ nil))
             violations (when by-frame (get by-frame vk))
             payload {:variant-id vk
-                     :violations (egress/scrub-frame-value
+                     :violations (egress/scrub-re-keyed-runtime
                                    (vec (or violations [])) vk incl?)
                      :note       (when (nil? by-frame)
                                    "a11y is CLJS-only; this JVM-standalone deploy can't run axe-core. Run the panel in-browser; the violations atom is read by this tool.")}]
@@ -342,7 +346,7 @@
 
    {:name           "read-a11y-violations"
     :category       :testing
-    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is PATH-projected against the variant frame's classification by default — on BOTH egress axes — the same projection `run-variant` / `explain-variant` apply. EP-0025 FAIL-OPEN: a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW (value-match removed; classify the app-db PATH to redact a value before it reaches the DOM). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception (rf2-jwggld): a live variant frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW; classify the app-db PATH to redact a value before it reaches the DOM), and a non-live frame ships the nodes raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Clean variant in shared-process deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note nil}. "
                          "2. Variant with axe-core findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "

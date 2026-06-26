@@ -317,8 +317,8 @@
     (`{:overrides {[query] value}}`). Override VALUES are resolved at
     plan-compile time by the SAME `substitute-args` that feeds
     `:substitutions` (story plan.cljc:1297), so a declared-sensitive arg
-    pinned into an override value lands here verbatim. `scrub-frame-value`
-    recurses the nested `[:overrides …]` subtree.
+    pinned into an override value lands here verbatim. `scrub-explain-values`
+    PATH-walks the nested `[:overrides …]` subtree.
   - `:setup-order` / `:script-order` — the resolved setup / script step
     sequences. Both run `substitute-args` (story plan.cljc:1263/1269) —
     the IDENTICAL substitution that feeds the scrubbed `:substitutions` —
@@ -331,16 +331,17 @@
   compose lineage, merge rules, strict conflicts, tags, platforms, runner
   requirements) — author-published discovery metadata that is
   intentionally public per the threat model
-  (`spec/015-Data-Classification.md`). See `egress/scrub-frame-value` for
-  the runtime-vs-authored split rationale.
+  (`spec/015-Data-Classification.md`). See `egress/scrub-re-keyed-runtime`
+  for the runtime-vs-authored split rationale.
 
   NOTE on `:setup-order`/`:script-order`: the STEP STRUCTURE (which fx
   ids, in which order) is discovery metadata, but `substitute-args`
   injects resolved arg VALUES into the step payloads at plan-compile
   time, so the post-substitution sequences are value-bearing. The
-  value-only redaction (`scrub-frame-value` replaces only leaves that
-  EQUAL a declared-sensitive value) preserves the public step structure
-  while redacting the embedded secrets."
+  PATH-based redaction (`scrub-explain-values` redacts a value AT a
+  classified app-db path; EP-0025 removed value-match, so a value RE-KEYED
+  into a step payload ships RAW — fail-open) preserves the public step
+  structure while redacting values that sit at a classified path."
   [:effective-args :args :substitutions :network :db-seed
    :sub-overrides :setup-order :script-order])
 

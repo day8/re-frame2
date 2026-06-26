@@ -113,12 +113,24 @@ The value-bearing tools (`preview-variant` / `run-variant` /
 `read-failures` / `explain-variant` / `record-as-variant`) advertise the
 `:include-sensitive` opt-in slot in `tools/list` only when the
 `--allow-sensitive-reads` gate is open; the docs-discovery tools never
-advertise it (they have no value-bearing slot to gate). The shared
-`egress/scrub-frame-value` step keeps the live and non-live scrubs
-byte-identical — a declared-sensitive value redacts and a declared-large
-value elides identically (i.e. neither crosses raw, by default) whether it
-reaches the wire via a live derived tree, a plan-resolved arg, or a
-captured event.
+advertise it (they have no value-bearing slot to gate). The egress scrubs
+keep the live and non-live cases coherent — a declared-sensitive value
+redacts and a declared-large value elides identically (i.e. neither crosses
+raw, by default) whether it reaches the wire via a live derived tree, a
+plan-resolved arg, or a captured event. **Non-live posture (rf2-jwggld,
+ruled by Mike 2026-06-26 — the narrowed hybrid):** two surfaces
+(`record-as-variant`'s captured event vectors, `read-a11y-violations`'s axe
+DOM nodes) carry inherently RE-KEYED runtime payloads whose path-scrub is a
+no-op even live; they take the **named, narrow re-keyed-runtime egress
+exception** (`egress/scrub-re-keyed-runtime`) — live ⇒ PATH-project; non-live
+⇒ raw under the documented carve-out (zero leak-delta, since the live case
+already ships these re-keyed copies raw). This is **not** a broad
+`:rf.egress/local-raw` profile. `record-as-variant`'s captured `:rf.cofx`
+maps are **not** re-keyed (a `reg-cofx` value classified `:sensitive` mirrors
+the app-db shape), so they route through `egress/scrub-captured-cofx`, which
+**fails closed** on a non-live frame (the whole cofx map → `:rf/redacted`)
+rather than ship raw. The framework `project-egress` boundary stays
+fail-closed.
 
 ## Dev — for agents helping build new stories
 
@@ -418,17 +430,20 @@ axe-core's JS violation objects. Each violation NODE carries `:html` (the
 violating element's outerHTML), `:target` (CSS selectors) and
 `:failureSummary`; a sensitive value rendered into the DOM (e.g.
 `<input value="<token>">`, a `data-*` attribute, a PII text node) lands
-verbatim in node `:html`. `:violations` is PATH-projected against the
-variant frame's classification via the shared `egress/scrub-frame-value`
-step — on BOTH egress axes — the SAME PATH-based projection `explain-variant`
-/ `record-as-variant` and the live tools apply. **EP-0025 FAIL-OPEN:** a
-sensitive value rendered into a node `:html` is a RE-KEYED DOM position the
-classification path cannot reach, so it ships RAW — value-match was removed;
-classify the app-db PATH to redact a value before it reaches the DOM. The
-public finding structure (`:id` / `:impact` / `:help` / `:target`) is always
-preserved. `:include-sensitive true` (gated by `--allow-sensitive-reads`)
-opts out. `read-a11y-violations` is `:readOnlyHint true` (agent hosts
-auto-approve it).
+verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime
+payload class, so `:violations` route through the named
+`egress/scrub-re-keyed-runtime` exception (rf2-jwggld) — the SAME exception
+`record-as-variant`'s event vectors take. Under a LIVE variant frame
+**EP-0025 FAIL-OPEN** holds: a sensitive value rendered into a node `:html`
+is a RE-KEYED DOM position the classification path cannot reach, so it ships
+RAW — value-match was removed; classify the app-db PATH to redact a value
+before it reaches the DOM. Under a NON-LIVE frame (common in the JVM tool
+process) the nodes ship raw under the documented carve-out (path-scrub is a
+no-op even live, so fail-closing would destroy the tool with zero leak-delta).
+The public finding structure (`:id` / `:impact` / `:help` / `:target`) is
+always preserved. `:include-sensitive true` (gated by
+`--allow-sensitive-reads`) opts out. `read-a11y-violations` is
+`:readOnlyHint true` (agent hosts auto-approve it).
 
 ### `read-failures`
 
@@ -541,17 +556,21 @@ contract per
 [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
 §Test Codegen.
 
-Wire-egress posture (rf2-12f2q, EP-0025 fail-open): the captured event
-vectors cross the AI/off-box boundary in BOTH the `:captured` slot and
-the `:play-snippet` text. The captured events are PATH-projected against
-the source variant frame's declared-`:sensitive?` paths via
-`egress/scrub-frame-value` before egress — the SAME PATH-based projection
-the live-state tools apply to their derived trees. **EP-0025 FAIL-OPEN:**
-an event PAYLOAD is a re-keyed position the app-db path cannot reach, so a
-declared-sensitive value dispatched into an event ships RAW (the
-value-match engine that used to chase re-keyed copies is removed). To
-redact such a value, classify its app-db PATH so it is redacted before it
-is dispatched into an event. Pass `:include-sensitive true` (gated by
+Wire-egress posture (rf2-12f2q, EP-0025 fail-open + the narrowed-hybrid
+rule rf2-jwggld): the captured event vectors cross the AI/off-box boundary
+in BOTH the `:captured` slot and the `:play-snippet` text. Event vectors are
+an inherently RE-KEYED runtime payload class, so they route through the
+named `egress/scrub-re-keyed-runtime` exception: a live source frame
+PATH-projects against its declared-`:sensitive?` paths (the SAME PATH-based
+projection the live-state tools apply to their derived trees), and a
+**non-live** source frame returns the events raw under the documented
+carve-out. **EP-0025 FAIL-OPEN:** an event PAYLOAD is a re-keyed position the
+app-db path cannot reach, so a declared-sensitive value dispatched into an
+event ships RAW even under a live frame (the value-match engine that used to
+chase re-keyed copies is removed) — which is exactly why fail-closing the
+non-live case would destroy the tool with zero leak-delta. To redact such a
+value, classify its app-db PATH so it is redacted before it is dispatched
+into an event. Pass `:include-sensitive true` (gated by
 `--allow-sensitive-reads`) to opt out. The WRITE-BACK path (below)
 re-registers the RAW events on-box for replay fidelity — that is an
 operator-gated registration via `--allow-writes`, not a wire egress.
@@ -569,15 +588,21 @@ replay the runner re-supplies the recorded envelope via the dispatch
 opts, so a handler that declares `:rf.cofx/requires` re-presents the
 recorded value rather than restamping a fresh `:rf/time-ms` or failing
 `:rf.error/missing-required-cofx` for a provided fact. The captured
-`:rf.cofx` maps are value-bearing and follow the SAME egress posture as
-the event payloads: each captured-coeffect leaf is PATH-projected
-against the source frame's classification before it crosses the wire (in
-the snippet / `:captured` slots). EP-0025 FAIL-OPEN — a captured coeffect /
-event PAYLOAD is a re-keyed position the app-db path cannot reach, so a
-declared-sensitive value in it ships RAW; classify the app-db PATH to
-redact it before it is dispatched. `:rf/time-ms` is always safe to surface
-(EP-0017 §3). The write-back threads the RAW (unscrubbed) envelope on-box
-for full replay fidelity (an operator-gated `--allow-writes`
+`:rf.cofx` maps are value-bearing but, unlike the event payloads, are NOT
+inherently re-keyed — a flat `:rf.cofx` map is ordinary, possibly app-shaped
+EDN (a `reg-cofx` value classified `:sensitive` mirrors the app-db shape), so
+under a live frame a cofx value at a classified path WOULD path-redact. Cofx
+therefore does NOT take the re-keyed-runtime carve-out: it routes through
+`egress/scrub-captured-cofx`, which path-projects under a live source frame
+(a classified cofx value → `:rf/redacted`; a re-keyed cofx value ships raw,
+EP-0025 fail-open) and **FAILS CLOSED** on a **non-live** source frame (the
+whole cofx map → `:rf/redacted`) rather than ship raw. EP-0017 names
+secrets-as-recordable-cofx a normative rule and review discipline, not a
+structural guarantee; this fail-closed boundary is the structural backstop.
+`:rf/time-ms` is always safe to surface under a live frame (EP-0017 §3); a
+non-live `event->step` drops a redacted (non-map) cofx to the bare 2-element
+step so the snippet stays valid. The write-back threads the RAW (unscrubbed)
+envelope on-box for full replay fidelity (an operator-gated `--allow-writes`
 registration, not a wire egress). No `:rf.world/inputs` naming is
 introduced — the retired predecessor spelling does not appear on any
 surface.
