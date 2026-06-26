@@ -439,7 +439,7 @@ Registered views referenced from hiccup inherit the surrounding frame from React
      [counter "Other-frame inner"])]) ;; nested scope re-points to an existing frame
 ```
 
-To re-point children to an **already-existing** frame, scope them with `rf/with-frame` (lexical / non-React) or `rf/frame-provider-existing` (scope an existing frame into a React subtree — per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), the old scope-only `frame-provider` shape is now `frame-provider-existing`). The deepest scope in context wins. (A nested `frame-provider` instead **owns** a new frame's lifetime — create-on-mount / destroy-on-unmount — rather than scoping to an existing one; see [002 §The `frame-provider` name family](002-Frames.md#the-merged-config-shaped-frame-provider-cljs-reference).)
+To re-point children to an **already-existing** frame, scope them with `rf/with-frame` (lexical / non-React) or the merged `rf/frame-provider {:frame existing-id}` SCOPE-only shape (scope an existing frame into a React subtree; fails loud if the frame is absent). The deepest scope in context wins. (The merged provider's other shape, `rf/frame-provider {:id …}`, instead **ensures** a named frame — create-if-absent / reuse-no-reseed / provide id, no destroy-on-unmount — rather than scoping to an existing one; see [002 §the merged `frame-provider`](002-Frames.md#the-merged-config-shaped-frame-provider-cljs-reference).)
 
 ## Reusable components
 
