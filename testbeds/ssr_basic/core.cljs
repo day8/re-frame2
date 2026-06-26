@@ -207,7 +207,7 @@
         ;; Degraded path: no payload baked. Don't crash — render against
         ;; the empty app-db. This is the "client-only first load" shape.
         (rf/dispatch-sync [::inc])))
-    (rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [root]])
+    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
 
     ;; HOT PATH — verify-hydration! reads the server-hash stashed at
     ;; [:rf/hydration :server-hash], computes the client-render hash,
