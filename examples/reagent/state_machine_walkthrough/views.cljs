@@ -2,7 +2,7 @@
   "Browser entry-point for the state-machines walkthrough.
 
   The pure machine, fxs and subs live in `core.cljc` alongside
-  docs/guide/concepts/machines.md; the headless tests live in the framework
+  docs/machines/concepts.md; the headless tests live in the framework
   test tree (the `state-machine-walkthrough-runs-headless` deftest in
   `implementation/core/test/re_frame/examples_test.clj`). This namespace
   is the CLJS-only browser layer: views + Reagent mount + a `run` fn that
@@ -30,8 +30,8 @@
                   :auth.login/flow → :auth.login/submit on submit.
 
                   View-side discriminators read the machine's runtime-projected
-                  `:tags` set (ch.12 §State tags) via `rf/machine-has-tag?`, not boolean
-                  state-predicate subs."}
+                  `:tags` set (chapter §State tags) via `rf/machine-has-tag?`, not boolean
+                  state-predicate subs — so adding a new busy-ish state changes no view."}
           login-form []
   (let [state (atom {:email "" :password ""})]
     (fn []

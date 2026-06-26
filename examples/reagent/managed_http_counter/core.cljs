@@ -1,8 +1,13 @@
 (ns managed-http-counter.core
   "Managed-HTTP counter — Spec 014 §`:rf.http/managed` example app.
 
-  A counter where each button issues a managed HTTP request and the
-  reply lands back in app-db via the default reply-addressing path.
+  Demonstrates managed HTTP: you describe a request as data and the
+  runtime owns its whole lifecycle (encode, send, decode, classify,
+  retry, abort), then dispatches the result back as an ordinary event.
+  You never touch js/fetch. Each button issues a managed HTTP request
+  and the reply lands back in app-db via the default reply-addressing
+  path — \"send\" and \"receive\" are both just events hitting the same
+  pure handler.
 
   Buttons:
     +1                — GET /api/inc.json (static asset; success path)
@@ -73,11 +78,16 @@
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-;; -- App-db shape ------------------------------------------------------------
+;; ============================================================================
+;; APP-DB SHAPE
+;; ============================================================================
 ;;
 ;; {:counter/count    <int>           ;; current counter value
-;;  :counter/status   <:idle|:loading|:error>
+;;  :counter/status   <:idle|:loading|:error>   ;; the request lifecycle, visible
 ;;  :counter/error    <failure-map-or-nil>}
+;;
+;; :status is the in-flight lifecycle made visible: :loading while the
+;; runtime works a request, :idle (or :error) once the reply lands.
 ;;
 ;; Per spec/Conventions §Feature-modularity prefix convention every
 ;; app-db slot and sub-id carries the feature prefix; events already do.
@@ -88,13 +98,17 @@
      :counter/status :idle
      :counter/error  nil}}))
 
-;; -- +1 (real round-trip via Fetch) ------------------------------------------
+;; ============================================================================
+;; +1  —  real round-trip via Fetch
+;; ============================================================================
 ;;
-;; The +1 button fires :counter/+1, which issues a real GET to
-;; /api/inc.json. The response body — `{"delta": 1}` — is decoded
-;; as JSON; the default reply-addressing path re-dispatches
-;; [:counter/+1 (assoc msg :rf/reply ...)] to the originating handler,
-;; which branches on (:rf/reply msg) to apply the increment.
+;; The headline path, and the one to read first. One pure handler plays
+;; two roles: the :else branch DESCRIBES a request (returns an
+;; :rf.http/managed effect), and the runtime — after sending the GET to
+;; api/inc.json and decoding the `{"delta": 1}` body — re-dispatches
+;; [:counter/+1 {:rf/reply ...}] back to this same handler, which now
+;; takes the :success branch and applies the increment. The asynchrony
+;; lives in the runtime; the handler stays pure and replayable.
 
 (rf/reg-event :counter/+1
   (fn [{:keys [db]} [_ msg]]
@@ -119,7 +133,12 @@
       {:db (assoc db :counter/status :loading :counter/error nil)
        :fx [(rf.http/get "api/inc.json" {:decode :json})]})))
 
-;; -- Fail (real 404 from http-server) ----------------------------------------
+;; ============================================================================
+;; Fail  —  real 404 from the http-server
+;; ============================================================================
+;;
+;; Same shape as +1, exercising the failure side of the uniform reply.
+;; Branch on :kind, then on the :rf.http/* failure category inside it.
 
 (rf/reg-event :counter/fail
   (fn [{:keys [db]} [_ msg]]
@@ -142,14 +161,17 @@
       {:db (assoc db :counter/status :loading :counter/error nil)
        :fx [(rf.http/get "api/does-not-exist")]})))
 
-;; -- Retry-recover (canned-stub at app level) --------------------------------
+;; ============================================================================
+;; Retry-recover  —  canned-stub at app level
+;; ============================================================================
 ;;
-;; This demonstrates the recovery-after-retry path without needing a
-;; flaky HTTP endpoint. The :counter/recover handler issues
-;; :rf.http/managed redirected to :rf.http/managed-canned-success,
-;; which synthesises a {:kind :success :value {:delta 5}} reply. The
-;; same reply shape would land if the live fx ran the retry policy
-;; against a real endpoint that 503'd once and then 200'd.
+;; Demonstrates the recovery-after-retry path without needing a flaky
+;; endpoint. The handler issues :rf.http/managed-canned-success, which
+;; synthesises a {:kind :success :value {:delta 5}} reply — the exact
+;; shape the live fx would land if its retry policy hit a real endpoint
+;; that 503'd once and then 200'd. The stub seam lets you exercise the
+;; CONTRACT without owning the SERVER; the handler reads identically
+;; either way.
 
 (rf/reg-event :counter/retry-recover
   (fn [{:keys [db]} [_ msg]]
@@ -169,31 +191,26 @@
               :decode  :json
               :value   {:delta 5}}]]})))
 
-;; -- Start long / Cancel: REAL abort of a REAL in-flight request -------------
+;; ============================================================================
+;; Start long / Cancel  —  a REAL abort of a REAL in-flight request
+;; ============================================================================
 ;;
-;; The Spec 014 contract is that an in-flight `:rf.http/managed` request
-;; can be cancelled by `:request-id`: `:rf.http/managed-abort` resolves the
-;; handle in the framework in-flight registry and fires its `:abort-fn`,
-;; which produces a `:rf.http/aborted` reply and clears the registry slot.
+;; Spec 014's abort contract: an in-flight `:rf.http/managed` request is
+;; cancelled by `:request-id` — `:rf.http/managed-abort` resolves the
+;; handle in the framework in-flight registry, fires its `:abort-fn`, and
+;; a `:rf.http/aborted` reply lands back at the issuing handler.
 ;;
-;; To demonstrate THAT contract — not a look-alike — "Start long" records
-;; a genuine request-id-keyed handle in the framework registry (via
-;; `http-registry/record-in-flight!`, the same atom the live transport's
-;; `run-attempt!` records into). The handle's `:abort-fn` dispatches the
-;; canonical `:rf.http/aborted` reply via default reply addressing back to
-;; `:counter/start-long`, then clears the slot. "Cancel" fires the LIVE
-;; `:rf.http/managed-abort` fx, which looks up THAT handle by request-id
-;; and fires its `:abort-fn` — so the cancel path exercises the real abort
-;; semantics, in-flight registry cleanup, and `:rf.http/aborted`
-;; classification end-to-end (visible in Xray / traces).
-;;
-;; Why seed a handle rather than fire a real Fetch: this example serves
-;; only static assets, so a real `:rf.http/managed` GET resolves instantly
-;; (leaving nothing observably in-flight to cancel) or has no slow endpoint
-;; to hang on. Seeding a deterministic pending handle is the proven testbed
-;; pattern — see `tools/xray/testbeds/managed_http/core.cljs`. The seeded
-;; handle is a REAL registry entry resolved by the REAL abort fx; only the
-;; transport (which would otherwise need a backend) is stood in for.
+;; The wrinkle that shaped this code: this example serves only static
+;; assets, so a real `:rf.http/managed` GET resolves INSTANTLY — nothing
+;; stays observably in-flight to cancel. So "Start long" seeds a genuine
+;; request-id-keyed handle directly into the registry (the same atom the
+;; live transport's `run-attempt!` records into), giving a deterministically
+;; pending request; "Cancel" then fires the LIVE `:rf.http/managed-abort`
+;; fx against THAT handle. Only the transport is stood in for — the
+;; registry entry, the abort fx, and the `:rf.http/aborted` classification
+;; are all genuine, visible in Xray / traces. This is the proven
+;; seed-in-flight testbed pattern; see
+;; `tools/xray/testbeds/managed_http/core.cljs`.
 
 (def long-request-id :counter/long)
 
@@ -272,13 +289,23 @@
      ;; A no-op when nothing is in flight (the registry lookup misses).
      :fx [[:rf.http/managed-abort long-request-id]]}))
 
-;; -- Subs --------------------------------------------------------------------
+;; ============================================================================
+;; SUBS
+;; ============================================================================
+;;
+;; Three direct reads of the slice — pure derivations the framework caches
+;; and recomputes only when their input moves. The boring kind, on purpose.
 
 (rf/reg-sub :counter/count  (fn [db _] (:counter/count  db)))
 (rf/reg-sub :counter/status (fn [db _] (:counter/status db)))
 (rf/reg-sub :counter/error  (fn [db _] (:counter/error  db)))
 
-;; -- Views -------------------------------------------------------------------
+;; ============================================================================
+;; VIEWS
+;; ============================================================================
+;;
+;; Pure render from subscription values to hiccup; one dispatch per button.
+;; No business logic here — a view reads derived state and dispatches.
 
 (reg-view counter-view []
   (let [count  @(subscribe [:counter/count])
@@ -302,7 +329,9 @@
 (reg-view counter-app []
   [counter-view])
 
-;; -- Mount -------------------------------------------------------------------
+;; ============================================================================
+;; MOUNT
+;; ============================================================================
 ;;
 ;; The React root is held in an atom and materialised lazily inside `run`
 ;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
@@ -315,9 +344,11 @@
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider` so every
-;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
-;; canonical mount in examples/reagent/counter/core.cljs.
+;; `with-frame`, and the render is wrapped in a `frame-provider-existing`
+;; so every in-tree `dispatch`/`subscribe` resolves to the app frame.
+;; `:rf/default` is an ordinary frame id with no framework privilege —
+;; just the name this app chose. Matches the canonical mount in
+;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []

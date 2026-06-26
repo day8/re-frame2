@@ -302,7 +302,9 @@
 ;; render in a `frame-provider` so the `reg-view`-injected `dispatch`/`subscribe`
 ;; resolve to it (a no-provider render reads the no-provider sentinel and raises
 ;; :rf.error/no-frame-context). The frame id is `:rf/default` — the same id the
-;; ns-load `reg-app-schema` is scoped to above.
+;; ns-load `with-frame` flow registrations are scoped to above. (Note that
+;; `:rf/default` is an ordinary frame id with no framework privilege; `init!`
+;; never creates it for you, which is why `reg-frame` below is explicit.)
 (def app-frame :rf/default)
 
 (defn run []

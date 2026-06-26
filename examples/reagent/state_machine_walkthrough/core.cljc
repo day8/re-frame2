@@ -1,23 +1,28 @@
 (ns state-machine-walkthrough.core
-  "Runnable companion to docs/guide/concepts/machines.md.
+  "Runnable companion to docs/machines/concepts.md — the machines chapter as code.
 
-  This is the login-flow chapter as code. Every prose snippet in the
-  machines chapter appears here in the order the chapter introduces it; each section
-  ends with a smoke-test fn that drives the machine through the
-  scenario the chapter describes.
+  The chapter's login flow, laid out so you can read the transition table
+  here in the order the chapter introduces it. The one idea this file makes
+  tangible: a machine is a PURE transition table, so a transition is a pure
+  function call — table in, snapshot in, event in; result out. That is what
+  lets the chapter's four scenarios run headless (see the §SUBSCRIPTIONS note
+  at the bottom for where those tests live).
 
   Why .cljc: the chapter promises 'runs in microseconds on the JVM, no
-  browser, no network.' The same code runs under shadow-cljs node-test
-  for the CLJS surface. The HTTP side is exercised via the framework-
-  shipped `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
-  stubs (Spec 014 §Testing) so no real network traffic happens.
+  browser, no network.' The same source compiles under shadow-cljs for the
+  CLJS surface; the :clj branch is what the JVM test (require ...)s. The HTTP
+  side never hits the wire — it is redirected via :fx-overrides to the
+  framework-shipped `:rf.http/managed-canned-success` /
+  `:rf.http/managed-canned-failure` stubs (Spec 014 §Testing).
 
-  Read alongside docs/guide/concepts/machines.md."
+  Read alongside docs/machines/concepts.md."
   (:require [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/reg-machine and
-            ;; rf/machine-transition resolve.
+            ;; registers its late-bind hooks so `rf/reg-machine` and the
+            ;; framework `:rf/machine` / `:rf/machine-has-tag?` subs resolve.
+            ;; (The pure `machine-transition` fn the headless tests call is
+            ;; owned by re-frame.machines, not the rf/ facade — by design.)
             [re-frame.machines]
             ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; The login flow's `:issue-request` action dispatches
@@ -39,7 +44,7 @@
             [re-frame.registrar :as registrar]))
 
 ;; ============================================================================
-;; THE TRANSITION TABLE — chapter §The same flow as a machine
+;; THE TRANSITION TABLE — chapter §The same flow as a transition table
 ;; ============================================================================
 ;;
 ;; Pure data. `:guards` and `:actions` live with the spec — there is no
@@ -58,10 +63,10 @@
 ;; (this walkthrough runs JVM-headless with `remove-ns` between runs; login
 ;; builds standalone), so the shared name is parallel, not a collision.
 ;; The two examples also differ in what they teach AROUND the machine: `login`
-;; wires it into a live Reagent view; this walkthrough drives it HEADLESSLY
-;; (the sibling core-test ns) to show the pure machine-transition + drain
-;; testing story from docs/guide/concepts/machines.md. Read `login` first for the
-;; UI wiring; read this for the testing progression.
+;; wires it into a live Reagent feature; this walkthrough drives it HEADLESSLY
+;; to show the pure machine-transition + drain testing story from
+;; docs/machines/concepts.md. Read `login` first for the UI wiring; read this
+;; for the testing progression.
 
 (def login-flow
   {:initial :idle
@@ -118,7 +123,7 @@
     :submitting
     ;; :auth/busy tag — views query (rf/machine-has-tag? :auth.login/flow
     ;; :auth/busy) to disable inputs and re-label the submit button
-    ;; while the request is in flight (ch.12 §State tags).
+    ;; while the request is in flight (chapter §State tags).
     {:tags  #{:auth/busy}
      :entry :issue-request
      :on    {:auth.login/success {:target :authed
@@ -147,11 +152,11 @@
      :meta {:terminal? true}}}})
 
 ;; ============================================================================
-;; FX — chapter §Wiring a machine into the rest of re-frame
+;; FX — chapter §Composing with async effects
 ;; ============================================================================
 ;;
 ;; The `:auth.session/store` fx is a stub for the example: it shows the
-;; shape, not real localStorage. The smoke tests below exercise the
+;; shape, not real localStorage. The headless tests exercise the
 ;; managed-HTTP path via the framework-shipped canned-success /
 ;; canned-failure stubs (Spec 014 §Testing), routed in via the
 ;; `:fx-overrides` seam at frame creation.
@@ -164,8 +169,8 @@
 ;; and `:rf.http/managed-canned-failure` fxs that synthesise the canonical reply
 ;; shape. The wrappers below pin the example's specific payloads — both the
 ;; browser demo (views.cljs installs the canned-failure override on the
-;; default frame) and the headless tests (core-test.cljc reads them via
-;; `:fx-overrides`) consume them.
+;; default frame) and the headless tests (the framework JVM deftest reads them
+;; via `:fx-overrides`) consume them, sharing one registration point.
 
 (rf/reg-fx :auth.login/canned-success
   {:doc "Example stub: every `:rf.http/managed` call resolves :success with a
@@ -187,29 +192,30 @@
                              :tags {:message "bad creds" :status 401})))))
 
 ;; ============================================================================
-;; REGISTRATION — chapter §Wiring a machine into the rest of re-frame
+;; REGISTRATION — chapter §Registering and running it
 ;; ============================================================================
 ;;
-;; Two equivalent forms; we use the convenience `reg-machine`. The
-;; longer form `(reg-event machine-id (make-machine-handler m))`
-;; is what reg-machine wraps, and is the form to use when you need
-;; registration metadata (`:doc`, `:interceptors`, ...).
+;; One line. A machine IS an event handler: `reg-machine` is sugar over
+;; `reg-event` whose body interprets the table. The longer form
+;; `(reg-event machine-id (make-machine-handler m))` is what reg-machine
+;; wraps, and is the form to reach for when you need registration metadata
+;; (`:doc`, `:interceptors`, ...).
 
 (rf/reg-machine :auth.login/flow login-flow)
 
 ;; ============================================================================
-;; SUBSCRIPTIONS — chapter §Reading a machine: sub-machine
+;; SUBSCRIPTIONS — chapter §Registering and running it
 ;; ============================================================================
 
 ;; The machine snapshot lives in runtime-db at
 ;; [:rf.runtime/machines :snapshots :auth.login/flow] (per Spec 005).
-;; The framework ships `:rf/machine` as the canonical layer-3 entry
-;; point onto that path (see re-frame.machines §framework-shipped subs);
-;; the named subs below chain off it to project out the convenient
-;; pieces. The "in :submitting?" / "in :authed?" / "in :locked-out?"
-;; predicates live as the `rf/machine-has-tag?` queries in views.cljs
-;; (ch.12 §State tags) — discriminating on the machine's runtime-projected
-;; `:tags` set decouples view code from individual state-keyword identity.
+;; The framework ships `:rf/machine` as the canonical entry point onto
+;; that path; the two named subs below chain off it to project out the
+;; convenient pieces (current state, last error). The "is it busy / locked?"
+;; questions the view actually asks are NOT here — they live as the
+;; `rf/machine-has-tag?` queries in views.cljs (chapter §State tags),
+;; because discriminating on the snapshot's runtime-projected `:tags` set
+;; decouples view code from individual state-keyword identity.
 
 (rf/reg-sub :auth.login/state
   :<- [:rf/machine :auth.login/flow]
@@ -219,8 +225,10 @@
   :<- [:rf/machine :auth.login/flow]
   (fn [machine _] (get-in machine [:data :error])))
 
-;; The chapter's headless tests (pure machine-transition + full-drain
-;; scenarios) live in re-frame.examples-test (implementation/core/test/),
-;; folded inline as the `state-machine-walkthrough-runs-headless` deftest,
-;; keeping this example source pure demonstrative code (the
-;; example tree is test-free). They run on the JVM.
+;; The payoff — see the chapter's §Testing. Because the table is pure data
+;; and `machines/machine-transition` is a pure fn over (table, snapshot,
+;; event), the four scenarios (pure happy-path, pure lockout, drain
+;; happy-path, drain retry-then-lockout) need no frame and no browser. They
+;; live in re-frame.examples-test (implementation/core/test/) as the
+;; `state-machine-walkthrough-runs-headless` deftest — folded there so this
+;; example source stays test-free. JVM, microseconds.

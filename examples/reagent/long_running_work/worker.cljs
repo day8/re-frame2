@@ -165,7 +165,9 @@
 
     :processing
     ;; Process one item, then immediately re-evaluate the work via
-    ;; the :always cascade.
+    ;; the :always cascade. :always is an EVENTLESS transition — the
+    ;; runtime takes it on entry with no event needed, so the child
+    ;; flows straight to :checking-done after :process-one runs.
     {:tags  #{:work/running :work/cancellable}
      :entry :process-one
      :always [{:target :checking-done}]}

@@ -259,6 +259,10 @@
                           :on-failure [:comment/delete-rollback prior]})]]})))
 
 (rf/reg-event :comment/delete-success
+  {:doc "Nothing to do on success: the optimistic delete already removed the
+         comment, so confirming it is a no-op. The handler exists only as the
+         `:on-success` reply target — work happens in `:comment/delete-rollback`
+         when the server says no."}
   (fn [{:keys [db]} _] {:db db}))
 
 (rf/reg-event :comment/delete-rollback

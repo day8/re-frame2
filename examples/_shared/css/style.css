@@ -20,6 +20,9 @@
  *                     design system exposes one substrate-agnostic token
  *                     vocabulary; every example — including the design-led
  *                     notebook and process-monitor — consumes --ex-* directly.
+ *                     Note the bright/deep accent split below: the bright
+ *                     --ex-accent paints large decorative fills, the --ex-*-deep
+ *                     siblings carry any text or button a human reads (AA-safe).
  *
  * @imports structure.css for layout-only class shapes
  *          (forms, banners, pills, boot, navbar, cards, cells grid,

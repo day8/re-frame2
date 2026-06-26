@@ -3,11 +3,19 @@
    + sparklines + filter chips. Proves re-frame2 + UIx can build a
    substantive UI.
 
+   The one idea: two independent controls each set a single value in
+   app-db, and one `reg-sub` reads both and computes the visible card
+   set as a pure function of them. The whole UI renders that one
+   projection — there is exactly one place where 'what's on screen' is
+   decided.
+
    Demonstrates:
 
-     - UIx components (`defui`) consuming subs via `use-subscribe`
-     - signal-graph subscriptions composing tag + range inputs into one
-       re-derived projection (`:dashboard/visible-metrics`)
+     - `reg-sub` composing inputs: `:dashboard/visible-metrics` derives
+       from three input subscriptions, re-running when either control moves
+     - the derivation graph — base subs read app-db, derived subs read
+       other subs (the `:<-` syntax), views at the leaves
+     - UIx views (`defui`) reading subscriptions via `use-subscribe`
      - inline SVG sparklines computed in pure CLJS — no chart library
      - two re-deriving controls: filter chips (which cards show) and a
        time-range picker (how many trailing points each sparkline draws,
@@ -70,6 +78,13 @@
 ;; EVENTS
 ;; ============================================================================
 
+;; Each handler is pure: (coeffects, event-vector) -> effect map. They move
+;; ONE value in app-db and stop — note that none of them touch a card, a
+;; sparkline, or the grid. Turning "this tag is now off" into "these cards
+;; disappear" is the subscription's job, downstream.
+
+;; Seed the whole dashboard in one write: the metrics plus the two control
+;; values (`:active-tags` a set — chips are multi-select; `:range` one id).
 (rf/reg-event :dashboard/initialise
   (fn [{:keys [db]} _event]
     {:db {:dashboard/metrics      initial-metrics
@@ -98,15 +113,20 @@
 (rf/reg-sub :dashboard/range
   (fn [db _] (:dashboard/range db)))
 
+;; First derived sub: `:<-` declares this sub's input as ANOTHER sub, not
+;; app-db. Here we turn the stored range id into its full record (label,
+;; point count). Base subs above read app-db; these read other subs.
 (rf/reg-sub :dashboard/selected-range
   :<- [:dashboard/range]
   (fn [range-id _]
     (some #(when (= range-id (:id %)) %) ranges)))
 
+;; The heart of the example. One projection of two independent inputs: the
+;; active tag chips decide membership (`filter`); the selected range decides
+;; each sparkline's length (`take-last points`). Changing either input
+;; re-runs this — and ONLY this, plus anything downstream that moved — so the
+;; UI reads "what's on screen" from a single pure function.
 (rf/reg-sub :dashboard/visible-metrics
-  ;; Two re-deriving inputs feed the visible card set: the active tag chips
-  ;; (which metrics show) and the selected range (how many trailing points
-  ;; each sparkline draws). Changing either re-runs this projection.
   :<- [:dashboard/metrics]
   :<- [:dashboard/active-tags]
   :<- [:dashboard/selected-range]

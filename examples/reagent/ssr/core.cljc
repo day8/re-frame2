@@ -148,6 +148,10 @@
             :decode     :json
             :on-success [:articles/loaded]}]]}))
 
+;; The managed-HTTP `:on-success` target. Pure: it takes the decoded reply
+;; value and DESCRIBES the next app-db; the runtime commits it. This same
+;; handler runs identically on the server (per-request frame) and the client
+;; (post-hydration) — there is nothing platform-specific to gate.
 (rf/reg-event :articles/loaded
   (fn handler-articles-loaded [{:keys [db]} [_ {:keys [value]}]]
     {:db (assoc db :articles value)}))

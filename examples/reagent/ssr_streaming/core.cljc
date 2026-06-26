@@ -101,6 +101,10 @@
     [:h1 "Dashboard"]
     [:p "Streamed SSR demo — shell renders first, cards stream in."]]
    [:section.cards
+    ;; `:rf/suspense-boundary` marks a streamable subtree: the `:fallback`
+    ;; ships inline in the shell now; the real child subtree streams in as
+    ;; its own chunk when it resolves. The `:id` pairs the incoming chunk
+    ;; with its placeholder on the client — you pick it, it must be unique.
     [:rf/suspense-boundary
      {:id :card.revenue :fallback [:dashboard/card-skeleton :revenue]}
      [:dashboard/card :revenue]]
@@ -167,6 +171,9 @@
                       :failed? failed?}))
                  continuations)
            render-hash (rf/with-frame fid (ssr/render-tree-hash hiccup))
+           ;; The final payload is the canonical full app-db — the correctness
+           ;; lock that the per-card deltas above were only a speed prop for. If
+           ;; a speculative delta ever disagreed with this, this wins.
            ;; Hydration-payload policy is explicit + fail-closed, carried
            ;; by the single `:payload` opt. This example's app-db is
            ;; structurally safe to expose end-to-end (every key the

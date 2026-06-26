@@ -333,12 +333,26 @@
 ;; ============================================================================
 ;; VIEWS  (Helix — defnc + use-subscribe)
 ;; ============================================================================
+;;
+;; The Helix view idiom, and the only place this example differs from the
+;; Reagent reference: a view is a plain `defnc`; it reads a subscription
+;; through the adapter's `use-subscribe` hook; and it takes `dispatch` off a
+;; `frame-handle` rather than having it lexically injected (`reg-view` is
+;; Reagent-only — there is no auto-injection here). `:rf/machine-has-tag?`
+;; reads are *ask, don't tell* state-tag queries; `:auth.login/error` is a
+;; named sub. To the call site they're identical — both are just subscriptions.
 
 (defnc login-form []
   (let [busy?    (helix-adapter/use-subscribe [:rf/machine-has-tag?
                                                :auth.login/flow :auth/busy])
         err      (helix-adapter/use-subscribe [:auth.login/error])
+        ;; No global dispatch in re-frame2 — every dispatch goes to a frame.
+        ;; Pull this frame's `dispatch` off the render-time frame-handle; it
+        ;; resolves to `:rf/default` via the provider in `run`.
         dispatch (:dispatch (rf/frame-handle))
+        ;; Transient pre-submit input lives in component-local use-state — it
+        ;; isn't application state, it's keystrokes in flight. It crosses into
+        ;; the machine (and gets validated) only at the :on-submit dispatch.
         [email    set-email!]    (helix-hooks/use-state "")
         [password set-password!] (helix-hooks/use-state "")]
     (d/form

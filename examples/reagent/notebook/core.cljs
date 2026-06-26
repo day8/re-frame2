@@ -3,21 +3,28 @@
 
      [ documents tree ]  [ markdown editor ]  [ live preview ]
 
-   Proves re-frame2 + Reagent can build a substantive UI. The data-flow
-   is the canonical six dominoes:
+   The point of the example: the same event cascade that drives the
+   counter scales unchanged to a substantive, multi-pane UI. State lives
+   in one app-db, events are the only thing that change it, and the views
+   are pure functions of subscriptions. Reading order, top to bottom:
 
-     - selecting a document         dispatches  [:notebook/select id]
-     - editing the body             dispatches  [:notebook/edit-body text]
-     - the body sub                 derives     parsed-html from the markdown
-     - the preview pane             subscribes  to that derivation
+     - selecting a document   dispatches  [:notebook/select id]
+     - editing the body       dispatches  [:notebook/edit-body text]
+     - the hiccup sub         derives     hiccup from the selected markdown
+     - the preview pane       subscribes  to that derivation
 
-   Distinguished from the canonical login + counter examples by being
-   `reg-view`-based at every layer, exercising multi-pane layout, and
-   leaning into the shared 'Editorial Warm' visual identity from
-   examples/_shared/css/style.css — one shared identity across all
-   three substrates. No state machines, no HTTP — design-led examples
-   exist to prove polished visuals + interaction, not to replay the
-   platform features other examples already cover.
+   The markdown preview is the idea worth noticing: rendering markdown is
+   a pure derivation here (string -> hiccup), exposed as a subscription —
+   it sits in the same subscription graph as everything else, not in a
+   DOM escape hatch.
+
+   Distinguished from the counter + login examples by being `reg-view`-
+   based at every layer, exercising multi-pane layout, and leaning into
+   the shared 'Editorial Warm' visual identity from
+   examples/_shared/css/style.css — one shared identity across all three
+   substrates. No state machines, no HTTP — design-led examples exist to
+   prove polished visuals + interaction, not to replay the platform
+   features other examples already cover.
 
    Markdown rendering is intentionally a tiny pure-CLJS parser (headings,
    bold, italic, links, paragraphs, lists) — keeps the bundle small and
@@ -114,6 +121,9 @@
 (rf/reg-sub :notebook/selected-id
   (fn [db _] (:notebook/selected-id db)))
 
+;; First composed sub: `:<-` names this sub's inputs (other subs), so it
+;; recomputes only when the documents or the selected id actually change.
+;; The downstream subs (`-body`, `-hiccup`) chain off this one in turn.
 (rf/reg-sub :notebook/selected
   :<- [:notebook/documents]
   :<- [:notebook/selected-id]

@@ -1,4 +1,12 @@
 (ns todomvc.subs
+  "The derivation graph the views read.
+
+  Demonstrates: `reg-sub` composed in layers. Some subs read app-db directly
+  (`:todo/sorted-todos`); others combine subs into a derivation graph
+  (`:todo/visible-todos` filters the list against `:todo/showing`,
+  `:todo/footer-counts` folds the tallies). `:todo/showing` derives the active
+  filter from the route id — the filter that app-db deliberately never stores.
+  Pure functions all the way down, recomputed only when an input actually moves."
   (:require [re-frame.core :as rf]))
 
 ;; :todo/showing derives from the active Spec 012 route id. :rf.route/not-found
