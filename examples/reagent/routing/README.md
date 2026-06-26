@@ -4,8 +4,8 @@ The one idea to carry away: **the URL is just application state, and the
 back button is just a dispatch.** Most frameworks bolt a router onto the
 side of your app — its own context, its own lifecycle, its own opinion
 about where truth lives. re-frame2 declines. A route is a registration;
-navigating is dispatching an [event](../../../docs/guide/glossary.md);
-the active route is a [subscription](../../../docs/guide/glossary.md)
+navigating is dispatching an [event](../../../docs/guide/glossary.md#event);
+the active route is a [subscription](../../../docs/guide/glossary.md#subscription)
 your views watch. This example is the smallest app that puts all three
 to work: a three-page site — home, an articles list, an article detail —
 with a real URL, a 404, and working Back/Forward. The worked companion

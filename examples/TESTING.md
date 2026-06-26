@@ -2,17 +2,23 @@
 
 > Reference for everyone touching the example tree and its browser-test harness.
 
-This document explains the two test surfaces that exercise the examples, the
-contracts each surface relies on, and the conventions a new example must follow
-to avoid leaking side effects into its neighbours.
+Here is the tension this document exists to resolve. The `examples/` tree is
+*test-free* — no `*.spec.cjs` lives under it, on purpose — and yet the examples
+still have to keep working, or they stop being teaching material and start being
+a museum of things that used to compile. So coverage comes from *outside* the
+tree, in a handful of gates that each watch a different slice of "still works."
+This page is the map: what those surfaces are, the contracts they lean on, and
+the conventions a new example must follow so it earns its coverage without
+leaking side effects into its neighbours.
 
-It complements [`README.md`](README.md) (which describes the example layout)
-and the per-example `README.md` files (which describe what each example
-demonstrates).
+Read it alongside [`README.md`](README.md), which lays out the example layout,
+and the per-example `README.md` files, which describe what each one
+demonstrates. This page is the harness; those are the exhibits.
 
-CI tiering is defined in [`../TESTING.md`](../TESTING.md). Example browser
-gates are not part of the always-on PR spine; they run when example/browser
-surfaces change and in the scheduled/manual expensive workflow.
+One scoping note before we start: CI *tiering* — which gate runs when — lives in
+[`../TESTING.md`](../TESTING.md), not here. The example browser gates are not
+part of the always-on PR spine; they wake up when example or browser surfaces
+change, and again in the scheduled/manual expensive workflow.
 
 ## The surfaces
 
@@ -22,32 +28,38 @@ surfaces change and in the scheduled/manual expensive workflow.
 | `npm run test:adapter-smokes`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. The `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-adapter-smokes.cjs`](scripts/serve-and-run-adapter-smokes.cjs)                                       |
 | `npm run test:examples-compile`    | **Compile-coverage gate.** `shadow-cljs compile` over EVERY declared standalone `:examples/*` build (the list is derived from `shadow-cljs.edn`, so a new example build is swept automatically). Fails on any compile-time error AND on any warning (a typo'd init-fn surfaces as an `:undeclared-var` warning, and `compile` exits 0 on warnings). NOT a Playwright/runtime check — no `spec.cjs` involved. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 
-The three surfaces are independent:
+The three surfaces are independent, and the cleanest way to hold them apart in
+your head is by how much they share — the more a surface shares, the more it can
+catch, and the more it can be poisoned by a careless example:
 
 - `test:browser` is **one bundle, one page, every test**. Every example
   namespace that is `:require`'d by a `*-cljs-test` wrapper is loaded into
-  the same JS runtime and runs against a single shared DOM. This is where
-  ns-load side effects bite.
+  the same JS runtime and runs against a single shared DOM. Maximum sharing,
+  maximum reach — and the one place ns-load side effects bite.
 - `test:adapter-smokes` is **N bundles, N pages, N specs** — one per adapter
-  testbed. Each adapter owns its own runtime; no cross-adapter
-  interaction is possible.
+  testbed. Each adapter owns its own runtime, so cross-adapter
+  interaction is simply not possible. Nothing shared, nothing to leak.
 - `test:examples-compile` is **compile-only** — it never serves a page or
-  runs a spec. It exists to close a coverage gap, described next.
+  runs a spec. It shares a compilation cache and nothing else, and it exists
+  to close a specific coverage gap, described next.
 
 ## Compile-coverage gate (`test:examples-compile`)
 
 Most `:examples/*` builds are standalone shadow-cljs `:browser` targets
 with their own `:init-fn` but **no `spec.cjs`** (the `examples/` tree is
-test-free — see below). Before this gate, only the counter trio
-(`:examples/counter` / `-uix` / `-helix`) was compiled by any automated
-check (release-built by `test:bundle-isolation`). Every other standalone
-example — `login-uix`, `dashboard-uix`, `login-helix`,
-`process-monitor-helix`, and the rest — was declared but compiled by
-nothing, so a namespace / `:init-fn` / `:require` / schema / machine /
-substrate-form regression in any of them shipped **green** until a human
-manually opened the page (rf2-0vav5.1 + rf2-cn6kc.1).
+test-free — see below). That left a quiet hole. Before this gate, only the
+counter trio (`:examples/counter` / `-uix` / `-helix`) was compiled by any
+automated check (release-built by `test:bundle-isolation`). Every other
+standalone example — `login-uix`, `dashboard-uix`, `login-helix`,
+`process-monitor-helix`, and the rest — was *declared* but compiled by
+nothing. So a namespace / `:init-fn` / `:require` / schema / machine /
+substrate-form regression in any of them shipped **green**, sat there looking
+healthy, and only fell over when a human happened to open the page by hand
+(rf2-0vav5.1 + rf2-cn6kc.1). A green CI badge that means "nobody looked yet"
+is worse than no badge at all.
 
-`test:examples-compile` closes that gap with the lightest possible check:
+`test:examples-compile` closes that gap with the lightest check that still has
+teeth:
 
 - It **derives** the build list from `shadow-cljs.edn` (`:examples/*`
   build ids) rather than hardcoding it, so a newly-declared example build
@@ -76,13 +88,14 @@ surface, which fires on both `examples/**` source edits and
 
 ## Design-led examples: checklist-guarded, not compile-proven
 
-Three examples are **design-led** — the Reagent
-[`notebook`](reagent/notebook/), the UIx
+Three examples have a job the others don't, and it changes how they have to
+be covered. The Reagent [`notebook`](reagent/notebook/), the UIx
 [`dashboard_uix`](uix/dashboard_uix/), and the Helix
-[`process_monitor_helix`](helix/process_monitor_helix/). Their job is to
-prove *polished visuals + interaction* on each substrate, not to replay a
-platform feature other examples already cover. That makes their coverage
-story different from the rest of the tree.
+[`process_monitor_helix`](helix/process_monitor_helix/) are **design-led**:
+their point is to prove *polished visuals + interaction* on each substrate, not
+to replay a platform feature some other example already demonstrates. The catch
+is that "polished" is exactly the property a compiler can't see — so their
+coverage story diverges from the rest of the tree.
 
 `test:examples-compile` (above) sweeps these builds like any other, so a
 namespace / `:init-fn` / `:require` / substrate-form regression turns the
@@ -145,9 +158,12 @@ which runs in the always-on `test:script-policy` suite.
 
 ## Server-ownership contract (`test:browser`)
 
-The browser-test orchestrator at
+"Is the thing answering on port 8021 *my* server, or some stranger?" sounds
+paranoid until a stale `http-server` from a crashed run answers `200 OK` and
+your suite quietly tests the wrong build. The browser-test orchestrator at
 [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs)
-positively identifies the static-asset server it owns. The contract is:
+refuses to guess: it makes the server prove its identity with a per-run secret
+before trusting it. The contract is:
 
 1. **Per-run nonce.** On startup the orchestrator writes a 128-bit hex
    token to `<asset-root>/.rf-harness-token` *before* spawning
@@ -179,12 +195,14 @@ ownership token rides whichever port is selected.
 
 ## Example mount-isolation convention
 
-Every browser-test wrapper namespace `:require`s its example's `core`
-namespace (e.g. `re-frame.realworld-cljs-test` requires `realworld.core`).
-Because the `:browser-test` shadow-cljs target produces **one** bundle
-loaded into **one** page, every example `core` namespace co-required by
-any wrapper is loaded into the same JS runtime. They all see the same
-DOM.
+This is the convention an example author is most likely to trip over, so it's
+worth understanding *why* it exists rather than just obeying it. Every
+browser-test wrapper namespace `:require`s its example's `core` namespace
+(e.g. `re-frame.realworld-cljs-test` requires `realworld.core`). And because
+the `:browser-test` shadow-cljs target produces **one** bundle loaded into
+**one** page, every example `core` namespace co-required by any wrapper lands
+in the same JS runtime, staring at the same DOM. Whatever your namespace does
+*just by being loaded*, it does shoulder-to-shoulder with everyone else's.
 
 The page generated by shadow-cljs's `:browser-test` target has an
 otherwise empty `<body>`. The orchestrator patches it to include a
@@ -249,9 +267,10 @@ differs, the contract does not.
 
 ## Event-id and subscription-id namespacing
 
-The cross-example bundle also shares the re-frame registries (handlers,
-subs, machines, ...). Examples avoid collisions by **prefixing every
-registered id with the example's name**:
+The shared DOM isn't the only thing that single bundle pools — it also shares
+the re-frame registries (handlers, subs, machines, ...). Two examples that both
+register `:login` would silently fight over the same slot. Examples sidestep
+this by **prefixing every registered id with the example's name**:
 
 - `realworld.core` registers events under `:auth/login`, `:articles/load`,
   `:comments/submit`, `:settings/save`, ... — never bare keywords like

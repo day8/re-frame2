@@ -3,11 +3,13 @@
 > **Type:** Reference
 > Demonstrates the spec's primitives composed into real UI work. Read after the guide; refer to alongside the specification.
 
-> **Status reminder.** These examples target the current `re-frame2` API. Their maturity varies: some are aligned closely enough to run against the reference implementation, some are pedagogical sketches, and the RealWorld scaffold is now a broad worked sketch rather than a partially empty placeholder set. Treat the per-example README or docstring as the source of truth for how complete each one is.
+The specification tells you what re-frame2 *is*; these examples show you what it *feels like* to build with. Each one takes a slice of the spec — a state machine, a flow, an HTTP request, the frame ceremony — and renders it as code you can read top to bottom and then run. They climb a gentle gradient: the counter is the smallest app the pattern admits, RealWorld is the widest surface in the repo, and the rest sit in between. Start at whichever rung matches what you're trying to learn.
+
+> **Status reminder.** These examples target the current `re-frame2` API, and they are not all polished to the same shine. Some are aligned closely enough to run against the reference implementation; some are pedagogical sketches that exist to make one idea vivid; and the RealWorld scaffold is now a broad worked sketch rather than the partially-empty placeholder set it once was. When you need to know exactly how finished a given example is, trust its own README or docstring over any summary here — the per-example doc is the source of truth.
 
 ## Layout — grouped by substrate
 
-Examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx and Helix each ship a curated set rather than a 1:1 mirror — the **Decision-7 curated pair is counter + login** (carrying compile coverage), plus one design-led example per non-canonical substrate (dashboard for UIx, process-monitor for Helix) that is a documented build. None of these are browser-smoke surfaces: browser smoke coverage is exactly the three adapter-level smokes (see below).
+The top-level split is by substrate — the rendering layer underneath the dataflow. Reagent is the canonical substrate, so it carries the full set; the other two don't try to mirror it one-for-one, which would be a lot of near-duplicate code proving the same seam over and over. Instead UIx and Helix each ship a deliberately small slice: the **Decision-7 curated pair is counter + login** (carrying compile coverage), enough to demonstrate that the adapter swaps cleanly, plus one design-led example per non-canonical substrate (dashboard for UIx, process-monitor for Helix) to show it can drive something substantial. None of these are browser-smoke surfaces — that job belongs to exactly the three adapter-level smokes (see below), not the example pages.
 
 ```
 examples/
@@ -63,7 +65,7 @@ The orchestrator and the runner consume `playwright` and `http-server` out of `i
 
 ## Reagent
 
-The full set of worked examples — twenty-six in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. There is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
+This is the main event: the full set of worked examples — twenty-six in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id so you can boot it in one command. You won't find a per-example Playwright spec here, by design — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs), and the broader contract coverage lives in `npm run test:cljs` / `test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`. The examples are here to be read and run, not to carry the regression weight.
 
 Build any example directly via shadow-cljs:
 
@@ -109,7 +111,7 @@ For the 7GUIs cluster's own narrative (entries 12–17 above plus the counter fr
 
 ## Reagent Slim
 
-The `day8/reagent-slim` adapter ([`implementation/adapters/reagent-slim/`](../implementation/adapters/reagent-slim/)) is its own substrate — a ground-up `reagent2.*` rewrite, not the thin bridge over stock Reagent. It carries a single example: the canonical counter dataflow re-mounted on the slim substrate, kept as the adapter's bundle-isolation fixture rather than a tutorial.
+The `day8/reagent-slim` adapter ([`implementation/adapters/reagent-slim/`](../implementation/adapters/reagent-slim/)) is its own substrate — a ground-up `reagent2.*` rewrite, not the thin bridge over stock Reagent. It earns exactly one example, and that example earns its keep as a test fixture rather than a lesson: the canonical counter dataflow re-mounted on the slim substrate, kept around to anchor the adapter's bundle-isolation contract. If you've read the canonical counter, you've read this one — the interest is entirely in what the bundle does *not* contain.
 
 | # | Example | Maturity | Build id | Spec(s) it illustrates | What it demonstrates |
 |---|---|---|---|---|---|
@@ -117,7 +119,7 @@ The `day8/reagent-slim` adapter ([`implementation/adapters/reagent-slim/`](../im
 
 ## UIx
 
-The UIx adapter ships a curated set rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the **curated example subset is counter + login** — the representative pair that shares its substrate-agnostic dataflow with the Reagent siblings; realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it. Because the `examples/` tree is test-free, that pair carries **compile coverage only** (`test:examples-compile`): the *runtime* substrate-contract smoke that proves the UIx adapter wires up end-to-end is the single mount+dispatch+assert smoke at the adapter testbed [`implementation/adapters/uix/testbed/spec.cjs`](../implementation/adapters/uix/testbed/spec.cjs), not the example pages. Alongside the curated pair the tree also ships `dashboard_uix`, a design-led example: a documented build (it carries compile coverage) but **not** part of the Decision-7 curated subset.
+UIx renders through React hooks instead of Reagent's reactive substrate, so the natural question is: how much has to change? The answer the curated set makes vivid is *almost nothing above the view layer*. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the **curated example subset is counter + login** — the representative pair that shares its substrate-agnostic dataflow byte-for-byte with the Reagent siblings, with only the components moving. (RealWorld is steeped in Reagent-flavoured idioms, so it's deferred until a UIx user actually wants it — there's no virtue in porting idioms that don't translate.) Because the `examples/` tree is test-free, that pair carries **compile coverage only** (`test:examples-compile`); the *runtime* proof that the UIx adapter wires up end-to-end is the single mount+dispatch+assert smoke at the adapter testbed [`implementation/adapters/uix/testbed/spec.cjs`](../implementation/adapters/uix/testbed/spec.cjs), not the example pages. Alongside the curated pair the tree also ships `dashboard_uix`, a design-led example: a documented build that carries compile coverage, but deliberately **not** part of the Decision-7 curated subset.
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
@@ -127,7 +129,7 @@ The UIx adapter ships a curated set rather than a 1:1 mirror of the Reagent set.
 
 ## Helix
 
-The Helix adapter ships the same shape as UIx — the **curated pair is counter + login** per Decision 7, plus the process-monitor design-led example (a documented build). All three carry compile coverage only. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ. The runtime browser-smoke that proves the Helix adapter wires up end-to-end is the single adapter-testbed smoke at [`implementation/adapters/helix/testbed/spec.cjs`](../implementation/adapters/helix/testbed/spec.cjs), not the example pages.
+Helix tells the same story as UIx, which is rather the point — two different hooks libraries, one unchanged dataflow underneath. The **curated pair is counter + login** per Decision 7, plus the process-monitor design-led example (a documented build), all three carrying compile coverage only. The eight UIx decisions transferred without amendment because Helix and UIx sit on the same React-plus-hooks substrate model; what differs is small and local — the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x). As with the others, the runtime proof that the adapter wires up end-to-end is the single adapter-testbed smoke at [`implementation/adapters/helix/testbed/spec.cjs`](../implementation/adapters/helix/testbed/spec.cjs), not the example pages.
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
@@ -135,11 +137,11 @@ The Helix adapter ships the same shape as UIx — the **curated pair is counter 
 | 2 | [`helix/login_helix/`](helix/login_helix/) | Pedagogical sketch | `examples/login-helix` | The Reagent [`login/`](reagent/login/) example through Helix — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
 | 3 | [`helix/process_monitor_helix/`](helix/process_monitor_helix/) | Design-led (compile-only) | `examples/process-monitor-helix` | Design-led example proving Helix can drive a substantive multi-pane layout. Documented build (carries compile coverage) but not part of the Decision-7 curated pair. Shares the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css) with the Reagent `notebook/` and UIx `dashboard_uix/` siblings. |
 
-The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle — separate per-example shadow-cljs builds per substrate let CI verify a Reagent-substrate example carries no UIx or Helix code, a UIx-substrate example carries no Reagent or Helix code, and a Helix-substrate example carries no Reagent or UIx code.
+Keeping the substrates in separate per-example shadow-cljs builds buys something concrete: CI can prove each one stays in its lane. The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle and asserts the obvious-but-easy-to-violate invariant — a Reagent-substrate example carries no UIx or Helix code, a UIx-substrate example carries no Reagent or Helix code, and a Helix-substrate example carries no Reagent or UIx code. No substrate leaks into a build that shouldn't have it.
 
 ## Reading order
 
-If you've finished the guide and want to see code:
+There's no wrong order, but there is a path of least resistance — each step below assumes the shape established by the one before it, so the new idea is the only thing you have to hold in your head. If you've finished the guide and want to see code, walk it in sequence:
 
 1. **Start with [`reagent/counter/`](reagent/counter/)** — the smallest possible app. Establishes the basic shape.
 2. **Then [`reagent/login/`](reagent/login/)** — adds a state machine, async effects, and form handling. Single-feature scope; full shape.
@@ -155,7 +157,7 @@ If you're building on UIx, read [`uix/counter_uix/`](uix/counter_uix/) and [`uix
 
 ## End-to-end verification
 
-The `examples/` tree is **test-free** — no `*.spec.cjs` lives under `examples/`. Real-regression coverage lives in:
+The `examples/` tree is **test-free** — no `*.spec.cjs` lives under `examples/`. That's a deliberate division of labour, not an oversight: an example that doubles as a regression test ends up serving two masters and reading like neither, so we let the examples stay legible and push the actual proof of correctness onto dedicated gates. Real-regression coverage lives in:
 
 - **`npm run test:cljs`** — substrate contract tests (events, subs, handlers, machines, schemas) across every artefact under `npm run test:cljs`'s node-runtime CLJS suite.
 - **`npm run test:adapter-smokes`** — adapter-level smokes only. Compiles + serves the 3 adapter testbeds (`implementation/adapters/<name>/testbed/`) and runs their paired `spec.cjs`. The framework + top-level testbeds do not carry Playwright specs; their assertions live as CLJS/JVM unit tests.
@@ -197,5 +199,5 @@ The heavy box earns its visual weight in files where the section markers must be
 
 ## What examples are *not*
 
-- **Not a substitute for the [specification](../spec/).** Examples illustrate; the specification defines.
-- **Not all uniformly polished.** The Pedagogical-sketch examples are deliberately small. The Worked-scaffold (RealWorld) prioritises breadth of API coverage over production polish.
+- **Not a substitute for the [specification](../spec/).** Examples illustrate; the specification defines. When an example and the spec seem to disagree, the spec wins and the example has a bug — reach for the spec when you need the authoritative answer, not a plausible one.
+- **Not all uniformly polished, and not pretending to be.** The Pedagogical-sketch examples are small on purpose — extra machinery would only obscure the one idea each is built to show. The Worked-scaffold (RealWorld) makes the opposite trade, reaching for breadth of API coverage across a realistic app rather than production-grade finish on any single screen.

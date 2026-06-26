@@ -15,10 +15,12 @@ view reads it passively — no fetch, no flicker — exactly as if the client ha
 fetched it itself a moment ago. Everything below is the discipline that makes
 that handoff safe.
 
-It's `.cljc`, so the same code runs server-side on the JVM (`:clj` branches) and
-client-side in the browser (`:cljs` branches). The worked companion to [Spec 016
-§SSR and hydration](../../../spec/016-Resources.md) over [Spec 011
-SSR](../../../spec/011-SSR.md); the narrative version lives at
+One artefact, two runtimes: it's `.cljc`, so the very same code runs server-side
+on the JVM (the `:clj` branches) and client-side in the browser (the `:cljs`
+branches), with the reader macros picking the side. Read it as the worked
+companion to [Spec 016 §SSR and hydration](../../../spec/016-Resources.md)
+riding over [Spec 011 SSR](../../../spec/011-SSR.md); the narrative version,
+if you'd rather read the story than the code, lives at
 [docs/resources/concepts.md §SSR and hydration](../../../docs/resources/concepts.md#ssr-and-hydration).
 
 ## What this demonstrates

@@ -10,7 +10,7 @@ seam is what makes re-frame2 substrate-agnostic, and this is the example where
 you can see it drawn as a literal line in the source.
 
 So treat this as the Reagent example's twin, viewed from the rendering side.
-Everything above the `SUBSTRATE BOUNDARY` comment is byte-for-id-identical to
+Everything above the `SUBSTRATE BOUNDARY` comment is identical — id for id — to
 its Reagent and UIx siblings; everything below it is the Helix-specific bit —
 `defnc` components reading [subscriptions](../../../docs/guide/glossary.md#subscription)
 through a hook. Reading the three side by side tells you exactly which layers

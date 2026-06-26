@@ -1,10 +1,42 @@
 # UIx — examples
 
-The UIx adapter (see [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md)). UIx is the second adapter to ship; it consumes the same `re-frame.adapter.context` React Context that the Reagent adapter exposes (Decision 2), so a single app can in principle mix-and-match — though the canonical pattern is to choose one substrate per app.
+UIx is the second substrate re-frame2 learned to render through (see
+[Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md)),
+and the examples here exist to make one claim visible: the dataflow
+does not care which one you pick. UIx renders through React hooks
+rather than Reagent's reactive atoms, yet it plugs into the *same*
+`re-frame.adapter.context` React Context the Reagent adapter exposes
+(Decision 2). In principle a single app could even mix the two —
+though the sane default is to choose one substrate and stay there.
 
-This directory holds the UIx adapter examples, not a 1:1 mirror of the Reagent set. Per Decision 7 of [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md) and [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy): non-canonical adapters ship a representative **curated example subset** (the spec's term — Decision 7 is "Curated example set"). For UIx that subset is **counter + login** — the curated pair that shares its dataflow with the Reagent siblings (substrate-agnostic events, subs, schemas, machine, managed-HTTP stub), chosen because exercising it confirms the UIx adapter implements the substrate contract. Inside this tree that pair carries **compile coverage only** (`test:examples-compile`, see [Testing](#testing)); the *runtime* smoke that proves the substrate contract is the adapter testbed at [`implementation/adapters/uix/testbed/spec.cjs`](../../implementation/adapters/uix/testbed/), not a per-example browser gate. ("Smoke" is reserved here for that runtime adapter gate, never for the curated example pages.) The Reagent realworld scaffold is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
+This directory is **not** a 1:1 mirror of the Reagent set, and that's
+by design. Per Decision 7 of
+[Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md)
+and [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy),
+a non-canonical adapter doesn't have to re-prove the whole catalogue —
+it ships a representative **curated example subset** (the spec's term;
+Decision 7 is "Curated example set"). For UIx that subset is
+**counter + login** — the curated pair whose dataflow is shared
+verbatim with the Reagent siblings (substrate-agnostic events, subs,
+schemas, machine, managed-HTTP stub). That pair is the load-bearing
+one: get the same events and subs flowing through `defui` components
+and you've shown the UIx adapter honours the substrate contract.
+Inside this tree the pair carries **compile coverage only**
+(`test:examples-compile`, see [Testing](#testing)); the *runtime*
+smoke that actually exercises the contract is the adapter testbed at
+[`implementation/adapters/uix/testbed/spec.cjs`](../../implementation/adapters/uix/testbed/),
+not a per-example browser gate. (We keep the word "smoke" for that
+runtime adapter gate, never for the curated example pages.) The
+Reagent realworld scaffold is thick with Reagent-flavoured idioms, so
+it stays deferred until a UIx user actually asks for it.
 
-Alongside the curated pair this directory also ships **`dashboard_uix`** — a design-led example proving UIx can drive a polished multi-pane layout. It is a documented example and a declared shadow-cljs build (so it carries compile coverage), but it is **not** part of the Decision-7 curated example subset: the spec's UIx subset is counter + login only, and `dashboard_uix` makes no Decision-7 contract claim.
+Riding alongside the curated pair is **`dashboard_uix`** — a
+design-led example, there to prove UIx can drive a polished multi-pane
+layout rather than just a counter and a login form. It is a documented
+example and a declared shadow-cljs build (so it earns its compile
+coverage), but it is deliberately **not** part of the Decision-7
+curated subset: the spec's UIx subset is counter + login only, and
+`dashboard_uix` makes no Decision-7 contract claim.
 
 ## Layout
 
@@ -15,22 +47,22 @@ uix/
   dashboard_uix/  <-- design-led example proving multi-pane layout on UIx
 ```
 
-Each example sits in its own folder with the CLJS source (`core.cljs`) and a hand-written `index.html`. The `examples/` tree is **test-free**: no example ships a Playwright spec — see [Testing](#testing) below for where the real regression coverage lives. The on-disk folder names carry the `_uix` suffix because the CLJS namespaces (`counter-uix.core`, `login-uix.core`) are deliberately distinct from their Reagent siblings (`counter.core`, `login.core`) — both substrate trees end up on the same shadow-cljs classpath, so the namespaces have to be unique. The folder name follows the namespace convention (`-` becomes `_` on disk).
+Each example sits in its own folder with the CLJS source (`core.cljs`) and a hand-written `index.html`. The `examples/` tree is **test-free**: no example ships a Playwright spec — see [Testing](#testing) below for where the real regression coverage lives. Those `_uix` suffixes on the folder names aren't cosmetic: the CLJS namespaces (`counter-uix.core`, `login-uix.core`) have to stay distinct from their Reagent siblings (`counter.core`, `login.core`), because both substrate trees land on the *same* shadow-cljs classpath and two namespaces of the same name would collide. The folder name just tracks the namespace, with `-` becoming `_` on disk as the convention demands.
 
-The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **identical** to the Reagent siblings under [`../reagent/`](../reagent/); only the view layer differs. UIx components are written as `defui` and consume subs via the `use-subscribe` hook (Decision 1, UIx-idiomatic).
+Now the part worth dwelling on: the dataflow — events, subs, schemas, machine, managed-HTTP stub — is **identical** to the Reagent siblings under [`../reagent/`](../reagent/). Not similar, identical. The only thing that moves is the view layer, where UIx components are written as `defui` and pull subs in through the `use-subscribe` hook (Decision 1, UIx-idiomatic) instead of dereferencing a reactive atom. Put a Reagent example and its UIx twin side by side and the seam is unmistakable — everything above the view is the same code; only the rendering changes.
 
 ### Shared registration ids — deliberate, build-isolated
 
-The "identical" above is literal: `counter_uix` and `login_uix` register the **same registration ids** as their Reagent (and Helix) siblings — the `:counter/*` event + sub ids, the `:auth.login/flow` machine event, the `:auth.login.demo/managed-stub` fx, the `:auth.login/state` / `:auth.login/error` subs, and the `:auth.login/flow` machine's `[:schemas :data]`. The machine snapshot lives in runtime-db at `[:rf.runtime/machines :snapshots :auth.login/flow]`; its `[:schemas :data]` is a top-level key on the machine spec that validates the machine's **`:data` slot only** (`{:attempts ... :error ...}`) at the `:where :machine-data` boundary — per [Spec 005 §Schema validation](../../spec/005-StateMachines.md) — not the whole `{:state ... :data ...}` snapshot, and not `reg-app-schema` (machine snapshots are runtime-db state, not app-db). This is **byte-for-byte id reuse on purpose** — the id-identity *is* the cross-substrate parity demonstration.
+When I said the dataflow is identical, I meant it down to the names. `counter_uix` and `login_uix` register the **same registration ids** as their Reagent (and Helix) siblings — the `:counter/*` event + sub ids, the `:auth.login/flow` machine event, the `:auth.login.demo/managed-stub` fx, the `:auth.login/state` / `:auth.login/error` subs, and the `:auth.login/flow` machine's `[:schemas :data]`. The machine snapshot lives in runtime-db at `[:rf.runtime/machines :snapshots :auth.login/flow]`; its `[:schemas :data]` is a top-level key on the machine spec that validates the machine's **`:data` slot only** (`{:attempts ... :error ...}`) at the `:where :machine-data` boundary — per [Spec 005 §Schema validation](../../spec/005-StateMachines.md) — not the whole `{:state ... :data ...}` snapshot, and not `reg-app-schema` (machine snapshots are runtime-db state, not app-db). This is **byte-for-byte id reuse on purpose** — the id-identity *is* the cross-substrate parity demonstration.
 
-Registration ids are scoped to the **image** a frame resolves against, not to one process-global registry — so the *same* `:counter/inc` may legitimately exist in two different images meaning two different things (see [Images](../../docs/guide/concepts/images.md) and [Frames](../../docs/guide/concepts/frames.md)). What these examples share is the ids themselves; how a runtime *resolves* them is decided by which image the frame runs. The **canonical statement** of this carve-out (with the same four bounding conditions) lives in [`examples/TESTING.md` §Exception 2 — the cross-substrate Reagent/UIx/Helix id share](../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share), alongside its sibling [§Exception 1 — the stock/slim counter `:counter/*` share](../TESTING.md#exception-1--the-stockslim-counter-counter-id-share). It is a bounded exception to the example-id-prefix convention, not an oversight, and the same four conditions apply:
+This sounds alarming until you remember where ids actually live. A registration id is scoped to the **image** a frame resolves against, not to one process-global registry — so the *same* `:counter/inc` may legitimately exist in two different images meaning two entirely different things (see [Images](../../docs/guide/concepts/images.md) and [Frames](../../docs/guide/concepts/frames.md)). What these examples share is the spelling of the ids; what a runtime *does* with a given id is decided by the image the frame runs against. The **canonical statement** of this carve-out (with the same four bounding conditions) lives in [`examples/TESTING.md` §Exception 2 — the cross-substrate Reagent/UIx/Helix id share](../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share), alongside its sibling [§Exception 1 — the stock/slim counter `:counter/*` share](../TESTING.md#exception-1--the-stockslim-counter-counter-id-share). It is a bounded exception to the example-id-prefix convention, not an oversight, and the same four conditions apply:
 
 1. **Allowed only because each example is a separate standalone shadow-cljs build** (`examples/counter-uix`, `examples/login-uix`) that MUST NOT be co-required with its Reagent/Helix twin into one runtime. They never share a JS runtime, so the identical ids never have to resolve inside one image.
 2. **If any of these examples is ever folded into a shared wrapper / showcase / `test:browser` bundle alongside a sibling substrate, the ids must be disambiguated first** — either give each frame its own explicit image (disjoint `:select-ns` selectors, supplied to `rf/make-frame` / `reg-frame` via `:images`, so each frame resolves only its own substrate's registrations) or prefix the ids before co-loading them into one default image. The default image — the implicit projection over every `reg-*` loaded with no explicit `:images` — **fails loud** on a cross-namespace `(kind, id)` collision (`:rf.error/image-duplicate-id` at frame-creation time), naming both source namespaces; there is no silent last-write-wins on that path. So a naive co-load of two byte-identical twins into one default image is a refused assembly, not a silent clobber — which is exactly why explicit images or prefixed ids are the way to co-mount them.
 3. **The carve-out covers shared event/sub/fx/machine/schema ids only — never views.** UIx views are `defui` (their own namespace); there is no `reg-view` registration to share or to resolve.
 4. **Bundle isolation is the regression surface** that keeps the build split honest. `npm run test:bundle-isolation` release-builds and greps the counter triplet's `main.js` (`examples/counter`, `examples/counter-uix`, `examples/counter-helix`) in isolation; the other UIx builds carry compile coverage rather than a per-bundle grep.
 
-Renaming the UIx ids to a `:counter-uix/*` / `:auth.login-uix/*` stem would conform to the prefix rule but *weaken* the parity claim these examples exist to make, so it is not done — same trade-off the slim-counter carve-out resolves the same way.
+Renaming the UIx ids to a `:counter-uix/*` / `:auth.login-uix/*` stem would tick the prefix-convention box, but it would also quietly dissolve the very parity these examples exist to demonstrate — so we leave the ids alone and take the documented exception instead. It's the same trade-off the slim-counter carve-out resolves the same way.
 
 ## What each example demonstrates
 

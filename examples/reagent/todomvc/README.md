@@ -1,15 +1,15 @@
 # TodoMVC in re-frame2
 
-Everyone knows TodoMVC. That's the point of it — it's the "hello world" that every framework re-implements, so you can read one and instantly map its idioms onto the next. This is that familiar app (the current [TodoMVC app spec](https://github.com/tastejs/todomvc/blob/master/app-spec.md)) built on re-frame2, with one eye kept on the original [day8/re-frame TodoMVC example](https://github.com/day8/re-frame/tree/master/examples/todomvc) so a re-frame v1 reader feels at home.
+Everyone knows TodoMVC. That's rather the point of it — it's the "hello world" that every framework re-implements, so once you've read one you can map its idioms straight onto the next. This is that familiar app (built to the current [TodoMVC app spec](https://github.com/tastejs/todomvc/blob/master/app-spec.md)) on re-frame2, with one eye on the original [day8/re-frame TodoMVC example](https://github.com/day8/re-frame/tree/master/examples/todomvc) so a re-frame v1 reader lands somewhere familiar.
 
-So if it's just todos, what's actually worth reading here? Two design decisions that look small and turn out to be the whole re-frame2 lesson:
+So if it's *just* a todo list — and we've all written a hundred of those — what's actually worth your time here? Two design decisions that look like throwaway details and turn out to carry the whole re-frame2 lesson:
 
-1. **The filter is a *route*, not a flag.** The all/active/completed switch lives in the URL, and the rest of the app derives the filtered list from it. There's no `:showing` key in app-db at all.
-2. **Persistence stays *replayable*.** The localStorage read at boot isn't done inside a handler — it rides in as a recordable **coeffect**, so the boot **event** replays to the exact same state under time-travel. More on why that distinction matters below.
+1. **The filter is a *route*, not a flag.** The all/active/completed switch lives in the URL, and the rest of the app derives the filtered list straight off it. There's no `:showing` key in app-db at all — the thing you'd reflexively store turns out to be something you read.
+2. **Persistence stays *replayable*.** The localStorage read at boot doesn't happen inside a handler. It rides in as a recordable **coeffect**, so the boot **event** replays to the exact same state under time-travel instead of re-reading whatever the browser holds now. That sounds like a fussy distinction; it's the difference between persistence you can debug and persistence you can only pray over, and there's a whole section on it below.
 
-Everything else is the boring, correct re-frame2 spine you'd expect: pure **event handlers**, a layered **subscription** graph, a registered **effect** for the write side, and a **view** tree that holds no business logic.
+Everything else is the boring, correct re-frame2 spine you'd expect, and that's a compliment: pure **event handlers**, a layered **subscription** graph, a registered **effect** for the write side, and a **view** tree that holds no business logic of its own.
 
-The file layout deliberately echoes the v1 example's teaching split — the same six concerns in the same six places, so the diff between v1 and v2 is the *API*, not the architecture:
+The file layout deliberately echoes the v1 example's teaching split — the same six concerns parcelled out the same way — so when you diff v1 against v2 what changes is the *API*, never the architecture:
 
 - `core.cljs` — entry point, frame setup, and the hash → route adapter
 - `db.cljs` — the default app-db and the localStorage coeffect
@@ -48,11 +48,11 @@ The handler then just declares it needs that fact and folds it into app-db — p
     {:db (assoc db/default-db :todos todos)}))
 ```
 
-The boot dispatch stays **plain** — `core.cljs` seeds the frame with `:initial-events [[:todo/initialise] …]` and carries no cofx; the registered generator is the supplier. The generator runs once at processing-start, its value is recorded onto the causal token, and a replay or epoch-restore re-presents the captured snapshot verbatim instead of re-reading the world. (If you want the full theory, this is the "recordable vs ambient coeffects" distinction from the glossary, and the persistence write itself is an ordinary registered effect — effects are data, performed by the runtime, kept out of the pure handler.) It's a lot of ceremony for a todo list, granted — but TodoMVC is exactly the right size to show the *shape* of replayable persistence without burying it under a real domain.
+The boot dispatch stays **plain** — `core.cljs` seeds the frame with `:initial-events [[:todo/initialise] …]` and carries no cofx; the registered generator is the supplier. The generator runs once at processing-start, its value is recorded onto the causal token, and a replay or epoch-restore re-presents the captured snapshot verbatim instead of re-reading the world. (If you want the full theory, this is the "recordable vs ambient coeffects" distinction from the glossary, and the persistence write itself is an ordinary registered effect — effects are data, performed by the runtime, kept out of the pure handler.) Yes, it's a conspicuous amount of ceremony to load a todo list, and on a todo list you'd never actually feel the bug it prevents. But that's exactly why a todo list is the place to learn the *shape*: small enough that the mechanism is the only thing in view, and once you've seen it here you'll recognise it the day it's a 200-row spreadsheet whose replay quietly lies to you.
 
 ### Why localStorage?
 
-Persisting locally keeps the example small and dependency-free — no backend to stand up, no request lifecycle to follow. TodoMVC is exactly the right size to show the *shape* of replayable persistence on its own, and localStorage is the simplest thing that does the job.
+Because the persistence is the lesson here, not the wiring around it. A real backend would drag in a server to stand up, a request lifecycle to follow, and auth to wave away — none of which teaches you anything about *replayable* writes. localStorage is the smallest thing that's a genuine durable side effect: it survives a reload, it can hold stale data, it's read at the boundary. That's all the example needs to make the recordable-coeffect point land, with nothing else in the frame competing for your attention.
 
 ## Official assets
 

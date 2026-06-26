@@ -16,7 +16,7 @@ What's worth reading here is how little the answer *changes* as the difficulty c
 
 ## What this demonstrates
 
-Read the seven in order and you can watch the dataflow grammar grow one word at a time, never changing model:
+Read the seven in order and you can watch the dataflow grammar grow one word at a time — same model throughout, just more of it:
 
 - **Counter** is the bare loop — event handler, subscription, view. Nothing else.
 - **Temperature** adds the load-bearing idea the whole suite leans on: *one source of truth, derived two ways*. The canonical value is Celsius; both fields are subscriptions off it, one passing through the raw text you're typing and the other showing the conversion. The trap is structurally absent.
@@ -40,9 +40,9 @@ CLJS namespace identifiers can't start with a digit, so the on-disk directory is
 
 The reference implementations on the [7GUIs site](https://eugenkiss.github.io/7guis/tasks) are typically tens of lines of imperative code per task. The re-frame2 versions run a little longer, because they buy something with the extra lines:
 
-- They carry `:doc` metadata on registrations.
-- They attach Malli schemas where the data shape benefits.
-- They use registered views (Var-reference style, the canonical form).
-- They keep every artefact — each event, each subscription, each view — named and individually queryable, rather than inlined into one imperative update loop.
+- Every registration carries `:doc` metadata, so the thing can describe itself to a tool or a human reading it cold.
+- Malli schemas guard the app-db slices where the data shape is worth pinning down, turning a class of bad writes into a loud dev-time error.
+- Views are registered, Var-reference style — the canonical form, the one tooling can find by name.
+- And every artefact — each event, each subscription, each view — stays named and individually queryable, instead of dissolving into one imperative update loop where nothing has a handle.
 
 The verbosity tax is real, and small. What you get back for it: every artefact is named, queryable, schema-able, and AI-amenable — at roughly the same scale as the imperative reference, with the famous traps engineered out rather than carefully avoided.
