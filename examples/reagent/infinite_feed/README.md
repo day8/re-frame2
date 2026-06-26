@@ -110,38 +110,22 @@ principal's feed could never surface in another's cache.
 the `:rf.http/managed` [effect](../../../docs/guide/glossary.md#effect) with a
 **per-cursor** canned stub: the stub reads the `:cursor` request param, slices a
 26-row demo dataset, and returns a `{:items [...] :page-info {:next-cursor …}}`
-envelope — the *same* shape a real cursor-paginated server would produce — then
-hands it to the framework-shipped `:rf.http/managed-canned-success`
-(Spec 014 §Testing). Because the reply flows through the real
+envelope — the *same* shape a real cursor-paginated server would produce. Because
+the reply still flows through the real
 [managed-HTTP](../../../docs/resources/glossary.md#managed-http) path, every page
 fetch exercises a genuine fetch, in-flight dedupe, generation/stale suppression,
-and the passive status flow — none of that is faked. A small 140 ms delay (via
-the canned fx's `:after-ms`, dispatched through framework `:dispatch-later`, so
-it stays trace-visible and time-travel-safe — never raw `js/setTimeout`) lets
+and the passive status flow — none of that is faked. A small 140 ms delay lets
 the load-more spinner actually render before each page lands.
-
-## Status
-
-The infinite-resource runtime has **landed** (EP-0021 waves 1–4): the
-`:infinite` registration grammar + the required `:next-page-param` gate, the
-durable feed entry (`:data` = the ordered page vector), the causal
-`:rf.resource/load-more` event + the page reply handlers (append, cursor
-advance, the `:page-error` channel, the R6 window-preserving refetch), and the
-framework-owned memoised infinite subscription family (`:rf.resource/items` /
-`:pages` / `:infinite-state` / `:has-next-page?` / `:fetching-next?` /
-`:page-count` / `:page-error`) are all real and operational.
 
 ## Deferred — not built here
 
-- **Prepend (`load-prev`).** The `:prev-page-param` derivation **mirror** is
-  defined in the runtime (R7), but the prepend event `:rf.resource/load-prev`
-  is deferred until a consumer needs it; v1 is next-direction `load-more` only.
-  This example is a one-directional next-only feed.
+- **Prepend (`load-prev`).** The prepend event `:rf.resource/load-prev` is
+  deferred until a consumer needs it; this example is a one-directional,
+  next-only feed.
 - **In-place item patching.** A mutation touching an item inside the feed
-  invalidates the **whole feed** (coarse, correct — R4); patching one item in
-  place is the deferred optimistic axis.
-- **An auto-loading sentinel** (`IntersectionObserver`). The guide's load-more
-  section documents the frame-handle pattern for it; this example uses an
+  invalidates the **whole feed** (coarse, but correct); patching one item in
+  place is a separate optimistic axis not shown here.
+- **An auto-loading sentinel** (`IntersectionObserver`). This example uses an
   explicit button to keep the load-more cause visible.
 
 ## Files
@@ -154,11 +138,6 @@ infinite_feed/
   index.html   — minimal host page.
 ```
 
-The example synthesises its server replies **in-app** via the canned
-`:rf.http/managed` stub (delegating to `:rf.http/managed-canned-success`), so
-there is **no `api/` asset to stage** — the per-cursor pages are routed by the
-stub, not by a static file tree.
-
 ## How to run
 
 ```bash
@@ -166,30 +145,7 @@ stub, not by a static file tree.
 shadow-cljs watch examples/infinite-feed
 ```
 
-The watch build emits `main.js` into `out/examples/infinite-feed/`; copy this
-folder's hand-written [`index.html`](index.html) (and the shared assets it
-references under [`../../_shared/`](../../_shared/)) alongside it, then serve
-`out/examples/infinite-feed/` over HTTP. (`npm run test:adapter-smokes` does not build
-this example — it compiles and serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).)
-
-## Coverage
-
-The example tree is test-free, but this example's wiring is pinned by
-a direct headless CLJS fixture, **`re-frame.infinite-feed-example-cljs-test`**
-(`implementation/adapters/reagent/test/re_frame/`, run by `npm run test:cljs`).
-It requires this example's production `infinite-feed.core` and drives the
-composition directly: route entry ensures **page 0** under a `[:route …]` owner
-(the view reads `:loading?` then the merged `:items`); a causal
-`:rf.resource/load-more` appends the next page and advances the cursor (the view
-reads `:has-next-page?` / `:fetching-next?`); the demo's last page's `nil`
-next-cursor flips `:has-next-page?` false (the end-of-feed marker); and a
-load-more failure keeps the feed and surfaces `:page-error` (the inline-retry
-channel, distinct from a first-load `:error`).
-The generic infinite-resource runtime contract (the FSM transitions, dedupe,
-stale suppression, the R6 refetch opt-ins, the loud missing-accessor merge) is
-pinned in `implementation/resources/test/`. See the
-[coverage table](../README.md#coverage-level-per-reagent-example).
+Then open the example's [`index.html`](index.html) over HTTP.
 
 ## Cross-references
 

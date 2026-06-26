@@ -56,10 +56,7 @@ differing only in the view.
 
 Why does the framework even *carry* a Helix counter? Because counter + login
 is the representative pair that proves the Helix adapter actually satisfies
-the substrate contract — the curated smoke subset per
-[Spec 006 §CLJS reference: Helix as alternative substrate, item 7](../../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate).
-(`process_monitor_helix` is a separate, design-led example that sits
-*alongside* the subset, not part of it.)
+the [substrate contract](../../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate).
 
 ### The substrate boundary — same model, three view layers
 
@@ -77,18 +74,7 @@ the id-identity **is** the parity demonstration. Byte-identical events and a
 byte-identical sub, driving a Reagent `reg-view`, a UIx `defui`, and a Helix
 `defnc`, is the proof that the adapter contract is the whole story — that
 nothing leaks across the boundary. Hoist the model into a shared namespace
-and you'd lose exactly that proof. Each substrate counter is a self-contained
-`:browser` build, and `npm run test:bundle-isolation` greps every released
-bundle to confirm a Helix `main.js` carries no Reagent or UIx code (and vice
-versa). A shared model required into all three builds would defeat both the
-isolation *and* the parity claim it underwrites. The rationale and its four
-bounding conditions are catalogued in
-[`examples/TESTING.md` §Exception 2](../../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share).
-
-One last detail you'll notice in the source: the folder carries the `_helix`
-namespace suffix (`counter-helix.core`) purely so its top-level namespace
-doesn't collide with the Reagent and UIx siblings on the classpath. Nothing
-deeper than housekeeping.
+and you'd lose exactly that proof.
 
 ## Files
 
@@ -105,33 +91,5 @@ counter_helix/
 npm run dev:example -- examples/counter-helix
 ```
 
-One command: it stages this folder's hand-written
-[`index.html`](index.html) + the shared `_shared/` assets next to the
-compiled `main.js`, starts `shadow-cljs watch` (edits recompile live),
-serves `out/examples/counter-helix/` on a free local port, and prints the
-URL to open. Add `--no-watch` for a one-shot compile-and-serve.
-
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/helix/README.md`](../README.md).) Examples are
-test-free per [`examples/README.md`](../../README.md); the Helix
-adapter smoke lives at
-[`implementation/adapters/helix/testbed/spec.cjs`](../../../implementation/adapters/helix/testbed/spec.cjs).
-
-<details><summary>Advanced: raw <code>shadow-cljs watch</code></summary>
-
-`npm run dev:example` wraps the raw watch + manual staging recipe. To
-drive shadow-cljs directly: `shadow-cljs watch examples/counter-helix`
-emits `main.js` into `out/examples/counter-helix/`; you then copy this
-folder's [`index.html`](index.html) (and the shared assets under
-[`../../_shared/`](../../_shared/)) alongside it and serve the output dir
-yourself.
-
-</details>
-
-## Cross-references
-
-- [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) — the substrate contract the Helix adapter satisfies.
-- [`spec/Conventions.md` §Adapter test matrix policy](../../../spec/Conventions.md#adapter-test-matrix-policy) — why all three substrate counters exist.
-- [`examples/reagent/counter/`](../../reagent/counter/) + [`examples/uix/counter_uix/`](../../uix/counter_uix/) — the other two substrate variants.
-- [`implementation/adapters/helix/`](../../../implementation/adapters/helix/) — the adapter implementation.
+Edits recompile live; it serves on a free local port and prints the URL to
+open. Add `--no-watch` for a one-shot compile-and-serve.

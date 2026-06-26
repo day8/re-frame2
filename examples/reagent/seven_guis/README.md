@@ -32,9 +32,11 @@ Three of the tasks (Flight Booker, CRUD, Circle Drawer) also disable buttons by 
 
 The suite is a good argument *against* the worry that "everything is an event and a subscription" gets heavy as apps grow. Watch what stays constant: from the counter to the spreadsheet, no task needs a second state-management idea. Two-way binding never appears. There's no observer wiring, no manual dependency tracking, no imperative "recompute the derived bits after this change" step — the [cascade](../../../docs/guide/glossary.md#event-cascade) does that, once, at the end, from settled state. The hard parts that remain hard (parsing a formula, detecting a cycle, getting the timer's generation logic right) are *genuine* domain problems, not framework friction — and they live in plain pure functions you can unit-test on the JVM without a browser anywhere in sight.
 
-Each task lives in its own self-contained sub-folder under `seven_guis/<name>/` with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`). Per the test-free examples policy there is **no per-example `.spec.cjs`** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates (`test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`), not under `examples/`. The shadow-cljs build targets in `implementation/shadow-cljs.edn` wire each task up to its own bundle; to view one in a browser, watch its build (`shadow-cljs watch examples/cells`) and serve the staged `index.html`.
+Each task lives in its own self-contained sub-folder under `seven_guis/<name>/` with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`). Watch a task's build to view it in a browser:
 
-CLJS namespace identifiers can't start with a digit, so the on-disk directory is `seven_guis/` and the cluster namespace prefix is `seven-guis.*`. Each task follows the catalogue's `<name>.core` shape: `seven-guis.cells.core`, `seven-guis.flight-booker.core`, etc. — one consistent scope across every example in the cluster.
+```bash
+shadow-cljs watch examples/cells
+```
 
 ## How these compare to the original 7GUIs reference
 

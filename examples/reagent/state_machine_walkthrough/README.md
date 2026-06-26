@@ -51,19 +51,15 @@ shows you both ends of that.
   parks the machine in `:locked-out`.
 
 - **The same flow tested as pure function calls.** This is where
-  machines pay you back. Each scenario the chapter describes has a
-  matching headless test that feeds a starting
+  machines pay you back. You can feed a starting
   [snapshot](../../../docs/machines/glossary.md#snapshot) and an event
-  into `machine-transition` and asserts against the snapshot that comes
+  into `machine-transition` and assert against the snapshot that comes
   back out — and, for the full-loop scenarios,
-  [drains](../../../docs/guide/glossary.md#drain--run-to-completion) the
+  [drain](../../../docs/guide/glossary.md#drain--run-to-completion) the
   whole event queue through a throwaway [frame](../../../docs/guide/glossary.md#frame)
-  and checks where the [app-db](../../../docs/guide/glossary.md#app-db)
+  and check where the [app-db](../../../docs/guide/glossary.md#app-db)
   settles. The chapter promises "runs in microseconds on the JVM, no
-  browser, no network," and these honour it. The example *tree* stays
-  test-free, so the four scenarios (pure happy-path, pure lockout,
-  drain happy-path, drain retry-then-lockout) were folded into the
-  framework JVM test — see [How to run](#how-to-run).
+  browser, no network," and the same `login-flow` value makes good on it.
 
 - **An HTTP call that composes with the machine for free.** The
   `:issue-request` action returns an [effect](../../../docs/guide/glossary.md#effect),
@@ -73,15 +69,13 @@ shows you both ends of that.
   appends the reply to that inner event and dispatches it straight back
   into the machine — that's
   [the uniform reply](../../../docs/guide/glossary.md#the-uniform-reply),
-  and it's why an async boundary needs no glue code here. In both the
-  demo and the tests the network is swapped out via the
+  and it's why an async boundary needs no glue code here. The network
+  is swapped out via the
   [`:fx-overrides`](../../../docs/guide/glossary.md#effect) seam, which
   redirects `:rf.http/managed` to the example's own
   `:auth.login/canned-success` / `:auth.login/canned-failure` wrapper
-  effects in [`core.cljc`](core.cljc) — thin pins over the
-  framework-shipped `:rf.http/managed-canned-success` /
-  `:rf.http/managed-canned-failure` stubs (Spec 014 §Testing) that fix
-  this example's payloads. No real traffic, identical reply shape.
+  effects in [`core.cljc`](core.cljc) that fix this example's payloads.
+  No real traffic, identical reply shape.
 
 ## Why .cljc
 
@@ -125,20 +119,9 @@ state_machine_walkthrough/
 shadow-cljs watch examples/state-machine-walkthrough
 ```
 
-The watch build emits `main.js` into
-`out/examples/state-machine-walkthrough/`; copy this folder's
-hand-written [`index.html`](index.html) (and the shared assets it
-references under [`../../_shared/`](../../_shared/)) alongside it, then
-serve `out/examples/state-machine-walkthrough/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).)
-The four headless scenarios (pure happy-path, pure lockout,
-drain happy-path, drain retry-then-lockout) were folded into the
-framework JVM test at
-[`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
-(the `state-machine-walkthrough-runs-headless` deftest) so
-the example source stays test-free. They run under the JVM test suite.
+Then open the served [`index.html`](index.html) and watch the lockout
+path: three rejected attempts, then a fourth that parks the machine in
+`:locked-out`.
 
 ## Cross-references
 

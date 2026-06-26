@@ -130,15 +130,6 @@ plays by the rules. The **fail-next-write** flag is read from app-db at request
 time: when armed, the next *write* answers a `503` (driving the rollback arc) and
 disarms itself.
 
-## Status
-
-The optimistic-mutation runtime has **landed and graduated** (EP-0019): the
-`:optimistic` / `:optimistic-tags` forward grammar, the runtime-recorded snapshot
-inverse and per-entry revision, the deterministic commit / rollback / reconcile
-settle protocol, the `:on-conflict` rule, the derived `:optimistic?` flag, and the
-trace family (`:rf.mutation/optimistic-applied` / `-rolled-back` / `-reconciled`)
-are all real and operational.
-
 ## Files
 
 ```
@@ -151,49 +142,20 @@ linearlite/
   index.html   — minimal host page.
 ```
 
-The example synthesises its server replies **in-app** via the canned
-`:rf.http/managed` stub, so there is **no `api/` asset to stage** — the board is
-held in the stub's closure, not a static file tree.
-
 ## How to run
 
 ```bash
-# From implementation/:
 shadow-cljs watch examples/linearlite
 ```
 
-The watch build emits `main.js` into `out/examples/linearlite/`. With the
-top-level `:dev-http` server wired (port **8044**), open
-[http://localhost:8044](http://localhost:8044) and the board loads (the source
-dir's hand-written [`index.html`](index.html) resolves at `/`, the compiled
-`main.js` falls through to `out/examples/linearlite/`). (`npm run test:adapter-smokes`
-does not build this example — it compiles and serves only the three adapter
-testbeds; see [`examples/reagent/README.md`](../README.md).)
+Then open [http://localhost:8044](http://localhost:8044) and the board loads.
 
 **Try the rollback:** tick **"Fail the next write"**, then create / retitle /
 move an issue. The change paints immediately, the request fails, and the
 optimistic change reverts.
 
-## Coverage
+## Related examples
 
-The example tree is test-free, but this example's wiring is pinned by
-a direct headless CLJS fixture, **`re-frame.linearlite-example-cljs-test`**
-(`implementation/adapters/reagent/test/re_frame/`, run by `npm run test:cljs`).
-It requires this example's production `linearlite.core` and drives the
-composition directly: route entry ensures the board under a `[:route …]` owner;
-each of the three `:optimistic` mutations applies its forward patch *before* the
-reply (the view reads the optimistic value + the `:optimistic?` flag); a
-successful reply commits the server board via `:populates`; and a failed reply
-rolls the optimistic change back to exactly the pre-write board (the demo
-headline). The generic optimistic-mutation runtime contract (the settle
-protocol, the conflict rule, the stale/superseded suppression, the
-restore-dangle) is pinned in `implementation/resources/test/`. See the
-[coverage table](../README.md#coverage-level-per-reagent-example).
-
-## Cross-references
-
-- [`docs/EP/EP-0019-optimistic-mutation-rollback.md`](../../../docs/EP/EP-0019-optimistic-mutation-rollback.md) — the EP (the accepted design + the riders).
-- [`spec/016-Resources.md §Optimistic mutations`](../../../spec/016-Resources.md#optimistic-mutations) — the normative spec (forward plan, snapshot inverse, settle protocol, `:on-conflict`).
 - [`examples/reagent/realworld_resources/`](../realworld_resources/) — the **`:optimistic-tags`** (tag-addressed) counterpart: a favorite that flips across the detail, every list, and the session feed at once.
 - [`examples/reagent/infinite_feed/`](../infinite_feed/) — the read-side EP-0021 load-more dogfood; this example is its write-side flagship sibling.
 - [`examples/reagent/resources/`](../resources/) — the single-page resource lifecycle (ensure / refetch / owners / causes) the board read builds on.

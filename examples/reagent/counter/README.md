@@ -104,25 +104,8 @@ counter/
 ## How to run
 
 ```bash
-# From implementation/:
 shadow-cljs watch examples/counter
 ```
 
-The watch build emits `main.js` into `out/examples/counter/`; copy
-this folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/counter/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free per
-[`examples/README.md`](../../README.md); real-regression coverage
-lives in `npm run test:cljs` and the framework gates.
-
-## Cross-references
-
-- [Construction Prompts CP-1, CP-2, CP-4](../../../spec/Construction-Prompts.md) — the prompts this example instantiates.
-- [`spec/002-Frames.md`](../../../spec/002-Frames.md) — the dispatch / drain semantics under the buttons.
-- [`spec/004-Views.md`](../../../spec/004-Views.md) §`reg-view` — the Form-1 view-registration macro.
-- [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) — the Reagent reactive substrate the subscription runs on.
-- [`examples/reagent-slim/counter_slim_and_fast/`](../../reagent-slim/counter_slim_and_fast/) — the same counter re-mounted on `day8/reagent-slim` (bundle-isolation contrast pair).
-- [`examples/uix/counter_uix/`](../../uix/counter_uix/) + [`examples/helix/counter_helix/`](../../helix/counter_helix/) — UIx and Helix substrate variants.
+Then open the served page — the minus and plus buttons drive the loop
+described above.

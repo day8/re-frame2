@@ -127,10 +127,7 @@ idiom lands at non-trivial scale; this one shows Reagent's `reg-view` +
 
 A word on the substrate choice: this is **stock Reagent**
 (`reagent.dom.client` + `re-frame.adapter.reagent`), not reagent-slim,
-which keeps the trio on the reference substrate for each adapter. (The
-dedicated stock-vs-slim contrast lives in the `counter` /
-`counter_slim_and_fast` pair under `examples/reagent-slim/` — that's the
-only build that mounts slim.)
+which keeps the trio on the reference substrate for each adapter.
 
 The mount itself is the ordinary re-frame2 boot dance:
 [`init!`](../../../docs/guide/glossary.md#init) installs the Reagent
@@ -156,21 +153,7 @@ notebook/
 ## How to run
 
 ```bash
-# From implementation/:
 shadow-cljs watch examples/notebook
 ```
 
-The watch build emits `main.js` into `out/examples/notebook/`; copy
-this folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/notebook/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free
-per [`examples/README.md`](../../README.md).
-
-## Cross-references
-
-- [`spec/004-Views.md` §`reg-view`](../../../spec/004-Views.md) — the registered-view convention.
-- [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) — the Reagent reactive substrate.
-- [`examples/uix/dashboard_uix/`](../../uix/dashboard_uix/) + [`examples/helix/process_monitor_helix/`](../../helix/process_monitor_helix/) — the other two design-led trio members.
+Then open [`index.html`](index.html) against the watch build.

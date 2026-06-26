@@ -29,9 +29,7 @@ services, `:rf/server-init` seeds all three card values synchronously,
 and the page boots from a hand-written `index.html` that already carries
 the resolved chunks and the final payload pre-baked. So you're reading
 the *wire shape* streaming produces, frozen and replayable, without
-needing a live streaming host. (The genuinely progressive path — chunks
-swapping in as they arrive — is exercised end-to-end by the browser test
-named at the bottom of this file.) It's the worked companion to
+needing a live streaming host. It's the worked companion to
 [Spec 011 §Streaming SSR](../../../spec/011-SSR.md#streaming-ssr).
 
 ## What this demonstrates
@@ -119,21 +117,9 @@ ssr_streaming/
 shadow-cljs watch examples/ssr-streaming
 ```
 
-The watch build emits `main.js` into `out/examples/ssr-streaming/`;
-copy this folder's hand-written [`index.html`](index.html) (and the
-shared assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/ssr-streaming/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free per
-[`examples/README.md`](../../README.md); this example's JVM smoke
-(shell render → per-card resolved chunks → final payload) was folded
-into [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
-(the `ssr-streaming-example-runs-end-to-end` deftest).
-Broader streaming-SSR contract testing lives in the
-`implementation/ssr/test/` suite.
+Then serve the built folder over HTTP alongside this folder's
+hand-written [`index.html`](index.html) and open it.
 
-## Cross-references
-
-- [`spec/011-SSR.md` §Streaming SSR](../../../spec/011-SSR.md#streaming-ssr) — the normative section.
-- [`examples/reagent/ssr/`](../ssr/) — the non-streaming SSR counterpart; read that first.
+If you're new to SSR here, read the non-streaming
+[`examples/reagent/ssr/`](../ssr/) counterpart first; the normative
+section is [`spec/011-SSR.md` §Streaming SSR](../../../spec/011-SSR.md#streaming-ssr).

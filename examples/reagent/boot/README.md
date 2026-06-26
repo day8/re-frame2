@@ -129,25 +129,11 @@ in how the pieces compose.
 
 ## Running it
 
-The example builds via shadow-cljs:
-
 ```sh
-# From the implementation directory:
-npx shadow-cljs compile examples/boot
-
-# Then from the repo root:
-npm run test:cljs           # Headless boot machine tests
+shadow-cljs watch examples/boot
 ```
 
-Per the test-free examples policy there is no per-example
-Playwright spec and no `test/` tree under this example. The headless
-regression coverage for the Pattern-Boot trajectory (machine
-progression, per-child dependency-resolution identity threading, and
-the failure path) lives in `re-frame.boot-cljs-test`
-(`implementation/adapters/reagent/test/re_frame/boot_cljs_test.cljs`),
-which drives this example's production source and runs under
-`npm run test:cljs` alongside the framework gates (see
-[`examples/README.md`](../../README.md)).
+Then open the dev server it prints.
 
 ## Files
 
@@ -161,14 +147,6 @@ index.html
 
 ## Cross-references
 
-- [`spec/Pattern-Boot.md`](../../../spec/Pattern-Boot.md) — the
-  normative pattern doc.
-- [`spec/005-StateMachines.md` §Spawn-and-join via
-  `:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all) —
-  the substrate the boot machine uses for the parallel dependency
-  phase.
-- [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) —
-  `:rf.http/managed` is the fx the child loaders use.
 - [`examples/reagent/realworld/`](../realworld/) — the canonical
   app-shell example; this `boot/` example slots in upstream of
   the realworld pattern (a real app would have BOTH).

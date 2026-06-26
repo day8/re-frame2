@@ -45,22 +45,12 @@ flows/
 ## How to run
 
 ```bash
-# From implementation/:
 shadow-cljs watch examples/flows
 ```
 
-The watch build emits `main.js` into `out/examples/flows/`; copy this
-folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/flows/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free per
-[`examples/README.md`](../../README.md); flow contract testing lives
-in `implementation/flows/test/`.
+Then open the served build and bump a cart quantity to watch the subtotal and total settle together; toggle the discount to add and remove a flow live.
 
 ## Cross-references
 
-- [`spec/013-Flows.md`](../../../spec/013-Flows.md) — the normative spec; every section title in the docstring matches a section there.
-- [`spec/013-Flows.md` §When (and when not) to use a flow](../../../spec/013-Flows.md) — the load-bearing decision this example illustrates.
-- [`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md) — separate but related pattern (long-running work, not materialised state).
+- [`spec/013-Flows.md`](../../../spec/013-Flows.md) — the normative spec for everything above.
+- [`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md) — a separate but related pattern (long-running work, not materialised state).

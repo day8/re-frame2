@@ -165,54 +165,17 @@ The token is a real secret, so it's *classified* rather than hand-redacted at ea
 
 ## How to run
 
-The example tree is **test-free** — `npm run test:adapter-smokes` drives only the three adapter smokes and never builds this example. To view it in a browser, build it under shadow-cljs id `examples/realworld-resources` from `implementation/`:
+Build it under shadow-cljs id `examples/realworld-resources` from `implementation/`:
 
 ```bash
 shadow-cljs watch examples/realworld-resources
-# then stage this folder's index.html + _shared/ next to the built main.js and serve over HTTP.
 ```
 
-### Running against a real backend
-
-The app supports three backend modes; the default needs no network.
-
-1. **Canned demo stub (default).** The demo entry (`core.cljs`) installs an in-process `:rf.http/managed` override (`:realworld-resources.demo/http-stub`) that synthesises canned Conduit responses for both the reads (resources) and the writes (mutations), so it runs standalone without a backend. `api-base` is **not contacted** in this mode — the stub matches on the URL path suffix.
-
-2. **Official hosted API.** Point `realworld-resources.http/api-base` at the current official hosted API — <https://api.realworld.show/api> (the old `api.realworld.io` host is stale) — and remove the `:fx-overrides {:rf.http/managed :realworld-resources.demo/http-stub}` line from the demo frame in `core.cljs`. The frame-wide `:realworld/bearer-auth` HTTP interceptor (`core.cljs`) attaches the JWT to every outbound resource / mutation / restore request, so authenticated calls work against the real API; the read resources also carry the shared `data-fetch-retry` policy.
-
-3. **Local reference backend.** The upstream spec ships a Node/Postgres reference backend on `http://localhost:3000/api`; set `api-base` to that and drop the stub override as in mode 2.
+then open the served page in a browser. **No backend ships:** the demo entry (`core.cljs`) installs an in-process `:rf.http/managed` stub that synthesises canned Conduit responses for both the reads (resources) and the writes (mutations), so it runs standalone with no network. To run against a real backend instead, point `realworld-resources.http/api-base` at the official hosted Conduit API (<https://api.realworld.show/api>) or a local reference backend on `http://localhost:3000/api`, and drop the demo-stub `:fx-overrides` line in `core.cljs`; the frame-wide `:realworld/bearer-auth` interceptor then attaches the JWT to every authenticated call.
 
 ## RealWorld contract conformance
 
-This example is **code-conformant** with the official RealWorld browser/E2E contract (the upstream Cypress E2E suite + the Newman/Postman API collection): its route shapes, session-storage key, debug accessor, form `name` attributes, selectors, and toggle conventions match the contract, so the external official suites **can** be run against it (see the [runbook](#validation-runbook-external-official-suite) below). That external validation is **NOT** automated in-repo — there is **no checked-in CI gate, test harness, or `*.spec.cjs`** that runs those suites (the examples tree is test-free), so "conformant" here means *code-conformant + a reproducible manual runbook*, not *suite-validated on every commit*. The in-repo coverage is the direct semantic fixture described under [Verification posture](#verification-posture). The contract interpretation is **identical to the `realworld/` sibling** (one worker conformed both apps); the differences below are only where the resources/mutations shape expresses it:
-
-- **Route shapes.** The official frontend route surface — `/`, `/login`, `/register`, `/settings`, `/editor`, `/editor/:slug`, `/article/:slug`, `/profile/:username`, `/profile/:username/favorites`, the tag list at the PATH route `/tag/:tag` (`:realworld/home-tag`, with `/tag/:tag?page=N`), and the following feed at `/?feed=following`. The active tag is a route PARAM that flows into the articles resource's params (a distinct cache entry per tag); the following token is `following` (NOT `your`). Pagination rides `?page=N` (page 1 drops the param).
-- **Session storage.** The JWT is persisted under `localStorage["jwtToken"]` — the exact contract key (`auth.cljs`). **Same-origin caveat:** the contract assumes **one app per origin**. The repo's dev orchestrator serves both this app and the `realworld/` sibling from a *single* origin (at `/realworld-resources/` and `/realworld/`), so the two conforming apps share — and clobber — each other's `jwtToken` there. A known dev-mode artifact, not a contract violation: conformance is validated against **standalone serving** (one app per origin), which the external suite does anyway (see the runbook).
-- **Debug accessor.** `window.__conduit_debug__` exposes `getToken` / `getAuthState` / `getCurrentUser` (`core.cljs`). This is a **conformance-contract surface, NOT a re-frame2 pattern** — an unannotated global token accessor bypasses the frame/sub system and leaks the raw JWT; it is comment-marked as such and a production app would not ship it.
-- **Form input `name` attributes.** `username` / `email` / `password` (login, register, settings), `image` / `bio` (settings), `title` / `description` / `body` / `tags` (editor).
-- **Default avatar.** A nil/empty image falls back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img`; the navbar shows the authenticated user's `.user-pic`. Centralised in the shared `realworld-shared/avatar.cljs`.
-- **Empty-list marker.** Empty list states carry the official `.empty-feed-message` selector.
-- **Favorite / follow conventions.** The article-detail favorite control shows visible **Favorite** / **Unfavorite** text and toggles `.btn-outline-primary` ↔ `.btn-primary` on the favorited flag. The profile follow control shows **Follow** / **Unfollow** (`.btn-outline-secondary`). The compact heart-only card button stays `.btn-outline-primary`.
-
-### Validation runbook (external official suite)
-
-Conformance is claimed against an **actual external run**, not an in-repo assertion. To exercise it:
-
-1. **Build the app standalone** (one app per origin — sidesteps the same-origin `jwtToken` caveat). From `implementation/`:
-   ```bash
-   npx shadow-cljs release examples/realworld-resources   # → out/examples/realworld-resources/
-   ```
-   Serve `examples/reagent/realworld_resources/index.html` + the built `main.js` from a single static origin (e.g. `npx http-server`), mounted at `/` (drop the `/realworld-resources` base-path — set `realworld-resources.routing/set-base-path!` to `""`, or serve at that sub-path and point the suite there).
-2. **Point the app at a real backend** (modes 2/3 above): set `realworld-resources.http/api-base` to the hosted Conduit API or a local reference backend and remove the demo-stub `:fx-overrides` line in `core.cljs`. The real-backend modes are live (the bearer-auth interceptor + the JWT path are real); the canned stub cannot exercise the API-collection contract.
-3. **Run the official suites externally** against the served origin:
-   - **Cypress E2E:** the upstream `gothinkster/realworld` Cypress spec with `CYPRESS_baseUrl=<your-origin>`.
-   - **Newman/Postman API:** the upstream `Conduit.postman_collection.json` with `newman run … --env-var APIURL=<api-base>`.
-
-Record the run result in the PR. **Rows that need the hosted backend** (favorite/follow round-trips, comment post/delete, settings save) cannot be exercised against the canned stub; if a hosted backend is unavailable, note honestly which rows were and were not executed rather than claiming conformance from an in-repo test alone (the works-on-my-test failure mode).
-
-## Verification posture
-
-Following the examples policy and the `realworld/` sibling, this example carries **no Playwright / `*.spec.cjs`**. THIS example's own example-specific wiring is pinned by a direct headless CLJS fixture, **`re-frame.realworld-resources-cljs-test`** (`implementation/adapters/reagent/test/re_frame/`, run by `npm run test:cljs`): it requires the production `realworld-resources.core` and drives the named `:realworld/session` scope resolver (resolves from `[:auth :user :username]`, nil-when-logged-out fail-closed), the frame-wide bearer-auth interceptor (injects `Authorization: Token <jwt>`; no-op logged out), a favorite mutation's `:populates` (authoritative-load detail seed) + cross-scope `:invalidates` (global article tags AND the session feed in one descriptor set) + `:reply-to` continuation, the editor's `:editor/can-submit?` flow + `:reply-to [:editor/replied]` navigate + the `:can-leave?` guard, logout's `:rf.resource/clear-scope` + lease release, and the auth state machine login flow. Broader resource + mutation contract coverage lives as CLJS unit tests over per-test frames in `implementation/resources/test/` and the conformance fixtures; cross-artefact composition is exercised by `npm run test:cljs`, the Xray feature-matrix gate, bundle-isolation, and the perf-bundle gate. See the [coverage table](../README.md#coverage-level-per-reagent-example).
+This example follows the official RealWorld "Conduit" contract — its route shapes, the `localStorage["jwtToken"]` session key, the form `name` attributes, the selectors, and the favorite/follow toggle conventions — interpreted identically to the `realworld/` sibling. One caveat worth knowing: the contract assumes **one app per origin**, but the repo's dev orchestrator serves both this app and the sibling from a single origin, so the two share — and clobber — each other's `jwtToken` there. Serve the app standalone (one app per origin) and that goes away.
 
 ## Architecture references
 
@@ -220,6 +183,3 @@ Following the examples policy and the `realworld/` sibling, this example carries
 - [`docs/resources/concepts.md`](../../../docs/resources/concepts.md) — the resources/mutations guide.
 - [`examples/reagent/realworld/`](../realworld/) — the **Spec 014 `:rf.http/managed`** counterpart (kept intact).
 - [`examples/reagent/resources/`](../resources/) — the focused read-resource lifecycle demo (route/event/machine-owned + manual refresh, read-side only).
-- [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) — the managed-HTTP transport resources/mutations lower onto.
-- [`spec/012-Routing.md`](../../../spec/012-Routing.md) — `:resources` route metadata + nav-token ownership.
-- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the auth machine.
