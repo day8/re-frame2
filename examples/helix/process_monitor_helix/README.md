@@ -1,29 +1,87 @@
 # process_monitor_helix — Helix design-led example
 
-A terminal-style two-pane process monitor: filterable process list
-on the left, live log feed on the right, status tiles across the top.
-Proves re-frame2 + Helix can build a substantive UI.
+A terminal-style two-pane process monitor: a filterable process list on
+the left, a live log feed scrolling on the right, status tiles across the
+top. The point of the thing is to show that re-frame2 and **Helix** —
+the most React-native of the three substrates, all `defnc` and hooks —
+build a substantive, *moving* UI without giving up any of re-frame2's
+shape. Filter chips, row selection, and a log pane that gains a fresh
+line every ~1.8s on its own, all driven through the ordinary loop.
+
+The load-bearing idea, and the reason this example is worth reading
+rather than just running: that self-advancing tick is the trickiest
+honest thing to get right in a UI like this, and it's done here without a
+single `setTimeout` or cancel flag in sight. More on that below — it's
+the interesting part.
 
 ## What this demonstrates
 
-- **Helix components consuming subs via `use-subscribe`** — `defnc`
-  components with `(helix-adapter/use-subscribe …)` at the top of the
-  body. The React-hooks idiom under Helix.
-- **Signal-graph subscriptions** — filter chips → visible process
-  list; process selection → relevant log slice. Two independent
-  inputs into the sub graph; views read the projections.
-- **Recurring `:dispatch-later` tick** — `:process-monitor/tick` appends
-  synthetic log lines every interval. Proves a real reactive loop
-  (not a static screenshot): the log pane updates live as new lines
-  arrive.
-- **Per-row dispatch from inside a `defnc`** — each row in the
-  process list is a `defnc` component that takes `dispatch` off a
-  `(rf/frame-handle)` and closes over it; clicking a row dispatches
-  selection.
+- **Helix views read state through a hook.** Each pane is a `defnc`
+  component that pulls its slice of state off a [subscription](../../../docs/guide/glossary.md#subscription)
+  at the top of its body — `(helix-adapter/use-subscribe [:process-monitor/totals])`
+  in `tiles`, `[:process-monitor/visible-logs]` in `log-stream`, and so
+  on. That's the React-hooks idiom end-to-end: a sub recomputes, the hook
+  re-renders the component, nothing else moves. No `reg-view`, no
+  Reagent-style reactive deref — Helix satisfies the [view](../../../docs/guide/glossary.md#view)
+  contract on its own terms.
+
+- **Two controls feed one projection.** The interesting [subscription](../../../docs/guide/glossary.md#subscription)
+  is `:process-monitor/visible-logs`: it folds the raw log list, the set
+  of active levels, and the selected process into the one slice the log
+  pane actually renders. Clicking a filter chip changes which levels pass;
+  clicking a process row narrows the feed to that process's pid. Two
+  independent inputs, one re-derived projection — this is the
+  [derivation graph](../../../docs/guide/glossary.md#the-derivation-graph)
+  earning its keep. The view just reads the answer; it never filters
+  anything itself.
+
+- **A live tick loop that is *lifecycle-owned*, not fire-and-forget.**
+  A recurring [event](../../../docs/guide/glossary.md#event),
+  `:process-monitor/tick`, appends a synthetic log line and reschedules
+  itself via the [`:dispatch-later`](../../../docs/guide/glossary.md#effect)
+  effect — so the pane keeps moving with no interaction, proving this is a
+  real reactive loop and not a screenshot. The subtle bit is that
+  `:dispatch-later` has *no cancel API*, and a naive self-rescheduling
+  chain leaks: re-init it (a hot reload, a re-mount) and you've now got
+  two chains both appending lines forever, into a [frame](../../../docs/guide/glossary.md#frame)
+  that might not even be on screen. The fix is a **generation guard** —
+  every scheduled tick carries the `:process-monitor/tick-gen` it was armed
+  under, and a stale tick from a retired generation simply no-ops when it
+  lands. `:process-monitor/initialise` bumps the generation to retire the old
+  chain; `:process-monitor/stop` bumps it *without* rescheduling, killing the
+  chain dead. Both are wired to the `monitor` component's `use-effect`:
+  mount arms the loop, unmount retires it. The upshot is exactly one live
+  tick per interval no matter how many times the component churns, and
+  zero ticks once it unmounts. (This mirrors the 7GUIs timer's
+  `:tick-gen` guard — the local precedent for the same cancel-less
+  constraint.)
+
+- **Per-row dispatch, captured the right way across the hook
+  boundary.** Each process row and each filter chip is a `defnc` that
+  grabs `dispatch` off a [`frame-handle`](../../../docs/guide/glossary.md#frame-handle)
+  — `(:dispatch (rf/frame-handle))` — and closes over it, so clicking a
+  row [dispatches](../../../docs/guide/glossary.md#dispatch)
+  `[:process-monitor/select-process id]` into the right frame. Same trick the
+  `monitor` `use-effect` uses to carry the frame into its mount/unmount
+  callbacks: grab the handle while the frame is in scope, use it later.
 
 ## Why this shape
 
-The Helix member of the three-substrate design-led trio:
+Everything above the `SUBSTRATE BOUNDARY` divider in `core.cljs` — the
+seed data, the [events](../../../docs/guide/glossary.md#event) (tick loop
+included), and the [subscriptions](../../../docs/guide/glossary.md#subscription)
+— never mentions Helix. It's plain [app-db](../../../docs/guide/glossary.md#app-db),
+events, and subs, and it would run unchanged on any substrate. Only the
+`defnc` views and the mount below the divider are Helix-specific. That's
+the lesson the divider is there to teach: in re-frame2 the
+[substrate](../../../docs/guide/glossary.md#substrate) is a thin rendering
+choice at the edge, and the interesting machinery lives in the
+substrate-agnostic core. (Unlike the counter/login pair, this isn't a
+cross-substrate parity twin — the three design-led examples are
+genuinely different apps, not one dataflow ported three ways. The
+boundary they teach is the same regardless.)
+
+This is the Helix member of the three-substrate design-led trio:
 
 | Substrate | Example | Shape |
 |---|---|---|
@@ -31,15 +89,15 @@ The Helix member of the three-substrate design-led trio:
 | UIx | [`dashboard_uix`](../../uix/dashboard_uix/) | Cards + sparklines |
 | Helix | `process_monitor_helix` (this) | Terminal log viewer |
 
-Three different substantive UIs, one per substrate; same shared
+Three different substantive UIs, one per substrate, sharing one visual
 identity from
-[`examples/_shared/css/style.css`](../../_shared/css/style.css).
-Design-led examples prove polished visuals + interaction, not
-platform features other examples already cover — no HTTP, no state
-machines.
+[`examples/_shared/css/style.css`](../../_shared/css/style.css). Design-led
+examples exist to prove polished visuals and interaction, not to replay
+platform features other examples already cover — so there's deliberately
+no HTTP and no state machines here.
 
-The folder name carries the `_helix` substrate suffix so the
-top-level namespace doesn't collide with Reagent or UIx siblings.
+The folder name carries the `_helix` substrate suffix so the top-level
+namespace doesn't collide with its Reagent or UIx siblings.
 
 ## Files
 
@@ -81,12 +139,12 @@ yourself.
 ## Design-led runtime — what to copy, and a manual checklist
 
 This is the Helix member of the design-led trio, so its job is to prove
-*polished interaction*, not just that it compiles. The automated
+*polished interaction*, not merely that it compiles. The automated
 [`test:examples-compile`](../../TESTING.md#compile-coverage-gate-testexamples-compile)
 gate catches namespace / `:init-fn` / `:require` / Helix-form regressions,
 but it **never serves the page** — so a blank render, a broken `_shared`
 asset path, a stalled tick loop, dead filter chips, or mobile overflow can
-still pass a green compile. Examples are **test-free** (no `*.spec.cjs`
+still sail past a green compile. Examples are **test-free** (no `*.spec.cjs`
 under `examples/`, per [rf2-8cevm](../../README.md)), so this design-led
 class of regression is guarded by the manual checklist below rather than a
 per-example browser spec — the same policy the UIx

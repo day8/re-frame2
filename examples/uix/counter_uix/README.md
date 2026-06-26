@@ -1,29 +1,61 @@
 # counter_uix — UIx substrate counter
 
-The canonical counter, rendered through the UIx adapter. Same six
-dominoes as [`examples/reagent/counter/`](../../reagent/counter/);
-different substrate.
+This is the [Reagent counter](../../reagent/counter/) again — same minus
+button, same plus button, same number — but rendered through a different
+[substrate](../../../docs/guide/glossary.md#substrate). That sounds like a
+trivial difference, and the surprising payoff is that it almost is. The
+[events](../../../docs/guide/glossary.md#event), the
+[subscription](../../../docs/guide/glossary.md#subscription), and the
+[app-db](../../../docs/guide/glossary.md#app-db) are copied across *unchanged* —
+character for character — and everything that moves between the two
+examples lives in one place: how the view reads state and dispatches.
+
+That's the whole reason to read this one. Open it side by side with its
+Reagent twin and the seam jumps out at you. Below the view there's no seam
+at all, because re-frame2's core is substrate-agnostic; the registrations
+genuinely don't know which React-family library is rendering them. Above
+the view, you get to write in the idiom your substrate prefers. Here that
+idiom is hooks — UIx is "hooks all the way down" — so instead of Reagent's
+reactive ratom you call a `use-subscribe` hook, and instead of letting a
+macro hand you `dispatch`, you pull it off a frame-handle yourself. The
+[adapter](../../../docs/guide/glossary.md#adapter) is the small map of glue
+that makes that swap a one-liner.
 
 ## What this demonstrates
 
-- **`rf/init!` with the UIx adapter** — `(rf/init! uix-adapter/adapter)`.
-  No default-adapter registry; the adapter spec map is passed
-  explicitly.
-- **`reg-event` / `reg-sub`** —
-  *substrate-agnostic*. The exact same registrations as the Reagent
-  counter; the artefact layer doesn't know which substrate is below.
-- **`use-subscribe` hook (UIx idiomatic)** — components call
-  `(uix-adapter/use-subscribe [:counter/value])` directly. The hook
-  is the React idiom; no Reagent-style RAtom indirection.
-- **`(:dispatch (rf/frame-handle))` for click handlers** — UIx
-  components take `dispatch` off a `(rf/frame-handle)` and close over
-  it. The handle captures the render-time frame, so the closed-over
-  `dispatch` keeps targeting that frame even from an async callback.
-  There is no auto-injection in UIx — `reg-view` stays Reagent-only;
-  UIx users write `defui` directly.
-- **Shared frame-context** — the same React Context object the
-  Reagent and Helix adapters consume. Cross-substrate parity is
-  at the runtime layer.
+- **`init!` with the UIx adapter** —
+  `(rf/init! uix-adapter/adapter)`. The
+  [adapter](../../../docs/guide/glossary.md#adapter) is a *value* — the map of
+  glue functions binding re-frame2's core to UIx — and you pass it in
+  directly. There's no registry of named substrates to look up; to render
+  on UIx instead of Reagent you require *its* adapter and hand
+  [`init!`](../../../docs/guide/glossary.md#init) that. One line moves.
+- **`reg-event` / `reg-sub`, byte-for-byte identical** — the three
+  [event handlers](../../../docs/guide/glossary.md#event-handler) and the one
+  [subscription](../../../docs/guide/glossary.md#subscription) are lifted
+  verbatim from the Reagent counter. Each handler is a pure function
+  returning a `{:db …}` [effect map](../../../docs/guide/glossary.md#effect-map);
+  the sub reads the count straight out of
+  [app-db](../../../docs/guide/glossary.md#app-db). They sit *above* the
+  substrate boundary and are blissfully unaware there's a boundary there at
+  all — which is exactly the point being made.
+- **`use-subscribe`, the hooks idiom** — the view calls
+  `(uix-adapter/use-subscribe [:counter/value])` directly. This is the React
+  way to read derived state: a hook, not a dereferenced reactive atom.
+  Same subscription, same cached value, native ergonomics.
+- **`dispatch` off a frame-handle** — UIx has no `reg-view` macro quietly
+  injecting `dispatch` for you (that convenience stays Reagent-only; UIx
+  users write `defui` directly). So the view grabs a
+  [frame-handle](../../../docs/guide/glossary.md#frame-handle) —
+  `(:dispatch (rf/frame-handle))` — and closes over it. A frame-handle is a
+  frame captured *as a value*: it pins the render-time frame, so the
+  closed-over `dispatch` keeps firing into the right frame even from an
+  async callback, instead of raising `:rf.error/no-frame-context` once the
+  surrounding scope is gone.
+- **A shared frame-context** — under the hood the UIx and Reagent adapters
+  resolve their frame through the *same* React Context object. The
+  cross-substrate parity isn't a coincidence maintained in three places;
+  it's one runtime mechanism the adapters share.
 
 ## Why this shape
 
@@ -35,14 +67,22 @@ inside this tree it carries compile coverage only (the runtime
 substrate-contract smoke is the adapter testbed at
 [`implementation/adapters/uix/testbed/spec.cjs`](../../../implementation/adapters/uix/testbed/spec.cjs)).
 `dashboard_uix` is a documented design-led example alongside it, not part
-of the Decision-7 curated example subset. Pair with
-[`examples/reagent/counter/`](../../reagent/counter/) and
-[`examples/helix/counter_helix/`](../../helix/counter_helix/) to see the
-substrate boundary cleanly.
+of the Decision-7 curated example subset.
 
-The folder name carries the `-uix` namespace suffix so the
-top-level namespace doesn't collide with `examples/reagent/counter/`
-on the classpath.
+The most instructive way to read it is as one corner of a triangle. Set it
+beside [`examples/reagent/counter/`](../../reagent/counter/) and
+[`examples/helix/counter_helix/`](../../helix/counter_helix/) and you have
+the same application rendered three ways. The events, subscription, and
+app-db are the constant; the substrate is the variable. Diff any two and
+what's left is precisely the
+[adapter](../../../docs/guide/glossary.md#adapter)'s job description — which
+is a far more convincing argument that the core is substrate-agnostic than
+any paragraph (including this one) could make.
+
+One mundane housekeeping note: the folder carries the `-uix` namespace
+suffix so its top-level namespace doesn't collide with
+`examples/reagent/counter/` on the classpath. Both want to be *the*
+counter; the suffix lets them coexist.
 
 ## Files
 

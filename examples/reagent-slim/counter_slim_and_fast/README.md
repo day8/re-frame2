@@ -1,53 +1,94 @@
 # counter-slim-and-fast — slim-substrate counter
 
-The canonical counter (`examples/reagent/counter/`) re-mounted on the
+Take the canonical counter from [`examples/reagent/counter/`](../../reagent/counter/),
+keep every event, subscription, and view exactly as it was, and swap the
+ground it stands on. That's this example in one sentence.
+
+The point worth pausing on is what *didn't* change. re-frame2's core is
+[substrate](../../../docs/guide/how-to/use-uix-helix-or-slim.md)-agnostic
+by design: your events, subscriptions, and app-db never know which
+React-family rendering library is underneath them. The
 [`day8/reagent-slim`](../../../implementation/adapters/reagent-slim/)
-rewrite rather than stock `day8/re-frame2-reagent` (the thin bridge
-over stock Reagent). The user-visible behaviour is identical to the
-canonical counter; the difference is the substrate beneath.
+rewrite is a leaner reactive substrate than stock Reagent — and this
+fixture proves the promise by re-mounting the canonical counter on it and
+getting *byte-for-byte identical* behaviour. Same clicks, same counts,
+same dataflow. We call that **adapter parity**, and it's the whole reason
+this example exists.
 
-Every user-facing Reagent import points at `reagent2.*` instead of
-stock `reagent.*`, and `(rf/init!)` is called with the slim adapter Var.
-The same six-domino dataflow flows through a different reactive
-substrate. The slim adapter is a drop-in for the bridge at the
-behavioural level: same clicks, same counts.
+## What changes (and how little it is)
 
-**In-tree namespace vs published ABI.** This checked-in fixture requires
-the **in-tree** namespace `re-frame.adapter.reagent-slim` only because the
-unrenamed monorepo build shares a classpath with the stock adapter. That
-is *not* the adopter spelling: the published `day8/reagent-slim` jar ships
-the adapter Var at the canonical, stock-identical `re-frame.adapter.reagent`
-(renamed at publication). Adopter code wires
-`(rf/init! re-frame.adapter.reagent/adapter)` — you pick slim by deps
-coordinate, not by import line. See
+You wire a substrate to re-frame2 with an [adapter](../../../docs/guide/how-to/use-uix-helix-or-slim.md) —
+a small value you hand to `init!` once at boot. Switching substrate is, by
+construction, a one-line move. So the entire diff against the canonical
+counter is exactly two things:
+
+1. **The imports point at `reagent2.*`** instead of stock `reagent.*` —
+   so the views render through the slim substrate's seams.
+2. **`(rf/init!)` is handed the slim adapter Var** instead of the stock
+   one.
+
+Everything else — `:counter/initialise`, `:counter/inc`, `:counter/dec`,
+the `:counter/value` subscription, the two views, the lazy mount under a
+`frame-provider` — is character-for-character the canonical counter. The
+same event cascade flows through a different reactive substrate and nobody
+downstream can tell. That's the demonstration.
+
+The teaching surface lives in [`core.cljs`](core.cljs) and reads as plain,
+idiomatic re-frame2. **Read that file as the example.** (Its `boot!` helper
+also leaves a seam for the gate plumbing described below, but you can
+ignore that on a first read — it does nothing the app itself needs.)
+
+## In-tree namespace vs published ABI — don't cargo-cult the import
+
+One wrinkle that trips people up, so it's worth being explicit. The
+`re-frame.adapter.reagent-slim` require you'll see in `core.cljs` is an
+**in-tree** spelling, and it exists for a boring reason: the unrenamed
+monorepo build shares a classpath with the stock adapter, so the two need
+distinct namespaces to avoid clashing.
+
+That is *not* the spelling an adopter uses. The published
+`day8/reagent-slim` jar ships its adapter Var at the canonical,
+stock-identical `re-frame.adapter.reagent` (renamed at publication). In a
+real app you write `(rf/init! re-frame.adapter.reagent/adapter)` — the
+exact same line as for stock Reagent — and you **pick slim by dependency
+coordinate, not by import line**. That symmetry is the point: adopting the
+fast substrate costs you a `deps.edn` change and nothing in your source.
+
+So: enjoy the in-tree `-slim` namespace here, but don't copy it into
+published code. See
 [`docs/guide/how-to/use-uix-helix-or-slim.md`](../../../docs/guide/how-to/use-uix-helix-or-slim.md)
 and [`DESIGN-RATIONALE.md`](../../../implementation/adapters/reagent-slim/DESIGN-RATIONALE.md) §7.
-Don't cargo-cult the in-tree `-slim` namespace into published-app code.
-
-The teaching surface — events, subs, views, and the lazy client mount —
-lives in [`core.cljs`](core.cljs) and reads as idiomatic re-frame2.
-Read that file as the example.
 
 ## Bundle-isolation fixture (not example practice)
 
-This build doubles as the example side of the slim adapter's
-bundle-isolation gate. That plumbing is **deliberately isolated** from
-the teaching source so it does not bleed into `core.cljs`:
+This build pulls double duty: it's also the example side of the slim
+adapter's bundle-isolation gate. A gate like that needs the production
+bundle to actually *exercise* the slim's server-rendering path — otherwise
+"this bundle contains no `react-dom/server`" is a vacuously true claim
+about a bundle that never renders on the server in the first place. So the
+fixture renders the counter to a static string to give the gate something
+real to check.
+
+The important design decision is that none of this leaks into the teaching
+source. The plumbing is **deliberately quarantined** so `core.cljs` stays
+clean:
 
 - The SSR/sentinel exercise lives in
   [`bundle_isolation_fixture.cljs`](bundle_isolation_fixture.cljs) — it
-  runs the slim's pure-CLJS `render-to-static-markup` (the DCE-anchored
-  `counterSlimPrerender` host-global write plus the sub-cache teardown)
-  so the gate's non-vacuity contract has signal.
+  runs the slim's pure-CLJS `render-to-static-markup`, writes the result
+  onto a `counterSlimPrerender` host-global (a DCE anchor that keeps the
+  call alive under `:advanced`), and tears down the orphaned subscription
+  the static render leaves in the cache. That's what gives the gate's
+  non-vacuity contract a signal to read.
 - The build's `:init-fn` is the gate-owned entrypoint
   [`bundle_isolation_entry.cljs`](bundle_isolation_entry.cljs), **not**
-  `core/run`. It does not re-copy the boot: both `core/run` and the entry
-  call the single shared `core/boot!` helper, so the two paths cannot drift.
-  The entry passes `boot!` an `on-frame` pre-mount hook that weaves the
-  fixture exercise in at the one point its ordering needs (under the frame
-  scope, before the client mount). This keeps `core.cljs` free of harness
-  mechanics: `core/run` is plain, idiomatic re-frame2 with nothing but
-  the example's own dataflow (rf2-vyl0vt, rf2-pe4u0g).
+  `core/run`. Crucially, it doesn't re-copy the boot: both `core/run` and
+  the entry call the single shared `core/boot!` helper, so the two paths
+  *cannot* drift. The entry simply passes `boot!` an `on-frame` pre-mount
+  hook that weaves the fixture exercise in at the one point its ordering
+  needs — under the frame scope, before the client mount. The result:
+  `core/run` is plain re-frame2 with nothing but the example's own
+  dataflow (rf2-vyl0vt, rf2-pe4u0g).
 
 A reader studying the example can ignore both gate files and read
 `core.cljs`.
@@ -64,14 +105,16 @@ sentinel methodology — is owned by the gate, not duplicated here. See:
 
 ## Shared `:counter/*` ids — a deliberate, documented exception
 
+Here's a thing that should make you twitch, with a reason it shouldn't.
 This fixture registers the **same** `:counter/*` event and subscription
 ids as the canonical [`examples/reagent/counter/`](../../reagent/counter/)
 — `:counter/initialise`, `:counter/inc`, `:counter/dec`, and
-`:counter/value`. That id-identity is **intentional**: it is how the two
-fixtures demonstrate **adapter parity** (byte-for-byte identical dataflow
-on a different reactive substrate). It is one of two blessed parity
-exceptions to the example-tree id-prefix convention, narrowed and justified
-in [`examples/TESTING.md` § Exception 1 — the stock/slim counter
+`:counter/value`. Normally the example-tree id-prefix convention would
+forbid that collision. Here it's the *entire point*: identical ids are how
+the two fixtures demonstrate adapter parity — the same dataflow, proven
+on a different substrate by literally being the same registrations. It's
+one of two blessed parity exceptions, narrowed and justified in
+[`examples/TESTING.md` § Exception 1 — the stock/slim counter
 `:counter/*` id share](../../TESTING.md#exception-1--the-stockslim-counter-counter-id-share).
 
 The share is safe **only** because stock and slim build as two separate
