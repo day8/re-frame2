@@ -11,6 +11,38 @@ Type: standards-track
 > `spec/API.md`, `spec/001-Registration.md`, `spec/Runtime-Subsystems.md`, and
 > `spec/Conventions.md`.
 
+> **Amendment — the provider collapse (accepted, operator all-yes).** The
+> original EP-0024 specified a `frame-provider` **name family** of two
+> per-adapter React-context components: an OWNED `frame-provider`
+> (create-on-mount + **destroy-on-unmount**) and a scope-only
+> `frame-provider-existing`. This amendment **collapses that family into ONE
+> config-shaped `rf/frame-provider`** dispatched on the prop map, and **retires
+> the owned destroy-on-unmount**:
+>
+> - **`rf/frame-provider {:frame existing-id}`** — SCOPE-only. Provide an
+>   already-created frame id through React context; create / refresh / destroy
+>   nothing. **Fail loud when the frame is absent**
+>   (`:rf.error/frame-provider-frame-absent`) — today's scope-only guardrail
+>   Story + Xray rely on.
+> - **`rf/frame-provider {:id the-id :initial-events […] :url-bound? …}`** —
+>   ENSURE. Create the frame if absent, **reuse it without re-seeding** if
+>   present (idempotent `make-frame` replacement + `reg-frame`
+>   re-record-but-don't-replay `:initial-events`), provide its id to
+>   descendants. **No destroy-on-unmount.**
+>
+> The merged form **keeps the name `rf/frame-provider`**. Owned
+> destroy-on-unmount is retired because it had **zero product consumers** (only
+> its own lifecycle tests). **True ownership** (modals, multi-instance widgets)
+> stays expressible as `make-frame` + `destroy-frame!` inside a `create-class`
+> (what Story already does), where the component explicitly declares it owns
+> the lifetime. The legacy `frame-provider-existing` name is retired in favour
+> of the merged `{:frame …}` shape; the rename of its example call sites is a
+> separate migration. Normative home for the amended provider:
+> `spec/002-Frames.md` §the merged config-shaped `frame-provider`, with the
+> substrate contract in `spec/006-ReactiveSubstrate.md`. The sections below
+> that describe the OWNED create-on-mount/destroy-on-unmount boundary are
+> superseded by this amendment.
+
 ## Abstract
 
 EP-0023 made `image -> frame -> event stream` the public model. The current
@@ -249,36 +281,52 @@ routing address: the frame id.
 
 The public API has three different jobs, and each job gets one spelling.
 
+> **Amended (provider collapse).** The table and prose in this section
+> describe the original two-component name family; they are superseded by the
+> amendment banner at the top of this EP. The amended grammar is: **Scope** an
+> existing frame into a React subtree → `frame-provider {:frame …}` (fails loud
+> if absent); **Ensure** a named frame for a mounted subtree →
+> `frame-provider {:id …}` (create-if-absent, reuse-no-reseed, no
+> destroy-on-unmount); **Own** a frame lifetime (explicit teardown) →
+> `make-frame` + `destroy-frame!` (e.g. in a `create-class`). The normative
+> tables live in `spec/002-Frames.md`.
+
 | Job | Public spelling | Contract |
 |---|---|---|
 | **Scope** descendants to an existing frame (lexical / non-React) | `with-frame` | Does not create or destroy the frame. Establishes context only. |
-| **Scope** an existing frame into a React subtree | `frame-provider-existing` | Provides an already-created frame id through React context. `:frame` only — a lifecycle opt fails loud. Creates / refreshes / destroys nothing. |
+| **Scope** an existing frame into a React subtree | `frame-provider {:frame …}` | Provides an already-created frame id through React context. `:frame` only. Fails loud when the frame is absent. Creates / refreshes / destroys nothing. |
+| **Ensure** a named frame for a React subtree's mounted lifetime | `frame-provider {:id …}` | Creates the frame if absent, reuses it without re-seeding if present, provides its id to descendants. No destroy-on-unmount. Same constructor opts as `make-frame`. |
 | **Carry** a frame across async callback boundaries | `frame-handle` | Captures operations targeted at the current or explicit frame. |
-| **Own** a frame lifetime | `make-frame` + `destroy-frame!`, `with-new-frame`, and the UI-owned boundary `frame-provider` | Creation and teardown are explicit ownership operations. |
+| **Own** a frame lifetime (explicit teardown) | `make-frame` + `destroy-frame!`, `with-new-frame`, or `make-frame`/`destroy-frame!` inside a `create-class` | Creation and teardown are explicit ownership operations. |
 
-Note the naming — a **`frame-provider` name family** of two per-adapter
-React-context components. The old scope-only `frame-provider` is **renamed**
-`rf/frame-provider-existing` (same `:frame`-only scope behaviour); the
-`rf/frame-provider` name is reused for the UI-owned *lifecycle* boundary — the
-component that creates a frame on mount, provides its id to descendants, and
-destroys it on unmount. Scoping into a React subtree needs a React-context
-component (`frame-provider-existing`) because `rf/with-frame` binds a dynamic
-var, which cannot cross React's render boundary; `with-frame` remains for
-lexical / non-React ambient scope.
+Note the naming — ONE merged config-shaped **`frame-provider`** dispatched on
+the prop map. The `{:frame …}` shape carries the old scope-only behaviour
+forward (plus a fail-loud-if-absent guard); the `{:id …}` shape ENSURES a named
+frame (create-if-absent, reuse-no-reseed) with no destroy-on-unmount. Scoping
+into a React subtree needs a React-context component because `rf/with-frame`
+binds a dynamic var, which cannot cross React's render boundary; `with-frame`
+remains for lexical / non-React ambient scope. The legacy
+`frame-provider-existing` name is retired in favour of the `{:frame …}` shape
+(its example call sites migrate separately).
 
-Illustrative shape:
+Illustrative shapes:
 
 ```clojure
+;; SCOPE an existing frame into a React subtree (fails loud if :todo/left absent)
+[rf/frame-provider {:frame :todo/left}
+ [todo-root]]
+
+;; ENSURE a named frame for the subtree's mounted lifetime (no destroy-on-unmount)
 [rf/frame-provider {:id :todo/left
                     :images [todo-image]
-                    :initial-db {}}
+                    :initial-events [[:rf/set-db {}]]}
  [todo-root]]
 ```
 
-`frame-provider` creates the frame on mount, provides its frame id to
-descendants, and destroys the frame on unmount. It is the answer for comparison
-pages, Story canvases, embedded widgets, and hot-reload-safe view-owned frame
-lifetimes.
+The ENSURE shape creates the frame if absent, reuses it without re-seeding if
+present, and provides its frame id to descendants; it does NOT destroy the
+frame on unmount. It is the answer for comparison pages, Story canvases,
+embedded widgets, and hot-reload-safe view-driven frame lifetimes.
 
 **`frame-provider` is realized per-adapter, against a shared contract.** It is
 not a single component: each substrate (Reagent / UIx / Helix) ships its own
