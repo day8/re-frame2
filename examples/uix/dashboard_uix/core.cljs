@@ -348,23 +348,24 @@
 
 ;; The runtime never synthesises a frame from absence — an app must establish
 ;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame), `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in the UIx `frame-provider` so the
-;; `use-subscribe` hook and the render-time `(rf/frame-handle)` capture resolve
-;; to the app frame via React context. There is no `:rf/default` floor: a UIx
-;; tree rendered with NO provider observes the no-provider sentinel and any
-;; `use-subscribe` / `frame-handle` raises `:rf.error/no-frame-context`.
+;; frame). The render root then uses the UIx `frame-provider` in its ENSURE
+;; shape — `{:id app-frame …}` — which creates the app frame on first mount,
+;; applies its config, and runs `:initial-events` exactly ONCE to seed app-db;
+;; on hot reload it REUSES the existing frame WITHOUT re-seeding. The provider
+;; scopes that frame into React context so the `use-subscribe` hook and the
+;; render-time `(rf/frame-handle)` capture resolve to it. There is no
+;; `:rf/default` floor: a UIx tree rendered with NO provider observes the
+;; no-provider sentinel and any `use-subscribe` / `frame-handle` raises
+;; `:rf.error/no-frame-context`.
 (def app-frame :rf/default)
 
 (defn run []
   (rf/init! uix-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:dashboard/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:frame app-frame}
+      ($ uix-adapter/frame-provider {:id app-frame
+                                     :initial-events [[:dashboard/initialise]]}
          ($ dashboard))
       @react-root)))

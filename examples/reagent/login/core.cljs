@@ -666,27 +666,32 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  ;; Install the demo override so `:rf.http/managed` calls route to the
-  ;; in-process login stub above. The example runs standalone — no
-  ;; backend required.
-  (rf/reg-frame :rf/default
-    {:doc          "Login demo frame."
-     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
-  ;; Seed the login-form slice to its empty Pattern-Forms shape so the
-  ;; controlled inputs read a real (empty-string) draft from the first render
-  ;; — an uninitialised draft would feed React `nil` :values (uncontrolled
-  ;; inputs). The machine is self-initialising (no seed needed); the SLICE is
-  ;; app-db, so it is seeded explicitly here under the app frame.
-  (rf/with-frame :rf/default
-    (rf/dispatch-sync [:auth.login/initialise-form]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; EP-0002: wrap the render in a `frame-provider` so the
+    ;; EP-0026: one-spot frame setup via the `frame-provider` ENSURE shape
+    ;; (`{:id …}`). On first mount it CREATES `:rf/default`, applies the
+    ;; config below, and runs `:initial-events` ONCE; on hot reload it REUSES
+    ;; the existing frame WITHOUT re-seeding. No separate `reg-frame` /
+    ;; `with-frame` boot step.
+    ;;
+    ;; - `:fx-overrides` routes `:rf.http/managed` to the in-process login
+    ;;   stub above so the example runs standalone — no backend required.
+    ;; - `:initial-events` seeds the login-form slice to its empty
+    ;;   Pattern-Forms shape so the controlled inputs read a real
+    ;;   (empty-string) draft from the first render — an uninitialised draft
+    ;;   would feed React `nil` :values (uncontrolled inputs). The machine is
+    ;;   self-initialising (no seed needed); the SLICE is app-db, so it is
+    ;;   seeded here.
+    ;;
+    ;; The provider also scopes the frame into React so the
     ;; `reg-view`-injected `dispatch`/`subscribe` (and the login machine reads)
-    ;; resolve to `:rf/default` via React context. With NO provider a `reg-view`
+    ;; resolve to `:rf/default` via context. With NO provider a `reg-view`
     ;; reads the no-provider sentinel and those calls raise
     ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor).
     (rdc/render @react-root
-                [rf/frame-provider {:frame :rf/default}
+                [rf/frame-provider {:id             :rf/default
+                                    :doc            "Login demo frame."
+                                    :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
+                                    :initial-events [[:auth.login/initialise-form]]}
                  [root-view]])))

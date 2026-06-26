@@ -507,31 +507,31 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! uix-adapter/adapter)
-  (rf/reg-frame :rf/default
-    {:doc          "Login (UIx) demo frame."
-     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
-  ;; The MACHINE handler is self-initialising — its `:initial`/`:data` seed
-  ;; [:rf.runtime/machines :snapshots :auth.login/flow] when the flow first
-  ;; runs (per Spec 005 §Restore semantics), so it needs no :initialise. The
-  ;; form SLICE is app-db, so it IS seeded explicitly here to its empty
-  ;; Pattern-Forms shape — otherwise the controlled inputs would read a nil
-  ;; draft on the first render (uncontrolled inputs).
-  (rf/with-frame :rf/default
-    (rf/dispatch-sync [:auth.login/initialise-form]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
-    ;; Scope the render into the already-created `:rf/default` frame (built by
-    ;; the `reg-frame` above) with the SCOPE-ONLY `frame-provider` —
-    ;; it provides that frame's id to descendants over React context and
-    ;; creates / owns nothing (the lifecycle-owning `frame-provider`, which
-    ;; takes `:id` and constructs a frame, is the other component and is not
-    ;; what's wanted here). The scope makes the `use-subscribe` hook + the
+    ;; ONE-SPOT frame setup — the ENSURE `frame-provider` (`{:id …}`): on the
+    ;; first mount it CREATES the `:rf/default` frame, applies the config
+    ;; (`:fx-overrides` redirects `:rf.http/managed` to the demo stub), and runs
+    ;; `:initial-events` ONCE; on hot reload it REUSES the existing frame
+    ;; WITHOUT re-running them. There is no separate `reg-frame` / seed step.
+    ;;
+    ;; The MACHINE handler is self-initialising — its `:initial`/`:data` seed
+    ;; [:rf.runtime/machines :snapshots :auth.login/flow] when the flow first
+    ;; runs (per Spec 005 §Restore semantics), so it needs no seeding. The form
+    ;; SLICE is app-db, so it IS seeded via `:initial-events`
+    ;; ([:auth.login/initialise-form]) to its empty Pattern-Forms shape —
+    ;; otherwise the controlled inputs would read a nil draft on the first
+    ;; render (uncontrolled inputs).
+    ;;
+    ;; Providing `:id :rf/default` also makes the `use-subscribe` hook + the
     ;; render-time `(rf/frame-handle)` capture in `login-form` resolve to
     ;; `:rf/default`. With NO provider the tree observes the no-provider
-    ;; sentinel and those reads raise `:rf.error/no-frame-context` (there is no
-    ;; `:rf/default` floor).
+    ;; sentinel and those reads raise `:rf.error/no-frame-context`.
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:frame :rf/default}
+      ($ uix-adapter/frame-provider {:id              :rf/default
+                                     :doc             "Login (UIx) demo frame."
+                                     :fx-overrides    {:rf.http/managed :auth.login.demo/managed-stub}
+                                     :initial-events  [[:auth.login/initialise-form]]}
          ($ root-view))
       @react-root)))

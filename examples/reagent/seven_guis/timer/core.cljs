@@ -48,8 +48,9 @@
 
 ;; EP-0002: reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
-;; schema binds to the app frame whose commits it validates.
+;; :rf/default (the id the render root's `frame-provider {:id app-frame}`
+;; ensures — see `run`), so name it explicitly so the schema binds to the app
+;; frame whose commits it validates.
 (with-frame :rf/default
   (rf/reg-app-schema [:timer] {:schema TimerState}))
 
@@ -195,22 +196,23 @@
 
 ;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider` so every
-;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
-;; canonical mount in examples/reagent/counter/core.cljs.
+;; explicitly. `init!` installs the adapter (it does NOT create the frame).
+;; The render root then uses the `frame-provider` ENSURE shape (`{:id …}`):
+;; on first mount it creates the app frame, applies its config, and runs the
+;; `:initial-events` seed ONCE; on hot reload it reuses the existing frame
+;; without re-seeding. Create, seed, and scope-into-React all happen in that
+;; one spot. The frame id is `:rf/default` — the same id the schema block
+;; above scopes its `reg-app-schema` registration to. Matches the canonical
+;; mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:timer/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:timer/initialise]]}
                  [timer-view]])))

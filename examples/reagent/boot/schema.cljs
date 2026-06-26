@@ -181,9 +181,10 @@
 ;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`
 ;; (boot-time namespace loading is NOT a reason to synthesise `:rf/default`,
 ;; per Spec 002 §Frame target resolution). This example's app runs in the
-;; `:rf/default` frame (see `core/run`, which `reg-frame`s it explicitly),
-;; so name the frame explicitly here via `with-frame` — the registrations
-;; carry a frame stamp even though they land at module-load before `init!`.
+;; `:rf/default` frame (see `core/run`, whose render-root `frame-provider`
+;; establishes it via the `{:id …}` ENSURE form), so name the frame
+;; explicitly here via `with-frame` — the registrations carry a frame
+;; stamp even though they land at module-load before `init!`.
 (with-frame :rf/default
   ;; The :spawn-all children stage their payloads into [:boot/staging]
   ;; before signalling completion to the parent. The :enter-hydrating

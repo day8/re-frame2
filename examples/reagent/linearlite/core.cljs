@@ -602,10 +602,18 @@
 ;;
 ;; The React root is materialised lazily inside `run` (not at ns-load) per
 ;; examples/TESTING.md §Example mount-isolation convention. EP-0002: the app
-;; establishes its frame explicitly (`reg-frame`), declares `:url-bound? true`
-;; so it owns the browser URL, overrides `:rf.http/managed` with the canned
-;; board stub (the example runs standalone), and wraps the render in a
-;; `frame-provider` so every in-tree dispatch/subscribe resolves to it.
+;; frame is created, configured, and provided in ONE spot — the render root's
+;; `frame-provider {:id app-frame …}` ENSURE form. On first mount it creates the
+;; frame under `app-frame`, applies the config (`:url-bound? true` so it owns the
+;; browser URL, and a `:rf.http/managed` override pointing at the canned board
+;; stub so the example runs standalone), and would run any `:initial-events`
+;; once. On hot reload it REUSES the existing frame WITHOUT re-seeding, so app-db
+;; survives the reload. That id is what every in-tree dispatch/subscribe resolves
+;; against — no separate `reg-frame` or `{:frame …}` scope step.
+;;
+;; There are NO `:initial-events`: the board isn't seeded at boot but ensured on
+;; route entry by the `:linearlite.app/board` route's `:resources` metadata,
+;; driven by the initial URL sync that `rf/install-history-listener!` performs.
 
 (defonce react-root (atom nil))
 
@@ -613,14 +621,15 @@
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame
-    {:doc          "Linearlite optimistic-board demo frame."
-     :url-bound?   true
-     :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}})
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    ;; ENSURE form: create + configure the app frame in one spot. First mount
+    ;; creates it under `app-frame` and applies the config; hot reload reuses it.
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id           app-frame
+                                    :doc          "Linearlite optimistic-board demo frame."
+                                    :url-bound?   true
+                                    :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}
                  [root-view]])))

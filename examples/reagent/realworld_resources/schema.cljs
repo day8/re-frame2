@@ -139,7 +139,10 @@
 ;;
 ;; EP-0002: reg-app-schemas is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (see core/run's reg-frame :rf/default), so name it here.
+;; :rf/default (the id `core/run`'s `frame-provider {:id :rf/default}` ENSURE
+;; form creates at the render root), so name it here. This is a frame-local
+;; REGISTRATION scoped by id, not a frame-creation/seed — it binds the id at
+;; ns-load; the frame itself is created later when the provider first renders.
 
 (with-frame :rf/default
   (rf/reg-app-schemas

@@ -79,13 +79,15 @@
 
 ;; The runtime never synthesises a frame from absence — an app must establish
 ;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame), `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in `frame-provider` — the
-;; scope-only provider that threads this already-registered frame's id down
-;; the React tree (the owning `frame-provider` would *create* a frame; we
-;; already own ours). That context is what lets the `use-subscribe` hook and
-;; the render-time `(rf/frame-handle)` capture resolve to the app frame. There
-;; is no `:rf/default` floor: a UIx tree rendered with NO provider observes the
+;; frame), and the render is wrapped in `frame-provider` in its ENSURE shape:
+;; `{:id app-frame …}`. That one call creates the app frame on first mount,
+;; applies its config, and runs `:initial-events` ONCE to seed app-db — so the
+;; whole frame lifecycle lives in a single spot at the render root. On hot
+;; reload the provider REUSES the existing frame without re-seeding, so the
+;; counter keeps its current value across `:dev/after-load` re-mounts. That
+;; context is what lets the `use-subscribe` hook and the render-time
+;; `(rf/frame-handle)` capture resolve to the app frame. There is no
+;; `:rf/default` floor: a UIx tree rendered with NO provider observes the
 ;; no-provider sentinel and any `use-subscribe` / `frame-handle` raises
 ;; `:rf.error/no-frame-context`.
 ;;
@@ -96,13 +98,11 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! uix-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:frame app-frame}
+      ($ uix-adapter/frame-provider {:id app-frame
+                                     :initial-events [[:counter/initialise]]}
          ($ counter-app))
       @react-root)))

@@ -4,6 +4,10 @@
    one subscription, one view, dispatched in a single explicitly-
    established frame.
 
+   The whole frame is established in one spot: the render root's
+   `frame-provider {:id …}` creates the app frame, configures it, and
+   runs its `:initial-events` seed once.
+
    Demonstrates: `reg-event`, `reg-sub`, `reg-view` with frame-bound
    `dispatch`/`subscribe` injection."
   (:require [reagent.dom.client :as rdc]
@@ -39,9 +43,10 @@
 ;; Per Spec 004 §reg-view, the defn-shape macro auto-injects `dispatch`
 ;; and `subscribe` as lexical bindings (so they aren't imported here);
 ;; both resolve at render time to the frame in scope — see the boot
-;; below, which scopes this tree to `app-frame`. The macro also auto-defs
-;; a Var named after the supplied symbol and registers the view under
-;; (keyword *ns* sym), so `counter-app` can reference it directly.
+;; below, where `frame-provider {:id app-frame}` scopes this tree to the
+;; app frame. The macro also auto-defs a Var named after the supplied
+;; symbol and registers the view under (keyword *ns* sym), so
+;; `counter-app` can reference it directly.
 
 (reg-view counter-buttons []
   [:div
@@ -50,8 +55,8 @@
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
 ;; The root `counter-app` view just renders `counter-buttons`; the boot
-;; in `run` scopes the whole tree to `app-frame` and seeds it via
-;; `dispatch-sync`.
+;; in `run` scopes the whole tree to `app-frame` and seeds it via the
+;; provider's `:initial-events`.
 
 (reg-view counter-app []
   [counter-buttons])
@@ -66,15 +71,17 @@
 (defonce react-root (atom nil))
 
 ;; The runtime never synthesises a frame from absence — an app must
-;; establish its frame explicitly. So the boot below does four things in
+;; establish its frame explicitly. So the boot below does two things in
 ;; order: `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in `frame-provider`
-;; so every in-tree `dispatch`/`subscribe` resolves to the app frame.
+;; then the render's `frame-provider {:id app-frame}` does the rest in
+;; one spot — on first mount it CREATES the app frame, applies its
+;; config, and runs `:initial-events` once to seed it; thereafter every
+;; in-tree `dispatch`/`subscribe` resolves to that frame. On hot reload
+;; the provider REUSES the existing frame and does NOT re-seed.
 ;;
 ;; `:rf/default` is an ORDINARY frame id with no framework privilege — a
 ;; migration may reach for it out of habit, but the runtime won't infer
-;; it; you register it like any other.
+;; it; you establish it like any other.
 (def app-frame :rf/default)
 
 (defn run []
@@ -82,12 +89,10 @@
   ;; ns exports an `adapter` var; consumers require the ns and pass the
   ;; var explicitly. There is no default-adapter registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:counter/initialise]]}
                  [counter-app]])))

@@ -17,11 +17,13 @@
 
    The boot is NOT re-copied here: this entry calls the shared
    `counter-slim-and-fast.core/boot!` (the single source of truth for the
-   boot — same adapter, frame, boot dispatch, lazy client mount), so the
-   gate-owned path cannot drift from the teaching `core/run`. The one fixture
-   concern is the `on-frame` pre-mount hook `boot!` accepts: the pure-CLJS
-   `render-to-static-markup` exercise runs under the frame scope, before the
-   client mount, so the static render's orphaned SSR subscription is torn down
+   boot — install the slim adapter, then mount under a
+   `frame-provider {:id …}` that creates + seeds the app frame in one spot),
+   so the gate-owned path cannot drift from the teaching `core/run`. The one
+   fixture concern is the `on-frame` pre-mount hook `boot!` accepts: the
+   pure-CLJS `render-to-static-markup` exercise runs in a TRANSIENT frame
+   scope `boot!` opens for it, before the client mount, so the static
+   render's orphaned SSR subscription is torn down
    (fixture/prove-pure-cljs-ssr! clears the sub-cache) and the browser mount
    owns the only live `[:counter/value]` reaction."
   (:require [re-frame.views]
@@ -30,14 +32,16 @@
 
 (defn run []
   ;; Delegate to the ONE canonical boot in `core/boot!` (init the slim adapter,
-  ;; register the app frame, dispatch the boot event under the frame scope, then
-  ;; lazily mount). There is no copied boot sequence to drift from `core/run`.
-  ;; The only fixture concern is woven in via the `on-frame` pre-mount hook:
+  ;; then lazily mount under a `frame-provider {:id …}` that creates + seeds the
+  ;; app frame in one spot). There is no copied boot sequence to drift from
+  ;; `core/run`. The only fixture concern is woven in via the `on-frame`
+  ;; pre-mount hook:
   ;;
   ;; Bundle-isolation fixture, not app practice. The static render derefs
-  ;; `[:counter/value]`, so it must run inside the frame scope `boot!` opens; it
-  ;; caches an orphaned reaction with no component to unmount it, so the fixture
-  ;; clears the sub-cache in a `finally`. `boot!` runs the hook before the client
-  ;; mount, so the browser mount starts from a clean sub-cache and owns the only
-  ;; live `[:counter/value]` reaction.
+  ;; `[:counter/value]`, so it must run inside a frame scope; `boot!` opens a
+  ;; transient one for the hook (before the client mount). It caches an orphaned
+  ;; reaction with no component to unmount it, so the fixture clears the
+  ;; sub-cache in a `finally`. Because the hook runs before the client mount,
+  ;; the browser mount starts from a clean sub-cache and owns the only live
+  ;; `[:counter/value]` reaction.
   (core/boot! #(fixture/prove-pure-cljs-ssr! [core/counter-app])))

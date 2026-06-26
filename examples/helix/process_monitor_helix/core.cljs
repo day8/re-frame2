@@ -341,26 +341,27 @@
 
 ;; The runtime never synthesises a frame from absence — an app must establish
 ;; its frame explicitly. `init!` installs the adapter (it does NOT create the
-;; frame), `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in the Helix `frame-provider` so the
-;; `use-subscribe` hook and the render-time `(rf/frame-handle)` capture inside
-;; `monitor` (the tick-loop arm/stop dispatches) resolve to the app frame via
-;; React context. There is no `:rf/default` floor.
+;; frame). The Helix `frame-provider` does the rest in one spot: the `{:id …}`
+;; ENSURE form CREATES the app frame on first mount, then runs `:initial-events`
+;; ONCE to seed it. On hot reload it REUSES the existing frame without
+;; re-seeding. The `use-subscribe` hook and the render-time `(rf/frame-handle)`
+;; capture inside `monitor` (the tick-loop arm/stop dispatches) resolve to that
+;; frame via React context. There is no `:rf/default` floor.
 (def app-frame :rf/default)
 
 (defn run []
   (rf/init! helix-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  ;; Seed synchronously so the very first paint shows a populated UI rather
-  ;; than a flash of empty panes. This also arms the first tick; the `monitor`
-  ;; component's mount `use-effect` re-arms (idempotently, via the
-  ;; `:process-monitor/tick-gen` guard) so the loop is owned by the component
-  ;; lifecycle from then on — unmount stops it (see `:process-monitor/stop`).
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:process-monitor/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
+    ;; One-spot frame setup: `{:id app-frame}` ensures the frame exists (creating
+    ;; it on first mount) and `:initial-events` seeds it exactly once. The seed
+    ;; arms the first tick; the `monitor` component's mount `use-effect` re-arms
+    ;; (idempotently, via the `:process-monitor/tick-gen` guard) so the loop is
+    ;; owned by the component lifecycle from then on — unmount stops it (see
+    ;; `:process-monitor/stop`). Reuse-no-reseed on reload keeps the running
+    ;; clock/logs intact across hot reloads.
     (.render @react-root
-             ($ helix-adapter/frame-provider {:frame app-frame}
+             ($ helix-adapter/frame-provider {:id app-frame
+                                              :initial-events [[:process-monitor/initialise]]}
                 ($ monitor)))))

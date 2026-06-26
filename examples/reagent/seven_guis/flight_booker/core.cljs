@@ -44,8 +44,9 @@
 
 ;; EP-0002: reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
-;; schema binds to the app frame whose commits it validates.
+;; :rf/default (the frame the render-root `frame-provider {:id …}` creates),
+;; so name it explicitly so the schema binds to the app frame whose commits
+;; it validates.
 (with-frame :rf/default
   (rf/reg-app-schema [:flight] {:schema FlightState}))
 
@@ -219,22 +220,21 @@
 
 ;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider` so every
-;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
-;; canonical mount in examples/reagent/counter/core.cljs.
+;; explicitly. `init!` installs the adapter (it does NOT create the frame).
+;; The render root then uses the `frame-provider` ENSURE form ({:id …}):
+;; it creates the app frame on first mount, applies its config, runs the
+;; `:initial-events` seed exactly once, and on hot reload reuses the same
+;; frame without re-seeding. Matches the canonical mount in
+;; examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:flight/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:flight/initialise]]}
                  [flight-booker]])))

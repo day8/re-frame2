@@ -344,10 +344,12 @@
 
 ;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the render is wrapped in a `frame-provider`
-;; so every in-tree `dispatch`/`subscribe` resolves to the app frame.
+;; explicitly. `init!` installs the adapter (it does NOT create the frame).
+;; The render root then wraps the tree in a `frame-provider` keyed by
+;; `:id`: that one spot creates the app frame on first mount, applies its
+;; config, runs `:initial-events` once (the `[:counter/initialise]` seed),
+;; and on hot reload reuses the existing frame without re-seeding — so
+;; every in-tree `dispatch`/`subscribe` resolves to the app frame.
 ;; `:rf/default` is an ordinary frame id with no framework privilege —
 ;; just the name this app chose. Matches the canonical mount in
 ;; examples/reagent/counter/core.cljs.
@@ -356,12 +358,10 @@
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:counter/initialise]]}
                  [counter-app]])))

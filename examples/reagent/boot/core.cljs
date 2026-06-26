@@ -138,41 +138,40 @@
 
 ;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. This example uses `:rf/default` as its app frame id:
-;; `init!` installs the adapter (it does NOT create the frame), `reg-frame`
-;; registers the app frame, the boot dispatch runs under `with-frame`, and
-;; the render is wrapped in a `frame-provider` so every in-tree
-;; `dispatch`/`subscribe` resolves to the app frame.
+;; explicitly. This example uses `:rf/default` as its app frame id.
+;; `init!` installs the adapter (it does NOT create the frame); the
+;; render root then establishes the frame in one spot via the
+;; `frame-provider` ENSURE form (`{:id app-frame …}`): on first mount
+;; it CREATES the frame, applies the config, and runs `:initial-events`
+;; once; on hot reload it REUSES the existing frame without re-seeding.
+;; Every in-tree `dispatch`/`subscribe` resolves to that frame.
 (def app-frame :rf/default)
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
 
-  ;; Override `:rf.http/managed` on the default frame so every child
-  ;; loader's GET routes to the per-URL canned stub above. The
-  ;; override applies frame-wide; the boot example doesn't issue any
-  ;; non-mocked requests, so a blanket override is the right grain.
-  (rf/reg-frame app-frame
-    {:doc          "Boot example demo frame."
-     :fx-overrides {:rf.http/managed :boot.demo/http-stub}})
-
-  ;; Kick the boot under `with-frame` so the boot dispatch resolves to
-  ;; the app frame (a bare dispatch-sync would raise
-  ;; :rf.error/no-frame-context under the carried invariant). The
-  ;; `:app/boot` machine's :initial state and :data seed
-  ;; `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on the
-  ;; eager creation kick (per Spec 005 §When creation happens — eager
-  ;; start vs lazy first event); :boot/initialise fires
-  ;; `[:app/boot [:rf.machine/start]]`, the creation marker that births
-  ;; the machine directly into :configuring and runs its :spawn
-  ;; entry-cascade, starting the boot sequence.
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:boot/initialise]))
-
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    ;; ENSURE form: create + configure + seed the app frame in one
+    ;; place. `:fx-overrides` redirects `:rf.http/managed` on the frame
+    ;; so every child loader's GET routes to the per-URL canned stub
+    ;; above (frame-wide; the boot example issues no non-mocked
+    ;; requests, so a blanket override is the right grain).
+    ;;
+    ;; `:initial-events` seeds the boot exactly once on first mount.
+    ;; The `:app/boot` machine's :initial state and :data seed
+    ;; `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on the
+    ;; eager creation kick (per Spec 005 §When creation happens — eager
+    ;; start vs lazy first event); :boot/initialise fires
+    ;; `[:app/boot [:rf.machine/start]]`, the creation marker that births
+    ;; the machine directly into :configuring and runs its :spawn
+    ;; entry-cascade, starting the boot sequence. On hot reload the frame
+    ;; is reused and the boot does NOT re-run.
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id             app-frame
+                                    :doc            "Boot example demo frame."
+                                    :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
+                                    :initial-events [[:boot/initialise]]}
                  [boot.views/root-view]])))

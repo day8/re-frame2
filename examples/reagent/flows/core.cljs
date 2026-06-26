@@ -297,25 +297,26 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002: the runtime never synthesises a frame from absence —
-;; register the app frame explicitly, seed under `with-frame`, and wrap the
-;; render in a `frame-provider` so the `reg-view`-injected `dispatch`/`subscribe`
-;; resolve to it (a no-provider render reads the no-provider sentinel and raises
+;; EP-0002: the runtime never synthesises a frame from absence. The
+;; `frame-provider` ENSURE shape (`{:id …}`) does the whole job at the render
+;; root in one spot: on first mount it CREATES the frame, then runs its
+;; `:initial-events` ONCE to seed it (here `[:cart/initialise]`); on hot reload
+;; it REUSES the existing frame WITHOUT re-seeding. Wrapping the render also
+;; makes the `reg-view`-injected `dispatch`/`subscribe` resolve to that frame
+;; (a no-provider render reads the no-provider sentinel and raises
 ;; :rf.error/no-frame-context). The frame id is `:rf/default` — the same id the
 ;; ns-load `with-frame` flow registrations are scoped to above. (Note that
 ;; `:rf/default` is an ordinary frame id with no framework privilege; `init!`
-;; never creates it for you, which is why `reg-frame` below is explicit.)
+;; never creates it for you, which is why the provider names the id here.)
 (def app-frame :rf/default)
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:cart/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:cart/initialise]]}
                  [cart-app]])))
