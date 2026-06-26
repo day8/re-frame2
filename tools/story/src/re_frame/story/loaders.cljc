@@ -179,10 +179,22 @@
 
   The registration sits behind the `enabled?` gate so production
   builds (with the flag false) skip it — the side-table and machine
-  registry stay empty, and `run-variant` short-circuits."
+  registry stay empty, and `run-variant` short-circuits.
+
+  EP-0026 §Default Image — the lifecycle machine is registered via the
+  `reg-machine*` runtime FN (not the macro), so the `*pending-coords*` binding
+  the macro would set is absent and the machine event would otherwise land in
+  the source store under NIL provenance — un-selectable by any `:select-ns`
+  image. The Story runtime image (`re-frame.story.runtime-image`) selects
+  `re-frame.story.**`, so we stamp the registration's provenance EXPLICITLY as
+  `re-frame.story.loaders` (this ns) — the lifecycle machine event is then in
+  every app-image-scoped variant frame's generation, and the lifecycle drives
+  past `:pre-mount`."
   []
   (when config/enabled?
-    (machines/reg-machine* lifecycle-machine-id lifecycle-machine)))
+    (machines/reg-machine* lifecycle-machine-id
+                           {:ns 're-frame.story.loaders}
+                           lifecycle-machine)))
 
 ;; ---- per-frame snapshot reads --------------------------------------------
 

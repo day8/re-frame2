@@ -48,6 +48,7 @@
     - `after-schedule-fx`, `after-cancel-fx` — `re-frame.machines.timer`"
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.image-assembly :as image-assembly]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
@@ -348,6 +349,98 @@
   {:doc "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags."}
   (fn [runtime-db [_ machine-id tag]]
     (contains? (get-in runtime-db (paths/snapshot-path machine-id :tags)) tag)))
+
+;; ---- framework-standard registration (EP-0026 §Framework Standard Registrations)
+;;
+;; The machine runtime effects + subs above are FRAMEWORK STANDARDS: reserved
+;; `:rf.machine/*` / `:rf/machine*` ids encoding the execution invariants of the
+;; spec/005 machine subsystem (spawn / destroy / timed transitions / the
+;; snapshot reader subs). Like `:rf/set-db` + the standard `:rf.interceptor/*`
+;; interceptors, they must be UNIONED INTO EVERY resolved image generation —
+;; otherwise an image-loaded frame (one created with an explicit `:images`
+;; `:select-ns` scope, e.g. a Story variant frame scoped to its app namespace)
+;; resolving `[:rf.machine/spawn …]` / `[:rf/machine …]` under a bound
+;; `*generation*` could NOT resolve it (generation-routed `registrar/lookup`
+;; reads ONLY the generation's resolver — no fallback to the registrar atom), so
+;; the machine never spawns and any hosted machine (incl. the Story lifecycle
+;; machine) silently stalls. These ids register via the runtime `reg-fx` /
+;; `reg-runtime-sub` FNs (not the provenance-stamping macros), so they carry NIL
+;; `:rf.provenance/ns` and a `:select-ns` image cannot reach them by namespace —
+;; the framework-standard union is the ONLY mechanism that keeps them live in
+;; every generation.
+;;
+;; The standards are NON-replaceable (default): a public app image MUST NOT
+;; shadow a reserved machine id — a collision FAILS LOUD
+;; (`:rf.error/image-standard-replacement-forbidden`). The standard descriptor is
+;; the SAME runnable descriptor the regular registrar stores, so a
+;; generation-routed resolution returns a value byte-shape-identical to the
+;; registrar path.
+;;
+;; The descriptors are CAPTURED at ns-load (immediately after the `reg-fx` /
+;; `reg-runtime-sub` forms above wrote them) into `machine-runtime-descriptors`
+;; so `install-machine-runtime!` can re-register BOTH the regular registrar AND
+;; the standard registry AFTER a `registrar/clear-all!` — which wipes the
+;; registrar slots, so reading them back at re-install time would find nothing.
+;; This is the machine analogue of `events/register-set-db-standard!` (re-seeds
+;; both the registrar and the standard registry on every `init!` / reset).
+
+(def ^:private machine-runtime-descriptors
+  "Captured at ns-load: the `[kind id descriptor]` triples for every machine
+  runtime effect + sub registered above. `descriptor` is the full registration
+  metadata map (carrying `:handler-fn`) read off the registrar right after the
+  `reg-fx` / `reg-runtime-sub` form ran. `install-machine-runtime!` re-registers
+  from these so the machine runtime survives a `registrar/clear-all!`."
+  (vec
+    (keep (fn [[kind id]]
+            (when-let [desc (registrar/lookup kind id)]
+              [kind id desc]))
+          [[:fx  :rf.machine/spawn]
+           [:fx  :rf.machine/destroy]
+           [:fx  :rf.machine/spawn-all-init]
+           [:fx  :rf.machine/after-schedule]
+           [:fx  :rf.machine/after-cancel]
+           [:fx  :rf.machine/update-snapshot]
+           [:fx  :rf.machine/dispatch-to-system]
+           [:sub :rf/machine]
+           [:sub :rf/machine-has-tag?]])))
+
+(defn install-machine-runtime!
+  "Re-register the machine runtime effects + subs into BOTH the regular
+  registrar AND the EP-0023 framework-standard registry. Idempotent.
+
+  - The REGULAR registrar registration is the no-generation / default-image
+    resolution path — `registrar/lookup` reads the atom directly, so a
+    no-generation caller (e.g. `rf/compute-sub [:rf/machine …]` in a test, or a
+    default-image frame) resolves the machine runtime here.
+  - The STANDARD registration is unioned into EVERY resolved image generation,
+    so an image-loaded frame (a Story variant frame scoped to its app namespace)
+    resolves `[:rf.machine/spawn …]` / `[:rf/machine …]` through its sealed
+    generation (which carries ONLY the standard union + the image selection — no
+    registrar fallback).
+
+  Re-registers from the ns-load-captured `machine-runtime-descriptors` so it
+  works even after a `registrar/clear-all!` has wiped the registrar slots (the
+  machine analogue of `events/register-set-db-standard!`). Called at ns load
+  (below), from the `:machines/install-runtime!` late-bind hook the reset fixture
+  fires, and directly by tests that wipe the registrar with `clear-all!`."
+  []
+  (doseq [[kind id desc] machine-runtime-descriptors]
+    (registrar/register! kind id desc)
+    (image-assembly/register-standard! kind id desc))
+  nil)
+
+;; Register at namespace load so an image-loaded frame created by a standalone
+;; require'r (no `init!`) resolves the machine runtime through its generation,
+;; and a no-generation caller resolves it through the registrar.
+(install-machine-runtime!)
+
+;; Publish a late-bind hook so `re-frame.test-support`'s reset fixture can
+;; re-install the machine runtime (registrar + standards) after a sibling ns's
+;; `registrar/clear-all!` / `image-assembly/clear-standards!` wipes them — the
+;; SAME re-seed-on-reset contract `:rf/set-db` carries. test_support ships in
+;; core and must not static-require machines (separate Maven coordinate), so the
+;; re-install is reached through this hook (a no-op when machines is not loaded).
+(late-bind/set-fn! :machines/install-runtime! install-machine-runtime!)
 
 ;; ---- spawned-actor ownership ----------------------------------------------
 ;;

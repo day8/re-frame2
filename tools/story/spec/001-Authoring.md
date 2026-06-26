@@ -437,16 +437,37 @@ Both variants dispatch the SAME event ids; the runtime resolves each
 variant's behaviour through ITS OWN image, so `:checkout/init` (and every
 sub / fx the cascade touches) means different things in the two frames —
 without the global-clobber anti-pattern (no process-wide `reg-event`
-mutation between runs). The runtime threads `:images` into `rf/make-frame`
-at frame allocation (a live frame object carrying the resolved, sealed image
-generation registered under the variant id); the framework's
-`call-with-frame-resolution` routes every `{:frame variant-id}` dispatch
-through that generation ([spec/002 Dispatch resolution chain](../../../spec/002-Frames.md)
-/ EP-0023 §Frame-derived live registration resolution).
+mutation between runs). The runtime composes `:images` into `rf/make-frame`
+at frame allocation (the variant frame carries the resolved, sealed image
+generation); the framework's `call-with-frame-resolution` routes every
+`{:frame variant-id}` dispatch through that generation
+([spec/002 Dispatch resolution chain](../../../spec/002-Frames.md) / EP-0023
+§Frame-derived live registration resolution). The runtime ALSO composes a
+canonical **Story runtime image** LAST into every variant frame's `:images`
+so the Story machinery (lifecycle machine, `:rf.assert/*` handlers, fx-stub
+redirects) is always live — authors never declare it. See
+[002-Runtime.md §Image composition + the Story runtime image](002-Runtime.md).
 
-A variant with NO `:images` resolves against the shared default registrar
-exactly as before (absence-is-default) — the slot is opt-in and changes
-nothing for ordinary state variants.
+#### Story-level `:images` — declare the app image ONCE
+
+A story body carries the SAME `:images` slot. A Story declares its
+**application image** ONCE on the story; every variant under it INHERITS that
+image and MAY layer its own `:images` on top. The resolved composition order is
+`[story-images… variant-images… runtime-image]` (later wins). This is the
+app-isolation mechanism for a MULTI-app testbed (several apps co-loaded into
+one process): each story scopes its variant frames to its own app namespace via
+`:select-ns`, rather than the whole co-loaded store.
+
+```clojure
+(reg-story :story.checkout
+  {:doc    "Checkout — its variants resolve against the checkout app image."
+   :images [(rf/image {:id :checkout/app :select-ns {:include ["app.checkout.**"]}})]})
+```
+
+A variant with NO `:images` whose story ALSO declares none resolves the
+EP-0026 **default image** (the whole-store projection) — the convenient
+single-app / standalone-testbed case (absence-is-default). It is the colliding
+MULTI-app testbeds that must declare a story `:images` to scope to their app.
 
 **Validation is the framework's.** Story does not fork image validation: a
 non-image entry, a zero-match `:select-ns :include` glob (a typo / forgotten

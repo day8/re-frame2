@@ -64,13 +64,34 @@
   explicit `[:assert [:rf.assert/…]]` form for the assertions the
   sugar does not cover — `sub-equals`, `dispatched?`, `effect-emitted`
   — alongside one `force-fx-stub` decorator reference."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.core  :as rf]
+            [re-frame.story :as story]
             ;; Source the event and view ids by requiring the namespaces
             ;; so they register themselves; the variant bodies reference
             ;; the ids as plain keywords (no fn-slots leak through).
             [counter-with-stories.events]
             [counter-with-stories.subs]
             [counter-with-stories.views]))
+
+;; ---------------------------------------------------------------------------
+;; App image (EP-0026 §Default Image)
+;;
+;; This testbed is co-loaded with other apps in the `node-test` build, so the
+;; variant frames must scope their registration resolution to THIS app's
+;; namespace rather than the whole co-loaded store (whose cross-app same-`[kind
+;; id]` registrations — e.g. `[:route :rf.route/not-found]` — would collide in
+;; the EP-0026 default-image projection). Each parent story below declares this
+;; app image on its `:images`; every variant inherits it, and the runtime
+;; composes the canonical Story runtime image on top
+;; (`re-frame.story.frames/allocate!`), so each variant frame sees exactly this
+;; app + the Story machinery. `:select-ns` SELECTS registered descriptors by
+;; `:rf.provenance/ns`; it does not LOAD (no require, no DCE defeat).
+;; ---------------------------------------------------------------------------
+
+(def app-image
+  (rf/image
+    {:id        :counter-with-stories/app
+     :select-ns {:include ["counter-with-stories.**"]}}))
 
 ;; ---------------------------------------------------------------------------
 ;; register-all!
@@ -252,6 +273,7 @@
      :component  :counter-with-stories.views/counter-card
      :decorators [[:counter-with-stories/log-decorator "story-level"]]
      :args       {:label "Count"}
+     :images     [app-image]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -262,6 +284,7 @@
                  stay stable."
      :component  :counter-with-stories.views/counter-card
      :args       {:label "Diagnostics"}
+     :images     [app-image]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -272,6 +295,7 @@
                  CI runner has live targets in every browser-gate run."
      :component  :counter-with-stories.views/counter-card
      :args       {:label "Play-script CI"}
+     :images     [app-image]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -283,6 +307,7 @@
                  for the occasional feature-load gate."
      :component  :counter-with-stories.views/counter-card
      :args       {:label "Matrix"}
+     :images     [app-image]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 

@@ -33,6 +33,7 @@
             [re-frame.frame     :as frame]
             [re-frame.machines  :as machines]
             [re-frame.registrar :as registrar]
+            [re-frame.source-store :as source-store]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
             [re-frame.story.async      :as async-lib]
@@ -52,9 +53,20 @@
 ;; roll back. Map-form fixture is needed for cljs.test's async bodies.
 
 (def ^:private registrar-snapshot (atom nil))
+(def ^:private source-store-snapshot (atom nil))
 
 (defn- before! []
   (reset! registrar-snapshot (test-support/snapshot-registrar))
+  ;; EP-0026 §Default Image: capture the SOURCE STORE baseline too — it carries
+  ;; the provenance-tagged `login-form.*` app descriptors the variant frames'
+  ;; `:select-ns {:include ["login-form.**"]}` image selects. `story/clear-all!`
+  ;; below wipes BOTH the registrar AND the source store
+  ;; (`source-store/clear-all!`), and `register-all!` re-fires only the STORY
+  ;; registrations — the already-loaded `login-form.events` / `.subs` / `.views`
+  ;; namespaces do NOT re-fire on require. Without restoring the source-store
+  ;; baseline, `login-form.**` would zero-match at frame creation
+  ;; (`:rf.error/image-zero-match`).
+  (reset! source-store-snapshot @source-store/kind->id->ns->descriptor)
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
   (frame/ensure-default-frame!)
@@ -63,6 +75,21 @@
   ;; Re-fire the Story registrations so each test starts with a freshly
   ;; resolved registry (the four projection subs re-register here too).
   (story/clear-all!)
+  ;; Restore the captured source-store baseline so the `login-form.*` app
+  ;; descriptors are present for the variant frames' image `:select-ns` (see the
+  ;; capture above). The resolved-generation cache is keyed on the source-store
+  ;; generation, which `clear-all!` bumped, so a stale generation never leaks.
+  (reset! source-store/kind->id->ns->descriptor @source-store-snapshot)
+  ;; EP-0026 §Framework Standard Registrations: `story/clear-all!` wipes the
+  ;; WHOLE registrar (incl. the framework `:rf/machine` sub the projection subs
+  ;; chain off via `:<- [:rf/machine :login/flow]`). Re-install the machine
+  ;; runtime — both the regular registrar (so a no-generation
+  ;; `rf/compute-sub [:login/state] frame-state` resolves `:rf/machine`) AND the
+  ;; image standard registry (so the app-image-scoped variant frame resolves the
+  ;; machine runtime through its sealed generation). Mirrors how the
+  ;; `make-reset-runtime-fixture` reset re-installs it via the
+  ;; `:machines/install-runtime!` hook; this custom fixture calls it directly.
+  (machines/install-machine-runtime!)
   (lf-stories/register-all!))
 
 (defn- after! []
@@ -104,6 +131,11 @@
           (is (story/assertions-passing? result)
               (str variant-id " play assertions (state-is etc): "
                    (pr-str (:assertions result))))
+          (println "DIAG" variant-id
+                   "lifecycle=" (:lifecycle result)
+                   "story-meta-keys=" (pr-str (keys (registrar/handler-meta :story :story.login)))
+                   "story-images=" (pr-str (:images (registrar/handler-meta :story :story.login)))
+                   "appimg=" (pr-str lf-stories/app-image))
           (check result (rf/frame-state-value variant-id))
           (story/destroy-variant! variant-id)
           (done)))))

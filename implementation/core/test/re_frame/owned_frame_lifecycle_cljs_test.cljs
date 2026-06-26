@@ -19,6 +19,40 @@
             [re-frame.test-support :as test-support]
             [re-frame.views.owned-frame :as owned-frame]))
 
+;; ---- app image (EP-0026 §Default Image) ----------------------------------
+;;
+;; These tests are direct `make-frame` / `acquire-owned-frame!` callers (NOT
+;; Story). Co-loaded with the rest of the `node-test` build, an image-less frame
+;; would resolve the EP-0026 default image (the whole co-loaded store), whose
+;; cross-app same-`[kind id]` registrations collide. Each frame is created with
+;; an explicit app image instead (`:select-ns` over THIS test namespace), so its
+;; generation is scoped to this suite's own registrations.
+;;
+;; A NS-LOAD marker event (`::image-anchor`) anchors the `:select-ns` glob so it
+;; is NEVER zero-match: some tests create a frame using only the `:rf/set-db`
+;; framework standard and register nothing else from this ns, so a bare
+;; `:select-ns` over this ns would be empty and fail loud with
+;; `:rf.error/image-zero-match`. The anchor MUST register BEFORE the
+;; `use-fixtures` form so the reset-runtime fixture captures it in the ns-load
+;; baseline it folds back over the registrar + source store before each test —
+;; otherwise it would be wiped and the glob would zero-match. The tests' own
+;; test-time handlers (`:owned/bump`, `:owned/needs-missing-cofx`, …) carry this
+;; ns's provenance too, so the SAME glob picks them up when they are registered
+;; BEFORE the acquire.
+;;
+;; The frame still resolves `:rf/set-db` and the other framework standards: the
+;; standards are added to EVERY image generation unconditionally by image
+;; assembly (they are not part of `:select-ns`).
+
+;; NS-load anchor for the app image's `:select-ns` (see above). Registered
+;; BEFORE `use-fixtures` so it is in the fixture's captured ns-load baseline.
+(rf/reg-event ::image-anchor (fn [{:keys [db]} _] {:db db}))
+
+(def ^:private app-image
+  (rf/image
+    {:id        :owned-frame-lifecycle/app
+     :select-ns {:include ["re-frame.owned-frame-lifecycle-cljs-test"]}}))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
@@ -26,21 +60,24 @@
 
 (deftest acquire-creates-and-returns-id
   (testing "acquire-owned-frame! runs make-frame and returns the resolved id"
-    (let [id (owned-frame/acquire-owned-frame! {:id :owned/alpha :initial-events [[:rf/set-db {:n 1}]]})]
+    (let [id (owned-frame/acquire-owned-frame! {:id :owned/alpha :images [app-image] :initial-events [[:rf/set-db {:n 1}]]})]
       (is (= :owned/alpha id) "returns the frame id off the constructed frame value")
       (is (some? (frame/frame :owned/alpha)) "the frame is live in the registry")
       (is (= {:n 1} (rf/app-db-value :owned/alpha)) ":rf/set-db seeded app-db"))))
 
 (deftest re-acquire-is-idempotent-and-preserves-durable-state
   (testing "re-acquiring the same id preserves durable app-db (EP-0024 idempotent replacement)"
-    (owned-frame/acquire-owned-frame! {:id :owned/beta :initial-events [[:rf/set-db {:count 0}]]})
-    ;; Mutate durable state through a dispatch path.
+    ;; Register the dispatch handler BEFORE the acquire so it is in the
+    ;; frame's app-image-scoped generation (the generation is sealed at
+    ;; make-frame time; its `:select-ns` over this ns picks the handler up).
     (rf/reg-event :owned/bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
+    (owned-frame/acquire-owned-frame! {:id :owned/beta :images [app-image] :initial-events [[:rf/set-db {:count 0}]]})
+    ;; Mutate durable state through a dispatch path.
     (rf/dispatch-sync [:owned/bump] {:frame :owned/beta})
     (is (= {:count 1} (rf/app-db-value :owned/beta)) "durable state advanced")
     ;; A re-acquire under the SAME id (the hot-reload / StrictMode remount
     ;; shape) must NOT reset durable state.
-    (let [id2 (owned-frame/acquire-owned-frame! {:id :owned/beta :initial-events [[:rf/set-db {:count 99}]]})]
+    (let [id2 (owned-frame/acquire-owned-frame! {:id :owned/beta :images [app-image] :initial-events [[:rf/set-db {:count 99}]]})]
       (is (= :owned/beta id2))
       (is (= {:count 1} (rf/app-db-value :owned/beta))
           "re-acquire preserved durable state (idempotent replacement, not reset)"))))
@@ -66,6 +103,7 @@
       (try
         (owned-frame/acquire-owned-frame!
           {:id :owned/boom
+           :images [app-image]
            :initial-events [[:rf/set-db {:seeded true}]
                             [:owned/needs-missing-cofx]]})
         (catch :default e (reset! thrown e)))
@@ -93,6 +131,7 @@
       (try
         (owned-frame/acquire-owned-frame!
           {:id :owned/setdb-boom
+           :images [app-image]
            :initial-events [[:rf/set-db {:seeded true}]
                             [:rf/set-db :not-a-map]]})
         (catch :default e (reset! thrown e)))
@@ -116,7 +155,7 @@
 
 (deftest release-defers-destroy-not-synchronous
   (testing "release-owned-frame! schedules a DEFERRED destroy — frame stays live synchronously"
-    (owned-frame/acquire-owned-frame! {:id :owned/gamma})
+    (owned-frame/acquire-owned-frame! {:id :owned/gamma :images [app-image]})
     (is (some? (frame/frame :owned/gamma)) "frame live before release")
     (owned-frame/release-owned-frame! :owned/gamma)
     (is (owned-frame/pending-destroy? :owned/gamma)
@@ -125,18 +164,18 @@
         "frame still LIVE synchronously after release — destroy is deferred")
     ;; Tidy: cancel the pending destroy so the fixture's reset is clean (a
     ;; re-acquire is the cancel path).
-    (owned-frame/acquire-owned-frame! {:id :owned/gamma})
+    (owned-frame/acquire-owned-frame! {:id :owned/gamma :images [app-image]})
     (is (not (owned-frame/pending-destroy? :owned/gamma)) "tidy: destroy cancelled")))
 
 (deftest re-acquire-cancels-pending-destroy
   (testing "a re-acquire before the deferred destroy fires CANCELS it (StrictMode remount)"
-    (owned-frame/acquire-owned-frame! {:id :owned/delta :initial-events [[:rf/set-db {:v :keep}]]})
+    (owned-frame/acquire-owned-frame! {:id :owned/delta :images [app-image] :initial-events [[:rf/set-db {:v :keep}]]})
     ;; Simulate the StrictMode unmount: schedule the deferred destroy ...
     (owned-frame/release-owned-frame! :owned/delta)
     (is (owned-frame/pending-destroy? :owned/delta) "destroy pending after release")
     ;; ... then the immediate remount re-acquires the SAME id, which must
     ;; cancel the pending destroy synchronously.
-    (owned-frame/acquire-owned-frame! {:id :owned/delta})
+    (owned-frame/acquire-owned-frame! {:id :owned/delta :images [app-image]})
     (is (not (owned-frame/pending-destroy? :owned/delta))
         "the re-acquire cancelled the pending destroy")
     (is (some? (frame/frame :owned/delta))

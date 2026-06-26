@@ -74,7 +74,9 @@
             [re-frame.story.error      :as story-error]
             [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.loaders    :as loaders]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.registrar  :as registrar]
+            [re-frame.story.runtime-image :as runtime-image]
             ;; Trace-listener pattern for the teardown
             ;; exception-projection path: re-frame's interceptor chain
             ;; catches handler exceptions internally and emits
@@ -560,6 +562,53 @@
   [image]
   (:rf.image/id image))
 
+(defn- story-images
+  "The parent story's declared APP image(s) for `variant-id`, or `[]`. A Story
+  declares its application image ONCE on the story body's `:images` slot; every
+  variant under it inherits that image (the variant may LAYER its own `:images`
+  on top — see `compose-variant-images`). Resolved off the parent story body via
+  the variant→story id derivation (`pred/parent-story-id`), mirroring how
+  `re-frame.story.args/resolve-args` folds the parent-story `:args` layer."
+  [variant-id]
+  (let [story-id   (pred/parent-story-id variant-id)
+        story-body (when story-id (registrar/handler-meta :story story-id))]
+    (vec (:images story-body))))
+
+(defn- compose-variant-images
+  "Build the FULL `:images` vector a variant frame is created with (EP-0026
+  §Layered Resolution — the later image WINS). The composition is:
+
+      [<story-images…> <variant-images…> runtime-image]
+
+  - `story-images`   — the parent story's `:images` (the app image declared once
+                       on the story; inherited by every variant). See
+                       `story-images`.
+  - `variant-images` — the variant body's own `:images`, layered on top of the
+                       story image (a BEHAVIOUR variant overriding specific
+                       `[kind id]`s with its own image).
+  - `runtime-image`  — the canonical Story RUNTIME IMAGE, composed LAST so the
+                       Story machinery (lifecycle machine, `:rf.assert/*`
+                       handlers, fx-stub redirects, runtime helpers, toolbar
+                       cofx) is always live in the frame and never shadowed out
+                       by an app image (`re-frame.story.runtime-image`).
+
+  When NO application image resolves anywhere — none on the variant, none on its
+  parent story — the composition is `nil`, the absence-is-DEFAULT signal:
+  `allocate!` then creates the frame with NO `:images`, so `rf/make-frame`
+  resolves the EP-0026 DEFAULT image (the whole-store projection) for the
+  convenient single-app / standalone-testbed case. (A colliding MULTI-app
+  testbed scopes itself by declaring a story `:images` selecting its own app
+  namespace.) `runtime-image` is composed ONLY when an app image is present —
+  the default-image path already projects the whole store, which includes the
+  Story runtime, so the runtime image would be redundant (and an `:images`
+  vector carrying ONLY the runtime image would scope the frame to the Story
+  machinery alone, hiding the app)."
+  [variant-id variant-images]
+  (let [story-imgs (story-images variant-id)
+        app-imgs   (into (vec story-imgs) variant-images)]
+    (when (seq app-imgs)
+      (conj app-imgs (runtime-image/runtime-image)))))
+
 (defn- ->classification-effects
   "Convert a variant body's `:sensitive` / `:large` classification declaration
   (the durable app-db form `{:app-db [[path]…]}`) into the flat EP-0025
@@ -650,40 +699,60 @@
           ;; the events-only classification doesn't depend
           ;; on the file's declaration order.
           v-body         (registrar/handler-meta :variant variant-id)
-          ;; EP-0023 §Stories — the variant's behaviour-variant IMAGES (the
-          ;; `rf/image` registration-set values its frame resolves behaviour
-          ;; against). A vector of image VALUES; nil/empty for an ordinary
-          ;; state variant (which resolves against the shared default
-          ;; registrar).
-          images         (:images v-body)
+          ;; EP-0026 §Default Image / §Layered Resolution — the FULL `:images`
+          ;; vector this variant frame is created with:
+          ;;
+          ;;   [<story-images…> <variant-images…> runtime-image]   (later wins)
+          ;;
+          ;; A Story declares its APP image ONCE on the parent story body's
+          ;; `:images`; every variant inherits it and MAY layer its own
+          ;; `:images` (a BEHAVIOUR variant overriding specific `[kind id]`s).
+          ;; The canonical Story RUNTIME IMAGE is composed LAST so the Story
+          ;; machinery (lifecycle machine, `:rf.assert/*` handlers, fx-stub
+          ;; redirects, runtime helpers, toolbar cofx) is always live in the
+          ;; frame and never shadowed out by an app image. See
+          ;; `compose-variant-images`.
+          ;;
+          ;; `nil` when NO app image resolves anywhere (none on the variant,
+          ;; none on its story): the absence-is-DEFAULT signal — the frame is
+          ;; created with NO `:images`, so `rf/make-frame` resolves the EP-0026
+          ;; DEFAULT image (the whole-store projection) for the convenient
+          ;; single-app / standalone-testbed case.
+          composed-imgs  (compose-variant-images variant-id (:images v-body))
+          ;; The variant's own behaviour-variant image ids (for frame-meta
+          ;; tooling read-back) — the AUTHORED app images, NOT the
+          ;; library-composed runtime image (a library contract, not an
+          ;; author-declared behaviour set).
+          author-images  (into (vec (story-images variant-id))
+                                (:images v-body))
           ;; Thread the variant's EP-0015 frame-owned
           ;; `:sensitive` / `:large` classification onto the reg-frame config,
           ;; plus the image ids (for frame-meta tooling read-back).
           config-map     (variant-frame-config
                            variant-id fx-overrides
                            (assoc (select-keys v-body [:sensitive :large])
-                                  :image-ids (keep image-id images)))
+                                  :image-ids (keep image-id author-images)))
           events-only?   (loaders/events-only-variant? v-body decorator-stack)]
       ;; EP-0023 §Stories / §Frame-derived live registration resolution
-      ;; — when the variant declares behaviour-variant
-      ;; `:images`, the frame carries the resolved, sealed image GENERATION so
+      ;; — the frame carries the resolved, sealed image GENERATION so
       ;; `process-event!`'s `call-with-frame-resolution` routes the whole cascade
       ;; (event-handler lookup, cofx, fx) for any `{:frame variant-id}` dispatch
-      ;; through THIS frame's image generation rather than the global registrar —
-      ;; so two variants reuse the SAME global id with DIFFERENT meanings
-      ;; ("behavior variant -> image", EP-0023 §Stories). Image-less variants
-      ;; carry no generation and resolve against the shared default registrar
-      ;; (absence-is-default). The framework's `rf/image` / assembly own all
-      ;; validation — a malformed image or a zero-match `:select-ns :include`
-      ;; glob FAILS LOUDLY here at frame creation.
+      ;; through THIS frame's image generation. The runtime image keeps the Story
+      ;; machinery live in that generation; an app image scopes the frame to its
+      ;; own registrations so two variants reuse the SAME global id with
+      ;; DIFFERENT meanings ("behavior variant -> image", EP-0023 §Stories). When
+      ;; NO app image resolves, the frame resolves the EP-0026 DEFAULT image (the
+      ;; whole-store projection) — absence-is-default. The framework's `rf/image`
+      ;; / assembly own all validation — a malformed image or a zero-match
+      ;; `:select-ns :include` glob FAILS LOUDLY here at frame creation.
       ;;
       ;; EP-0024 — ONE `make-frame` call. The unified constructor accepts
       ;; BOTH the image-selection opts AND the full record-config in one
-      ;; call over the one registry. `:images` is supplied only when the
-      ;; variant declares them (absent ⇒ no generation).
+      ;; call over the one registry. `:images` is supplied only when an app
+      ;; image resolves (absent ⇒ the default image generation).
       (rf/make-frame (cond-> {:id variant-id}
-                       (seq images) (assoc :images (vec images))
-                       :always      (merge config-map)))
+                       (seq composed-imgs) (assoc :images composed-imgs)
+                       :always             (merge config-map)))
       ;; EP-0025: apply the variant's durable app-db `:sensitive` / `:large`
       ;; classification as commit-plane classification effects into the frame's
       ;; elision registry NOW — after the container exists, BEFORE the
