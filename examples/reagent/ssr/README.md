@@ -144,25 +144,11 @@ ssr/
 shadow-cljs watch examples/ssr
 ```
 
-The watch build emits `main.js` into `out/examples/ssr/`; copy this
-folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/ssr/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free per
-[`examples/README.md`](../../README.md); this example's JVM smoke
-(per-request frame → server flow → render-to-string + render-hash) was
-folded into [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
-(the `ssr-example-runs-end-to-end` deftest), alongside the per-request
-frame teardown and client-hydration deftests. Broader SSR
-contract testing lives in the `implementation/ssr/test/` suite plus
-`spec/conformance/fixtures/ssr-*.edn`.
+Then serve the build output over HTTP and open this folder's
+hand-written [`index.html`](index.html) — it ships the pre-rendered
+shell and baked payload the client hydrates against.
 
-## Cross-references
+## See also
 
-- [Construction Prompts CP-9](../../../spec/Construction-Prompts.md) — the prompt this example instantiates.
-- [`spec/011-SSR.md`](../../../spec/011-SSR.md) — the normative spec.
-- [Server-side rendering](../../../docs/ssr/concepts.md) — the narrative capability guide.
 - [`examples/reagent/ssr_streaming/`](../ssr_streaming/) — the streaming-SSR counterpart.
 - [`examples/reagent/realworld/`](../realworld/) — SSR boot folded into a broader app.

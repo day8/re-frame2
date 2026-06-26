@@ -102,32 +102,10 @@ login_uix/
 npm run dev:example -- examples/login-uix
 ```
 
-One command: it stages this folder's hand-written
-[`index.html`](index.html) + the shared `_shared/` assets next to the
-compiled `main.js`, starts `shadow-cljs watch` (edits recompile live),
-serves `out/examples/login-uix/` on a free local port, and prints the
-URL to open. Add `--no-watch` for a one-shot compile-and-serve.
+One command: it starts `shadow-cljs watch` (edits recompile live), serves the
+example on a free local port, and prints the URL to open. Add `--no-watch` for
+a one-shot compile-and-serve.
 
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/uix/README.md`](../README.md).) Examples are test-free
-per [`examples/README.md`](../../README.md).
-
-<details><summary>Advanced: raw <code>shadow-cljs watch</code></summary>
-
-`npm run dev:example` wraps the raw watch + manual staging recipe. To
-drive shadow-cljs directly: `shadow-cljs watch examples/login-uix`
-emits `main.js` into `out/examples/login-uix/`; you then copy this
-folder's [`index.html`](index.html) (and the shared assets under
-[`../../_shared/`](../../_shared/)) alongside it and serve the output
-dir yourself.
-
-</details>
-
-## Cross-references
-
-- [`examples/reagent/login/`](../../reagent/login/) — the canonical Reagent reference.
-- [`examples/helix/login_helix/`](../../helix/login_helix/) — the Helix twin.
-- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md), [`spec/010-Schemas.md`](../../../spec/010-Schemas.md), [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) — the substrate-agnostic surfaces.
-- [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) — the substrate contract the UIx adapter satisfies.
-- [`implementation/adapters/uix/`](../../../implementation/adapters/uix/) — the adapter implementation.
+No backend ships — the login runs against the canned HTTP stub in
+[`core.cljs`](core.cljs), so the password `correct-horse` succeeds and anything
+else fails the way the machine expects.

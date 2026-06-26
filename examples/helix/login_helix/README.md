@@ -17,9 +17,6 @@ through a hook. Reading the three side by side tells you exactly which layers
 move when you switch [substrate](../../../docs/guide/glossary.md#substrate) and
 which don't. (Spoiler: almost nothing moves.)
 
-The example tree is test-free; the flow's coverage lives in the framework test
-tree (see [How to run](#how-to-run)).
-
 ## What this demonstrates
 
 - **Views are plain `defnc`, and they read subs through a hook.** Reagent
@@ -95,17 +92,10 @@ driving Reagent `reg-view`, UIx `defui`, and Helix `defnc` is precisely what
 proves the [Spec 005 machine](../../../spec/005-StateMachines.md),
 [Spec 010 schemas](../../../spec/010-Schemas.md), and
 [Spec 014 managed-HTTP](../../../spec/014-HTTPRequests.md) surfaces are
-substrate-agnostic. Hoisting the shared model into one namespace would feel
-tidier and would quietly destroy the claim: each substrate login is a
-self-contained `:browser` build, and `npm run test:bundle-isolation` checks
-that a Helix `main.js` carries no Reagent or UIx code (and vice versa). A
-shared model required into all three builds would defeat that isolation — and
-the parity claim it underwrites — in one stroke. The rationale and its four
-bounding conditions are catalogued in
-[`examples/TESTING.md` §Exception 2](../../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share).
-
-The folder name carries the `_helix` substrate suffix so the top-level
-namespace doesn't collide with its Reagent or UIx siblings on the classpath.
+substrate-agnostic. Each substrate login is a self-contained `:browser` build
+that carries no other substrate's code; hoisting the shared model into one
+namespace would feel tidier and would quietly destroy the claim — the parity
+demonstration *needs* the three to stand alone.
 
 ## Files
 
@@ -122,32 +112,6 @@ login_helix/
 npm run dev:example -- examples/login-helix
 ```
 
-One command: it stages this folder's hand-written
-[`index.html`](index.html) + the shared `_shared/` assets next to the
-compiled `main.js`, starts `shadow-cljs watch` (edits recompile live),
-serves `out/examples/login-helix/` on a free local port, and prints the
-URL to open. Add `--no-watch` for a one-shot compile-and-serve.
-
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/helix/README.md`](../README.md).) Examples are
-test-free per [`examples/README.md`](../../README.md).
-
-<details><summary>Advanced: raw <code>shadow-cljs watch</code></summary>
-
-`npm run dev:example` wraps the raw watch + manual staging recipe. To
-drive shadow-cljs directly: `shadow-cljs watch examples/login-helix`
-emits `main.js` into `out/examples/login-helix/`; you then copy this
-folder's [`index.html`](index.html) (and the shared assets under
-[`../../_shared/`](../../_shared/)) alongside it and serve the output dir
-yourself.
-
-</details>
-
-## Cross-references
-
-- [`examples/reagent/login/`](../../reagent/login/) — the canonical Reagent reference.
-- [`examples/uix/login_uix/`](../../uix/login_uix/) — the UIx twin.
-- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md), [`spec/010-Schemas.md`](../../../spec/010-Schemas.md), [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) — the substrate-agnostic surfaces.
-- [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) — the substrate contract the Helix adapter satisfies.
-- [`implementation/adapters/helix/`](../../../implementation/adapters/helix/) — the adapter implementation.
+It compiles, serves on a free local port, and prints the URL to open; edits
+recompile live. No backend ships — the login runs against the canned HTTP
+stub in `core.cljs`.

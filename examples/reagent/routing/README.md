@@ -78,20 +78,10 @@ routing/
 shadow-cljs watch examples/routing
 ```
 
-The watch build emits `main.js` into `out/examples/routing/`; copy
-this folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/routing/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free
-per [`examples/README.md`](../../README.md); routing contract testing
-lives in `implementation/routing/test/` and the conformance fixtures.
+Then serve the build over HTTP and open it.
 
 ## Cross-references
 
-- [Construction Prompts CP-7](../../../spec/Construction-Prompts.md) — the prompt this example instantiates.
-- [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the normative spec.
 - [`examples/reagent/ssr/`](../ssr/) — the sibling server-render + hydration example (the other half of the side-agnostic `.cljc` story; it renders an HTTP-fetched page rather than a routed one).
 - [`examples/reagent/realworld/`](../realworld/) — a fuller app that folds this routing surface in alongside auth, `:can-leave` guards, and `:rf.route/navigate`.
 </content>

@@ -136,10 +136,6 @@ doing the unglamorous wiring.
 | `schema.cljs` | Malli [schemas](../../../docs/guide/glossary.md#schema) for the connection machine's `:data` slice and the `[:messages]` app-db slice. |
 | `index.html` | Minimal harness. |
 
-The example tree is test-free. The headless fixtures + the
-test-only re-registration scaffolding were folded into the integration
-test (see [Headless tests](#headless-tests)).
-
 ## Mock WebSocket server
 
 The example ships with a tiny in-process `WebSocket`-shaped stub in `messages.cljs`. It supports:
@@ -147,62 +143,19 @@ The example ships with a tiny in-process `WebSocket`-shaped stub in `messages.cl
 - **Auto-echo for `:request` messages** — every outbound `{:type :request ...}` immediately echoes back as `{:type :reply :request-id ... :ok true :echo ...}`, so the request-reply correlation slot lights up.
 - **Auth ack** — `{:type :auth :token ...}` produces `{:type :auth-ok}` for any non-empty token and `{:type :auth-failed :reason "Empty token"}` otherwise.
 - **Subscribe ack** — every `{:type :subscribe :topic ...}` is acked with one synthetic `{:type :push :topic ... :note "subscribed"}` so the example demonstrates the subscribe-then-push shape end-to-end.
-- **`messages/send-server-push!`** — used by the "Trigger server push" button (and the headless tests) to deliver a manual server-pushed event.
+- **`messages/send-server-push!`** — used by the "Trigger server push" button to deliver a manual server-pushed event.
 - **`messages/simulate-disconnect!`** — used by the "Drop connection" button to force every live mock socket closed, triggering the reconnect cascade.
-
-The mock has two delivery modes — async via `setTimeout(_, 0)` (default, used by the browser) and sync (used by the headless tests via `messages/set-mock-sync!`) so `dispatch-sync` observes the full request/reply round-trip without yielding to the JS event loop.
 
 **Production swap-out:** replace `mock-socket-for-actor` with a real `(js/WebSocket. url)` and wire its `onopen` / `onmessage` / `onerror` / `onclose` to the same actor-level dispatches. The connection machine — and every test against it — does not change. (That's the payoff of the machine-owns-the-actor / actor-owns-the-host-reference split: the transport is a swappable detail the lifecycle never sees.)
 
-## Architecture references
-
-- [`spec/Pattern-WebSocket.md`](../../../spec/Pattern-WebSocket.md) — the normative pattern (this example's spec).
-- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — hierarchical compound states, `:after`, `:always`, `:spawn`, state tags.
-- [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md) — composed twice (backoff timer + connection epoch).
-- [`spec/Pattern-AsyncEffect.md`](../../../spec/Pattern-AsyncEffect.md) — distinct but adjacent; an individual request/reply over the open socket fits Pattern-AsyncEffect (the open connection acts as the effect).
-
 ## How to run
-
-From `implementation/`, watch the build directly:
 
 ```bash
 shadow-cljs watch examples/websocket
 ```
-
-The watch build emits `main.js` into `out/examples/websocket/`; copy
-this folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/websocket/` over HTTP and open
-it in a browser.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).)
 
 Once it's up: click **Connect** and watch the status pill cascade
 `CONNECTING → AUTHENTICATING → CONNECTED`. Type a message before connecting and
 it queues, then drains the instant you connect. Hit **Drop connection** and watch
 the pill walk back through `RECONNECTING → CONNECTING → AUTHENTICATING →
 CONNECTED` on its own — the whole reconnect cascade, driven by the machine.
-
-## Headless tests
-
-The headless tests are pure-CLJS, browserless fixtures — they exercise the whole
-machine without a DOM in sight. Since the example tree is test-free, the
-connection + message fixtures and the test-only re-registration scaffolding
-(which recovers from upstream `clear-all!` callers) all live, folded inline, in
-the integration test at
-[`implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs).
-Each fixture is one `deftest` there, so the `:each` fixture
-(which resets the mock server + re-registers everything) runs around
-each individually:
-
-- connection lifecycle — initial state, happy-path lifecycle,
-  offline-queue + drain, reconnect cascade, max-retries → `:failed`,
-  connection-epoch staleness, `:ws/refresh-token`, clean `:ws/disconnect`.
-- messages — request-reply correlation, server-push routing,
-  subscription tracking, `[:messages :received]` newest-first invariant.
-
-```bash
-cd implementation
-npm run test:cljs
-```

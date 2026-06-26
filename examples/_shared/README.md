@@ -11,27 +11,7 @@ The trick that makes a single shared directory work for examples that
 build into many different output folders is that every page references
 its assets at the *same relative path* — `_shared/css/style.css`, never
 an absolute URL. So whatever stages an example just has to drop a copy
-of this tree next to the staged page. The smoke orchestrator
-(`examples/scripts/serve-and-run-adapter-smokes.cjs`) does exactly that:
-for the adapter testbeds it serves, it copies this whole tree into
-`implementation/out/examples/adapter-testbeds/<name>/_shared/`, right
-beside the staged `index.html` + `main.js`. (The precise output dir is
-declared per-entry as `outDir` in
-[`examples/scripts/adapter-smoke-filter.cjs`](../scripts/adapter-smoke-filter.cjs).)
-
-**What actually gets tested — and the small irony in it.** The smoke
-harness stages this tree faithfully, but the three adapter testbed pages
-it serves don't link a byte of `_shared`. So if a shared asset went
-missing, the smokes would sail right past it. The contract that "every
-example index references the shared assets" is therefore enforced
-**statically** instead, by
-[`examples/scripts/check-examples-assets.cjs`](../scripts/check-examples-assets.cjs)
-(wired into `npm run test:script-policy`). For every example
-`index.html` it walks each referenced asset — the `_shared/*` css and
-images plus the transitive `@import` targets — confirms each resolves to
-a real file on disk, and checks that every page carries the required
-shared assets, unless a page is explicitly allowlisted (TodoMVC opts out
-of the shared stylesheet; see that scanner's `ALLOWLIST`).
+of this tree next to the staged page.
 
 ## Visual identity
 
@@ -69,7 +49,7 @@ third-party network requests just to style itself. That buys more than
 tidiness: offline runs, firewalled CI, and privacy-sensitive local demos
 all render identically, and a screenshot taken today matches one taken
 next year because nothing is being fetched from a server that might have
-moved on. (rf2-byf7y)
+moved on.
 
 ## Files
 
@@ -86,22 +66,17 @@ card — the rest are what they say on the tin:
   accent). Browsers render SVG favicons happily, so this one ships
   as-is, no raster step needed.
 - `img/og.png` — the shared Open Graph preview card, a 1200×630 raster.
-  This is the asset every `index.html` references and the one the asset
-  gate insists on, and it's a raster for a slightly annoying reason:
-  link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) flat
-  refuse to render an SVG `og:image`. So however much we'd prefer to ship
-  vector art, the social card has to be a PNG/JPG to actually show up in
-  a preview.
+  This is the asset every `index.html` references, and it's a raster for
+  a slightly annoying reason: link-preview scrapers (Facebook / X /
+  LinkedIn / Slack / Discord) flat refuse to render an SVG `og:image`. So
+  however much we'd prefer to ship vector art, the social card has to be
+  a PNG/JPG to actually show up in a preview.
 - `img/og.svg` — the editable SOURCE ART behind that card; no page
-  references it. When the design changes, re-export `og.png` from this:
-  render the SVG at *exactly* 1200×630 (open it in a headless browser
-  sized 1200×630 and screenshot it, or run any SVG→PNG rasteriser at that
-  size). Its colour literals deliberately mirror the `--ex-*` tokens in
-  `style.css` so the source and the stylesheet can't drift apart — and
-  the asset gate guards that on purpose: it rejects re-introducing a
-  retired, sub-AA palette value here (the old `#8A8270` muted ink, since
-  darkened to `#6E6654` for AA contrast — rf2-y82dk9), so the social card
-  inherits the same accessibility decisions the rest of the palette made.
+  references it. When the design changes, re-export `og.png` from this at
+  *exactly* 1200×630. Its colour literals deliberately mirror the
+  `--ex-*` tokens in `style.css`, so the source and the stylesheet can't
+  drift apart and the social card inherits the same palette — including
+  the same accessibility decisions — as the rest of the catalogue.
 
 ## Responsive Xray-host shell
 
@@ -135,28 +110,3 @@ none of this touches the host/app DOM contract: the shape Xray hunts for
 (`.rf2-testbed-shell > #app` plus `[data-rf-xray-host]`) is **unchanged**,
 so auto-mounting and both examples keep working at every width — only the
 CSS rearranges.
-
-And because a regression here would be invisible until someone opened a
-phone, the asset gate (`check-examples-assets.cjs`) nails it down: a
-`structure.css` that lacks a `@media (max-width: …)` rule stacking
-`.rf2-testbed-shell` into a column turns the gate RED. The shell can't
-quietly slip back to an unbounded horizontal layout without CI
-noticing (rf2-y82dk9).
-
-## Adding a new example
-
-The good news is there's almost nothing to do here — a new example opts
-into the whole design system with three `<head>` links and otherwise
-leaves this directory alone:
-
-1. From the new example's `index.html` `<head>`, reference
-   `_shared/css/style.css`, `_shared/img/favicon.svg`, and
-   `_shared/img/og.png` — the raster social card, **not** the `.svg`
-   source art (scrapers won't render the SVG; see Files above).
-2. If the example needs a little layout-only inline CSS of its own, reach
-   for the `--ex-*` tokens rather than hard-coding colours, so it stays
-   in step with the palette.
-3. You almost certainly don't need to add a new shared asset. Substrate
-   variety isn't expressed through the design system any more, so resist
-   the urge to give your example its own special look — the point is that
-   it doesn't have one.

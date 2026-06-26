@@ -129,12 +129,6 @@ which state beats which, and you edit one table, not ten views.
   reads the condition right off the arrow; only the genuinely trivial
   transitions use inline anonymous fns. The machine declaration is
   meant to be read.
-- **Headless tests, because transitions are just data.** Every state has
-  a fixture that drives `app-db` into that state and asserts against the
-  machine's tag union and the resolved `:ui/render` keyword — no
-  browser, no DOM, via `compute-sub` / `dispatch-sync` / `with-frame`.
-  The example tree itself is test-free; the fixtures live in the
-  framework test tree (see [How to run](#how-to-run)).
 
 ## Legacy variant
 
@@ -159,41 +153,25 @@ examples/reagent/nine_states/
   README.md            this file.
 ```
 
-The three `stories*` files are an **intentionally auxiliary Story
-showcase** layered over this example (build
-`:examples/nine-states-with-stories`) — not a second example
-and not tool-owned. They source `nine-states.core`'s real parallel
-machine and `:ui/render` selector and enumerate the nine canonical
-render keywords (plus the async fetch-lifecycle) as Story variants, with
-the Xray preload wired so the `load → loading → loaded/error` cascade is
-inspectable. They live here (rather than under
-`tools/story/testbeds/`) because they showcase *this* worked example;
-the tool-owned Story testbeds at
-[`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued
-with the tool. See [How to run](#how-to-run) for the showcase command.
+The three `stories*` files are an auxiliary Story showcase layered over
+this example: they source `nine-states.core`'s real parallel machine and
+`:ui/render` selector and enumerate the nine canonical render keywords
+(plus the async fetch-lifecycle) as Story variants, with the Xray preload
+wired so the `load → loading → loaded/error` cascade is inspectable. See
+[How to run](#how-to-run) for the showcase command.
 
 For brevity the whole example is one file. In a real codebase you'd split
 it the way re-frame2 conventions recommend — `schema.cljc / machine.cljc
 / events.cljs / subs.cljs / views.cljs` — but a single readable file
-makes the shape easier to take in at a sitting. The example tree is
-test-free; the per-state headless fixtures live in the framework test
-tree.
+makes the shape easier to take in at a sitting.
 
 ## How to run
 
-From `implementation/`, watch the build directly:
+From `implementation/`, watch the build and open it:
 
 ```bash
 shadow-cljs watch examples/nine-states
 ```
-
-The watch build emits `main.js` into `out/examples/nine-states/`; copy
-this folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/nine-states/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).)
 
 To run the Story showcase instead, watch its build and open the Story
 shell:
@@ -207,18 +185,3 @@ canonical render state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on
 either surface to open Xray over the load cascade — pick the `:some` or
 `:error` variant and watch the fetch light up the Epoch, Trace, and Side
 Effects panels end to end.
-
-The per-state headless fixtures live in the integration test at
-[`implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs)
-(folded inline so the example source stays test-free) and
-run as part of the framework's CLJS test suite (`npm run test:cljs`).
-Each of the nine states is one `testing` block under the
-`nine-states-runs-end-to-end` deftest.
-
-## Cross-references
-
-- [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md) — the page-level convention this example instantiates.
-- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Parallel regions / §State tags — the substrate this example uses.
-- [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md) — the lifecycle folded into the `:data` region.
-- [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md) — the form lifecycle in the `:form` region.
-- [`examples/reagent/login/core.cljs`](../login/core.cljs) and [`examples/reagent/seven_guis/circle_drawer/core.cljs`](../seven_guis/circle_drawer/core.cljs) — single-file style this example follows.

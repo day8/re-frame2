@@ -56,43 +56,21 @@ Because the persistence is the lesson here, not the wiring around it. A real bac
 
 ## Official assets
 
-The example uses the official TodoMVC CSS packages, pinned in
-`implementation/package.json` (so `npm install` fetches them into
-`node_modules/`) rather than vendored into this repo:
+The example wears the real TodoMVC skin — the official upstream CSS
+rather than a hand-rolled lookalike — so the rendered surface matches
+the template you already know:
 
 - `todomvc-common` `1.0.5` — ships `base.css`
 - `todomvc-app-css` `2.4.3` — ships `index.css`
 
-`index.html` links both files flat (`base.css`, `index.css`), so stage
-them next to `main.js` from `node_modules/` (see **Running it**). The
-`index.css` href intentionally matches the `todomvc-app-css` package
-file name. That keeps the rendered surface close to the current TodoMVC
-template without vendoring upstream CSS into this repo.
-
 ## Running it
 
-From `implementation/`, iterate against a live browser:
-
 ```bash
-npm install
 shadow-cljs watch examples/todomvc
 ```
 
-Stage `index.html` next to the build's `main.js` under
-`out/examples/todomvc/`, copy the two TodoMVC CSS files there from
-`node_modules/` so the flat `<link>` hrefs resolve, then serve that
-directory over HTTP:
-
-```bash
-cp examples/reagent/todomvc/index.html out/examples/todomvc/
-cp node_modules/todomvc-common/base.css out/examples/todomvc/base.css
-cp node_modules/todomvc-app-css/index.css out/examples/todomvc/index.css
-```
-
-Per the test-free examples policy this example carries no per-example
-spec; real-regression coverage of the primitives it exercises lives in
-the substrate contract tests (`npm run test:cljs`) and the framework
-gates (see [`examples/README.md`](../../README.md)).
+Then open the served page in a browser. No backend ships — persistence
+runs entirely against the browser's own localStorage.
 
 ## Cross-references
 

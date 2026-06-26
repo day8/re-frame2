@@ -156,51 +156,12 @@ examples/reagent/long_running_work/
   README.md       this file
 ```
 
-The example tree is test-free, which raises the obvious question of where
-the regression coverage for something this stateful actually lives — and
-the answer is *not* a per-example Playwright spec. Per the test-free
-examples policy, real-regression coverage lives in the substrate contract
-tests (`npm run test:cljs`) and the framework gates (see
-[`examples/README.md`](../../README.md)).
-
-Concretely, the headless fixtures that drive the parent + child flows fold
-into one integration namespace at
-[`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs)
-— helper fns and `deftest` bodies in the same file, so the example source
-stays pristine. It's the same trick `nine-states-cljs-test` and
-`realworld-cljs-test` use: the example reads like a clean app, and the
-exercising lives next door in the test tree where it belongs.
-
 ## How to run
-
-From `implementation/`:
-
-```bash
-# Headless cljs-test (runs all the *-cljs-test under
-# implementation/adapters/reagent/test/, including the long-running-work
-# integration).
-npm run test:browser
-```
-
-To iterate against a live browser:
 
 ```bash
 npx shadow-cljs watch examples/long-running-work
 # Then open the URL the watch command prints.
 ```
 
-Either way, the real assertions run from the integration test
-(`re-frame.long-running-work-cljs-test`) under `npm run test:cljs`. If you
-want to see the cancellation story pinned down from every angle, that's
-where to look: spawn-cascade, happy-path-join, cancel-cascade,
-parent-unmount, and reset-round-trip each get their own `deftest` — one
-per exit path the prose above promised the machine would handle.
-
-## Cross-references
-
-- [`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md) — the pattern.
-- [`spec/005-StateMachines.md` §Spawn-and-join via `:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all) — the substrate.
-- [`spec/005-StateMachines.md` §Cancellation cascade](../../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — the cancel contract.
-- [`spec/conformance/fixtures/spawn-all-*.edn`](../../../spec/conformance/fixtures/spawn-all-join-all-completes.edn) — the runtime contract these examples sit on.
-- [`examples/reagent/realworld/`](../realworld/) — the layout convention this example mirrors.
-- [`examples/reagent/nine_states/`](../nine_states/) — single-machine sibling example using `:fsm/tags`.
+Click **Hide** mid-job to watch the unmount cascade tear every child down
+on its own.

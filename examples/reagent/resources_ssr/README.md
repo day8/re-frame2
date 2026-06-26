@@ -96,6 +96,11 @@ wire payload is *aggressively* minimal.
   would carry a scope resolver instead; the global claim here is the explicit,
   checkable statement that this particular handoff is safe.
 
+The SSR-resource runtime is **real**: `handle-request` drives the actual server
+path rather than a skeleton stand-in — the blocking drain, the per-entry
+projection (redaction / omission / scoped-key privacy / index omission), and the
+client hydration reconcile + refetch plan all run end-to-end.
+
 The `index.html` next to this file carries a **pre-baked** hydration payload — a
 `:loaded` `:articles/list` entry under `[:rf.scope/global :articles/list {}]` —
 so the browser-side `run` is runnable without a Clojure server in the box. It's
@@ -108,24 +113,6 @@ per-request gensym frame would never equal that target (an absent id is the
 other no-conflict shape). Both hydrate cleanly; both are correct. This mirrors
 the sibling [`examples/reagent/ssr/`](../ssr/), which likewise bakes a plain SSR
 payload into *its* `index.html`.
-
-## Landed behaviour
-
-The SSR-resource runtime is **real** (EP-0003), so `handle-request` drives the
-actual server path rather than a skeleton stand-in: the blocking drain, the
-per-entry projection (redaction / omission / scoped-key privacy / index
-omission), and the client hydration reconcile + refetch plan all run
-end-to-end. The example tree is test-free, but THIS example's own SSR preload →
-projection → client hydration path is pinned by a direct headless JVM fixture,
-**`resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch`** in
-`implementation/core/test/re_frame/examples_test.clj` (run by `clojure -M:test`):
-it drives the example's `handle-request`, asserts the SSR-preloaded resource
-settled `:loaded` and rode `:rf/runtime-db` as the `:entries` projection (not the
-indexes), then hydrates the example's own `:rf/default` client frame and asserts
-the entry installed `:loaded` (renders immediately, no double-fetch). Broader
-SSR-resource contract coverage (redaction / scoped-key privacy / restore) lives
-in `implementation/resources/test/` (the SSR + restore CLJS suites) and the
-EP-0003 §9 conformance fixtures. See the [coverage table](../README.md#coverage-level-per-reagent-example).
 
 ## Deferred — not built here
 
@@ -151,11 +138,9 @@ resources_ssr/
 shadow-cljs watch examples/resources-ssr
 ```
 
-The watch build emits `main.js` into `out/examples/resources-ssr/`; copy
-this folder's [`index.html`](index.html) (and `../../_shared/`) alongside it
-and serve over HTTP. `npm run test:adapter-smokes` does not build this example.
-The JVM-runnable server flow (`handle-request`) is demonstrative code; the
-example tree is test-free per [`examples/README.md`](../../README.md).
+Then serve this folder's [`index.html`](index.html) alongside the build output
+and open it — its pre-baked payload lets the page hydrate without a Clojure
+server in the box.
 
 ## Cross-references
 

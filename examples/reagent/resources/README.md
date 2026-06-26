@@ -90,26 +90,13 @@ instead, and a resource with no scope policy at all is a loud
 `:rf.error/resource-missing-scope-policy` at registration time. The framework would
 rather refuse to register than risk serving one principal's cached data to another.
 
-## Status
-
-Resources is a **post-v1 optional artefact** (`day8/re-frame2-resources`), and the
-read-resource runtime has **landed** (EP-0003): `reg-resource`, the passive
-`[:rf.resource/*]` subscriptions, route `:resources` metadata, and the causal
-`:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/invalidate-tags` /
-`:rf.resource/release-owner` event bodies are all real and operational. The four
-patterns above run live: route entry, an event lease (Preview), a manual refresh,
-and a machine-owned ensure (Open in reader) each cause a real fetch against the
-canned stub, dedupe in flight, and flow through the passive status subscriptions.
-
 ## Scope of this example — read patterns only
 
 This example covers the **read** side end to end. **Mutations** — causal writes
 (`reg-mutation` / `[:rf.mutation/execute …]`) that invalidate, patch, or populate
-cached entries on success — have also **landed**, but they're left out here on
-purpose to keep the focus on the read lifecycle. The write surface is covered in
-[docs/resources/concepts.md §Writes invalidate by tag](../../../docs/resources/concepts.md#writes-invalidate-by-tag--causally)
-and the migration walkthrough at
-[migration/from-re-frame-v1/re-frame-query-to-resources.md](../../../migration/from-re-frame-v1/re-frame-query-to-resources.md),
+cached entries on success — are left out here on purpose to keep the focus on the
+read lifecycle. The write surface is covered in
+[docs/resources/concepts.md §Writes invalidate by tag](../../../docs/resources/concepts.md#writes-invalidate-by-tag--causally),
 including the **scoped-invalidation** discipline — a write must invalidate under
 the same scope its resources were ensured under.
 
@@ -129,12 +116,9 @@ resources/
   index.html   — minimal host page.
 ```
 
-The example synthesises its server replies **in-app** via the canned
-`:rf.http/managed` stub (it delegates to `:rf.http/managed-canned-success`),
-so — unlike `managed_http_counter`, which fetches a real static
-`api/inc.json` — there is **no `api/` asset to stage**. The detail route's
-per-slug URL (`/api/articles/:slug`) is routed by the stub, not by a static
-file tree.
+There's no server, so — unlike `managed_http_counter`, which fetches a real
+static `api/inc.json` — there's **no `api/` asset**. The detail route's per-slug
+URL (`/api/articles/:slug`) is routed by the stub, not by a static file tree.
 
 ## How to run
 
@@ -143,35 +127,4 @@ file tree.
 shadow-cljs watch examples/resources
 ```
 
-The watch build emits `main.js` into `out/examples/resources/`; copy this
-folder's hand-written [`index.html`](index.html) (and the shared assets it
-references under [`../../_shared/`](../../_shared/)) alongside it, then serve
-`out/examples/resources/` over HTTP. (`npm run test:adapter-smokes` does not build
-this example — it compiles and serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).)
-
-## Coverage
-
-The example tree is test-free, but this example's wiring is pinned by
-a direct headless CLJS fixture, **`re-frame.resources-example-cljs-test`**
-(`implementation/adapters/reagent/test/re_frame/`, run by `npm run test:cljs`).
-It requires this example's production `resources.core` and drives the four causal
-patterns directly: route-driven page load (the `:resources` route metadata
-ensures under a `[:route …]` owner; the view reads passively and settles
-`:loaded`), event-driven lease ensure/release (`:resources.app/preview-opened` /
-`-closed` under a `[:lease …]` owner), manual refresh as a cause (no owner;
-re-fetches a loaded list into `:fetching` keeping prior data), and the reader
-machine's start/stop event glue. The machine-owned-resource ENSURE step itself
-(the reader's `:reading` `:entry`) is left to the resources artefact runtime
-suites — its `[:machine …]` owner is fail-closed bound to a live actor, so
-pinning the entry deterministically in a shared headless bundle is brittle; the
-generic ensure-under-owner + release-on-destroy mechanics it composes are pinned
-in `implementation/resources/test/`. See the [coverage table](../README.md#coverage-level-per-reagent-example).
-
-## Cross-references
-
-- [`spec/016-Resources.md`](../../../spec/016-Resources.md) — the normative spec.
-- [`docs/resources/concepts.md`](../../../docs/resources/concepts.md) — the guide.
-- [`examples/reagent/resources_ssr/`](../resources_ssr/) — the SSR preload + hydration counterpart.
-- [`examples/reagent/managed_http_counter/`](../managed_http_counter/) — the raw `:rf.http/managed` transport resources lower onto.
-- [`examples/reagent/routing/`](../routing/) — the routing surface `:resources` metadata extends.
+Then serve `out/examples/resources/` over HTTP and open it.

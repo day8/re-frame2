@@ -15,9 +15,6 @@ real codebase (more on that below). Here it all lives in one file, kept
 compact so you — or an AI reading it — can take in the entire feature in one
 sitting.
 
-The example tree is test-free; its flow coverage lives in the framework test
-tree (see [How to run](#how-to-run)).
-
 ## What this demonstrates
 
 The load-bearing idea is the **state machine**. A login isn't a value you
@@ -128,11 +125,7 @@ stock-vs-slim *contrast* you're after, that's a different pair:
 **A note on layout (this is example layout, not production layout).** In a
 real codebase this single file would split along the seams the `:auth.login/*`
 slice already implies — `login/schema.cljc | events.cljs | subs.cljs |
-views.cljs | machines.cljs | events_test.cljs` — and that `events_test.cljs`
-is where a real app's login tests would live. The example tree here is
-deliberately different: it's **test-free**, so this folder ships no inline
-test fn and no sibling `test/` tree; the flow's coverage lives in the
-framework test tree (see [How to run](#how-to-run)). One file, for the sake of
+views.cljs | machines.cljs`. Here it's deliberately one file, for the sake of
 reading it whole.
 
 ## Files
@@ -165,14 +158,6 @@ the tool. See [How to run](#how-to-run) for the showcase command.
 shadow-cljs watch examples/login
 ```
 
-The watch build emits `main.js` into `out/examples/login/`; copy this
-folder's hand-written [`index.html`](index.html) (and the shared
-assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/login/` over HTTP.
-(`npm run test:adapter-smokes` does not build this example — it compiles and
-serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).)
-
 To run the Story showcase instead, watch its build and open the Story
 shell:
 
@@ -184,26 +169,3 @@ shadow-cljs watch :examples/login-with-stories   # then open http://localhost:80
 `#/` renders the live login app; `#/stories` mounts the Story shell with
 every reachable state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on
 either surface to open Xray over the auth-submit cascade.
-
-## Coverage (examples are test-free)
-
-This folder ships no tests. The login flow this example wires is a
-near-twin of the `:auth.login/flow` machine the sibling
-[`state_machine_walkthrough`](../state_machine_walkthrough/) example
-exercises headlessly: the `state-machine-walkthrough-runs-headless`
-deftest in
-[`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
-drives the happy-path / retry-then-lockout / machine-transition
-scenarios. Login-specific machine-data schema coverage lives in
-[`implementation/adapters/reagent/test/re_frame/login_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/login_cljs_test.cljs).
-Broader contract coverage runs in the substrate contract suite
-(`npm run test:cljs`) and the framework gates; the full split is in
-[`examples/README.md`](../../README.md).
-
-## Cross-references
-
-- [Construction Prompts CP-1 / CP-2 / CP-3 / CP-4 / CP-5 / CP-6 / CP-8](../../../spec/Construction-Prompts.md) — the construction prompts this example instantiates.
-- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the machine substrate.
-- [`spec/010-Schemas.md`](../../../spec/010-Schemas.md) — schema attachment.
-- [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) — `:rf.http/managed`.
-- [`examples/uix/login_uix/`](../../uix/login_uix/) + [`examples/helix/login_helix/`](../../helix/login_helix/) — the substrate variants.
