@@ -14,6 +14,7 @@ This is where most of your time goes: turning a feature request into stages of t
 
 | I want to… | Recipe |
 |---|---|
+| boot and mount the app, with hot reload | [Boot and mount an app](boot-and-mount-an-app.md) |
 | add login and keep the user logged in | [Add authentication](add-auth.md) |
 | build a form — local edits, validation, clean submit | [Build a form](build-a-form.md) |
 | load a feed one page at a time | [Paginate a feed](../../resources/how-to/paginate-a-feed.md) |
