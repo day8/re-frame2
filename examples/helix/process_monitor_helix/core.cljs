@@ -223,7 +223,7 @@
       ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu totals) 1) "%")})
       ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
-;; To dispatch from a view, grab `dispatch` off a capture-frame.
+;; To dispatch from a view, grab `dispatch` off a frame api.
 ;; `(rf/capture-frame)` captures the current frame as a value, so the click
 ;; handler we close over below still lands in this app's frame when it fires.
 ;; See docs/guide/glossary.md#capture-frame

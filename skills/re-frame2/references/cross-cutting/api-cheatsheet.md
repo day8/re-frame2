@@ -35,7 +35,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
 | `rf/with-new-frame` | `([sym expr] body)` — create+own+destroy a frame for `body` |
 | `rf/frame-provider` | (CLJS) per-adapter React-context component, ONE component / TWO config shapes (EP-0024 amended). **SCOPE-only** `[frame-provider {:frame ...} & children]`: provides an already-existing frame id; creates / refreshes / destroys nothing; fails loud if absent. **ENSURE** `[frame-provider {:id ... :images ... :initial-events ...} & children]`: creates the frame if absent, reuses-no-reseed if present, provides its id to descendants; no destroy-on-unmount (same opts as `make-frame`). Shape selected by `:frame` vs `:id` |
-| `rf/capture-frame` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the one public carry primitive; operation bundle captured at creation, survives async |
+| `rf/capture-frame` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the one public carry primitive; frame api captured at creation, survives async |
 | `rf/current-frame-id` | `()` — active frame id; raises `:rf.error/no-frame-context` outside any frame scope |
 | `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
 | `rf/runtime-db-value` | `(frame-id)` — value-form **runtime-db** partition read (framework state; tools / privileged runtime) |

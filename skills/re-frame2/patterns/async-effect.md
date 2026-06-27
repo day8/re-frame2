@@ -133,7 +133,7 @@ A boot-registered listener has **no frame scope** when the reply fires — it is
 - **Mutating `app-db` from inside the fx-handler.** The fx posts work and registers a listener; it does not write state. State writes live in the dispatched reply handler.
 - **Implicit dispatching from inside the fx.** Always require the caller to pass `:on-success` / `:on-error` explicitly — that's the only place a reader can find where the reply lands.
 - **Closures as event payload.** Reply events must serialise (for SSR hydration, Tool-Pair epoch replay, trace events). Pass ids and data; the handler closes over its own context.
-- **Forgetting to carry `:frame`.** An async dispatch fired without a carried frame (no `{:frame frame-id}`, no captured handle) raises `:rf.error/no-frame-context` — the runtime refuses to guess a default. Always read `:frame` off the first-arg map and pass it through (or capture a `capture-frame` at fx time).
+- **Forgetting to carry `:frame`.** An async dispatch fired without a carried frame (no `{:frame frame-id}`, no captured frame api) raises `:rf.error/no-frame-context` — the runtime refuses to guess a default. Always read `:frame` off the first-arg map and pass it through (or capture a `capture-frame` at fx time).
 - **Treating WebSockets as Async Effect.** Long-lived connections with retry / backoff / subscription state are state-machine-shaped; use Pattern-WebSocket. Individual *messages* over an established connection fit this pattern.
 
 ## Worked example

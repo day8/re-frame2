@@ -183,7 +183,7 @@ So the choice is "do I already have this frame, or do I want the provider to ens
 
 Everything above rests on a single invariant. It's worth stating plainly, because it's the rule that makes isolation *trustworthy*:
 
-> **[Frame identity is a value that travels with the work](../glossary.md#frame-identity-is-carried-not-found).** A dispatch, a subscription, a captured callback — each reads its frame from the context it was *given*: the provider above it, the handler it's running in, the handle that captured it. An operation never goes looking for a frame in the ambient world, and the runtime never invents one from absence.
+> **[Frame identity is a value that travels with the work](../glossary.md#frame-identity-is-carried-not-found).** A dispatch, a subscription, a captured callback — each reads its frame from the context it was *given*: the provider above it, the handler it's running in, the frame api that carried it. An operation never goes looking for a frame in the ambient world, and the runtime never invents one from absence.
 
 So a bare `(rf/dispatch [:counter/inc])` works when — and only when — something above it established a frame: the root provider, the event handler it's firing from, a `with-frame` block in a test or at the REPL. With no established scope and no carried frame, the operation fails loud:
 
@@ -238,7 +238,7 @@ The fix is always the same move: **capture the frame as a value while it's still
     socket))
 ```
 
-`(rf/capture-frame)` reads the frame in scope *at creation time* and returns a bundle of operations locked to it — `{:frame ... :dispatch ... :dispatch-sync ... :subscribe ...}`. The captured `dispatch` carries its frame inside the closure, so it routes correctly whenever and wherever the socket fires. Trigger the opening effect from the left pane and the socket's messages land in the left frame; trigger it from the right pane and they land in the right one. Same code.
+`(rf/capture-frame)` reads the frame in scope *at creation time* and returns a frame api — a bundle of operations locked to it — `{:frame ... :dispatch ... :dispatch-sync ... :subscribe ...}`. The captured `dispatch` carries its frame inside the closure, so it routes correctly whenever and wherever the socket fires. Trigger the opening effect from the left pane and the socket's messages land in the left frame; trigger it from the right pane and they land in the right one. Same code.
 
 `capture-frame` is the one public carry primitive — reach for it (or an explicit `{:frame …}` opt) for every async / callback / tooling boundary.
 

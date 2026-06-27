@@ -34,9 +34,9 @@ model drives a different renderer.
   way down, so a component reads a subscription by calling
   `(helix-adapter/use-subscribe [:counter/value])` directly and gets back
   the live value.
-- **Dispatching off a capture-frame** — the click handlers take `dispatch`
+- **Dispatching off a frame api** — the click handlers take `dispatch`
   off a [`(rf/capture-frame)`](../../../docs/guide/glossary.md#capture-frame)
-  and close over it. A capture-frame is a frame captured *as a value*. It
+  and close over it. A frame api is a frame captured *as a value*. It
   pins the render-time frame, so the closed-over `dispatch` still aims at
   the right frame when an async callback fires it later. Helix has no
   auto-injection — `reg-view` stays a Reagent-only convenience, so Helix

@@ -101,13 +101,13 @@ Three rules govern every UIx and Helix component, and once they click you won't 
 
 > **For JavaScript developers.** `use-subscribe` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe frame-id [:q])`.
 
-## Step 3 — Why callbacks dispatch off the handle
+## Step 3 — Why callbacks dispatch off the frame api
 
-Step 2's second rule said: grab `dispatch` off `(rf/capture-frame)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason, and what the handle gives you.
+Step 2's second rule said: grab `dispatch` off `(rf/capture-frame)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason, and what the frame api gives you.
 
-It's the async-boundary rule from [Frames](../concepts/frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. [`(rf/capture-frame)`](../glossary.md#capture-frame), called *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found). In Reagent `reg-view` injects `dispatch` for you; UIx/Helix have no such injection, so you pull it off the handle yourself.
+It's the async-boundary rule from [Frames](../concepts/frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. [`(rf/capture-frame)`](../glossary.md#capture-frame), called *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found). In Reagent `reg-view` injects `dispatch` for you; UIx/Helix have no such injection, so you pull it off the frame api yourself.
 
-And the handle gives you more than just a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
+And the frame api gives you more than just a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
 
 ```clojure
 (rf/capture-frame)
@@ -121,21 +121,21 @@ And the handle gives you more than just a dispatch function — it's a small map
 You'll most often pull `:dispatch` straight off that map (that's what `(:dispatch (rf/capture-frame))` in the view above is doing), but all four entries are there:
 
 - `:dispatch-sync` is the one you want when an event must settle before the next line runs (initialisation, a confirm-then-read flow).
-- `:subscribe` is a plain frame-locked *read* of a sub's current value — handy inside a callback where you need to peek at state without making the component reactive on it. (For *reactive* reads that re-render the component, use the `use-subscribe` hook from Step 2, not the handle's `:subscribe`.)
+- `:subscribe` is a plain frame-locked *read* of a sub's current value — handy inside a callback where you need to peek at state without making the component reactive on it. (For *reactive* reads that re-render the component, use the `use-subscribe` hook from Step 2, not the frame api's `:subscribe`.)
 
-The captured frame is authoritative: a per-call `:frame` in the dispatch opts can't override it — the handle is locked to one frame for life.
+The captured frame is authoritative: a per-call `:frame` in the dispatch opts can't override it — the frame api is locked to one frame for life.
 
 The no-arg `(rf/capture-frame)` captures the *ambient* frame at call time, which is exactly what you want inside a component render (the surrounding provider's frame). Outside any provider — an async callback, a tool, a test — there's no ambient frame to capture, so the no-arg form raises `:rf.error/no-frame-context`. For those cases reach for the 1-arg `(rf/capture-frame frame-id)`, which locks the bundle to a named frame with no surrounding scope required:
 
 ```clojure
 ;; A WebSocket handler fires long after render, outside any frame scope.
 ;; Lock a handle to the frame by name at setup time, then dispatch from it.
-;; ({:keys [dispatch]} just pulls the :dispatch entry out of the handle map.)
+;; ({:keys [dispatch]} just pulls the :dispatch entry out of the frame api map.)
 (let [{:keys [dispatch]} (rf/capture-frame :rf/default)]
   (ws/on-message (fn [msg] (dispatch [:ws/incoming msg]))))
 ```
 
-> **From re-frame v1.** v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app; re-frame2 has many frames and never infers one from absence, so the handle is how you carry the right frame across the async gap. [Frames](../concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found) covers why a guessed default would be a trap.
+> **From re-frame v1.** v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app; re-frame2 has many frames and never infers one from absence, so the frame api is how you carry the right frame across the async gap. [Frames](../concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found) covers why a guessed default would be a trap.
 
 ## Step 4 — Mount it: scope a frame into the subtree
 

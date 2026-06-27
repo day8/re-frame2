@@ -65,7 +65,7 @@
 ;; needs out loud — `defnc` directly, since the `reg-view` macro is Reagent-only
 ;; (UIx and Helix both read state with `use-subscribe`). `use-subscribe` is a
 ;; hook that reads a subscription.
-;; `dispatch` comes off a `(rf/capture-frame)`: the handle captures the in-scope
+;; `dispatch` comes off a `(rf/capture-frame)`: the frame api captures the in-scope
 ;; frame as a value, so the closed-over `dispatch` still finds this frame when
 ;; a click fires later — on a stack that no longer has any frame in scope. So
 ;; grab it at render time, while the frame is still around. See
@@ -73,7 +73,7 @@
 
 (defnc counter-buttons []
   (let [count    (helix-adapter/use-subscribe [:counter/value])  ;; read: re-renders when :counter/value changes
-        dispatch (:dispatch (rf/capture-frame))]                  ;; write: dispatch, captured off the render-time handle
+        dispatch (:dispatch (rf/capture-frame))]                  ;; write: dispatch, captured off the render-time frame api
     (d/div
        (d/button {:on-click #(dispatch [:counter/dec])} "-")
        (d/span {:style {:margin "0 1em"} :data-testid "counter-value"} count)

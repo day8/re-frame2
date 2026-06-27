@@ -93,7 +93,7 @@ Four things matter:
 
 1. **The inner owns instance state in closure atoms.** `el-ref` and `vega-instance` are per-mount; don't use top-level `def` or `defonce` here — those leak across mounts.
 2. **Cleanup is mandatory.** `:component-will-unmount` releases the library instance and event listeners. Without it, every navigation that unmounts the chart leaks the library's internal state, listeners, and tile/data caches.
-3. **`(:dispatch (rf/capture-frame))` is captured during render**, not inside the lifecycle callback. The handle carries the surrounding frame; the lifecycle callback fires after commit but the closure is established at render-time, so dispatches from the callback resolve to the right frame.
+3. **`(:dispatch (rf/capture-frame))` is captured during render**, not inside the lifecycle callback. The frame api carries the surrounding frame; the lifecycle callback fires after commit but the closure is established at render-time, so dispatches from the callback resolve to the right frame.
 4. **Subscriptions live in the outer, not in the lifecycle callbacks.** The inner's `:reagent-render` can deref subs too, but reactive context is undefined inside `:component-did-mount` / `:component-did-update` / `:component-will-unmount` — don't `@(subscribe …)` there.
 
 ### Cross-references

@@ -3,7 +3,7 @@
    function-style views; the dataflow is identical. Subscriptions deliver
    values via the `use-subscribe` hook, dispatches send events via
    `(:dispatch (rf/capture-frame))`. There is no auto-injection on the
-   Helix adapter — components call these explicitly. The handle captures
+   Helix adapter — components call these explicitly. The frame api captures
    the render-time frame, so the closed-over `dispatch` targets that
    frame even from an async callback.
 

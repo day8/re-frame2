@@ -3,7 +3,7 @@
    function-style views; the dataflow is identical — subscriptions
    deliver values via the `use-subscribe` hook, dispatches send events
    via `(:dispatch (rf/capture-frame))`. There is no auto-injection on
-   the UIx adapter — components call these explicitly. The handle
+   the UIx adapter — components call these explicitly. The frame api
    captures the render-time frame, so the closed-over `dispatch`
    targets that frame even from an async callback.
 

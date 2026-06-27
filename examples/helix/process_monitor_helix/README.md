@@ -71,7 +71,7 @@ tick loop, third below, is where the real care went.
   row [dispatches](../../../docs/guide/glossary.md#dispatch)
   `[:process-monitor/select-process id]` into the right frame. The
   `monitor` `use-effect` uses the same trick to carry the frame into its
-  mount/unmount callbacks: grab the handle while the frame is in scope,
+  mount/unmount callbacks: grab the frame api while the frame is in scope,
   use it later.
 
 ## Why this shape

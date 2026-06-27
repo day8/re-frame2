@@ -239,7 +239,7 @@ Related: [Frames](concepts/frames.md).
 
 ### **capture-frame**
 
-A [frame](#frame) captured as a *value* — a bundle of that frame's `dispatch`/`subscribe` — so you can carry it across an async boundary. Grab one (`rf/capture-frame`) while the frame is in scope, and a later `setTimeout`, promise, or WebSocket callback can still dispatch into the right frame instead of raising `:rf.error/no-frame-context`.
+`(rf/capture-frame)` captures a [frame](#frame) as a *value* — a **frame api**: a small bundle of that frame's `:dispatch` / `:dispatch-sync` / `:subscribe` ops, plus the captured `:frame` id. Carry it across an async boundary — grab one while the frame is in scope, and a later `setTimeout`, promise, or WebSocket callback can still dispatch into the right frame instead of raising `:rf.error/no-frame-context`. (`capture-frame` is the verb; the *frame api* is the value it returns — spelled lowercase so it never reads as the public re-frame2 API.)
 
 Related: [Frames](concepts/frames.md).
 

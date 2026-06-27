@@ -92,14 +92,14 @@ A trailing `{:frame …}` map passed to `subscribe` is **not** an opts map — i
 
 ## Carrying the frame into async callbacks
 
-When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic var → React context) has unwound by the time it runs — so a bare `dispatch` inside it would raise `:rf.error/no-frame-context`. The keystone affordance is **`capture-frame`** — a per-frame OPERATION BUNDLE captured at creation time. Its ops carry the captured frame as a value and survive async boundaries:
+When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic var → React context) has unwound by the time it runs — so a bare `dispatch` inside it would raise `:rf.error/no-frame-context`. The keystone affordance is **`capture-frame`**, which returns a **frame api** captured at creation time. Its ops carry the captured frame as a value and survive async boundaries:
 
 ```clojure
 (let [{:keys [dispatch]} (rf/capture-frame)]        ;; captures the scope's frame as a value, now
   (.then promise #(dispatch [:result-arrived %])))
 ```
 
-`(rf/capture-frame)` captures `(current-frame-id)`; `(rf/capture-frame :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}`. The handle is an OPERATION BUNDLE, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, never off the handle. A per-call `:frame` opt cannot override the captured frame; the handle is locked to one frame.
+`(rf/capture-frame)` captures `(current-frame-id)`; `(rf/capture-frame :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}` — a **frame api**, not a container. Read the frame's app-db value via `(rf/app-db-value (:frame handle))`, never off the frame api itself. A per-call `:frame` opt cannot override the captured frame; the frame api is locked to one frame.
 
 `capture-frame` is the **one public carry primitive** — every async / callback / tooling boundary captures it (or routes with an explicit `{:frame …}` opt). (The older `frame-bound-fn` / `frame-bound-fn*` closures were retiered to internal under EP-0024 Open Issue #8 and are no longer app API.)
 

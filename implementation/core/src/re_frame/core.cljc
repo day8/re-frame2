@@ -1092,7 +1092,7 @@
 ;; `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
 ;; var or a React-context frame-provider scope, with NO `:rf/default`
 ;; floor — absence raises `:rf.error/no-frame-context`. `capture-frame` is
-;; the keystone: a per-frame OPERATION BUNDLE (`{:frame :dispatch
+;; the keystone: a frame api — a per-frame bundle (`{:frame :dispatch
 ;; :dispatch-sync :subscribe}`) captured at CREATION time, so its ops
 ;; survive async boundaries that unwind the dynamic-var / React-context
 ;; scope. The no-arg `capture-frame` / `frame-bound-fn*` capture forms
@@ -1123,7 +1123,7 @@
   the expansion compiles on the JVM); the precedent is `reg-view*` /
   `view`, which are likewise public plumbing.
 
-  Build an OPERATION BUNDLE locked to `frame`:
+  Build a frame api locked to `frame`:
 
     {:frame         frame
      :dispatch      (fn ([event] [event opts]))
@@ -1131,14 +1131,14 @@
      :subscribe     (fn [query-v])}
 
   The captured `frame` is closed over by every op — no dynamic-var read
-  at op-call time — so the bundle dispatches / subscribes into `frame`
+  at op-call time — so the frame api dispatches / subscribes into `frame`
   even when an op fires after the surrounding `with-frame` /
   `frame-provider` scope has unwound (the async-boundary case).
 
   Per the frame-affordance redesign (rf2-kkut0) the captured frame is
   AUTHORITATIVE: `:frame` is assoc'd LAST in the dispatch opts, so a
-  per-call `:frame` in `opts` CANNOT override it — the handle is locked
-  to one frame.
+  per-call `:frame` in `opts` CANNOT override it — the frame api is
+  locked to one frame.
 
   `opts` (the second arg) supports the `reg-view` source-coord sugar:
     :dispatch-opts        base dispatch opts merged BELOW the captured
@@ -1174,14 +1174,14 @@
        (subs/subscribe frame query-v)))})
 
 (defn capture-frame
-  "Return a per-frame OPERATION BUNDLE — the keystone affordance for
+  "Return a frame api — the keystone affordance for
   carrying a frame into closures and across async boundaries. Per Spec
   002 §capture-frame and Spec 004 §Affordance for plain fns.
 
   Two arities:
     (capture-frame)           — capture the ambient frame
                                 (`(current-frame-id)`) at CREATION time.
-    (capture-frame frame-id)  — bundle locked to an explicit `frame-id`;
+    (capture-frame frame-id)  — frame api locked to an explicit `frame-id`;
                                 no surrounding `with-frame` / frame-
                                 provider needed.
 
@@ -1193,7 +1193,7 @@
      :subscribe     (fn [query-v])}
 
   The frame is captured at CREATION; every op targets the captured
-  frame and survives async — the bundle is the answer to \"ambient
+  frame and survives async — the frame api is the answer to \"ambient
   frame lookup does not survive `setTimeout` / `Promise.then` /
   WebSocket `onmessage` / observer callbacks\":
 
@@ -1203,16 +1203,16 @@
         [:div \"streaming…\"]))
 
   A per-call `:frame` in the dispatch opts MUST NOT override the
-  captured frame — the handle is LOCKED to one frame. It is an
-  OPERATION BUNDLE, not a container: read the frame's app-db value via
-  `(rf/app-db-value (:frame handle))`, not the handle itself.
+  captured frame — the frame api is LOCKED to one frame. It is a bundle
+  of ops, not a container: read the frame's app-db value via
+  `(rf/app-db-value (:frame handle))`, not the frame api itself.
 
   EP-0002: the no-arg form captures the scope/hold stamp at CREATION
   time via `frame/require-current-frame!` — it captures ONLY when a real
   scope exists at capture time. Capturing outside any scope raises
   `:rf.error/no-frame-context`, never a captured `:rf/default` (per Spec
   002 §Resolver surface). Use the 1-arity `(capture-frame frame-id)` to
-  lock a handle to a named frame from outside any scope (the right shape
+  lock a frame api to a named frame from outside any scope (the right shape
   for async callbacks / tools / tests / SSR)."
   ([]         (make-capture-frame
                 (frame/require-current-frame!

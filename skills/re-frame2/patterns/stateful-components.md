@@ -27,7 +27,7 @@ The split is forced by reactive context: subs want render-time reads; lifecycle 
 
 ## The one cross-adapter discipline — capture the frame at render-time
 
-Capture `(rf/capture-frame)` in the inner's top-level `let` (Reagent: in the closure around `create-class`) and use its `:dispatch` op for any library callback. A bare `(rf/dispatch …)` from inside a lifecycle callback fires on a fresh stack with no `*current-frame*` binding and — under the EP-0002 carried invariant — fails loudly with `:rf.error/no-frame-context` rather than routing to a default. Capture the handle while the frame scope still exists.
+Capture `(rf/capture-frame)` in the inner's top-level `let` (Reagent: in the closure around `create-class`) and use its `:dispatch` op for any library callback. A bare `(rf/dispatch …)` from inside a lifecycle callback fires on a fresh stack with no `*current-frame*` binding and — under the EP-0002 carried invariant — fails loudly with `:rf.error/no-frame-context` rather than routing to a default. Capture the frame api while the frame scope still exists.
 
 ## Canonical declaration (Reagent — a Mapbox-shaped widget)
 
