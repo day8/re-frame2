@@ -1,7 +1,6 @@
 (ns dashboard-uix.core
-  "UIx design-led example — 'Analytics Dashboard'. A grid of metric cards
-   + sparklines + filter chips. Proves re-frame2 + UIx can build a
-   substantive UI.
+  "UIx design-led example — an analytics dashboard: a grid of metric
+   cards with sparklines and filter chips.
 
    The one idea: two independent controls each set a single value in
    app-db, and one `reg-sub` reads both and computes the visible card
@@ -21,15 +20,10 @@
        time-range picker (how many trailing points each sparkline draws,
        plus the header label)
 
-   No HTTP, no state machines — design-led examples exist to prove
-   polished visuals + interaction, not to replay platform features
-   other examples already cover. Distinct shape from the Reagent
-   'Notebook' (3-pane editor) and Helix 'Process Monitor' (terminal
-   log viewer) — three different substantive UIs, one per substrate.
+   The derivation graph is the core concept here; see the guide glossary
+   (../../../docs/guide/glossary.md#the-derivation-graph).
 
-   The shared 'Editorial Warm' visual identity comes from
-   examples/_shared/css/style.css — one identity across all three
-   substrates."
+   The shared visual identity comes from examples/_shared/css/style.css."
   (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core            :as rf]
@@ -41,12 +35,10 @@
 
 (def initial-metrics
   ;; Each metric carries a 14-point sparkline series. Numbers are
-  ;; hand-tuned for visual variety; nothing here is computed from a real
-  ;; source — the example proves dataflow + render, not analytics
-  ;; correctness.
+  ;; hand-tuned for visual variety, not computed from real data.
   ;;
-  ;; CLJS doesn't support Clojure's underscore-grouping (1_000) literal
-  ;; syntax; values are bare integers.
+  ;; Values are bare integers: CLJS has no underscore-grouping (1_000)
+  ;; literal syntax.
   [{:id :revenue   :label "Revenue"       :value 142375 :unit "$" :delta  0.084 :tag :money
     :series [108 112 117 121 119 124 128 132 130 135 138 140 142 142]}
    {:id :signups   :label "New signups"   :value 1286   :unit ""  :delta  0.121 :tag :money
@@ -69,8 +61,7 @@
   ;; Time-range options. `:points` is how many of each metric's 14-point
   ;; series the range windows in to (the last N) — so picking a range
   ;; re-derives both the header label and every sparkline. Capped at the
-  ;; 14 points the seed data actually carries; we don't fabricate history
-  ;; we don't have.
+  ;; 14 points the seed data carries.
   [{:id :w7  :label "7 days"  :points 7}
    {:id :w14 :label "14 days" :points 14}])
 
@@ -79,9 +70,8 @@
 ;; ============================================================================
 
 ;; Each handler is pure: (coeffects, event-vector) -> effect map. Each moves
-;; ONE value in app-db and stops. The cards, sparklines, and grid all follow
-;; downstream from the subscription — turning "this tag is now off" into
-;; "these cards disappear" is the subscription's job, not the handler's.
+;; ONE value in app-db and stops. Turning "this tag is now off" into "these
+;; cards disappear" is the subscription's job, not the handler's.
 
 ;; Seed the whole dashboard in one write: the metrics plus the two control
 ;; values (`:active-tags` a set — chips are multi-select; `:range` one id).
@@ -165,12 +155,10 @@
 
 (defui sparkline [{:keys [series id]}]
   ;; The card's <header> eyebrow, value, and label already carry the
-  ;; metric's name + current value as text, so the sparkline is a
-  ;; decorative restatement of that information for assistive tech.
-  ;; `aria-hidden="true"` (rather than a generic `role="img"`
-  ;; `aria-label="sparkline"`) keeps a screen reader from announcing a
-  ;; nameless graphic on every card — the accessible name lives on the
-  ;; surrounding text, which is where the information actually is.
+  ;; metric's name and value as text, so the sparkline only restates that
+  ;; visually. Mark it `aria-hidden="true"` so a screen reader skips it
+  ;; rather than announcing a nameless graphic on every card; the
+  ;; accessible name lives on the surrounding text.
   ($ :svg.dash-sparkline
      {:viewBox "0 0 100 30"
       :preserveAspectRatio "none"
@@ -339,17 +327,16 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
-;; This matches the sibling notebook / process_monitor_helix mount shape.
+;; The React root is held in an atom and materialised lazily inside `run`,
+;; not at ns-load. ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`
+;; (examples/TESTING.md, Example mount-isolation convention).
 (defonce react-root (atom nil))
 
-;; The frame id this app runs under. The `frame-provider` at the render root
-;; (in `run` below) does the frame work: it creates this frame, seeds app-db,
-;; and scopes the frame into React context for `use-subscribe` and
-;; `(rf/frame-handle)`.
+;; The frame id this app runs under. The `frame-provider` in `run` creates
+;; this frame, seeds its app-db, and scopes it into React context so
+;; `use-subscribe` and `(rf/frame-handle)` resolve to it. See the guide
+;; glossary (../../../docs/guide/glossary.md#frame-provider).
 (def app-frame :rf/default)
 
 (defn run []
@@ -358,10 +345,9 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
-    ;; The `frame-provider` is the one spot the frame is set up. `{:id …}`
-    ;; creates the app frame on first mount and runs `:initial-events` once
-    ;; to seed app-db; a hot reload reuses the same frame without re-seeding.
-    ;; Everything under it reads from this frame.
+    ;; `{:id …}` creates the app frame on first mount and runs
+    ;; `:initial-events` once to seed app-db. A hot reload reuses the same
+    ;; frame without re-seeding.
     (uix-dom/render-root
       ($ uix-adapter/frame-provider {:id app-frame
                                      :initial-events [[:dashboard/initialise]]}

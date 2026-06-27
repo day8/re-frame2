@@ -1,97 +1,78 @@
 (ns linearlite.core
-  "Flagship worked example for the EP-0019 OPTIMISTIC MUTATION + ROLLBACK
-   primitive ([Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations)).
+  "A worked example of OPTIMISTIC MUTATION with automatic ROLLBACK.
 
-   A small Linearlite-class issue tracker — a board of issues you CREATE,
-   RETITLE, and move between statuses — where every write applies
-   OPTIMISTICALLY: the board updates the instant you click, BEFORE the request
-   is sent, and is deterministically COMMITTED or ROLLED BACK when the reply
-   settles. This is the write counterpart of `examples/reagent/infinite_feed/`'s
-   read-side load-more dogfood: there the runtime owned the page accumulation;
-   here the runtime owns the optimistic apply, the recorded snapshot inverse,
-   the per-entry revision token, and the conflict-aware rollback.
+   A small Linearlite-style issue tracker: a board of issues you create,
+   retitle, and move between statuses. Every write applies optimistically — the
+   board updates the instant you click, before the request is sent — and is
+   committed or rolled back when the reply settles. The runtime owns the
+   optimistic apply, the recorded inverse, and the conflict-aware rollback.
 
-   It dogfoods, in one cohesive app, the four facts the optimistic primitive
-   surfaces ([EP-0019](../../../docs/EP/EP-0019-optimistic-mutation-rollback.md)):
+   See the guide: [Optimistic writes commit, roll back, or
+   reconcile](../../../docs/resources/concepts.md#optimistic-writes-commit-roll-back-or-reconcile).
 
-   - THE WRITE SHOWS IMMEDIATELY — each mutation declares `:optimistic`, the
-     EXACT-target twin of `:patches`: `(fn [params] -> {target patch-fn})`. The
-     patch runs at PHASE 1.5, before the request lowers, so the new card
+   The example shows four things:
+
+   - THE WRITE SHOWS IMMEDIATELY. Each mutation declares `:optimistic`, an
+     exact-target forward patch over the board: `(fn [params] -> {target
+     patch-fn})`. The patch runs before the request is sent, so the new card
      appears / the title changes / the card moves the instant the user acts. The
      runtime owns the cache and shows the optimistic value; the view just reads
-     it. (No app-db issue list, no `:saving?` flag to keep in sync.)
+     it. There is no app-db issue list and no `:saving?` flag to keep in sync.
 
-   - THE INVERSE IS RUNTIME-RECORDED — the author writes only the FORWARD
-     patch. The runtime snapshots each touched entry's whole `:before` value
-     (verbatim, by structural sharing) and its `:revision` at apply time. The
-     author never describes how to undo a change; the inverse is truthful by
-     construction (the exact entry that existed, never a reconstruction).
+   - THE INVERSE IS RECORDED FOR YOU. You write only the forward patch. The
+     runtime snapshots each touched entry's value and its revision at apply
+     time. A rollback restores exactly the entry that existed, so the undo is
+     truthful by construction — never an author-written inverse that can drift.
 
-   - THE REPLY SETTLES DETERMINISTICALLY — an accepted `:ok` reply COMMITS
-     (`:populates` overwrites the optimistic guess with the server's
-     authoritative board), an accepted `:error` reply ROLLS BACK (the recorded
-     `:before` is restored verbatim — the optimistic change visibly reverts).
-     There is no wall-clock race: the verdict keys on the work-id + generation
-     acceptance and the per-entry revision, both canonical recorded facts.
+   - THE REPLY SETTLES DETERMINISTICALLY. An `:ok` reply commits: `:populates`
+     overwrites the optimistic guess with the server's authoritative board. An
+     `:error` reply rolls back: the recorded value is restored and the
+     optimistic change visibly reverts. The verdict keys on recorded facts (the
+     generation-acceptance verdict and a per-entry revision), so there is no
+     wall-clock race.
 
-   - ROLLBACK IS WHAT YOU SEE — the demo's headline. A 'Fail the next write'
-     toggle arms the demo backend to answer the next mutation with a 503. The
-     optimistic change paints immediately, the request fails, and the runtime
-     rolls the board back to exactly its pre-click state — the new card
-     vanishes, the retitled card reverts, the moved card snaps back — with a
-     red banner naming the failure. The runtime owns the undo.
+   - ROLLBACK IS WHAT YOU SEE. A 'Fail the next write' toggle arms the demo
+     backend to answer the next mutation with a 503. The optimistic change
+     paints immediately, the request fails, and the runtime rolls the board back
+     to its pre-click state — the new card vanishes, the retitled card reverts,
+     the moved card snaps back.
 
-   The board is read PASSIVELY through `[:rf.resource/data …]` (the resource
-   sub family); each in-flight write is watched through the passive
-   `[:rf.mutation/state {:instance …}]` view-model — including the derived
-   `:optimistic?` flag (Rider 1), true while a live optimistic apply is showing
-   between phase 1.5 and settle, so the board can mark a card 'pending, showing
-   your optimistic value'.
+   The board is read passively through `[:rf.resource/data …]`. Each in-flight
+   write is watched through `[:rf.mutation/state {:instance …}]`, whose derived
+   `:optimistic?` flag is true while a live optimistic apply is showing, so the
+   board can mark a card as pending.
 
    THE CONFLICT POLICY. Each mutation names `:on-conflict :invalidate` (the
-   default, named here for the dogfood): on a failure rollback where a competing
-   write moved the touched entry while ours was in flight, the read path is the
-   recovery authority — the runtime refetches the authoritative value rather
-   than restoring a now-stale inverse (re-frame2's deliberate divergence from
-   TanStack/SWR's unconditional context restore).
+   default). On a failure rollback where a competing write moved the touched
+   entry while ours was in flight, the read path refetches the authoritative
+   value rather than restoring a now-stale inverse. (re-frame2's deliberate
+   divergence from TanStack Query / SWR's unconditional context restore — see
+   the guide section above.)
 
-   IDIOMATIC re-frame2. The board is a single managed resource; every write is
-   a named `reg-mutation`; the toggle is an ordinary app-db slice driven by an
+   IDIOMATIC re-frame2. The board is a single managed resource; every write is a
+   named `reg-mutation`; the toggle is an ordinary app-db slice driven by an
    event and read by a sub. The example ships no backend, so it overrides
-   `:rf.http/managed` with a canned stub (mirroring
-   `examples/reagent/infinite_feed/`) that synthesises the board reply and,
-   when armed, the 503 — so the whole optimistic lifecycle runs standalone.
-
-   The example tree is test-free; the example-specific composition
-   coverage (optimistic-apply, success-commit, failure-rollback) lives in
-   `implementation/adapters/reagent/test/re_frame/linearlite_example_cljs_test.cljs`,
-   and the optimistic-mutation runtime contract is pinned in
-   `implementation/resources/test/`."
+   `:rf.http/managed` with a canned stub that synthesises the board reply and,
+   when armed, the 503, so the whole optimistic lifecycle runs standalone."
   (:require [reagent.dom.client :as rdc]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [re-frame.views]
-            ;; Managed HTTP ships in day8/re-frame2-http — the single built-in
-            ;; resource/mutation transport (Spec 016 §Transport). Loading the
-            ;; ns registers the `:rf.http/managed` fx the resource + mutation
-            ;; runtime lowers each read/write onto.
+            ;; Managed HTTP: the transport every resource and mutation lowers
+            ;; its read/write onto. Loading the ns registers the
+            ;; `:rf.http/managed` fx. See the guide glossary:
+            ;; ../../../docs/resources/glossary.md#managed-http
             [re-frame.http.managed]
-            ;; The framework-shipped canned-success fx the demo stub delegates
-            ;; to (Spec 014 §Testing) — the explicit opt-in for a demo app with
-            ;; no backend.
+            ;; The framework's canned-reply fx that the demo stub delegates to.
+            ;; The explicit opt-in for a demo app with no backend.
             [re-frame.http.test-support]
-            ;; Resources ship in day8/re-frame2-resources. Requiring the ns at
-            ;; app boot wires the late-bind hooks + registrations (the resource
-            ;; sub family AND the mutation runtime + `:rf.mutation/*` subs);
-            ;; without it `rf/reg-resource` / `rf/reg-mutation` throw
-            ;; :rf.error/resources-artefact-missing.
+            ;; Resources. Loading the ns registers `reg-resource` / `reg-mutation`
+            ;; and the `:rf.resource/*` + `:rf.mutation/*` subs; without it those
+            ;; registrations throw.
             [re-frame.resources]
-            ;; Routing ships in day8/re-frame2-routing. The resources artefact
-            ;; LATE-BINDS its `:resources` route-metadata extension into
-            ;; routing, so loading both is what makes a route's `:resources`
-            ;; key accepted (Spec 016 §Route integration). Route entry ensures
-            ;; the board on entry.
+            ;; Routing. With resources also loaded, a route's `:resources` key is
+            ;; accepted — route entry ensures the board.
             [re-frame.routing]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view reg-event reg-sub]]))
@@ -101,8 +82,8 @@
 ;; ============================================================================
 
 (def ^:private statuses
-  "The board columns, in order. A Linearlite-style issue moves left→right
-   through these as work progresses; `change-status` is the optimistic move."
+  "The board columns, in order. An issue moves left to right through these as
+   work progresses; `change-status` is the optimistic move."
   [{:id :backlog     :label "Backlog"}
    {:id :in-progress :label "In Progress"}
    {:id :done        :label "Done"}])
@@ -116,11 +97,10 @@
 ;;
 ;; The whole issue board is a single resource entry: `{:issues [...]}`. The
 ;; route ensures it on entry; the view reads it passively. Every optimistic
-;; write patches THIS one entry's `:data` in place (the exact-target
-;; `:optimistic` twin of `:patches`), and the success reply re-seeds it with
-;; the server's authoritative board via `:populates`. The runtime owns the board
-;; value, its freshness, and the snapshot inverse that makes rollback truthful
-;; (the board lives in the resource cache, not in app-db).
+;; write patches THIS one entry's `:data` in place, and the success reply
+;; re-seeds it with the server's authoritative board via `:populates`. The
+;; runtime owns the board value, its freshness, and the recorded inverse that
+;; makes rollback truthful. The board lives in the resource cache, not app-db.
 
 (rf/reg-resource :linearlite/board
   {:doc            "The whole issue board — `{:issues [...]}` — as one managed
@@ -132,18 +112,19 @@
    ;; and key the team in :params); identity params are empty.
    :params-schema  [:map]
 
-   ;; Public board: the same for every viewer → the explicit, auditable global
-   ;; claim (Spec 016 §Scope resolution — there is no implicit default). A
-   ;; per-team board would carry a scope resolver instead.
+   ;; Public board: the same for every viewer, so the scope is the explicit
+   ;; global claim (there is no implicit default). A per-team board would carry
+   ;; a scope resolver instead. Guide:
+   ;; ../../../docs/resources/glossary.md#scope
    :scope          :rf.scope/global
 
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
 
-   ;; A board tag so a write COULD invalidate the whole board by tag. The
-   ;; optimistic writes below patch the entry directly (immediate) and re-seed
-   ;; via :populates on commit, so they need no coarse invalidation; the tag is
-   ;; kept so a future server-push / external change can stale the board.
+   ;; A board tag so an external change (a server push, say) can invalidate the
+   ;; whole board by tag. The optimistic writes below patch the entry directly
+   ;; and re-seed via `:populates` on commit, so they need no coarse
+   ;; invalidation. Guide: ../../../docs/resources/glossary.md#cache-tag
    :tags           (fn [_params _data] #{[:board]})}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/board"}
@@ -154,23 +135,22 @@
 ;; ============================================================================
 
 (def ^:private board-key
-  "The single map-form exact resource target the board lives under — the same
-   `{:resource :scope :params}` shape the route ensured it under, reused as the
-   `:optimistic` / `:populates` key. (Empty :params ⇒ the one public board.)"
+  "The exact resource target the board lives under: a `{:resource :scope
+   :params}` map, reused as the `:optimistic` and `:populates` key. Empty
+   `:params` means the one public board."
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
 
 (def ^:private board-query
-  "The query map the view's `[:rf.resource/data …]` sub reads — the board
-   identity (resource + scope + params), the SAME identity the route ensured
-   under and the writes patch."
+  "The query map the view's `[:rf.resource/data …]` sub reads — the same board
+   identity (resource + scope + params) the route ensured under and the writes
+   patch."
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
 
-;; A monotone counter for client-minted optimistic ids (a demo seam). A NEW
-;; issue gets a stable `tmp-N` id the moment its optimistic card appears, so it
-;; has a stable React key before the server assigns its own. The success reply
-;; re-seeds the whole board with the server's value (carrying the server id), so
-;; the temporary id never leaks past commit; a rollback simply removes the
-;; never-committed card.
+;; A counter for client-minted optimistic ids. A new issue gets a stable `tmp-N`
+;; id the moment its optimistic card appears, so it has a stable React key before
+;; the server assigns its own. The success reply re-seeds the whole board with
+;; the server's value (carrying the server id), so the temporary id never leaks
+;; past commit; a rollback simply removes the never-committed card.
 (defonce ^:private optimistic-id-seq (atom 0))
 
 (defn- next-issue-id
@@ -189,8 +169,8 @@
 
 (defn- patch-issue
   "Return a board-`:data` patch fn that applies `f` to the issue with `id`,
-   leaving the rest of the board untouched. The runtime records the inverse, so
-   this fn never describes how to undo itself."
+   leaving the rest of the board untouched. Forward only — the runtime records
+   the inverse, so this fn never describes how to undo itself."
   [id f]
   (fn [data]
     (update data :issues
@@ -202,16 +182,15 @@
 ;; THE MUTATIONS — create / edit-title / change-status, all OPTIMISTIC
 ;; ============================================================================
 ;;
-;; Each write declares `:optimistic` (the exact-target forward patch over the
-;; board entry, applied at phase 1.5 before the request), `:populates` (the
-;; commit — re-seed the board with the server's authoritative value on :ok),
-;; and `:on-conflict :invalidate` (the default rollback conflict policy, named
-;; for the dogfood). The runtime records the snapshot inverse + each entry's
-;; revision itself; the reply settles deterministically (commit / rollback).
+;; Each write declares `:optimistic` (the forward patch over the board entry,
+;; applied before the request), `:populates` (the commit — re-seed the board
+;; with the server's authoritative value on `:ok`), and `:on-conflict
+;; :invalidate` (the default conflict policy). The runtime records the inverse
+;; and each entry's revision itself; the reply settles deterministically.
 ;;
-;; Writes do NOT retry (reads-retry / writes-don't, Spec 014) — a 503 surfaces
-;; as `:error` and rolls the optimistic change back, which is exactly the
-;; behaviour the demo's 'fail the next write' toggle exhibits.
+;; Writes do NOT retry (reads retry, writes don't) — a 503 surfaces as `:error`
+;; and rolls the optimistic change back, which is what the demo's 'fail the next
+;; write' toggle exercises.
 
 (rf/reg-mutation :linearlite/create-issue
   {:doc           "Create an issue (optimistic). POST /api/issues. The new card
@@ -219,9 +198,9 @@
                    it back out."
    :params-schema [:map [:id :string] [:title :string]]
    :scope         :rf.scope/global
-   ;; FORWARD: append a new Backlog card to the board immediately (phase 1.5).
-   ;; `:id` is the client-minted optimistic id so the card has a stable React
-   ;; key before the server assigns one.
+   ;; FORWARD: append a new Backlog card to the board immediately, before the
+   ;; request is sent. `:id` is the client-minted optimistic id so the card has
+   ;; a stable React key before the server assigns one.
    :optimistic    (fn [{:keys [id title]}]
                     {board-key
                      (fn [data]
@@ -230,14 +209,13 @@
                                  (upsert-issue issues
                                                {:id id :title title :status :backlog
                                                 :optimistic? true}))))})
-   ;; COMMIT: the :ok reply is the server's whole authoritative board; re-seed
-   ;; the board entry with it (Spec 016 §Populate is an authoritative load), so
-   ;; the temporary id is replaced by the server's and the optimistic flag
-   ;; clears. Same `{:issues …}` envelope the resource stores.
+   ;; COMMIT: the `:ok` reply is the server's whole authoritative board; re-seed
+   ;; the board entry with it, so the temporary id is replaced by the server's
+   ;; and the optimistic flag clears. Same `{:issues …}` envelope the resource
+   ;; stores.
    :populates     (fn [_params result] {board-key result})
-   ;; ROLLBACK conflict policy (the default, named for the dogfood): on a
-   ;; contested rollback, the read path refetches rather than restoring a stale
-   ;; inverse.
+   ;; ROLLBACK conflict policy (the default): on a contested rollback, the read
+   ;; path refetches rather than restoring a stale inverse.
    :on-conflict   :invalidate}
   (fn [{:keys [title]} _ctx]
     {:request {:method :post :url "/api/issues"
@@ -279,18 +257,16 @@
 ;; ============================================================================
 ;;
 ;; This example ships no backend, so it overrides `:rf.http/managed` (the fx
-;; resources + mutations lower every read/write onto) with a stub that holds
-;; the canonical board in a closure and synthesises the authoritative reply for
-;; each read/write. It delegates to the framework-shipped
-;; `:rf.http/managed-canned-success` / `-failure` with `:after-ms`, so the reply
-;; rides framework `:dispatch-later` — tape-visible and time-travel-safe (not a
-;; raw js/setTimeout) — and the optimistic value paints before the reply lands.
+;; every read/write lowers onto) with a stub that holds the canonical board in a
+;; closure and synthesises the authoritative reply for each read/write. It
+;; delegates to the framework's `:rf.http/managed-canned-success` / `-failure`
+;; with `:after-ms`, so the reply rides framework `:dispatch-later` (not a raw
+;; js/setTimeout — it stays trace-visible and time-travel-safe) and the
+;; optimistic value paints before the reply lands.
 ;;
 ;; THE FAILURE SEAM. `fail-next-write?` is read from app-db at request time:
-;; when armed, the stub answers the next WRITE with a 503 (via
-;; `:rf.http/managed-canned-failure`) and disarms — so a single click drives
-;; the whole optimistic-apply → request → rollback arc the demo headlines.
-;; Mirrors examples/reagent/infinite_feed/core.cljs's per-request stub.
+;; when armed, the stub answers the next WRITE with a 503 and disarms, so a
+;; single click drives the whole optimistic-apply → request → rollback arc.
 
 (def ^:private demo-reply-delay-ms
   "How long the demo stub defers each canned reply (via `:after-ms` →
@@ -299,9 +275,9 @@
   220)
 
 ;; The canonical server board the stub maintains across requests, so a committed
-;; write persists into the next read (the stub IS the demo server). A NEW write
-;; minting a server id, a retitle, and a status move all mutate this atom on a
-;; successful write so the next board read reflects them.
+;; write persists into the next read (the stub IS the demo server). A create, a
+;; retitle, and a status move all mutate this atom on a successful write, so the
+;; next board read reflects them.
 (defonce ^:private demo-board
   (atom {:issues [{:id "srv-1" :title "Wire up the optimistic board" :status :in-progress}
                   {:id "srv-2" :title "Render the three status columns" :status :done}
@@ -364,9 +340,8 @@
           url       (str (:url req))
           body      (:body req)
           write?    (not= method :get)
-          ;; The fx context carries the envelope frame as `:frame` (EP-0002 —
-          ;; the same stamp the canned-stub bodies read). Read the demo seam
-          ;; flag off that frame's runtime db.
+          ;; The fx context carries the envelope frame as `:frame`. Read the
+          ;; demo seam flag off that frame's runtime db.
           db        (rf/runtime-db-value (:frame frame-ctx))
           fail?     (and write? (boolean (:fail-next-write? db)))]
       (if fail?
@@ -504,9 +479,8 @@
 (reg-view issue-card [{:keys [issue editing]}]
   (let [{:keys [id title status optimistic?]} issue
         editing-this? (= id (:id editing))
-        ;; Watch this card's in-flight writes passively. `:optimistic?` (the
-        ;; derived Rider-1 flag) is true while a live optimistic apply is
-        ;; showing between phase 1.5 and settle; `:error?` flags the last
+        ;; Watch this card's in-flight writes passively. `:optimistic?` is true
+        ;; while a live optimistic apply is showing; `:error?` flags the last
         ;; write's failure (the optimistic value has already rolled back).
         edit-state    @(subscribe [:rf.mutation/state {:instance [:edit id]}])
         status-state  @(subscribe [:rf.mutation/state {:instance [:status id]}])
@@ -598,15 +572,15 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; The React root is materialised lazily inside `run` (not at ns-load) per
-;; examples/TESTING.md §Example mount-isolation convention. EP-0002: the app
-;; frame is created, configured, and provided in ONE spot — the render root's
-;; `frame-provider {:id app-frame …}` ENSURE form. On first mount it creates the
-;; frame under `app-frame` and applies the config: `:url-bound? true` so it owns
-;; the browser URL, and a `:rf.http/managed` override pointing at the canned
-;; board stub so the example runs standalone. On hot reload it reuses that same
-;; frame and keeps its app-db. Every in-tree dispatch/subscribe resolves against
-;; that id (which is why there is no separate `reg-frame` step).
+;; The React root is materialised lazily inside `run`, not at ns-load, so the
+;; example mounts only in a browser. The app frame is created, configured, and
+;; provided in one spot: the render root's `frame-provider {:id app-frame …}`.
+;; On first mount it creates the frame under `app-frame` and applies the config:
+;; `:url-bound? true` so it owns the browser URL, and a `:rf.http/managed`
+;; override pointing at the canned board stub so the example runs standalone. On
+;; hot reload it reuses that same frame and keeps its app-db. Every in-tree
+;; dispatch and subscribe resolves against that id. Guide:
+;; ../../../docs/routing/glossary.md#url-bound
 ;;
 ;; The board is seeded by route entry, not at boot: the `:linearlite.app/board`
 ;; route's `:resources` metadata ensures it, driven by the initial URL sync
@@ -622,9 +596,8 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; ENSURE form: the app frame is created and configured in one spot. First
-    ;; mount creates it under `app-frame` and applies the config; hot reload
-    ;; reuses it.
+    ;; The app frame is created and configured here. First mount creates it
+    ;; under `app-frame` and applies the config; hot reload reuses it.
     (rdc/render @react-root
                 [rf/frame-provider {:id           app-frame
                                     :doc          "Linearlite optimistic-board demo frame."

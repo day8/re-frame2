@@ -1,11 +1,11 @@
 (ns realworld.http
   "HTTP helpers for the RealWorld (Conduit) example.
 
-   This is the canonical Spec 014 demo. Every Conduit endpoint goes
-   out via `:rf.http/managed` — the framework-shipped managed
-   HTTP fx. The framework owns transport, decoding, status classification,
-   retry-with-backoff, abort, and reply addressing; the example just
-   composes request maps.
+   Every Conduit endpoint goes out via `:rf.http/managed`, the
+   framework-shipped managed HTTP fx. The framework owns transport,
+   decoding, status classification, retry-with-backoff, abort, and reply
+   addressing; the example just composes request maps. See the HTTP guide:
+   ../../../docs/resources/http.md
 
    BACKEND MODES (see this example's README §Running against a real backend):
    - canned demo stub (DEFAULT) — `core.cljs` overrides `:rf.http/managed` with
@@ -19,27 +19,20 @@
    This namespace ships TWO small helpers on top of `:rf.http/managed`:
 
    - `request` — build a request map (`{:request {...} :decode ... :retry ...}`)
-     that bakes in the API base URL and JSON content-type. The Bearer token is
-     NOT read here: auth-header injection is centralised in the
+     that bakes in the API base URL and JSON content-type. The Bearer token
+     is not read here: auth-header injection is centralised in the
      `:realworld/bearer-auth` HTTP interceptor (`core.cljs`), which reads the
-     token from the CARRIED frame's auth slice (`(:frame ctx)`) on every
-     request — so the header tracks whichever frame the cascade runs under, not
-     a hard-coded `:rf/default` (the carried invariant, EP-0002).
-     A single source of truth is the recommended production shape; this example
-     follows it.
-   - `data-fetch-retry` — the standard retry policy used for read-only
-     fetches (transport, 5xx, timeout — not 4xx; the user's request was
-     valid even when the server is sad).
+     token from the carried frame's auth slice (`(:frame ctx)`) on every
+     request — so the header tracks whichever frame the cascade runs under,
+     not a hard-coded `:rf/default`.
+   - `data-fetch-retry` — the standard retry policy for read-only fetches
+     (transport, 5xx, timeout — not 4xx; the request was valid even when the
+     server is sad).
 
-   The RealWorld spec lives at https://github.com/gothinkster/realworld/tree/main/api.
-   The current official hosted API is https://api.realworld.show/api; locally
-   the spec ships a Node + Postgres reference backend on
-   http://localhost:3000/api. This file does not register any fx — the demo
-   entry (`core.cljs`) wires
-   `:rf.http/managed` to a canned-stub override so the CLJS test fixtures
-   (in the framework test tree at
-   `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
-   the example tree is test-free) run without a network."
+   The RealWorld spec lives at
+   https://github.com/gothinkster/realworld/tree/main/api. This file
+   registers no fx — the demo entry (`core.cljs`) wires `:rf.http/managed`
+   to a canned-stub override so the app runs without a network."
   (:require [clojure.string]
             [re-frame.core :as rf]))
 
@@ -108,7 +101,7 @@
     (str path sep "limit=" page-size "&offset=" (page->offset page))))
 
 ;; ============================================================================
-;; RETRY POLICIES (Spec 014 §Retry and backoff)
+;; RETRY POLICIES
 ;; ============================================================================
 
 (def data-fetch-retry
@@ -120,25 +113,24 @@
    :max-attempts 3
    :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}})
 
-;; Login / register / settings deliberately do NOT retry — the user's
-;; intent is to submit one form once. A 5xx surfaces as an error so the
-;; user can retry by clicking again.
+;; Login / register / settings do not retry — one form submission per
+;; click. A 5xx surfaces as an error so the user can retry by clicking
+;; again.
 
 ;; ============================================================================
 ;; REQUEST BUILDER
 ;; ============================================================================
 
 (defn request
-  "Build a Spec 014 `:rf.http/managed` args map for a Conduit endpoint.
+  "Build a `:rf.http/managed` args map for a Conduit endpoint.
 
-   Required keys: `:method`, `:path`. Other keys are optional and
-   correspond to the Spec 014 args map (see spec/014-HTTPRequests.md).
+   Required keys: `:method`, `:path`. Other keys are optional and map to the
+   managed-HTTP args map. See the HTTP guide: ../../../docs/resources/http.md
 
-   The Bearer auth header is NOT injected here — it is added by the
-   frame-wide `:realworld/bearer-auth` HTTP interceptor (`core.cljs`),
-   which reads the token from the carried frame's auth slice on every
-   request (the single source of truth, carried-frame-correct). This
-   builder therefore has no `:frame` / `:auth?` concern.
+   The Bearer auth header is not injected here — it is added by the
+   frame-wide `:realworld/bearer-auth` HTTP interceptor (`core.cljs`), which
+   reads the token from the carried frame's auth slice on every request.
+   This builder therefore has no `:frame` / `:auth?` concern.
 
    Body, if a clj coll, is JSON-encoded (`:request-content-type :json`).
    Decode defaults to `:json` (RealWorld returns JSON everywhere).
@@ -178,38 +170,36 @@
 ;; ============================================================================
 ;;
 ;; `:loaded-at` is a durable write — it rides epoch-restore, SSR/hydration,
-;; and replay. Per the World-Input Rule (Spec 002 §Recordable coeffects), a
-;; durable write MUST read its wall-clock fact from the causal token, not from
-;; an ambient host read at the write site: replaying the same reply event must
-;; reproduce the same `:loaded-at`, which a fresh `(.getTime (js/Date.))` at
-;; handler-run time cannot guarantee.
+;; and replay. A durable write must read its wall-clock fact from the causal
+;; token, not from an ambient host read at the write site: replaying the
+;; same reply event must reproduce the same `:loaded-at`, which a fresh
+;; `(.getTime (js/Date.))` at handler-run time cannot guarantee.
 ;;
 ;; The framework stamps that fact once, at the causal boundary, onto every
-;; dispatch envelope as `:rf.cofx {:rf/time-ms ...}` (EP-0017), and registers
-;; it as the one PROVIDED recordable coeffect (`:rf/time-ms`). A handler that
-;; stamps `:loaded-at` declares `:rf.cofx/requires [:rf/time-ms]` and reads the
-;; `time-ms` value FLAT from its coeffects map (EP-0017 §4):
+;; dispatch envelope and registers it as the provided recordable coeffect
+;; `:rf/time-ms`. A handler that stamps `:loaded-at` declares
+;; `:rf.cofx/requires [:rf/time-ms]` and reads the value flat:
 ;;
 ;;     (rf/reg-event :feed/loaded
 ;;       {:rf.cofx/requires [:rf/time-ms]}
 ;;       (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
 ;;         {:db (assoc-in db [:feed :loaded-at] time-ms)}))
 ;;
-;; Tests, SSR hydration, and replay fixtures supply an exact `:rf/time-ms` via
-;; the dispatch opts (`{:rf.cofx {:rf/time-ms 1781078400123}}`); live code lets
-;; the router stamp it. The app declares no clock cofx of its own — the
-;; framework-provided `:rf/time-ms` is the one home for wall-clock time (EP-0017).
+;; Tests and replay fixtures supply an exact `:rf/time-ms` via the dispatch
+;; opts (`{:rf.cofx {:rf/time-ms 1781078400123}}`); live code lets the
+;; router stamp it. See the coeffects guide:
+;; ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
 
 ;; ============================================================================
 ;; FAILURE PROJECTION
 ;; ============================================================================
 
 (defn failure->message
-  "Project a Spec 014 failure map (the inner `:failure` map of an
+  "Project a failure map (the inner `:failure` map of an
    `{:kind :failure :failure {...}}` reply) to a human-readable string.
    The Conduit API returns `{:errors {:body [\"...\"]}}` shapes for 4xx
-   validation failures; surface those when present, otherwise fall back
-   to a category-driven message."
+   validation failures; surface those when present, otherwise fall back to a
+   category-driven message."
   [failure]
   (let [body (:body failure)
         ;; The :body for 4xx/5xx is the raw response text; some Conduit

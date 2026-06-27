@@ -14,10 +14,13 @@
    so the trap never arises.
 
    Demonstrates:
-   - Single source of truth in app-db                    (Goal 7 / application-state)
-   - Event + sub composition over a single value          (CP-1, CP-2)
-   - Pure derivation in subs (Celsius ↔ Fahrenheit)        (CP-2)
-   - Schema-bound app-db slice                            (CP-8)"
+   - Single source of truth in app-db
+   - One event and one subscription chain over a single value
+   - Pure derivation in subscriptions (Celsius ↔ Fahrenheit)
+   - Schema-bound app-db slice
+
+   See docs/guide/concepts/subscriptions.md and the glossary entries for
+   event, subscription, and app-db in docs/guide/glossary.md."
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -159,10 +162,10 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
+;; The React root is held in an atom and created lazily inside `run`, never at
+;; ns-load. Namespace load must do no DOM side effects, so co-loaded example
+;; namespaces don't race `create-root` onto the shared `#app`. See
+;; examples/TESTING.md "Convention: defer DOM mount to `run`".
 (defonce react-root (atom nil))
 
 ;; The whole frame lifecycle lives in one spot at the render root: the

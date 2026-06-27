@@ -1,46 +1,40 @@
 (ns realworld-resources.routing
-  "Routes for the RealWorld-on-resources example.
+  "Routes for the RealWorld-on-resources example. See the routing guide:
+   ../../../docs/routing/concepts.md.
 
-   The headline of this variant: route entry CAUSES the page's server-state to
-   load, declaratively, via `:resources` route metadata (Spec 016 §Route
-   integration). On entry the runtime marks each listed resource active with
-   owner `[:route route-id nav-token]` and ensures it with cause
-   `[:route-entry route-id nav-token]`; on leave it releases the owner by token
-   and suppresses any stale reply by generation. The views never fetch — they
-   read the runtime cache passively.
+   The point of this example: route entry CAUSES the page's server-state to load,
+   declaratively, via `:resources` route metadata. On entry the runtime marks
+   each listed resource active with owner `[:route route-id nav-token]` and
+   ensures it with cause `[:route-entry route-id nav-token]`; on leave it
+   releases the owner by token and suppresses any stale reply by generation. The
+   views never fetch — they read the runtime cache passively.
 
-   `:blocking?` keeps the route transition pending until the resource settles;
-   a non-blocking resource fetches in the background. `:keep-previous?` keeps
-   the prior list visible while a new filter/page first-loads. `:when` makes a
+   `:blocking?` keeps the route transition pending until the resource settles; a
+   non-blocking resource fetches in the background. `:keep-previous?` keeps the
+   prior list visible while a new filter/page first-loads. `:when` makes a
    resource conditional without sentinel nil params.
 
-   (On the server, the same `:blocking?` flag is the SSR wait point — the route
-   plan drains blocking resources before rendering, then serialises the resource
-   partition for the client to hydrate without refetching, Spec 016 §SSR and
-   hydration over Spec 011. This example is CLIENT-ONLY and does NOT exercise
-   that path; the dedicated worked demo of resource SSR preload + hydration is
-   `examples/reagent/resources_ssr/`.)
+   (On the server, the same `:blocking?` flag is the SSR wait point. This example
+   is CLIENT-ONLY; the worked demo of resource SSR preload + hydration is
+   `examples/reagent/resources_ssr/`. See ../../../docs/ssr/concepts.md.)
 
-   The SESSION-scoped personalised feed is a declarative route resource too
-   (EP-0016 D3): the home route declares it with `:scope {:from-db
-   :realworld/session}`, a named-resolver reference (see scope.cljs) the runtime
-   resolves against the navigation handler's app-db at route entry. So the
-   route owns the feed under its nav-token and releases it on leave, exactly
-   like the public reads — the named resolver lets a route `:scope` derive from
-   app-db, so a session read joins the same declarative route plan as the
-   public ones. Logged out, the reference resolves nil and the feed entry is
-   simply not planned (fail-closed — no feed to load).
+   The SESSION-scoped personalised feed is a declarative route resource too: the
+   home route declares it with `:scope {:from-db :realworld/session}`, a named
+   resolver reference (see scope.cljs) the runtime resolves against the
+   navigation handler's app-db at route entry. So the route owns the feed under
+   its nav-token and releases it on leave, exactly like the public reads. Logged
+   out, the reference resolves nil and the feed entry is simply not planned
+   (fail-closed — no feed to load).
 
-   The resources artefact LATE-BINDS the `:resources` route-metadata key into
-   routing, so loading both `re-frame.resources` and `re-frame.routing` is what
-   makes the key accepted (Spec 012 rejects unknown bare route-metadata keys
-   otherwise)."
+   Loading both `re-frame.resources` and `re-frame.routing` is what makes the
+   `:resources` route-metadata key accepted (resources late-binds it into
+   routing)."
   (:require [clojure.string]
             [re-frame.core :as rf]
-            ;; Routing ships in day8/re-frame2-routing. Loading the ns triggers
-            ;; its hook + reg-sub registrations; without it the reg-route calls
-            ;; throw :rf.error/routing-artefact-missing. Aliased so the popstate
-            ;; handler resolves the URL owner via `routing/url-owner-frame-id`.
+            ;; Routing runtime. Loading the ns triggers its hook + reg-sub
+            ;; registrations; without it the reg-route calls throw. Aliased so
+            ;; the popstate handler resolves the URL owner via
+            ;; `routing/url-owner-frame-id`.
             [re-frame.routing :as routing]
             ;; Loading resources is what makes `:resources` route-metadata
             ;; accepted (the late-bound routing extension).
@@ -59,7 +53,7 @@
   [{:resource  :realworld/articles
     ;; Route → resource params: the active tag (param or nil) AND `?page=` flow
     ;; into identity. Every server-visible list option participates in the
-    ;; cache key (Spec 016 §Paginated and previous data).
+    ;; cache key.
     :params    (fn [route] {:tag  (tag-fn route)
                             ;; Default to page 1 so the canonical no-`?page=`
                             ;; URL owns the SAME `{:page 1}` key the views
@@ -73,14 +67,13 @@
    {:resource  :realworld/tags
     :params    (fn [_route] {})
     :blocking? false}
-   ;; The personalised feed — a declarative route resource scoped by the
-   ;; named `{:from-db :realworld/session}` resolver (EP-0016 D3). The runtime
-   ;; resolves the scope against the navigation handler's app-db at route
-   ;; entry, owns it under the route nav-token, and releases it on leave, just
-   ;; like the public reads above. Logged out the reference resolves nil, so
-   ;; the feed is simply not planned (no scope, no fetch — the feed never leaks
-   ;; across users). The `?page=` flows into params here like every other
-   ;; paginated list.
+   ;; The personalised feed — a declarative route resource scoped by the named
+   ;; `{:from-db :realworld/session}` resolver. The runtime resolves the scope
+   ;; against the navigation handler's app-db at route entry, owns it under the
+   ;; route nav-token, and releases it on leave, just like the public reads
+   ;; above. Logged out the reference resolves nil, so the feed is simply not
+   ;; planned (no scope, no fetch — the feed never leaks across users). The
+   ;; `?page=` flows into params here like every other paginated list.
    {:resource  :realworld/feed
     :scope     {:from-db :realworld/session}
     ;; Default to page 1 — the feed subscription reads `(or (:page q) 1)`
@@ -122,19 +115,19 @@
 
 (rf/reg-route :realworld.user/settings
   {:doc  "User settings page (requires auth). `:on-match` seeds the settings
-          draft from the authenticated user ONCE on route entry — the same
-          route-entry seam the `:rf.http/managed` sibling uses (its settings
-          route also `:on-match [[:settings/load]]`). The settings view is then
-          a pure Form-1 that NEVER dispatches out of band, so a re-render can no
-          longer re-run the load and clobber in-progress field edits."
+          draft from the authenticated user ONCE on route entry. The settings
+          view is then a pure Form-1 that NEVER dispatches out of band, so a
+          re-render does not re-run the load and clobber in-progress field
+          edits."
    :on-match [[:settings/load]]
    :tags #{:requires-auth}} "/settings")
 
 (rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth). `:on-match` resets the
                editor slice + registers the can-submit flow; `:can-leave` blocks
-               a navigate-away while the draft is dirty (Spec 012 §Redirects and
-               guards). No route `:resources` — create starts from a blank draft."
+               a navigate-away while the draft is dirty (see route guard,
+               ../../../docs/routing/glossary.md#route-guard). No route
+               `:resources` — create starts from a blank draft."
    :tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
    :can-leave [:editor/can-leave?]} "/editor")
@@ -187,7 +180,7 @@
             `:realworld/favorited-articles` resource. The `?page=` query
             paginates it. Favoriting / unfavoriting from this tab invalidates
             `[:article slug]`, which this list carries, so it refetches and the
-            article drops out on unfavorite (Spec 016 §Mutations)."
+            article drops out on unfavorite."
    :params [:map [:username :string]]
    :query  [:map [:page {:optional true} :int]]
    :resources
@@ -205,14 +198,15 @@
   {:doc "Fallback when no other route matches."} "/_404")
 
 ;; ============================================================================
-;; AUTH GUARD  (Spec 012 §Redirects and guards)
+;; AUTH GUARD
 ;; ============================================================================
 ;;
 ;; Route-level auth is a plain interceptor. It redirects unauthenticated users
 ;; away from any `:requires-auth`-tagged route to login, stashing the intended
-;; target under `[:auth :return-to]` for post-login bounce-back. Gates all
-;; three navigation entry points (programmatic nav, anchor click, URL-bar /
-;; popstate) so a protected route is unreachable logged-out by any path.
+;; target under `[:auth :return-to]` for post-login bounce-back. Gates all three
+;; navigation entry points (programmatic nav, anchor click, URL-bar / popstate)
+;; so a protected route is unreachable logged-out by any path. See route guard:
+;; ../../../docs/routing/glossary.md#route-guard.
 
 (defn- resolve-nav-target [[ev-id a _b]]
   (case ev-id
@@ -226,16 +220,16 @@
                                   {:id route-id :params (or params {})})
     nil))
 
-;; EP-0022: the guard is a REGISTERED interceptor referenced BY ID
+;; The guard is a REGISTERED interceptor referenced BY ID
 ;; (`:realworld-resources.routing/auth-guard`) from the demo frame's
-;; `:interceptors` chain — set in the `frame-provider {:id …}` ENSURE form in
+;; `:interceptors` chain — set in the `frame-provider {:id …}` ensure form in
 ;; core.cljs, not an inline value. `reg-interceptor` is a top-level load-time
 ;; registration; core.cljs requires this ns, so the descriptor is registered
 ;; before the provider's config resolves the reference at frame creation.
 (rf/reg-interceptor :realworld-resources.routing/auth-guard
-  {:doc "Route-level auth guard (Spec 012 §Redirects and guards): redirect
-         unauthenticated users away from `:requires-auth`-tagged routes to
-         login, stashing the intended target for post-login bounce-back."}
+  {:doc "Route-level auth guard: redirect unauthenticated users away from
+         `:requires-auth`-tagged routes to login, stashing the intended target
+         for post-login bounce-back."}
   {:before (fn auth-guard-before [ctx]
              (if-let [{:keys [id params]} (resolve-nav-target (get-in ctx [:coeffects :event]))]
                (let [route-meta  (rf/handler-meta :route id)
@@ -253,7 +247,7 @@
                ctx))})
 
 ;; ============================================================================
-;; ROUTER WIRING  (base-path-aware, like the :rf.http/managed sibling)
+;; ROUTER WIRING  (base-path-aware)
 ;; ============================================================================
 
 (def ^:dynamic *base-path* "")

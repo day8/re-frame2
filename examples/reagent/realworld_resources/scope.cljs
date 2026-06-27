@@ -1,45 +1,39 @@
 (ns realworld-resources.scope
-  "The resource cache SCOPE for this app — the fail-closed leak boundary
-   (Spec 016 §Scope resolution), expressed as a NAMED resource-scope resolver
-   (Spec 016 §Named resource-scope resolvers — `reg-resource-scope`, EP-0016
-   Decision 3).
+  "The resource cache SCOPE for this app — the fail-closed leak boundary,
+   expressed as a NAMED resource-scope resolver (`reg-resource-scope`). See
+   scope: ../../../docs/resources/glossary.md#scope, and the worked walkthrough
+   in ../../../docs/resources/how-to/add-auth.md.
 
    Scope is the cache's tenant / user / permission boundary, and it MUST fail
    closed: a resource never silently defaults to a shared cache. This example
    reads two KINDS of server-state, so it demonstrates BOTH scope policies:
 
    - PUBLIC reads — the global article list, a tag-filtered list, an article's
-     detail, an author profile, the popular-tags sidebar, an article's
-     comments. These are the same for every viewer, so each resource declares
-     the explicit, auditable `:scope :rf.scope/global` claim.
+     detail, an author profile, the popular-tags sidebar, an article's comments.
+     These are the same for every viewer, so each resource declares the explicit,
+     auditable `:scope :rf.scope/global` claim.
 
-   - SESSION reads — the authenticated user's personalised feed (`/articles/
-     feed`). What that returns depends on WHO is asking, so it carries a
-     session scope `[:rf.scope/session {:username …}]`. A logged-out user must
+   - SESSION reads — the authenticated user's personalised feed
+     (`/articles/feed`). What that returns depends on WHO is asking, so it carries
+     a session scope `[:rf.scope/session {:username …}]`. A logged-out user must
      never see the previous user's feed from cache.
 
-   ## One named resolver, every site (the EP-0016 idiom)
+   ## One named resolver, every site
 
-   The session/feed seam answers one fact — \"who is the current viewer?\" — and
-   a named resource-scope resolver states that fact ONCE rather than wiring it
-   by hand at every site. Hand-wiring would mean: the feed resource declaring
-   `:rf.scope/from-caller`, the home route ensuring it from an event (a route
-   `:scope` resolver can't see app-db), every view threading a `:session/scope`
-   value onto its subscription payload, and a favourite toggle needing an extra
-   explicit session-scoped invalidation because a global-scope mutation can't
-   reach the session feed — four hand-wired seams for one fact.
-
-   `reg-resource-scope :realworld/session` with declared db inputs names that
-   fact once, and every site references it as `{:from-db :realworld/session}`:
+   The session/feed seam answers one fact — \"who is the current viewer?\" — and a
+   named resource-scope resolver states that fact ONCE rather than wiring it by
+   hand at every site. `reg-resource-scope :realworld/session` with declared db
+   inputs names that fact once, and every site references it as
+   `{:from-db :realworld/session}`:
 
    - the feed RESOURCE declares `:scope {:from-db :realworld/session}`
      (resources.cljs), so a subscription resolves the scope itself — no view
      threads a scope payload, and the sub re-keys reactively across login /
-     logout (Spec 016 §A `{:from-db …}` subscription re-keys);
-   - the home ROUTE declares the feed as a `:resources` entry with `:scope
-     {:from-db :realworld/session}` (routing.cljs) — resolved against the
-     navigation handler's app-db at route entry, owned by the nav-token,
-     released on leave. No `:on-match` event, no app-minted lease;
+     logout;
+   - the home ROUTE declares the feed as a `:resources` entry with
+     `:scope {:from-db :realworld/session}` (routing.cljs) — resolved against the
+     navigation handler's app-db at route entry, owned by the nav-token, released
+     on leave. No `:on-match` event, no app-minted lease;
    - the favourite / unfavourite MUTATIONS carry a per-target invalidation
      descriptor `{:scope {:from-db :realworld/session} :tags #{[:feed]}}`
      (mutations.cljs) — one mutation invalidates global article tags AND the
@@ -50,26 +44,24 @@
 
    `nil` is the fail-closed unresolved condition everywhere: a logged-out
    subscription is the loud \"scope unresolved\" diagnostic, not a silent shared
-   read; a logged-out route entry / invalidation descriptor resolves nil and
-   does nothing (no feed to reach); logout resolves nil and skips the clear."
+   read; a logged-out route entry / invalidation descriptor resolves nil and does
+   nothing (no feed to reach); logout resolves nil and skips the clear."
   (:require [re-frame.core :as rf]
-            ;; Resources ship `reg-resource-scope` (and the `:resource-scope`
-            ;; registrar kind it writes); requiring the ns wires the late-bind
+            ;; Resources ship `reg-resource-scope`; requiring the ns wires the
             ;; hooks so the macro resolves.
             [re-frame.resources]))
 
 ;; ============================================================================
-;; THE NAMED SESSION SCOPE RESOLVER  (EP-0016 D3)
+;; THE NAMED SESSION SCOPE RESOLVER
 ;; ============================================================================
 ;;
-;; `reg-resource-scope` registers a PURE resolver under an id; every derived-
-;; scope site references it as `{:from-db :realworld/session}`. The declared
-;; `:inputs` name the single app-db fact that decides the scope — the
-;; authenticated user's `:username` — so the runtime re-resolves the scope only
-;; when THAT path changes (login / logout / account switch), and tooling can
-;; explain which fact decides a resource's identity. `:resolve` is pure: it
-;; derives the canonical session-scope value, or `nil` when logged out (the
-;; fail-closed unresolved condition).
+;; `reg-resource-scope` registers a PURE resolver under an id; every derived-scope
+;; site references it as `{:from-db :realworld/session}`. The declared `:inputs`
+;; name the single app-db fact that decides the scope — the authenticated user's
+;; `:username` — so the runtime re-resolves the scope only when THAT path changes
+;; (login / logout / account switch), and tooling can explain which fact decides a
+;; resource's identity. `:resolve` is pure: it derives the canonical session-scope
+;; value, or `nil` when logged out (the fail-closed unresolved condition).
 
 (rf/reg-resource-scope :realworld/session
   {:doc     "The current session's resource cache scope — the per-user leak

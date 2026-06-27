@@ -73,7 +73,7 @@
      :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
   ;; Seed the frame. `dispatch-sync` runs inside `with-frame :rf/default` so
   ;; it targets that frame (a frameless dispatch raises
-  ;; `:rf.error/no-frame-context`, EP-0002).
+  ;; `:rf.error/no-frame-context`).
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:nine-states.app/initialise])))
 
@@ -90,7 +90,7 @@
 
 ;; Scope the live `#/` surface into the showcase's `:rf/default` frame, so
 ;; `nine-states-app`'s reg-view-injected dispatch/subscribe (and
-;; `core/root-view`'s subs) resolve to it (EP-0002). The Story shell side
+;; `core/root-view`'s subs) resolve to it. The Story shell side
 ;; (`#/stories`) allocates its own per-variant frames. Passed to the shared
 ;; story-host as the live-app root view (mirrors counter-with-stories.core).
 (defn live-app-root []
@@ -115,12 +115,11 @@
   (install-live-frame!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
   ;; `#/stories` lands on the shell without a manual click-through. The
-  ;; `:source-subdir` opt tells the host this showcase's Story
-  ;; source-coords are classpath-relative to `examples/reagent`, so the host
-  ;; resolves the on-disk project-root (build-env define or `?checkout-root=`
-  ;; override, cross-platform) and calls `story/configure!` itself — that
-  ;; also bridges the root into Xray's slot. Without it the Story 'open in
-  ;; editor' chips would resolve `nine_states/stories.cljs` against a nil root.
-  ;; The live-app root is frame-scoped via `live-app-root` (the `frame-provider`
-  ;; wrapper) so the bare `#/` surface mounts under the app frame.
+  ;; `:source-subdir` opt tells the host this showcase's Story source-coords
+  ;; are classpath-relative to `examples/reagent`, so it resolves the on-disk
+  ;; project root and calls `story/configure!` itself (also bridging the root
+  ;; into Xray's slot). Without it the Story 'open in editor' chips would
+  ;; resolve `nine_states/stories.cljs` against a nil root. The live-app root
+  ;; is frame-scoped via `live-app-root` (the `frame-provider` wrapper) so the
+  ;; bare `#/` surface mounts under the app frame.
   (story-host/mount-with-hash-routing! live-app-root {:source-subdir "examples/reagent"}))

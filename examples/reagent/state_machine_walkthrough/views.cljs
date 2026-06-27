@@ -1,20 +1,14 @@
 (ns state-machine-walkthrough.views
   "Browser entry-point for the state-machines walkthrough.
 
-  The pure machine, fxs and subs live in `core.cljc` alongside
-  docs/machines/concepts.md; the headless tests live in the framework
-  test tree (the `state-machine-walkthrough-runs-headless` deftest in
-  `implementation/core/test/re_frame/examples_test.clj`). This namespace
-  is the CLJS-only browser layer: views + Reagent mount + a `run` fn that
-  installs a per-frame `:fx-overrides` redirecting `:rf.http/managed`
-  to the canned-failure stub registered in `core.cljc`.
+  The pure machine, fxs and subs live in `core.cljc`. This namespace is the
+  CLJS-only browser layer: views + Reagent mount + a `run` fn that redirects
+  `:rf.http/managed` to the canned-failure stub via per-frame :fx-overrides.
 
-  Why canned-failure: the chapter's headline scenario is the lockout
-  flow — three failed attempts that cycle :submitting → :error-shown
-  → :idle, then a fourth submit that fails the `:under-retry-limit`
-  guard and lands at `:locked-out`. That path is exactly what the
-  `state-machine-walkthrough-runs-headless` deftest walks through,
-  so the stub needs to fail every request."
+  The demo runs the lockout scenario: three failed attempts cycle
+  :submitting -> :error-shown -> :idle, then a fourth submit fails the
+  `:under-retry-limit` guard and lands at :locked-out. So the stub fails
+  every request."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -35,11 +29,11 @@
                   :auth.login/submit.
 
                   The machine owns submit/auth STATUS; the slice owns the DRAFT
-                  (Pattern-Forms §Variations: machine + slice). View-side
-                  discriminators ask the machine for a tag via
-                  `rf/machine-has-tag?` (chapter §State tags), reading its
-                  runtime-projected `:tags` set rather than the current state
-                  keyword — so adding a new busy-ish state changes no view."}
+                  (docs/guide/how-to/build-a-form.md). To branch on status the
+                  view asks the machine for a tag via `rf/machine-has-tag?`,
+                  reading its `:tags` set rather than the current state keyword —
+                  so adding a new busy state changes no view
+                  (docs/machines/glossary.md#state-tag)."}
           login-form []
   (let [busy?   @(rf/machine-has-tag? :auth.login/flow :auth/busy)
         locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)
@@ -107,25 +101,23 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
+;; The React root is held in an atom and created lazily inside `run`, never at
+;; ns-load. ns-load must produce no DOM side effects, so co-required examples
+;; don't race `create-root` onto the shared `#app`. See examples/TESTING.md
+;; "Convention: defer DOM mount to `run`".
 (defonce react-root (atom nil))
 
 (defn run []
   ;; Install the Reagent adapter — pass its spec map straight to init!.
   (rf/init! reagent-adapter/adapter)
-  ;; `frame-provider {:id …}` is the one spot that creates, configures and
-  ;; seeds the app frame. On first mount it creates the `:rf/default` frame,
-  ;; applies the config, and runs `:initial-events` once. On hot reload it
-  ;; reuses that frame and skips re-seeding, so your typed-in draft survives.
-  ;; The `reg-view`-injected `dispatch`/`subscribe` (and the login machine
-  ;; reads) resolve to this frame.
+  ;; `frame-provider {:id …}` creates, configures and seeds the app frame. On
+  ;; first mount it creates the `:rf/default` frame, applies the config, and
+  ;; runs `:initial-events` once. On hot reload it reuses that frame and skips
+  ;; re-seeding, so your typed-in draft survives. The `dispatch`/`subscribe`
+  ;; that `reg-view` injects resolve to this frame.
   ;;
   ;; `:fx-overrides` swaps `:rf.http/managed` for the canned-failure stub, so
-  ;; every login request fails — the chapter's lockout scenario needs three
-  ;; failures in a row.
+  ;; every login request fails — the lockout scenario needs three failures.
   ;;
   ;; The login machine spawns itself on its first event. The form DRAFT slice
   ;; does not, so `:initial-events` seeds it before first render: the controlled

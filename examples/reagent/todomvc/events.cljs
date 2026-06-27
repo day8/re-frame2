@@ -6,29 +6,28 @@
   effect map`), `reg-fx` (the `:todo.storage/save` effect handler that performs
   the localStorage write the handlers only *describe* as data), and `reg-route`
   (the URL as an input — `/`, `/active`, `/completed`, plus the not-found
-  fallback)."
+  fallback). See docs/guide/glossary.md (event)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; Routing ships in day8/re-frame2-routing.
-            ;; Requiring re-frame.routing here triggers its load-time
-            ;; hook + reg-sub registrations; without it, the rf/reg-route
-            ;; calls below throw :rf.error/routing-artefact-missing.
+            ;; Requiring re-frame.routing registers the routing subscriptions and
+            ;; install hook. Without it the `rf/reg-route` calls below throw
+            ;; :rf.error/routing-artefact-missing.
             [re-frame.routing]
             [todomvc.db :as db]))
 
-;; ---- routes (Spec 012) ----------------------------------------------------
-;; TodoMVC's canonical URLs are hash-based (#/, #/active, #/completed). Spec
-;; 012 routes match path-strings, so the host-adapter (core.cljs) strips the
-;; leading '#' (and optional '!') from the URL hash before dispatching
-;; :rf.route/handle-url-change. The result is a Spec 012 path the registered
-;; routes match exactly.
+;; ---- routes ---------------------------------------------------------------
+;; Each route pairs an id with a path the router matches. TodoMVC's URLs are
+;; hash-based (#/, #/active, #/completed); the adapter in core.cljs strips the
+;; leading '#' so these path patterns match.
+;; See docs/routing/concepts.md#move-2-navigation-is-an-event.
 
 (rf/reg-route :todo/all       {:doc "Show all todos."} "/")
 (rf/reg-route :todo/active    {:doc "Show active todos."} "/active")
 (rf/reg-route :todo/completed {:doc "Show completed todos."} "/completed")
 
-;; Required by Spec 012 §Route-not-found. Unmatched URLs land here; we treat
+;; The not-found route is required. Unmatched URLs land here; this app treats
 ;; them as "show all" so a stray hash never breaks the app.
+;; See docs/routing/concepts.md#not-found-is-a-route-you-register.
 (rf/reg-route :rf.route/not-found {:doc "Fallback."} "/_404")
 
 (defn- allocate-next-id [todos]
@@ -105,15 +104,15 @@
 
 ;; ---- UI / form state (the `:ui` slice) ------------------------------------
 ;;
-;; These events own the form/UI state that TodoMVC used to keep in view-local
-;; atoms. The inputs are CONTROLLED: a view's `:value` reads a draft sub and its
-;; `:on-change` dispatches `:todo.ui/edit-field` — it never sets view-local
-;; state. "Which row is being edited" is application state, so it lives at
-;; `[:ui :editing-id]`, toggled by `:todo.ui/start-edit` / `:todo.ui/stop-edit`.
+;; These events own the form/UI state. The inputs are CONTROLLED: a view's
+;; `:value` reads a draft sub and its `:on-change` dispatches
+;; `:todo.ui/edit-field` — it never sets view-local state. "Which row is being
+;; edited" is application state, so it lives at `[:ui :editing-id]`, toggled by
+;; `:todo.ui/start-edit` / `:todo.ui/stop-edit`.
 ;;
-;; Drafts and editing-id are pure UI — they are NOT persisted (no localStorage
-;; write), so these handlers return a plain `{:db ...}` rather than going through
-;; `persist-db`. Only the todo facts themselves (`:todos`) are durable.
+;; Drafts and editing-id are pure UI. They are NOT persisted, so these handlers
+;; return a plain `{:db ...}` rather than going through `persist-db`. Only the
+;; todo facts themselves (`:todos`) are durable.
 
 (rf/reg-event :todo.ui/edit-field
   {:doc "User typed into a controlled input. `which` is `:new` (header input)
@@ -148,8 +147,7 @@
 
 (rf/reg-event :todo.ui/commit-edit
   {:doc "Save the edit-in-place input: read the `:edit` draft, save it onto the
-         editing row (a blank title deletes the todo, same as before), then
-         leave edit mode."}
+         editing row (a blank title deletes the todo), then leave edit mode."}
   (fn [{:keys [db]} _]
     (let [id    (get-in db [:ui :editing-id])
           title (get-in db [:ui :drafts :edit])]

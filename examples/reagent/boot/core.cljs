@@ -1,11 +1,12 @@
 (ns boot.core
-  "Entry point for the boot example — Pattern-Boot demonstrated.
+  "Entry point for the boot example.
 
    `run` installs the Reagent adapter and renders the app under a
-   `frame-provider`. The provider redirects HTTP to a per-URL canned
-   stub (so the example runs standalone — no backend) and seeds the boot
-   machine on first mount. The root view stays on the boot-progress
-   screen until the boot machine reaches `:ready`.
+   frame-provider (docs/guide/glossary.md#frame-provider). The provider
+   redirects HTTP to a per-URL canned stub (so the example runs
+   standalone — no backend) and seeds the boot machine on first mount.
+   The root view stays on the boot-progress screen until the boot
+   machine reaches `:ready`.
 
    The four mocked endpoints:
      /api/config.json   → static app config (api-base, env, build)
@@ -13,27 +14,23 @@
      /api/flags.json    → feature flags
      /api/user.json     → initial user record
 
-   The stub fx routes by URL substring and delegates to the
-   framework-shipped `:rf.http/managed-canned-success` per Spec 014
-   §Testing, so the canonical reply shape is preserved."
+   The stub routes by URL substring and delegates to the framework's
+   `:rf.http/managed-canned-success`, so the reply shape matches what a
+   live server would produce (docs/resources/glossary.md#reply-map)."
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Required for `rf/init!`.
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; Managed-HTTP ships in day8/re-frame2-http. The require
-            ;; triggers its fx registrations (:rf.http/managed and
-            ;; family) at app boot; without it, the child loaders'
-            ;; managed-HTTP dispatches would raise :rf.error/no-such-fx.
+            ;; Managed HTTP ships in a separate artefact. The require
+            ;; registers `:rf.http/managed` and family; without it the
+            ;; child loaders' dispatches would raise :rf.error/no-such-fx.
             [re-frame.http.managed]
-            ;; This example overrides :rf.http/managed with a per-URL
-            ;; stub that delegates to :rf.http/managed-canned-success
-            ;; (the same reply shape a live server would produce). The
-            ;; canned-stub fx ids register from
-            ;; re-frame.http.test-support, NOT from re-frame.http.managed.
-            ;; This example IS a test/demo affordance (no real backend
-            ;; ships with it), so requiring the test-support ns is
-            ;; correct — it's the explicit opt-in for the canned stubs.
+            ;; This example overrides :rf.http/managed with a per-URL stub
+            ;; that delegates to :rf.http/managed-canned-success (the same
+            ;; reply shape a live server produces). The canned-stub fx ids
+            ;; register from re-frame.http.test-support, so require it here
+            ;; to opt into the canned stubs.
             [re-frame.http.test-support]
             [boot.schema]
             [boot.boot]
@@ -43,13 +40,12 @@
 ;; DEMO STUBS — per-URL canned :rf.http/managed override
 ;; ============================================================================
 ;;
-;; The boot example would normally hit /api/config.json and three more
-;; endpoints; we don't ship a backend. This section defines the canned
-;; payloads and the `:boot.demo/http-stub` fx that returns one per URL
-;; substring. The provider in `run` wires this stub in as the frame's
-;; `:rf.http/managed` via `:fx-overrides`. Each reply delegates to
-;; `:rf.http/managed-canned-success` (Spec 014 §Testing) — the same
-;; reply shape a live server would produce.
+;; The boot fetches /api/config.json and three more endpoints, but no backend
+;; ships with this example. This section defines the canned payloads and the
+;; `:boot.demo/http-stub` fx that returns one per URL substring. The provider
+;; in `run` wires this stub in as the frame's `:rf.http/managed` via
+;; `:fx-overrides`. Each reply delegates to `:rf.http/managed-canned-success`,
+;; the same reply shape a live server produces.
 
 (def ^:private demo-config
   {:api-base "/api"
@@ -82,11 +78,10 @@
       :else                            {})))
 
 (rf/reg-event :boot.demo/schedule-reply
-  {:doc "Private — entered via dispatch from :boot.demo/http-stub. Uses
-         `:dispatch-later` so framework time controls (Tool-Pair
-         time-travel, the documented `:dispatch-later` nil-override
-         seam) apply to the demo latency. No user dispatches this
-         directly."}
+  {:doc "Private — dispatched from :boot.demo/http-stub. Uses
+         `:dispatch-later` so framework time controls (time-travel,
+         the `:dispatch-later` override seam) apply to the demo
+         latency. No user dispatches this directly."}
   (fn handler-boot-demo-schedule-reply [_ [_ args-map payload]]
     {:fx [[:dispatch-later
            {:ms    60
@@ -94,7 +89,7 @@
 
 (rf/reg-event :boot.demo/deliver-reply
   {:doc "Private — fired by the :dispatch-later scheduled in
-         :boot.demo/schedule-reply. Delegates to the framework-shipped
+         :boot.demo/schedule-reply. Delegates to the framework's
          `:rf.http/managed-canned-success` with the per-URL canned
          payload."}
   (fn handler-boot-demo-deliver-reply [_ [_ args-map payload]]
@@ -105,19 +100,16 @@
                substring to canned boot responses so the example runs
                standalone without a backend.
 
-               Dispatches into the private :boot.demo/schedule-reply
-               event so the deferred reply rides framework
-               `:dispatch-later` (60 ms) rather than raw
-               `js/setTimeout`. The delay lets the boot-progress view
-               render the per-phase loading state before the replies
-               land — without it, the boot resolves in one drain and
-               the user only ever sees the `:ready` screen. The reply
-               itself lands via the framework-shipped
-               `:rf.http/managed-canned-success` (Spec 014 §Testing).
+               Dispatches the private :boot.demo/schedule-reply event so
+               the deferred reply rides `:dispatch-later` (60 ms) rather
+               than raw `js/setTimeout`. The delay lets the boot-progress
+               view render the per-phase loading state before the replies
+               land — without it the boot resolves in one drain and the
+               user only ever sees the `:ready` screen. The reply lands
+               via the framework's `:rf.http/managed-canned-success`.
 
-               Framework time controls (Tool-Pair time-travel, the
-               documented `:dispatch-later` nil-override seam) apply
-               automatically."
+               Framework time controls (time-travel, the
+               `:dispatch-later` override seam) apply automatically."
    :platforms #{:server :client}}
   (fn fx-managed-boot-demo [frame-ctx args-map]
     (let [url     (-> args-map :request :url)
@@ -130,16 +122,15 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root, held in an atom and created lazily inside `run`. Doing
-;; it in `run` (not at ns-load) lets several example namespaces share the
+;; The React root, held in an atom and created lazily inside `run`. Doing it
+;; in `run` (not at ns-load) lets several example namespaces share the
 ;; browser-test bundle without racing `create-root` onto the same `#app`
 ;; element.
 (defonce react-root (atom nil))
 
-;; The app frame id. Every in-tree `dispatch`/`subscribe` resolves to
-;; this frame. The render-root `frame-provider` below establishes it
-;; (see `run`). EP-0002: an app must name its frame explicitly; the
-;; runtime never invents one.
+;; The app frame id. Every in-tree `dispatch`/`subscribe` resolves to this
+;; frame; the frame-provider below establishes it (see `run`). An app must
+;; name its frame explicitly — the runtime never invents one.
 (def app-frame :rf/default)
 
 (defn run []
@@ -149,8 +140,8 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; The `frame-provider` below creates, configures, and seeds the app
-    ;; frame in one place (the `{:id …}` ENSURE form):
+    ;; The frame-provider creates, configures, and seeds the app frame in
+    ;; one place:
     ;;
     ;; - `:fx-overrides` redirects `:rf.http/managed` on this frame to the
     ;;   per-URL canned stub above, so every child loader's GET hits a

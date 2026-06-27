@@ -1,11 +1,12 @@
 (ns realworld.comments
   "Article detail plus comments for the RealWorld (Conduit) example.
 
-   This sketch keeps the current re-frame2 API surface explicit:
-   - `:article` and `:comments` use the standard Pattern-RemoteData shape.
-   - `:comment-form` uses the standard Pattern-Forms slice shape.
-   - Route-driven loads read the current slug from the runtime-db coeffect at `[:rf.runtime/routing :current :params :slug]`.
-   - Post/delete flows are optimistic and roll back via ordinary events."
+   This namespace shows:
+   - `:article` and `:comments` in the plain remote-data slice shape.
+   - `:comment-form` in the plain form slice shape.
+   - Route-driven loads reading the current slug from the runtime-db
+     coeffect at `[:rf.runtime/routing :current :params :slug]`.
+   - Optimistic post/delete flows that roll back via ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [realworld-shared.avatar :as avatar]
@@ -30,23 +31,25 @@
   (str (article-path slug) "/comments"))
 
 ;; ============================================================================
-;; RECORDABLE COEFFECTS  (EP-0017)
+;; RECORDABLE COEFFECTS
 ;; ============================================================================
 ;;
-;; The optimistic temp-id is written into durable app-db (the optimistic card is
-;; conj'd into `[:comments :data]`) AND used as a join key — it correlates the
-;; optimistic card with its eventual save (`:comment-form/submit-success`) or
-;; rollback (`:comment-form/submit-error`). Per EP-0010 a value that is written
-;; durably OR used as a join key MUST be folded from a recordable coeffect, not
-;; read ambiently at the write site — otherwise replay mints a different id and
-;; the correlation no longer matches. The EP-0017 authoring surface is a
-;; RECORDABLE `reg-cofx`: the generator runs at context-assembly, the minted id
-;; is recorded onto the causal token, and replay re-presents it verbatim.
-;; `:comment-form/submit` DECLARES it via `:rf.cofx/requires` and reads it flat
-;; from the coeffects map — the handler stays pure and replayable.
+;; The optimistic temp-id is written into durable app-db (the optimistic
+;; card is conj'd into `[:comments :data]`) and used as a join key — it
+;; correlates the optimistic card with its eventual save
+;; (`:comment-form/submit-success`) or rollback
+;; (`:comment-form/submit-error`). A value written durably or used as a
+;; join key must come from a recordable coeffect, not a fresh
+;; `random-uuid` at the write site — otherwise replay mints a different id
+;; and the correlation breaks. So this is a recordable `reg-cofx`: the
+;; supplier runs once, the id is recorded onto the causal token, and replay
+;; re-presents it verbatim. `:comment-form/submit` declares it via
+;; `:rf.cofx/requires` and reads it flat, staying pure and replayable. See
+;; the coeffects guide:
+;; ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
 (rf/reg-cofx :realworld/temp-comment-id
   {:recordable? true
-   :doc "Replayable optimistic temp-id for a newly-posted comment (EP-0017)."}
+   :doc "Replayable optimistic temp-id for a newly-posted comment."}
   (fn [] (str "temp-" (random-uuid))))
 
 ;; ============================================================================
@@ -72,14 +75,16 @@
 ;; ============================================================================
 
 (rf/reg-event :article/load
-  {:doc "Load the article matching `[:rf.runtime/routing :current :params :slug]`
-         (EP-0001: the route slice is durable runtime-db state).
+  {:doc "Load the article matching
+         `[:rf.runtime/routing :current :params :slug]` (the route lives in
+         runtime-db).
 
-         This handler demonstrates Spec 014's *default reply addressing*:
-         no `:on-success` / `:on-failure` is supplied, so the framework
-         re-dispatches the reply back to this same event id with
-         `:rf/reply` merged into the original message map. The handler
-         body branches on `(:rf/reply msg)` — one event id, two roles."
+         This handler shows default reply addressing: with no `:on-success`
+         / `:on-failure`, the framework re-dispatches the reply back to this
+         same event id, merging `:rf/reply` into the original message map.
+         The body branches on `(:rf/reply msg)` — one event id, two roles.
+         See the HTTP guide on when request and reply belong together:
+         ../../../docs/resources/http.md#when-request-and-reply-belong-together"
    :rf.http/decode-schemas [schema/ArticleResponse]
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ msg]]
@@ -119,9 +124,9 @@
 
 (rf/reg-event :comments/load
   {:doc "Load comments for the current article. Uses explicit success /
-         failure handlers (cf. :article/load above which uses default
-         reply addressing) — both shapes are valid Spec 014; pick whichever
-         reads best for the handler."
+         failure handlers (cf. :article/load above, which uses default
+         reply addressing) — both shapes are valid; pick whichever reads
+         best for the handler."
    :rf.http/decode-schemas [schema/CommentsResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
@@ -165,12 +170,13 @@
         (update-in [:comment-form :touched] (fnil conj #{}) field))}))
 
 (rf/reg-event :comment-form/submit
-  {:doc "Optimistically post a new comment. NO retry — the user clicked
+  {:doc "Optimistically post a new comment. No retry — the user clicked
          once. The temp-id correlates the optimistic UI card with the
-         eventual save / rollback (Spec 014 - explicit on-success/on-failure
-         where the partial event vector pre-populates correlation args). The
-         temp-id is FOLDED from a recordable coeffect (EP-0017 — see the
-         `:realworld/temp-comment-id` reg-cofx above), never minted ambiently."
+         eventual save / rollback: the partial event vectors in
+         `:on-success` / `:on-failure` pre-populate the correlation arg. The
+         temp-id comes from a recordable coeffect (the
+         `:realworld/temp-comment-id` reg-cofx above), never a fresh
+         `random-uuid` at the write site."
    :rf.http/decode-schemas [schema/CommentResponse]
    :rf.cofx/requires [:realworld/temp-comment-id]}
   (fn [{:keys [db] rt :rf.db/runtime temp-id :realworld/temp-comment-id} _]
@@ -187,13 +193,12 @@
                                  :image     (:image user)
                                  :following false}}]
       (if (str/blank? body)
-        ;; Client-side validation failure. Per Pattern-Forms
-        ;; §:submit-error vs :errors: validation messages live in
+        ;; Client-side validation failure. Validation messages live in
         ;; `:errors` (`:_form` for whole-form, otherwise per-field);
-        ;; `:submit-error` is reserved for transport / non-field
-        ;; HTTP failures. Flip :submit-attempted? so the view's
-        ;; per-field-error sub reveals the :body error even on a
-        ;; fresh, never-:touched textarea.
+        ;; `:submit-error` is reserved for transport / non-field HTTP
+        ;; failures. Flip :submit-attempted? so the view's per-field-error
+        ;; sub reveals the :body error even on a fresh, never-:touched
+        ;; textarea.
         {:db (-> db
                  (assoc-in [:comment-form :submit-attempted?] true)
                  (assoc-in [:comment-form :errors] {:body "Comment body is required."})
@@ -389,9 +394,9 @@
   (fn [db _] (:comment-form db)))
 
 (rf/reg-sub :comment-form/field-error
-  {:doc "Per-field validation error for the comment form. Per
-         Pattern-Forms §Error visibility: reveal every error after the
-         first submit click, OR once the field is :touched."}
+  {:doc "Per-field validation error for the comment form. Reveal every
+         error after the first submit click, or once the field is :touched.
+         See the forms how-to: ../../../docs/guide/how-to/build-a-form.md"}
   :<- [:comment-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)
@@ -478,13 +483,12 @@
        (= article-status :loading)
        [:div.article-preview "Loading article…"]
 
-       ;; Only surface the error view when there is NO article to show.
-       ;; A failed RE-fetch (`:status :error`) of an already-loaded
-       ;; article leaves the prior `:data` in place — render it (the
-       ;; `article` branch below) rather than blanking a page the user is
-       ;; reading. Pattern-RemoteData: never blank loaded data on a
-       ;; refresh failure. (cf. tags.cljs, where the machine keeps prior
-       ;; `:tags` visible across a `:fetch-failed`.)
+       ;; Only surface the error view when there is no article to show. A
+       ;; failed re-fetch (`:status :error`) of an already-loaded article
+       ;; leaves the prior `:data` in place — render it (the `article`
+       ;; branch below) rather than blanking a page the user is reading.
+       ;; Never blank loaded data on a refresh failure. (tags.cljs keeps
+       ;; prior `:tags` visible across a `:fetch-failed` the same way.)
        (and article-error (nil? article))
        [:div.article-preview.error
         (str "Couldn't load article: " (pr-str article-error))]

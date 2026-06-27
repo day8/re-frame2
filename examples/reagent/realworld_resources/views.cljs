@@ -1,31 +1,30 @@
 (ns realworld-resources.views
   "Views + the small event glue for the RealWorld-on-resources example.
 
-   Every page reads its server-state PASSIVELY through `[:rf.resource/*]` subs
-   (Spec 016 §Subscriptions) — no view fetches. The route's `:resources`
-   metadata caused the load. The cond over `:loading?` / `:has-data?` /
-   `:error` / `:fetching?` / `:refresh-error` is the canonical resource render
-   shape:
+   Every page reads its server-state PASSIVELY through `[:rf.resource/*]` subs —
+   no view fetches. The route's `:resources` metadata caused the load. The cond
+   over `:loading?` / `:has-data?` / `:error` / `:fetching?` / `:refresh-error` is
+   the canonical resource render shape:
    - `:loading?`                         → skeleton (first load, no data)
    - `:error` AND NOT `:has-data?`       → error (first load failed)
    - else render `:data`, plus a quiet refresh indicator while `:fetching?`,
      plus a refresh warning when a background refresh failed (`:refresh-error`,
      prior data kept).
+   See resource status: ../../../docs/resources/glossary.md#resource-status.
 
    WRITES fire mutations (`:rf.mutation/execute`) and watch the instance
    passively (`[:rf.mutation/state {:instance …}]`); the success continuation is
-   the call-site `:reply-to` event target (EP-0016 D1), dispatched once when the
-   reply is accepted, AFTER the mutation's `:invalidates` refetched the affected
-   reads — the read→write→invalidate→refetch loop, end to end, plus a stale-safe
-   reply-side continuation, with NO off-render reactions in this ns.
+   the call-site `:reply-to` event target, dispatched once when the reply is
+   accepted, AFTER the mutation's `:invalidates` refetched the affected reads —
+   the read→write→invalidate→refetch loop, end to end, with NO off-render
+   reactions in this ns.
 
-   Scope: every page reads through `[:rf.resource/*]` subs that resolve their
-   OWN scope. The public reads carry the sub-resolvable `:rf.scope/global`
-   policy; the session-scoped feed declares `:scope {:from-db :realworld/session}`
+   Scope: every page reads through `[:rf.resource/*]` subs that resolve their OWN
+   scope. The public reads carry the sub-resolvable `:rf.scope/global` policy; the
+   session-scoped feed declares `:scope {:from-db :realworld/session}`
    (resources.cljs), a named-resolver reference the subscription resolves against
-   app-db and RE-KEYS reactively across login / logout (Spec 016 §A `{:from-db
-   …}` subscription re-keys). No view threads a `:scope` payload — the resolver
-   is the single scope-resolution currency."
+   app-db and RE-KEYS reactively across login / logout. No view threads a
+   `:scope` payload — the resolver is the single scope-resolution currency."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.resources]
@@ -127,20 +126,20 @@
 ;; The official Conduit article page carries contextual controls: a non-author
 ;; viewer follows/unfollows the AUTHOR; the author sees Edit (→ /editor/:slug)
 ;; and Delete. Logged-out viewers see neither. Both the follow continuation and
-;; the delete continuation are call-site `:reply-to` targets (EP-0016 D1) —
-;; the mutation reply-side seam, declared at the call site rather than emulated
-;; with Form-3 settle reactions on the article page.
+;; the delete continuation are call-site `:reply-to` targets — the mutation
+;; reply-side seam, declared at the call site rather than emulated with Form-3
+;; settle reactions on the article page.
 
 (rf/reg-event :ui/follow-author
   {:doc "Follow / unfollow the article author from the detail page. Fires the
-         follow / unfollow mutation; the detail page's embedded `:author` lives
-         in the `[:article slug]` entry (not the `[:profile username]` resource
-         the follow mutation invalidates), so the article is re-staled when the
-         follow SETTLES — by the `:reply-to [:ui/follow-author-replied slug]`
-         continuation, which carries the slug. (Staling eagerly here would
-         refetch before the server processed the follow, so the embedded flag
-         would read its old value; the continuation fires AFTER the accepted
-         reply.) Auth-gated."}
+         follow / unfollow mutation; the detail page's embedded `:author` lives in
+         the `[:article slug]` entry (not the `[:profile username]` resource the
+         follow mutation invalidates), so the article is re-staled when the follow
+         SETTLES — by the `:reply-to [:ui/follow-author-replied slug]`
+         continuation, which carries the slug. (Staling eagerly here would refetch
+         before the server processed the follow, so the embedded flag would read
+         its old value; the continuation fires AFTER the accepted reply.)
+         Auth-gated."}
   (fn [{:keys [db]} [_ slug username following?]]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
@@ -152,14 +151,13 @@
                          :cause    [:click :ui/follow-author username]}]]]})))
 
 (rf/reg-event :ui/follow-author-replied
-  {:doc "Follow / unfollow completion continuation (the `:reply-to` target,
-         EP-0016 D1). On `:ok`, stale the current article so its embedded
-         `:author.following` refetches — the follow mutation invalidates
-         `[:profile username]`, but the detail's embedded author flag lives in
-         the `[:article slug]` entry, which only this call site knows the slug
-         for. The slug rides as a static call-site arg; the reply map is
-         appended after it. Global scope — the article read is
-         `:rf.scope/global`."}
+  {:doc "Follow / unfollow completion continuation (the `:reply-to` target). On
+         `:ok`, stale the current article so its embedded `:author.following`
+         refetches — the follow mutation invalidates `[:profile username]`, but the
+         detail's embedded author flag lives in the `[:article slug]` entry, which
+         only this call site knows the slug for. The slug rides as a static
+         call-site arg; the reply map is appended after it. Global scope — the
+         article read is `:rf.scope/global`."}
   (fn [_ [_ slug {:keys [status]}]]
     (if (= :ok status)
       {:fx [[:dispatch [:rf.resource/invalidate-tags
@@ -238,13 +236,13 @@
        [rf/route-link {:to :realworld.profile/show :params {:username (:username author)} :class "author"}
         (:username author)]
        [:span.date createdAt]]
-      ;; OPTIMISTIC favorite (EP-0019). The heart + count already reflect the
-      ;; click — the `:optimistic-tags` apply flipped the cached article before
-      ;; the request left, so `favorited` / `favoritesCount` (read from the
-      ;; resource cache) are already the new values. We DON'T disable the button
-      ;; on `:pending?` — the user sees their change land instantly; a failed
-      ;; write rolls it back. `:optimistic?` marks "showing my optimistic value,
-      ;; not yet confirmed" for a subtle in-flight cue.
+      ;; OPTIMISTIC favorite. The heart + count already reflect the click — the
+      ;; `:optimistic-tags` apply flipped the cached article before the request
+      ;; left, so `favorited` / `favoritesCount` (read from the resource cache)
+      ;; are already the new values. We DON'T disable the button on `:pending?` —
+      ;; the user sees their change land instantly; a failed write rolls it back.
+      ;; `:optimistic?` marks "showing my optimistic value, not yet confirmed" for
+      ;; a subtle in-flight cue.
       [:button.btn.btn-outline-primary.btn-sm.pull-xs-right
        {:type "button"
         :data-testid (str "favorite-" slug)
@@ -295,8 +293,7 @@
                   first-loads, the resource state carries `:previous? true` +
                   `:previous-data` (the prior key's articles). We render those
                   PLUS a placeholder indicator so the user sees the old page,
-                  not a skeleton, until the new page settles — no flicker
-                  (Spec 016 §Paginated and previous data)."}
+                  not a skeleton, until the new page settles — no flicker."}
           article-list [{:keys [state empty-msg current-page on-page]}]
   (cond
     ;; First-ever load with no usable data AND no previous page to show.
@@ -340,10 +337,10 @@
                   of band. The personalised feed reads through the named
                   `{:from-db :realworld/session}` scope resolver: the
                   subscription resolves its own scope (no `:scope` payload to
-                  thread) and re-keys reactively across login / logout (Spec 016
-                  §A `{:from-db …}` subscription re-keys). Favouriting reflects
-                  in Your Feed via the mutation's own session-scoped invalidation
-                  descriptor — no off-render reaction, no app-level feed patch."}
+                  thread) and re-keys reactively across login / logout.
+                  Favouriting reflects in Your Feed via the mutation's own
+                  session-scoped invalidation descriptor — no off-render reaction,
+                  no app-level feed patch."}
           home-page []
   (let [authed?      @(subscribe [:auth/authenticated?])
         your-feed?   @(subscribe [:home/your-feed?])
@@ -351,8 +348,7 @@
         page         @(subscribe [:home/page])
         tags-state   @(subscribe [:rf.resource/state {:resource :realworld/tags :params {}}])
         ;; The global list is keyed by the active `:tag` AND `:page` — the SAME
-        ;; params the route ensured under, so the sub reads the right cache key
-        ;; (Spec 016 §Paginated and previous data).
+        ;; params the route ensured under, so the sub reads the right cache key.
         list-state   @(subscribe [:rf.resource/state {:resource :realworld/articles
                                                        :params  {:tag selected-tag :page page}}])
         ;; The personalised feed: the resource declares `:scope {:from-db
@@ -466,13 +462,12 @@
 
 (reg-view ^{:doc "The article-detail page — a pure function of subs that never
                   dispatches out of band. The two settle continuations the page
-                  needs are the mutations' own `:reply-to` targets (EP-0016
-                  D1): deleting fires `:ui/delete-article` → `:reply-to
-                  [:ui/article-deleted]` (navigate home), and following the
-                  author fires `:ui/follow-author` → `:reply-to
-                  [:ui/follow-author-replied slug]` (re-stale `[:article slug]`
-                  so the embedded author flag refetches). No Form-3 wrapper, no
-                  off-render reaction."}
+                  needs are the mutations' own `:reply-to` targets: deleting
+                  fires `:ui/delete-article` → `:reply-to [:ui/article-deleted]`
+                  (navigate home), and following the author fires
+                  `:ui/follow-author` → `:reply-to [:ui/follow-author-replied
+                  slug]` (re-stale `[:article slug]` so the embedded author flag
+                  refetches). No Form-3 wrapper, no off-render reaction."}
           article-page []
   (let [slug          (:slug @(subscribe [:rf.route/params]))
         current-user  @(subscribe [:auth/user])
@@ -502,13 +497,13 @@
             (when (:fetching? article-state)
               [:span {:data-testid "article-refreshing"} " (refreshing…)"])
             [:span.article-controls
-             ;; The official RealWorld article-detail favorite
-             ;; control shows visible "Favorite"/"Unfavorite" text and toggles
+             ;; The official RealWorld article-detail favorite control shows
+             ;; visible "Favorite"/"Unfavorite" text and toggles
              ;; `.btn-outline-primary` ↔ `.btn-primary` on the favorited flag —
              ;; the E2E contract asserts on both. (The compact heart-only card
              ;; button stays `.btn-outline-primary`, correct per the official
              ;; client.)
-             ;; OPTIMISTIC favorite (EP-0019): the label, the
+             ;; OPTIMISTIC favorite: the label, the
              ;; `.btn-primary`/`.btn-outline-primary` class, and the count all
              ;; flip the instant the heart is clicked (the cached article was
              ;; patched before the request left), then settle to the server's

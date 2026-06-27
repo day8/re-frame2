@@ -1,29 +1,23 @@
 (ns login.stories
-  "Story showcase for the **login** worked example.
+  "Story showcase for the login worked example.
 
-   The login form's view-states form a natural Story VARIANT SET —
-   Story's core strength is enumerating a single view's view-states
-   side by side. This file registers one `reg-variant` per reachable
-   state of the example's `:auth.login/flow` machine so the Story
-   controls panel flips the page through every state without the
-   reader hand-driving the form.
+   The login form's view-states make a natural Story variant set —
+   Story's strength is enumerating one view's states side by side. This
+   file registers one `reg-variant` per reachable state of the example's
+   `:auth.login/flow` machine, so the controls panel flips the page
+   through every state without the reader hand-driving the form. See the
+   Story guide (docs/story/index.md).
 
-   ## The variant set — grounded in the example's real machine
-
-   `login.core` models the login flow as the five-state
-   `:auth.login/flow` machine (`spec/005`):
+   The machine has five states:
 
        :idle → :submitting → {:error-shown | :authed | :locked-out}
 
-   The variants below map onto the states a reader actually reaches,
-   driven through REAL events (fidelity `:event`) — the bead's
-   highest-fidelity requirement, mirroring the nine_states showcase:
+   The variants map onto the states a reader actually reaches, each
+   driven through real events:
 
      :story.login/empty               — fresh `:idle` form.
      :story.login/filled              — a draft typed into the app-db
-                                        login-form slice via real
-                                        `:auth.login/edit-field` events;
-                                        still `:idle`, nothing submitted.
+                                        login-form slice; still `:idle`.
      :story.login/submitting          — request in flight, `:submitting`
                                         (`:auth/busy`), inputs disabled.
      :story.login/invalid-credentials — a malformed `:submit` rejected
@@ -31,29 +25,15 @@
                                         Xray's Issues ribbon.
      :story.login/auth-error          — `:error-shown` after a 401.
      :story.login/locked-out          — `:locked-out` after the retry
-                                        limit is exceeded (the example's
-                                        distinctive fourth terminal
-                                        state — no testbed counterpart).
+                                        limit is exceeded.
      :story.login/success             — `:authed` welcome banner; the
                                         canonical screenshot.
 
-   ### The `:filled` variant is event-reachable now
+   The auth-submit cascade in Xray
 
-   The bead's conceptual list names a `filled` state. Since the login
-   form was refactored to Pattern-Forms, the email/password DRAFT lives
-   in app-db at `[:auth :login-form]` (NOT a component-local Reagent
-   atom), mutated by the `:auth.login/edit-field` event. A Story
-   `:setup` drives EVENTS — so `:filled` is now honestly reachable at
-   fidelity `:event` by dispatching real edit-field events to seed the
-   draft, exactly the way a user's keystrokes would. No synthetic
-   `:db-seed` is needed; the variant below stays event-honest.
-
-   ## Xray-richness — the auth-submit cascade
-
-   Story allocates each variant its own frame under `:preset :story`
-   (spec/002 §Frame presets), which redirects `:rf.http/managed` to
-   the framework-shipped `:rf.http/managed-canned-success` stub. So a
-   real submit runs the FULL auth cascade end to end:
+   Each variant runs in its own frame under `:preset :story`, which
+   redirects `:rf.http/managed` to the framework's canned-success stub.
+   So a real submit runs the full auth cascade end to end:
 
        [:auth.login/flow [:auth.login/submit creds]]   (→ :submitting)
          → machine `:issue-request` action
@@ -62,33 +42,25 @@
                  → [:auth.login/flow [:auth.login/success …]]
                      → :authed
 
-   That whole chain lands on the Epoch tape + the Trace stream, and the
+   The whole chain lands on the Epoch tape and the Trace stream, and the
    `:rf.http/managed` fx shows in the Side Effects panel — pick the
-   `:success` variant, press Ctrl+Shift+C, and watch the submit cascade
-   light up Xray end to end.
+   `:success` variant, press Ctrl+Shift+C, and watch it light up.
 
-   Two variants light Xray's Issues ribbon (the bead's failure-path
-   requirement):
+   Two variants light Xray's Issues ribbon:
      - `:invalid-credentials` — the malformed `:submit` is rejected by
-       the `Credentials` schema at the event boundary (`:no-recovery`);
-       the handler never runs and an Issue is raised.
+       the `Credentials` schema at the event boundary; the handler never
+       runs and an Issue is raised.
      - `:auth-error` / `:locked-out` — a 401 failure cascade; the
        `:rf.http/managed` request fires (Side Effects) and the
        `:auth.login/failure` follow-on records the error.
 
-   ## Authoring discipline
+   Every variant body is plain data — no fn-slots. The view at the
+   centre of each is the example's own `login.core/root-view`,
+   referenced by id. The canonical Story tags auto-install on the first
+   `reg-*` call, so no explicit boot step is needed.
 
-   Per spec/007 §Variants every variant body is plain data — no
-   fn-slots. The view at the centre of each variant is the example's
-   own `login.core/root-view`, referenced by id. The canonical Story
-   tags auto-install on the first `reg-*` call, so no
-   explicit boot step is needed.
-
-   This is a parallel SHOWCASE to the gate-side `login_form` testbed
-   (`tools/story/testbeds/login_form`), which stays the fixture for
-   Story's own tests. Examples are test-free: these
-   stories carry NO `:script` / `:rf.assert/*` — they are a showcase,
-   not a test surface."
+   Examples are test-free: these stories carry no `:script` /
+   `:rf.assert/*` — they are a showcase, not a test surface."
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
             ;; Source the example's registrations (the machine, schemas,
@@ -100,24 +72,20 @@
 ;; ---------------------------------------------------------------------------
 ;; Story-side submit event — the Xray-rich auth-submit cascade.
 ;;
-;; The live example's machine `:issue-request` action issues a real
-;; `:rf.http/managed` request to `/api/login` and routes the reply back
-;; through `:auth.login/success` / `:auth.login/failure`. In the live
-;; `#/` app, `login.core/run` redirects `:rf.http/managed` to the demo
-;; stub. Inside the Story shell each variant frame runs under
-;; `:preset :story`, which redirects `:rf.http/managed` to the
-;; framework-shipped `:rf.http/managed-canned-success` stub instead —
-;; that stub echoes the request's `:value` slot back as the success
-;; payload (Spec 014 §Testing).
+;; The machine's `:issue-request` action issues a real `:rf.http/managed`
+;; request and routes the reply back through `:auth.login/success` /
+;; `:auth.login/failure`. Each variant frame runs under `:preset :story`,
+;; which redirects `:rf.http/managed` to the framework's canned-success
+;; stub (that stub echoes the request's `:value` slot back as the success
+;; payload).
 ;;
-;; So this Story submit event simply dispatches the real
-;; `:auth.login/submit` sub-event: the SAME machine action fires the
-;; SAME real `:rf.http/managed` fx (visible in Xray's Side Effects
-;; panel), and the canned-success stub resolves it deterministically —
-;; no app-side fx-override required. The success reply's `:value` is the
-;; stub's echo of the (absent) request `:value`, i.e. nil; the welcome
-;; banner keys off the `:auth/authenticated` tag, not the value, so the
-;; cascade lands cleanly at `:authed`.
+;; So this event simply dispatches the real `:auth.login/submit`
+;; sub-event: the same machine action fires the same real
+;; `:rf.http/managed` fx (visible in Xray's Side Effects panel), and the
+;; canned-success stub resolves it — no app-side fx-override needed. The
+;; reply `:value` is nil (the request carries none), but the welcome
+;; banner keys off the `:auth/authenticated` tag, so the cascade lands
+;; cleanly at `:authed`.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event :login.story/submit
@@ -134,11 +102,9 @@
 ;; ---------------------------------------------------------------------------
 ;; register-all!
 ;;
-;; Wrap every registration in a top-level fn so a hot-reload could
-;; re-fire the lot after a clear-all!. The fn fires once at namespace
-;; load via the trailing call, so consumers who just `:require` this ns
-;; get the side-table populated. (No test fixture — examples are
-;; test-free.)
+;; Every registration lives in one top-level fn so a hot-reload can
+;; re-fire the lot. The fn runs once at namespace load via the trailing
+;; call, so requiring this ns populates the Story registry.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private good-creds
@@ -175,8 +141,8 @@
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
-  ;; reg-variant — the reachable states, each driven through REAL events
-  ;; (fidelity `:event`); no `:db-seed` / `:sub-overrides`.
+  ;; reg-variant — the reachable states, each driven through real events;
+  ;; no `:db-seed` / `:sub-overrides`.
   ;; -------------------------------------------------------------------------
 
   ;; Empty — the entry state. The variant fires a no-op
@@ -192,11 +158,10 @@
      :substrates #{:reagent}})
 
   ;; Filled — the user has typed into both fields but not yet submitted.
-  ;; Event-honest at fidelity `:event`: the draft is seeded by dispatching
-  ;; the SAME `:auth.login/edit-field` events the controlled inputs fire on
-  ;; keystroke, writing into the app-db login-form slice. The machine stays
-  ;; `:idle` (no submit yet); the inputs render the seeded draft as their
-  ;; `:value`.
+  ;; The draft is seeded by dispatching the same `:auth.login/edit-field`
+  ;; events the controlled inputs fire on keystroke, writing into the
+  ;; app-db login-form slice. The machine stays `:idle` (no submit yet);
+  ;; the inputs render the seeded draft as their `:value`.
   (story/reg-variant :story.login/filled
     {:doc        "Both fields filled in, nothing submitted yet — the form
                  mid-edit. The draft was typed into the app-db login-form
@@ -225,9 +190,8 @@
      :substrates #{:reagent}})
 
   ;; Invalid credentials — a malformed `:submit` (short password, bad
-  ;; email) is rejected by the `Credentials` boundary schema BEFORE the
-  ;; handler runs (Spec 010 §Validation order step 1; recovery
-  ;; `:no-recovery`). The machine never transitions out of `:idle`; the
+  ;; email) is rejected by the `Credentials` boundary schema before the
+  ;; handler runs. The machine never transitions out of `:idle`; the
   ;; rejection raises an Issue that lights Xray's Issues ribbon.
   (story/reg-variant :story.login/invalid-credentials
     {:doc        "A malformed submit (too-short password) is rejected at
@@ -261,12 +225,11 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Locked out — the example's distinctive fourth terminal state. Once
-  ;; the flow has had three prior failed attempts the `:under-retry-limit`
-  ;; guard fails, so the next failure routes to `:locked-out` (and the
-  ;; `:lock-account` action fires a real `:rf.http/managed` lock request).
-  ;; The variant sequences submit → failure four times to exhaust the
-  ;; limit. No testbed counterpart — unique to this example's machine.
+  ;; Locked out — the fourth terminal state. Once the flow has had three
+  ;; prior failed attempts the `:under-retry-limit` guard fails, so the
+  ;; next failure routes to `:locked-out` (and the `:lock-account` action
+  ;; fires a real `:rf.http/managed` lock request). The variant sequences
+  ;; submit → failure four times to exhaust the limit.
   (story/reg-variant :story.login/locked-out
     {:doc        "Too many failed attempts — the `:under-retry-limit`
                  guard fails on the fourth failure and the flow reaches

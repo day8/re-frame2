@@ -1,10 +1,10 @@
 (ns realworld.favorites
   "Favorite/unfavorite actions plus the authenticated user's feed.
 
-   The favorite toggle is shared across the home feed, profile lists,
-   and the article-detail page. The followed-authors feed is a distinct
-   Pattern-RemoteData slice so the home page can switch between feeds
-   without throwing away already-loaded global articles."
+   The favorite toggle is shared across the home feed, profile lists, and
+   the article-detail page. The followed-authors feed is its own remote-data
+   slice so the home page can switch between feeds without throwing away
+   already-loaded global articles."
   (:require [re-frame.core :as rf]
             [realworld.schema :as schema]
             [realworld.http :as rh]))
@@ -53,18 +53,17 @@
     {:db (assoc db :feed (request-slice))}))
 
 (rf/reg-event :feed/load
-  {:doc "Fetch the authenticated user's feed. Tagged with
+  {:doc "Fetch the authenticated user's feed. Carries
          `:request-id :feed/load` so :feed/cancel can abort an in-flight
-         load when the user navigates away (Spec 014 §Aborts).
+         load when the user navigates away.
 
          Also broadcasts `:fetch-started` into the home machine so the
          `:data` region advances to `:loading` (or `:refreshing` from
          `:some`).
 
-         `?page=` (the home route's 1-indexed pagination page, durable
-         runtime-db routing state) becomes the wire's limit/offset window via
-         `rh/paginate-path` — the same official RealWorld pagination the global
-         feed uses."
+         `?page=` (the home route's 1-indexed page) becomes the wire's
+         limit/offset window via `rh/paginate-path` — the same pagination
+         the global feed uses."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
@@ -85,8 +84,9 @@
                           :on-failure [:feed/load-failed]})]]})))
 
 (rf/reg-event :feed/cancel
-  {:doc "Abort an in-flight :feed/load. Useful when the user navigates
-         away mid-load (Spec 014 §Aborts)."}
+  {:doc "Abort an in-flight :feed/load — e.g. when the user navigates away
+         mid-load. See the HTTP guide on aborts:
+         ../../../docs/resources/http.md#the-search-box-race-cured"}
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :feed/load]]}))
 
@@ -121,9 +121,9 @@
 ;; FAVORITES
 ;; ============================================================================
 ;;
-;; Optimistic rollback shapes across the app (ITEM 5). realworld
-;; has three optimistic-with-rollback flows and they DELIBERATELY use three
-;; different rollback shapes — because the thing being rolled back differs:
+;; Optimistic rollback shapes across the app. realworld has three
+;; optimistic-with-rollback flows, and they use three different rollback
+;; shapes on purpose — because the thing being rolled back differs:
 ;;
 ;;   - favorite (here): snapshots {:favorited :favoritesCount} and patches
 ;;     the article EVERYWHERE it appears (across the :articles / :feed /

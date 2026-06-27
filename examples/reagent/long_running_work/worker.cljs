@@ -2,36 +2,34 @@
   "The worker + parent-coordinator machines for the long-running-work
    example.
 
-   Pattern-LongRunningWork's `:spawn-all`-shape: the parent coordinator
-   spawns N children via :spawn-all; each child processes its own shard
-   cooperatively (yielding to the browser between chunks via `:after`);
-   children dispatch `:progress` events back to the parent for UI; on
-   completion each child dispatches the parent's `:on-child-done`
-   keyword. When all N report done the runtime fires the parent's
-   `:on-all-complete`. The user can `:cancel` mid-flight; the parent
-   transitions out of `:working` and the standard exit cascade tears
-   down every surviving child via `:rf.machine/destroy` fx — including
-   any in-flight `:after` timers a worker had pending.
+   The `:spawn-all` shape: the parent coordinator spawns N children;
+   each child processes its own shard cooperatively, yielding to the
+   browser between chunks via `:after`; children dispatch `:progress`
+   events back to the parent for the UI; on completion each child
+   dispatches the parent's `:on-child-done` keyword. When all N report
+   done the runtime fires the parent's `:on-all-complete`. The user can
+   `:cancel` mid-flight; the parent leaves `:working` and the exit
+   cascade tears down every surviving child via the
+   `:rf.machine/destroy` fx — including any `:after` timers a worker had
+   pending. See the `:spawn` glossary entry
+   (docs/machines/glossary.md#spawn).
 
-   This is the canonical re-frame2 expression of:
+   This is how you express:
 
      - 'Run N parallel tasks and join on all done.'
      - 'Show progress.'
-     - 'Cancellation must be reliable on EVERY exit path —
-        including the user navigating away mid-flight.'
+     - 'Cancellation must be reliable on every exit path — including
+        the user navigating away mid-flight.'
 
-   Why one parent + N children rather than one big chunked machine: each
-   shard is independent, parallelisable, and lets the demo show *both*
-   join semantics (`:on-all-complete`) AND the cascade-teardown contract
-   (`:cancel-on-decision?` defaults to true; `:work/flow` `:cancel`
-   transition exits the state and the desugared :exit fires the
-   per-child destroy)."
+   One parent + N children (rather than one big chunked machine)
+   because each shard is independent and parallelisable, and it lets
+   the demo show both the join (`:on-all-complete`) and the
+   cascade-teardown: the `:work/flow` `:cancel` transition leaves the
+   state and that exit fires the per-child destroy."
   (:require [re-frame.core :as rf]
-            ;; The Spec 005 state-machine ns lives in the
-            ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/reg-machine
-            ;; (called below at ns-load) and the `:rf/machine` /
-            ;; `:rf/machine-has-tag?` framework subs resolve.
+            ;; Loading re-frame.machines wires up the runtime so
+            ;; rf/reg-machine (called below at ns-load) and the
+            ;; `:rf/machine` / `:rf/machine-has-tag?` subs resolve.
             [re-frame.machines]
             [long-running-work.schema :as schema]))
 
@@ -57,9 +55,9 @@
 (def parent-id
   "The parent coordinator machine's registered id. Children hard-code
    this in their dispatch-back so they can address the parent without
-   any per-child plumbing. Per Spec 005 §Child completion protocol:
-   for static `:spawn-all` declarations the parent-id is a literal
-   in the parent's source, so the child simply hard-codes it."
+   any per-child plumbing. For a static `:spawn-all` declaration the
+   parent id is a literal in the parent's own source, so the child can
+   simply name it."
   :work/flow)
 
 ;; ============================================================================
@@ -99,12 +97,10 @@
    :initial :idle
 
    ;; Validates the child's initial `:data` at spawn time, before the
-   ;; snapshot installs (Spec 005 §Schema validation §Spawn-time
-   ;; validation). This is how a spawned child's shape is boundary-
-   ;; checked: the runtime addresses each instance by a gensym'd id
-   ;; (e.g. `:work/processor#0`), so no fixed `reg-app-schema` path can
-   ;; reach it — the machine `[:schemas :data]` slot validates the spawn
-   ;; regardless of id. (See schema.cljs ns docstring.)
+   ;; snapshot installs. This is how a spawned child's shape is checked:
+   ;; the runtime gives each instance its own id (e.g. `:work/processor#0`),
+   ;; so no fixed app-db path can reach it — the machine `[:schemas :data]`
+   ;; slot validates the spawn regardless of id. (See schema.cljs.)
    :schemas {:data schema/ProcessorData}
 
    ;; The :data is materialised from the parent's per-child invoke-spec
@@ -129,15 +125,13 @@
    :actions
    {:process-one
     ;; Process one item. In a real app this is whatever the per-item
-    ;; computation is (encoding, parsing, indexing, ...). For this
-    ;; demo we just bump the counter — the load-bearing thing the
-    ;; example shows is the yield + progress-reporting + cancellation
-    ;; shape, not the per-item work.
+    ;; computation is (encoding, parsing, indexing, ...). Here we just
+    ;; bump the counter — what the example shows is the yield +
+    ;; progress-reporting + cancellation shape, not the per-item work.
     ;;
-    ;; The action also dispatches a :progress event back to the
-    ;; parent so the UI's progress bar updates between chunks. The
-    ;; parent's :on map handles :progress as a self-transition with
-    ;; an action that updates :data :progress.
+    ;; The action also dispatches a :progress event back to the parent
+    ;; so the UI's progress bar updates between chunks. The parent
+    ;; handles :progress as a self-transition that updates :data :progress.
     (fn action-process-one [{:keys [data]}]
       (let [shard         (:shard data)
             new-processed (inc (:processed data))]
@@ -146,11 +140,9 @@
 
     :dispatch-done
     ;; Terminal action: dispatch the parent's :on-child-done keyword.
-    ;; The runtime intercepts the event at the parent's machine
-    ;; boundary and updates the join state at
-    ;;   [:rf.runtime/machines :spawned :work/flow [:working] :done]
-    ;; The second-position arg is the user-supplied shard id (e.g.
-    ;; :s1) so the parent can address which child completed.
+    ;; The runtime intercepts this at the parent's machine boundary and
+    ;; updates the join state. The second arg is the shard id (e.g. :s1)
+    ;; so the parent can tell which child completed.
     (fn action-dispatch-done [{:keys [data]}]
       (let [shard (:shard data)]
         {:fx [[:dispatch [parent-id [:work/child-done shard]]]]}))}
@@ -181,16 +173,14 @@
               {:guard :more-work? :target :yielding}]}
 
     :yielding
-    ;; The canonical browser-yield seam. :after carries a runtime
-    ;; clock-driven delay; the standard cancellation cascade (the
-    ;; parent's `:exit` action) tears down the in-flight timer on
-    ;; child-destroy, so a worker cancelled mid-yield does NOT
-    ;; resume after the delay elapses.
+    ;; The browser-yield seam. :after carries a runtime clock-driven
+    ;; delay; the cancellation cascade tears down the in-flight timer on
+    ;; child-destroy, so a worker cancelled mid-yield does NOT resume
+    ;; after the delay elapses.
     ;;
-    ;; The :after key is a (fn [{:keys [snapshot]}] ms) form per Spec
-    ;; 005 §Value shape (unified context-map) — reads the per-child
-    ;; :tick-ms out of :data so tests / callers can
-    ;; stagger or zero-out the delay.
+    ;; The :after key is a (fn [ctx] ms) form: it reads the per-child
+    ;; :tick-ms out of :data so tests and callers can stagger or
+    ;; zero-out the delay.
     {:tags  #{:work/running :work/cancellable :work/yielding}
      :after {(fn after-tick-ms [{snap :snapshot}]
                (or (-> snap :data :tick-ms) default-tick-ms))
@@ -205,13 +195,12 @@
      :entry :dispatch-done}
 
     :cancelled
-    ;; Declared but never entered by the example's transitions: in this
-    ;; example the parent cancels the child by tearing it down via the
-    ;; :rf.machine/destroy fx (Spec 005 §Cancellation cascade), not by
-    ;; routing a cancel event in. The state stays in the spec so the
-    ;; machine's tag union exposes #{:work/cancelled} to tools (snapshot
-    ;; inspectors, conformance harnesses), and so an app that DOES route
-    ;; cancellation as an in-FSM event has somewhere to land.
+    ;; Declared but never entered by this example's transitions: the
+    ;; parent cancels a child by tearing it down via the
+    ;; :rf.machine/destroy fx, not by routing a cancel event in. The
+    ;; state stays so the machine's tag union exposes #{:work/cancelled}
+    ;; to tools, and so an app that DOES route cancellation as an in-FSM
+    ;; event has somewhere to land.
     {:meta {:terminal? true}
      :tags #{:work/cancelled}}}})
 
@@ -222,11 +211,10 @@
 ;; ============================================================================
 ;;
 ;; Three children, one parent, one declarative :spawn-all entry. The
-;; parent has no per-child bookkeeping in :data beyond the aggregated
+;; parent's :data holds no per-child bookkeeping beyond the aggregated
 ;; :progress map (the user wants to see it; the runtime doesn't read
-;; it). The :children / :done / :failed / :resolved? join-state map
-;; lives in runtime-db under [:rf.runtime/machines :spawned :work/flow [:working]] — runtime
-;; owned per Spec 005 §Spawn-id tracking.
+;; it). The join-state map — which children are done, failed, resolved —
+;; is runtime-owned and lives in runtime-db.
 
 (def shards
   "The shard ids this demo processes in parallel. Three is enough to
@@ -250,9 +238,9 @@
              :progress (zipmap shards (repeat 0))
              :outcome  nil}
 
-   ;; Validates the snapshot's :data slot. The snapshot lives in runtime-db
-   ;; ([:rf.runtime/machines :snapshots :work/flow]), so [:schemas :data] — not
-   ;; an app-schema — is the validation surface (EP-0001, Mike ruling #11).
+   ;; Validates the snapshot's :data slot. The snapshot lives in
+   ;; runtime-db, so [:schemas :data] — not an app-schema — is the
+   ;; validation surface.
    :schemas {:data schema/FlowData}
 
    :actions
@@ -294,20 +282,17 @@
             :reset {:target :idle    :action :reset-progress}}}
 
     :working
-    ;; The :spawn-all-bearing state. On entry the runtime emits one
-    ;; :rf.machine/spawn-all-init fx (seeds the join-state map) plus
-    ;; N :rf.machine/spawn fxs (one per child). On exit (by ANY
-    ;; transition including :cancel / :work/all-done), the runtime
-    ;; emits a single :rf.machine/destroy fx carrying :rf/spawn-all
-    ;; true; the destroy fx handler reads the join-state's :children
-    ;; map and tears each surviving child down.
+    ;; The :spawn-all-bearing state. On entry the runtime seeds the
+    ;; join-state map and spawns one child per entry below. On exit (by
+    ;; ANY transition, including :cancel / :work/all-done) it fires a
+    ;; single :rf.machine/destroy fx that reads the join state and tears
+    ;; every surviving child down.
     ;;
-    ;; The :progress event is the per-step report from a child. It's
-    ;; a self-transition (same target :working) with an action that
-    ;; updates :data :progress. Because :progress is NOT the parent's
-    ;; :on-child-done / :on-child-error keyword, it is NOT intercepted
-    ;; by the :spawn-all join machinery — the runtime feeds it
-    ;; straight into the parent's :on lookup.
+    ;; The :progress event is the per-step report from a child. It's an
+    ;; internal self-transition that updates :data :progress. Because
+    ;; :progress is NOT the parent's :on-child-done / :on-child-error
+    ;; keyword, the join machinery doesn't intercept it — the runtime
+    ;; feeds it straight into the parent's :on lookup.
     {:tags #{:flow/working}
      :spawn-all
      {:children [{:id :s1 :machine-id :work/processor
@@ -319,19 +304,18 @@
       :join             :all
       ;; The keywords children dispatch back. The runtime intercepts
       ;; events whose inner-event-id matches these and updates the
-      ;; join-state at [:rf.runtime/machines :spawned :work/flow [:working]].
+      ;; join state.
       :on-child-done    :work/child-done
       :on-child-error   :work/child-error
       ;; The events the runtime dispatches into the parent when the
       ;; join resolves. The parent's :on table below handles each.
       :on-all-complete  [:work/all-done]
       :on-any-failed    [:work/any-failed]}
-     :on    {;; Progress reports — INTERNAL self-transition (no :target):
+     :on    {;; Progress reports — internal self-transition (no :target):
              ;; the action runs but :exit / :entry do NOT fire, so the
-             ;; :spawn-all entry cascade does not re-spawn children and
-             ;; the exit cascade does not tear them down. Per Spec 005
-             ;; §Transitions §Internal vs external self-transitions: omit
-             ;; :target for internal-self.
+             ;; :spawn-all entry cascade doesn't re-spawn children and the
+             ;; exit cascade doesn't tear them down. Omit :target to get
+             ;; an internal self-transition.
              :progress        {:action :record-progress}
              ;; Join-resolution events. The runtime dispatches these
              ;; into the parent when :on-all-complete / :on-any-failed
@@ -340,9 +324,8 @@
              :work/all-done   {:target :complete  :action :stamp-outcome}
              :work/any-failed {:target :error     :action :stamp-outcome}
              ;; Cooperative user-driven cancellation. The transition
-             ;; exits :working; the desugared :spawn-all exit fires
-             ;; one :rf.machine/destroy fx with :rf/spawn-all true;
-             ;; the destroy fx handler tears down every surviving
+             ;; leaves :working, and that exit fires one
+             ;; :rf.machine/destroy fx that tears down every surviving
              ;; child.
              :cancel          {:target :cancelled :action :stamp-outcome}}}
 

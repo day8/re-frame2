@@ -1,59 +1,49 @@
 (ns realworld-resources.article-editor
   "Create / edit / delete an article — the RealWorld-on-resources editor.
 
-   This is the form-heavy, flow-bearing page the focused `resources/` demo never
-   shows: the resources-variant counterpart of the `:rf.http/managed` sibling's
-   `realworld/article_editor.cljs`. It exercises three things at once:
+   A form-heavy, flow-bearing page that exercises three things at once:
 
    1. The WRITE is a MUTATION. `:realworld/save-article` POSTs `/articles`
       (create) or PUTs `/articles/:slug` (edit) and declares per-target scoped
-      `:invalidates` descriptors (EP-0016 D2) — the global article tags
-      (`[:article slug]` / `[:article-list]`) in `:rf.scope/global`, and the
-      session `[:feed]` in `{:from-db :realworld/session}` — so on success the
-      detail read, every list showing the article, AND the session feed refetch
-      with NO further wiring (the read→write→invalidate→refetch loop, end to
-      end; one mutation reaches both scopes). A `:realworld/delete-article`
-      mutation invalidates the same tags. The write
-      lifecycle is the mutation INSTANCE watched through `[:rf.mutation/state
-      {:instance …}]` — there is no `:status` app-db field.
+      `:invalidates` descriptors — the global article tags (`[:article slug]` /
+      `[:article-list]`) in `:rf.scope/global`, and the session `[:feed]` in
+      `{:from-db :realworld/session}` — so on success the detail read, every list
+      showing the article, AND the session feed refetch with NO further wiring
+      (one mutation reaches both scopes). A `:realworld/delete-article` mutation
+      invalidates the same tags. The write lifecycle is the mutation INSTANCE
+      watched through `[:rf.mutation/state {:instance …}]` — there is no `:status`
+      app-db field.
 
-   2. The can-submit gate is a SPEC 013 FLOW. `:editor/can-submit?` materialises
-      \"the draft is valid AND differs from the loaded baseline\" into app-db at
+   2. The can-submit gate is a FLOW. `:editor/can-submit?` materialises \"the
+      draft is valid AND differs from the loaded baseline\" into app-db at
       `[:editor :can-submit?]`. The submit handler reads it as plain data (no
       mid-handler subscribe); the submit button reads it through a plain sub over
-      the flow's `:output-path` (Spec 013 §Sub integration). The flow is registered
-      per-frame from `:editor/initialise` via `:rf.fx/reg-flow` so it binds to
-      whatever frame the app booted on.
+      the flow's `:output-path`. The flow is registered per-frame from
+      `:editor/initialise` via `:rf.fx/reg-flow` so it binds to whatever frame the
+      app booted on. See the flow glossary:
+      ../../../docs/guide/glossary.md#flow.
 
    3. A navigation `:can-leave` guard. The editor route declares
       `:can-leave [:editor/can-leave?]`; a dirty draft blocks navigation away and
-      the app-shell renders a confirm dialog off the `:rf/pending-navigation`
-      sub (see core.cljs). Clean (or saved) drafts leave freely.
+      the app-shell renders a confirm dialog off the `:rf/pending-navigation` sub
+      (see core.cljs). Clean (or saved) drafts leave freely. See route guard:
+      ../../../docs/routing/glossary.md#route-guard.
 
-   The save / delete SUCCESS continuation (navigate to the saved article, or
-   home on delete) is the mutation's call-site `:reply-to [:editor/replied]`
-   target (EP-0016 D1) — the same idiom settings.cljs uses. When the runtime
-   accepts the reply, it dispatches `[:editor/replied reply]` once, AFTER the
-   `:invalidates` staled the lists + feed and the instance settled; the
-   continuation branches save-vs-delete on the reply value. Save and delete
-   share one instance, so they share one continuation. (Only the seed-on-load
-   reaction stays a Form-3 reaction — it watches a RESOURCE read settle, which
-   has no reply-side continuation.) The render bodies are pure functions of subs
-   and never dispatch out of band.
-
-   Contrast the sibling: its editor models the SAME page with Pattern-NineStates
-   (a parallel `:mode` × `:lifecycle` machine) + a managed-HTTP write whose
-   `:on-success` carries the continuation for free. Here the lifecycle IS the
-   mutation instance, the mode is the route, and the continuation is the
-   `:reply-to` target — the resources-variant expression of the same shapes."
+   The save / delete SUCCESS continuation (navigate to the saved article, or home
+   on delete) is the mutation's call-site `:reply-to [:editor/replied]` target —
+   the same idiom settings.cljs uses. When the runtime accepts the reply, it
+   dispatches `[:editor/replied reply]` once, AFTER the `:invalidates` staled the
+   lists + feed and the instance settled; the continuation branches save-vs-delete
+   on the reply value. Save and delete share one instance, so they share one
+   continuation. (Only the seed-on-load reaction stays a Form-3 reaction — it
+   watches a RESOURCE read settle, which has no reply-side continuation.) The
+   render bodies are pure functions of subs and never dispatch out of band."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.http.managed]
             [re-frame.resources]
-            ;; Flows ship in day8/re-frame2-flows (Spec 013). Loading the ns
-            ;; publishes its late-bind hooks so the `:rf.fx/reg-flow` effect
-            ;; resolves; without it the effect raises
-            ;; :rf.error/flows-artefact-missing.
+            ;; Flows runtime. Loading the ns publishes the hooks so the
+            ;; `:rf.fx/reg-flow` effect resolves; without it the effect raises.
             [re-frame.flows]
             [reagent.core :as r]
             [reagent.ratom :as ratom]
@@ -110,21 +100,20 @@
   :editor/save)
 
 ;; ============================================================================
-;; THE FLOW — :editor/can-submit?  (Spec 013 §Flows)
+;; THE FLOW — :editor/can-submit?
 ;; ============================================================================
 ;;
-;; Materialises a derived boolean — \"the draft passes client-side validation
-;; AND differs from the loaded baseline\" — into app-db at `[:editor
-;; :can-submit?]`. WHY A FLOW (Spec 013 §When to use a flow): the
-;; `:editor/submit` handler reads this value as plain app-db data to gate the
-;; submit (the \"other event handlers read the value\" criterion); a sub would
-;; force the handler to subscribe mid-handler. The submit button reads the same
-;; materialised value through a plain sub over the `:output-path`.
+;; Materialises a derived boolean — \"the draft passes client-side validation AND
+;; differs from the loaded baseline\" — into app-db at `[:editor :can-submit?]`.
+;; WHY A FLOW: the `:editor/submit` handler reads this value as plain app-db data
+;; to gate the submit; a sub would force the handler to subscribe mid-handler. The
+;; submit button reads the same materialised value through a plain sub over the
+;; `:output-path`. See the flow glossary: ../../../docs/guide/glossary.md#flow.
 ;;
 ;; Registered per-frame via `:rf.fx/reg-flow` from `:editor/initialise` (not at
-;; ns-load) so it binds to whatever frame the app booted on (Spec 013 §Dynamic
-;; toggle via fx). The flow's first walk fires on the NEXT drain; a fresh editor
-;; starts invalid + clean anyway, so the one-event lag carries no stale value.
+;; ns-load) so it binds to whatever frame the app booted on. The flow's first walk
+;; fires on the NEXT drain; a fresh editor starts invalid + clean anyway, so the
+;; one-event lag carries no stale value.
 
 (def can-submit-flow
   {:id     :editor/can-submit?
@@ -161,8 +150,8 @@
    ;; an edit's slug also stales its own detail entry. The create path has no
    ;; prior slug, so it stales only the lists (the new detail is read fresh on
    ;; navigate). The session feed lives in the session scope, so it gets its
-   ;; own per-target descriptor naming `{:from-db :realworld/session}`
-   ;; (EP-0016 D2) — one mutation reaches both scopes.
+   ;; own per-target descriptor naming `{:from-db :realworld/session}` — one
+   ;; mutation reaches both scopes.
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global
                       :tags  (cond-> #{[:article-list]}
@@ -182,8 +171,8 @@
                    detail + lists + feed."
    :params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   ;; Global article tags + the session feed, each in its own scope (EP-0016
-   ;; D2 — see :realworld/save-article above).
+   ;; Global article tags + the session feed, each in its own scope (see
+   ;; :realworld/save-article above).
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global
                       :tags  #{[:article slug] [:article-list]}}
@@ -203,8 +192,7 @@
 (rf/reg-event :editor/initialise
   {:doc "Create-mode entry (`:realworld.editor/new` `:on-match`). Reset the
          editor slice to a blank draft, clear any prior save instance, and
-         register the `:editor/can-submit?` flow against the dispatching frame
-         (Spec 013 §Dynamic toggle via fx)."}
+         register the `:editor/can-submit?` flow against the dispatching frame."}
   (fn [{:keys [db]} _]
     {:db (assoc db :editor (editor-slice))
      :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
@@ -240,8 +228,8 @@
 (rf/reg-event :editor/release-article
   {:doc "Release the edit-mode article lease (dispatched on unmount). Drops the
          editor's owner on the article read so it can go inactive / GC. The
-         release path is mandatory for an app-minted lease (Spec 016 §Active
-         owners — event-created owners MUST have a matching release path)."}
+         release path is mandatory for an app-minted lease — event-created owners
+         MUST have a matching release path."}
   (fn [_ [_ slug]]
     (when slug
       {:fx [[:dispatch [:rf.resource/release-owner
@@ -262,10 +250,10 @@
 
 (rf/reg-event :editor/submit
   {:doc "Save the article. Reads the `:editor/can-submit?` FLOW output straight
-         off app-db (Spec 013 §Sub integration (a)) — a materialised derived
-         value consumed as plain data, no subscribe ceremony. Valid-and-dirty
-         fires the save mutation; an invalid draft re-runs validation to
-         populate the per-field error map; valid-but-unchanged is a no-op."}
+         off app-db — a materialised derived value consumed as plain data, no
+         subscribe ceremony. Valid-and-dirty fires the save mutation; an invalid
+         draft re-runs validation to populate the per-field error map;
+         valid-but-unchanged is a no-op."}
   (fn [{:keys [db]} _]
     (let [{:keys [slug draft]} (:editor db)
           can-submit? (get-in db [:editor :can-submit?])
@@ -290,25 +278,25 @@
                                        slug (assoc :slug slug))
                            :instance save-instance
                            ;; The save-success continuation is the call-site
-                           ;; `:reply-to` (EP-0016 D1) — not an off-render
-                           ;; reaction. The save and delete writes share one
-                           ;; instance, so they share one continuation that
-                           ;; branches on the reply (`:value` carries the saved
-                           ;; Article for a save; a delete returns no body).
+                           ;; `:reply-to` — not an off-render reaction. The save
+                           ;; and delete writes share one instance, so they share
+                           ;; one continuation that branches on the reply
+                           ;; (`:value` carries the saved Article for a save; a
+                           ;; delete returns no body).
                            :reply-to [:editor/replied]
                            :cause    [:submit :editor/save]}]]]}))))
 
 (rf/reg-event :editor/replied
   {:doc "The save / delete mutation completion continuation (the `:reply-to`
-         target, EP-0016 D1). Receives the canonical reply map appended as the
-         final arg, observed AFTER the mutation's `:invalidates` staled the
-         lists + feed and the instance settled (phase 6). On a successful SAVE
-         (`:value` carries the saved `{:article …}`), re-seed the editor from
-         the saved article so the draft is clean — the `:can-leave` guard won't
-         block — clear the instance, and navigate to the article detail. On a
-         successful DELETE (no `:article` in the reply value), clear the slice
-         + instance and go home. On `:error` the form already shows the error
-         off the instance state; nothing more to do."}
+         target). Receives the canonical reply map appended as the final arg,
+         observed AFTER the mutation's `:invalidates` staled the lists + feed and
+         the instance settled. On a successful SAVE (`:value` carries the saved
+         `{:article …}`), re-seed the editor from the saved article so the draft
+         is clean — the `:can-leave` guard won't block — clear the instance, and
+         navigate to the article detail. On a successful DELETE (no `:article` in
+         the reply value), clear the slice + instance and go home. On `:error` the
+         form already shows the error off the instance state; nothing more to
+         do."}
   (fn [{:keys [db]} [_ {:keys [status value]}]]
     (cond
       (not= :ok status) {}
@@ -348,7 +336,7 @@
 
 (rf/reg-sub :editor/field-error
   {:doc "Per-field validation error — revealed after the first submit attempt
-         OR once the field is touched (Pattern-Forms §Error visibility)."}
+         OR once the field is touched."}
   :<- [:editor/slice]
   (fn [e [_ field]]
     (when (or (:submit-attempted? e) (contains? (:touched e) field))
@@ -356,9 +344,9 @@
 
 (rf/reg-sub :editor/can-submit?
   {:doc "Reads the `:editor/can-submit?` FLOW output at its app-db `:output-path`
-         (Spec 013 §Sub integration (b)) — a flow's output is ordinary app-db
-         state read through a plain sub. Drives the submit button. nil until the
-         flow's first walk lands, which `(boolean …)` normalises to false."}
+         — a flow's output is ordinary app-db state read through a plain sub.
+         Drives the submit button. nil until the flow's first walk lands, which
+         `(boolean …)` normalises to false."}
   (fn [db _]
     (boolean (get-in db [:editor :can-submit?]))))
 
@@ -367,9 +355,10 @@
   (fn [e _] (not= (:draft e) (:baseline e))))
 
 (rf/reg-sub :editor/can-leave?
-  {:doc "The route `:can-leave` guard query (Spec 012 §Redirects and guards): a
-         clean (or just-saved) draft leaves freely; a dirty draft blocks and the
-         app shell shows the confirm dialog off `:rf/pending-navigation`."}
+  {:doc "The route `:can-leave` guard query: a clean (or just-saved) draft leaves
+         freely; a dirty draft blocks and the app shell shows the confirm dialog
+         off `:rf/pending-navigation`. See route guard:
+         ../../../docs/routing/glossary.md#route-guard."}
   :<- [:editor/dirty?]
   (fn [dirty? _] (not dirty?)))
 
@@ -449,10 +438,9 @@
    pure `editor-form-view`; the mount hook installs ONE off-render reaction that
    seeds the draft when an edit-mode article read settles with data. (The
    save/delete SUCCESS continuation is the mutation's `:reply-to
-   [:editor/replied]` target, EP-0016 D1, not an off-render reaction. A
-   reply-side continuation only exists for the mutation write; the seed reaction
-   watches a RESOURCE read settle, which has no reply-to, so it stays a Form-3
-   reaction.)
+   [:editor/replied]` target, not an off-render reaction. A reply-side
+   continuation only exists for the mutation write; the seed reaction watches a
+   RESOURCE read settle, which has no reply-to, so it stays a Form-3 reaction.)
    `rf/frame-handle` is captured here (during render, under the frame-provider),
    so the reaction's dispatch carries the frame; unmount disposes the reaction
    and releases the edit-mode article lease."

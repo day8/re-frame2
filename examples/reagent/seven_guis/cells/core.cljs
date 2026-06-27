@@ -4,42 +4,34 @@
    A small spreadsheet with cells A1..Z100. Each cell holds either a literal
    value or a formula. Formulas reference other cells. Changes propagate.
 
-   The 7GUIs page calls this out as a test of *change propagation through
-   a dependency graph*. The classic trap is hand-rolled per-cell observers
-   that go stale (correctness bugs). The re-frame2 approach leans on the
-   reaction layer instead: each cell's display value is a registered
-   subscription (`:cells/value`) parameterised by id, derived purely from
-   `app-db`'s cell map.
+   This is a test of change propagation through a dependency graph. Each
+   cell's display value is a subscription (`:cells/value`) parameterised by
+   id, derived purely from the cell map in app-db. The subscription layer
+   handles propagation, so there are no hand-maintained per-cell observers
+   to keep in sync.
 
-   How propagation actually works here: every `:cells/value` sub takes the
-   whole cell map (`:cells/all-cells`) as its single input, so committing
-   ANY cell produces a fresh map identity and recomputes EVERY mounted
-   value reaction — dependent or not. This is the recompute-everything
-   shape, but it stays cheap because (a) the evaluator is a pure function
-   and the grid is small (26×100), and (b) the reaction layer `=`-dedups
-   each computed value, so a cell whose result is unchanged does not
-   re-render. The win is correctness for free: there are no hand-maintained
-   per-cell dependency edges to keep in sync. (True per-cell propagation —
-   a signal keyed on each referenced id rather than the whole map — is a
-   larger change and not warranted at this scale.)
+   Every `:cells/value` sub takes the whole cell map (`:cells/all-cells`) as
+   its single input. Committing any cell produces a fresh map identity, so
+   every mounted value reaction recomputes — dependent or not. This stays
+   cheap because the evaluator is a pure function over a small grid (26×100),
+   and the subscription layer `=`-dedups each result, so a cell whose value
+   is unchanged does not re-render. See the derivation graph in
+   ../../../../docs/guide/glossary.md#the-derivation-graph.
 
    Demonstrates:
    - Pure derivation of every cell from a single shared input sub
-   - Reaction-layer `=`-dedup avoiding re-render of unchanged cells
+   - `=`-dedup in the subscription layer avoiding re-render of unchanged cells
    - Cycles detected via a visited-set walk during evaluation
    - Typed error markers propagated through arithmetic (never throws)
    - Open-map cell registry (sparse storage)
    - Pure parser + evaluator (no eval, no host I/O)
 
    Scope: 26 cols × 100 rows. Formulas of the form '=expr' where expr is a
-   simple S-expression-flavored calculator (numbers, +, -, *, /, cell refs).
-   Excel-style infix is left for a future iteration; the shape of the
-   solution doesn't change."
+   simple S-expression-flavored calculator (numbers, +, -, *, /, cell refs)."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
-            ;; Loading the ns here registers its late-bind hooks so
-            ;; rf/reg-app-schema resolves.
+            ;; Loading re-frame.schemas registers the hooks that make
+            ;; rf/reg-app-schema resolve.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -85,10 +77,10 @@
    [:editing-id  [:maybe :string]]])
 
 ;; Register the app-db schema for the app frame. `reg-app-schema` needs a
-;; frame in scope, so at ns-load — before the provider has mounted — we
-;; name the frame with `with-frame :rf/default` (the id `run`'s provider
-;; uses). Binding is by frame id, so this works no matter when the frame
-;; is created; once it exists, the schema validates its `[:cells]` commits.
+;; frame in scope, so `with-frame :rf/default` names the frame `run` mounts.
+;; The schema binds by frame id, so this works at ns-load even though the
+;; frame does not exist yet; once it does, the schema validates its
+;; `[:cells]` commits.
 (with-frame :rf/default
   (rf/reg-app-schema [:cells] {:schema CellsState}))
 
@@ -307,8 +299,8 @@
 ;;
 ;; The :cells/value sub is parameterised by id — `(subscribe [:cells/value
 ;; "A1"])`. Each cell's display value derives from the full cells map, so
-;; every value reaction recomputes on any edit; the reaction layer =-dedups
-;; the result so only cells whose value actually changed re-render.
+;; every value reaction recomputes on any edit; the subscription layer
+;; =-dedups the result so only cells whose value actually changed re-render.
 
 (rf/reg-sub :cells/all-cells
   {:doc "The sparse cell map (only edited cells are present). Single input to
@@ -397,25 +389,21 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
+;; The React root is held in an atom and created lazily inside `run`, not at
+;; ns-load. ns-load must produce no DOM side effects, so co-required example
+;; namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; The whole frame lives in one spot at the render root: the
-;; `frame-provider {:id app-frame …}` in `run`. On first mount it creates
-;; the app frame, applies its config, and runs `:initial-events` once to
-;; seed app-db. Thereafter every `dispatch`/`subscribe` in the tree
-;; resolves to that frame. On hot reload the provider reuses the existing
-;; frame and skips re-seeding, so the grid keeps its values across
-;; re-mounts. (`init!` below only installs the adapter — the provider, not
-;; `init!`, creates the frame.) Matches the canonical mount in
-;; examples/reagent/counter/core.cljs.
+;; The frame lives in one spot: the `frame-provider {:id app-frame …}` in
+;; `run`. On first mount it creates the frame, applies its config, and runs
+;; `:initial-events` once to seed app-db. Thereafter every `dispatch` and
+;; `subscribe` in the tree resolves to that frame. On hot reload the provider
+;; reuses the existing frame and skips re-seeding, so the grid keeps its
+;; values. `init!` (below) only installs the adapter; the provider creates the
+;; frame. See ../../../../docs/guide/glossary.md#frame-provider.
 ;;
-;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame
-;; id with no framework privilege; we name it here and hand it to the
-;; provider like any other id.
+;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
+;; with no framework privilege.
 (def app-frame :rf/default)
 
 (defn run []

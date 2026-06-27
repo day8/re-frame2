@@ -3,8 +3,8 @@
 
    These describe the shape of every wire payload the RealWorld API returns,
    plus the shape of each app-db slice that holds them. The schemas are
-   registered with re-frame2 via `reg-app-schemas` (the bulk plural form)
-   for path-based validation per Spec 010.
+   registered for path-based validation via `reg-app-schemas`. See the
+   schemas how-to: ../../../docs/guide/how-to/validate-with-schemas.md
 
    The RealWorld API spec is documented at:
      https://github.com/gothinkster/realworld/tree/main/api
@@ -17,9 +17,9 @@
    - Authentication tokens are JWT strings, returned as the `:token` field
      of the `User` payload after login or registration."
   (:require [re-frame.core :as rf]
-            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
-            ;; Loading the ns here registers its late-bind hooks so
-            ;; rf/reg-app-schemas resolves at the call site below.
+            ;; Schemas ship in the re-frame2-schemas artefact. Requiring
+            ;; the ns registers its hooks so `rf/reg-app-schemas` resolves
+            ;; at the call site below.
             [re-frame.schemas])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
@@ -30,16 +30,16 @@
 (def User
   "The authenticated user's profile. Returned by /users/login,
    /users (register), and /user (current user)."
-  ;; EP-0025 / Spec 015: the JWT is classified at the transient slot that
-  ;; introduces it, via the per-slot `:sensitive?` malli property on the
-  ;; `:decode` schema (the transient-response-body route — the one schema-prop
-  ;; route that survives). `UserResponse` is the `:decode` schema for the login
-  ;; / register / session-restore replies, so this redacts the token out of any
-  ;; off-box capture of the response body. The durable copy at [:auth :token]
-  ;; is classified separately by the `:auth/classify-token` commit-plane
-  ;; `:sensitive` effect (core.cljs) — classification does not propagate, so
-  ;; each surface a secret crosses is declared on its own; the Bearer header is
-  ;; on the framework's built-in carrier denylist.
+  ;; Classify the JWT at the transient slot that introduces it, via the
+  ;; per-slot `:sensitive?` Malli property on the `:decode` schema.
+  ;; `UserResponse` is the `:decode` schema for the login / register /
+  ;; session-restore replies, so this redacts the token out of any off-box
+  ;; capture of the response body. The durable copy at [:auth :token] is
+  ;; classified separately by `:auth/classify-token` (core.cljs) —
+  ;; classification does not propagate, so each surface a secret crosses is
+  ;; declared on its own; the Bearer header is on the framework's built-in
+  ;; carrier denylist. See the keep-secrets how-to:
+  ;; ../../../docs/guide/how-to/keep-secrets-out-of-traces.md
   [:map
    [:email    :string]
    [:token    {:sensitive? true} :string]
@@ -85,7 +85,8 @@
 ;;
 ;; The Conduit API wraps every payload in a singular/plural top-level key.
 ;; These schemas describe the wire-shape envelope; they are passed as the
-;; `:decode` key to `:rf.http/managed` per Spec 014 §Schema-driven decode.
+;; `:decode` key to `:rf.http/managed`. See the HTTP guide on `:decode`:
+;; ../../../docs/resources/http.md#validating-the-body-with-decode
 
 (def UserResponse
   "POST /users/login, POST /users (register), GET /user."
@@ -119,11 +120,10 @@
   [:map [:tags [:vector :string]]])
 
 ;; ============================================================================
-;; APP-DB SLICES — Pattern-RemoteData shape per resource
+;; APP-DB SLICES — remote-data slice shape per resource
 ;; ============================================================================
 ;;
-;; Every slice that holds remote data follows the standard 5-key shape from
-;; spec/Pattern-RemoteData.md.
+;; Every slice that holds remote data follows the same 5-key shape.
 
 (def RequestSlice
   "The standard remote-data lifecycle slice. Generic over the :data type.
@@ -160,13 +160,13 @@
      [:id     :keyword]
      [:params [:maybe :map]]]]])
 
-;; Machine snapshots live in the framework-owned **runtime-db** partition at
-;; [:rf.runtime/machines :snapshots <id>], NOT in app-db. `reg-app-schema`
-;; validates the app-db partition only (EP-0001, Mike ruling #11), so a machine
-;; snapshot's shape is validated through the machine's own `[:schemas :data]` slot
-;; (which describes the snapshot's `:data` map) rather than an app-schema on a
-;; runtime path. The `*Data` schemas below are attached as `[:schemas :data]` where
-;; each machine is registered (auth.cljs / tags.cljs / settings.cljs).
+;; Machine snapshots live in the runtime-db partition at
+;; [:rf.runtime/machines :snapshots <id>], not in app-db. `reg-app-schema`
+;; validates the app-db partition only, so a machine snapshot's shape is
+;; validated through the machine's own `[:schemas :data]` slot (which
+;; describes the snapshot's `:data` map) rather than an app-schema on a
+;; runtime path. The `*Data` schemas below are attached as `[:schemas :data]`
+;; where each machine is registered (auth.cljs / tags.cljs / settings.cljs).
 
 (def AuthFlowData
   "The `:data` slot of the `:auth/flow` machine snapshot."
@@ -174,11 +174,10 @@
    [:error [:maybe :string]]])
 
 (def TagsData
-  "The `:data` slot of the `:realworld/tags` machine snapshot — the
-   :data-region machine variant of Pattern-RemoteData. The
-   state-keyword IS the Pattern-RemoteData status enum; `:data` carries
-   the items, error, loaded-at, and attempt fields that the slice form
-   would store in the slice itself."
+  "The `:data` slot of the `:realworld/tags` machine snapshot, where the
+   remote-data lifecycle lives entirely in the machine. The state-keyword
+   is the status enum; `:data` carries the items, error, loaded-at, and
+   attempt fields the slice form would store in the slice itself."
   [:map
    [:tags      [:vector :string]]
    [:error     [:maybe :any]]
@@ -186,11 +185,11 @@
    [:attempt   :int]])
 
 (def SettingsFormData
-  "The `:data` slot of the `:settings/form` machine snapshot — the
-   :form-region machine variant of Pattern-Forms. The state-keyword
-   IS the form lifecycle (`:neutral` / `:incorrect` / `:correct`
-   + `:submitting`); `:data` carries the draft + per-field
-   validation state + the projected submit-error string."
+  "The `:data` slot of the `:settings/form` machine snapshot, where the
+   form lifecycle lives entirely in the machine. The state-keyword is the
+   lifecycle (`:neutral` / `:incorrect` / `:correct` + `:submitting`);
+   `:data` carries the draft + per-field validation state + the projected
+   submit-error string."
   [:map
    [:draft        :map]
    [:submitted    [:maybe :map]]
@@ -210,10 +209,10 @@
    [:submit-error [:maybe :string]]])
 
 (def EditorSlice
-  ;; NOTE: the state vocabulary (`:mode` = :create/:edit, lifecycle `:status`)
-  ;; lives in the :ui/article-editor machine snapshot (runtime-db), NOT this
-  ;; app-db slice — see `editor-slice` in article_editor.cljs (:54-67), whose
-  ;; map never carries `:mode`/`:status`. The slice carries only the data.
+  ;; The state vocabulary (`:mode` = :create/:edit, lifecycle `:status`)
+  ;; lives in the :ui/article-editor machine snapshot (runtime-db), not this
+  ;; app-db slice — see `editor-slice` in article_editor.cljs. The slice
+  ;; carries only the data.
   [:map
    [:slug [:maybe :string]]
    [:draft [:map
@@ -230,10 +229,8 @@
    [:errors :map]
    [:touched [:set :keyword]]
    [:submit-attempted? {:optional true} :boolean]
-   ;; Materialised output of the :editor/can-submit? flow (Spec 013).
-   ;; Optional because the flow's first walk (right after the handler,
-   ;; before the db install) lands one event after :editor/initialise
-   ;; (Spec 013 §Sequencing).
+   ;; Output of the :editor/can-submit? flow. Optional because the flow's
+   ;; first walk lands one event after :editor/initialise.
    [:can-submit? {:optional true} :boolean]
    [:submit-error [:maybe :string]]])
 
@@ -241,24 +238,22 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 ;;
-;; Path-based schema attachment per Spec 010. The framework validates writes
-;; to these paths in development.
+;; Path-based schema attachment. The framework validates writes to these
+;; paths in development.
 ;;
-;; This example uses the bulk plural form `rf/reg-app-schemas`:
-;; a feature-modular app declares 5–20 schemas in one place, so a single
+;; This example uses the bulk plural form `rf/reg-app-schemas`: a single
 ;; `{path -> schema}` map reads more cleanly than a tower of singular
-;; `reg-app-schema` calls. Source-coords for the bulk call stamp every
-;; registered entry.
-
-;; All paths here are app-db paths. Machine snapshots are NOT app-db — they
-;; live in runtime-db and are validated through each machine's `[:schemas :data]`
-;; (the *Data schemas above), so they do not appear in this app-schema map.
+;; `reg-app-schema` calls.
 ;;
-;; EP-0002: reg-app-schemas is frame-local, so it needs a frame in context; a
-;; bare ns-load call would raise :rf.error/no-frame-context. `with-frame` names
-;; the target frame, `:rf/default`, so the schemas register against that id at
-;; load time. The frame-provider in core.cljs creates `:rf/default` at the
-;; render root and picks these schemas up when it does.
+;; All paths here are app-db paths. Machine snapshots are not app-db — they
+;; live in runtime-db and are validated through each machine's
+;; `[:schemas :data]` (the *Data schemas above), so they do not appear here.
+;;
+;; `reg-app-schemas` is frame-local, so it needs a frame in context; a bare
+;; ns-load call would raise :rf.error/no-frame-context. `with-frame` names
+;; the target frame, `:rf/default`, so the schemas register against that id
+;; at load time. The frame-provider in core.cljs creates `:rf/default` and
+;; picks these schemas up.
 (with-frame :rf/default
  (rf/reg-app-schemas
   {[:auth]                          AuthSlice

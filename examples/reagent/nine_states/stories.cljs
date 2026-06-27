@@ -3,38 +3,36 @@
 
    The nine canonical UI states (Nothing / Loading / Empty / One /
    Some / Too Many / Incorrect / Correct / Done) form a natural Story
-   VARIANT SET — Story's core strength is enumerating a single view's
-   view-states side by side. This file registers one `reg-variant`
-   per render-model keyword the root view `case`s over, so the Story
-   controls panel flips the page through every state without the
-   reader hand-driving the machine.
+   variant set — Story enumerates a single view's view-states side by
+   side. This file registers one `reg-variant` per render-model keyword
+   the root view `case`s over, so the Story controls panel flips the page
+   through every state without the reader hand-driving the machine.
 
    ## Where the nine come from
 
    `nine-states.core` collapses the `:ui/nine-states` machine's
-   parallel-region tag union into ONE render-model keyword via the
-   `:ui/render` selector sub (consulting the `render-priority`
-   table). The root view's `case` has exactly ten arms — the nine
-   canonical states plus the `:error` branch. The nine canonical
-   variants below map 1:1 onto the nine canonical render keywords:
+   parallel-region tag union into one render-model keyword via the
+   `:ui/render` selector sub (consulting the `render-priority` table).
+   The root view's `case` has exactly ten arms — the nine canonical
+   states plus the `:error` branch. The nine canonical variants below
+   map 1:1 onto the nine canonical render keywords:
 
      :nothing :loading :empty :one :some :too-many
      :incorrect :correct :done
 
-   The `:error` branch is the tenth render arm; it lives on a
-   SEPARATE `:story.nine-states-lifecycle` story (below) alongside
-   `:loading`/`:some` so the async **load → loading → loaded/error**
-   cascade reads as one lifecycle the reader can step through and
-   inspect in Xray (the bead's Xray-rich requirement). Keeping it off
-   the canonical nine keeps that set a clean 1:1 with the render
-   keywords.
+   The `:error` branch is the tenth render arm; it lives on a separate
+   `:story.nine-states-lifecycle` story (below) alongside `:loading` /
+   `:some`, so the async **load → loading → loaded/error** cascade reads
+   as one lifecycle the reader can step through and inspect in Xray.
+   Keeping it off the canonical nine keeps that set a clean 1:1 with the
+   render keywords.
 
    ## Fidelity — reach each state via real events
 
-   Every variant drives its state through REAL events into the
-   `:ui/nine-states` machine — the highest-fidelity path, so the
-   Story canvas shows exactly what the live app shows and Xray's
-   Epoch / Trace / Side Effects panels carry the genuine cascade:
+   Every variant drives its state through real events into the
+   `:ui/nine-states` machine — the highest-fidelity path, so the Story
+   canvas shows exactly what the live app shows and Xray's Epoch / Trace
+   / Side Effects panels carry the genuine cascade:
 
    - Nothing      — `[:nine-states.app/initialise]` (machine `:reset`).
    - Loading       — `[:ui/nine-states [:fetch-started]]` parks the
@@ -48,26 +46,22 @@
    - Correct       — edit a valid title + submit → `:submit-valid`.
    - Done          — load + archive → the `:mode` region reaches `:done`.
 
-   NO `:db-seed` / `:sub-overrides` are needed: every state is
-   reachable through an event path, so the fidelity is uniformly
-   `:event` (Story's controls panel + the Xray cascade tell the
-   truth on their own — no synthetic seeding to disclose).
+   Every state is reachable through an event path, so no `:db-seed` /
+   `:sub-overrides` are needed and the fidelity is uniformly `:event`.
 
    ## Xray-richness — the managed-HTTP cascade
 
-   Story allocates each variant its own frame under `:preset :story`
-   (spec/002 §Frame presets). The preset's contract is a SUCCESS stub
-   by DEFAULT: it redirects `:rf.http/managed` to the framework-shipped
-   `:rf.http/managed-canned-success` stub only (frame.cljc
-   `preset-expansion` — there is no automatic canned-failure branch).
-   A variant that wants the FAILURE path stamps its own
+   Story allocates each variant its own frame under `:preset :story`.
+   That preset redirects `:rf.http/managed` to the framework's
+   `:rf.http/managed-canned-success` stub by default — there is no
+   automatic failure branch. A variant that wants the failure path
+   stamps its own
    `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}`,
-   which wins over the preset default (the variant-owned `:fx-overrides`
-   replaces the preset's in the frame-config merge — see the lifecycle
-   `…/error` variant below). `:nine-states.story/load` issues a real
+   which wins over the preset default (see the lifecycle `…/error`
+   variant below). `:nine-states.story/load` issues a real
    `:rf.http/managed` request carrying the synthetic todos on the
    request's `:value` slot (the slot the canned-success stub echoes
-   back), so the FULL fetch lifecycle runs:
+   back), so the full fetch lifecycle runs:
 
        :nine-states.story/load
          → [:ui/nine-states [:fetch-started]]        (→ :loading)
@@ -77,23 +71,22 @@
                  → [:ui/nine-states [:fetch-succeeded …]]
                      → :resolving → :always cardinality bucket
 
-   That whole chain lands on the Epoch tape + the Trace stream, and
+   That whole chain lands on the Epoch tape and the Trace stream, and
    the `:rf.http/managed` fx shows in the Side Effects panel — so a
-   reader can pick the `:some` or `:error` variant and watch the
-   RemoteData fetch light up Xray end to end.
+   reader can pick the `:some` or `:error` variant and watch the fetch
+   light up Xray end to end.
 
    ## Authoring discipline
 
-   Per spec/007 §Variants every variant body is plain data — no
-   fn-slots. The view at the centre of each variant is the example's
-   own `nine-states.core/root-view`, referenced by id. The canonical
-   Story tags auto-install on the first `reg-*` call, so
-   no explicit boot step is needed."
+   Every variant body is plain data — no fn-slots. The view at the centre
+   of each variant is the example's own `nine-states.core/root-view`,
+   referenced by id. The canonical Story tags auto-install on the first
+   `reg-*` call, so no explicit boot step is needed."
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
-            ;; Source the example's registrations (the machine, the
-            ;; demo events/subs/views, the `:ui/render` selector). The
-            ;; variant bodies below reference its event-ids + the
+            ;; Source the example's registrations (the machine, the demo
+            ;; events / subs / views, the `:ui/render` selector). The
+            ;; variant bodies below reference its event-ids and the
             ;; `root-view` view-id as plain keywords; requiring the ns
             ;; fires every `reg-*` so those ids resolve.
             [nine-states.core]))
@@ -105,13 +98,12 @@
 ;; `:query {:n N}` and lets the app's own `:nine-states.http/managed-demo`
 ;; fx-override read `:n` to synthesise todos. Inside the Story shell the
 ;; per-variant frame runs under `:preset :story`, which redirects
-;; `:rf.http/managed` to the framework-shipped `:rf.http/managed-canned-
-;; success` stub instead — that stub echoes the request's `:value` slot
-;; back as the success payload (Spec 014 §Testing). So the Story load
-;; event puts the synthetic todos directly on `:value`, keeping the SAME
-;; real `:rf.http/managed` fx cascade the live app uses (visible in
-;; Xray's Side Effects panel) while staying deterministic under the
-;; canned stub — no app-side fx-override required.
+;; `:rf.http/managed` to the framework's `:rf.http/managed-canned-success`
+;; stub instead — that stub echoes the request's `:value` slot back as the
+;; success payload. So the Story load event puts the synthetic todos
+;; directly on `:value`, keeping the same real `:rf.http/managed` fx
+;; cascade the live app uses (visible in Xray's Side Effects panel) while
+;; staying deterministic under the canned stub.
 ;; ---------------------------------------------------------------------------
 
 (defn- gen-todos
@@ -145,24 +137,21 @@
          `:rf.http/managed` → reply → `:fetch-failed` — into the
          `:error` branch.
 
-         The `:story` preset's default fx-override routes
-         `:rf.http/managed` to the canned-SUCCESS stub (frame.cljc
-         `preset-expansion`), which would take the `:on-success` path.
-         The error VARIANT therefore stamps its own
+         The `:story` preset routes `:rf.http/managed` to the
+         canned-success stub by default, which would take the
+         `:on-success` path. So the error variant stamps its own
          `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}`
-         (a variant-owned `:fx-overrides` wins over the preset's via the
-         frame-config merge in `expand-preset`), so this same event runs
-         against the canned-FAILURE stub instead — that stub reads the
-         top-level `:kind`/`:tags` slots below, synthesises a failure
-         reply, and dispatches `:on-failure`, landing the `:data` region
-         at `:error`."}
+         (a variant-owned `:fx-overrides` wins over the preset's), and
+         this same event runs against the canned-failure stub instead —
+         that stub reads the top-level `:kind` / `:tags` slots below,
+         synthesises a failure reply, and dispatches `:on-failure`,
+         landing the `:data` region at `:error`."}
   (fn handler-story-load-failing [_ _]
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
-           ;; `:kind`/`:tags` are the slots `emit-canned-failure!` reads
-           ;; (NOT a nested `:failure` map — the stub ignores that), so
-           ;; the synthesised failure carries this category through to
-           ;; `:nine-states.demo/load-failed`.
+           ;; The canned-failure stub reads `:kind` / `:tags` from the
+           ;; top level (not a nested `:failure` map), so this failure
+           ;; category carries through to `:nine-states.demo/load-failed`.
            {:request    {:method :get :url "/api/todos/fail"}
             :kind       :rf.http/transport
             :tags       {:message "Network unreachable."}
@@ -173,11 +162,10 @@
 ;; ---------------------------------------------------------------------------
 ;; register-all!
 ;;
-;; Wrap every registration in a top-level fn so a test fixture (none
-;; here — examples are test-free) or a hot-reload could
-;; re-fire the lot after a clear-all!. The fn fires once at namespace
-;; load via the trailing call, so consumers who just `:require` this ns
-;; get the side-table populated.
+;; Every registration lives in one top-level fn so a hot-reload can re-fire
+;; the lot at once. The fn also fires once at namespace load via the
+;; trailing call, so consumers who just `:require` this ns get the
+;; registrations populated.
 ;; ---------------------------------------------------------------------------
 
 (defn register-all!
@@ -355,10 +343,9 @@
                     the `:data` region at `:error`. The failure cascade
                     lights up Xray's Side Effects + Trace panels
                     alongside the success path."
-     ;; Variant-owned `:fx-overrides` win over the `:story` preset's
-     ;; canned-success default (frame-config merge in `expand-preset`),
-     ;; so this is the explicit failure-fx-override the failing variant
-     ;; needs — the success variants keep the preset's canned-success.
+     ;; This variant-owned `:fx-overrides` wins over the `:story` preset's
+     ;; canned-success default, giving the failing variant its failure
+     ;; stub — the success variants keep the preset's canned-success.
      :fx-overrides  {:rf.http/managed :rf.http/managed-canned-failure}
      :setup         [[:nine-states.app/initialise]
                      [:nine-states.story/load-failing]]

@@ -16,13 +16,11 @@
    - `:rf/url-requested`"
   (:require [clojure.string]
             [re-frame.core :as rf]
-            ;; Routing ships in day8/re-frame2-routing.
-            ;; Requiring re-frame.routing here triggers its load-time
-            ;; hook + reg-sub registrations; without it, the rf/reg-route
-            ;; calls below throw :rf.error/routing-artefact-missing.
-            ;; Aliased so the popstate handler can resolve the URL owner via
-            ;; `routing/url-owner-frame-id` (Spec 012 §popstate drives the
-            ;; URL-owner frame) — the EP-0002 owner-targeted dispatch.
+            ;; Routing ships in the re-frame2-routing artefact. Requiring
+            ;; the ns registers its hooks + subs so the `rf/reg-route` calls
+            ;; below resolve. Aliased so the popstate handler can resolve the
+            ;; URL owner via `routing/url-owner-frame-id`. See the routing
+            ;; guide: ../../../docs/routing/index.md
             [re-frame.routing :as routing]))
 
 ;; ============================================================================
@@ -53,11 +51,10 @@
 
 (rf/reg-route :realworld/home-tag
   {:doc      "The tag-filtered article list at the official RealWorld
-              `/tag/:tag` PATH route (replacing the prior
-              `?tag=` query). `?page=N` paginates within the tag the same way
-              the home feed does (`/tag/:tag?page=2`); `:query-defaults` fills
-              page 1. Same `:home/load` on-match — it reads the active tag off
-              the route params now rather than the query."
+              `/tag/:tag` PATH route. `?page=N` paginates within the tag the
+              same way the home feed does (`/tag/:tag?page=2`);
+              `:query-defaults` fills page 1. Same `:home/load` on-match — it
+              reads the active tag off the route params."
    :params   [:map [:tag :string]]
    :query    [:map [:page {:optional true} :int]]
    :query-defaults {:page 1}
@@ -120,60 +117,49 @@
 ;; AUTH GUARD
 ;; ============================================================================
 ;;
-;; Per Spec 012 §Redirects and guards: route-level auth is an interceptor,
-;; not a special routing mechanism. Guards are plain interceptors; they
-;; compose, and multiple guards can layer. This one redirects
-;; unauthenticated users away from any route tagged `:requires-auth`
-;; (`:realworld.user/settings`, `:realworld.editor/new`, `:realworld.editor/edit`) to the login
-;; page, stashing the original target under `:return-to` so a post-login
-;; handler could bounce the user back.
+;; Route-level auth is an interceptor, not a special routing mechanism.
+;; Guards are plain interceptors, so they compose and layer. This one
+;; redirects unauthenticated users away from any route tagged
+;; `:requires-auth` (`:realworld.user/settings`, `:realworld.editor/new`,
+;; `:realworld.editor/edit`) to the login page, stashing the original target
+;; under `:return-to` for a post-login bounce-back. See the routing guide on
+;; guards: ../../../docs/routing/concepts.md#blocking-a-navigation
 ;;
-;; It is wired into the demo frame via the `frame-provider {:id …}`
-;; `:interceptors` in core.cljs (`:interceptors` are "prepended to every
-;; event in this frame", Spec 002 §`:interceptors`). To keep it cheap and correct it short-
-;; circuits to the unchanged ctx for everything except a navigation
-;; event, and gates EVERY navigation ENTRY POINT so a `:requires-auth`
-;; route is unreachable logged-out by ANY access path:
+;; It is wired into the demo frame via the `frame-provider` `:interceptors`
+;; in core.cljs. It short-circuits to the unchanged ctx for everything
+;; except a navigation event, and gates every navigation entry point so a
+;; `:requires-auth` route is unreachable logged-out by any access path:
 ;;
 ;;   - `:rf.route/navigate`          — programmatic nav (the navbar);
-;;     `(second event)` IS the target route id.
+;;     `(second event)` is the target route id.
 ;;   - `:rf/url-requested`           — anchor (`rf/route-link`) click;
 ;;     the request map carries `:to` (the target route id) + `:params`.
 ;;   - `:rf.route/handle-url-change` — URL-bar entry / reload / popstate;
-;;     `(second event)` is a URL string resolved to a route via
-;;     `rf/match-url`.
+;;     `(second event)` is a URL string resolved via `rf/match-url`.
 ;;
-;; The guard MUST gate all three entry points, not just `:rf.route/navigate`:
-;; gating navigate alone would FAIL OPEN on the most common access path — a
-;; logged-out user who typed `/settings`, reloaded a protected page, or followed
-;; an anchor would reach the route (and the on-match drain would then fire a
-;; request the real Conduit backend would 401). Gating all three closes that
-;; gap — `resolve-nav-target` normalises each event to an `{:id :params}`
-;; target so ONE redirect path handles them all.
+;; The guard must gate all three, not just `:rf.route/navigate`: gating
+;; navigate alone fails open on the most common path — a logged-out user
+;; who typed `/settings`, reloaded a protected page, or followed an anchor
+;; would reach the route (and its on-match drain would fire a request the
+;; real backend would 401). `resolve-nav-target` normalises each event to
+;; an `{:id :params}` target so one redirect path handles them all.
 ;;
-;; The redirect: the `:before` SKIPS the original handler (`:rf/skip-
-;; handler?`) so the protected route's slice never commits and its
-;; on-match drain never fires, then dispatches `:rf.route/navigate
-;; :realworld.auth/login` itself. This is the same login navigation the
-;; programmatic path produced, but it works uniformly for ALL three
-;; events — the runtime selects the handler from the ORIGINAL event id
-;; before interceptors run, so rewriting `[:coeffects :event]` across
-;; event ids (e.g. feeding a route-id to `:rf.route/handle-url-change`'s
-;; URL slot) would run the wrong handler. Skip-and-dispatch sidesteps
-;; that entirely.
+;; The redirect: the `:before` skips the original handler
+;; (`:rf/skip-handler?`) so the protected route's slice never commits and
+;; its on-match drain never fires, then dispatches `:rf.route/navigate
+;; :realworld.auth/login`. The runtime selects the handler from the original
+;; event id before interceptors run, so rewriting `[:coeffects :event]`
+;; across event ids would run the wrong handler — skip-and-dispatch
+;; sidesteps that.
 ;;
-;; Bounce-back (`:return-to`). The headline of an auth guard is returning
-;; the user to where they were headed once they sign in. `:rf.route/navigate`
-;; opts (the 3rd arg) are NOT persisted by the runtime — the navigate
-;; handler reads `:query` / `:fragment` / `:replace?` / `:scroll` /
-;; `:bypass-leave-guard?` from opts and drops everything else (Spec 012
-;; §Navigation is an event), so an opts-borne `:return-to` would silently
-;; evaporate. We therefore stash the original target in `app-db` instead:
-;; the `:before` writes it to `[:auth :return-to]` via a `:db` effect
-;; (committed before the login dispatch's `:fx` runs, so the redirect's
-;; slice merge preserves it). The auth machine's `:store-session` action
-;; reads that slot on a successful login and bounces there (falling back
-;; to home), then clears it (auth.cljs).
+;; Bounce-back (`:return-to`): `:rf.route/navigate` opts (the 3rd arg) are
+;; not persisted by the runtime — the navigate handler reads `:query` /
+;; `:fragment` / `:replace?` / `:scroll` / `:bypass-leave-guard?` and drops
+;; the rest — so an opts-borne `:return-to` would evaporate. Instead the
+;; `:before` stashes the target at `[:auth :return-to]` via a `:db` effect
+;; (committed before the login dispatch's `:fx` runs). The auth machine's
+;; `:store-session` action reads that slot on a successful login, bounces
+;; there (falling back to home), and clears it (auth.cljs).
 
 (defn- resolve-nav-target
   "Normalise a navigation event into its target `{:id <route-id>
@@ -207,15 +193,15 @@
 
     nil))
 
-;; EP-0022: register the guard as a named interceptor here, then reference it
-;; by id (`:realworld.routing/auth-guard`) from the demo frame's `:interceptors`
+;; Register the guard as a named interceptor here, then reference it by id
+;; (`:realworld.routing/auth-guard`) from the demo frame's `:interceptors`
 ;; in core.cljs. `reg-interceptor` runs at load time, and core.cljs requires
-;; this ns, so the descriptor is in place before the frame-provider creates the
-;; frame and resolves the id.
+;; this ns, so the descriptor is in place before the frame-provider creates
+;; the frame and resolves the id.
 (rf/reg-interceptor :realworld.routing/auth-guard
-  {:doc "Route-level auth guard (Spec 012 §Redirects and guards): redirect
-         unauthenticated users away from `:requires-auth`-tagged routes to
-         login, stashing the intended target for post-login bounce-back."}
+  {:doc "Route-level auth guard: redirect unauthenticated users away from
+         `:requires-auth`-tagged routes to login, stashing the intended
+         target for post-login bounce-back."}
   {:before (fn auth-guard-before [ctx]
              (if-let [{:keys [id params]} (resolve-nav-target
                                             (get-in ctx [:coeffects :event]))]
@@ -265,19 +251,19 @@
            (.. js/window -location -hash))))
 
 ;; A named handler so the listener install is idempotent: repeated
-;; `install-router!` (shadow hot reload, or a co-required test host invoking run
-;; twice) remove-then-add the same Var, so duplicate popstate listeners never
-;; stack — the same idea as the `when-not @react-root` mount guard.
+;; `install-router!` (hot reload, or a co-required test host calling run
+;; twice) remove-then-add the same Var, so duplicate popstate listeners
+;; never stack — the same idea as the `when-not @react-root` mount guard.
 ;;
-;; The URL-change dispatch targets the URL-owner frame, resolved at call time
-;; via `routing/url-owner-frame-id` (Spec 012 §popstate drives the URL owner).
-;; The owner is the `:url-bound? true` demo frame the frame-provider creates in
-;; core.cljs. Targeting it explicitly matters: a bare `(rf/dispatch …)` with no
-;; frame would raise `:rf.error/no-frame-context`. This example uses its own
-;; base-path-aware listener (rather than the framework's
-;; `rf/install-history-listener!`, which reads the unstripped browser URL),
-;; because it serves from a `/realworld/` sub-path and strips it in
-;; `current-url`; the owner-targeting contract is the same either way.
+;; The URL-change dispatch targets the URL-owner frame, resolved at call
+;; time via `routing/url-owner-frame-id`. The owner is the `:url-bound? true`
+;; demo frame the frame-provider creates in core.cljs. Targeting it
+;; explicitly matters: a bare `(rf/dispatch …)` with no frame would raise
+;; `:rf.error/no-frame-context`. This example uses its own base-path-aware
+;; listener (rather than the framework's `rf/install-history-listener!`,
+;; which reads the unstripped browser URL) because it serves from a
+;; `/realworld/` sub-path; the owner-targeting contract is the same either
+;; way.
 (defn- on-popstate [_]
   (when-let [owner (routing/url-owner-frame-id)]
     (rf/dispatch [:rf.route/handle-url-change (current-url)] {:frame owner})))

@@ -6,27 +6,25 @@
    the inputs; Update writes back; Create adds a new row; Delete removes the
    selected row.
 
-   The 7GUIs page calls this out as a test of *master/detail interaction*.
-   The classic trap is to keep the inputs as their own React state, separate
-   from the list — they fall out of sync when selection changes. The
-   re-frame2 approach: the inputs *are* a sub of the selection. Editing
-   them dispatches into a 'draft' slice; the list shows committed values.
+   This is a master/detail interaction. The inputs are a subscription on the
+   selection, not their own React state. Editing them dispatches into a
+   `:draft` slice; the list shows committed values. Selection lives in app-db,
+   so it never falls out of sync with the inputs.
 
-   The whole frame is established in one spot: the render root's
-   `frame-provider {:id …}` creates the app frame, configures it, and
-   runs its `:initial-events` seed once.
+   The frame is established in one spot: the render root's
+   `frame-provider {:id …}` creates the app frame, configures it, and runs its
+   `:initial-events` seed once.
 
-   Demonstrates:
-   - List operations (add / update / delete)              (CP-1)
-   - Selection as state, not as React component identity  (P8: low hidden context)
-   - Derived filtered list                                 (CP-2 with :<-)
-   - Schema-bound entity                                   (CP-8)"
+   Shows:
+   - List operations (add / update / delete)
+   - Selection held as state, not as React component identity
+   - A derived filtered list (a subscription on two other subscriptions)
+   - A schema-bound entity"
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
-            ;; Loading the ns here registers its late-bind hooks so
-            ;; rf/reg-app-schema resolves.
+            ;; Requiring `re-frame.schemas` wires up schema validation so
+            ;; `rf/reg-app-schema` works. See the guide: docs/guide/how-to/validate-with-schemas.md.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -36,13 +34,11 @@
 ;; SCHEMA
 ;; ============================================================================
 
-;; EP-0010 (Causal World Inputs): a person's `:id` is written into durable
-;; app-db (`[:crud :people]`) and used as the selection / React `:key`, so it
-;; must be a function of prior frame-state — never an ambient `(random-uuid)` at
-;; the durable-write site (an event-stream replay would mint different ids). The
-;; id is an internal handle, so we mint it deterministically as a monotonic
-;; `:int` from a db-held `:next-id` counter — the todomvc `allocate-next-id`
-;; idiom, matching sibling 7GUIs `circle_drawer` — rather than a uuid.
+;; A person's `:id` is written into durable app-db (`[:crud :people]`) and used
+;; as the selection and React `:key`. A durable id must be reproducible on
+;; replay, so it can't come from an ambient `(random-uuid)` read at the write
+;; site. We mint it as a monotonic `:int` from a db-held `:next-id` counter
+;; instead. See docs/guide/glossary.md#recordable-vs-ambient-coeffects.
 (def Person
   [:map
    [:id      :int]
@@ -52,18 +48,18 @@
 (def CrudState
   [:map
    [:people       [:vector Person]]
-   [:next-id      :int]                      ;; deterministic id allocator (EP-0010)
+   [:next-id      :int]                      ;; deterministic id allocator
    [:filter-text  :string]
    [:selected-id  [:maybe :int]]
    [:draft        [:map
                    [:name    :string]
                    [:surname :string]]]])
 
-;; EP-0002: `reg-app-schema` is frame-local, so it needs a frame context at
-;; registration. `with-frame` supplies one: it names the frame this schema
-;; binds to — `:rf/default`, the frame the render-root `frame-provider`
-;; establishes and whose commits this schema validates. The label is enough;
-;; the frame need not exist yet.
+;; Schemas register per frame, so the registration has to name a frame.
+;; `with-frame` supplies that name: `:rf/default`, the frame the render-root
+;; `frame-provider` creates and whose commits this schema validates. The frame
+;; need not exist yet — the name is enough.
+;; See docs/guide/how-to/validate-with-schemas.md.
 (with-frame :rf/default
   (rf/reg-app-schema [:crud] {:schema CrudState}))
 
@@ -72,10 +68,9 @@
 ;; ============================================================================
 
 (rf/reg-event :crud/initialise
-  {:doc "Seed the list with the 7GUIs reference data. Ids are deterministic
-         monotonic ints (EP-0010) so a fresh-event-stream replay reproduces
-         the same durable people. `:next-id` is the allocator for subsequent
-         Create."}
+  {:doc "Seed the list with the 7GUIs reference data. Ids are monotonic ints
+         so a replay reproduces the same people. `:next-id` is the allocator
+         for later Create."}
   (fn handler-crud-initialise [{:keys [db]} _]
     {:db (assoc db :crud {:people      [{:id 1 :name "Hans"  :surname "Emil"}
                                    {:id 2 :name "Max"   :surname "Mustermann"}
@@ -109,11 +104,8 @@
     {:db (assoc-in db [:crud :draft :surname] s)}))
 
 (rf/reg-event :crud/create
-  {:doc "Add a new person from the draft. Selects the new entry. The id is
-         minted deterministically from the db-held `:next-id` counter (EP-0010
-         causal world inputs — a durable id must be a function of prior
-         frame-state, not an ambient `(random-uuid)` read), then the counter is
-         bumped."}
+  {:doc "Add a new person from the draft, and select the new entry. The id
+         comes from the db-held `:next-id` counter, which is then bumped."}
   (fn handler-crud-create [{:keys [db]} _]
     {:db (let [new-id (get-in db [:crud :next-id])
           {:keys [name surname]} (get-in db [:crud :draft])]
@@ -165,12 +157,10 @@
                  people)))))
 
 (rf/reg-sub :crud/can-update?
-  {:doc "Update/Delete are enabled only when the selected row is *visible*
-         under the active filter. A selection hidden by the filter must not
-         be actionable — Update/Delete would otherwise touch an invisible row.
-         This is the master/detail edge the 7GUIs CRUD task is meant to model:
-         the answer is derived state (a sub of the filtered list), so the
-         selection is preserved and re-enables itself when the filter clears."}
+  {:doc "True when the selected row is visible under the active filter. A row
+         hidden by the filter must not be actionable, or Update/Delete would
+         touch a row you can't see. This is derived from the filtered list, so
+         the selection is kept and re-enables itself once the filter clears."}
   :<- [:crud/selected-id]
   :<- [:crud/filtered-people]
   (fn sub-crud-can-update? [[id visible-people] _]
@@ -228,24 +218,22 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
+;; The React root is held in an atom and created lazily inside `run`, not at
+;; ns-load. ns-load must do no DOM work, so co-required example namespaces
+;; don't race each other onto the shared `#app`. See examples/TESTING.md
+;; (Example mount-isolation).
 (defonce react-root (atom nil))
 
-;; The whole frame lifecycle lives in one spot at the render root: the
-;; `frame-provider {:id app-frame …}` below. On first mount it creates the
-;; app frame, applies its config, and runs `:initial-events` once to seed
-;; app-db (`:crud/initialise`). Thereafter every `dispatch`/`subscribe` in
-;; the tree resolves to that frame. On hot reload the provider reuses the
-;; existing frame and skips re-seeding, so the list keeps its rows across
-;; re-mounts.
+;; The frame lifecycle lives in one spot: the `frame-provider {:id app-frame …}`
+;; below. On first mount it creates the frame, applies its config, and runs
+;; `:initial-events` once to seed app-db (`:crud/initialise`). After that, every
+;; `dispatch`/`subscribe` in the tree resolves to that frame. On hot reload the
+;; provider reuses the existing frame and skips re-seeding, so the list keeps its
+;; rows across re-mounts. See docs/guide/glossary.md#frame-provider.
 ;;
-;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
-;; with no framework privilege — the runtime won't infer it, so we name it
-;; here and hand it to the provider like any other id. Matches the canonical
-;; mount in examples/reagent/counter/core.cljs.
+;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id with
+;; no special privilege — the runtime won't infer it, so we name it here and hand
+;; it to the provider like any other id.
 (def app-frame :rf/default)
 
 (defn run []

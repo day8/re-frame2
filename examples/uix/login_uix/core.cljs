@@ -1,23 +1,21 @@
 (ns login-uix.core
-  "UIx variant of the login example — the same feature, a different substrate.
+  "UIx variant of the login example — the same feature on a different substrate.
 
-   Everything below the views carries the same ids and the same registered
-   shapes as examples/reagent/login: the Spec 005 state machine, the Spec 010
-   schemas, and the Spec 014 managed-HTTP effect. Only the view layer changes idiom —
-   here views are UIx `defui` components that read subscriptions via the
-   `use-subscribe` hook, where the Reagent twin used `reg-view`. The point of
-   the file is to show exactly how narrow the substrate boundary is: the
-   machine, schemas, and effects are substrate-agnostic.
+   Everything below the views is substrate-agnostic and identical to
+   examples/reagent/login: the login state machine, the schemas, and the
+   managed-HTTP effect. Only the view layer differs. Here views are UIx
+   `defui` components that read subscriptions with the `use-subscribe` hook;
+   the Reagent twin uses `reg-view`. The file shows how narrow the substrate
+   boundary is — the machine, schemas, and effects don't change at all.
 
-   Cross-substrate parity is exercised end-to-end: machine states carry
-   Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`, `:auth/locked`)
-   and views read them via the `:rf/machine-has-tag?` framework sub —
-   same tag taxonomy as the state-machines walkthrough, only the
-   substrate's hook idiom differs. The terminal `:locked-out` state is
-   surfaced as a non-interactive locked-account panel.
+   The machine's states carry tags (`:auth/busy`, `:auth/authenticated`,
+   `:auth/locked`), and views read them via the `:rf/machine-has-tag?`
+   framework sub. The terminal `:locked-out` state renders a non-interactive
+   locked-account panel.
 
-   UIx views are plain `defui` components: each one reads its subscriptions
-   with the `use-subscribe` hook and pulls `dispatch` off `(rf/frame-handle)`."
+   For the substrate-boundary mechanics — `use-subscribe`, `frame-handle`,
+   `frame-provider`, and what stays the same across React wrappers — see
+   docs/guide/how-to/use-uix-helix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
@@ -37,39 +35,36 @@
 ;; Shape of valid login credentials: an email and a min-8 password. The
 ;; password only ever rides this event-arg schema and the HTTP body — it is
 ;; never written to app-db. The request body that carries it is scrubbed from
-;; traces by `:sensitive? true` on the managed-HTTP request below (Spec 014
-;; §Privacy). Same schema across reagent/login + helix.
+;; traces by `:sensitive? true` on the managed-HTTP request below
+;; (docs/guide/how-to/keep-secrets-out-of-traces.md). Same schema across
+;; reagent/login + helix.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
-;; Outer event-vector schema for the :auth.login/flow machine handler —
-;; see examples/reagent/login for the full rationale. The :submit
-;; sub-event is validated STRICTLY against `Credentials`; framework-internal
-;; sub-events (:dismiss, :success, :failure) admit a framework-controlled
-;; tail.
+;; Outer event-vector schema for the :auth.login/flow machine handler. The
+;; :submit sub-event is validated STRICTLY against `Credentials`;
+;; framework-internal sub-events (:dismiss, :success, :failure) admit a
+;; framework-controlled tail.
 ;;
 ;; The :submit branch is a `:tuple` (NOT `:cat`): the outer `:cat` consumes
 ;; the nested sub-event vector as a SINGLE element, so the branch must match
-;; that one element AS a vector. A `:cat` branch would apply sequence-regex
-;; semantics and — paired with a permissive `[:vector :any]` fallback —
-;; silently re-admit a `:submit` whose `Credentials` failed (the original
-;; bug: malformed submit payloads passed the `:where :event` boundary). With
-;; the strict `:tuple` and no `[:vector :any]` escape hatch, a short-password
-;; or bad-email submit is rejected at the boundary BEFORE the machine
-;; transitions or issues the login HTTP effect (Spec 010 §Validation order
-;; step 1, recovery `:no-recovery`).
+;; that one element AS a vector. A `:cat` branch applies sequence-regex
+;; semantics and would re-admit a `:submit` whose `Credentials` failed. With
+;; the strict `:tuple`, a short-password or bad-email submit is rejected at
+;; the `:where :event` boundary BEFORE the machine transitions or issues the
+;; login HTTP effect (docs/guide/how-to/validate-with-schemas.md, §"Put a
+;; schema on the event too").
 ;;
-;; The trailing `[:? :any]` admits the managed-HTTP reply payload (Spec
-;; 014 §Reply addressing): the framework appends `{:kind ... :value ...}`
-;; / `{:kind ... :failure ...}` as the LAST arg of the explicit
-;; `:on-success` / `:on-failure` event vector, so the delivered reply is
+;; The trailing `[:? :any]` admits the managed-HTTP reply payload. The
+;; framework appends the reply map (`{:kind ... :value ...}` /
+;; `{:kind ... :failure ...}`) as the LAST arg of the explicit `:on-success`
+;; / `:on-failure` event vector, so the delivered reply is
 ;; `[:auth.login/flow [:auth.login/success] <payload>]` — three top-level
 ;; elements. Without the optional trailing slot the `:cat` rejects every
-;; reply with `:malli.core/input-remaining`, the boundary validation
-;; fails BEFORE the machine handler runs, and the flow is stranded in
-;; `:submitting`.
+;; reply and the boundary validation fails before the machine handler runs.
+;; See docs/guide/glossary.md#the-uniform-reply.
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
    [:or
@@ -80,16 +75,13 @@
 
 ;; The machine's `[:schemas :data]` validates the machine's `:data` slot ONLY —
 ;; the user-domain extended state `{:attempts ... :error ...}` — NOT the whole
-;; `{:state ... :data ...}` snapshot. Per Spec 005 §Schema validation
-;; (005-StateMachines.md:182, :200, :429-435) and Spec 010
-;; (010-Schemas.md:52, :162, :178): `[:schemas :data]` sits as a top-level key on
-;; the machine spec map beside `:data`, and the framework validates it at every
-;; macrostep-commit boundary + at bootstrap, emitting
-;; `:rf.error/schema-validation-failure :where :machine-data` and rolling back
-;; the cascade on a violation. The snapshot's `:state` slot is validated
-;; structurally at registration time (an unknown target fails registration),
-;; so it is NOT this schema's job — describing the whole snapshot here would
-;; be the wrong shape for the slot the framework actually validates.
+;; `{:state ... :data ...}` snapshot. It sits as a top-level key on the machine
+;; spec map beside `:data`, and the framework checks it after every transition
+;; and at boot, emitting `:rf.error/schema-validation-failure :where
+;; :machine-data` and rolling the macrostep back on a violation. The `:state`
+;; slot is validated structurally at registration (an unknown target fails
+;; registration), so it is not this schema's job. See
+;; docs/guide/how-to/validate-with-schemas.md (the machine `:data` schema).
 (def AuthLoginData
   [:map
    [:attempts {:default 0} :int]
@@ -114,14 +106,12 @@
       (.setItem ls "auth/token" token))))
 
 (rf/reg-fx :auth.login.demo/managed-stub
-  {:doc       "Demo override for `:rf.http/managed`. Identical behaviour
-               to the Reagent and Helix examples' stub — delegates straight
-               to the framework-shipped canned-success / canned-failure
-               fxs with `:after-ms`, so the framework defers the reply via
-               `:dispatch-later` (50 ms) — observable in the tape,
-               time-travel-safe, NOT raw `js/setTimeout`. The `:after-ms`
-               parameter carries the schedule-reply → `:dispatch-later` →
-               deliver-reply chain as one arg on the canned effect."
+  {:doc       "Demo override for `:rf.http/managed`. Delegates to the
+               framework-shipped canned-success / canned-failure fxs with
+               `:after-ms`, so the framework defers the reply via
+               `:dispatch-later` (50 ms): observable in the tape and
+               time-travel-safe, NOT a raw `js/setTimeout`. Same stub as the
+               Reagent and Helix examples."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
@@ -151,9 +141,9 @@
 ;; STATE MACHINE
 ;; ============================================================================
 
-;; The login flow's machine spec. `[:schemas :data]` is the machine-level
-;; schema map's data entry (Spec 005 §Schema validation) — it validates the
-;; `:data` slot (`{:attempts ... :error ...}`), NOT the whole snapshot.
+;; The login flow's machine spec. `[:schemas :data]` validates the `:data`
+;; slot (`{:attempts ... :error ...}`), NOT the whole snapshot — see the note
+;; on `AuthLoginData` above.
 (def auth-login-machine
   {:initial :idle
    :data    {:attempts 0 :error nil}
@@ -170,11 +160,10 @@
     :issue-request
     (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
-             ;; Spec 014 §Privacy (per-request `:sensitive?`): `:sensitive? true`
-             ;; redacts the request body (carrying the `:password`) from every
-             ;; `:rf.http/*` trace event — the coarse per-request wire scrub, a
-             ;; distinct surface from EP-0025 path classification (see
-             ;; examples/reagent/login for the full rationale).
+             ;; `:sensitive? true` redacts the request body (which carries the
+             ;; `:password`) from every `:rf.http/*` trace event — the
+             ;; per-request wire scrub. See
+             ;; docs/guide/how-to/keep-secrets-out-of-traces.md.
              {:request    {:method :post
                            :url    "/api/login"
                            :body   creds
@@ -191,13 +180,12 @@
                  (assoc :error (or (:message failure) "Login failed.")))})
 
     :lock-account
-    ;; Fire-and-forget telemetry beacon (Spec 014 §Reply addressing
-    ;; "Silenced"): the lockout POST wants no reply folded back into the
-    ;; machine. `:on-success nil` / `:on-failure nil` silence both reply
-    ;; branches explicitly — without them the omitted-target default
-    ;; (co-located addressing) would dispatch
-    ;; `[:auth.login/flow {:rf/reply ...}]`, a map in the sub-event slot
-    ;; that `AuthLoginEvent` rejects, stranding noise after lockout.
+    ;; Fire-and-forget telemetry beacon: the lockout POST wants no reply
+    ;; folded back into the machine. `:on-success nil` / `:on-failure nil`
+    ;; silence both reply branches. Without them the default reply target
+    ;; would dispatch `[:auth.login/flow {:rf/reply ...}]` — a map in the
+    ;; sub-event slot that `AuthLoginEvent` rejects, stranding noise after
+    ;; lockout. See docs/resources/glossary.md#managed-http.
     (fn [_]
       {:fx [[:rf.http/managed
              {:request    {:method :post :url "/api/auth/lock"}
@@ -248,54 +236,51 @@
     ;; :auth/locked tag — after the fourth failed submit the flow lands
     ;; in this terminal state. Views query
     ;; [:rf/machine-has-tag? :auth.login/flow :auth/locked] to swap the
-    ;; form for a locked-account panel and refuse further submits — same
-    ;; tag + locked-panel pattern as the state-machines walkthrough. A
+    ;; form for a locked-account panel and refuse further submits. A
     ;; terminal lockout must be visible and non-interactive, not a live
     ;; form.
     {:tags #{:auth/locked}
      :meta {:terminal? true}}}})
 
-;; Register the machine (Spec 005 §reg-machine). This flow validates on two
-;; surfaces: the machine's `:data` slot via `[:schemas :data]`, and the
-;; dispatched event vector via `:schema` (`AuthLoginEvent`, the `:where :event`
-;; boundary). The opts map carries the event `:schema` alongside the machine
-;; spec, and `reg-machine` stamps the `:rf/machine` metadata that makes the
-;; `[:schemas :data]` validation live.
+;; Register the machine. This flow validates on two surfaces: the machine's
+;; `:data` slot via `[:schemas :data]`, and the dispatched event vector via
+;; `:schema` (`AuthLoginEvent`, the `:where :event` boundary). The opts map
+;; carries the event `:schema` alongside the machine spec. See
+;; docs/machines/glossary.md#machine.
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}
   auth-login-machine)
 
 ;; ============================================================================
-;; FORM SLICE  (Pattern-Forms — substrate-agnostic)
+;; FORM SLICE  (the form pattern — substrate-agnostic)
 ;; ============================================================================
 ;;
-;; The FORM-SLICE events below are the other half of the Pattern-Forms
-;; "machine + slice" composition (spec/Pattern-Forms.md §Variations). The
-;; SLICE owns the DRAFT — what the user is currently typing — at the app-db
-;; path [:auth :login-form]; the MACHINE owns submit/auth STATUS. A form's draft
-;; is application state, so it lives in app-db (projected via subs, mutated via
-;; events), not in a view-local atom or hook. Inputs are CONTROLLED: `:value`
-;; reads the draft sub, `:on-change` dispatches `:auth.login/edit-field`. The
-;; slice shape + the standard form events mirror the in-repo exemplar
-;; examples/reagent/realworld/auth.cljs 1:1.
+;; The FORM-SLICE events below are the other half of the "machine + slice"
+;; form pattern. The SLICE owns the DRAFT — what the user is currently typing —
+;; at the app-db path [:auth :login-form]; the MACHINE owns submit/auth STATUS.
+;; A form's draft is application state, so it lives in app-db (projected via
+;; subs, mutated via events), not in a view-local atom or hook. Inputs are
+;; CONTROLLED: `:value` reads the draft sub, `:on-change` dispatches
+;; `:auth.login/edit-field`. The recipe — slice shape, the seven standard form
+;; events, the touched-or-submitted error-visibility rule — is in
+;; docs/guide/how-to/build-a-form.md.
 ;;
 ;; This whole block — slice defaults + form events + (below) the draft/slice
-;; subs — is the SUBSTRATE-AGNOSTIC artefact layer: it is byte-identical
-;; across examples/reagent/login, examples/uix/login_uix, and
-;; examples/helix/login_helix (Spec 006 §Adapter shipping convention Decision
-;; 7). Only the view syntax varies across the three.
+;; subs — is the SUBSTRATE-AGNOSTIC layer: it is identical across
+;; examples/reagent/login, examples/uix/login_uix, and
+;; examples/helix/login_helix. Only the view syntax varies across the three.
 
 ;; The login form's default (empty) draft. The draft's value shape is
 ;; `Credentials` (email regex + min-8 password) — the same schema the
 ;; machine's `:submit` boundary enforces.
 (def login-form-defaults {:email "" :password ""})
 
-;; Seed the slice to its standard Pattern-Forms shape: empty `:draft`,
-;; `:status :idle`. Runs once via the frame-provider's `:initial-events`.
+;; Seed the slice to its standard shape: empty `:draft`, `:status :idle`.
+;; Runs once via the frame-provider's `:initial-events`.
 (rf/reg-event :auth.login/initialise-form
   {:doc "Seed the login-form slice at [:auth :login-form] to its standard
-         Pattern-Forms shape (empty draft, :idle status)."}
+         shape (empty draft, :idle status)."}
   (fn handler-login-form-initialise [{:keys [db]} _]
     {:db (assoc-in db [:auth :login-form]
                    {:draft             login-form-defaults
@@ -325,16 +310,15 @@
 ;; validated against `Credentials` at the machine's `:where :event` boundary).
 ;; The machine, not the slice, then owns the in-flight / authed / error /
 ;; locked status; the slice `:status` mirror keeps the slice a conformant
-;; Pattern-Forms shape.
+;; form-pattern shape.
 ;;
-;; Secret-field hygiene (skills/re-frame2/patterns/forms.md §Auth): the
-;; handler reads the password off the draft and hands it to the machine, then
-;; CLEARS `[:draft :password]` in the same commit — once the request is in
-;; flight the secret has done its job, so it does not sit in durable app-db
-;; waiting for the next snapshot / recorder capture. The password's only
-;; off-box path is the HTTP request body (scrubbed by the per-request
-;; `:sensitive? true` flag); it is never written to `:submitted` or the
-;; machine `:data`.
+;; Secret-field hygiene: the handler reads the password off the draft and hands
+;; it to the machine, then CLEARS `[:draft :password]` in the same commit —
+;; once the request is in flight the secret has done its job, so it does not
+;; sit in durable app-db waiting for the next snapshot / recorder capture. The
+;; password's only off-box path is the HTTP request body (scrubbed by the
+;; per-request `:sensitive? true` flag); it is never written to `:submitted` or
+;; the machine `:data`. See docs/guide/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: read the draft from the slice, dispatch it
          into the :auth.login/flow machine's :submit sub-event, and clear the
@@ -364,11 +348,10 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
-;; The machine snapshot lives at [:rf.runtime/machines :snapshots :auth.login/flow] (per
-;; Spec 005). These named subs project out the convenient pieces. The
-;; "in :submitting?" / "in :authed?" predicates live as the
-;; `:rf/machine-has-tag?` framework sub in views below (per Spec 005
-;; §State tags).
+;; The machine snapshot lives in runtime-db. These named subs project out the
+;; convenient pieces. The "in :submitting?" / "in :authed?" predicates live as
+;; the `:rf/machine-has-tag?` framework sub in views below — see
+;; docs/machines/glossary.md#state-tag.
 
 ;; Machine snapshots are durable runtime-db state — read them through the
 ;; framework `:rf/machine` sub.
@@ -380,13 +363,13 @@
   :<- [:rf/machine :auth.login/flow]
   (fn [snapshot _] (get-in snapshot [:data :error])))
 
-;; --- Form-slice subs (Pattern-Forms; substrate-agnostic) -------------------
+;; --- Form-slice subs (substrate-agnostic) ----------------------------------
 ;;
 ;; The login-form slice lives at app-db [:auth :login-form]. The view reads
 ;; the DRAFT through `:auth.login/draft` and binds each input's `:value` to it
-;; — controlled inputs. The per-field-error sub follows the Pattern-Forms
-;; visibility rule (touched OR submit-attempted?). These subs are part of the
-;; byte-identical artefact layer shared across the three substrate examples.
+;; — controlled inputs. The per-field-error sub follows the form-pattern
+;; error-visibility rule (touched OR submit-attempted?). These subs are part of
+;; the layer shared identically across the three substrate examples.
 
 (rf/reg-sub :auth.login/form-slice
   {:doc "The whole login-form slice at [:auth :login-form]."}
@@ -401,9 +384,9 @@
     (:draft slice)))
 
 (rf/reg-sub :auth.login/field-error
-  {:doc "Per-field validation error for the login form. Per Pattern-Forms
-         §Error visibility: reveal a field's error once it is :touched OR once
-         the form has had its first submit click."}
+  {:doc "Per-field validation error for the login form. Reveal a field's error
+         once it is :touched OR once the form has had its first submit click.
+         See docs/guide/how-to/build-a-form.md, step 3."}
   :<- [:auth.login/form-slice]
   (fn sub-auth-login-field-error [slice [_ field]]
     (when (or (:submit-attempted? slice)
@@ -419,11 +402,11 @@
 ;; `(rf/frame-handle)`. The Reagent twin instead registers these with `reg-view`
 ;; and is handed `dispatch`/`subscribe`. The subscription vectors and event
 ;; vectors are identical — only the way a React component plugs into them differs.
+;; See docs/guide/how-to/use-uix-helix-or-slim.md.
 ;;
 ;; The inputs are controlled: each `:value` reads the draft from the
 ;; `:auth.login/draft` sub, and `:on-change` dispatches `:auth.login/edit-field`.
-;; The draft lives in app-db, so there is no `uix/use-state` here — the
-;; Pattern-Forms way.
+;; The draft lives in app-db, so there is no `uix/use-state` here.
 (defui login-form []
   (let [draft    (uix-adapter/use-subscribe [:auth.login/draft])
         busy?    (uix-adapter/use-subscribe [:rf/machine-has-tag?
@@ -502,10 +485,10 @@
     ;; to — those reads need a provider above them in the tree.
     ;;
     ;; `:initial-events` seeds the form SLICE ([:auth.login/initialise-form]) to
-    ;; its empty Pattern-Forms shape, so the controlled inputs read an empty
-    ;; draft (not nil) on the first render. The MACHINE needs no seeding: its
-    ;; `:initial`/`:data` seed [:rf.runtime/machines :snapshots :auth.login/flow]
-    ;; the first time the flow runs (Spec 005 §Restore semantics).
+    ;; its empty shape, so the controlled inputs read an empty draft (not nil) on
+    ;; the first render. The MACHINE needs no seeding: its `:initial`/`:data`
+    ;; seed the snapshot in runtime-db the first time the flow runs (see
+    ;; docs/machines/glossary.md#snapshot).
     (uix-dom/render-root
       ($ uix-adapter/frame-provider {:id              :rf/default
                                      :doc             "Login (UIx) demo frame."

@@ -1,28 +1,27 @@
 (ns websocket.views
-  "Views for the Pattern-WebSocket example.
+  "Views for the WebSocket example.
 
-   The UI is intentionally minimal so the connection-machine drama is
-   the visible thing: a status indicator driven by the machine's tag
-   union, a connect/disconnect/drop trio of buttons, a send form, a
+   The UI is minimal so the connection machine is the visible thing: a
+   status indicator driven by the machine's tag union, a
+   connect/disconnect/drop trio of buttons, a send form, a
    subscribe-and-request demo trio, and a scrolling list of received
    messages.
 
-   Two things to notice as you read the views:
+   Two things to notice:
 
    1. The status indicator branches on the connection machine's state
       tags — `:websocket/connecting`, `:websocket/authenticating`,
       `:websocket/connected`, `:websocket/reconnecting`,
-      `:websocket/failed`. It reads them through this example's own
-      per-tag subs (`:ws/connected?` and friends in `connection.cljs`,
-      each a `contains?` over the snapshot's `:tags` union — the same
-      containment question the framework's `:rf/machine-has-tag?` sub
-      answers). Every pill branch is tag-driven, so the view never needs
-      to know *which* leaf carries the `:connected` intent — only that
-      the tag is present. This is what state tags buy: ask, don't tell.
+      `:websocket/failed`. It reads them through this example's per-tag
+      subs (`:ws/connected?` and friends in `connection.cljs`, each a
+      `contains?` over the snapshot's `:tags` union). The view never needs
+      to know which leaf carries the `:connected` intent, only that the
+      tag is present: ask, don't tell.
+      See docs/machines/glossary.md#state-tag.
 
-   2. The send form's `disabled` attribute is driven by the explicit
-      `:ws/connected?` sub rather than a `cond` over the snapshot's raw
-      hierarchical `:state` vector — same idea, friendlier ergonomics."
+   2. The send form's `disabled` attribute is driven by the `:ws/connected?`
+      sub rather than a `cond` over the raw hierarchical `:state` vector —
+      same idea, friendlier ergonomics."
   (:require [re-frame.core :as rf]
             [re-frame.views]
             [websocket.messages]
@@ -34,16 +33,16 @@
 ;; ============================================================================
 
 (reg-view ^{:doc "Reads the connection machine's state-tag union (through
-                  this example's per-tag subs) and renders a single
-                  status pill. The view's render priority — failed >
-                  reconnecting > connected > connecting > disconnected —
-                  collapses the multi-tag union to one visible word.
+                  this example's per-tag subs) and renders a single status
+                  pill. The render priority — failed > reconnecting >
+                  connected > connecting > disconnected — collapses the
+                  multi-tag union to one visible word.
 
-                  A sibling `:ws-reconnect-attempts` counter surfaces
-                  the machine's `:retries` slot directly — this lets a
-                  test assert the reconnect counter advanced after a
-                  Drop click without relying on catching the transient
-                  RECONNECTING window in the pill text."}
+                  A sibling `:ws-reconnect-attempts` counter shows the
+                  machine's `:retries` slot directly, so a test can assert
+                  the reconnect counter advanced after a Drop click without
+                  having to catch the transient RECONNECTING window in the
+                  pill text."}
           status-pill []
   (let [connected?      @(subscribe [:ws/connected?])
         authenticating? @(subscribe [:ws/authenticating?])
@@ -62,11 +61,10 @@
        :else           [:span.pill.disconnected   "DISCONNECTED"])
      (when err
        [:span.error {:data-testid "ws-error"} (str " — " (pr-str err))])
-     ;; Always-visible counter (independent of the pill's transient
-     ;; RECONNECTING window). The spec asserts this advances after a
-     ;; Drop click — proves the reconnect machinery actually ran rather
-     ;; than vacuously passing when the cascade resolves too fast for
-     ;; the pill to catch.
+     ;; Always-visible counter, independent of the pill's transient
+     ;; RECONNECTING window. A test asserts this advances after a Drop
+     ;; click, proving the reconnect machinery ran even when the cascade
+     ;; resolves too fast for the pill to catch.
      [:span.reconnect-attempts {:data-testid "ws-reconnect-attempts"}
       (str retries)]]))
 
@@ -85,12 +83,12 @@
         reconnecting? @(subscribe [:ws/reconnecting?])
         failed?       @(subscribe [:ws/failed?])
         any-active?   (or connected? reconnecting?)
-        ;; EP-0002: the Drop button calls a module-level
-        ;; mock-server seam that dispatches outside any drain / render scope.
-        ;; Capture this view's frame handle at render time and hand it to the
-        ;; seam so the deferred dispatch carries the frame (Spec 002
-        ;; §frame-handle) — a bare ambient dispatch would raise
+        ;; The Drop button calls a module-level mock-server seam that
+        ;; dispatches outside any render scope. Capture this view's frame
+        ;; handle at render time and hand it to the seam so the deferred
+        ;; dispatch carries the frame; a bare dispatch would raise
         ;; :rf.error/no-frame-context.
+        ;; See docs/guide/glossary.md#frame-handle.
         handle        (rf/frame-handle)]
     [:div.lifecycle
      [:button {:data-testid "ws-connect"
@@ -151,10 +149,10 @@
           demo-buttons []
   (let [connected?  @(subscribe [:ws/connected?])
         last-reply  @(subscribe [:messages/last-reply])
-        ;; EP-0002: the server-push button calls a module-level
-        ;; mock-server seam that dispatches outside any drain / render scope.
-        ;; Capture this view's frame handle and pass it so the deferred
-        ;; dispatch carries the frame (see `lifecycle-buttons`).
+        ;; The server-push button calls a module-level mock-server seam
+        ;; that dispatches outside any render scope. Capture this view's
+        ;; frame handle and pass it so the deferred dispatch carries the
+        ;; frame (see `lifecycle-buttons`).
         handle      (rf/frame-handle)]
     [:div.demo-buttons
      [:button {:data-testid "ws-subscribe"
@@ -202,11 +200,11 @@
 (reg-view ^{:doc "Root view of the websocket example app."}
           root-view []
   [:div.app
-   [:h1 "Pattern-WebSocket — connection machine"]
+   [:h1 "WebSocket — connection machine"]
    [:p.muted
-    "A worked example of the canonical re-frame2 WebSocket lifecycle "
-    "(see spec/Pattern-WebSocket.md). The transport is a tiny in-process "
-    "mock server — no network required."]
+    "A worked example of a re-frame2 WebSocket lifecycle modelled as a "
+    "state machine. The transport is a tiny in-process mock server — no "
+    "network required."]
    [status-pill]
    [lifecycle-buttons]
    [:hr]

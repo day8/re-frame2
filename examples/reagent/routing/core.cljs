@@ -1,27 +1,26 @@
 (ns routing.core
-  "Worked example for [Construction Prompt CP-7](../../../spec/Construction-Prompts.md)
-   and [Spec 012 Routing](../../../spec/012-Routing.md). A small three-page app:
-   home, articles list, article detail.
+  "A small three-page routing app: home, articles list, article detail.
+   See the [routing guide](../../../docs/routing/concepts.md).
 
    The one idea: the URL is application state you read through a subscription,
    and navigation is just an event. A route is a registration, the active route
    is a sub, and `root-view` is a `case` over `:rf.route/id`. No router object,
    no route context to thread through the tree.
 
-   This example uses the current runtime routing surface directly:
+   The surface this example uses:
 
    - `reg-route` for the route table
-   - `:rf.route/id` and `:rf.route/params` for reading the active route as subs
+   - `:rf.route/id` and `:rf.route/params` to read the active route as subs
    - `route-link` for links that drive navigation
    - `:rf/url-requested` for user-initiated anchor clicks
    - `install-history-listener!` for popstate + initial-load URL→state sync"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            ;; Routing ships in day8/re-frame2-routing. Requiring it runs
-            ;; its load-time hook and reg-sub registrations, which the
-            ;; `rf/reg-route` calls below depend on. Without this require
-            ;; those calls throw :rf.error/routing-artefact-missing.
+            ;; Routing ships in the day8/re-frame2-routing artefact. Requiring
+            ;; it registers the route subs the `rf/reg-route` calls below depend
+            ;; on; without this require those calls throw
+            ;; :rf.error/routing-artefact-missing.
             [re-frame.routing]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -70,14 +69,13 @@
 ;; PAGES
 ;; ============================================================================
 ;;
-;; Links use `rf/route-link` — the registered view at `:route/link` shipped
-;; by `day8/re-frame2-routing`. Per Spec 012 §Linking from views and the
-;; API.md `route-link` row, the framework view renders an `<a href=...>`,
-;; intercepts plain primary-button clicks to dispatch `:rf/url-requested`,
-;; and defers modifier-key / auxiliary-button (middle-click) clicks to the
-;; browser so the native open-in-new-tab affordance is preserved. Any
-;; passthrough HTML attrs on the props map (e.g. `:data-testid`) land
-;; on the underlying `<a>`.
+;; Links use `rf/route-link`, the framework view shipped by the routing
+;; artefact. It renders an `<a href=...>`, intercepts plain primary-button
+;; clicks to dispatch `:rf/url-requested`, and defers modifier-key and
+;; middle-click clicks to the browser so open-in-new-tab still works. Any
+;; passthrough HTML attrs on the props map (e.g. `:data-testid`) land on the
+;; underlying `<a>`. See the routing guide, "Linking from views":
+;; ../../../docs/routing/concepts.md#linking-from-views
 
 (reg-view home-page []
   [:div
@@ -142,7 +140,8 @@
 ;; with no framework privilege — the runtime won't infer it for you, so you
 ;; establish it like any other (the provider in `run` does that). A frame
 ;; owns the browser URL by carrying `:url-bound? true`, which this app's
-;; provider sets (EP-0002, Spec 012 §Multi-frame routing).
+;; provider sets. See the routing guide, "The browser is just another event
+;; source": ../../../docs/routing/concepts.md#the-browser-is-just-another-event-source
 (def app-frame :rf/default)
 
 (defn run []
