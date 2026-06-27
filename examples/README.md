@@ -8,7 +8,7 @@ Grouped by substrate — the rendering layer under the dataflow. Reagent is cano
 
 ```
 examples/
-  scripts/                     <-- adapter-smoke orchestrator + Playwright helpers
+  scripts/                     <-- example dev runner + Story launchers + shared Playwright helpers
   reagent/                     <-- canonical (full set)
     counter/
     todomvc/

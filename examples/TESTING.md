@@ -25,20 +25,25 @@ change, and again in the scheduled/manual expensive workflow.
 | Command                            | What it runs                                                                                                        | Where the orchestrator lives                                                                                                |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | `npm run test:browser`             | The shadow-cljs `:browser-test` bundle — every `*-cljs-test` namespace, including example wrappers (`re-frame.nine-states-cljs-test`, `re-frame.realworld-cljs-test`, ...). All of them load into a single Chromium page. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs)        |
-| `npm run test:adapter-smokes`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. The `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-adapter-smokes.cjs`](scripts/serve-and-run-adapter-smokes.cjs)                                       |
 | `npm run test:examples-compile`    | **Compile-coverage gate.** `shadow-cljs compile` over EVERY declared standalone `:examples/*` build (the list is derived from `shadow-cljs.edn`, so a new example build is swept automatically). Fails on any compile-time error AND on any warning (a typo'd init-fn surfaces as an `:undeclared-var` warning, and `compile` exits 0 on warnings). NOT a Playwright/runtime check — no `spec.cjs` involved. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 
-The three surfaces are independent, and the cleanest way to hold them apart in
-your head is by how much they share — the more a surface shares, the more it can
-catch, and the more it can be poisoned by a careless example:
+> **Adapter smokes moved.** The three adapter-level browser smokes
+> (Reagent / UIx / Helix) and their harness no longer live here — they sit
+> with the adapters they test, under `implementation/adapters/`. See
+> [`../implementation/adapters/TESTING.md`](../implementation/adapters/TESTING.md)
+> for `npm run test:adapter-smokes` and how to add a smoke. The `spec-helpers.cjs`
+> assertion matchers those smokes use still live in this tree
+> ([`scripts/spec-helpers.cjs`](scripts/spec-helpers.cjs)) as the shared home
+> for every hand-rolled Playwright spec in the repo.
+
+The two surfaces above are independent, and the cleanest way to hold them apart
+in your head is by how much they share — the more a surface shares, the more it
+can catch, and the more it can be poisoned by a careless example:
 
 - `test:browser` is **one bundle, one page, every test**. Every example
   namespace that is `:require`'d by a `*-cljs-test` wrapper is loaded into
   the same JS runtime and runs against a single shared DOM. Maximum sharing,
   maximum reach — and the one place ns-load side effects bite.
-- `test:adapter-smokes` is **N bundles, N pages, N specs** — one per adapter
-  testbed. Each adapter owns its own runtime, so cross-adapter
-  interaction is simply not possible. Nothing shared, nothing to leak.
 - `test:examples-compile` is **compile-only** — it never serves a page or
   runs a spec. It shares a compilation cache and nothing else, and it exists
   to close a specific coverage gap, described next.
@@ -470,36 +475,21 @@ bundle, in the same page, with the same shared `#app` mount point. If
 mount-isolation discipline holds, the new example will not affect any
 sibling's tests.
 
-## Adding a new example to `test:adapter-smokes`
+## The adapter smokes are not an example surface
 
-Per the test-free examples policy the `examples/` tree
-itself carries no Playwright specs; `test:adapter-smokes` drives only the
-three adapter testbeds at
-`implementation/adapters/{reagent,uix,helix}/testbed/`. **Do NOT add
-a `*.spec.cjs` under `examples/`.**
-
-The example set is declared **once** in
-[`scripts/adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs) — each entry
-pairs a shadow-cljs build id with its `index.html` source, its
-`out/examples/` staging dir, and the `spec.cjs` it runs. Both the
-orchestrator (compile + stage) and the Playwright runner (spec
-selection) import that manifest and call its shared `selectEntries`, so a
-narrow `--filter`/`ADAPTER_SMOKE_FILTER` value selects the *identical* set in
-both phases regardless of whether it is build-id-shaped
-(`adapters/reagent-testbed`, `reagent-testbed`) or path-shaped
-(`adapters/reagent/testbed`, `reagent/testbed`). The runner also
-reconciles the manifest against the `spec.cjs` files on disk and fails
-loudly on drift. To add a smoke, append an entry there (build + htmlSrc +
-outDir + specPath) and add the build to `implementation/shadow-cljs.edn`.
+Per the test-free examples policy the `examples/` tree itself carries no
+Playwright specs. `test:adapter-smokes` drives only the three adapter testbeds
+at `implementation/adapters/{reagent,uix,helix}/testbed/`, and both the harness
+and its docs live with the adapters now. **Do NOT add a `*.spec.cjs` under
+`examples/`.** To add an adapter smoke, see
+[`../implementation/adapters/TESTING.md` §Adding a new adapter smoke](../implementation/adapters/TESTING.md#adding-a-new-adapter-smoke).
 
 A new standalone `:examples/*` build needs **no** test wiring to get
 compile coverage: `test:examples-compile` derives its build list from
 `shadow-cljs.edn`, so declaring the build there is enough — the next CI
 run compiles it (and fails on any compile error or warning). See
 [Compile-coverage gate](#compile-coverage-gate-testexamples-compile)
-above. You only touch `adapter-smoke-filter.cjs` when the build also needs a
-Playwright *runtime* smoke (the three adapter testbeds), which the
-test-free examples policy reserves for adapter-level surfaces.
+above.
 
 If a new framework contract needs end-to-end browser coverage that
 the existing gates (`test:cljs`, `test:xray-feature-gate`,
