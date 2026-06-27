@@ -1,21 +1,19 @@
 (ns websocket.schema
-  "Malli schemas for the WebSocket example (Pattern-WebSocket worked
-   example).
+  "Malli schemas for the WebSocket example.
 
    Two slices are described:
 
-   - The `:ws/connection` machine's `:data` map. Pattern-WebSocket §The
-     connection state machine — the canonical fields used by the
-     connection lifecycle: `:url`, `:auth-token`, retry counters,
-     `:socket-id` (the address of the currently-live socket actor),
-     `:subscriptions`, the offline send `:queue`, and the request-reply
-     `:in-flight` map. Attached as the `:ws/connection` machine's
-     `[:schemas :data]` (see `connection.cljs`) — the snapshot-`:data`
-     validation surface, symmetric with the boot/login siblings.
+   - The `:ws/connection` machine's `:data` map: `:url`, `:auth-token`,
+     retry counters, `:socket-id` (the address of the currently-live
+     socket actor), `:subscriptions`, the offline send `:queue`, and the
+     request-reply `:in-flight` map. Attached as the machine's
+     `[:schemas :data]` (see `connection.cljs`) — a machine's `:data` is
+     validated there, not via an app-schema.
+     See docs/machines/concepts.md#validating-a-machines-data.
 
-   - The `:messages` slice in app-db. The running app records every
-     received message in `[:messages :received]` so the UI can list
-     them; the form draft lives at `[:messages :draft]`."
+   - The `:messages` slice in app-db. The app records every received
+     message at `[:messages :received]` so the UI can list them; the form
+     draft lives at `[:messages :draft]`."
   (:require [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
@@ -26,9 +24,6 @@
 ;; ============================================================================
 ;; CONNECTION MACHINE :data SHAPE
 ;; ============================================================================
-;;
-;; Mirrors the worked example in spec/Pattern-WebSocket.md §Worked example
-;; — the same fields, the same defaults.
 
 (def InFlightEntry
   "Per request-reply correlation entry: the registered reply event and
@@ -46,19 +41,17 @@
    [:max-retries    :int]
    [:base-ms        :int]
    [:max-backoff-ms :int]
-   ;; The currently-live socket actor's id (gensym'd by the runtime at
-   ;; :spawn time; cleared on exit from :active). Pattern-StaleDetection's
-   ;; connection-epoch idiom — the live socket-id IS the epoch.
+   ;; The currently-live socket actor's id (allocated by the runtime at
+   ;; :spawn time; cleared on exit from :active). The connection-epoch:
+   ;; the live socket-id IS the epoch.
    [:socket-id      [:maybe :any]]
    [:subscriptions  [:set :any]]
    [:queue          [:vector :any]]
    [:in-flight      [:map-of :any InFlightEntry]]
    [:error          [:maybe :any]]
-   ;; Runtime-managed stamps — see
-   ;; implementation/machines/src/re_frame/machines/lifecycle_fx/spawn.cljc
-   ;; (the `stamp-framework-data` fn, which stamps these framework-reserved
-   ;; keys into the spawned actor's initial :data). Optional because the
-   ;; parent machine never receives them — only spawned actors do.
+   ;; Runtime-stamped framework keys. The runtime writes these into a
+   ;; spawned actor's initial :data; optional here because the parent
+   ;; machine never receives them, only spawned actors do.
    [:rf/self-id     {:optional true} :any]
    [:rf/parent-id   {:optional true} :any]
    [:rf/invoke-id  {:optional true} :any]])
@@ -67,13 +60,13 @@
 ;; APP-DB SLICES
 ;; ============================================================================
 ;;
-;; The running app — separate from the connection machine — keeps a
-;; record of every received message + a draft for the outbound form.
+;; The app — separate from the connection machine — keeps a record of
+;; every received message plus a draft for the outbound form.
 
 (def Message
-  "Wire-shape of one message — either a server push (no :request-id) or
-   a correlated reply. The example uses a tiny ad-hoc envelope; the
-   pattern is wire-format-agnostic. `:rx-seq` is a UI-assigned monotonic
+  "Wire-shape of one message — either a server push (no :request-id) or a
+   correlated reply. The example uses a tiny ad-hoc envelope; the shape is
+   wire-format-agnostic. `:rx-seq` is a UI-assigned monotonic
    receive-sequence stamped by :ws/handle-message so the inbox can give
    each row a stable React :key (it is not part of the wire body)."
   [:map
@@ -87,25 +80,25 @@
    [:draft    :string]
    ;; Received-message log: newest-first so the view renders top-down.
    [:received [:vector Message]]
-   ;; Last correlated reply landed via :ws.app/request-reply (or via
+   ;; Last correlated reply, landed via :ws.app/request-reply (or via
    ;; :ws/handle-message for server pushes) — handy for the request-reply
-   ;; round-trip view + the headless test assertion.
+   ;; round-trip view and the test assertion.
    [:last-reply [:maybe :any]]
    ;; Monotonic counter feeding each message's stable :rx-seq.
    [:rx-count :int]])
 
 ;; ============================================================================
-;; SCHEMA REGISTRATIONS  (ns-load — the production-app idiom)
+;; SCHEMA REGISTRATIONS
 ;; ============================================================================
 
-;; EP-0001: machine snapshots are runtime-db state, not app-db —
-;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
-;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `[:schemas :data]` is the snapshot-validation surface; no
-;; app-schema reg is wired on the snapshot path.
+;; Only the app-db `:messages` slice gets an app-schema. A machine snapshot
+;; is runtime-db, not app-db, so an `reg-app-schema` on a snapshot path
+;; would validate nothing; the connection machine's own `[:schemas :data]`
+;; covers that instead.
 ;;
-;; EP-0002: reg-app-schema is context-required frame-local; a
-;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
-;; the :rf/default frame, so name it explicitly here.
+;; `reg-app-schema` is frame-local and needs a frame in scope; a bare
+;; ns-load call raises :rf.error/no-frame-context. This example runs in the
+;; :rf/default frame, so name it explicitly.
+;; See docs/guide/glossary.md#frame-handle.
 (with-frame :rf/default
   (rf/reg-app-schema [:messages]                   {:schema MessagesSlice}))

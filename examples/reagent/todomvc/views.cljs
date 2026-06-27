@@ -5,7 +5,8 @@
   `dispatch` are already in scope), plain helper fns for the sub-views (which
   take `dispatch`/`subscribe` as explicit args — the honest shape for a plain
   fn), and hiccup as data-as-markup. A view reads derived state and dispatches
-  events on interaction; no business logic lives here."
+  events on interaction; no business logic lives here.
+  See docs/guide/glossary.md (view)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.views])
@@ -17,16 +18,15 @@
     :completed "#/completed"
     "#/"))
 
-;; A CONTROLLED text input, re-frame2 style. `:value` reads a draft sub and every
-;; keystroke dispatches `on-change`, which writes the draft into app-db; the input
-;; never holds its own value. Enter commits (dispatches `on-commit`), Escape
-;; cancels (dispatches `on-cancel`), and blur commits. Cancel re-renders the input
-;; away, so a trailing blur has nothing left to save.
+;; A CONTROLLED text input. `:value` reads a draft sub. Every keystroke
+;; dispatches `on-change`, which writes the draft into app-db; the input never
+;; holds its own value. Enter commits (dispatches `on-commit`), Escape cancels
+;; (dispatches `on-cancel`), and blur commits. Cancel renders the input away, so
+;; a trailing blur has nothing left to save.
 ;;
 ;; `:autofocus?` focuses the input when it first mounts — the edit input wants
-;; this, since the row just entered edit mode. A bare `:ref` callback does it by
-;; calling `.focus()` on the live node; it touches focus only, leaving `:value`
-;; bound to the sub.
+;; this, since the row just entered edit mode. A `:ref` callback calls `.focus()`
+;; on the live node. It touches focus only, leaving `:value` bound to the sub.
 (defn todo-input [{:keys [draft on-change on-commit on-cancel autofocus?] :as props}]
   (let [handle-keydown
         (fn [event]
@@ -129,8 +129,9 @@
 ;; The sub-views above (task-entry, task-list, todo-item, footer-controls) are
 ;; plain Reagent helper fns that take `dispatch` / `subscribe` as explicit args —
 ;; the clearest shape for internal helpers. `reg-view` is for the root: inside
-;; its body `dispatch` and `subscribe` are auto-injected into scope (Spec 004
-;; §reg-view auto-inject), which is why the root threads them down to the helpers.
+;; its body `dispatch` and `subscribe` are injected into scope, which is why the
+;; root threads them down to the helpers.
+;; See docs/guide/concepts/views.md.
 (reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]
     [:<>

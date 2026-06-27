@@ -1,8 +1,9 @@
 (ns realworld-resources.core
-  "Entry point for the RealWorld-on-resources (Conduit) example — a sibling of
-   `examples/reagent/realworld/` that expresses the read surface as EP-0003 (Spec
-   016) RESOURCES and the write surface as MUTATIONS, rather than hand-rolled
-   `:rf.http/managed` Pattern-RemoteData slices.
+  "Entry point for the RealWorld (Conduit) example. The read surface is
+   RESOURCES (`reg-resource`) and the write surface is MUTATIONS
+   (`reg-mutation`): the framework owns the server-state cache, views read it
+   passively, and a write invalidates the reads it affected. See the resources
+   guide: ../../../docs/resources/concepts.md.
 
    Wires the app together:
    - pulls in every feature ns (each registers its resources / mutations /
@@ -22,26 +23,18 @@
      scope.cljs      — the fail-closed session cache scope
      schema.cljs     — Malli wire shapes + the small app-db schemas
      http.cljs       — the demo backend stub + failure projection
-     views.cljs      — passive pages + the small UI event glue
-
-   The resources + mutations runtime (EP-0003) backs this example, which runs
-   live. The example tree is test-free; resource/mutation contract coverage
-   lives in `implementation/resources/test/` and the conformance fixtures.
-
-   For the `:rf.http/managed` counterpart (schema-driven decode, retry/abort,
-   the classification order, optimistic rollback against managed HTTP), see the
-   sibling `examples/reagent/realworld/` — the canonical Spec 014 demo."
+     views.cljs      — passive pages + the small UI event glue"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Managed HTTP — the single built-in resource/mutation transport.
             [re-frame.http.managed]
-            ;; The canned-stub fxs the demo backend delegates to (Spec 014
-            ;; §Testing). A real Conduit deployment would drop this require.
+            ;; The canned-stub fxs the demo backend delegates to. A real Conduit
+            ;; deployment would drop this require.
             [re-frame.http.test-support]
-            ;; Resources + mutations runtime (day8/re-frame2-resources).
+            ;; Resources + mutations runtime.
             [re-frame.resources]
-            ;; Routing + machines artefacts (late-bind the `:resources` route
-            ;; key + the auth machine).
+            ;; Routing + machines. Loading routing makes the `:resources` route
+            ;; key available; the auth machine needs machines.
             [re-frame.routing]
             [re-frame.machines]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -63,28 +56,23 @@
 ;; ============================================================================
 
 (rf/reg-event :app/initialise
-  {:doc "App boot. Seeds the form drafts. Session restore (`:auth/initialise`)
-         is NOT in this fan-out — it consumes the RECORDABLE-GENERATOR
-         `:realworld-resources.session/token` coeffect (EP-0017). The `:dispatch`
-         fx does not forward `:rf.cofx`, so `:auth/initialise` rides its OWN
-         `:initial-events` step (a direct boot dispatch, ahead of this one)
-         rather than this fan-out — keeping the generated token on its own boot
-         dispatch token, where it is recorded. The page reads (articles, tags,
-         feed, …) are CAUSED by the route's `:resources` metadata on the initial
-         URL→route sync, not from here — that is the point of the variant."}
+  {:doc "App boot. Seeds the form drafts. Session restore is its own
+         `:initial-events` step (`:auth/initialise`), not part of this fan-out,
+         so its recordable token coeffect rides its own dispatch. The page reads
+         (articles, tags, feed, …) are caused by the route's `:resources`
+         metadata on the initial URL→route sync, not from here."}
   (fn [_ _]
     {:fx [[:dispatch [:auth.login-form/initialise]]
           [:dispatch [:auth.register-form/initialise]]]}))
 
-;; Durable app-db classification (EP-0025): the JWT at [:auth :token] is
-;; sensitive — declare it via the commit-plane `:sensitive` effect, returned
-;; alongside `:db` from an event the frame runs at creation (`:initial-events`,
-;; before any boot dispatch or off-box egress). EP-0025 removed the durable
-;; `:sensitive {:app-db …}` frame annotation; a frame is not app-db's
-;; definition site.
+;; The JWT at [:auth :token] is durable and sensitive. Classify it via the
+;; `:sensitive` effect, returned alongside `:db` from an event the frame runs at
+;; creation (`:initial-events`, before any off-box egress) so the raw token is
+;; redacted from anything that leaves the box. See data classification:
+;; ../../../docs/guide/glossary.md#data-classification.
 (rf/reg-event :auth/classify-token
   {:doc "Classifies the durable JWT path [:auth :token] sensitive at frame
-         creation (EP-0025 commit-plane classification effect)."}
+         creation."}
   (fn [{:keys [db]} _]
     {:db db :sensitive [[:auth :token]]}))
 
@@ -127,9 +115,9 @@
 
 (reg-view ^{:doc "Confirm dialog shown when a `:can-leave` guard blocks a
                    navigation (e.g. the editor with a dirty draft). Reads the
-                   blocked navigation off the `:rf/pending-navigation` sub
-                   (Spec 012 §Redirects and guards); the buttons continue or
-                   cancel the pending nav."}
+                   blocked navigation off the `:rf/pending-navigation` sub; the
+                   buttons continue or cancel the pending nav. See route guard:
+                   ../../../docs/routing/glossary.md#route-guard."}
           pending-nav-dialog []
   (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.pending-nav-overlay {:data-testid "pending-nav-dialog"}
@@ -164,31 +152,22 @@
    [footer]])
 
 ;; ============================================================================
-;; BEARER-AUTH HTTP INTERCEPTOR  (Spec 014 §Middleware)
+;; BEARER-AUTH HTTP INTERCEPTOR
 ;; ============================================================================
 ;;
-;; The cross-cutting decoration the resources/mutations variant was missing
-;; (fable.md F4): a single `:before` fn injects the Bearer token from the auth
-;; slice, so EVERY outbound `:rf.http/managed` request that crosses this frame
-;; picks the header up automatically. Resources AND mutations lower onto
-;; `:rf.http/managed`, so this one interceptor decorates the WHOLE Conduit API
-;; — the route-caused reads (`/articles/feed`, the lists, detail), the writes
-;; (favorite / follow / comment / settings / save-article), and the auth
-;; machine's session-restore `GET /user`. No `:request` fn threads the token
-;; per-call; the auth slice is the single source of truth and this is the
-;; single read site.
+;; A single `:before` fn injects the Bearer token from the auth slice, so EVERY
+;; outbound `:rf.http/managed` request that crosses this frame picks the header
+;; up automatically. Resources AND mutations lower onto `:rf.http/managed`, so
+;; this one interceptor decorates the WHOLE Conduit API — the route-caused reads
+;; (`/articles/feed`, the lists, detail), the writes (favorite / follow /
+;; comment / settings / save-article), and the auth machine's session-restore
+;; `GET /user`. No `:request` fn threads the token per-call; the auth slice is
+;; the single source of truth and this is the single read site.
 ;;
-;; CARRIED-FRAME-CORRECT (EP-0002): the token is read from
-;; `(:frame ctx)` — the frame the cascade actually runs under — not a
-;; hard-coded `:rf/default`, so the header tracks a non-default / multi-frame
-;; mount. The interceptor returns ctx unchanged when no token is present, so
-;; login / register / the public reads (logged-out) are unaffected.
-
-;; Public (not `defn-`) so a headless fixture can wire it into a test frame
-;; and assert the decoration. The sibling's route guard takes the other route:
-;; it is a `reg-interceptor` descriptor referenced BY ID
-;; (`:realworld-resources.routing/auth-guard`, EP-0022) rather than a var. The
-;; example tree stays test-free; the visibility is the only concession.
+;; The token is read from `(:frame ctx)` — the frame the cascade runs under —
+;; not a hard-coded id, so the header tracks a non-default / multi-frame mount.
+;; The interceptor returns ctx unchanged when no token is present, so login /
+;; register / the public (logged-out) reads are unaffected.
 (defn bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))
                       :auth :token)]
@@ -206,11 +185,11 @@
 ;; app-db.
 ;;
 ;; THIS IS A CONFORMANCE SURFACE, NOT A re-frame2 PATTERN. An unannotated global
-;; token accessor is exactly the anti-pattern that gets copied into real apps
-;; (it bypasses the frame/sub system and leaks the raw JWT to any script on the
-;; page). Real re-frame2 code reads session state through subs under the frame
-;; provider — never a `window.*` global. It exists ONLY so the external suite
-;; can introspect this demo; a production RealWorld app would NOT ship it.
+;; token accessor is the anti-pattern that gets copied into real apps: it
+;; bypasses the frame/sub system and leaks the raw JWT to any script on the
+;; page. Real re-frame2 code reads session state through subs under the frame
+;; provider, never a `window.*` global. This exists only so the external suite
+;; can introspect the demo; a production RealWorld app would not ship it.
 (defn- install-conduit-debug! [frame-id]
   (when (exists? js/window)
     (set! (.-__conduit_debug__ js/window)
@@ -227,53 +206,36 @@
 
 (def app-frame :rf/default)
 
-;; EP-0002: `:rf/default` is an ordinary frame id with no framework privilege —
-;; `init!` installs only the adapter and creates no frame. This app earns URL
-;; ownership by DECLARING `:url-bound? true` on the frame below.
+;; `:rf/default` is an ordinary frame id with no framework privilege — `init!`
+;; installs only the adapter and creates no frame. This app earns URL ownership
+;; by declaring `:url-bound? true` on the frame below.
 ;;
 ;; The app frame is created, configured, and seeded in ONE spot: the
-;; `frame-provider {:id …}` ENSURE form at the render root. On first mount it
+;; `frame-provider {:id …}` ensure form at the render root. On first mount it
 ;; creates the frame under `app-frame`, applies the config (`:url-bound? true`
-;; so it owns the URL; the auth-guard interceptor referenced BY ID per EP-0022;
-;; the demo `:rf.http/managed` routed through the in-process backend stub so
-;; reads (resources) and writes (mutations) run without a network), and runs
-;; `:initial-events` ONCE — `:auth/classify-token` then session-restore
-;; `:auth/initialise` then form-draft `:app/initialise`, in that order. On hot
-;; reload it REUSES the existing frame WITHOUT re-seeding (durable app-db
-;; survives; `:initial-events` are re-recorded but not replayed). That id is
-;; what every in-tree `dispatch`/`subscribe` resolves against — no separate
-;; `reg-frame` or scope step.
+;; so it owns the URL; the auth-guard interceptor referenced by id; the demo
+;; `:rf.http/managed` routed through the in-process backend stub so reads and
+;; writes run without a network), and runs `:initial-events` once. Hot reload
+;; reuses the frame without re-seeding (durable app-db survives). That id is what
+;; every in-tree `dispatch`/`subscribe` resolves against.
 ;;
 ;; `:initial-events` ordering carries two constraints:
-;;   - `:auth/classify-token` first — EP-0025 (durable egress classification):
-;;     the JWT lives at [:auth :token] and is a durable, frame-wide sensitive
-;;     fact, so that path is classified `:sensitive` via the commit-plane
-;;     `:sensitive` effect at frame creation, BEFORE any off-box egress.
-;;     Projection happens at the trust boundary, so off-box egress (Xray /
-;;     observability capture, an off-box tool, an SSR hydration payload) never
-;;     sees the raw token, while on-box use keeps it.
-;;   - `:auth/initialise` before `:app/initialise` — EP-0017: session restore
-;;     consumes the RECORDABLE-GENERATOR `:realworld-resources.session/token`
-;;     coeffect and folds it into durable [:auth :token]. The dispatch carries
-;;     no `:rf.cofx` (a production dispatch never stamps a coeffect; that is a
-;;     unit-test stub seam). The registered generator (auth.cljs) reads
-;;     localStorage ONCE at processing-start; its value rides this boot dispatch
-;;     token as the flat recordable coeffect, so it is recorded and replay /
-;;     epoch-restore re-presents the captured token verbatim rather than
-;;     re-reading localStorage then. It is its OWN `:initial-events` step (not
-;;     the `:app/initialise` `:dispatch` fan-out, which does not forward
-;;     `:rf.cofx`), and ahead of `:app/initialise`, so the token is in app-db
-;;     before the bearer-auth interceptor fires any authenticated request.
+;;   - `:auth/classify-token` first: the JWT at [:auth :token] is a durable
+;;     sensitive fact, so classify it before any off-box egress (Xray capture,
+;;     an SSR payload) can see the raw token. See data classification:
+;;     ../../../docs/guide/glossary.md#data-classification.
+;;   - `:auth/initialise` before `:app/initialise`: session restore reads the
+;;     saved JWT from a recordable coeffect (auth.cljs) and folds it into durable
+;;     [:auth :token]. It rides its own dispatch (not the `:app/initialise`
+;;     fan-out, which does not forward `:rf.cofx`) and runs first, so the token
+;;     is in app-db before the bearer-auth interceptor fires any authenticated
+;;     request.
 ;;
-;; The outbound `Authorization` Bearer header (the bearer-auth interceptor,
-;; registered globally in `run` BEFORE the frame's `:initial-events` fire the
-;; session-restore `GET /user`) is NOT classified here — it is already on the
-;; framework's immutable built-in HTTP carrier denylist (Spec 014 §Privacy),
-;; redacted off-box with no frame config. The `:sensitive :http :headers`
-;; extension is for APP-SPECIFIC carriers; this app sends none. The
-;; session-scope KEY ([:auth :user :username]) the scoped resource cache reads
-;; under is identity, not a secret, so it is deliberately NOT classified —
-;; over-redacting would obscure the cache-leak boundary this example shows.
+;; The outbound `Authorization` Bearer header is not classified here — the
+;; framework's built-in HTTP carrier denylist already redacts it off-box. The
+;; session-scope key ([:auth :user :username]) is identity, not a secret, so it
+;; is deliberately not classified — over-redacting would obscure the cache-leak
+;; boundary this example shows.
 (defn run []
   (rf/init! reagent-adapter/adapter)
   ;; Register the Bearer-auth interceptor at app boot, BEFORE the frame's
@@ -289,11 +251,9 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; ENSURE form: create + configure + seed the app frame in one spot. First
-    ;; mount creates it under `app-frame`, applies the config, and runs
-    ;; `:initial-events` once (classify-token → session restore → form drafts);
-    ;; hot reload reuses it without re-seeding. `make-frame` runs synchronously
-    ;; in render, so the frame is live + seeded once this returns.
+    ;; Create + configure + seed the app frame in one spot (see the block above).
+    ;; The frame is created synchronously during render, so it is live and seeded
+    ;; once this returns.
     (rdc/render @react-root
                 [rf/frame-provider {:id              app-frame
                                     :doc             "RealWorld-on-resources demo frame."
@@ -315,8 +275,8 @@
     ;; already in app-db, so the bearer-auth interceptor decorates those reads.
     (routing/install-router!)
     ;; Focus/reconnect revalidation: refetch active-and-stale reads when the tab
-    ;; returns or the network reconnects (Spec 016 §Stale and GC; CLJS-only,
-    ;; idempotent). The host signals are never dispatched by hand.
+    ;; returns or the network reconnects (idempotent). The host signals are never
+    ;; dispatched by hand.
     (rf/install-revalidation-listeners! app-frame)
     ;; Conformance-contract surface — NOT a re-frame2 pattern; see
     ;; install-conduit-debug! above. The external RealWorld suite may read it.

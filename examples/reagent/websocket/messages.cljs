@@ -1,36 +1,29 @@
 (ns websocket.messages
-  "The `:websocket/socket` actor + outbound/inbound message handling
-   for the Pattern-WebSocket example.
+  "The `:websocket/socket` actor plus outbound/inbound message handling.
 
    This file plays two roles:
 
-   1. **Socket actor (`:websocket/socket`).** The spawned child the
-      connection machine `:spawn`s on entry to `:active`. The actor
-      is itself a state machine — its `:open` state translates `:send`
-      events into wire-level writes and forwards inbound server
-      messages back to the parent connection machine. Pattern-WebSocket
-      §The connection state machine names this as a child actor
-      explicitly so the JS `WebSocket` (which is a host-side reference,
-      not a value) lives outside `app-db`.
+   1. **Socket actor (`:websocket/socket`).** The child machine the
+      connection machine spawns on entry to `:active`. Its `:open` state
+      translates `:send` events into wire-level writes and forwards
+      inbound server messages back to the parent. Making the actor own the
+      socket keeps the JS `WebSocket` (a host-side reference, not a value)
+      out of app-db. See docs/machines/glossary.md#spawn.
 
-   2. **Mock-server bridge.** A small in-process JS `WebSocket`-shaped
-      stub the example uses when no real WebSocket endpoint is
-      available — keeps the example standalone for the headless tests
-      (in the framework test tree at
-      `implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`;
-      the example tree is test-free). The stub state lives in
-      the `mock-server-state` atom; plain exported fns are the delivery
-      seams — `set-mock-sync!` flips the stub between async (`setTimeout`-
-      deferred) and sync (immediate `dispatch-sync`) delivery, `send-server-push!`
-      and `simulate-disconnect!` push inbound `:received` / disconnect
-      events from view click handlers, and `reset-mock-server!` clears
-      the side-table between tests. Sync mode lets the headless tests
-      observe a full request/reply round-trip without yielding to the
-      JS event loop.
+   2. **Mock-server bridge.** A small in-process JS `WebSocket`-shaped stub
+      the example uses in place of a real endpoint, so it runs standalone.
+      The stub state lives in the `mock-server-state` atom. The exported
+      fns are the delivery seams: `set-mock-sync!` flips the stub between
+      async (`setTimeout`-deferred) and sync (immediate `dispatch-sync`)
+      delivery; `send-server-push!` and `simulate-disconnect!` push inbound
+      `:received` / disconnect events from view click handlers; and
+      `reset-mock-server!` clears the side-table between tests. Sync mode
+      lets a test observe a full request/reply round-trip without yielding
+      to the JS event loop.
 
-   The split is intentional: production apps swap the bridge for a real
-   `(js/WebSocket. url)` and leave the actor machine untouched. The
-   pattern (machine-owns-the-actor; actor-owns-the-host-side-reference)
+   The split is intentional: a real app swaps the bridge for a real
+   `(js/WebSocket. url)` and leaves the actor machine untouched. The
+   pattern — machine owns the actor; actor owns the host-side reference —
    does not change with the transport."
   (:require [re-frame.core :as rf]
             [re-frame.machines]
@@ -41,11 +34,11 @@
 ;; ============================================================================
 ;;
 ;; The JS `WebSocket` (or its mock stand-in) is a stateful reference. It
-;; cannot live in `app-db` — it doesn't serialise, it doesn't survive a
-;; Tool-Pair epoch replay, and writing it would defeat re-frame's value
-;; semantics. The canonical answer is a host-side weak store keyed by
-;; the actor's `:rf/self-id`, owned by the actor's machine handler. The
-;; actor's `:on-spawn` writes; the actor's `:on-destroy` clears.
+;; cannot live in app-db: it doesn't serialise, it doesn't survive a
+;; time-travel replay, and writing it would defeat re-frame's value
+;; semantics. So it lives in a host-side store keyed by the actor's
+;; `:rf/self-id`, owned by the actor's machine handler. The actor writes
+;; on open and clears on close.
 
 (defonce ^:private sockets-by-actor (atom {}))
 
@@ -62,44 +55,42 @@
 ;; MOCK WEBSOCKET SERVER
 ;; ============================================================================
 ;;
-;; Implements a tiny `js/WebSocket`-shaped object for the headless tests
-;; and the example's own buttons. Supports two interaction shapes:
+;; A tiny `js/WebSocket`-shaped object for the tests and the example's own
+;; buttons. It supports two interaction shapes:
 ;;
-;;   (1) Auto-echo replies for outbound `{:type :request ...}`. The
-;;       server immediately echoes a reply on the same socket carrying
-;;       the original `:request-id` so the connection machine's
-;;       request-reply correlation slot lights up.
+;;   (1) Auto-echo replies for outbound `{:type :request ...}`. The server
+;;       echoes a reply on the same socket carrying the original
+;;       `:request-id`, so the connection machine's request-reply
+;;       correlation slot lights up.
 ;;
 ;;   (2) Manual `(send-server-push! body)` and `(simulate-disconnect!)`
 ;;       seams the views call from button handlers.
 ;;
-;; The mock is deliberately synchronous-ish: inbound deliveries land on
-;; the next task tick (via `js/setTimeout _ 0`, in the `later` helper
-;; below) so transport events fire after the dispatch returns, not inside
-;; it.
+;; In async mode, inbound deliveries land on the next task tick (via
+;; `js/setTimeout _ 0`, in the `later` helper below) so transport events
+;; fire after the dispatch returns, not inside it.
 
 (defonce ^:private mock-server-state (atom {:sockets {} :sync? false}))
 
 (defn set-mock-sync!
   "Toggle the mock server between async (default, `setTimeout`-deferred)
-   and sync (immediate-delivery) modes. Sync mode is used by the
-   headless tests so `rf/dispatch-sync` observes the full
-   request/reply round-trip without yielding to the JS event loop."
+   and sync (immediate-delivery) modes. The tests use sync mode so
+   `rf/dispatch-sync` observes the full request/reply round-trip without
+   yielding to the JS event loop."
   [sync?]
   (swap! mock-server-state assoc :sync? sync?))
 
 (defn reset-mock-server!
-  "Clear every stored mock socket. Used by the headless test fixture
-   to ensure each test starts with a fresh mock-server side-table —
-   without this, the `:sockets` map accumulates across tests and
-   `send-server-push!` delivers N copies of every push."
+  "Clear every stored mock socket, so each test starts with a fresh
+   mock-server side-table. Without this the `:sockets` map accumulates
+   across tests and `send-server-push!` delivers N copies of every push."
   []
   (swap! mock-server-state assoc :sockets {}))
 
 (defn- later
-  "Run `f` synchronously in mock-sync mode; via `setTimeout` otherwise.
-   This is the only knob that separates headless-test mode (sync) from
-   the browser-driven example (async, `setTimeout`-deferred)."
+  "Run `f` synchronously in sync mode; via `setTimeout` otherwise. This is
+   the only knob that separates sync mode (the tests) from the
+   browser-driven example (async, `setTimeout`-deferred)."
   [f]
   (if (:sync? @mock-server-state)
     (f)
@@ -109,18 +100,16 @@
   (str "mock-socket-" (random-uuid)))
 
 (defn- deliver-to-actor!
-  "Dispatch an inbound transport event into the spawned actor. The
-   actor's machine handler translates the event into a parent-bound
+  "Dispatch an inbound transport event into the spawned actor. The actor's
+   machine handler translates the event into a parent-bound
    `[:ws/connection [:ws/<kind> ...]]` dispatch.
 
-   EP-0002: inbound deliveries fire from the mock transport's
-   `later` callback — a detached `setTimeout` in async (browser) mode that
-   carries NO ambient frame, so a bare `rf/dispatch` here would raise
-   `:rf.error/no-frame-context`. The caller (`mock-socket-for-actor`) is
-   created inside the `:open-socket` action — i.e. under the actor's drain
-   frame — so it captures that frame's `dispatch` operation and threads it in
-   here. Passing the captured `dispatch` honours the carried invariant across
-   the async boundary (Spec 002 §frame-handle)."
+   In async mode this fires from a detached `setTimeout` callback, which
+   carries no ambient frame; a bare `rf/dispatch` here would raise
+   `:rf.error/no-frame-context`. So the caller captures its frame's
+   `dispatch` and threads it in. A captured `dispatch` carries the frame
+   across the async boundary.
+   See docs/guide/glossary.md#frame-handle."
   [dispatch actor-id kind payload]
   (when actor-id
     (dispatch [actor-id [kind payload]])))
@@ -140,12 +129,11 @@
   [actor-id _url _auth-token]
   (let [id   (next-mock-socket-id)
         open? (atom true)
-        ;; EP-0002: this fn runs inside the `:open-socket` action
-        ;; — i.e. under the actor's drain frame — so capture that frame's
-        ;; `dispatch` now and thread it into every (async, `later`-deferred)
-        ;; inbound delivery below. The detached `setTimeout` callback carries
-        ;; no ambient frame; the captured operation does (Spec 002
-        ;; §frame-handle).
+        ;; This fn runs inside the actor's `:open-socket` action, so it has
+        ;; a frame in scope. Capture that frame's `dispatch` now and thread
+        ;; it into every (async, `later`-deferred) inbound delivery below;
+        ;; the detached `setTimeout` callback has no frame of its own.
+        ;; See docs/guide/glossary.md#frame-handle.
         dispatch (:dispatch (rf/frame-handle))]
     (swap! mock-server-state assoc-in [:sockets id]
            {:actor-id actor-id
@@ -193,21 +181,19 @@
               (later
                 #(deliver-to-actor! dispatch actor-id :closed {:code 1000})))}))
 
-;; Exposed seams the views (and the headless tests) use to drive the
-;; mock without dispatching through the actor.
+;; Exposed seams the views (and the tests) use to drive the mock without
+;; dispatching through the actor.
 
 (defn- deliver-external!
-  "Sync-mode-aware variant of `deliver-to-actor!` for callers OUTSIDE
-   a running drain (i.e. test bodies, view click handlers). In sync
-   mode it uses `dispatch-sync` so the chain runs to fixed point
-   before returning; in async mode it falls back to the queued
-   `dispatch`.
+  "Variant of `deliver-to-actor!` for callers outside a running cascade
+   (test bodies, view click handlers). In sync mode it uses
+   `dispatch-sync` so the chain runs to fixed point before returning; in
+   async mode it uses the queued `dispatch`.
 
-   EP-0002: a view click handler fires outside React render
-   scope and outside any drain, so the caller must supply a frame-bound
-   `dispatch` / `dispatch-sync` pair (the operations a `reg-view`-injected
-   `dispatch` / a captured `(rf/frame-handle)` provides). A bare ambient
-   `rf/dispatch` here would raise `:rf.error/no-frame-context`."
+   A view click handler fires outside any frame scope, so the caller
+   supplies a frame-bound `dispatch` / `dispatch-sync` pair (from a
+   captured `(rf/frame-handle)`). A bare `rf/dispatch` here would raise
+   `:rf.error/no-frame-context`. See docs/guide/glossary.md#frame-handle."
   [{:keys [dispatch dispatch-sync]} actor-id kind payload]
   (when actor-id
     (if (:sync? @mock-server-state)
@@ -215,24 +201,22 @@
       (dispatch      [actor-id [kind payload]]))))
 
 (defn send-server-push!
-  "Deliver a synthetic server push to every live mock socket. Used by
-   the headless tests and the example's 'Trigger server push' button
-   to demonstrate the inbound translation path.
+  "Deliver a synthetic server push to every live mock socket. Drives the
+   inbound translation path from the 'Trigger server push' button and the
+   tests.
 
-   `handle` is a `(rf/frame-handle)` operation bundle carrying the caller's
-   frame (the view passes its injected handle; tests pass an explicit one) —
-   EP-0002 requires the deferred dispatch carry a frame across the
-   click-handler / async boundary."
+   `handle` is a `(rf/frame-handle)` bundle carrying the caller's frame, so
+   the deferred dispatch carries a frame across the click-handler / async
+   boundary. See docs/guide/glossary.md#frame-handle."
   [handle body]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]
     (when @open?
       (deliver-external! handle actor-id :received body))))
 
 (defn simulate-disconnect!
-  "Force every live mock socket closed, triggering the reconnect
-   cascade in the parent. Used by the 'Drop connection' button. `handle`
-   is the caller's `(rf/frame-handle)` operation bundle (see
-   `send-server-push!`)."
+  "Force every live mock socket closed, triggering the reconnect cascade
+   in the parent. Drives the 'Drop connection' button. `handle` is the
+   caller's `(rf/frame-handle)` bundle (see `send-server-push!`)."
   [handle]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]
     (when @open?
@@ -243,20 +227,18 @@
 ;; THE SOCKET ACTOR — :websocket/socket
 ;; ============================================================================
 ;;
-;; A small two-state machine. `:opening` opens the host-side socket on
-;; entry, transitions to `:open` once the transport reports ready, and
-;; stays there for the lifetime of the connection. The parent's
-;; `:spawn` destroys this actor on any exit from `:active`, which
-;; takes care of cleanup.
+;; A small machine. `:opening` opens the host-side socket on entry and
+;; transitions immediately to `:open`, where it stays for the lifetime of
+;; the connection. The parent's `:spawn` destroys this actor on any exit
+;; from `:active`, which handles cleanup.
 ;;
-;; The actor uses the runtime-stamped `:rf/self-id` to address
-;; dispatches back to the parent's `:rf/parent-id`. The framework
-;; reserves both keys under `:data :rf/*` for spawned actors.
+;; The actor reads the runtime-stamped `:rf/self-id` to tag its own
+;; dispatches and `:rf/parent-id` to address dispatches back to the
+;; parent. The runtime stamps both keys into a spawned actor's `:data`.
 
 (def socket-actor-machine
-  "Spec for the `:websocket/socket` actor machine — held in a `def` so
-   the spec reads cleanly and the `reg-machine` registration below can
-   reference it."
+  "The `:websocket/socket` actor machine spec. Held in a `def` so the
+   `reg-machine` registration below can reference it."
     {:initial :opening
      :data    {:url        nil
                :auth-token nil}
@@ -272,14 +254,11 @@
                                                (:url data)
                                                (:auth-token data))]
           (store-socket! self-id socket)
-          ;; Report `:opened` to the parent as a `:dispatch` fx (NOT
-          ;; via `(rf/dispatch ...)` from inside the action body) so
-          ;; the framework routes through the running drain's frame.
-          ;; Important under the EP-0002 carried invariant:
-          ;; a `:dispatch` fx inherits the cascade's frame, whereas a bare
-          ;; `(rf/dispatch ...)` from inside an action body runs outside
-          ;; any frame scope and raises `:rf.error/no-frame-context` — it
-          ;; does NOT silently fall back to `:rf/default`.
+          ;; Report `:opened` to the parent as a `:dispatch` fx, not a bare
+          ;; `(rf/dispatch ...)` from inside the action body. A `:dispatch`
+          ;; fx inherits the cascade's frame; a bare dispatch from an
+          ;; action body runs outside any frame scope and raises
+          ;; `:rf.error/no-frame-context`.
           {:fx [[:dispatch [parent-id [:ws/opened {:source-socket-id self-id}]]]]}))
 
       :send-via-socket
@@ -292,15 +271,15 @@
         nil)
 
       :forward-received
-      ;; The mock server's reply arrives via `[<actor-id> [:received body]]`.
-      ;; Forward into the parent with the connection-epoch stamp so
+      ;; The server's reply arrives via `[<actor-id> [:received body]]`.
+      ;; Forward it to the parent stamped with the socket id, so
       ;; `:current-socket?` can drop messages from a torn-down socket.
       (fn action-forward-received [{data :data [_ body] :event}]
         (let [self-id   (:rf/self-id data)
               parent-id (:rf/parent-id data)
-              ;; Branch on body's :type. :auth-ok / :auth-failed land
-              ;; on the parent as their own events; everything else
-              ;; lands as :ws/received with the body in tow.
+              ;; Branch on body's :type: :auth-ok / :auth-failed land on
+              ;; the parent as their own events; everything else lands as
+              ;; :ws/received with the body in tow.
               ev        (case (:type body)
                           :auth-ok     [:ws/auth-ok {:source-socket-id self-id}]
                           :auth-failed [:ws/auth-failed
@@ -322,16 +301,13 @@
 
      :states
      {:opening
-      ;; Per Spec 005 §Initial-state `:entry` fires on machine bootstrap:
-      ;; the initial-state's `:entry` action runs once as part of
-      ;; bringing the actor to life. We open the host-side socket on
-      ;; bootstrap and transition immediately to `:open` via the
-      ;; `:always` slot once the socket is stored.
+      ;; The initial state's `:entry` runs once as the actor comes to
+      ;; life. We open the host-side socket here and transition straight
+      ;; to `:open` via the `:always` slot once the socket is stored.
       ;;
-      ;; The actor may also receive `:send` from the parent's
-      ;; `:send-auth` entry-action before its own bootstrap entry has
-      ;; settled — the `:send` override here picks up the just-stored
-      ;; host-side socket as soon as it lands.
+      ;; The actor may also receive `:send` from the parent's `:send-auth`
+      ;; entry action before its own entry has settled, so `:opening`
+      ;; handles `:send` too, picking up the just-stored socket.
       {:entry :open-socket
        :always [{:target :open}]
        :on    {:send       {:target :open
@@ -348,24 +324,22 @@
                        :action :forward-closed}}}
 
       :closed
-      ;; Terminal: the parent's exit-from-:active cascade destroys this
-      ;; actor; we don't need to do anything except absorb late events.
+      ;; Terminal. The parent's exit-from-:active cascade destroys this
+      ;; actor; this state just absorbs any late events.
       {}}})
 
 ;; ============================================================================
-;; REGISTRATIONS  (ns-load — the production-app idiom)
+;; REGISTRATIONS
 ;; ============================================================================
 
-;; The socket actor — Pattern-WebSocket §The connection state machine
-;; names this as the child actor the parent invokes. Use `rf/reg-machine`
-;; so the registration metadata carries `:rf/machine? true` (required
-;; by the spawn-fx's `resolve-spawn-machine` lookup).
+;; The socket actor the connection machine spawns. `rf/reg-machine` tags
+;; the registration `:rf/machine? true`, which the spawn-fx needs to
+;; resolve the spawn target.
 (rf/reg-machine :websocket/socket socket-actor-machine)
 
-;; Server-pushed events — Pattern-WebSocket §Server-pushed events.
-;; The connection machine dispatches [:ws/handle-message body] for
-;; every received message (correlated or server-pushed); this
-;; handler folds it into app-db for the views.
+;; The connection machine dispatches [:ws/handle-message body] for every
+;; received message (correlated reply or server push); this handler folds
+;; it into app-db for the views.
 (rf/reg-event :ws/handle-message
   {:doc "Translate an inbound `:ws/received` body into an app-db write.
          Records the message in the [:messages :received] log + stashes
@@ -391,38 +365,35 @@
     {:db (assoc-in db [:messages :draft] "")
      :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
 
-;; EP-0017: the request-id is a DURABLE correlation fact — it is written into
-;; the connection machine's :in-flight slot and the eventual reply is matched
-;; against it. A durable id must be a FOLDED FACT, never an ambient
-;; `(random-uuid)` read at the handler write site — otherwise replay mints a
-;; different id and the correlation no longer matches the recorded request.
-;; The app-owned generator is a RECORDABLE `reg-cofx`: the generator runs at
-;; context-assembly, the minted id is recorded onto the causal token, and
-;; replay re-presents it verbatim. `:ws.app/request` DECLARES it via
-;; `:rf.cofx/requires` and reads it flat from the coeffects map.
+;; The request-id is a durable correlation fact: it is written into the
+;; connection machine's :in-flight slot and the eventual reply is matched
+;; against it. A durable id must be a recorded fact, never an ambient
+;; `(random-uuid)` read at the handler write site — otherwise replay mints
+;; a different id and the correlation no longer matches the recorded
+;; request. So the generator is a recordable `reg-cofx`: it runs at
+;; context-assembly, its id is recorded on the event's causal token, and
+;; replay re-presents it verbatim. `:ws.app/request` declares it via
+;; `:rf.cofx/requires` and reads it from the coeffects map.
+;; See docs/guide/glossary.md#recordable-vs-ambient-coeffects.
 (rf/reg-cofx :ws.app/request-id
   {:recordable? true
-   :doc "Replayable correlation id for an outbound request-reply (EP-0017)."}
+   :doc "Replayable correlation id for an outbound request-reply."}
   (fn [] (random-uuid)))
 
 (rf/reg-event :ws.app/request
-  {:doc "Issue a request-reply via the connection machine's
-         correlation slot. The reply lands at [:messages :last-reply]
-         once the mock server echoes back. The correlation id is folded
-         from the `:ws.app/request-id` recordable coeffect (EP-0017),
-         never minted ambiently — replay re-presents the same id.
+  {:doc "Issue a request-reply via the connection machine's correlation
+         slot. The reply lands at [:messages :last-reply] once the mock
+         server echoes back. The correlation id comes from the
+         `:ws.app/request-id` recordable coeffect, never minted ambiently,
+         so replay re-presents the same id.
 
-         APP-LEVEL correlation, NOT the EP-0011 uniform reply envelope.
-         re-frame2 deliberately does not ship a managed
-         WebSocket (Pattern-WebSocket / Managed-Effects §WebSocket), so a
-         per-message request/reply over the open socket is a
-         Pattern-AsyncEffect interaction whose correlation the app owns:
-         a per-message `:request-id`, a registered `:reply` event target,
-         and the connection machine's `:in-flight` map. This is the
-         spec-blessed app/library convention — it is intentionally NOT the
-         framework's `:rf/reply-to` + reply-map vocabulary (property 9 is
-         exempt for the WebSocket surface). The wire `:request-id` is
-         app-level protocol correlation, not the EP-0011 `:work/id`."
+         This is app-level correlation, not a framework reply envelope.
+         re-frame2 does not ship a managed WebSocket, so a per-message
+         request/reply over the open socket is correlation the app owns: a
+         per-message `:request-id`, a registered `:reply` event target, and
+         the connection machine's `:in-flight` map. The wire `:request-id`
+         is app-level protocol correlation, deliberately separate from the
+         framework's own reply vocabulary."
    :rf.cofx/requires [:ws.app/request-id]}
   (fn handler-app-request [{rid :ws.app/request-id} [_ body]]
     {:fx [[:dispatch [:ws/connection
@@ -435,9 +406,8 @@
 (rf/reg-event :ws.app/request-reply
   {:doc "Reply event fired by the connection machine's :register-request
          flow once the correlated reply lands. The arg is the app's own
-         reply BODY (the server echo), not an EP-0011 reply map — this is
-         the app-level Pattern-WebSocket correlation shape, outside the
-         uniform reply envelope (see :ws.app/request)."}
+         reply body (the server echo) — the app-level correlation shape
+         (see :ws.app/request)."}
   (fn handler-app-request-reply [{:keys [db]} [_ body]]
     {:db (assoc-in db [:messages :last-reply] body)}))
 

@@ -13,10 +13,10 @@
             #?(:cljs [cljs.reader :as reader])))
 
 (def ssr-app-slice-keys
-  "Top-level **app-db** slices the SSR payload exports. These are
-  application data only — the framework-owned subsystem trees (routing,
-  machines, elision) live in the separate runtime-db partition, not here
-  (EP-0001 two-partition frame), and ride the payload under :rf/runtime-db."
+  "Top-level app-db slices the SSR payload exports. These are application
+  data only — the framework's subsystem trees (routing, machines, elision)
+  live in the separate runtime-db partition and ride the payload under
+  :rf/runtime-db."
   [:auth
    :articles
    :article
@@ -37,13 +37,14 @@
    :rf.runtime/machines])
 
 (defn exportable-app-db [app-db]
-  ;; Keep secrets out of the SSR payload. The bearer JWT lives at [:auth :token];
-  ;; embedding it in server-rendered HTML would leak a live credential into page
-  ;; source (view-source-visible, proxy-logged, CDN-cacheable). Redact it at the
-  ;; payload boundary. The client re-establishes [:auth :token] on hydrate via
-  ;; `:auth/initialise` (auth.cljs), which reads it back from localStorage
-  ;; through the `:auth.session/token` recordable-generator coeffect (EP-0017).
-  ;; So dropping the token from the payload costs nothing and stays replay-sound.
+  ;; Keep secrets out of the SSR payload. The bearer JWT lives at
+  ;; [:auth :token]; embedding it in server-rendered HTML would leak a live
+  ;; credential into page source (view-source-visible, proxy-logged,
+  ;; CDN-cacheable). Redact it at the payload boundary. The client
+  ;; re-establishes [:auth :token] on hydrate via `:auth/initialise`
+  ;; (auth.cljs), which reads it back from localStorage through the
+  ;; `:auth.session/token` recordable coeffect. So dropping the token from
+  ;; the payload costs nothing and stays replay-sound.
   (cond-> (select-keys app-db ssr-app-slice-keys)
     (contains? app-db :auth) (update :auth dissoc :token)))
 
@@ -68,8 +69,8 @@
        (reader/read-string (.-textContent el)))))
 
 #?(:cljs
-   ;; EP-0002: the caller names the frame to hydrate. Making the target explicit
-   ;; lets a non-default or multi-frame client hydrate the right frame by passing
+   ;; The caller names the frame to hydrate. Making the target explicit lets
+   ;; a non-default or multi-frame client hydrate the right frame by passing
    ;; its own frame-id.
    (defn hydrate-client! [frame-id]
      (when-let [payload (read-server-payload)]

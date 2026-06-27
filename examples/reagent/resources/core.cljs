@@ -1,92 +1,73 @@
 (ns resources.core
-  "Worked example for [Spec 016 Resources](../../../spec/016-Resources.md)
-   (the read-resource surface). A small server-state app — an articles
-   list and an article detail — demonstrating the resource surface
-   composed as proper re-frame2: app-db + events + subs, views passive,
-   fetches caused.
+  "A worked example of resources — named, cached server-state reads. See the
+   [resources guide](../../../docs/resources/concepts.md) and its
+   [glossary](../../../docs/resources/glossary.md).
 
-   It teaches, in one cohesive app, four causal patterns:
+   The app is a small articles list plus an article detail. It is ordinary
+   re-frame2: app-db, events, subs, passive views. Views never fetch — the
+   fetch is always caused for them.
 
-   - ROUTE-DRIVEN page load — a route declares `:resources`; route entry
-     ensures them under a `[:route route-id nav-token]` owner.
-   - EVENT-DRIVEN ensure     — an event ensures a resource under an
-     app-minted `[:lease …]` owner with a matching release path.
-   - MANUAL refresh          — a button dispatches `:rf.resource/refetch`
-     with a `:cause` (NOT an owner — a refresh keeps nothing alive).
-   - MACHINE-OWNED resource  — a machine action ensures under a
-     `[:machine machine-id instance-id]` owner (released on actor destroy).
+   It shows four ways a fetch gets caused, all wired into the UI:
 
-   Views read everything through the PASSIVE `[:rf.resource/*]` subs; no
-   view fetches. Scope is the fail-closed leak boundary — this example
-   reads public, non-user-specific data, so each resource declares the
-   explicit, auditable `:rf.scope/global` claim (a user/tenant-scoped read
-   would carry a scope resolver instead).
+   - ROUTE-DRIVEN page load — a route declares `:resources`; entering the
+     route ensures them, owned by the route for as long as you stay on it.
+   - EVENT-DRIVEN ensure     — an event ensures a resource under an app-minted
+     `[:lease …]` owner, with a matching release event.
+   - MANUAL refresh          — a button refetches with a `:cause` and no owner
+     (a refresh wants fresh data but keeps nothing alive).
+   - MACHINE-OWNED resource  — a machine ensures a resource owned for the
+     actor's lifetime, released when the actor is destroyed.
 
-   All four patterns are WIRED INTO THE UI and run live. The articles page
-   carries a Refresh button (manual cause), a per-row Preview toggle (event
-   lease ensure/release), and an Open-in-reader button (machine-owned ensure);
-   route entry drives the list + detail loads. The example ships no backend,
-   so it overrides `:rf.http/managed` with a per-URL canned stub that
-   delegates to the framework-shipped `:rf.http/managed-canned-success`
-   (Spec 014 §Testing) — the same reply shape a live server would produce, so
-   every ensure exercises a REAL fetch, in-flight dedupe, and the passive
-   status flow (a 120 ms delay lets the loading skeleton render before the
-   reply lands, so first-load and refresh-in-flight are observable). A repeat
-   ensure of an entry still inside its `:stale-after-ms` window FRESH-SKIPS
-   (no refetch — `:rf.resource/cache-hit`); the manual Refresh forces a
-   refetch regardless.
+   An owner keeps a cached entry alive; a cause records why a fetch happened.
+   See [owner & cause](../../../docs/resources/glossary.md#owner--cause).
 
-   Resources is a POST-V1 optional artefact. The read-resource runtime
-   provides `reg-resource`, the `:rf.resource/*` passive
-   subs, route `:resources` metadata, and the causal `:rf.resource/ensure` /
-   `:rf.resource/refetch` / `:rf.resource/invalidate-tags` /
-   `:rf.resource/release-owner` event bodies. This example covers the READ
-   side only; mutations (`reg-mutation` / `:rf.mutation/execute`) are covered
-   in the guide (docs/resources/concepts.md §Writes invalidate by tag —
-   causally) and the migration walkthrough. GraphQL is a deferred later phase. The
-   example tree is test-free; resource-contract coverage lives in
-   `implementation/resources/test/` and the conformance fixtures."
+   Every resource declares `:scope :rf.scope/global` — this data is public and
+   the same for everyone. Scope is a required, fail-closed leak boundary; a
+   per-user read would carry a scope resolver instead. See
+   [scope](../../../docs/resources/glossary.md#scope).
+
+   The example ships no backend. It overrides the `:rf.http/managed` effect
+   with a per-URL stub that returns canned articles, so every ensure runs a
+   real fetch with real in-flight dedupe and the real status flow. A 120 ms
+   reply delay lets the loading skeleton render before data lands, so
+   first-load and refresh-in-flight are visible. Re-ensuring an entry that is
+   still inside its `:stale-after-ms` window skips the refetch; the manual
+   Refresh forces one regardless.
+
+   This example covers reads only. Writes — mutations that invalidate reads by
+   tag — are covered in the [resources guide](../../../docs/resources/concepts.md)."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [re-frame.views]
-            ;; Managed HTTP ships in day8/re-frame2-http — the single
-            ;; built-in resource transport (Spec 016 §Transport). Loading
-            ;; the ns registers the `:rf.http/managed` fx the resource
-            ;; runtime lowers each ensure onto.
+            ;; Managed HTTP is the transport for resource fetches. Requiring
+            ;; it registers the `:rf.http/managed` effect that each ensure
+            ;; runs onto. See the managed-HTTP glossary entry:
+            ;; ../../../docs/resources/glossary.md#managed-http
             [re-frame.http.managed]
-            ;; This example ships no backend, so it overrides
-            ;; `:rf.http/managed` with a per-URL canned stub that delegates
-            ;; to the framework-shipped `:rf.http/managed-canned-success`
-            ;; (Spec 014 §Testing — the same reply shape a live server would
-            ;; produce). The canned-stub fx ids register from
-            ;; re-frame.http.test-support, NOT from re-frame.http.managed;
-            ;; requiring it is the explicit opt-in for a test/demo app.
+            ;; The canned-reply stub effects. This example has no backend, so
+            ;; the stub below stands in; requiring this ns registers
+            ;; `:rf.http/managed-canned-success`, which it delegates to.
             [re-frame.http.test-support]
-            ;; Resources ship in day8/re-frame2-resources. Requiring the
-            ;; ns at app boot wires the late-bind hooks + registrations;
-            ;; without it, `rf/reg-resource` below throws
-            ;; :rf.error/resources-artefact-missing.
+            ;; Boots the optional resources artefact. Requiring it at app boot
+            ;; is what makes `rf/reg-resource` work; without it the calls below
+            ;; throw.
             [re-frame.resources]
-            ;; Routing ships in day8/re-frame2-routing. The resources
-            ;; artefact LATE-BINDS its `:resources` route-metadata
-            ;; extension into routing, so loading both is what makes a
-            ;; route's `:resources` key accepted (Spec 016 §Route
-            ;; integration).
+            ;; Routing. The resources artefact adds its `:resources` route
+            ;; metadata onto routing, so loading both is what makes a route's
+            ;; `:resources` key accepted.
             [re-frame.routing]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
-;; RESOURCES — the registry of named, cached server-state reads
+;; RESOURCES — named, cached server-state reads
 ;; ============================================================================
 ;;
-;; A resource is identity + scope + a request. `:params-schema`, `:scope`,
-;; and `:request` are REQUIRED (Spec 016 §Resource registration spec). The
-;; `:scope :rf.scope/global` here is the explicit, AUDITABLE claim that this
-;; read is the same for every user/tenant/locale — there is NO implicit
-;; default; a missing scope policy is a loud
-;; :rf.error/resource-missing-scope-policy at registration.
+;; A resource is identity + scope + a request. `:params-schema`, `:scope`, and
+;; the request function are all required. `:scope :rf.scope/global` claims this
+;; read is the same for every user. Scope has no default — a missing scope is
+;; an error at registration. See ../../../docs/resources/glossary.md#scope
 
 (rf/reg-resource :articles/list
   {:doc            "The recent-articles list (public, same for everyone)."
@@ -94,8 +75,8 @@
    :scope          :rf.scope/global
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
-   ;; Tags let a write invalidate this list by tag
-   ;; (`:rf.resource/invalidate-tags {:tags #{[:article-list]}}`).
+   ;; Tags let a write invalidate this list by tag.
+   ;; See ../../../docs/resources/glossary.md#cache-tag
    :tags           (fn [_params _data] #{[:article-list]})}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/articles"}
@@ -115,17 +96,16 @@
      :decode  :json}))
 
 ;; ============================================================================
-;; DEMO BACKEND — per-URL canned :rf.http/managed override
+;; DEMO BACKEND — a per-URL canned :rf.http/managed override
 ;; ============================================================================
 ;;
-;; This example ships no server, so it overrides `:rf.http/managed` (the fx the
-;; resource runtime lowers every ensure onto) with a stub that synthesises the
-;; canned reply per URL. The two resource requests are `GET /api/articles`
-;; (the list) and `GET /api/articles/:slug` (a detail); the stub routes by URL
-;; shape and delegates to the framework-shipped
-;; `:rf.http/managed-canned-success` (Spec 014 §Testing) — the same reply shape
-;; a live server would produce, so the resource lifecycle (in-flight tracking,
-;; dedupe, reply addressing, status flow) is exercised end to end.
+;; There is no server, so this overrides `:rf.http/managed` (the effect every
+;; ensure runs onto) with a stub that builds a canned reply per URL. The two
+;; requests are `GET /api/articles` (the list) and `GET /api/articles/:slug`
+;; (a detail). The stub routes by URL shape and delegates to the shipped
+;; `:rf.http/managed-canned-success`, which returns the same reply shape a real
+;; server would — so the full resource lifecycle (in-flight tracking, dedupe,
+;; reply addressing, status flow) runs for real.
 
 (def ^:private demo-articles
   [{:slug "resources-101"  :title "Resources 101: server-state as cached reads"
@@ -136,11 +116,11 @@
     :body "Ensure an entry still inside :stale-after-ms and the runtime skips the refetch."}])
 
 (def ^:private demo-reply-delay-ms
-  "How long the demo stub defers each canned reply (via the canned-success
-   fx's `:after-ms`, dispatched through `:dispatch-later` — observable in the
-   tape, time-travel-safe, NOT raw `js/setTimeout`). Small but non-zero so the
-   `:loading` skeleton + `:fetching?` refresh states are observable. A
-   demo-seam knob, not a production value."
+  "How long the demo stub defers each canned reply. The delay rides the
+   canned-success effect's `:after-ms` (dispatched via `:dispatch-later`, so it
+   is visible in the tape and survives time-travel). Small but non-zero, so the
+   loading skeleton and the refresh-in-flight state are visible. A demo knob,
+   not a production value."
   120)
 
 (defn- demo-payload-for-url [url]
@@ -152,19 +132,15 @@
       ;; The bare list endpoint — /api/articles.
       demo-articles)))
 
-;; The resource runtime lowers every ensure onto `:rf.http/managed`; this
-;; override stands in for the backend. It synthesises the per-URL payload and
-;; delegates to the framework-shipped `:rf.http/managed-canned-success`
-;; (Spec 014 §Testing) — calling it directly via the registrar with `:after-ms`
-;; so the canned reply rides framework `:dispatch-later` (tape-visible,
-;; time-travel-safe, NOT raw `js/setTimeout`) and the reply addressing the
-;; resource runtime put on the args-map is preserved. Mirrors
-;; `examples/reagent/realworld_resources/http.cljs`.
+;; This override stands in for the backend. It builds the payload for the URL
+;; and hands off to `:rf.http/managed-canned-success`, looked up from the
+;; registrar and called with `:after-ms` so the reply rides `:dispatch-later`
+;; (visible in the tape, survives time-travel). It keeps the args-map intact so
+;; the reply still addresses back to the resource that asked.
 (rf/reg-fx :resources.demo/http-stub
-  {:doc       "Demo override for `:rf.http/managed`: routes by URL to the
-               canned article payloads so the example runs standalone, then
-               delegates to `:rf.http/managed-canned-success` with `:after-ms`
-               (the deferred reply rides `:dispatch-later`)."
+  {:doc       "Demo override for `:rf.http/managed`: routes by URL to the canned
+               article payloads so the example runs standalone, then delegates
+               to `:rf.http/managed-canned-success` with `:after-ms`."
    :platforms #{:client}}
   (fn fx-managed-resources-demo [frame-ctx args-map]
     (let [payload (demo-payload-for-url (-> args-map :request :url))
@@ -172,16 +148,13 @@
       (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
 
 ;; ============================================================================
-;; ROUTES — route entry CAUSES the page's resources to load
+;; ROUTES — entering a route causes its resources to load
 ;; ============================================================================
 ;;
-;; The `:resources` route metadata (Spec 016 §Route integration) is the
-;; declarative, machine-readable answer to "what server-state does this
-;; page need?" On route entry the runtime marks each resource active with
-;; owner `[:route route-id nav-token]` and ensures it with cause
-;; `[:route-entry route-id nav-token]`; on route leave it releases the
-;; owner by token and suppresses any stale reply by generation. The view
-;; only reads — the fetch is caused for it.
+;; `:resources` route metadata declares what server-state a page needs. On
+;; route entry the runtime ensures each one, owned by the route. On route
+;; leave it releases that owner and drops any late reply. The view only reads;
+;; the fetch is caused for it. See ../../../docs/routing/glossary.md#route
 
 (rf/reg-route :resources.app/home
   {:doc  "Landing page."} "/")
@@ -209,11 +182,11 @@
 ;; EVENT-DRIVEN ENSURE + MANUAL REFRESH
 ;; ============================================================================
 ;;
-;; Not every fetch is route-driven. An event can CAUSE an ensure too — here
-;; under an app-minted `[:lease …]` owner. App leases are app-authoritative
-;; (Spec 016 §Release authority is per owner kind): the event that mints a
-;; lease MUST have a matching `:rf.resource/release-owner` path, or the
-;; lease pins the entry alive (Xray lints an orphaned lease).
+;; Not every fetch is route-driven. An event can cause an ensure too — here
+;; under an app-minted `[:lease …]` owner. The app owns that lease: the event
+;; that mints it must have a matching `:rf.resource/release-owner` event, or
+;; the lease pins the entry alive forever. See
+;; ../../../docs/resources/glossary.md#owner--cause
 
 (rf/reg-event :resources.app/preview-opened
   {:doc "Open a lightweight article preview from the list — ensure the
@@ -235,10 +208,9 @@
      :fx [[:dispatch [:rf.resource/release-owner
                       {:owner [:lease :resources.app/preview slug]}]]]}))
 
-;; A MANUAL refresh is a CAUSE, not an owner (Spec 016 §Causes explain why
-;; work happened): clicking "Refresh" wants fresh data but does NOT intend
-;; to keep the resource alive — that's the route's job. So it dispatches
-;; `:rf.resource/refetch` with `:cause` and omits `:owner`.
+;; A manual refresh is a cause, not an owner. Clicking "Refresh" wants fresh
+;; data but does not intend to keep the resource alive — that is the route's
+;; job. So it refetches with a `:cause` and no `:owner`.
 (rf/reg-event :resources.app/refresh-articles
   {:doc "Manual refresh of the articles list."}
   (fn [_ _]
@@ -251,29 +223,26 @@
 ;; MACHINE-OWNED RESOURCE
 ;; ============================================================================
 ;;
-;; When a workflow OWNS a read for its lifetime, model the workflow as a
-;; machine and let it own the resource under `[:machine machine-id
-;; instance-id]` (released on actor destroy — Spec 016 §Release authority).
-;; The machine stays the semantic workflow; the resource runtime handles
-;; the cached-read mechanics. A tiny reader machine: it ensures the article
-;; on entry, and the resource is released when the instance is destroyed.
+;; When a workflow owns a read for its lifetime, model the workflow as a
+;; machine and let it own the resource. The resource is owned by the actor and
+;; released when the actor is destroyed. The machine is the workflow; the
+;; resource runtime handles the cached-read mechanics. This is a tiny reader
+;; machine: it ensures the article it is reading, and that read is released
+;; when the reader stops. See the machines glossary:
+;; ../../../docs/machines/glossary.md#machine
 
-;; The reader is started by the UI in two steps: BIRTH the actor with the bare
-;; `[:rf.machine/start]` creation marker, then dispatch a real first event
-;; `[:reader/load slug instance-id]` INTO the live actor. The split is
-;; deliberate and idiomatic: the framework's initial-entry cascade synthesises
-;; the birth `:entry` actions with NO event (it threads only the bare start
-;; marker), so an `:entry` action cannot read args off the start marker — they
-;; would arrive nil. A real event dispatched after birth DOES thread its args,
-;; so the slug + instance-id this workflow owns ride on `:reader/load`.
+;; The UI starts the reader in two steps: birth the actor with the bare
+;; `[:rf.machine/start]` marker, then dispatch a real `[:reader/load slug
+;; instance-id]` event into it. The split is deliberate. The birth cascade runs
+;; `:entry` actions with no event, so an `:entry` action cannot read the slug —
+;; it would arrive nil. A real event dispatched after birth does carry its
+;; args, so the slug and instance-id this workflow owns ride on `:reader/load`.
 ;;
 ;; The `:reading` state handles `:reader/load` with the `:ensure-article`
-;; action (a targetless internal transition — no `:target`, so the actor stays
-;; in `:reading`): it reads slug + instance-id from the load `:event`, assigns them into the
-;; snapshot `:data` (so the owner is self-describing for tools / SSR), and
-;; ensures the article under a `[:machine machine-id instance-id]` owner (Spec
-;; 016 §Machine-owned resource). The runtime releases that owner when the actor
-;; is destroyed.
+;; action. It reads slug + instance-id from the event, stores them in the
+;; snapshot `:data` (so the owner is self-describing for tools and SSR), and
+;; ensures the article owned by `[:machine machine-id instance-id]`. The
+;; runtime releases that owner when the actor is destroyed.
 (rf/reg-machine :resources.app/reader
   {:doc     "A reader workflow that owns the article it is reading."
    :initial :reading
@@ -289,25 +258,20 @@
                              :owner    [:machine :resources.app/reader instance-id]
                              :cause    [:machine-action :resources.app/reader.reading]}]]]}))}
    :states
-   ;; `:reader/load` is a TARGETLESS internal transition (a candidate map with
-   ;; an `:action` ref and no `:target`): the actor stays in `:reading` and
-   ;; runs `:ensure-article`. A bare `{:reader/load :ensure-article}` would read
-   ;; `:ensure-article` as a sibling-state TARGET (and fail to resolve), so the
-   ;; action ref must ride inside the `{:action …}` candidate map.
+   ;; `:reader/load` is a targetless transition: it runs `:ensure-article` and
+   ;; stays in `:reading` (no `:target`). The action must ride in an `{:action
+   ;; …}` map — a bare `{:reader/load :ensure-article}` would read
+   ;; `:ensure-article` as a target state and fail to resolve. See
+   ;; ../../../docs/machines/glossary.md#transition
    {:reading {:on {:reader/load {:action :ensure-article}}}}})
 
-;; The UI starts/stops the reader through these events. Starting BIRTHS the
-;; actor with the bare `[:rf.machine/start]` marker, then dispatches the real
-;; `[:reader/load slug instance-id]` event into it — that event (unlike the
-;; birth marker) threads its args, so the `:reading` `:reader/load` action
-;; reads the slug + instance-id and ensures the article under the
-;; `[:machine … instance-id]` owner. The two dispatches order naturally: the
-;; start marker's birth cascade runs first, then the load event drives the
-;; ensure on the now-live actor. The event also records the active instance-id
-;; in app-db so the view can read the machine-owned article + offer a stop
-;; affordance. Stopping emits the reserved `[:rf.machine/destroy …]` fx, which
-;; runs the actor's `:exit` cascade and releases its `[:machine …]` resource
-;; owner so the entry can GC, then clears the slice.
+;; The UI starts and stops the reader through these two events. Starting births
+;; the actor and then dispatches `[:reader/load slug instance-id]` into it (the
+;; two-step pattern explained on the machine above); the birth cascade runs
+;; first, then the load drives the ensure. It also records the instance-id in
+;; app-db so the view can show the article and a stop button. Stopping destroys
+;; the actor, which releases its resource owner so the entry can GC, and clears
+;; the app-db slice.
 (rf/reg-event :resources.app/start-reader
   {:doc "Start the reader workflow that owns the given article for its lifetime."}
   (fn [{:keys [db]} [_ slug]]
@@ -326,16 +290,15 @@
 ;; APP DATA + READ-MODEL SUBS
 ;; ============================================================================
 ;;
-;; The PASSIVE resource subs read the runtime-managed cache. A small derived
-;; app sub picks a slug from the list for the "open preview" affordance.
+;; The passive resource subs read the runtime-managed cache. A small derived
+;; sub picks a slug from the list for the "open preview" button.
 
-;; A derived read over the list resource's data — projections are ordinary
-;; subs LAYERED over the passive `[:rf.resource/data …]` sub (Spec 016 §No
-;; :select key), NOT a resource-local hook. The sub's input-fn is a pure
-;; `(fn [query-v])` returning a VECTOR OF QUERY VECTORS — never a deref'd
-;; subscribe (a deref'd-subscribe input-fn raises
-;; :rf.error/sub-input-fn-bad-return). The compute fn then receives the
-;; resolved input values positionally: `[[articles] _]`.
+;; To project over a resource's data, layer an ordinary sub on top of the
+;; passive `[:rf.resource/data …]` sub — there is no resource-local select. The
+;; input-fn is a pure `(fn [query-v])` that returns a vector of query vectors,
+;; never a deref'd subscribe. The compute fn then receives the resolved inputs
+;; positionally: `[[articles] _]`. See
+;; ../../../docs/guide/glossary.md#subscription
 (rf/reg-sub :resources.app/first-slug
   (fn [_query-v]
     [[:rf.resource/data {:resource :articles/list :params {}}]])
@@ -363,10 +326,9 @@
                        :data-testid "route-link-articles"}
         "See the articles →"]]])
 
-;; EVENT-LEASE preview panel — reads the lease-ensured detail passively.
-;; Mounted only while a preview slug is open; the lease ensure was dispatched
-;; by `:resources.app/preview-opened` under `[:lease :resources.app/preview
-;; slug]` and released by `:resources.app/preview-closed`.
+;; EVENT-LEASE preview panel. Mounted only while a preview is open. The detail
+;; it reads was ensured under an app lease by `:resources.app/preview-opened`
+;; and released by `:resources.app/preview-closed`. The panel only reads.
 (reg-view preview-panel [slug]
   (let [state @(subscribe [:rf.resource/state {:resource :article/by-slug
                                                :params  {:slug slug}}])]
@@ -406,13 +368,13 @@
       "Stop reader"]]))
 
 (reg-view articles-page []
-  ;; The articles list resource was ensured by THIS route's `:resources`
-  ;; metadata on entry. The view reads its full view-model passively.
+  ;; This route's `:resources` metadata ensured the list on entry. The view
+  ;; reads its full state passively.
   (let [state        @(subscribe [:rf.resource/state {:resource :articles/list :params {}}])
         preview-slug @(subscribe [:resources.app/preview-slug])
         reader       @(subscribe [:resources.app/reader])
-        ;; A LAYERED PROJECTION over the list resource (an ordinary input-fn
-        ;; sub) — the top article's slug, used by the quick-preview button below.
+        ;; The top article's slug, for the quick-preview button — a sub layered
+        ;; over the list resource.
         top-slug     @(subscribe [:resources.app/first-slug])]
     [:div
      [:h1 "Articles"]
@@ -502,20 +464,19 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; `run` materialises the React root lazily on first call (the mount-isolation
-;; convention in examples/TESTING.md). The app frame is created + configured in
-;; one spot: the render-root `frame-provider {:id …}` (the ENSURE shape). On
-;; first mount it creates the frame and applies its config — `:url-bound? true`
-;; so the frame owns the browser URL, plus the HTTP-stub override. On hot reload
-;; it reuses that same frame as-is. Every in-tree dispatch/subscribe resolves to
-;; it. `install-history-listener!` does the initial URL→slice sync and popstate
-;; handling, targeted at the URL owner.
+;; `run` creates the React root on first call. The `frame-provider {:id …}` at
+;; the render root both creates and configures the app frame: `:url-bound? true`
+;; so the frame owns the browser URL, plus the HTTP-stub override. Every
+;; dispatch and subscribe in the tree resolves to this frame. On hot reload the
+;; same frame is reused. `install-history-listener!` syncs the initial URL and
+;; handles back/forward. See the frame glossary entry:
+;; ../../../docs/guide/glossary.md#frame
 
 (defonce react-root (atom nil))
 
-;; The id this app's frame is created under. `:rf/default` is an ordinary frame
-;; id (it carries no special privilege); URL ownership comes from `:url-bound?
-;; true` on the `frame-provider` below, not from the id.
+;; The id this app's frame is created under. `:rf/default` is an ordinary id
+;; with no special privilege; URL ownership comes from `:url-bound? true` on the
+;; `frame-provider` below, not from the id.
 (def app-frame :rf/default)
 
 (defn run []

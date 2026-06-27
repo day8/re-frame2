@@ -6,20 +6,17 @@
    - The control panel: Start / Cancel / Reset / Hide buttons.
    - The progress bar: aggregate fraction of items done across all
      shards.
-   - The per-shard breakdown: small bar per worker so the reader can
-     see the three parallel children making independent progress.
+   - The per-shard breakdown: a small bar per worker, so you can see
+     the three parallel children making independent progress.
 
-   The 'Hide' button toggles a wrapper component that mounts /
+   The 'Hide' button toggles a wrapper component that mounts and
    unmounts the work-bench. When the wrapper unmounts, its
-   `r/with-let` cleanup fires a `:cancel` event into `:work/flow`.
-   This is the canonical 're-frame2 way' to wire cooperative
-   cancellation to a React lifecycle boundary: a registered event
-   that the parent's :working state handles by transitioning out,
-   triggering the standard exit cascade (which destroys every
-   spawned child). The worker machines themselves are
-   lifecycle-agnostic — they don't know anything about React. The
-   one place the React lifecycle peeks through is this single
-   dispatch in the wrapper's cleanup."
+   `r/with-let` cleanup dispatches a `:cancel` event into `:work/flow`.
+   That is how you wire cooperative cancellation to a component
+   lifecycle: a normal dispatch the parent's `:working` state handles
+   by transitioning out, which tears down every spawned child. The
+   worker machines know nothing about React; this one dispatch is the
+   only place the React lifecycle touches them."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [long-running-work.worker])
@@ -132,20 +129,15 @@
 ;; WORK-BENCH WRAPPER — demonstrates the unmount cascade
 ;; ============================================================================
 
-(reg-view ^{:doc "The work-bench — the actual demo widget. This is the
-                  view that *gets unmounted* when the user clicks
-                  'Hide'. Its `r/with-let` cleanup is the load-bearing
-                  hook for the unmount cascade: on unmount, it
-                  dispatches [:work/flow [:cancel]] into the parent
-                  machine. The parent's :working state's :cancel
-                  transition exits :working, the :spawn-all
-                  desugared :exit fires :rf.machine/destroy for every
-                  surviving child, and the work goes away cleanly.
-
-                  The worker machines themselves don't know anything
-                  about React — they're host-agnostic. The only
-                  place the React lifecycle peeks through is this
-                  one dispatch in the cleanup."}
+(reg-view ^{:doc "The work-bench — the demo widget. This is the view
+                  that gets unmounted when the user clicks 'Hide'. Its
+                  `r/with-let` cleanup drives the unmount cascade: on
+                  unmount it dispatches [:work/flow [:cancel]] into the
+                  parent. The parent's :working state's :cancel
+                  transition exits :working, which fires
+                  :rf.machine/destroy for every surviving child, and the
+                  work goes away cleanly. This one dispatch is the only
+                  place the React lifecycle touches the machines."}
           work-bench []
   (r/with-let [_ nil]
     [:div.work-bench
@@ -158,10 +150,9 @@
      [controls]
      [progress-bar]
      [shard-breakdown]]
-    ;; Reagent's with-let cleanup runs on component unmount. The
-    ;; only thing this needs to do is dispatch :cancel into the
-    ;; parent flow machine; the machine's :working :cancel
-    ;; transition takes care of the rest.
+    ;; Reagent's with-let cleanup runs on component unmount. All it
+    ;; does is dispatch :cancel into the parent machine; the :working
+    ;; :cancel transition takes care of the rest.
     (finally
       (dispatch [:work/flow [:cancel]]))))
 
@@ -169,13 +160,12 @@
 ;; ROOT VIEW — Show/Hide toggle around the work-bench
 ;; ============================================================================
 ;;
-;; The Show/Hide toggle is an *app-db boolean*, not part of the
-;; :work/flow machine. The machine has nothing to do with the
-;; component's visibility. The view either renders work-bench (which
-;; on mount activates the worker pipeline once the user clicks
-;; Start) or it doesn't. When the user clicks Hide while work is
-;; running, the component unmounts → with-let's finally → dispatch
-;; :cancel → parent exits :working → cascade tears every child down.
+;; The Show/Hide toggle is an app-db boolean, not part of the
+;; :work/flow machine — the machine has nothing to do with the
+;; component's visibility. The view either renders work-bench or it
+;; doesn't. Click Hide while work is running and the chain is:
+;; component unmounts -> with-let's finally -> dispatch :cancel ->
+;; parent exits :working -> cascade tears every child down.
 
 (rf/reg-event :ui/initialise
   (fn [{:keys [db]} _]

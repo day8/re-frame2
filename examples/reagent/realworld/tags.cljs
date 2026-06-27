@@ -2,47 +2,42 @@
   "Popular-tags list plus home-page navigation helpers (the `/tag/:tag`
    PATH route + the `?feed=` / `?page=` query).
 
-   This namespace demonstrates the **`:data-region` machine variant** of
-   Pattern-RemoteData: the popular-tags lifecycle is modelled
-   as a single-region state machine — `:realworld/tags` — whose
-   state-keyword IS the Pattern-RemoteData status. Every other
-   remote-data resource in realworld (`:articles`, `:feed`, `:article`,
-   `:comments`, `:profile`, `:profile.articles`, `:profile.favorites`)
-   stays in the original 5-key slice form, so the two shapes sit
-   side-by-side and a reader can compare. The README's
-   §'Pattern-RemoteData — two shapes side-by-side' has the worked
-   comparison plus a 'when to choose each' note.
+   Here the popular-tags lifecycle lives entirely in a single-region state
+   machine, `:realworld/tags`, whose state-keyword is the remote-data
+   status. Every other remote-data resource in realworld (`:articles`,
+   `:feed`, `:article`, `:comments`, `:profile`, `:profile.articles`,
+   `:profile.favorites`) keeps the plain 5-key slice shape, so a reader can
+   compare the two shapes side by side. See the machines guide:
+   ../../../docs/machines/index.md
 
    The shape:
 
-   - The Pattern-RemoteData status enum (`:idle :loading :fetching
-     :loaded :error`) maps **one-to-one** onto machine states; the
-     slice's `:status` field disappears.
-   - The items, error, loaded-at, and attempt fields live in the
-     machine's shared `:data` map (no separate app-db slice).
-   - The slice's `:loading?` / `:fetching?` derived boolean subs
-     collapse into per-state `:tags` queried with `rf/machine-has-tag?`.
+   - The status enum (`:idle :loading :fetching :loaded :error`) maps
+     one-to-one onto machine states; the slice's `:status` field is gone.
+   - The items, error, loaded-at, and attempt fields live in the machine's
+     `:data` map (no app-db slice).
+   - The slice's `:loading?` / `:fetching?` booleans become per-state
+     `:tags` queried with `rf/machine-has-tag?`.
 
-   Routing pieces (`:home/load`, `:home/show-global-feed`, etc.) sit
-   below — they dispatch `:tags/load` so the popular-tags machine fetches
-   when the home route activates."
+   Routing pieces (`:home/load`, `:home/show-global-feed`, etc.) sit below;
+   they dispatch `:tags/load` so the popular-tags machine fetches when the
+   home route activates."
   (:require [re-frame.core :as rf]
-            ;; The Spec 005 state-machine ns lives in the
-            ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/reg-machine (called
-            ;; below at ns-load) and the `:rf/machine` / `:rf/machine-has-tag?`
-            ;; framework subs resolve.
+            ;; State machines ship in the re-frame2-machines artefact.
+            ;; Requiring the ns registers its hooks so `rf/reg-machine`
+            ;; (called below) and the `:rf/machine` / `:rf/machine-has-tag?`
+            ;; subs resolve. See the machines guide:
+            ;; ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld.schema :as schema]
             [realworld.http :as rh]))
 
 ;; ============================================================================
-;; THE MACHINE — :realworld/tags  (one region; Pattern-RemoteData lifecycle)
+;; THE MACHINE — :realworld/tags  (one region; the remote-data lifecycle)
 ;; ============================================================================
 ;;
-;; The Pattern-RemoteData status enum maps one-to-one onto machine
-;; states. Compare with the slice form used by `:articles`,
-;; `:feed`, `:article`, ...:
+;; The status enum maps one-to-one onto machine states. Compare with the
+;; slice form used by `:articles`, `:feed`, `:article`, ...:
 ;;
 ;;     ;; SLICE FORM (used by the other seven remote-data resources)
 ;;     ;; The slice carries an explicit :status keyword.
@@ -52,19 +47,18 @@
 ;;     ;; The state-keyword IS the status; the rest lives in :data.
 ;;     {:state :loading :data {:tags [] :error nil :loaded-at nil :attempt 0} :tags #{...}}
 ;;
-;; Pattern-RemoteData's two view-load-bearing booleans:
+;; The two view-load-bearing booleans:
 ;;
 ;;     :loading?   = (= status :loading)                        ;; truly empty + in-flight
 ;;     :fetching?  = (#{:loading :fetching} status)             ;; any in-flight
 ;;
-;; become tag-shaped queries against the active state:
+;; become tag queries against the active state:
 ;;
 ;;     :loading?   = @(rf/machine-has-tag? :realworld/tags :tags/loading)
 ;;     :fetching?  = @(rf/machine-has-tag? :realworld/tags :tags/in-flight)
 ;;
 ;; The view doesn't need to know which state-keyword carries the
-;; "in-flight" intent; the tag does. That is the load-bearing
-;; pedagogical move.
+;; "in-flight" intent; the tag does.
 
 (def tags-machine
   {:initial :idle
@@ -72,9 +66,9 @@
              :error    nil
              :loaded-at nil
              :attempt  0}
-   ;; Validates the snapshot's :data slot at every macrostep boundary.
-   ;; The snapshot lives in runtime-db, so this — not an app-schema — is
-   ;; the validation surface (EP-0001, Mike ruling #11).
+   ;; Validates the snapshot's :data slot at every macrostep boundary. The
+   ;; snapshot lives in runtime-db, so this — not an app-schema — is the
+   ;; validation surface.
    :schemas {:data schema/TagsData}
 
    :actions
@@ -117,10 +111,9 @@
             :reset           {:target :idle   :action :reset-data}}}
 
     :fetching
-    ;; Re-fetch in flight while prior :tags are still rendered. Per
-    ;; Pattern-RemoteData: never blank the page; a subtle progress
-    ;; indicator at most. The :tags/loaded tag stays present so the
-    ;; render path that consumes :tags is unaffected.
+    ;; Re-fetch in flight while prior :tags are still rendered. Never blank
+    ;; the page; a subtle progress indicator at most. The :tags/loaded tag
+    ;; stays present so the render path that consumes :tags is unaffected.
     {:tags #{:tags/fetching :tags/in-flight :tags/loaded :tags/transient}
      :on   {:fetch-succeeded {:target :loaded :action :set-tags}
             :fetch-failed    {:target :error  :action :set-error}
@@ -154,8 +147,8 @@
     {:fx [[:dispatch [:realworld/tags [:reset]]]]}))
 
 ;; ============================================================================
-;; LOAD / LOADED / LOAD-FAILED — the three lifecycle events from
-;; Pattern-RemoteData, translated into machine broadcasts.
+;; LOAD / LOADED / LOAD-FAILED — the three remote-data lifecycle events,
+;; translated into machine broadcasts.
 ;; ============================================================================
 
 (rf/reg-event :tags/load
@@ -199,9 +192,9 @@
 ;; SUBSCRIPTIONS — slice-shape readers projected off the machine snapshot
 ;; ============================================================================
 ;;
-;; The view consumes the same names a slice-form reader would: `:tags/data`
-;; for the items, `:tags/error` for the error map. There are no `:loading?` /
-;; `:fetching?` booleans — views ask the tag instead:
+;; The view consumes plain names: `:tags/data` for the items, `:tags/error`
+;; for the error map. There are no `:loading?` / `:fetching?` booleans —
+;; views ask the tag instead:
 ;;
 ;;     @(rf/machine-has-tag? :realworld/tags :tags/loading)     ;; truly empty + in-flight
 ;;     @(rf/machine-has-tag? :realworld/tags :tags/in-flight)   ;; any in-flight (loading OR fetching)
@@ -237,12 +230,12 @@
 ;; The official-contract feed token for the authenticated "Your Feed".
 (def following-feed-token "following")
 
-;; EP-0001: the route slice is durable routing runtime-db state —
-;; `home-context` reads it off a runtime-db value (event handlers pass the
-;; `:rf.db/runtime` coeffect; the subs below compose off the public
-;; `[:rf.route/params]` / `[:rf.route/query]` framework subs). It normalises
-;; the two home routes into one `{:tag :feed :page}` context: the tag comes
-;; from the `/tag/:tag` route's params, the feed + page from the query.
+;; The route lives in runtime-db; `home-context` reads it off a runtime-db
+;; value (event handlers pass the `:rf.db/runtime` coeffect; the subs below
+;; compose off the public `[:rf.route/params]` / `[:rf.route/query]` subs).
+;; It normalises the two home routes into one `{:tag :feed :page}` context:
+;; the tag comes from the `/tag/:tag` route's params, the feed + page from
+;; the query.
 (defn home-context [runtime-db]
   (let [cur   (get-in runtime-db [:rf.runtime/routing :current] {})
         query (:query cur {})]
@@ -302,8 +295,8 @@
          tag-filtered list re-targets the `/tag/:tag` PATH route with the tag
          param preserved and `?page=` set; otherwise the home route carries
          `?feed=` + `?page=`. Changing `?page=` re-fires the active route's
-         `:on-match` (Spec 012 — same route, changed query), re-running
-         `:home/load` and the per-feed fetch with the new limit/offset window."}
+         `:on-match` (same route, changed query), re-running `:home/load` and
+         the per-feed fetch with the new limit/offset window."}
   (fn [{rt :rf.db/runtime} [_ page]]
     (let [{:keys [tag feed]} (home-context rt)]
       (if tag

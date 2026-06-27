@@ -1,27 +1,23 @@
 (ns ssr-streaming.core
-  "Worked example for Spec 011 §Streaming SSR.
+  "Streaming SSR: a dashboard with three slow cards. The shell + header
+  render immediately on the server. Each card then streams its content
+  in as its data resolves, so the browser shows a usable shell within
+  ~50ms while the cards trickle in over ~300ms each.
 
-  A dashboard with three slow cards: the page's shell + header render
-  immediately on the server, then each card streams its content as its
-  data fetch resolves. The browser shows a usable shell within ~50ms
-  while the cards trickle in over ~300ms each.
+  What this example shows:
+   - `:rf/suspense-boundary` — the declarative hiccup marker for a
+     streamable subtree.
+   - Per-card fallback hiccup — `[:div.card.skeleton …]`.
+   - Failure isolation — one card deliberately throws to show a failing
+     boundary stays on its fallback instead of 500-ing the page.
+   - Per-subtree hydration — each chunk's
+     `<script data-rf2-suspense-hydrate>` carries that card's app-db delta.
+   - A final `__rf_payload` chunk with the canonical full state.
 
-  Demonstrates:
-   - `:rf/suspense-boundary` hiccup marker — declarative
-   - Per-card fallback hiccup — `[:div.card.skeleton …]`
-   - Inline-fallback failure semantics — one card deliberately throws
-     to show the failure path doesn't 500 the page
-   - Hydration interleaved per subtree — each chunk's
-     `<script data-rf2-suspense-hydrate>` carries the per-card app-db
-     delta
-   - Final `__rf_payload` arrives last with the canonical full state
+  The `.cljc` split: the `:clj` branch is what a Ring server invokes; the
+  `:cljs` branch is what the page bootstraps once the chunks arrive.
 
-  The .cljc shape mirrors `examples/reagent/ssr/core.cljc`: server
-  branch in `:clj`, browser branch in `:cljs`. The :clj branch is
-  what a Ring server would invoke; the :cljs branch is what the page
-  bootstraps after the chunks arrive.
-
-  Per [Spec 011 §Streaming SSR](../../../spec/011-SSR.md#streaming-ssr)."
+  See the [SSR guide — Streaming](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)."
   (:require [re-frame.core :as rf]
             [re-frame.schemas]
             [re-frame.ssr :as ssr]
@@ -33,15 +29,17 @@
 ;; ============================================================================
 ;;
 ;; We hold the schema as a plain value and register it per-frame at each
-;; entry point with the `{:frame …}` override. Streaming SSR runs two frame
-;; families — the per-request server frame (gensym, in `handle-request`) and
-;; the fixed client hydration frame (`app-frame` → `:rf/default`, in `run`)
-;; — and both need the same contract, so each registers it explicitly.
-;; `reg-app-schema` is frame-local (EP-0002), so holding the schema as a def
-;; also keeps ns-load side-effect-free: the namespace loads under no frame.
+;; entry point with the `{:frame …}` override. Streaming SSR runs two
+;; frames — the per-request server frame (gensym, in `handle-request`) and
+;; the fixed client hydration frame (`app-frame`, in `run`) — and both need
+;; the same contract, so each registers it explicitly. Schemas are
+;; frame-local, so holding the schema as a plain def keeps ns-load free of
+;; side effects: the namespace loads under no frame.
+;;
 ;; `[:maybe …]` because the `:cards` slice is nil until `:rf/server-init`
-;; seeds it on the server / the client hydrates it. A bare `[:map-of …]`
+;; seeds it on the server, or the client hydrates it. A bare `[:map-of …]`
 ;; would reject that legitimate nil and roll the commit back.
+;; See the [schemas guide](../../../docs/guide/how-to/validate-with-schemas.md).
 (def CardsSchema
   [:maybe [:map-of :keyword [:map [:title :string] [:value [:maybe :int]]]]])
 
@@ -50,11 +48,10 @@
 ;; ============================================================================
 
 (rf/reg-event :rf/server-init
-  {:doc       "Per-request server-side init. In a real app the cards' data
-               loads would dispatch :rf.http/managed fetches against three
-               microservices; here we synchronously seed three card values
-               of varying sizes so the demo's wire shape can be inspected
-               in a single browser request."
+  {:doc       "Per-request server-side init. A real app would dispatch
+               :rf.http/managed fetches here to load each card's data. This
+               demo seeds three card values synchronously so the whole wire
+               shape can be inspected in one browser request."
    :platforms #{:server}}
   (fn [_ _]
     {:db {:cards
@@ -81,12 +78,11 @@
    [:p.value "—"]])
 
 (rf/reg-view ^{:rf/id :dashboard/throwing-card} throwing-card []
-  ;; Demonstrate Spec 011 §Failure semantics — inline fallback. This view
-  ;; deliberately throws; the streaming runtime catches it inside
-  ;; render-continuation, emits :rf.ssr/suspense-boundary-failed on the
-  ;; trace bus, and ships the fallback HTML in the resolved-chunk
-  ;; position (with data-rf2-suspense-failed marker). The PAGE still
-  ;; loads — only the failing card stays in its fallback state.
+  ;; Failure isolation. This view deliberately throws. The streaming runtime
+  ;; catches it, emits a :rf.ssr/suspense-boundary-failed trace, and ships the
+  ;; fallback HTML in the chunk's place (marked data-rf2-suspense-failed). The
+  ;; page still loads — only this card stays on its fallback. See the
+  ;; [SSR guide — Streaming](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary).
   (throw (ex-info "flaky third-party metric service" {})))
 
 (rf/reg-view ^{:rf/id :dashboard/root} root-view []
@@ -95,10 +91,10 @@
     [:h1 "Dashboard"]
     [:p "Streamed SSR demo — shell renders first, cards stream in."]]
    [:section.cards
-    ;; `:rf/suspense-boundary` marks a streamable subtree: the `:fallback`
+    ;; `:rf/suspense-boundary` marks a streamable subtree. The `:fallback`
     ;; ships inline in the shell now; the real child subtree streams in as
-    ;; its own chunk when it resolves. The `:id` pairs the incoming chunk
-    ;; with its placeholder on the client — you pick it, it must be unique.
+    ;; its own chunk once it resolves. The `:id` pairs the incoming chunk
+    ;; with its placeholder on the client — you pick it, and it must be unique.
     [:rf/suspense-boundary
      {:id :card.revenue :fallback [:dashboard/card-skeleton :revenue]}
      [:dashboard/card :revenue]]
@@ -108,9 +104,9 @@
     [:rf/suspense-boundary
      {:id :card.latency :fallback [:dashboard/card-skeleton :latency]}
      [:dashboard/card :latency]]
-    ;; The failure-path demonstrator card. Same wire shape; the
-    ;; chunk carries the fallback HTML with `data-rf2-suspense-failed="1"`
-    ;; and no hydrate-delta script.
+    ;; The failure-path card. Same wire shape; its chunk carries the
+    ;; fallback HTML with `data-rf2-suspense-failed="1"` and no hydrate-delta
+    ;; script.
     [:rf/suspense-boundary
      {:id :card.flaky
       :fallback [:dashboard/card-skeleton :flaky]}
@@ -135,12 +131,11 @@
      streaming adapter would emit in order."
      [_request]
      (let [fid (keyword "rf.frame" (str (gensym "")))
-           ;; Register the app schema AGAINST THIS per-request server frame
-           ;; BEFORE the `:initial-events` `:rf/server-init` step runs — the
-           ;; per-request frame is where the server-side `:cards` commit
-           ;; actually validates, so the schema must bind here. `reg-frame` runs
-           ;; the `:initial-events` cascade synchronously before returning, so the
-           ;; schema must be in place first; register under `fid`, then create.
+           ;; Register the app schema against this per-request frame BEFORE
+           ;; creating it. The server-side `:cards` commit validates in this
+           ;; frame, and `reg-frame` runs the `:initial-events` cascade (which
+           ;; fires `:rf/server-init`) synchronously, so the schema must be in
+           ;; place first.
            _   (rf/reg-app-schema [:cards] {:schema CardsSchema :frame fid})
            _   (rf/reg-frame fid {:doc "ssr-streaming-example frame"
                                   :platform :server
@@ -165,31 +160,29 @@
                       :failed? failed?}))
                  continuations)
            render-hash (rf/with-frame fid (ssr/render-tree-hash hiccup))
-           ;; The final payload is the canonical full app-db — the correctness
-           ;; lock that the per-card deltas above were only a speed prop for. If
-           ;; a speculative delta ever disagreed with this, this wins.
-           ;; Hydration-payload policy is explicit + fail-closed, carried
-           ;; by the single `:payload` opt. This example's app-db is
-           ;; structurally safe to expose end-to-end (every key the
-           ;; dashboard handlers populate is intended for the client), so
-           ;; we opt in with `:payload :rf.ssr.payload/whole-app-db`. A
-           ;; real production deployment would normally pass `:payload`
-           ;; with an explicit vector allowlist of top-level app-db keys.
+           ;; The final payload is the canonical full app-db. The per-card
+           ;; deltas above are a speed prop; this is the correctness lock. If
+           ;; a delta ever disagrees with the payload, the payload wins.
+           ;;
+           ;; The `:payload` opt decides what crosses the wire, and it is
+           ;; fail-closed. This demo's app-db is safe to expose whole (every
+           ;; key the dashboard populates is meant for the client), so we opt
+           ;; in with `:rf.ssr.payload/whole-app-db`. Production normally
+           ;; passes an explicit allowlist vector of top-level app-db keys.
            final-payload (rf/with-frame fid
                            (ssr/streaming-build-final-payload
                              fid render-hash
                              {:version 1
                               :payload :rf.ssr.payload/whole-app-db}))
-           ;; Drop the payload's `:rf/frame-id`. `streaming-build-final-payload`
-           ;; stamps this per-request server frame (`fid`), but the client
-           ;; hydrates a fixed app-frame (`app-frame` → `:rf/default`, below).
-           ;; `ssr/hydrate!` checks a present `:rf/frame-id` against the client's
-           ;; explicit `:frame` and raises `:rf.error/hydration-frame-id-mismatch`
-           ;; on disagreement (Spec 011 §The hydration payload); the per-request
-           ;; gensym would always disagree. With no frame-id on the wire the
-           ;; client's explicit target stands — matching the static `index.html`
-           ;; next to this file. A deployment that wants a frame-id on the wire
-           ;; stamps a stable id both sides agree on, not a per-request gensym.
+           ;; Drop the payload's `:rf/frame-id`. The builder stamps this
+           ;; per-request frame (`fid`), but the client hydrates a fixed
+           ;; `app-frame` (below). `ssr/hydrate!` checks a present `:rf/frame-id`
+           ;; against the client's explicit `:frame` and fails closed on
+           ;; disagreement, which a per-request gensym always would. With no
+           ;; frame-id on the wire the client's explicit target stands. (A
+           ;; deployment that wants one on the wire stamps a stable id both
+           ;; sides share, not a gensym.) See the
+           ;; [SSR guide — hydrate, then verify](../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
            final-payload (dissoc final-payload :rf/frame-id)
            _ (rf/destroy-frame! fid)]
        {:shell shell-html
@@ -201,100 +194,93 @@
 ;; CLIENT ENTRY POINT (.cljs branch — browser hydration)
 ;; ============================================================================
 ;;
-;; Streaming hydration shape (per Spec 011 §Streaming SSR — Client-side
-;; hydration semantics):
+;; The streaming hydration sequence on the client:
 ;;
-;;  1. First chunk lands — the browser receives the shell, whose slow
+;;  1. The first chunk lands. The browser receives the shell, whose slow
 ;;     regions are inline `<template data-rf2-suspense-fallback>`
-;;     placeholders. A `<template>`'s content is INERT by the HTML spec
-;;     (its `.content` is a detached DocumentFragment, never painted), so
-;;     the skeletons do NOT paint on the raw bytes; they paint when
+;;     placeholders. A `<template>`'s content is inert by the HTML spec (its
+;;     `.content` is a detached DocumentFragment, never painted), so the
+;;     skeletons do NOT paint on the raw bytes. They paint when
 ;;     `streaming-install!` (step 2) materialises each inert `<template>`
-;;     into a live, visible `<rf-suspense data-rf2-suspense-mount>` mount.
-;;     The `<script src="main.js">` reference at the end of `<body>`
-;;     begins downloading.
-;;  2. Resolved-card chunks stream in via Transfer-Encoding: chunked.
-;;     Each one is `<template data-rf2-suspense-resolved=…>…</template>`
-;;     plus `<script data-rf2-suspense-hydrate=…>…</script>`. The
-;;     client-side streaming runtime (`ssr/streaming-install!`, per
-;;     Spec 011 §Streaming SSR — client-side hydration semantics) first
-;;     materialises the inert fallback `<template>`s into live
-;;     `<rf-suspense>` mounts (the skeletons now paint), then swaps each
-;;     mount's content for the resolved subtree in-place and merges the
-;;     per-subtree delta into the client app-db AS each chunk arrives —
-;;     progressive hydration, before the final payload. `run` installs it
-;;     below before the first render so it catches both chunks that
-;;     already streamed in and any still arriving.
-;;  3. The final `<script id="__rf_payload">` is the canonical full
-;;     payload; `run` dispatches `:rf/hydrate` against it (via
-;;     `ssr/hydrate!`), which runs :replace-frame-state semantics (the
-;;     payload's `:rf/app-db` + serialisable runtime-db slice replace the
-;;     whole client frame-state in one step) — the
-;;     per-card deltas were progressive-render speed props; the final
-;;     payload is the correctness lock. The streaming runtime
+;;     into a live `<rf-suspense data-rf2-suspense-mount>` mount. The
+;;     `<script src="main.js">` at the end of `<body>` begins downloading.
+;;  2. Resolved-card chunks stream in (Transfer-Encoding: chunked). Each is
+;;     a `<template data-rf2-suspense-resolved=…>…</template>` plus a
+;;     `<script data-rf2-suspense-hydrate=…>…</script>`. The client-side
+;;     streaming runtime (`ssr/streaming-install!`) first materialises the
+;;     inert fallback `<template>`s into live `<rf-suspense>` mounts (the
+;;     skeletons now paint), then swaps each mount's content for the resolved
+;;     subtree in place and merges that subtree's delta into the client
+;;     app-db as the chunk arrives. `run` installs it before the first render
+;;     so it catches chunks already streamed in and any still arriving.
+;;  3. The final `<script id="__rf_payload">` is the canonical full payload.
+;;     `run` dispatches `:rf/hydrate` against it (via `ssr/hydrate!`), which
+;;     replaces the whole client frame-state in one step — the payload's
+;;     app-db plus its serialisable runtime-db slice. The streaming runtime
 ;;     auto-disconnects once it sees `__rf_payload`, so no late delta can
-;;     race the canonical replace.
+;;     race the canonical replace. The per-card deltas were a speed prop;
+;;     this final replace is the correctness lock.
 ;;
-;; This worked example boots from a static `index.html` that stands in
-;; for the streaming server (it ships the final resolved state + the
-;; final payload pre-baked, so the browser runs without a Clojure server
-;; in the loop). Because the streaming runtime is additive, a page whose
-;; chunks already resolved hydrates exactly the same: the install sweep
-;; finds no un-swapped fallback, sees `__rf_payload` already present, and
-;; goes straight to the `ssr/hydrate!` reconciliation. The runtime's
-;; progressive path (chunk-arrival swap + delta merge before the final
-;; payload) is exercised end-to-end by the browser acceptance test
-;; `re-frame.ssr.streaming-client-dom-cljs-test`.
+;; See the [SSR guide — Streaming](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)
+;; and [hydrate, then verify](../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
+;;
+;; This example boots from a static `index.html` that stands in for the
+;; streaming server — it ships the final resolved state and payload
+;; pre-baked, so the browser runs with no Clojure server in the loop.
+;; Because the streaming runtime is additive, a page whose chunks already
+;; resolved hydrates exactly the same: the install sweep finds no un-swapped
+;; fallback, sees `__rf_payload` already present, and goes straight to the
+;; `ssr/hydrate!` reconciliation. The progressive path (chunk-arrival swap +
+;; delta merge before the final payload) is exercised end-to-end by the
+;; browser acceptance test `re-frame.ssr.streaming-client-dom-cljs-test`.
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
+;; The React root is held in an atom and created lazily inside `run`, not at
+;; ns-load. ns-load must produce no DOM side effects, so co-required example
+;; namespaces don't race `create-root` onto the shared `#app`. (See the
+;; mount-isolation convention in examples/TESTING.md.)
 #?(:cljs (defonce react-root (atom nil)))
 
 ;; The client app-frame id. The app carries it explicitly — the same id
-;; flows to the streaming `install!`, `ssr/hydrate!`, AND the root
-;; `frame-provider` (EP-0002). This example uses `:rf/default`. It must be a
-;; `:client`-platform frame so the `:rf.ssr/check-*` compatibility-check fxs
-;; the `:rf/hydrate` handler dispatches actually fire (Spec 011 §The
-;; :rf/hydrate event). Both the static `index.html` payload and the dynamic
-;; `handle-request` final-payload carry no `:rf/frame-id`: the server renders
-;; under a per-request gensym frame, the client hydrates this fixed frame, so
-;; an absent frame-id is the right shape — the explicit `:frame` is the target.
+;; flows to the streaming `install!`, `ssr/hydrate!`, and the root
+;; `frame-provider`. This example uses `:rf/default`. It must be a
+;; `:client`-platform frame so the `:rf.ssr/check-*` compatibility checks the
+;; `:rf/hydrate` handler dispatches actually fire. Neither the static
+;; `index.html` payload nor the `handle-request` payload carries a
+;; `:rf/frame-id`: the server renders under a per-request gensym frame and the
+;; client hydrates this fixed frame, so an absent frame-id is the right shape —
+;; the explicit `:frame` is the target. See
+;; [frames](../../../docs/guide/glossary.md#frame-identity-is-carried-not-found).
 #?(:cljs (def app-frame :rf/default))
 
 #?(:cljs
    (defn run []
-     ;; `init!` installs the Reagent adapter. The app then creates its
-     ;; frame explicitly below (init! does not create one — EP-0002).
+     ;; `init!` installs the Reagent adapter. It creates no frame — the app
+     ;; creates its own explicitly below.
      (rf/init! reagent-adapter/adapter)
-     ;; Establish the carried client app-frame BEFORE installing the
-     ;; streaming runtime / hydrating into it. `reg-frame` is a surgical
-     ;; no-op on re-registration (hot-reload Just Works). `:platform :client`
-     ;; makes the hydrate compatibility-check fxs fire.
+     ;; Establish the carried client app-frame BEFORE installing the streaming
+     ;; runtime and hydrating into it. `reg-frame` is a no-op on
+     ;; re-registration, so hot-reload just works. `:platform :client` makes
+     ;; the hydrate compatibility checks fire.
      (rf/reg-frame app-frame {:doc      "ssr-streaming-example client app-frame"
                               :platform :client})
-     ;; Register the app schema AGAINST THE FIXED CLIENT FRAME so
-     ;; the progressively-merged + finally-hydrated `:cards` commits validate on
-     ;; the client too — the symmetric counterpart of the per-request
-     ;; registration in `handle-request`. `{:frame app-frame}` is the explicit
-     ;; override; re-registration is a no-op-safe on hot-reload.
+     ;; Register the app schema against this client frame so the `:cards`
+     ;; commits — both the streamed deltas and the final hydrate — validate on
+     ;; the client too. The symmetric counterpart of the registration in
+     ;; `handle-request`.
      (rf/reg-app-schema [:cards] {:schema CardsSchema :frame app-frame})
-     ;; Install the client-side streaming runtime BEFORE the first render
-     ;; so it catches resolved-subtree chunks as they arrive (and sweeps
-     ;; any already present). It swaps fallbacks + merges per-subtree
-     ;; deltas progressively into the carried frame, then disconnects on
-     ;; `__rf_payload`.
+     ;; Install the client-side streaming runtime BEFORE the first render so it
+     ;; catches resolved-subtree chunks as they arrive (and sweeps any already
+     ;; present). It swaps fallbacks and merges per-subtree deltas into the
+     ;; carried frame, then disconnects on `__rf_payload`.
      (ssr/streaming-install! {:frame app-frame})
-     ;; Reconcile against the canonical payload: read `__rf_payload` +
-     ;; dispatch `:rf/hydrate` (:replace-frame-state) into the EXPLICIT `:frame`.
-     ;; The deltas were speculative; this is the correctness lock.
-     ;; (`:render-tree-fn` is omitted — the static demo shell carries a
-     ;; placeholder render-hash, so hash-mismatch verification would always
-     ;; warn here; a real streaming server stamps the genuine hash and a host
-     ;; then passes `:render-tree-fn` to enable mismatch detection.) Hydrate
-     ;; BEFORE first render so the initial render runs against the seeded
-     ;; app-db.
+     ;; Reconcile against the canonical payload: read `__rf_payload` and
+     ;; dispatch `:rf/hydrate` into the explicit `:frame`. This is the
+     ;; correctness lock the streamed deltas defer to. Hydrate BEFORE the first
+     ;; render so the initial render runs against the seeded app-db.
+     ;; (`:render-tree-fn` is omitted because this static demo shell carries a
+     ;; placeholder render-hash, so mismatch verification would always warn. A
+     ;; real streaming server stamps the genuine hash, and the host passes
+     ;; `:render-tree-fn` to turn mismatch detection on.)
      (ssr/hydrate! {:frame app-frame})
      (when (exists? js/document)
        (when-not @react-root
@@ -305,9 +291,7 @@
                    [rf/frame-provider {:frame app-frame}
                     [(rf/view :dashboard/root)]]))))
 
-;; The JVM-runnable headless test that exercises the server stream
-;; (shell → per-card resolved chunks → final payload) lives in
-;; re-frame.examples-test (implementation/core/test/), folded inline as
-;; the `ssr-streaming-example-runs-end-to-end` deftest,
-;; keeping this example source pure demonstrative code (the example tree
-;; is test-free). It runs on the JVM.
+;; The JVM headless test that exercises the server stream (shell → per-card
+;; resolved chunks → final payload) lives in re-frame.examples-test
+;; (implementation/core/test/), as the `ssr-streaming-example-runs-end-to-end`
+;; deftest. The example tree itself stays test-free.

@@ -1,44 +1,33 @@
 (ns notebook.core
-  "Reagent design-led example — 'Notebook'. Three-pane editorial layout:
+  "Reagent design-led example — 'Notebook'. A three-pane editor:
 
      [ documents tree ]  [ markdown editor ]  [ live preview ]
 
-   The point of the example: the same event cascade that drives the
-   counter scales unchanged to a substantive, multi-pane UI. State lives
-   in one app-db, events are the only thing that change it, and the views
-   are pure functions of subscriptions. Reading order, top to bottom:
+   The point of the example: one app-db holds the state, events are the
+   only thing that change it, and the views are pure functions of
+   subscriptions. The same shape scales from a counter to this
+   multi-pane UI unchanged. Reading order, top to bottom:
 
      - selecting a document   dispatches  [:notebook/select id]
      - editing the body       dispatches  [:notebook/edit-body text]
      - the hiccup sub         derives     hiccup from the selected markdown
      - the preview pane       subscribes  to that derivation
 
-   The markdown preview is the idea worth noticing: rendering markdown is
-   a pure derivation here (string -> hiccup), exposed as a subscription —
-   it sits in the same subscription graph as everything else, not in a
+   The idea worth noticing is the markdown preview. Rendering markdown is
+   a pure derivation (string -> hiccup) exposed as a subscription, so it
+   sits in the same subscription graph as everything else — not behind a
    DOM escape hatch.
 
-   Distinguished from the counter + login examples by being `reg-view`-
-   based at every layer, exercising multi-pane layout, and leaning into
-   the shared 'Editorial Warm' visual identity from
-   examples/_shared/css/style.css — one shared identity across all three
-   substrates. No state machines, no HTTP — design-led examples exist to
-   prove polished visuals + interaction, not to replay the platform
-   features other examples already cover.
+   The markdown parser is a tiny pure-CLJS one (headings, bold, italic,
+   inline code, links, paragraphs, ordered + unordered lists). That keeps
+   the bundle small and the example free of an extra npm dependency.
 
-   Markdown rendering is intentionally a tiny pure-CLJS parser (headings,
-   bold, italic, inline code, links, paragraphs, ordered + unordered
-   lists) — keeps the bundle small and the example free of an extra npm
-   dependency."
-  ;; Substrate note: STOCK Reagent (`reagent.dom.client` +
-  ;; `re-frame.adapter.reagent`), like the rest of the `examples/reagent/`
-  ;; catalogue. notebook is the Reagent member of the three-substrate
-  ;; design-led trio (alongside `dashboard-uix` and
-  ;; `process-monitor-helix`), so it sits on the reference Reagent
-  ;; substrate to keep the trio comparable. (counter /
-  ;; counter_slim_and_fast is the dedicated stock-vs-slim contrast pair;
-  ;; the slim build is the only one that mounts `reagent-slim`, and it
-  ;; lives under `examples/reagent-slim/`.)
+   See docs/guide/glossary.md for the terms used below (event,
+   subscription, app-db, view); docs/guide/concepts/views.md covers
+   views and hiccup in depth."
+  ;; Substrate: stock Reagent (`reagent.dom.client` +
+  ;; `re-frame.adapter.reagent`). The adapter is the value that binds
+  ;; re-frame2 to the rendering library; see docs/guide/glossary.md#adapter.
   (:require [reagent.dom.client :as rdc]
             [clojure.string     :as str]
             [re-frame.core      :as rf]
@@ -62,7 +51,7 @@
     :body  "### Patterns shipped with re-frame2\n\n- Pattern-Boot — application initialisation as a state machine.\n- Pattern-WebSocket — connection machine with backoff + queue-flush.\n- Pattern-LongRunningWork — :spawn-all spawn-and-join.\n- Pattern-Managed-HTTP — declarative HTTP with cancellation.\n\nEach has a worked example under `examples/reagent/`."}])
 
 ;; ============================================================================
-;; EVENTS  (CP-1)
+;; EVENTS
 ;; ============================================================================
 
 (rf/reg-event :notebook/initialise
@@ -83,18 +72,17 @@
                         (if (= (:id d) id) (assoc d :body text) d))
                       docs))))}))
 
-;; EP-0010 (Causal World Inputs): the new document's id is written into durable
-;; app-db (`:notebook/documents`), so it is derived from the documents already
-;; there — the todomvc `allocate-next-id` idiom. Scan the `doc-N` keyword ids
-;; in app-db and take max+1. Because the id comes from prior state, replaying
-;; the event stream mints the same id. (Reaching for `(rand-int)` here would
-;; break that: each replay would mint a different id.) Seeded ids (`:welcome`,
-;; `:six-dominoes`, …) carry no `doc-` prefix, so the first minted id is
-;; `:doc-1`.
+;; A new document's id is derived from the documents already in app-db:
+;; scan the `doc-N` keyword ids and take max+1. Deriving the id from prior
+;; state keeps the handler replayable — replaying the event stream mints
+;; the same id. Reaching for `(rand-int)` would break that, since each
+;; replay would mint a different id. Seeded ids (`:welcome`, `:six-dominoes`,
+;; …) carry no `doc-` prefix, so the first minted id is `:doc-1`. See
+;; docs/guide/concepts/events-and-the-cascade.md on replayable events.
 (defn- allocate-next-doc-id
   "Deterministic next `:doc-N` id from the existing documents — max prior
    N + 1 (1 when none yet). A pure function of prior app-db state, so it
-   replays identically (EP-0010)."
+   replays identically."
   [documents]
   (let [used-ns (->> documents
                      (keep (fn [{id :id}]
@@ -113,7 +101,7 @@
           (assoc :notebook/selected-id id)))}))
 
 ;; ============================================================================
-;; SUBSCRIPTIONS  (CP-2)
+;; SUBSCRIPTIONS
 ;; ============================================================================
 
 (rf/reg-sub :notebook/documents
@@ -122,9 +110,10 @@
 (rf/reg-sub :notebook/selected-id
   (fn [db _] (:notebook/selected-id db)))
 
-;; First composed sub: `:<-` names this sub's inputs (other subs), so it
+;; A composed sub: `:<-` names this sub's inputs (other subs), so it
 ;; recomputes only when the documents or the selected id actually change.
 ;; The downstream subs (`-body`, `-hiccup`) chain off this one in turn.
+;; See docs/guide/concepts/subscriptions.md.
 (rf/reg-sub :notebook/selected
   :<- [:notebook/documents]
   :<- [:notebook/selected-id]
@@ -179,10 +168,9 @@
    with strings split around matches and matches replaced. Non-string
    elements (already-parsed hiccup) pass through untouched.
 
-   Robust to the (count parts) ≠ (count matches) ± 1 trap that
-   bit the first pass: we loop `re-find` one match at a time and pull
-   the before/after substrings from the source manually (via
-   `.indexOf` + `subs`), recurring on the remaining tail."
+   Loops `re-find` one match at a time and pulls the before/after
+   substrings from the source manually (via `.indexOf` + `subs`),
+   recurring on the remaining tail."
   [coll re mk]
   (mapcat
     (fn [x]
@@ -281,7 +269,7 @@
   (fn [body _] (markdown->hiccup body)))
 
 ;; ============================================================================
-;; VIEWS  (CP-4) — shared 'Editorial Warm' palette
+;; VIEWS — shared 'Editorial Warm' palette
 ;; ============================================================================
 
 (reg-view sidebar []
@@ -339,21 +327,21 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; Lazy mount: defer `create-root` to `run` so ns-load is DOM-side-effect-free.
-;; This is the mount-isolation convention documented at
-;; [examples/TESTING.md §Example mount-isolation convention] — multiple example
-;; namespaces co-exist in the `:browser-test` bundle and share one DOM, so a
-;; ns-load `create-root` would race roots onto the same container.
+;; Lazy mount: defer `create-root` to `run` so loading the namespace has no
+;; DOM side effect. Many example namespaces share one DOM in the
+;; `:browser-test` bundle, so a `create-root` at ns-load would race roots
+;; onto the same container. See examples/TESTING.md (mount-isolation
+;; convention).
 
 (defonce react-root (atom nil))
 
-;; The whole frame is established in one spot — the render root's
-;; `frame-provider {:id app-frame}` below. On first mount it creates the app
-;; frame and runs `:initial-events` once to seed app-db before the first
-;; paint; on hot reload it reuses the same frame and skips the seed. Every
-;; in-tree `dispatch`/`subscribe` then resolves to that frame. `app-frame` is
-;; an ordinary frame id with no framework privilege. Matches the canonical
-;; mount in examples/reagent/counter/core.cljs.
+;; The frame is established in one spot: the `frame-provider {:id app-frame}`
+;; in the render call below. On first mount it creates the frame and runs
+;; `:initial-events` once to seed app-db before the first paint; on hot reload
+;; it reuses the same frame and skips the seed. Every in-tree
+;; `dispatch`/`subscribe` then resolves to that frame. `app-frame` is an
+;; ordinary frame id with no special privilege. See
+;; docs/guide/concepts/frames.md.
 (def app-frame :rf/default)
 
 (defn run []

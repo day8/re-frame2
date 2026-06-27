@@ -9,22 +9,19 @@
        (return ≥ start) constraint holds.
      - Clicking Book pops up a confirmation message.
 
-   This task tests *constrained UI input*: the Book button's enabled state is
-   a derived property of three other fields. The classic trap is to compute
-   it imperatively after every change and forget a path. The re-frame2
-   approach: enabled-state is a sub.
+   This task is about constrained UI input: the Book button's enabled state
+   is derived from three other fields. Computing it imperatively after every
+   change risks missing a path. Here it is a subscription, so it is always
+   in sync.
 
    Demonstrates:
-   - Schema-bound app-db slice                            (CP-8)
-   - Multiple events for distinct user intents            (CP-1)
-   - Layered subs with :<- chains                          (CP-2)
-   - Conditional UI driven by sub return values           (CP-4)
-   - Smoke test exercising the constraint surface         (CP-1 checklist)"
+   - A schema-bound app-db slice
+   - One event per distinct user intent
+   - Layered subs built with :<- chains
+   - UI state driven by sub return values"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
-            ;; Loading the ns here registers its late-bind hooks so
-            ;; rf/reg-app-schema resolves.
+            ;; Require re-frame.schemas to make rf/reg-app-schema available.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -43,10 +40,10 @@
    [:return-text :string]])
 
 ;; Bind the schema to the app frame so it validates that frame's commits.
-;; `reg-app-schema` is frame-local and this runs at ns-load, before the
-;; render root's `frame-provider {:id …}` creates the frame — so name the
-;; frame (`:rf/default`, matching that provider) with `with-frame`. Binding
-;; is by id, so the registration is independent of when the frame is created.
+;; `reg-app-schema` is frame-local, so `with-frame` names the target frame
+;; by id. We use `:rf/default` to match the `frame-provider {:id …}` at the
+;; render root. Binding is by id, so this works even though it runs at
+;; ns-load, before the provider creates the frame.
 (with-frame :rf/default
   (rf/reg-app-schema [:flight] {:schema FlightState}))
 
@@ -57,9 +54,8 @@
 (rf/reg-event :flight/initialise
   {:doc "Seed the flight slice."}
   (fn handler-flight-initialise [{:keys [db]} _]
-    ;; Seed both date fields to a fixed valid ISO date. The original 7GUIs
-    ;; spec seeds "today"; we use a constant so the example is
-    ;; deterministic (and not silently wrong on any given day).
+    ;; Seed both date fields to a fixed valid ISO date. The 7GUIs task seeds
+    ;; "today"; a constant keeps the example deterministic instead.
     {:db (assoc db :flight {:trip-type   :one-way
                        :start-text  "2026-05-06"
                        :return-text "2026-05-06"})}))
@@ -111,13 +107,12 @@
 (rf/reg-sub :flight/return-text (fn [db _] (get-in db [:flight :return-text])))
 
 (defn valid-date?
-  "True when `s` is a real ISO `yyyy-mm-dd` calendar date. The regex
-   alone only checks shape, so it would accept impossible dates like
-   `2026-99-99`, `2026-00-00`, or `2026-02-31`. We round-trip the
-   parsed fields through a UTC `js/Date` and require every component to
-   come back unchanged — this rejects out-of-range months/days and is
-   leap-year-correct (e.g. `2025-02-29` overflows to March and fails,
-   `2024-02-29` round-trips and passes)."
+  "True when `s` is a real ISO `yyyy-mm-dd` calendar date. The regex only
+   checks shape, so it accepts impossible dates like `2026-99-99` or
+   `2026-02-31`. To reject those, parse the fields, round-trip them through a
+   UTC `js/Date`, and require every component to come back unchanged. This is
+   leap-year-correct: `2025-02-29` overflows to March and fails, `2024-02-29`
+   round-trips and passes."
   [s]
   (let [s (or s "")]
     (boolean
@@ -126,9 +121,9 @@
               m  (js/parseInt (subs s 5 7) 10)
               d  (js/parseInt (subs s 8 10) 10)
               dt (js/Date. 0)]
-          ;; setUTCFullYear avoids the legacy 0-99 → 1900-1999 mapping
-          ;; that the `js/Date.UTC` two-digit-year rule applies, so
-          ;; four-digit years like 0026 round-trip honestly.
+          ;; Use setUTCFullYear, not js/Date.UTC: the latter maps years
+          ;; 0-99 to 1900-1999, which would corrupt four-digit years
+          ;; like 0026.
           (.setUTCFullYear dt y (dec m) d)
           (and (= y (.getUTCFullYear dt))
                (= (dec m) (.getUTCMonth dt))
@@ -212,24 +207,23 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
+;; Hold the React root in an atom and create it lazily inside `run`, not at
+;; ns-load. ns-load must have no DOM side effects so co-required example
+;; namespaces don't race `create-root` onto the shared `#app`. See
+;; examples/TESTING.md, the Example mount-isolation convention.
 (defonce react-root (atom nil))
 
-;; The whole frame lifecycle lives in one spot at the render root: the
-;; `frame-provider {:id app-frame …}` below. On first mount it creates the
-;; app frame, applies its config, and runs `:initial-events` once to seed
-;; app-db. On hot reload it reuses the same frame and skips re-seeding.
-;; `app-frame` is just an id we pick — the runtime won't infer it, so we
-;; name it here and hand it to the provider. Matches the canonical mount in
-;; examples/reagent/counter/core.cljs.
+;; The frame lifecycle lives in one place: the `frame-provider {:id app-frame
+;; …}` at the render root below. On first mount it creates the app frame,
+;; applies its config, and runs `:initial-events` once to seed app-db. On hot
+;; reload it reuses the same frame and skips re-seeding. `app-frame` is just
+;; an id we pick and hand to the provider. See the counter example for the
+;; same mount shape: examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
   ;; `init!` installs the reactive adapter for the process. The adapter ns
-  ;; exports an `adapter` var; require the ns and pass that var directly.
+  ;; exports an `adapter` var; pass it directly.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

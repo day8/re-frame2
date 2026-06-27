@@ -1,47 +1,38 @@
 (ns realworld.settings
   "User settings page for the RealWorld (Conduit) example.
 
-   This namespace demonstrates the **`:form-region` machine variant** of
-   Pattern-Forms: the settings form's lifecycle is modelled as a single
-   state machine — `:settings/form` — whose state-keyword IS the form
-   lifecycle (`:neutral` / `:incorrect` / `:correct` / `:submitting`).
-   The other four forms in realworld (`:auth :login-form`,
-   `:auth :register-form`, `:editor`, `:comment-form`) stay in the
-   original `{:draft :submitted :status :errors :touched :submit-error}`
-   slice form, so the two shapes sit side-by-side and a reader can
-   compare. The README's §'Pattern-Forms — two shapes side-by-side'
-   has the worked comparison plus a 'when to choose each' note.
+   Here the form's lifecycle lives entirely in a state machine,
+   `:settings/form`, whose state-keyword is the form lifecycle (`:neutral`
+   / `:incorrect` / `:correct` / `:submitting`). The other four forms in
+   realworld (`:auth :login-form`, `:auth :register-form`, `:editor`,
+   `:comment-form`) keep the plain
+   `{:draft :submitted :status :errors :touched :submit-error}` slice
+   shape, so a reader can compare the two shapes side by side. See the
+   forms how-to: ../../../docs/guide/how-to/build-a-form.md
 
    The shape:
 
-   - The Pattern-Forms lifecycle (`:neutral` / `:incorrect` / `:correct`
-     + `:submitting`) maps **one-to-one** onto machine states; the
-     slice's `:status` field disappears because the region's
-     state-keyword IS the status.
+   - The form lifecycle (`:neutral` / `:incorrect` / `:correct` +
+     `:submitting`) maps one-to-one onto machine states; the slice's
+     `:status` field is gone because the state-keyword is the status.
    - The draft, errors, touched, submit-error, submitted, and loaded-at
-     fields live in the machine's shared `:data` map (no separate
-     app-db slice).
-   - The slice's `:submitting?` derived boolean sub collapses into a
-     per-state `:settings/in-flight` tag queried with `rf/machine-has-tag?`.
+     fields live in the machine's `:data` map (no app-db slice).
+   - The slice's `:submitting?` boolean becomes a per-state
+     `:settings/in-flight` tag queried with `rf/machine-has-tag?`.
 
-   Logout stays on the existing auth machine path (`:auth/flow`).
+   Logout stays on the auth machine path (`:auth/flow`).
 
-   ---
-   Production-shape note. Realworld is a worked sketch, and this form
-   keeps the example's existing eager-submit behaviour (the user
-   pressing 'Update Settings' triggers a server roundtrip without a
-   prior client-side validate step). The `:submit-invalid` /
-   `:incorrect` transition exists in the machine so the lifecycle is
-   complete, and the headless tests exercise it via direct broadcasts —
-   in a real app you'd run a Malli validate against the draft inside
-   `:settings/submit` and dispatch `:submit-invalid` when it returned
-   errors, matching Pattern-Forms' §Standard events table."
+   This form submits eagerly: pressing 'Update Settings' triggers a server
+   roundtrip with no prior client-side validate step. The `:submit-invalid`
+   / `:incorrect` transition exists so the lifecycle is complete; a real
+   app would run a Malli validate against the draft inside `:settings/submit`
+   and dispatch `:submit-invalid` when it returned errors."
   (:require [re-frame.core :as rf]
-            ;; The Spec 005 state-machine ns lives in the
-            ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/reg-machine (called
-            ;; below at ns-load) and the `:rf/machine` /
-            ;; `:rf/machine-has-tag?` framework subs resolve.
+            ;; State machines ship in the re-frame2-machines artefact.
+            ;; Requiring the ns registers its hooks so `rf/reg-machine`
+            ;; (called below) and the `:rf/machine` / `:rf/machine-has-tag?`
+            ;; subs resolve. See the machines guide:
+            ;; ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld.schema :as schema]
             [realworld.http :as rh])
@@ -63,11 +54,11 @@
    :loaded-at    nil})
 
 ;; ============================================================================
-;; THE MACHINE — :settings/form  (one region; Pattern-Forms lifecycle)
+;; THE MACHINE — :settings/form  (one region; the form lifecycle)
 ;; ============================================================================
 ;;
-;; The Pattern-Forms lifecycle maps one-to-one onto machine states.
-;; Compare with the slice form used by the other four realworld forms:
+;; The form lifecycle maps one-to-one onto machine states. Compare with the
+;; slice form used by the other four realworld forms:
 ;;
 ;;     ;; SLICE FORM (used by :auth :login-form, :auth :register-form, :editor, :comment-form)
 ;;     ;; The slice carries an explicit :status keyword.
@@ -85,23 +76,22 @@
 ;;              :submitted nil :loaded-at nil}
 ;;      :tags  #{...}}
 ;;
-;; Pattern-Forms' load-bearing boolean — `:submitting?` — becomes a
-;; tag-shaped query against the active state:
+;; The form's load-bearing boolean — `:submitting?` — becomes a tag query
+;; against the active state:
 ;;
 ;;     :submitting?  = (= :submitting status)            ;; slice form
 ;;     :submitting?  = @(rf/machine-has-tag? :settings/form :settings/in-flight)
 ;;
 ;; The view doesn't need to know which state-keyword carries the
-;; "in-flight" intent; the tag does. That is the load-bearing
-;; pedagogical move.
+;; "in-flight" intent; the tag does.
 
 (def settings-form-machine
   {:initial :neutral
    :data    initial-data
-   ;; Snapshot :data validation. The snapshot lives in runtime-db
-   ;; ([:rf.runtime/machines :snapshots :settings/form]), so its :data shape is
-   ;; validated here via [:schemas :data] — not via an app-schema (EP-0001,
-   ;; Mike ruling #11: app schemas validate the app-db partition only).
+   ;; The snapshot lives in runtime-db
+   ;; ([:rf.runtime/machines :snapshots :settings/form]), so its :data shape
+   ;; is validated here via [:schemas :data], not via an app-schema (app
+   ;; schemas validate the app-db partition only).
    :schemas {:data schema/SettingsFormData}
 
    :actions
@@ -125,10 +115,9 @@
                  (assoc :submit-error nil))})
 
     :set-errors
-    ;; :submit-invalid carries the per-field error map. We also touch
-    ;; every error field so the inline error shows even on fields the
-    ;; user hasn't yet interacted with (per Pattern-Forms §Error
-    ;; visibility — submit-attempted reveals all errors).
+    ;; :submit-invalid carries the per-field error map. Touch every error
+    ;; field too, so the inline error shows even on fields the user hasn't
+    ;; interacted with yet.
     (fn action-set-errors [{data :data [_ {:keys [errors]}] :event}]
       {:data (-> data
                  (assoc :errors errors)
@@ -214,9 +203,8 @@
 ;; PUBLIC EVENT API
 ;; ============================================================================
 ;;
-;; Event names stay the same as the slice-form version so views and
-;; sibling namespaces (auth.cljs) need no change. Each one fans out to
-;; one or more machine broadcasts.
+;; Each event fans out to one or more machine broadcasts; views and sibling
+;; namespaces dispatch these names and never touch the machine directly.
 
 (rf/reg-event :settings/initialise
   {:doc "Reset the settings-form machine to its initial state.
@@ -245,14 +233,13 @@
                       [:edit {:field field :value value}]]]]}))
 
 (rf/reg-event :settings/submit
-  {:doc "Save the user-settings draft. NO retry — single user-initiated
-         submission per click (Spec 014). Broadcasts :submit-valid into
-         the machine (which transitions to :submitting and clears
-         prior errors); on reply, :settings/submit-success /
-         :settings/submit-error broadcast :submit-succeeded /
-         :submit-failed."
+  {:doc "Save the user-settings draft. No retry — one submission per click.
+         Broadcasts :submit-valid into the machine (which transitions to
+         :submitting and clears prior errors); on reply,
+         :settings/submit-success / :settings/submit-error broadcast
+         :submit-succeeded / :submit-failed."
    :rf.http/decode-schemas [schema/UserResponse]}
-  ;; EP-0001: the machine snapshot is durable runtime-db state.
+  ;; The machine snapshot lives in runtime-db.
   (fn handler-settings-submit [{rt :rf.db/runtime} _]
     (let [draft (get-in rt [:rf.runtime/machines :snapshots :settings/form :data :draft])]
       {:fx [[:dispatch [:settings/form
@@ -292,12 +279,10 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
-;; The view consumes the same names a slice-form reader would
-;; (`:settings/draft`, `:settings/submit-error`); only the source
-;; changed. The `:settings/submitting?` boolean stays for backward
-;; compatibility with the view and tests — internally it's now an
-;; `rf/machine-has-tag?` query (a tag-shaped read) instead of a slice-field
-;; comparison.
+;; The view consumes plain names (`:settings/draft`,
+;; `:settings/submit-error`); the source is the machine's `:data`.
+;; `:settings/submitting?` is an `rf/machine-has-tag?` query under the hood,
+;; presented to the view as a plain boolean.
 
 (rf/reg-sub :settings/draft
   {:doc "The settings form draft, projected off the machine's :data."}
@@ -313,9 +298,9 @@
     (get-in snap [:data :submit-error])))
 
 (rf/reg-sub :settings/submitting?
-  {:doc "Tag-shaped read of the form's in-flight intent — a tag query
-         standing in for a slice-form `(= :submitting status)` comparison;
-         views see a plain boolean."}
+  {:doc "Tag-shaped read of the form's in-flight intent — stands in for a
+         slice-form `(= :submitting status)` comparison; views see a plain
+         boolean."}
   :<- [:rf/machine-has-tag? :settings/form :settings/in-flight]
   (fn sub-settings-submitting? [in-flight? _]
     (boolean in-flight?)))

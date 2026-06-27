@@ -1,37 +1,34 @@
 (ns boot.views
-  "Views for the boot example.
+  "Views for the boot example. See views in the guide
+   (docs/guide/glossary.md#view).
 
    The view tree has two halves split by the boot state:
 
    1. **Pre-ready** — while the boot machine is in any non-terminal
       state, the root renders a `[boot-progress]` screen showing the
       current phase. The main app view is NOT mounted yet — its
-      subscriptions would read empty slices and have to defend
-      against `nil` everywhere.
+      subscriptions would read empty slices and have to defend against
+      `nil` everywhere.
 
-   2. **Post-ready** — once the boot machine reaches `:ready`, the
-      root swaps in `[main-app]`. The main view freely reads
-      `:config`, `:flags`, `:user`, and `:routes` from app-db; the
-      slices are populated and stable.
+   2. **Post-ready** — once the boot machine reaches `:ready`, the root
+      swaps in `[main-app]`. The main view freely reads `:config`,
+      `:flags`, `:user`, and `:routes` from app-db; the slices are
+      populated and stable.
 
-   The failure path renders `[boot-failed]` (terminal `:failed`),
-   which surfaces the error and offers a retry button. The retry
-   dispatches `[:app/boot [:boot/restart]]` directly back into the boot
-   machine — re-running the boot from `:configuring` is supported
-   per Pattern-Boot §Re-boot semantics (the example treats `:failed`
-   as a re-entrant target rather than terminal-with-reload). Re-boot
-   uses a REAL re-entry event, not the `:rf.machine/start` creation
-   marker — the marker is a pure init-kick and is inert once the
+   The failure path renders `[boot-failed]` (terminal `:failed`), which
+   surfaces the error and offers a retry button. The retry dispatches
+   `[:app/boot [:boot/restart]]` straight back into the boot machine,
+   re-running it from `:configuring`. Re-boot uses a real event, not the
+   `:rf.machine/start` creation marker — the marker is inert once the
    machine already exists.
 
-   Why split the views by boot state: the alternative — mount the
-   main app and let each sub-view render a per-phase loading
-   skeleton — scatters boot logic across the whole view tree. The
-   Pattern-Boot canonical shape consolidates that loading state into
-   the boot machine; the views simply read `:app.boot/ready?`.
+   Splitting the views by boot state keeps all the loading logic in the
+   boot machine. The alternative — mount the main app and let each
+   sub-view render its own per-phase skeleton — scatters that logic
+   across the whole view tree. Here the views just read `:app.boot/ready?`.
 
-   The views are intentionally minimal — the goal is to demonstrate
-   the Pattern-Boot shape, not a polished UI."
+   The views are intentionally minimal — the goal is to show the boot
+   shape, not a polished UI."
   (:require [re-frame.core :as rf]
             [boot.boot])
   (:require-macros [re-frame.core :refer [reg-view]]))

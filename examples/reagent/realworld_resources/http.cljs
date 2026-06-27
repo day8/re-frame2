@@ -2,18 +2,17 @@
   "HTTP helpers + the demo backend stub for the RealWorld-on-resources
    example.
 
-   Resources and mutations lower onto `:rf.http/managed` (Spec 016 §Transport:
-   managed HTTP is the single built-in resource/mutation transport), so the
-   SAME canned-stub override the `:rf.http/managed` sibling uses serves both
-   reads and writes here. The stub routes by URL + method to a canned
-   Conduit-shaped reply, deferred via `:after-ms` (`:dispatch-later`, NOT raw
-   `js/setTimeout`) so the runtime's `:loading` UI state is observable and
-   replies stay time-travel-safe.
+   Resources and mutations lower onto `:rf.http/managed` — the single built-in
+   resource/mutation transport (../../../docs/resources/glossary.md#managed-http)
+   — so one canned-stub override serves both reads and writes. The stub routes by
+   URL + method to a canned Conduit-shaped reply, deferred via `:after-ms`
+   (`:dispatch-later`, NOT raw `js/setTimeout`) so the runtime's `:loading` UI
+   state is observable and replies stay time-travel-safe.
 
    Two helpers:
-   - `failure->message` — project a Spec 014 `:rf.http/*` failure envelope (the
-     shape resource `:error` / `:refresh-error` and mutation `:error` carry) to
-     a human-readable string.
+   - `failure->message` — project a `:rf.http/*` failure envelope (the shape
+     resource `:error` / `:refresh-error` and mutation `:error` carry) to a
+     human-readable string.
    - `install-demo-backend!` — register the stub fx + wire it as the
      `:rf.http/managed` override on the demo frame.
 
@@ -49,15 +48,15 @@
   (str api-base path))
 
 ;; ============================================================================
-;; RETRY POLICY (Spec 014 §Retry and backoff)
+;; RETRY POLICY
 ;; ============================================================================
 ;;
-;; Reads retry / writes don't (Spec 014). Each read resource's `:request`
-;; returns a Spec 014 managed-HTTP args map, and `:retry` passes through the
-;; resource lowering UNCHANGED (Spec 016 §Transport), so a resource arms retry
-;; simply by including this policy in its return. Writes (mutations) stay
-;; retry-free — a write's intent is one submission per click; a 5xx surfaces
-;; as `:error` so the user retries themselves.
+;; Reads retry; writes don't. Each read resource's `:request` returns a
+;; managed-HTTP args map, and `:retry` passes through the resource lowering
+;; unchanged, so a resource arms retry simply by including this policy in its
+;; return. Writes (mutations) stay retry-free — a write's intent is one
+;; submission per click; a 5xx surfaces as `:error` so the user retries
+;; themselves.
 
 (def data-fetch-retry
   "Standard retry policy for read-only data fetches (lists, article detail,
@@ -73,12 +72,11 @@
 ;; ============================================================================
 
 (defn failure->message
-  "Project a Spec 014 failure envelope (the inner `:failure` map — the shape a
-   resource `:error` / `:refresh-error` and a mutation `:error` carry) to a
-   human-readable string. The Conduit API returns `{:errors {:body [\"...\"]}}`
-   shapes for 4xx validation failures; surface those when present, otherwise
-   fall back to a category-driven message keyed on the closed `:rf.http/*`
-   taxonomy."
+  "Project a failure envelope (the inner `:failure` map — the shape a resource
+   `:error` / `:refresh-error` and a mutation `:error` carry) to a human-readable
+   string. The Conduit API returns `{:errors {:body [\"...\"]}}` shapes for 4xx
+   validation failures; surface those when present, otherwise fall back to a
+   category-driven message keyed on the closed `:rf.http/*` taxonomy."
   [failure]
   (let [body     (:body failure)
         body-msg (cond
@@ -103,11 +101,10 @@
 ;; DEMO BACKEND STUB
 ;; ============================================================================
 ;;
-;; The realworld example ships without a backend; the demo routes
-;; `:rf.http/managed` through a per-URL stub that delegates to
-;; `:rf.http/managed-canned-success` (Spec 014 §Testing). The resource /
-;; mutation runtime lowers each fetch/write onto `:rf.http/managed`, so this
-;; one override stands in for the whole Conduit API.
+;; The example ships without a backend; the demo routes `:rf.http/managed`
+;; through a per-URL stub that delegates to `:rf.http/managed-canned-success`.
+;; The resource / mutation runtime lowers each fetch/write onto
+;; `:rf.http/managed`, so this one override stands in for the whole Conduit API.
 
 (def ^:private demo-reply-delay-ms
   "How long the demo stub defers each canned reply (via the canned-success
@@ -119,11 +116,11 @@
 
 ;; A SYNTHESISED article set large enough that the official-size pagination
 ;; (`page-size` = 10) spans several pages — so the paginated-resource +
-;; keep-previous dogfood is actually demonstrable in the browser. The first
-;; two carry the original stable slugs (referenced by the article-detail /
-;; mutation paths); the rest are generated. `demo-favorited` is a SUBSET so the
-;; profile Favorited-Articles tab differs from My Articles, and unfavoriting
-;; from the tab visibly drops the article on the next refetch.
+;; keep-previous behaviour is actually demonstrable in the browser. The first two
+;; carry stable slugs (referenced by the article-detail / mutation paths); the
+;; rest are generated. `demo-favorited` is a SUBSET so the profile
+;; Favorited-Articles tab differs from My Articles, and unfavoriting from the tab
+;; visibly drops the article on the next refetch.
 (def ^:private demo-article-count 23)
 
 (defn- gen-article [i]
@@ -132,12 +129,11 @@
                  :description "A short greeting from the realworld-resources stub."
                  ;; A markdown body so the article-detail page exercises the
                  ;; sanitized CommonMark renderer (realworld-shared.markdown/
-                 ;; render): headings, bold/italic, inline + fenced
-                 ;; code, a safe link, lists, plus full-CommonMark shapes the old
-                 ;; hand-rolled subset could not do (a table, a nested list).
-                 ;; The renderer emits hiccup (never raw HTML), so this is real
-                 ;; markup while any injected `<script>` / `javascript:` link in
-                 ;; user content degrades to inert escaped text.
+                 ;; render): headings, bold/italic, inline + fenced code, a safe
+                 ;; link, lists, tables, nested lists. The renderer emits hiccup
+                 ;; (never raw HTML), so this is real markup while any injected
+                 ;; `<script>` / `javascript:` link in user content degrades to
+                 ;; inert escaped text.
                  :body (str "# Hello, Conduit\n\n"
                             "This article is served by the demo `:rf.http/managed` "
                             "override that **resources + mutations** lower onto, "
@@ -309,10 +305,9 @@
                canned Conduit-shaped responses so the example (reads via
                resources, writes via mutations) runs standalone without a
                backend. Delegates to the framework-shipped
-               `:rf.http/managed-canned-success` (Spec 014 §Testing) with the
-               per-URL payload + `:after-ms` (the deferred reply rides
-               `:dispatch-later` — tape-visible, time-travel-safe, NOT raw
-               `js/setTimeout`)."
+               `:rf.http/managed-canned-success` with the per-URL payload +
+               `:after-ms` (the deferred reply rides `:dispatch-later` —
+               tape-visible, time-travel-safe, NOT raw `js/setTimeout`)."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
     (let [payload (demo-payload-for-args args-map)

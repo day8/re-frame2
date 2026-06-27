@@ -1,21 +1,20 @@
 (ns realworld.profile
   "Profile pages for the RealWorld (Conduit) example.
 
-   This sketch demonstrates:
-   - Pattern-NineStates — one parallel state machine `:ui/profile` with
-     two orthogonal regions (`:tab` × `:data`) replacing the prior
-     cross-axis sub + priority `cond` shape.
-   - Pattern-RemoteData lifecycle folded into the `:data` region; the
-     region's state-keyword IS the banner's status. The article-list
-     items still live in app-db slices (`:profile.articles`,
-     `:profile.favorites`) so the optimistic-update paths in
-     favorites.cljs continue to find articles across slices.
-   - Tab switching expressed as `:tab` region transitions broadcast
-     from the route's `:on-match` (just like the home page's
-     `:home/load` broadcasts the feed-region transition).
-   - The profile view's root is a `case` over `:profile/render`, a
-     selector sub that consults a render-priority table against the
-     machine's tag union (per Pattern-NineStates §4).
+   This namespace shows:
+   - One parallel state machine `:ui/profile` with two orthogonal regions
+     (`:tab` x `:data`). See the machines guide on parallel regions:
+     ../../../docs/machines/concepts.md#when-the-machine-grows.
+   - A remote-data lifecycle folded into the `:data` region; the region's
+     state-keyword is the banner's status. The article-list items live in
+     app-db slices (`:profile.articles`, `:profile.favorites`) so
+     favorites.cljs's optimistic updates can find articles across slices.
+   - Tab switching expressed as `:tab` region transitions broadcast from
+     the route's `:on-match`, like the home page's `:home/load` broadcasts
+     its feed-region transition.
+   - The profile view's root is a `case` over `:profile/render`, a selector
+     sub that reads a render-priority table against the machine's tag
+     union.
 
    Three remote-data slices behind the view:
    - `:profile`             — public banner (username, bio, image, following)
@@ -25,11 +24,10 @@
    Follow/unfollow is optimistic and shared across the banner plus any
    article cards rendered from the profile routes."
   (:require [re-frame.core :as rf]
-            ;; The Spec 005 state-machine ns lives in the
-            ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/reg-machine (called
-            ;; below at ns-load) and the `:rf/machine` framework subs
-            ;; resolve.
+            ;; State machines ship in the re-frame2-machines artefact.
+            ;; Requiring the ns registers its hooks so `rf/reg-machine`
+            ;; (called below) and the `:rf/machine` subs resolve. See the
+            ;; machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld-shared.avatar :as avatar]
             [realworld.schema :as schema]
@@ -40,9 +38,8 @@
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
-;; EP-0001: the route slice is durable routing runtime-db state —
-;; `username-from-db` reads it off the runtime-db value (event handlers pass the
-;; `:rf.db/runtime` coeffect).
+;; The route lives in runtime-db; `username-from-db` reads it off the
+;; runtime-db value (event handlers pass the `:rf.db/runtime` coeffect).
 (defn username-from-db [runtime-db]
   (get-in runtime-db [:rf.runtime/routing :current :params :username]))
 
@@ -59,22 +56,21 @@
 ;;             state-keyword tells the view which app-db slice's items
 ;;             to render.
 ;;
-;;   :data   — Pattern-NineStates' data lifecycle for the banner fetch.
-;;             The slice's `:status` field is still set for parity with
-;;             other slices, but the region's state-keyword IS the
-;;             page's render gate. The article-list slices keep their
-;;             slice shape and load independently.
+;;   :data   — the data lifecycle for the banner fetch. The slice's
+;;             `:status` field is still set for parity with other slices,
+;;             but the region's state-keyword is the page's render gate. The
+;;             article-list slices keep their slice shape and load
+;;             independently.
 ;;
-;; Per Spec 005 §Transition broadcast: every event delivered to the
-;; machine is broadcast to every region. Region-distinct event names
-;; below avoid collisions; `:reset` is handled by every region as a
+;; Every event delivered to the machine reaches every region. Region-
+;; distinct event names avoid collisions; each region handles `:reset` as a
 ;; self-target.
 
 (def profile-machine
   {:type :parallel
 
-   ;; The banner's latest error map. The profile/article items
-   ;; themselves still live in app-db slices.
+   ;; The banner's latest error map. The profile/article items live in
+   ;; app-db slices.
    :data {:error nil}
 
    :actions
@@ -87,7 +83,7 @@
       {:data (assoc data :error nil)})}
 
    :regions
-   {;; ---- :data region — Pattern-NineStates lifecycle for the banner ----
+   {;; ---- :data region — the data lifecycle for the banner ----
     :data
     {:initial :nothing
      :states

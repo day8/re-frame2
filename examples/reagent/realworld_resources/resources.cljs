@@ -1,42 +1,34 @@
 (ns realworld-resources.resources
   "The RESOURCE registry — every RealWorld read as a named, cached,
-   runtime-managed server-state read (Spec 016 §Public API / §Resource
-   registration spec).
+   runtime-managed server-state read. See the resources guide:
+   ../../../docs/resources/concepts.md; resource glossary:
+   ../../../docs/resources/glossary.md#resource.
 
-   This is the half of the example that expresses as resources what the
-   `:rf.http/managed` sibling hand-rolls as Pattern-RemoteData slices
-   (`{:status :data :error :loaded-at :attempt}` per read). Here each read is
-   `reg-resource`d once;
-   route entry / events CAUSE the fetch, and views read the runtime cache
-   PASSIVELY through `[:rf.resource/*]` subs. No `:status` / `:loading?`
-   app-db fields exist for these reads — the framework owns the lifecycle.
+   Each read is `reg-resource`d once; route entry / events CAUSE the fetch, and
+   views read the runtime cache PASSIVELY through `[:rf.resource/*]` subs. No
+   `:status` / `:loading?` app-db fields exist for these reads — the framework
+   owns the lifecycle.
 
-   Identity = `[scope resource-id canonical-params]` (Spec 016 §Resource
-   identity). Every variable that changes the remote read lives in `:params`
-   (slug, username, tag); `:scope` is the leak boundary (see
-   realworld-resources.scope). `:tags` let a WRITE invalidate the right reads
-   (see realworld-resources.mutations) — that is the read→write→invalidate→
-   refetch loop this whole variant exists to show.
+   A read's cache identity is `[scope resource-id canonical-params]`. Every
+   variable that changes the remote read lives in `:params` (slug, username,
+   tag); `:scope` is the leak boundary (see realworld-resources.scope,
+   ../../../docs/resources/glossary.md#scope). `:tags` let a WRITE invalidate
+   the right reads (see realworld-resources.mutations) — the
+   read→write→invalidate→refetch loop, ../../../docs/resources/glossary.md#invalidate.
 
-   `:stale-after-ms` / `:gc-after-ms` are exercised so the lifecycle is real:
-   a `:loaded` entry goes stale after the window (a re-`ensure` then refetches
-   into `:fetching`, keeping prior data visible — stale-while-revalidate), and
-   an inactive entry (no owner) is GC-eligible after its window. A fresh
-   re-`ensure` is a cache-hit (no fetch, no dedupe) — `:rf.resource/cache-hit`.
-
-   Resources is a POST-V1 optional artefact; the read-resource runtime +
-   mutations (EP-0003) back this example, so all of it runs live. The example
-   tree is test-free."
+   `:stale-after-ms` / `:gc-after-ms` are exercised so the lifecycle is real: a
+   `:loaded` entry goes stale after the window (a re-`ensure` then refetches into
+   `:fetching`, keeping prior data visible — stale-while-revalidate), and an
+   inactive entry (no owner) is GC-eligible after its window. A fresh re-`ensure`
+   of a fresh entry is a cache-hit (no fetch, no dedupe)."
   (:require [clojure.string]
             [re-frame.core :as rf]
-            ;; Managed HTTP ships in day8/re-frame2-http — the single built-in
-            ;; resource/mutation transport (Spec 016 §Transport). Loading the
-            ;; ns registers the `:rf.http/managed` fx the runtime lowers each
-            ;; ensure/refetch onto.
+            ;; Managed HTTP — the single built-in resource/mutation transport.
+            ;; Loading the ns registers the `:rf.http/managed` fx the runtime
+            ;; lowers each ensure/refetch onto.
             [re-frame.http.managed]
-            ;; Resources ship in day8/re-frame2-resources. Requiring the ns at
-            ;; app boot wires the late-bind hooks + registrations; without it,
-            ;; `rf/reg-resource` throws :rf.error/resources-artefact-missing.
+            ;; Resources runtime. Requiring the ns at app boot wires the hooks +
+            ;; registrations; without it `rf/reg-resource` throws.
             [re-frame.resources]
             [realworld-resources.http :as rh]
             [realworld-resources.schema :as schema]))
@@ -52,22 +44,21 @@
 
 (def gc-after-ms
   "An inactive entry (no live owner) is GC-eligible five minutes after going
-   inactive (Spec 016 §Stale and GC scheduling)."
+   inactive."
   (* 5 60 1000))
 
 ;; ============================================================================
 ;; PAGINATION — every server-visible list parameter lives in `:params`
 ;; ============================================================================
 ;;
-;; The Conduit list endpoints page with `limit` / `offset`; the UI is
-;; 1-indexed and the page size is fixed (Spec 016 §Paginated and previous
-;; data). The headline this exercises: pagination is DECLARATIVE on resources.
-;; The `:page` is just another `:params` key, so page N and page N+1 are
-;; DISTINCT cache entries (canonical-params identity) — back-navigating to a
-;; previously-loaded page is a cache-hit (no fetch), and `:keep-previous?` on
-;; the route entry keeps the prior page visible while the next first-loads
-;; (no flicker). No `:status` / `:loading?` app-db field, no manual page-cache
-;; map — the framework owns it.
+;; The Conduit list endpoints page with `limit` / `offset`; the UI is 1-indexed
+;; and the page size is fixed. The point this exercises: pagination is
+;; DECLARATIVE on resources. The `:page` is just another `:params` key, so page N
+;; and page N+1 are DISTINCT cache entries — back-navigating to a
+;; previously-loaded page is a cache-hit (no fetch), and `:keep-previous?` on the
+;; route entry keeps the prior page visible while the next first-loads (no
+;; flicker). No `:status` / `:loading?` app-db field, no manual page-cache map —
+;; the framework owns it. See ../../../docs/resources/how-to/paginate-a-feed.md.
 
 (def page-size
   "The fixed Conduit list page size (the official client's value). The demo
@@ -93,32 +84,31 @@
         sep (if (clojure.string/includes? url "?") "&" "?")]
     (str url sep "limit=" limit "&offset=" offset)))
 
-;; Reads retry / writes don't (Spec 014). Each read's `:request` returns the
-;; shared `rh/data-fetch-retry` policy in its managed-HTTP args; `:retry`
-;; passes through the resource lowering UNCHANGED (Spec 016 §Transport), so a
-;; transport blip / 5xx / timeout retries with backoff+jitter (NOT a 4xx — the
-;; request shape was valid). Mutations (writes) stay retry-free.
+;; Reads retry; writes don't. Each read's `:request` returns the shared
+;; `rh/data-fetch-retry` policy in its managed-HTTP args; `:retry` passes through
+;; the resource lowering unchanged, so a transport blip / 5xx / timeout retries
+;; with backoff+jitter (NOT a 4xx — the request shape was valid). Mutations
+;; (writes) stay retry-free. See managed HTTP:
+;; ../../../docs/resources/glossary.md#managed-http.
 
 ;; ============================================================================
 ;; PUBLIC READS — :scope :rf.scope/global (same for every viewer)
 ;; ============================================================================
 ;;
-;; The `:scope :rf.scope/global` here is the explicit, AUDITABLE claim that
-;; this read is identical for every user/tenant/locale (Spec 016 §Scope
-;; resolution). There is NO implicit default — a missing scope policy is a
-;; loud :rf.error/resource-missing-scope-policy at registration. Xray
-;; enumerates every `:rf.scope/global` resource as the standing
-;; security-review list.
+;; The `:scope :rf.scope/global` here is the explicit, AUDITABLE claim that this
+;; read is identical for every user/tenant/locale. There is NO implicit default —
+;; a missing scope policy fails loud at registration. See scope:
+;; ../../../docs/resources/glossary.md#scope.
 
 (rf/reg-resource :realworld/articles
   {:doc            "The global article list, optionally filtered by `:tag` and
                     paginated by `:page` (1-indexed). EVERY server-visible
                     option (the tag AND the page) is in params, so a
                     tag-filtered list, the unfiltered list, and each page are
-                    DISTINCT cache entries (Spec 016 §Paginated and previous
-                    data). Back-navigating to a previously-loaded page is a
-                    cache-hit; the route's `:keep-previous?` keeps the prior
-                    page visible while the next first-loads."
+                    DISTINCT cache entries. Back-navigating to a
+                    previously-loaded page is a cache-hit; the route's
+                    `:keep-previous?` keeps the prior page visible while the next
+                    first-loads."
    :params-schema  [:map
                     [:tag  {:optional true} [:maybe :string]]
                     [:page {:optional true} [:maybe :int]]]
@@ -159,8 +149,7 @@
 (rf/reg-resource :realworld/comments
   {:doc            "Comments for an article (public). A sub-resource of the
                     article modelled as an ordinary resource whose params carry
-                    the parent identity (Spec 016 §Sub-resources are ordinary
-                    resources)."
+                    the parent identity (the slug)."
    :params-schema  [:map [:slug :string]]
    :data-schema    schema/CommentsResponse
    :scope          :rf.scope/global
@@ -251,22 +240,19 @@
 ;; ============================================================================
 ;;
 ;; The authenticated user's personalised feed depends on WHO is asking, so it
-;; carries a session scope rather than `:rf.scope/global`. EP-0016 names that
-;; scope ONCE — `reg-resource-scope :realworld/session` (see scope.cljs) — and
-;; the resource declares `:scope {:from-db :realworld/session}`: a derived-scope
-;; REFERENCE the runtime resolves at every site against app-db.
-;;
-;; This is the EP-0016 idiom — naming the scope once, rather than `:rf.scope/
-;; from-caller` hand-wiring (a route ensuring the feed from an event and every
-;; view threading a `:session/scope` payload). The result:
+;; carries a session scope rather than `:rf.scope/global`. A named resolver
+;; states that scope ONCE — `reg-resource-scope :realworld/session` (see
+;; scope.cljs) — and the resource declares `:scope {:from-db :realworld/session}`:
+;; a reference the runtime resolves at every site against app-db. The result:
 ;;   - a `[:rf.resource/state {:resource :realworld/feed :params {…}}]` sub
 ;;     resolves the scope ITSELF — no view passes a `:scope` payload — and
-;;     re-keys reactively across login / logout (Spec 016 §A `{:from-db …}`
-;;     subscription re-keys when the resolver's inputs change);
+;;     re-keys reactively across login / logout;
 ;;   - the home route owns the feed as a declarative `:resources` entry with
 ;;     `:scope {:from-db :realworld/session}` (routing.cljs);
-;;   - logged out, the reference resolves nil — fail-closed: the sub is the
-;;     loud "scope unresolved" condition, never a silent shared-cache read.
+;;   - logged out, the reference resolves nil — fail-closed: the sub is the loud
+;;     "scope unresolved" condition, never a silent shared-cache read.
+;; See the named resolver in scope.cljs and
+;; ../../../docs/resources/how-to/add-auth.md.
 
 (rf/reg-resource :realworld/feed
   {:doc            "The authenticated user's feed (`/articles/feed`). Session-
