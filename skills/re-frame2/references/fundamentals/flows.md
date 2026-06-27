@@ -69,7 +69,7 @@ Never read a retired `[:rf.runtime/…]` *app-db* path — runtime state never l
 
 ## Canonical mini-example
 
-From `examples/reagent/flows/core.cljs` — a cart whose subtotal and total are materialised into `app-db` so the checkout handler reads `[:cart :total]` as plain data:
+From `examples/core/flows/core.cljs` — a cart whose subtotal and total are materialised into `app-db` so the checkout handler reads `[:cart :total]` as plain data:
 
 ```clojure
 (defn- line-total [{:keys [price qty]}] (* price qty))
@@ -161,4 +161,4 @@ Per-frame topsort + cycle-detection contract, the partition-qualified input reso
 
 ---
 
-*Derived from `spec/013-Flows.md`, `implementation/flows/src/re_frame/` (the `day8/re-frame2-flows` artefact), and the worked example `examples/reagent/flows/core.cljs` @ main `89bd9c3`. Re-verify line/shape after flow-runtime changes.*
+*Derived from `spec/013-Flows.md`, `implementation/flows/src/re_frame/` (the `day8/re-frame2-flows` artefact), and the worked example `examples/core/flows/core.cljs` @ main `89bd9c3`. Re-verify line/shape after flow-runtime changes.*

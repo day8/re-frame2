@@ -680,7 +680,7 @@
 ;; it in `resources/public/css/app.css` (`.rf2-xray-host`). The current
 ;; published host contract (tools/xray/spec/011-Launch-Modes.md §Layout
 ;; host contract; mirrored in examples/_shared/css/structure.css and
-;; examples/reagent/counter/index.html) is a RIGHT-side, *resizable*
+;; examples/core/counter/index.html) is a RIGHT-side, *resizable*
 ;; host:
 ;;
 ;;   - DOM order: `<main id="app">` FIRST, `<aside data-rf-xray-host>`

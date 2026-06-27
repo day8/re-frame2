@@ -60,7 +60,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 ## Canonical mini-example
 
-From `examples/reagent/todomvc/events.cljs`, one dispatch exercises the whole cycle — `:db` commits, an fx persists, and a sub recomputes:
+From `examples/core/todomvc/events.cljs`, one dispatch exercises the whole cycle — `:db` commits, an fx persists, and a sub recomputes:
 
 ```clojure
 ;; (1) dispatch

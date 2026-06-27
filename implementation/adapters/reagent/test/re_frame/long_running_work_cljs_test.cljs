@@ -9,7 +9,7 @@
    join-state slot.
 
    The fixture fns live HERE (the adapter test tree), not under
-   examples/reagent/long_running_work/ — the example source stays
+   examples/patterns/long_running_work/ — the example source stays
    test-free per the locked test-free-examples policy (rf2-8cevm). The ns
    requires the example's `long-running-work.worker` source directly (its
    ns-load reg-machine calls install :work/flow + :work/processor + the

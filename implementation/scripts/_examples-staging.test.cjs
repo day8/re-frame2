@@ -405,7 +405,7 @@ it('stageExample stages a colocated per-example asset after a clean stage (rf2-c
   // and must land under outDir/api/inc.json after a clean stage. Drive the real
   // manifest against the real repo source through the real clean-then-stage
   // sequence serve-example performs.
-  const srcDir = path.join(EXAMPLES_ROOT, 'reagent', 'managed_http_counter');
+  const srcDir = path.join(EXAMPLES_ROOT, 'core', 'managed_http_counter');
   const htmlSrc = path.join(srcDir, 'index.html');
   assert.ok(fs.existsSync(htmlSrc), `fixture precondition: ${htmlSrc} must exist in-repo`);
 
@@ -427,7 +427,7 @@ it('stageExample stages a colocated per-example asset after a clean stage (rf2-c
     );
     // The RealWorld avatar pattern is the same colocated-:src shape — exercise
     // it too so both RealWorld variants are covered.
-    const rwSrc = path.join(EXAMPLES_ROOT, 'reagent', 'realworld');
+    const rwSrc = path.join(EXAMPLES_ROOT, 'real-apps', 'realworld_http');
     const rwEntry = {
       build: 'examples/realworld',
       outDir: path.join(outRoot, 'realworld'),

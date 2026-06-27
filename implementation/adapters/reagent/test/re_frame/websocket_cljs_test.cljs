@@ -6,7 +6,7 @@
    mode), and asserts the resulting state / tags / app-db slice.
 
    The fixture fns + the test-only re-registration scaffolding live HERE
-   (the adapter test tree), not under examples/reagent/websocket/ — the
+   (the adapter test tree), not under examples/patterns/websocket/ — the
    example source stays test-free per the locked test-free-examples policy
    (rf2-8cevm). The ns requires the example's production sub-namespaces
    (`websocket.schema` / `websocket.connection` / `websocket.messages` /
@@ -123,7 +123,7 @@
   ;; intermittent `FAIL in () (:) unexpected reject: :rf.error/no-frame-context`
   ;; + `Async test called done more than one time` flake. Name `:rf/default`
   ;; explicitly here, mirroring the example's own `(with-frame :rf/default …)`
-  ;; ns-load idiom (examples/reagent/websocket/schema.cljs) — the fixture has
+  ;; ns-load idiom (examples/patterns/websocket/schema.cljs) — the fixture has
   ;; already `ensure-default-frame!`'d it.
   (with-frame :rf/default
     (rf/reg-app-schema [:messages]                 {:schema ws.schema/MessagesSlice}))
@@ -166,7 +166,7 @@
   ;; NOT an ambient `(random-uuid)` read inside the handler — replay would
   ;; otherwise mint a fresh id and break the correlation. Mirrors the
   ;; production `:ws.app/request-id` reg-cofx in
-  ;; examples/reagent/websocket/messages.cljs.
+  ;; examples/patterns/websocket/messages.cljs.
   (rf/reg-cofx :ws.app/request-id
     {:recordable? true
      :doc "Replayable correlation id for an outbound request-reply (EP-0017)."}

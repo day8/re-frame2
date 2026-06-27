@@ -28,7 +28,7 @@ To key the cache per user, register a **named scope resolver** — a pure functi
 
 ```clojure
 ;; src/conduit/scope.cljs
-;; cf. examples/reagent/realworld_resources/scope.cljs
+;; cf. examples/real-apps/realworld_resources/scope.cljs
 (rf/reg-resource-scope :conduit/session
   {:doc     "The session's cache scope — nil when logged out (fail-closed)."
    :inputs  {:username [:db [:auth :user :username]]}
@@ -48,7 +48,7 @@ A mutation is the write-side counterpart of a resource. Where a resource describ
 
 ```clojure
 ;; src/conduit/mutations.cljs
-;; cf. examples/reagent/realworld_resources/mutations.cljs
+;; cf. examples/real-apps/realworld_resources/mutations.cljs
 (ns conduit.mutations
   (:require [re-frame.core :as rf]
             [re-frame.resources]      ;; reg-mutation + the :rf.mutation/* surface
@@ -99,7 +99,7 @@ A resource is "a subscription you read and an event you fire" (a [*subscription*
 
 ```clojure
 ;; src/conduit/views.cljs
-;; cf. examples/reagent/realworld_resources/views.cljs
+;; cf. examples/real-apps/realworld_resources/views.cljs
 (rf/reg-event :ui/favorite
   (fn [{:keys [db]} [_ slug favorited?]]
     (if (nil? (get-in db [:auth :user]))
@@ -323,7 +323,7 @@ Three things make this safe, and none of them are your job:
 
 The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user already sees their change, so don't block the button — and optionally read the derived **`:optimistic?`** flag (`(:optimistic? fav)`, true while the optimistic value is showing and unconfirmed) for a subtle in-flight cue.
 
-> **Coming from TanStack / RTK / SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace ([`:rf.mutation/optimistic-applied`](../../../spec/016-Resources.md#optimistic-mutations) → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic surface lives in [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); `examples/reagent/realworld_resources/mutations.cljs` runs exactly this favorite.
+> **Coming from TanStack / RTK / SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace ([`:rf.mutation/optimistic-applied`](../../../spec/016-Resources.md#optimistic-mutations) → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic surface lives in [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); `examples/real-apps/realworld_resources/mutations.cljs` runs exactly this favorite.
 
 ## Publish from the editor — and continue with `:reply-to`
 
@@ -333,7 +333,7 @@ First, the write. Create and edit share one mutation that switches POST/PUT on w
 
 ```clojure
 ;; src/conduit/mutations.cljs
-;; cf. examples/reagent/realworld_resources/article_editor.cljs
+;; cf. examples/real-apps/realworld_resources/article_editor.cljs
 (rf/reg-mutation :conduit/save-article
   {:doc           "Create (POST /articles) or update (PUT /articles/:slug)."
    :params-schema [:map
@@ -362,7 +362,7 @@ The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the
 
 ```clojure
 ;; src/conduit/editor.cljs
-;; cf. examples/reagent/realworld_resources/article_editor.cljs
+;; cf. examples/real-apps/realworld_resources/article_editor.cljs
 (ns conduit.editor
   (:require [clojure.string :as str]
             [re-frame.core :as rf]))
@@ -485,7 +485,7 @@ When the guard blocks, the runtime parks the blocked navigation in a **pending-n
 
 ```clojure
 ;; src/conduit/core.cljs — rendered once in the app shell.
-;; cf. examples/reagent/realworld_resources/core.cljs
+;; cf. examples/real-apps/realworld_resources/core.cljs
 (reg-view pending-nav-dialog []
   (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.pending-nav-overlay
@@ -501,4 +501,4 @@ Now re-read `:editor/replied` above and notice the choreography. On a successful
 
 > **For JavaScript developers — this is React Router's `useBlocker`, but the block is data.** A `:can-leave` guard plays the role of React Router's `useBlocker` / `unstable_usePrompt`: stop a navigation, ask the user. The difference is where the blocked navigation lives. There's no imperative `blocker.proceed()` / `blocker.reset()` you call from inside a component effect — the parked navigation is a value under `:rf/pending-navigation`, and `:rf.route/continue` / `:rf.route/cancel` are ordinary dispatched events. The dialog is just a view subscribed to a slot, which means it tests like any other view and shows up in Xray like any other state.
 
-Everything in this part is running code: [`examples/reagent/realworld_resources/`](../../../examples/reagent/realworld_resources/) is the full app, including the pieces we trimmed for space (edit mode's load-and-seed, article delete, comments, follow/unfollow, the editor's field markup). For the concepts behind resources and mutations as a pair — the read model and its write counterpart — the [server-state concept page](../concepts.md) is the reference companion to this tutorial.
+Everything in this part is running code: [`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources/) is the full app, including the pieces we trimmed for space (edit mode's load-and-seed, article delete, comments, follow/unfollow, the editor's field markup). For the concepts behind resources and mutations as a pair — the read model and its write counterpart — the [server-state concept page](../concepts.md) is the reference companion to this tutorial.

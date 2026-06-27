@@ -3,7 +3,7 @@
 
  Deliberately tiny: three `reg-event` handlers (`:counter/inc`, `:counter/dec`,
  `:counter/initialise`), one sub (`:count`), one reg-view
- (`counter-buttons`). Mirrors examples/reagent/counter/core.cljs and
+ (`counter-buttons`). Mirrors examples/core/counter/core.cljs and
  exists so re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces
  have a stable target.
 

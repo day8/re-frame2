@@ -50,7 +50,7 @@ The sub is **derived directly off the snapshot's `:tags` slot** — a view that 
 
 ## Canonical worked example
 
-From `examples/reagent/nine_states/core.cljs` (the `render-priority` table + `:ui/render` sub) — a render-priority table consults the tag union and resolves to one render-model keyword:
+From `examples/patterns/nine_states/core.cljs` (the `render-priority` table + `:ui/render` sub) — a render-priority table consults the tag union and resolves to one render-model keyword:
 
 ```clojure
 (def render-priority

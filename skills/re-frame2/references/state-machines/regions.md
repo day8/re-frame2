@@ -44,7 +44,7 @@ A "region" in re-frame2 has two distinct meanings depending on context:
 (rf/reg-machine :realworld/tags tags-machine)
 ```
 
-Adapted from `examples/reagent/realworld/tags.cljs`. The slice's separate `:status` keyword disappears; the state IS the status. The view consumes `:tags/in-flight` via `(rf/machine-has-tag? :realworld/tags :tags/in-flight)` instead of a hand-rolled `(or (= :loading status) (= :fetching status))`.
+Adapted from `examples/real-apps/realworld_http/tags.cljs`. The slice's separate `:status` keyword disappears; the state IS the status. The view consumes `:tags/in-flight` via `(rf/machine-has-tag? :realworld/tags :tags/in-flight)` instead of a hand-rolled `(or (= :loading status) (= :fetching status))`.
 
 ## Parallel regions — the canonical declaration
 
@@ -88,7 +88,7 @@ Adapted from `examples/reagent/realworld/tags.cljs`. The slice's separate `:stat
 (rf/reg-machine :ui/nine-states nine-states-machine)
 ```
 
-From `examples/reagent/nine_states/core.cljs` (the `nine-states-machine` declaration). Three orthogonal axes, one machine. `(rf/dispatch [:ui/nine-states [:fetch-started]])` reaches **every** region; the `:data` region advances; the `:form` and `:mode` regions ignore the event (their `:on` tables don't list it). The runtime is validated by `validate-parallel!` (`re-frame.machines.lifecycle-fx.validation`).
+From `examples/patterns/nine_states/core.cljs` (the `nine-states-machine` declaration). Three orthogonal axes, one machine. `(rf/dispatch [:ui/nine-states [:fetch-started]])` reaches **every** region; the `:data` region advances; the `:form` and `:mode` regions ignore the event (their `:on` tables don't list it). The runtime is validated by `validate-parallel!` (`re-frame.machines.lifecycle-fx.validation`).
 
 ## Snapshot shape with parallel regions
 
@@ -122,4 +122,4 @@ For the full parallel-regions contract — broadcast routing, per-region scoping
 
 ---
 
-*Derived from the `re-frame.machines.*` sub-namespaces (`lifecycle-fx.validation` for the parallel-regions validator, `parallel` / `transition` for broadcast + tag union) @ main `89bd9c3`, and the worked examples `examples/reagent/realworld/tags.cljs` and `examples/reagent/nine_states/core.cljs`. Citations are symbol-level (machines.cljc was split); re-verify after parallel-regions or broadcast-routing changes.*
+*Derived from the `re-frame.machines.*` sub-namespaces (`lifecycle-fx.validation` for the parallel-regions validator, `parallel` / `transition` for broadcast + tag union) @ main `89bd9c3`, and the worked examples `examples/real-apps/realworld_http/tags.cljs` and `examples/patterns/nine_states/core.cljs`. Citations are symbol-level (machines.cljc was split); re-verify after parallel-regions or broadcast-routing changes.*

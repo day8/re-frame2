@@ -279,34 +279,31 @@
                 ;; implementation/ :requires it).
                 "../tools/testbed-support/src"
                 "../tools/testbed-support/test"
-                ;; Per rf2-kx74 examples/ is grouped per substrate. Each
-                ;; substrate root is its own shadow-cljs source path so
-                ;; the per-example namespaces (counter.core,
-                ;; counter-uix.core, counter-helix.core, ...) resolve
-                ;; at the top level under their substrate's tree. The
-                ;; 7Guis cluster (under examples/reagent/seven_guis/)
-                ;; uses the catalogue's `seven-guis.<task>.core` shape
-                ;; and resolves under this same root.
-                "../examples/reagent"
-                ;; rf2-955bx — reagent-slim is its own substrate/adapter
-                ;; (implementation/adapters/reagent-slim/), so its single
-                ;; example lives under examples/reagent-slim/ rather than
-                ;; in the stock-reagent tree. Its source root mirrors the
-                ;; reagent root above; `counter-slim-and-fast.core` (the
-                ;; `:examples/counter-slim-and-fast` build below) resolves
-                ;; from here.
-                "../examples/reagent-slim"
-                ;; rf2-cd2zo — the example test/ source dirs are gone.
-                ;; Each example's headless test fixtures were folded into
-                ;; the framework test tree: the reagent adapter-test
-                ;; bridges (re-frame.{realworld,nine-states,long-running-
-                ;; work,websocket}-cljs-test) for the CLJS examples, and
-                ;; re-frame.examples-test for the JVM-driven ssr /
-                ;; ssr_streaming / state_machine_walkthrough examples. No
-                ;; examples/.../test source path remains — the example
-                ;; tree is test-free (rf2-8cevm).
-                "../examples/uix"
-                "../examples/helix"
+                ;; examples/ is organised by CONCEPT, not substrate
+                ;; (mirrors the docs/spec taxonomy). Each top-level bucket
+                ;; is its own shadow-cljs source root, so the per-example
+                ;; namespaces resolve under it:
+                ;;   core/            -> counter.core, todomvc.core,
+                ;;                       flows.core, seven-guis.<task>.core, ...
+                ;;   capabilities/<c> -> resources.core, routing.core,
+                ;;                       ssr.core, state-machine-walkthrough.core, ...
+                ;;   patterns/        -> boot.core, websocket.core, nine-states.core, ...
+                ;;   real-apps/       -> realworld-http.core, realworld-resources.core,
+                ;;                       realworld-shared.* (shared by both)
+                ;;   substrates/      -> uix.counter.core, helix.counter.core,
+                ;;                       reagent-slim.counter.core (path-prefixed, so the
+                ;;                       substrate ports never collide with the canonical
+                ;;                       core/ namespaces in the shared test bundle)
+                ;; The example tree is test-free (rf2-8cevm): headless
+                ;; fixtures live in the framework test tree.
+                "../examples/core"
+                "../examples/capabilities/machines"
+                "../examples/capabilities/routing"
+                "../examples/capabilities/resources"
+                "../examples/capabilities/ssr"
+                "../examples/patterns"
+                "../examples/real-apps"
+                "../examples/substrates"
                 ;; rf2-kzcim Tier 1 — shared framework-behavior
                 ;; testbeds. Top-level testbeds/<surface>/ siblings of
                 ;; examples/; the per-testbed CLJS namespace
@@ -494,10 +491,10 @@
             ;;   http://localhost:8041/#/stories  login showcase (rf2-p8v0q)
             ;;   http://localhost:8042/#/stories  counter (canonical minimal)
             ;;   http://localhost:8043/#/stories  login-form (5-state)
-            8040 {:roots   ["../examples/reagent/nine_states"
+            8040 {:roots   ["../examples/patterns/nine_states"
                             "out/examples/nine-states-with-stories"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            8041 {:roots   ["../examples/reagent/login"
+            8041 {:roots   ["../examples/core/login"
                             "out/examples/login-with-stories"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
             8042 {:roots   ["../tools/story/testbeds/counter_with_stories"
@@ -511,7 +508,7 @@
             ;; compiled main.js falls through to out/examples/linearlite per
             ;; the same cascade as the entries above. Port 8044 is the next
             ;; free slot in the example/story 804x band.
-            8044 {:roots   ["../examples/reagent/linearlite"
+            8044 {:roots   ["../examples/capabilities/resources/linearlite"
                             "out/examples/linearlite"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Top-level testbeds (rf2-5e22yc) ---------------------
@@ -887,7 +884,7 @@
   {:target     :browser
    :output-dir "out/examples/counter-slim-and-fast"
    :asset-path "."
-   :modules    {:main {:init-fn counter-slim-and-fast.bundle-isolation-entry/run}}}
+   :modules    {:main {:init-fn reagent-slim.counter.bundle-isolation-entry/run}}}
 
   ;; Performance-API instrumented variant of the counter example
   ;; (rf2-du3i). The SAME canonical source as `:examples/counter`
@@ -1280,13 +1277,13 @@
   {:target     :browser
    :output-dir "out/examples/counter-uix"
    :asset-path "."
-   :modules    {:main {:init-fn counter-uix.core/run}}}
+   :modules    {:main {:init-fn uix.counter.core/run}}}
 
   :examples/login-uix
   {:target     :browser
    :output-dir "out/examples/login-uix"
    :asset-path "."
-   :modules    {:main {:init-fn login-uix.core/run}}}
+   :modules    {:main {:init-fn uix.login.core/run}}}
 
   ;; rf2-t7t6f — UIx design-led example. Analytics-dashboard layout
   ;; (status tiles + filter chips + sparkline cards) proving UIx builds
@@ -1296,7 +1293,7 @@
   {:target     :browser
    :output-dir "out/examples/dashboard-uix"
    :asset-path "."
-   :modules    {:main {:init-fn dashboard-uix.core/run}}}
+   :modules    {:main {:init-fn uix.dashboard.core/run}}}
 
   ;; rf2-2qit — Helix-substrate smoke trio (counter + login per Decision 7,
   ;; transferred from rf2-3yij). Each example has its own per-example
@@ -1309,13 +1306,13 @@
   {:target     :browser
    :output-dir "out/examples/counter-helix"
    :asset-path "."
-   :modules    {:main {:init-fn counter-helix.core/run}}}
+   :modules    {:main {:init-fn helix.counter.core/run}}}
 
   :examples/login-helix
   {:target     :browser
    :output-dir "out/examples/login-helix"
    :asset-path "."
-   :modules    {:main {:init-fn login-helix.core/run}}}
+   :modules    {:main {:init-fn helix.login.core/run}}}
 
   ;; rf2-t7t6f — Helix design-led example. Terminal-style process-monitor
   ;; (status tiles + filterable process list + live log stream with a
@@ -1326,13 +1323,13 @@
   {:target     :browser
    :output-dir "out/examples/process-monitor-helix"
    :asset-path "."
-   :modules    {:main {:init-fn process-monitor-helix.core/run}}}
+   :modules    {:main {:init-fn helix.process-monitor.core/run}}}
 
   :examples/realworld
   {:target     :browser
    :output-dir "out/examples/realworld"
    :asset-path "."
-   :modules    {:main {:init-fn realworld.core/run}}}
+   :modules    {:main {:init-fn realworld-http.core/run}}}
 
   ;; RealWorld (Conduit) ported onto EP-0003 (Spec 016) RESOURCES + MUTATIONS
   ;; (rf2-9iiumv). A sibling of `:examples/realworld` (the `:rf.http/managed`

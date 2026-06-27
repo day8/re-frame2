@@ -22,7 +22,7 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
   (rf/reg-app-schema [:cells]
     {:schema [:map [:cells/grid [:map-of :keyword :string]]]})
   ```
-- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
+- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/core/seven_guis)
 
 ### `reg-app-schemas`
 
@@ -38,7 +38,7 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
     {[:auth]     AuthState
      [:articles] ArticlesState})
   ```
-- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
+- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 The path-keyed-not-id-keyed asymmetry is principled. Paths are first-class in `get-in` / `assoc-in` / `update-in`; schemas-at-paths matches the dataflow grain; the lookup site (`app-schema-at [:user]`) reads the same way the write site (`(assoc-in db [:user] ...)`) reads. Spelling it as `(reg-app-schema :user/schema {:schema schema})` would have shifted the registration's id away from the dataflow grain.
 

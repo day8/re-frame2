@@ -15,7 +15,7 @@ Which means everything you already know about [events](../guide/concepts/events-
 Read these three moves and you've read the whole framework's idea of routing. Everything after them is a refinement of one of the three.
 
 ```clojure
-;; Adapted from examples/reagent/routing/core.cljs
+;; Adapted from examples/capabilities/routing/routing/core.cljs
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing]))   ;; ships in day8/re-frame2-routing; requiring it
@@ -295,7 +295,7 @@ Routes with no `:on-error` simply leave `:transition :error` set; a view over `:
 If the page's data is [server state managed as resources](../resources/concepts.md) — a [resource](../resources/glossary.md#resource) being a declared, cached unit of server data — declare it as data with the `:resources` key instead (available when both `re-frame.routing` and `re-frame.resources` are loaded):
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/routing.cljs
+;; Adapted from examples/real-apps/realworld_resources/routing.cljs
 (rf/reg-route :realworld.article/show
   {:params [:map [:slug :string]]
    :scroll :top
@@ -319,7 +319,7 @@ Here's the bug this design quietly kills. On route entry, the runtime marks each
 When a resource is per-user, scope it with a **named scope resolver**. Register the resolver once, then reference it everywhere as `{:from-db ...}` — so the "who is this for?" logic lives in exactly one place:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/scope.cljs + routing.cljs
+;; Adapted from examples/real-apps/realworld_resources/scope.cljs + routing.cljs
 (rf/reg-resource-scope :realworld/session
   {:inputs  {:username [:db [:auth :user :username]]}
    :resolve (fn [{:keys [username]} _ctx]
@@ -360,7 +360,7 @@ When the guard blocks, the runtime also dispatches `:rf.route/navigation-blocked
 
 > **Gotcha — the guard sub is strict.** `:can-leave` is a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` — it fails closed (deny the leave) and fails loud (raise), never open. Keep the guard sub returning a real `true`/`false`.
 
-The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/reagent/realworld_resources](../../examples/reagent/realworld_resources/) show the shape.
+The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/real-apps/realworld_resources](../../examples/real-apps/realworld_resources/) show the shape.
 
 ## Not found is a route you register
 
@@ -410,7 +410,7 @@ Routing's classification is the [data-classification](../../spec/015-Data-Classi
 Back/forward, deep links, and the initial page load are all, underneath, URL changes arriving *into* the app. Wiring them up is two lines at boot:
 
 ```clojure
-;; Adapted from examples/reagent/routing/core.cljs (client-only)
+;; Adapted from examples/capabilities/routing/routing/core.cljs (client-only)
 (rf/reg-frame :rf/default {:doc "The app frame." :url-bound? true})
 (rf/install-history-listener!)
 ```

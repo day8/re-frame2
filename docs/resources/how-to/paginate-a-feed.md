@@ -20,7 +20,7 @@ The whole trick for numbered pages: **the page number is part of the resource's 
 Here's the one rule that makes resources work: every variable that changes the server's answer belongs in `:params`. The page is one of those variables — page 1 and page 2 are two different answers to two different questions — so they become two distinct cache entries under one resource:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/resources.cljs
+;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 (def page-size 10)
 
 (rf/reg-resource :app/articles
@@ -65,7 +65,7 @@ Quick question: where should the *current page number* live? It's tempting to dr
 The [route](../../routing/glossary.md#route) validates the `?page=` query param, feeds it into the resource's params, and opts into keeping the old page visible while the new one loads:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/routing.cljs
+;; Adapted from examples/real-apps/realworld_resources/routing.cljs
 (rf/reg-route :app/home
   {:query     [:map [:page {:optional true} :int]]
    :scroll    :top
@@ -130,7 +130,7 @@ The filter then joins the resource's `:params-schema` and the route's `:query` s
 This is the part that makes pagination feel smooth instead of janky. With `:keep-previous?`, while page 2 is first-loading, its state carries `:previous? true` and `:previous-data`. That `:previous-data` is page 1's rows shown *through* page 2's loading state — borrowed for display only, never copied into page 2's own cache entry, so when page 2's real data lands it isn't polluted. Render those borrowed rows instead of a blank skeleton:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/views.cljs
+;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view article-list []
   (let [page  @(subscribe [:home/page])
         state @(subscribe [:rf.resource/state
@@ -200,7 +200,7 @@ An infinite resource is an *ordinary* resource — identity, scope, request — 
 The thing to internalise: the page cursor is **not** a params key. If it were, every page would be its own cache entry (the numbered case) — but a feed is *one* growing entry, so the cursor can't be part of its identity. Instead it's internal sequencing state the runtime tracks for you and hands to your request function as a *second argument* (the request function below takes `(params ctx)` — `ctx` is where the current page's cursor arrives):
 
 ```clojure
-;; Adapted from examples/reagent/infinite_feed/core.cljs
+;; Adapted from examples/capabilities/resources/infinite_feed/core.cljs
 (def page-size 8)
 
 (rf/reg-resource :feed/timeline
@@ -432,4 +432,4 @@ Both shapes ride [SSR](../../ssr/glossary.md#ssr) with no extra work, because a 
 
 ## Where to go from here
 
-The complete worked version of the infinite half — route-owned page-0 ensure, the passive `infinite-state` view, the causal load-more, the `nil` terminal, and the `:page-error` channel — is in [`examples/reagent/infinite_feed/`](../../../examples/reagent/infinite_feed/). The numbered-pages half — tag filters, a session-scoped feed, profile tabs — is in [`examples/reagent/realworld_resources/`](../../../examples/reagent/realworld_resources/). The normative spec is [Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds).
+The complete worked version of the infinite half — route-owned page-0 ensure, the passive `infinite-state` view, the causal load-more, the `nil` terminal, and the `:page-error` channel — is in [`examples/capabilities/resources/infinite_feed/`](../../../examples/capabilities/resources/infinite_feed/). The numbered-pages half — tag filters, a session-scoped feed, profile tabs — is in [`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources/). The normative spec is [Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds).

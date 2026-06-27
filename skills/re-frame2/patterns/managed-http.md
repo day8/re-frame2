@@ -138,7 +138,7 @@ Both layers compose. A machine's `:spawn` spawns a managed request that itself r
 
 ## Worked example
 
-`examples/reagent/managed_http_counter/` — each button issues a managed HTTP request. Covers success (`GET /api/inc.json`), 404 (`:rf.http/http-4xx` with HTML body — NOT `:rf.http/decode-failure` despite `:decode :json`), canned-success stub for retry-recover, and `:request-id` cancellation via `:rf.http/managed-abort`.
+`examples/core/managed_http_counter/` — each button issues a managed HTTP request. Covers success (`GET /api/inc.json`), 404 (`:rf.http/http-4xx` with HTML body — NOT `:rf.http/decode-failure` despite `:decode :json`), canned-success stub for retry-recover, and `:request-id` cancellation via `:rf.http/managed-abort`.
 
 For the machine-form wrapper in production, see the auth-flow in `patterns/boot.md`.
 
@@ -151,4 +151,4 @@ For the machine-form wrapper in production, see the auth-flow in `patterns/boot.
 
 ---
 
-*Derived from `examples/reagent/managed_http_counter/` and `implementation/http/` @ main `89bd9c3`.*
+*Derived from `examples/core/managed_http_counter/` and `implementation/http/` @ main `89bd9c3`.*

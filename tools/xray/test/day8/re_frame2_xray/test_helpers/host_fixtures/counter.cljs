@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.test-helpers.host-fixtures.counter
   "Headless host fixture matching the canonical counter example at
-  `examples/reagent/counter/core.cljs`.
+  `examples/core/counter/core.cljs`.
 
   The full testbed registers Reagent views (`reg-view`) and mounts
   via `rdc/create-root`; this fixture extracts ONLY the event /

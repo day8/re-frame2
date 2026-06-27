@@ -23,19 +23,19 @@ Specific files the leaves lean on:
 - `implementation/machines/src/re_frame/machines.cljc` — `reg-machine`, `:spawn`, parallel regions, tags.
 - `implementation/http/src/re_frame/http.cljc` — `:rf.http/managed`, failure categories, request stubs.
 
-## 2. Secondary input — `examples/reagent/**`
+## 2. Secondary input — `examples/**`
 
 The worked example for each pattern. Used both as a source of truth for canonical shape and as the destination the leaves point at ("read this for the full worked example").
 
-- `examples/reagent/counter/` — the smallest end-to-end app (event-state cycle).
-- `examples/reagent/login/` — Forms pattern.
-- `examples/reagent/boot/` — Boot pattern.
-- `examples/reagent/nine_states/` — NineStates pattern.
-- `examples/reagent/managed_http_counter/` — ManagedHTTP pattern.
-- `examples/reagent/long_running_work/` — LongRunningWork pattern.
-- `examples/reagent/websocket/` — WebSocket pattern.
-- `examples/reagent/ssr_streaming/` — streaming SSR (Spec 011 §Streaming).
-- `examples/reagent/notebook/` — design-led multi-pane layout.
+- `examples/core/counter/` — the smallest end-to-end app (event-state cycle).
+- `examples/core/login/` — Forms pattern.
+- `examples/patterns/boot/` — Boot pattern.
+- `examples/patterns/nine_states/` — NineStates pattern.
+- `examples/core/managed_http_counter/` — ManagedHTTP pattern.
+- `examples/patterns/long_running_work/` — LongRunningWork pattern.
+- `examples/patterns/websocket/` — WebSocket pattern.
+- `examples/capabilities/ssr/ssr_streaming/` — streaming SSR (Spec 011 §Streaming).
+- `examples/core/notebook/` — design-led multi-pane layout.
 
 When an example doesn't yet exist, the relevant pattern leaf inlines a mini-declaration and flags "example app pending".
 

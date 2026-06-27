@@ -236,7 +236,7 @@ So what *are* interceptors allowed to do? Two things. They **decide**: a `:befor
 The most satisfying interceptor is undo. Hand-rolled, it smears "remember the old value, push it, but only if it changed, and clear redo" across every mutating handler. The 7GUIs Circle Drawer example registers it once, under a name, and then events opt in by *referencing* it:
 
 ```clojure
-;; From examples/reagent/seven_guis/circle_drawer/core.cljs — registered once,
+;; From examples/core/seven_guis/circle_drawer/core.cljs — registered once,
 ;; then referenced by id from the events that deserve it.
 (rf/reg-interceptor :drawer/undoable
   {:doc "Snapshot the pre-handler circles; on a real change push to :undo and clear :redo."}

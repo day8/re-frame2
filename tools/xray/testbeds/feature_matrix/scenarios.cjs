@@ -55,7 +55,7 @@ const STAGED_SURFACES = [
   {
     build: 'examples/counter',
     bundleDir: ['out', 'examples', 'counter'],
-    html: ['examples', 'reagent', 'counter', 'index.html'],
+    html: ['examples', 'core', 'counter', 'index.html'],
     servedPath: 'counter',
   },
   {

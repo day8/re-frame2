@@ -5,7 +5,7 @@
    the resulting app-db / sub state.
 
    The fixture fns + the canned-stub helpers live HERE (the adapter test
-   tree), not under examples/reagent/realworld/ — the example source stays
+   tree), not under examples/real-apps/realworld_http/ — the example source stays
    test-free per the locked test-free-examples policy (rf2-8cevm). The ns
    requires the example's production source (`realworld.core`, which
    chains in every feature ns — auth / articles / article-editor /
@@ -30,12 +30,12 @@
             [re-frame.test-support :as test-support]
             [re-frame.views]
             [re-frame.http.test-support]
-            [realworld.core]
+            [realworld-http.core]
             ;; Loaded for its ns-load side effects: registers the routes +
             ;; the `:realworld.routing/auth-guard` interceptor (EP-0022) the
             ;; auth-guard tests reference by id.
-            [realworld.routing]
-            [realworld.ssr :as ssr])
+            [realworld-http.routing]
+            [realworld-http.ssr :as ssr])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================

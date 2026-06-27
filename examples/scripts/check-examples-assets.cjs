@@ -157,16 +157,16 @@ const ALLOWLIST = {
   // TodoMVC links the official TodoMVC CSS packages (todomvc-common's
   // base.css + todomvc-app-css's index.css, pinned in
   // implementation/package.json and staged from node_modules/) instead of
-  // the shared stylesheet — see examples/reagent/todomvc/README.md
+  // the shared stylesheet — see examples/core/todomvc/README.md
   // §Official assets. It is therefore exempt from _shared/css/style.css but
   // STILL required to carry the shared favicon + OG card, and its two
   // vendored CSS links are not repo-source files (they're npm-staged), so
   // they're declared here rather than flagged as missing.
-  'examples/reagent/todomvc/index.html': {
+  'examples/core/todomvc/index.html': {
     reason:
       'TodoMVC uses the official TodoMVC CSS packages (base.css + ' +
       'index.css, staged from node_modules/) instead of the shared ' +
-      'stylesheet — see examples/reagent/todomvc/README.md §Official assets.',
+      'stylesheet — see examples/core/todomvc/README.md §Official assets.',
     assetExemptions: ['_shared/css/style.css'],
     localAssets: ['base.css', 'index.css'],
   },

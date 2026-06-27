@@ -92,7 +92,7 @@ The app-db slice and subscription id are intentionally feature-scoped
 with AI-readable, non-colliding state keys. This is the same counter
 shape the developer reads about in [the Guide quickstart — a counter
 in five minutes](../../../docs/guide/quickstart.md) and the canonical
-[`examples/reagent/counter`](../../../examples/reagent/counter/)
+[`examples/core/counter`](../../../examples/core/counter/)
 example.
 
 ## Xray devtools

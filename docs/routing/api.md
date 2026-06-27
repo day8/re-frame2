@@ -16,7 +16,7 @@ This chapter covers the registration shape, the dispatch / sub / fx surface, and
   (reg-route id metadata path)
   ```
 - **Description**: Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the path is the third positional arg (the URL shape); the metadata map carries the match events and the guards.
-- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/reagent/routing) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
+- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/capabilities/routing/routing) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### A minimal route
 
@@ -79,7 +79,7 @@ Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata sc
   ```clojure
   [rf/route-link {:to :route/article :params {:slug slug}} (:title article)]
   ```
-- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/reagent/routing) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
+- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/capabilities/routing/routing) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### `route-link` click semantics
 

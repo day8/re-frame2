@@ -18,7 +18,7 @@ Each part adds one slice of the real app and teaches exactly the machinery that 
 | [Part 4](04-mutations-and-invalidation.md) | Favoriting, posting, commenting | writes, and invalidating what they stale |
 | [Part 5](05-test-and-ship.md) | Tests and a production build | testing the pieces, shipping the app |
 
-From Part 2 onward the app talks to a Conduit API — either a hosted demo or an offline stub, whichever you prefer. Part 2 sets that up. The finished reference lives at [`examples/reagent/realworld/`](../../../examples/reagent/realworld/), so you can peek when you're truly stuck — but try not to read ahead. Building it yourself is where the learning actually happens; reading the answer key rarely teaches anyone to do the crossword.
+From Part 2 onward the app talks to a Conduit API — either a hosted demo or an offline stub, whichever you prefer. Part 2 sets that up. The finished reference lives at [`examples/real-apps/realworld_http/`](../../../examples/real-apps/realworld_http/), so you can peek when you're truly stuck — but try not to read ahead. Building it yourself is where the learning actually happens; reading the answer key rarely teaches anyone to do the crossword.
 
 ## What you need
 
@@ -120,7 +120,7 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
 `src/conduit/core.cljs` is the signed-out Conduit shell: a navbar, the banner, and the boot. This is the file the whole tutorial grows from, so it's worth reading slowly — every later part edits or extends what's here.
 
 ```clojure
-;; Adapted from examples/reagent/counter and examples/reagent/realworld
+;; Adapted from examples/core/counter and examples/real-apps/realworld_http
 ;; in the re-frame2 repo.
 (ns conduit.core
   (:require [reagent.dom.client       :as rdc]

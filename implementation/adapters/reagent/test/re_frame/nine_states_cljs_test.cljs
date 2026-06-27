@@ -6,7 +6,7 @@
    `compute-sub` (no DOM required).
 
    The fixture fns live HERE (the adapter test tree), not under
-   examples/reagent/nine_states/ — the example source stays test-free per
+   examples/patterns/nine_states/ — the example source stays test-free per
    the locked test-free-examples policy (rf2-8cevm). The ns requires the
    example's production source (`nine-states.core`) so its handlers / subs
    / views / machines register at ns-load, then exercises them directly.
@@ -178,7 +178,7 @@
 ;; STORY LIFECYCLE — :error variant
 ;;
 ;; The `:story.nine-states-lifecycle/error` variant in
-;; examples/reagent/nine_states/stories.cljs stamps
+;; examples/patterns/nine_states/stories.cljs stamps
 ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}` so
 ;; its `[:nine-states.story/load-failing]` setup runs against the canned-
 ;; FAILURE stub (overriding the `:story` preset's canned-success default).

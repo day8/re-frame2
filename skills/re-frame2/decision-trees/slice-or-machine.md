@@ -116,8 +116,8 @@ If you're between slice and machine and none of the four tells clearly fire, the
 
 Cardinal rule (per SKILL.md §1): when the spec and `implementation/**` disagree, the implementation wins. After picking a shape, cross-check it against a reference declaration that uses the same shape — a worked example or a reference view your project already follows. Match its shape rather than re-deriving:
 
-- A machine? — match a reference machine that uses state + tags + (where relevant) parallel regions or managed-HTTP. (In the re-frame2 repo itself, see `examples/reagent/login/` for state machine + tags + managed-HTTP, `examples/reagent/state_machine_walkthrough/` for the chapter as runnable code, `examples/reagent/nine_states/` for parallel regions.)
-- A slice? — match a reference slice. (In the re-frame2 repo itself, see `examples/reagent/counter/` for the smallest possible slice, `examples/reagent/todomvc/` for a list-of-items slice with editing and filters, and the 7GUIs cluster.)
+- A machine? — match a reference machine that uses state + tags + (where relevant) parallel regions or managed-HTTP. (In the re-frame2 repo itself, see `examples/core/login/` for state machine + tags + managed-HTTP, `examples/capabilities/machines/state_machine_walkthrough/` for the chapter as runnable code, `examples/patterns/nine_states/` for parallel regions.)
+- A slice? — match a reference slice. (In the re-frame2 repo itself, see `examples/core/counter/` for the smallest possible slice, `examples/core/todomvc/` for a list-of-items slice with editing and filters, and the 7GUIs cluster.)
 
 If a reference declaration contradicts the leaf you'd pick from this tree, **the reference wins** — and if that reference is the spec itself disagreeing with `implementation/**`, report the divergence upstream as a `day8/re-frame2` GitHub issue against the spec; don't silently work around (per the standing directive on reporting spec gaps).
 

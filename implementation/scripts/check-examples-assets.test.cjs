@@ -138,8 +138,8 @@ it('isExampleHostPage accepts index.html AND *.index.html, not arbitrary html', 
 it('LIVE: the two Story showcase host pages are enumerated by the gate (rf2-x48bp4)', () => {
   const rel = realIndexes.map((p) => path.relative(EXAMPLES_ROOT, p).split(path.sep).join('/'));
   for (const page of [
-    'reagent/login/stories.index.html',
-    'reagent/nine_states/stories.index.html',
+    'core/login/stories.index.html',
+    'patterns/nine_states/stories.index.html',
   ]) {
     assert.ok(
       rel.includes(page),
@@ -181,7 +181,7 @@ it('LIVE: the send-form text-input baseline is scoped, not a global input[type=t
 });
 
 it('LIVE: TodoMVC is the encoded style.css opt-out (allowlist, not a regression)', () => {
-  const key = 'examples/reagent/todomvc/index.html';
+  const key = 'examples/core/todomvc/index.html';
   const entry = ALLOWLIST[key];
   assert.ok(entry, 'TodoMVC must be present in ALLOWLIST');
   assert.ok(

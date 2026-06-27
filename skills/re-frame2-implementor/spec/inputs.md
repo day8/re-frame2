@@ -74,7 +74,7 @@ These are deliberately out of the loop:
 - **`spec/Construction-Prompts.md`** — that's the authoring-side `re-frame2` skill's input (the per-kind AI templates for application authors writing new code).
 - **`spec/Pattern-*.md`** — application patterns; not relevant to implementors.
 - **`docs/guide/**`** — narrative guide for application authors.
-- **`examples/reagent/**`** — worked example apps; not relevant to implementors.
+- **`examples/**`** — worked example apps; not relevant to implementors.
 - **`implementation/**` source line-by-line** — `reference-impl-tour.md` names directories and surfaces choices, but does not transcribe source.
 
 ## 6. Update procedure

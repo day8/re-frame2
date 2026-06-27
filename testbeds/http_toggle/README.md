@@ -107,4 +107,4 @@ asset is staged next to `main.js` by the orchestrator (one
 - [`spec/014-HTTPRequests.md` §Failure categories](../../spec/014-HTTPRequests.md) — the closed-for-v1 vocabulary the dropdown enumerates.
 - [`spec/014-HTTPRequests.md` §Classification order](../../spec/014-HTTPRequests.md) — status-before-decode is why `:rf.http/http-4xx` carries the raw `:body` and decode is skipped.
 - [`spec/014-HTTPRequests.md` §Testing](../../spec/014-HTTPRequests.md) — the canned-failure stub seam this testbed leans on for the seven failure outcomes.
-- [`examples/reagent/managed_http_counter/`](../../examples/reagent/managed_http_counter/) — the tutorial-shaped companion to this testbed; demonstrates the canonical reply-addressing pattern in tutorial-grade prose.
+- [`examples/core/managed_http_counter/`](../../examples/core/managed_http_counter/) — the tutorial-shaped companion to this testbed; demonstrates the canonical reply-addressing pattern in tutorial-grade prose.

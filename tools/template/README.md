@@ -176,9 +176,9 @@ The normative contract lives under [`spec/`](./spec/):
 - [`spec/Construction-Prompts.md`](../../spec/Construction-Prompts.md)
   — AI-driven scaffolding prompts; the template is for human-driven
   scaffolding, the prompts cover the agent-driven path.
-- [`examples/reagent/counter/`](../../examples/reagent/counter/) — the
+- [`examples/core/counter/`](../../examples/core/counter/) — the
   canonical counter the Reagent variant mirrors.
-- [`examples/uix/counter_uix/`](../../examples/uix/counter_uix/) — UIx
+- [`examples/substrates/uix/counter/`](../../examples/substrates/uix/counter/) — UIx
   counter.
-- [`examples/helix/counter_helix/`](../../examples/helix/counter_helix/) —
+- [`examples/substrates/helix/counter/`](../../examples/substrates/helix/counter/) —
   Helix counter.

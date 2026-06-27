@@ -15,7 +15,7 @@ The success criterion: `npx shadow-cljs watch app` compiles cleanly, the browser
 The same four pillars as the `re-frame2` skill, scoped to greenfield bootstrap:
 
 1. **Correctness — recipes over explanations.** Walks through the exact deps, the exact `shadow-cljs.edn` shape, the exact entry-namespace contract. The author copies the recipe; doesn't re-derive it. **Q14 lock applies: NO verification module** — the author runs the build; the skill doesn't.
-2. **Idiomaticness — verified against `examples/reagent/counter/` and the canonical artefacts.** The first-counter shape mirrors `examples/reagent/counter/core.cljs` trimmed for greenfield. Dep coords match what `day8/re-frame2` ships.
+2. **Idiomaticness — verified against `examples/core/counter/` and the canonical artefacts.** The first-counter shape mirrors `examples/core/counter/core.cljs` trimmed for greenfield. Dep coords match what `day8/re-frame2` ships.
 3. **Context economy — `SKILL.md` is a router; four one-level-deep leaves carry the depth.** SKILL.md walks the seven-step canonical path; leaves carry per-step depth.
 4. **Assume training knowledge.** The author knows `deps.edn`, `npm`, `shadow-cljs`, what a Reagent component is. The skill teaches only the **re-frame2-specific wiring** — which artefacts to add, the `rf/init!` contract, the order of operations between adapter install and React mount.
 

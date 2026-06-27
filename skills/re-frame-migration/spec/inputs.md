@@ -53,7 +53,7 @@ These are deliberately out of the loop:
 
 - **`spec/000-Vision.md`** through **`spec/014-HTTPRequests.md`** (the EP corpus) — the skill doesn't teach re-frame2; the `re-frame2` skill does. The migration skill assumes the author knows v2 conceptually (or will read the EPs separately).
 - **`implementation/**`** — implementation is the ground truth for the `re-frame2` skill (what surfaces exist, what their signatures are). For the migration skill, MIGRATION.md is the ground truth, and MIGRATION.md is itself verified against implementation. The migration skill is downstream of that verification.
-- **`examples/reagent/**`** — worked examples are for authoring new code, not for migrating. The migration skill does not point at examples.
+- **`examples/**`** — worked examples are for authoring new code, not for migrating. The migration skill does not point at examples.
 - **The narrative guide** (other than `docs/guide/25-from-re-frame-v1.md`) — too discursive for the migration agent's needs.
 
 ## 6. Update procedure

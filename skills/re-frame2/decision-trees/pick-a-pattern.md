@@ -5,7 +5,7 @@
 
 Patterns compose: most real screens combine two or three of them. This tree picks the *primary* pattern — the one whose shape the feature is built around. Secondary patterns get loaded in their own pass after the primary one is in place.
 
-Each leaf below names the file under [`patterns/`](../patterns/) (the pattern leaf) and the worked example under `examples/reagent/` (when one exists).
+Each leaf below names the file under [`patterns/`](../patterns/) (the pattern leaf) and the worked example under `examples/` (when one exists).
 
 ## Step 1 — name the shape
 
@@ -123,19 +123,19 @@ If the example contradicts the leaf, **the example wins** — re-frame2's cardin
 | Primary pattern | Leaf to load | Worked example |
 |---|---|---|
 | RemoteData | [`patterns/remote-data.md`](../patterns/remote-data.md) | (inline mini-example) |
-| Resources | [`patterns/resources.md`](../patterns/resources.md) | `examples/reagent/resources/` (read-side) · `examples/reagent/realworld_resources/` (the EP-0016 mutation dogfood) |
-| Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/reagent/login/` |
-| Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/reagent/boot/` |
-| WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | `examples/reagent/websocket/` |
-| ManagedHTTP | [`patterns/managed-http.md`](../patterns/managed-http.md) | `examples/reagent/managed_http_counter/` |
-| NineStates | [`patterns/nine-states.md`](../patterns/nine-states.md) | `examples/reagent/nine_states/` |
+| Resources | [`patterns/resources.md`](../patterns/resources.md) | `examples/capabilities/resources/resources/` (read-side) · `examples/real-apps/realworld_resources/` (the EP-0016 mutation dogfood) |
+| Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/core/login/` |
+| Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/patterns/boot/` |
+| WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | `examples/patterns/websocket/` |
+| ManagedHTTP | [`patterns/managed-http.md`](../patterns/managed-http.md) | `examples/core/managed_http_counter/` |
+| NineStates | [`patterns/nine-states.md`](../patterns/nine-states.md) | `examples/patterns/nine_states/` |
 | AsyncEffect | [`patterns/async-effect.md`](../patterns/async-effect.md) | (inline mini-example) |
-| LongRunningWork | [`patterns/long-running-work.md`](../patterns/long-running-work.md) | `examples/reagent/long_running_work/` |
+| LongRunningWork | [`patterns/long-running-work.md`](../patterns/long-running-work.md) | `examples/patterns/long_running_work/` |
 | StaleDetection | [`patterns/stale-detection.md`](../patterns/stale-detection.md) | (inline mini-example) |
 | ReusableComponents | [`patterns/reusable-components.md`](../patterns/reusable-components.md) | (inline mini-example) |
 | StatefulComponents | [`patterns/stateful-components.md`](../patterns/stateful-components.md) | (per-adapter README) |
 | FormAction | [`patterns/form-action.md`](../patterns/form-action.md) | (inline mini-example) |
-| SSR-Loaders | [`patterns/ssr-loaders.md`](../patterns/ssr-loaders.md) | `examples/reagent/boot/` |
+| SSR-Loaders | [`patterns/ssr-loaders.md`](../patterns/ssr-loaders.md) | `examples/patterns/boot/` |
 
 Load at most two pattern leaves at a time. If three or more seem necessary, the request probably spans features and should be broken up — author each pattern's leaf in its own pass.
 
@@ -151,4 +151,4 @@ After picking the pattern, a second question applies independently: *should the 
 
 ---
 
-*Derived from the canonical patterns in the spec (`SKILL-REDIRECT.md` → Pattern entries) and the worked examples under `examples/reagent/` @ main `89bd9c3`.*
+*Derived from the canonical patterns in the spec (`SKILL-REDIRECT.md` → Pattern entries) and the worked examples under `examples/` @ main `89bd9c3`.*

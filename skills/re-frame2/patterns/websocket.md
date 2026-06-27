@@ -4,7 +4,7 @@ Long-lived bidirectional connection lifecycle (WebSocket / SSE / WebRTC peer) mo
 
 **re-frame2 does NOT ship a managed WebSocket** — there is no `:rf.ws/*` fx, and `:rf/*` (every sub-namespace, `:rf.ws/*` included) is **framework-reserved**: app/library code MUST NOT register handlers, fx, cofx, subs, or failure categories under it (`SKILL.md` Cardinal rule 7; `spec/Conventions.md` single-root reserved set). You (or a library) build the connection yourself on the state-machine substrate under **your own feature prefix** (`:ws/*`, `:myapp.ws/*`, `:auth.ws/*`); the **shipped** managed-effect surfaces are `:rf.http/managed`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. This pattern is the canonical worked example of applying the **managed external effect** umbrella *by hand* to a connection: when you implement it this way, the connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under your app-owned namespace, trace-bus observability, wire-value elision) satisfies the eight common properties — but you own it, the framework doesn't. The ninth property — a **uniform reply envelope** for asynchronous completion — is the async-only one (its shipped families are managed HTTP, resources, mutations, machine async work, and route loaders; `:rf.server/*` / `:rf.flow/*` complete synchronously and carry no reply envelope). It applies to any *request-reply* messages you correlate over the open socket — model those completions on the envelope; see *§Variations → request-reply correlation*. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for that shared contract; the rest of this leaf is WebSocket-specific.
 
-> **Worked example:** `examples/reagent/websocket/` ships the canonical Pattern-WebSocket app (`connection.cljs` holds the machine). Read it as ground truth; the canonical declaration below is the leaf-level summary.
+> **Worked example:** `examples/patterns/websocket/` ships the canonical Pattern-WebSocket app (`connection.cljs` holds the machine). Read it as ground truth; the canonical declaration below is the leaf-level summary.
 
 ## When to use this pattern
 
@@ -101,7 +101,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                  ;; write :data. It dispatches a self-event carrying the actor
                  ;; id; the :ws/-socket-spawned transition's :record-socket-id
                  ;; action persists it. (Worked example:
-                 ;; examples/reagent/websocket/connection.cljs.)
+                 ;; examples/patterns/websocket/connection.cljs.)
                  :on-spawn   (fn [{id :id}]
                                (when-let [dispatch! (re-frame.late-bind/get-fn :router/dispatch!)]
                                  (dispatch! [:ws/connection [:ws/-socket-spawned id]]
@@ -186,7 +186,7 @@ The `:auth.cred/*` family is an illustrative sketch under a sample app prefix �
 
 ## Worked example
 
-`examples/reagent/websocket/` is the canonical worked example. `connection.cljs` holds the lifecycle machine (compound `:active` parenting `:connecting` / `:authenticating` / `:connected`, a `:spawn`d socket actor, `:after` backoff, `:always` offline-queue flush, connection-epoch staleness, request/reply correlation); `messages.cljs`, `schema.cljs`, and `views.cljs` complete it. Read the source first; the declaration above is the leaf-level summary.
+`examples/patterns/websocket/` is the canonical worked example. `connection.cljs` holds the lifecycle machine (compound `:active` parenting `:connecting` / `:authenticating` / `:connected`, a `:spawn`d socket actor, `:after` backoff, `:always` offline-queue flush, connection-epoch staleness, request/reply correlation); `messages.cljs`, `schema.cljs`, and `views.cljs` complete it. Read the source first; the declaration above is the leaf-level summary.
 
 ## Pointers
 
@@ -197,4 +197,4 @@ The `:auth.cred/*` family is an illustrative sketch under a sample app prefix �
 
 ---
 
-*Derived from Pattern-WebSocket and the worked example `examples/reagent/websocket/` @ main `89bd9c3`. Re-verify after `:rf.ws/*` or connection-machine changes.*
+*Derived from Pattern-WebSocket and the worked example `examples/patterns/websocket/` @ main `89bd9c3`. Re-verify after `:rf.ws/*` or connection-machine changes.*

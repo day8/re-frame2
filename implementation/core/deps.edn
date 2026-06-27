@@ -67,17 +67,24 @@
   ;; implementation/routing/deps.edn, implementation/flows/deps.edn,
   ;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
   ;; implementation/epoch/deps.edn.
-  :test {:extra-paths ["test" "../../examples/reagent"
-                       ;; The ssr / ssr_streaming /
-                       ;; state_machine_walkthrough examples' headless test
-                       ;; fns live IN re-frame.examples-test (this
-                       ;; artefact's test/ tree) as inline deftest bodies.
-                       ;; examples_test.clj requires only the
-                       ;; example *source* nses (`ssr.core`,
-                       ;; `ssr-streaming.core`, `state-machine-walkthrough.core`),
-                       ;; which the bare `../../examples/reagent` root above
-                       ;; carries — so no examples/.../test source path is
-                       ;; needed and the example tree is test-free.
+  :test {:extra-paths ["test"
+                       ;; The example sources the JVM tests load (`ssr.core`,
+                       ;; `ssr-streaming.core`, `resources-ssr.core`,
+                       ;; `state-machine-walkthrough.core`) live under the
+                       ;; concept buckets; each bucket is a classpath root.
+                       ;; examples_test.clj requires only the example *source*
+                       ;; nses (their headless test fns live IN
+                       ;; re-frame.examples-test as inline deftest bodies), so
+                       ;; no examples/.../test source path is needed and the
+                       ;; example tree is test-free.
+                       "../../examples/core"
+                       "../../examples/capabilities/machines"
+                       "../../examples/capabilities/routing"
+                       "../../examples/capabilities/resources"
+                       "../../examples/capabilities/ssr"
+                       "../../examples/patterns"
+                       "../../examples/real-apps"
+                       "../../examples/substrates"
                        ]
          :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                        day8/re-frame2-machines   {:local/root "../machines"}

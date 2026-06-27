@@ -27,7 +27,7 @@
 
   ## What it asserts (the s36l path, value-5)
 
-  Models the `examples/reagent-slim/counter_slim_and_fast` dataflow
+  Models the `examples/substrates/reagent_slim/counter` dataflow
   exactly (the boot path the parent uacxd review found uncovered):
   `:counter/initialise → {:counter/value 5}`, a `:counter/value` sub, and
   a `counter-app → counter-buttons` reg-view tree that derefs
@@ -68,7 +68,7 @@
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-slim-adapter/adapter}))
 
-;; ---- the counter dataflow, mirroring examples/reagent-slim ---------------
+;; ---- the counter dataflow, mirroring examples/substrates/reagent_slim ---------------
 ;;
 ;; reg-view auto-injects `dispatch` and `subscribe` as lexical bindings in
 ;; the body (the defn-shape macro), exactly as the example's views use them.

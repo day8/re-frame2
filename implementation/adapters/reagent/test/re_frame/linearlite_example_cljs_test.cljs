@@ -1,6 +1,6 @@
 (ns re-frame.linearlite-example-cljs-test
   "Integration test: drives the Linearlite optimistic-board example
-   (`examples/reagent/linearlite/`) through the EP-0019 OPTIMISTIC MUTATION +
+   (`examples/capabilities/resources/linearlite/`) through the EP-0019 OPTIMISTIC MUTATION +
    ROLLBACK composition it teaches — route entry ensures the `:linearlite/board`
    resource, the view reads it passively via `[:rf.resource/data …]`, and every
    write is a `reg-mutation` with an `:optimistic` exact-target patch over the
@@ -14,7 +14,7 @@
    `:populates` commit, and the failure rollback as the view reads them.
 
    The fixture fns + the deterministic transport stub live HERE (the adapter
-   test tree), not under examples/reagent/linearlite/ — the example source stays
+   test tree), not under examples/capabilities/resources/linearlite/ — the example source stays
    test-free per the locked policy. The ns requires the example's production
    source (`linearlite.core`) so its resource, mutations, routes, events, subs,
    and views register at ns-load, then exercises them against a per-test
@@ -196,7 +196,7 @@
 ;; ============================================================================
 
 (deftest board-route-entry-ensures-the-board-under-the-route-owner
-  (testing "examples/reagent/linearlite — entering :linearlite.app/board ensures
+  (testing "examples/capabilities/resources/linearlite — entering :linearlite.app/board ensures
             the :linearlite/board resource under the route nav-token owner; the
             view reads the passive board :data and settles to the issues on the
             reply (the route CAUSES the load; the view never asks)"
@@ -216,7 +216,7 @@
 ;; ============================================================================
 
 (deftest create-issue-applies-optimistically-before-the-reply
-  (testing "examples/reagent/linearlite — :linearlite/create-issue applies its
+  (testing "examples/capabilities/resources/linearlite — :linearlite/create-issue applies its
             `:optimistic` forward patch at phase 1.5 (before the request lowers):
             the new Backlog card appears immediately and the watched mutation
             instance is :optimistic? (the derived Rider-1 flag) while pending"
@@ -233,7 +233,7 @@
       (is (some? @last-managed-args) "the write lowered a request to the transport"))))
 
 (deftest change-status-applies-optimistically-before-the-reply
-  (testing "examples/reagent/linearlite — :linearlite/change-status moves the
+  (testing "examples/capabilities/resources/linearlite — :linearlite/change-status moves the
             card to the new column IMMEDIATELY (optimistic apply), before the
             request settles"
     (load-board!)
@@ -248,7 +248,7 @@
 ;; ============================================================================
 
 (deftest successful-write-commits-the-server-board-via-populates
-  (testing "examples/reagent/linearlite — an accepted :ok reply COMMITS: the
+  (testing "examples/capabilities/resources/linearlite — an accepted :ok reply COMMITS: the
             mutation's `:populates` overwrites the optimistic board with the
             server's authoritative value (the temp id is replaced by the server
             id, the optimistic marker clears), and the instance settles :success"
@@ -271,7 +271,7 @@
         (is (false? (:optimistic? ms)) ":optimistic? false once settled (no longer pending)")))))
 
 (deftest successful-edit-title-commits-the-new-title
-  (testing "examples/reagent/linearlite — a successful :linearlite/edit-title
+  (testing "examples/capabilities/resources/linearlite — a successful :linearlite/edit-title
             commits the new title via :populates (the optimistic title is
             confirmed by the server's authoritative board)"
     (load-board!)
@@ -288,7 +288,7 @@
 ;; ============================================================================
 
 (deftest failed-create-rolls-the-optimistic-card-back-out
-  (testing "examples/reagent/linearlite — THE DEMO HEADLINE: an accepted :error
+  (testing "examples/capabilities/resources/linearlite — THE DEMO HEADLINE: an accepted :error
             reply ROLLS BACK the optimistic apply. The runtime restores the
             recorded snapshot inverse, so the optimistically-added card VANISHES
             from the board and the instance settles :error (no manual undo)"
@@ -306,7 +306,7 @@
         (is (false? (:optimistic? ms)) ":optimistic? false after rollback (no live apply)")))))
 
 (deftest failed-change-status-snaps-the-card-back-to-its-prior-column
-  (testing "examples/reagent/linearlite — a failed :linearlite/change-status
+  (testing "examples/capabilities/resources/linearlite — a failed :linearlite/change-status
             rolls back: the card snaps back to its prior column (the recorded
             `:before` is restored verbatim)"
     (load-board!)
@@ -319,7 +319,7 @@
     (is (true? (:error? (mutation-state [:status "srv-1"]))) "the instance settled :error")))
 
 (deftest failed-edit-title-reverts-to-the-prior-title
-  (testing "examples/reagent/linearlite — a failed :linearlite/edit-title reverts
+  (testing "examples/capabilities/resources/linearlite — a failed :linearlite/edit-title reverts
             the optimistic title to the prior value on rollback"
     (load-board!)
     (rf/dispatch-sync [:linearlite/commit-edit "srv-2" "Wrong"])

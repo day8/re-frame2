@@ -33,7 +33,7 @@ This is the lane for application authors. You register a view with `reg-view`, r
      [:span @(subscribe [:counter/value])]
      [:button {:on-click #(dispatch [:counter/inc])} "+"]])
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
 
 There is one app-facing exception that still lives in the macro family: Reagent **Form-3** components (`reagent.core/create-class`) aren't `defn`-shaped, so the `reg-view` macro can't wrap them. Those register through `reg-view*` — see [Tooling / host view registration](#tooling--host-view-registration) below, where the rest of the starred-form callers live.
 
@@ -233,7 +233,7 @@ In the entries below, `<adapter>` stands for the adapter namespace alias the con
 
   (rf/init! uix-adapter/adapter)
   ```
-- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)
+- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/substrates/uix/counter) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/substrates/helix/counter)
 
 ### `<adapter>/use-subscribe`
 
@@ -250,7 +250,7 @@ In the entries below, `<adapter>` stands for the adapter namespace alias the con
         {:keys [dispatch]} (rf/capture-frame)]
     ($ :button {:on-click #(dispatch [:inc])} count))
   ```
-- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)
+- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/substrates/uix/counter) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/substrates/helix/counter)
 
 ### `<adapter>/use-current-frame`
 

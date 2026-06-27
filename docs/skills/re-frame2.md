@@ -6,7 +6,7 @@
 
 The `re-frame2` skill is the **authoring** skill for re-frame2: it teaches an agent the re-frame2-specific binding for the ideas the user already knows (events, FSMs, HTTP retry, optimistic updates). It carries the cardinal rules — implementation-is-ground-truth, recipes-over-explanations, frames-before-globals, reserved `:rf/*` namespaces, `reg-*` macros over `register-*` functions — and a one-level-deep map of reference and pattern leaves. The agent loads at most two leaves per task and matches the canonical declaration verbatim rather than deriving a shape from first principles.
 
-Worked examples in `examples/reagent/<x>/` are treated as canonical. Pattern leaves (`patterns/remote-data.md`, `patterns/forms.md`, `patterns/managed-http.md`, ...) name the features the pattern uses, give the canonical mini-declaration, and link to the worked example.
+Worked examples in `examples/` are treated as canonical. Pattern leaves (`patterns/remote-data.md`, `patterns/forms.md`, `patterns/managed-http.md`, ...) name the features the pattern uses, give the canonical mini-declaration, and link to the worked example.
 
 ## When to reach for it
 

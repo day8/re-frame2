@@ -219,9 +219,9 @@ safe.
 
 ## Worked Examples
 
-- [`examples/reagent/counter/core.cljs`](../../../examples/reagent/counter/core.cljs)
+- [`examples/core/counter/core.cljs`](../../../examples/core/counter/core.cljs)
   shows the smallest app shape.
-- [`examples/reagent/todomvc/core.cljs`](../../../examples/reagent/todomvc/core.cljs)
+- [`examples/core/todomvc/core.cljs`](../../../examples/core/todomvc/core.cljs)
   adds URL routing, a `hashchange` listener, and `:url-bound? true`.
 
 The UIx and Helix examples use the same lifecycle. Only the adapter, root

@@ -85,7 +85,7 @@ Two small things in the receive handlers above are load-bearing, and both trip p
 Sometimes the request and reply really are two faces of one thing. Omit `:on-success` / `:on-failure` and the reply routes back to the *originating* event, merged into the message under `:rf/reply`. One handler then serves both roles:
 
 ```clojure
-;; From examples/reagent/managed_http_counter (core.cljs), condensed.
+;; From examples/core/managed_http_counter (core.cljs), condensed.
 (rf/reg-event :counter/+1
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
@@ -163,7 +163,7 @@ When something goes wrong, your `:on-failure` handler receives `{:kind :failure 
 | `:rf.http/accept-failure` | Your `:accept` fn classified a structurally valid 200 as a domain failure (below). |
 | `:rf.http/aborted` | Aborted via `:request-id` or abort signal (below). |
 
-The set is closed for v1; adding a category requires a spec change. That constraint buys you something real: `:rf.http/timeout` means exactly the same thing in your codebase, in mine, and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — same discipline you'd use on any framework [error record](../guide/glossary.md#error-record). (The [RealWorld example](../../examples/reagent/realworld/) — a full Conduit/Medium clone built on re-frame2, which this page draws several snippets from — maps this vocabulary to user-facing strings in one place, in a `failure->message` fn.)
+The set is closed for v1; adding a category requires a spec change. That constraint buys you something real: `:rf.http/timeout` means exactly the same thing in your codebase, in mine, and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — same discipline you'd use on any framework [error record](../guide/glossary.md#error-record). (The [RealWorld example](../../examples/real-apps/realworld_http/) — a full Conduit/Medium clone built on re-frame2, which this page draws several snippets from — maps this vocabulary to user-facing strings in one place, in a `failure->message` fn.)
 
 Now the rule that catches every newcomer once: **decode runs only on 2xx responses — status is classified before the body is touched.** Picture a JSON endpoint behind a load balancer that 404s with an *HTML* error page. Instinct says decode failure. It isn't. It's `:rf.http/http-4xx` with the raw HTML at `:body`, because status was checked first and the decoder never ran. "The server said no" matters more than "and the no was shaped like HTML." If you want the structured error body many APIs return alongside a 4xx, decode `:body` yourself in the failure branch — the framework hands you the bytes and the status, on purpose.
 
@@ -200,7 +200,7 @@ Status-before-decode handles the wire. But some APIs answer `200 OK` and then te
 `:accept` is a function `(decoded → {:ok value} | {:failure failure-map})`. Return `{:ok v}` and `v` becomes the success payload; return `{:failure m}` and `m` rides into the failure path as `:rf.http/accept-failure`, with your map at `:detail`:
 
 ```clojure
-;; Adapted from examples/reagent/realworld — a 200 with a null article is a domain miss.
+;; Adapted from examples/real-apps/realworld_http — a 200 with a null article is a domain miss.
 {:fx [[:rf.http/managed
        {:request {:url (str "/api/articles/" slug)}
         :decode  ArticleResponse
@@ -276,7 +276,7 @@ Give a request a stable `:request-id` — any `=`-comparable value works: a keyw
 
 The race is gone, with zero lines of race-handling code. (And that's not just an optimization — see [the correctness boundary](#one-envelope-under-every-async-surface) below for why the suppressed reply *cannot* clobber fresh data even if it arrives late.)
 
-A *manual* abort is different from a supersession. Where reusing a `:request-id` quietly retires the previous request, a manual abort is an explicit "stop now." `[:rf.http/managed-abort the-id]` aborts whichever request currently holds the id and *does* deliver a failure reply — `{:kind :rf.http/aborted, :reason :user}` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells the two apart: `:user` for a manual abort, `:request-id-superseded` for a supersession (trace-only — it never reaches a handler). The [managed-http counter example](../../examples/reagent/managed_http_counter/) demonstrates the manual-abort path end-to-end — plus the 404-is-not-a-decode-failure rule — in one small file.
+A *manual* abort is different from a supersession. Where reusing a `:request-id` quietly retires the previous request, a manual abort is an explicit "stop now." `[:rf.http/managed-abort the-id]` aborts whichever request currently holds the id and *does* deliver a failure reply — `{:kind :rf.http/aborted, :reason :user}` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells the two apart: `:user` for a manual abort, `:request-id-superseded` for a supersession (trace-only — it never reaches a handler). The [managed-http counter example](../../examples/core/managed_http_counter/) demonstrates the manual-abort path end-to-end — plus the 404-is-not-a-decode-failure rule — in one small file.
 
 If the cancel signal you want to honour already lives outside re-frame — a parent widget's lifecycle, a shared `AbortController` — hand its `.signal` straight to the request under `:abort-signal`. It attaches a cancellation source to the same one request, so you can supply it *together with* a `:request-id` and the framework guarantees exactly one terminal outcome no matter which fires first. (`:abort-signal` is browser-only — the JVM has no `AbortController`, so `:request-id` is the cross-host cancel handle.)
 

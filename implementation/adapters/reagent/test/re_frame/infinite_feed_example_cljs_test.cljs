@@ -1,6 +1,6 @@
 (ns re-frame.infinite-feed-example-cljs-test
   "Integration test: drives the infinite-feed example
-   (`examples/reagent/infinite_feed/`) through the EP-0021 infinite-resource
+   (`examples/capabilities/resources/infinite_feed/`) through the EP-0021 infinite-resource
    composition it teaches — route entry ensures PAGE 0 of the `:feed/timeline`
    infinite resource, the view reads the merged feed view-model passively via
    `[:rf.resource/infinite-state …]`, and accumulation is driven by the causal
@@ -13,7 +13,7 @@
    the `:page-error` third channel as the view reads them.
 
    The fixture fns + the deterministic transport stub live HERE (the adapter
-   test tree), not under examples/reagent/infinite_feed/ — the example source
+   test tree), not under examples/capabilities/resources/infinite_feed/ — the example source
    stays test-free per the locked policy. The ns requires the example's
    production source (`infinite-feed.core`) so its resource, routes, and views
    register at ns-load, then exercises them against a per-test `:rf/default`
@@ -174,7 +174,7 @@
 ;; ============================================================================
 
 (deftest timeline-route-entry-ensures-page-0-under-the-route-owner
-  (testing "examples/reagent/infinite_feed — entering :infinite-feed.app/timeline
+  (testing "examples/capabilities/resources/infinite_feed — entering :infinite-feed.app/timeline
             ensures PAGE 0 of the :feed/timeline INFINITE resource under the route
             nav-token owner (not the whole accumulation); the view reads the
             passive infinite view-model and settles to the merged :items on the
@@ -208,7 +208,7 @@
 ;; ============================================================================
 
 (deftest load-more-appends-the-next-page-and-advances-the-cursor
-  (testing "examples/reagent/infinite_feed — the causal :rf.resource/load-more
+  (testing "examples/capabilities/resources/infinite_feed — the causal :rf.resource/load-more
             (the button's on-click) derives the next page param from the loaded
             tail, fetches the next page, and APPENDS it to the merged :items; the
             view reads :fetching-next? while it is in flight (pages stay visible)"
@@ -244,7 +244,7 @@
 ;; ============================================================================
 
 (deftest nil-next-cursor-is-the-terminal-end-of-feed
-  (testing "examples/reagent/infinite_feed — a page whose :page-info :next-cursor
+  (testing "examples/capabilities/resources/infinite_feed — a page whose :page-info :next-cursor
             is nil is the SINGLE terminal: :has-next-page? flips false, so the
             view shows the end-of-feed marker instead of the Load more button, and
             a further load-more is a no-op (no request)"
@@ -265,7 +265,7 @@
 ;; ============================================================================
 
 (deftest load-more-failure-keeps-the-feed-and-surfaces-page-error
-  (testing "examples/reagent/infinite_feed — a load-more page-fetch FAILURE keeps
+  (testing "examples/capabilities/resources/infinite_feed — a load-more page-fetch FAILURE keeps
             every accumulated page visible and surfaces :page-error (the THIRD
             channel — 'couldn't load more, retry'), NOT the first-load :error nor
             the whole-feed :refresh-error; a successful retry clears it"
@@ -293,7 +293,7 @@
 ;; ============================================================================
 
 (deftest page-0-first-load-failure-surfaces-via-scalar-error-channel
-  (testing "examples/reagent/infinite_feed — a PAGE 0 FIRST-load failure with no
+  (testing "examples/capabilities/resources/infinite_feed — a PAGE 0 FIRST-load failure with no
             prior data settles the first-load :error channel + :status :error
             (Spec 016 reserves :error for first-load, :page-error for load-more
             ONLY). The example's view shows the full error screen on :error; the

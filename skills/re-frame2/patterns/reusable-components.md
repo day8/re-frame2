@@ -93,7 +93,7 @@ The idiom ports across adapters with **zero changes to the view body**. The view
 
 ## Worked example
 
-No standalone example app — the idiom appears wherever a list renders the same card N times. The closest worked shape is the RealWorld article list (`examples/reagent/realworld/articles.cljs`), where each article row is an entity-id-parameterised view over the `[:articles]` slice.
+No standalone example app — the idiom appears wherever a list renders the same card N times. The closest worked shape is the RealWorld article list (`examples/real-apps/realworld_http/articles.cljs`), where each article row is an entity-id-parameterised view over the `[:articles]` slice.
 
 ## Pointers
 

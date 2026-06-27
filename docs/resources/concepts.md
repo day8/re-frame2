@@ -23,7 +23,7 @@ That cache lives in **[runtime-db](../guide/glossary.md#runtime-db)** — the fr
 A resource is *a subscription you read and a cause you fire.* That one sentence is the whole model. (A **cause** is just an event that triggers a fetch — a route entry, a click, a write. We say "cause" rather than "trigger" because re-frame2 records *why* every fetch happened; more on that below.) And the simplest possible resource fits on a screen — you register the read once, at boot:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/resources.cljs
+;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 (ns app.resources
   (:require [re-frame.core :as rf]
             [re-frame.http.managed]    ;; the managed-HTTP transport
@@ -51,7 +51,7 @@ Two keys carry the minimum model. `:params-schema` defines the read's *identity*
 The cleanest cause is the page itself, because a page already knows what data it needs. `:resources` is [route](../routing/glossary.md#route) metadata that says, in effect, "this page needs this server state":
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/routing.cljs
+;; Adapted from examples/real-apps/realworld_resources/routing.cljs
 (rf/reg-route :realworld/article
   {:params    [:map [:slug :string]]
    :resources [{:resource  :realworld/article
@@ -73,7 +73,7 @@ Navigate to an article page with [Xray](../guide/glossary.md#xray) (the dev insp
 A view reads the entry passively, through an ordinary subscription, and never fetches. The `:rf.resource/state` subscription hands you a single ready-to-render map — a *view-model* carrying everything the view needs to decide what to show:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/views.cljs
+;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view article-page [slug]
   (let [state @(subscribe [:rf.resource/state    ;; reg-view injects `subscribe`
                            {:resource :realworld/article
@@ -212,14 +212,14 @@ A cache entry's identity is a triple:
 Params say *which* article. Scope says *whose* cache. A genuinely public read declares `:scope :rf.scope/global` — an explicit, auditable claim. A viewer-relative read names a **scope resolver** once and references it everywhere:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/scope.cljs
+;; Adapted from examples/real-apps/realworld_resources/scope.cljs
 (rf/reg-resource-scope :realworld/session
   {:inputs  {:username [:db [:auth :user :username]]}
    :resolve (fn [{:keys [username]} _ctx]
               (when username
                 [:rf.scope/session {:username username}]))})
 
-;; Adapted from examples/reagent/realworld_resources/resources.cljs
+;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 (rf/reg-resource :realworld/feed
   {:params-schema [:map [:page {:optional true} [:maybe :int]]]
    :scope         {:from-db :realworld/session}   ;; whose feed? resolved from app-db
@@ -247,7 +247,7 @@ There's one honest consequence of "subscriptions are passive": a re-keyed subscr
 The classic cross-session leak — user B sees user A's dashboard — has a structural fix here. Every session-scoped entry lives under A's scope, and logout clears that scope. One subtlety is worth pausing on: resolve the *old* scope from the `db` the handler received (which still carries the logging-out user) *before* you remove the auth slice — otherwise you've thrown away the very identity you need to name the scope:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/auth.cljs
+;; Adapted from examples/real-apps/realworld_resources/auth.cljs
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
     (let [old-scope (rf/resolve-resource-scope db :realworld/session)]
@@ -307,7 +307,7 @@ They compose: a polled entry still revalidates on focus and still gets invalidat
 The route example earlier ensured a single resource. A real page often needs several, with ordering and pagination concerns. Each `:resources` entry is a small map, and these are the keys it accepts:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/routing.cljs
+;; Adapted from examples/real-apps/realworld_resources/routing.cljs
 (rf/reg-route :realworld/article
   {:params    [:map [:slug :string]]
    :resources [{:resource  :realworld/article
@@ -338,7 +338,7 @@ The route example earlier ensured a single resource. A real page often needs sev
 A read is half the story; eventually you favorite an article, post a comment, edit a profile. A **[mutation](glossary.md#mutation)** is a named causal write. On success it [invalidates](glossary.md#invalidate) the tags it broke, through the same scoped machinery, recorded on the event record — so keeping reads honest after a write is a *declaration*, not a call you remember to make:
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/mutations.cljs
+;; Adapted from examples/real-apps/realworld_resources/mutations.cljs
 (rf/reg-mutation :realworld/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
@@ -397,7 +397,7 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
 A view reads the instance's progress through `:rf.mutation/state` (or the narrower `:rf.mutation/pending?` / `:result` / `:error`):
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/views.cljs
+;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view favorite-button [slug]
   (let [m @(subscribe [:rf.mutation/state {:instance [:favorite slug]}])]
     [:button {:disabled (:pending? m)
@@ -463,7 +463,7 @@ A view renders the in-flight optimistic state from the instance sub's derived **
 
 ## SSR and hydration
 
-On the server, each request renders in its own [frame](../guide/glossary.md#frame) — which matters, because a process-global cache would itself be a cross-user leak. Blocking route resources are the render's wait point. Every durable entry present at serialize time rides the projection, not just the blocking ones — a non-blocking resource that happened to settle before render serializes exactly like a blocking one, and one still in flight simply has no `:data` to ship yet (the client refetches it on hydration if the route still needs it). The settled entries are serialized (sensitive data redacted) and shipped with the page, and on the client, [hydration](../ssr/glossary.md#hydration) installs them under the same freshness rules. A hydrated entry that's still fresh is **not** refetched, so there's no duplicate-fetch flash on first paint; a stale one background-refreshes by policy. Hydration never crosses scopes — the serialized scope and the client's resolved scope must agree before hydrated data is usable. The mental model is in [Server-side rendering](../ssr/concepts.md), and `examples/reagent/resources_ssr/` is the worked demo.
+On the server, each request renders in its own [frame](../guide/glossary.md#frame) — which matters, because a process-global cache would itself be a cross-user leak. Blocking route resources are the render's wait point. Every durable entry present at serialize time rides the projection, not just the blocking ones — a non-blocking resource that happened to settle before render serializes exactly like a blocking one, and one still in flight simply has no `:data` to ship yet (the client refetches it on hydration if the route still needs it). The settled entries are serialized (sensitive data redacted) and shipped with the page, and on the client, [hydration](../ssr/glossary.md#hydration) installs them under the same freshness rules. A hydrated entry that's still fresh is **not** refetched, so there's no duplicate-fetch flash on first paint; a stale one background-refreshes by policy. Hydration never crosses scopes — the serialized scope and the client's resolved scope must agree before hydrated data is usable. The mental model is in [Server-side rendering](../ssr/concepts.md), and `examples/capabilities/ssr/resources_ssr/` is the worked demo.
 
 > **Gotcha — a blocking SSR resource needs a deadline, not an open wait.** `:blocking? true` holds the render until the read settles, so a slow upstream can't be allowed to hang the request forever. A blocking resource that exceeds the render deadline settles as a structured first-load failure for that SSR frame — an `:error` envelope `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}` (the `:kind` stays inside the closed `:rf.http/*` taxonomy; the `:reason` lets your [error projector](../guide/glossary.md#registration) tell an SSR-deadline failure apart from a genuine upstream timeout). The renderer then chooses error markup, a skeleton, or an app fallback; the client picks the read up again on hydration.
 

@@ -70,7 +70,7 @@ That's a working SSR server. Everything below refines it.
 Handlers read the request the way they read any other outside fact — through a declared [coeffect](../guide/glossary.md#coeffect):
 
 ```clojure
-;; Adapted from examples/reagent/ssr/core.cljc
+;; Adapted from examples/capabilities/ssr/ssr/core.cljc
 (rf/reg-event :rf/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
@@ -134,7 +134,7 @@ The same constructor accepts the rest of the lifecycle opts: the two error opts 
 The client's job is to land in the state the server finished in, without redoing the work. [`ssr/hydrate!`](glossary.md#hydration) (from `re-frame.ssr`) does three steps in the mandated order: **read** the embedded payload, **dispatch** `[:rf/hydrate payload]` before the first render, **verify** the render-tree hash against the server's.
 
 ```clojure
-;; Adapted from examples/reagent/ssr/core.cljc
+;; Adapted from examples/capabilities/ssr/ssr/core.cljc
 ;; requires [re-frame.ssr :as ssr] and the Reagent adapter
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
@@ -161,7 +161,7 @@ Two things to hold onto:
 
 > **Going deeper — why replace, not merge.** The merge policy is locked to *replace the whole frame-state* (app-db **and** the serialisable runtime-db projection) because a defaulting merge would bury "which side won?" bugs at every key. If you need client-only state to survive hydration, the customisation point is *re-registering* `:rf/hydrate` with your own explicit merge — you own the order and the semantics. The payload is also treated as an untrusted transport input: a non-map payload, or a present-but-not-a-map app-db / runtime-db slice, is rejected wholesale (`:rf.error/malformed-hydration-payload`) and the client's existing state is left untouched. A *wholly absent* slice is not malformed — it's the documented client-only first-load fallback.
 
-Server state declared as a [resource](../resources/glossary.md#resource) (a value the framework fetches and caches for you) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch. See the [resources SSR example](../../examples/reagent/resources_ssr/).
+Server state declared as a [resource](../resources/glossary.md#resource) (a value the framework fetches and caches for you) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch. See the [resources SSR example](../../examples/capabilities/ssr/resources_ssr/).
 
 A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have. (Non-blocking route resources don't hold up the render; whatever's settled at render time serialises, and anything still in flight refetches on the client.) That wait has a deadline: if a blocking fetch hangs past the render budget, the runtime settles it as a structured first-load failure — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view sees a clean `:error` rather than a hung page — and records `:rf.error/resource-ssr-blocking-timeout`. A server has one render moment; a blocking resource that can't resolve in time fails closed instead of stalling the request.
 
@@ -201,7 +201,7 @@ The default recovery is **warn and replace**: log it, render the client's view, 
 A real init flow mixes work that's fine on the server (fetching over HTTP) with work that's meaningless there (writing `localStorage`, which the JVM has never heard of). You don't branch in handler bodies. Instead, the [effect](../guide/glossary.md#effect) itself declares where it's allowed to run:
 
 ```clojure
-;; Adapted from examples/reagent/ssr/core.cljc
+;; Adapted from examples/capabilities/ssr/ssr/core.cljc
 (rf/reg-fx :auth.session/store
   {:doc       "Persist a session token in localStorage."
    :platforms #{:client}}              ;; server-side dispatches skip this
@@ -315,7 +315,7 @@ The projector you register is named in the frame's `:ssr {:public-error-id :myap
 This is the advanced slice — the direct analogue of React 18 streaming and Next.js's `loading.js`. The idea is the same: don't make the whole page wait on its slowest subscription. Ship a usable shell on the first byte, with skeletons where the slow regions will be, then stream each region in as its data resolves. In React that's a `<Suspense>` boundary with a `fallback`. In re-frame2 it's one declarative hiccup marker that should look familiar. Here's a Conduit article page whose body lands fast but whose comment thread and author-feed sidebar are slow:
 
 ```clojure
-;; Adapted from examples/reagent/ssr_streaming/core.cljc
+;; Adapted from examples/capabilities/ssr/ssr_streaming/core.cljc
 (rf/reg-view ^{:rf/id :article/page} article-page []
   [:main.article-page
    [:header [:h1 @(rf/subscribe [:article/title])]]

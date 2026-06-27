@@ -13,7 +13,7 @@ This chapter covers the canonical fx, the verb helpers, the test stubs, the requ
 - **Kind**: fx
 - **Args**: per [014 §The args map](../../spec/014-HTTPRequests.md#the-args-map) and `:rf.fx/managed-args`
 - **Description**: The one fx-id. Args carry the request envelope, decode policy, accept fn, retry policy, timeout, success / failure target events, request-id (for abort), and optional abort-signal.
-- **In the wild**: [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
+- **In the wild**: [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/core/managed_http_counter) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### `[:rf.http/managed-abort request-id]`
 
@@ -161,7 +161,7 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
   (reg-http-interceptor id interceptor-map)
   ```
 - **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (the EP-0002 *override*) and the standard `:rf/registration-metadata`. The target frame is the explicit `:frame`, else the carried scope it registers under (`with-frame` / an `:initial-events` step); registering under **no** scope raises `:rf.error/no-frame-context` — there is no `:rf/default` default. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
-- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
+- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### `clear-http-interceptor`
 

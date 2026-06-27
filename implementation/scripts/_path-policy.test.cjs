@@ -300,7 +300,7 @@ it("the opt-in env var doesn't fire on 'false' / '0' / unset", () => {
 it('accepts paths under multiple allowed roots', () => {
   // STORY_BUILD_INDEX_HTML default policy (rf2-p8f2s): under <repo>/examples,
   // <repo>/tools, OR <repo>/implementation.
-  const examplesPath = path.join(REPO_ROOT, 'examples', 'reagent', 'foo.html');
+  const examplesPath = path.join(REPO_ROOT, 'examples', 'core', 'foo.html');
   const result1 = enforcePolicy('STORY_BUILD_INDEX_HTML', examplesPath, {
     allowedRoots: DEFAULT_HTML_ROOTS,
   });

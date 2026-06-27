@@ -140,7 +140,7 @@ cases='implementation/core/src/re_frame/core.cljc
 tools/xray/src/foo.cljs
 spec/009-Instrumentation.md
 docs/guide/index.md
-examples/reagent/counter/main.cljs
+examples/core/counter/main.cljs
 skills/re-frame2-pair/SKILL.md
 scripts/install-git-hooks.sh
 migration/from-re-frame-v1/README.md
@@ -154,7 +154,7 @@ case "$out" in
              tools/xray/src/foo.cljs \
              spec/009-Instrumentation.md \
              docs/guide/index.md \
-             examples/reagent/counter/main.cljs \
+             examples/core/counter/main.cljs \
              skills/re-frame2-pair/SKILL.md \
              scripts/install-git-hooks.sh \
              migration/from-re-frame-v1/README.md \

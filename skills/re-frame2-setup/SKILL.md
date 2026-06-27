@@ -99,4 +99,4 @@ Anything else: point at `re-frame2` or `SKILL-REDIRECT.md`.
 - [`references/deps-versions.md`](references/deps-versions.md) — discover the current re-frame2 VERSION; lockstep contract; per-feature artefact decisions; `deps.edn` + `package.json` shapes.
 - [`references/shadow-cljs.md`](references/shadow-cljs.md) — minimal `shadow-cljs.edn`; `index.html`; `:asset-path` + `:devtools`.
 - [`references/entry-namespace.md`](references/entry-namespace.md) — canonical `core.cljs`; `rf/init!` before render; the React-root `defonce` pattern.
-- [`references/first-counter.md`](references/first-counter.md) — end-to-end worked example mirroring `examples/reagent/counter/core.cljs`.
+- [`references/first-counter.md`](references/first-counter.md) — end-to-end worked example mirroring `examples/core/counter/core.cljs`.

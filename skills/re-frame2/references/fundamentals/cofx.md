@@ -118,7 +118,7 @@ And the handler that ingests it — it declares the id and reads it flat, exactl
     {:db (assoc db/default-db :todos todos)}))
 ```
 
-The dispatch site is **plain** — `(rf/dispatch [:todo/initialise])`. It carries no cofx: the registered generator is the supplier, so the boot dispatch does not stamp the value. (`examples/reagent/websocket`, `examples/reagent/realworld`, and `examples/reagent/nine_states` all ship this generator shape for their app-owned recordable ids.)
+The dispatch site is **plain** — `(rf/dispatch [:todo/initialise])`. It carries no cofx: the registered generator is the supplier, so the boot dispatch does not stamp the value. (`examples/patterns/websocket`, `examples/real-apps/realworld_http`, and `examples/patterns/nine_states` all ship this generator shape for their app-owned recordable ids.)
 
 > **Why a generator, not an ambient read, and not a dispatch-site value?** The boot read decides a durable write (`:db`), and **durable state folds facts, never reads** — a live re-read at replay / SSR hydration would diverge from the recorded epoch. An *ambient* supplier re-runs on every replay (wrong for a durable write). A value stamped on the *dispatch* (`{:rf.cofx {:todo.storage/todos …}}`) is a **unit-test stub**, not a production shape — in production the app must register the supplier with `reg-cofx`. The recordable **generator** is the one production answer: registered by the app, run once at processing-start, recorded, and replayed verbatim.
 
@@ -207,4 +207,4 @@ Full coeffect-map shape, the satisfaction algorithm, the error family, mint poli
 
 ---
 
-*Derived from `implementation/core/src/re_frame/cofx.cljc` + `spec/002-Frames.md` / `spec/001-Registration.md` (EP-0017). The recordable-generator machinery — generation at processing-start, schema + EDN validation, record/replay — is shipped and exercised by `examples/reagent/{websocket,realworld,nine_states}`. Citations are symbol-level.*
+*Derived from `implementation/core/src/re_frame/cofx.cljc` + `spec/002-Frames.md` / `spec/001-Registration.md` (EP-0017). The recordable-generator machinery — generation at processing-start, schema + EDN validation, record/replay — is shipped and exercised by `examples/patterns/websocket`, `examples/real-apps/realworld_http`, and `examples/patterns/nine_states`. Citations are symbol-level.*

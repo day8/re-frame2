@@ -38,7 +38,7 @@ The Conduit API answers `GET /articles` with `{:articles [...] :articlesCount N}
 
 One word from Step 1 is worth pinning down before we go further: *transport*. The two deps you added are two layers, on purpose. The transport handles the network — sockets, retries, the raw request — and the resource sits a level above it, describing *what* to read and *how fresh* it must be. The resource never touches a socket; it hands the transport a request and gets a decoded value back.
 
-> **Want to run offline?** Install the in-repo demo stub instead of pointing at the hosted Conduit — see `examples/reagent/realworld_resources/http.cljs` for the canned-response override, which serves the same routes without a network.
+> **Want to run offline?** Install the in-repo demo stub instead of pointing at the hosted Conduit — see `examples/real-apps/realworld_resources/http.cljs` for the canned-response override, which serves the same routes without a network.
 
 > **Gotcha — forgot to require `re-frame.resources`?** `rf/reg-resource` is *late-bound* by the optional artefact — the facade only learns the verb once you `:require` the namespace. Call it before the artefact is loaded and you get a loud `:rf.error/resources-artefact-missing` at registration, not a mystery `nil`. Same shape as routing in Part 1: require the artefact, get the verb.
 
@@ -50,7 +50,7 @@ Here are the two reads our app needs. Create `conduit/resources.cljs`:
 
 ```clojure
 ;; src/conduit/resources.cljs
-;; Adapted from examples/reagent/realworld_resources/resources.cljs
+;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 (ns conduit.resources
   (:require [re-frame.core :as rf]
             [re-frame.http.managed]   ; the managed-HTTP transport resources use
