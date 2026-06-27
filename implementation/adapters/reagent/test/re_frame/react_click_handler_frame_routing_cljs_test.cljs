@@ -15,7 +15,7 @@
        the envelope (never re-resolves the dynamic var, which is
        already popped by drain time).
     2. Pin the same contract for `{:frame :id}` opts envelope.
-    3. Pin the same contract for `(:dispatch (rf/frame-handle))` capture-at-call-time.
+    3. Pin the same contract for `(:dispatch (rf/capture-frame))` capture-at-call-time.
     4. Pin the `frame-bound-fn` helper: a one-arg fn that wraps a
        callback so any synchronous dispatch inside is captured-and-
        rebound to the call-site's frame.
@@ -147,10 +147,10 @@
                    (done)))
           (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done)))))))
 
-;; ---- 3. (:dispatch (rf/frame-handle)) capture-at-call-time ----------------------------
+;; ---- 3. (:dispatch (rf/capture-frame)) capture-at-call-time ----------------------------
 
 (deftest dispatcher-captured-under-with-frame-from-set-timeout-routes
-  (testing "rf2-tvu99 — `(:dispatch (rf/frame-handle))` captured inside a
+  (testing "rf2-tvu99 — `(:dispatch (rf/capture-frame))` captured inside a
             `with-frame :rf/xray` block produces a dispatch-fn that
             carries :rf/xray onto every envelope regardless of when it
             is called. The capture closes over the frame VALUE — no
@@ -159,7 +159,7 @@
       ;; Capture the dispatcher inside :rf/xray (synchronous — like
       ;; building it inside a reg-view body whose render is under the
       ;; :rf/xray frame-provider).
-      (let [d (rf/with-frame :rf/xray (:dispatch (rf/frame-handle)))]
+      (let [d (rf/with-frame :rf/xray (:dispatch (rf/capture-frame)))]
         (-> (inside-set-timeout
               (fn [] (d [:rf-tvu99/set-mode :all])))
             (.then (fn [_]

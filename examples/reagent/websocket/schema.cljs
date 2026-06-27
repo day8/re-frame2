@@ -101,6 +101,6 @@
 ;; One wrinkle: `reg-app-schema` is frame-local, so it needs a frame in
 ;; scope. Call it bare at ns-load and you get :rf.error/no-frame-context.
 ;; This example lives in the :rf/default frame, so we name that frame
-;; explicitly. See docs/guide/glossary.md#frame-handle.
+;; explicitly. See docs/guide/glossary.md#capture-frame.
 (with-frame :rf/default
   (rf/reg-app-schema [:messages]                   {:schema MessagesSlice}))

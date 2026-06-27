@@ -1,7 +1,7 @@
 (ns re-frame.reg-view-injection-test
   "Per rf2-kkut0 (frame-affordance redesign) + rf2-cry25 (Option A,
   Mike-ruled 2026-05-31) — the `reg-view` injection is SUGAR over a
-  single `make-frame-handle`: the injected `dispatch` / `subscribe`
+  single `make-capture-frame`: the injected `dispatch` / `subscribe`
   NOUNS are the handle's `:dispatch` / `:subscribe` ops, and they shadow
   the coord-capturing `dispatch` / `subscribe` MACROS for the whole view
   body. Before the cry25 fix a view's on-click `#(dispatch [...])`
@@ -70,7 +70,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        ;; EP-0002 (rf2-69r7ui): the reg-view render-time frame-handle
+        ;; EP-0002 (rf2-69r7ui): the reg-view render-time capture-frame
         ;; captures `(current-frame-id)`, which REQUIRES an established
         ;; scope — there is no `:rf/default` floor. Render under an
         ;; explicit `with-frame` scope so the handle captures a real frame.
@@ -82,7 +82,7 @@
         (rf/reg-view click-view [_n]
           [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
         ;; Render the view + fire its on-click. The injected dispatch op
-        ;; (from the render-time frame-handle) captured the active frame.
+        ;; (from the render-time capture-frame) captured the active frame.
         (let [click (rf/with-frame :rf2-cry25/click-frame
                       (on-click-of (rf/view :re-frame.reg-view-injection-test/click-view)))]
           (click))
@@ -108,7 +108,7 @@
 
 (deftest injected-dispatch-preserves-render-time-frame
   (testing "the dispatch carries the RENDER-time frame (captured by the
-            frame-handle at view-call time), NOT a click-time :rf/default
+            capture-frame at view-call time), NOT a click-time :rf/default
             fall-through (the rf2-tqlmq sibling class). The dispatch opts
             injection must NOT clobber the handle's render-time frame capture."
     (let [seen (atom [])]
@@ -118,7 +118,7 @@
         (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
         (rf/reg-view frame-view [_n]
           [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
-        ;; Render the view UNDER :rf2-cry25/render-frame so the frame-handle
+        ;; Render the view UNDER :rf2-cry25/render-frame so the capture-frame
         ;; captures it; then fire the click AFTER the with-frame scope
         ;; unwinds (simulating the deferred on-click closure).
         (let [click (rf/with-frame :rf2-cry25/render-frame
@@ -182,7 +182,7 @@
 ;; ---- production-elision shape (dev coord vs slim prod coord) -------------
 ;;
 ;; Per rf2-kkut0 the injection is sugar over a single
-;; `(re-frame.core/make-frame-handle (re-frame.core/current-frame-id)
+;; `(re-frame.core/make-capture-frame (re-frame.core/current-frame-id)
 ;;   {:dispatch-opts <gated> :subscribe-call-site <gated>})`. The handle's
 ;; `:dispatch-opts` and `:subscribe-call-site` args each ride their OWN
 ;; outer `(if interop/debug-enabled? <dev> <prod>)` gate so Closure DCEs
@@ -205,7 +205,7 @@
     :else nil))
 
 (deftest injected-args-ride-debug-gate-with-dev-and-prod-branches
-  (testing "the reg-view expansion builds one make-frame-handle whose
+  (testing "the reg-view expansion builds one make-capture-frame whose
             :dispatch-opts / :subscribe-call-site args are each an
             (if interop/debug-enabled? <dev> <prod>) gate; the dev branch
             carries :source :ui + the full call-site coord (WITH :column),
@@ -214,10 +214,10 @@
                                   'my.ns "v.cljc" 'cv
                                   '([] [:button {:on-click #(dispatch [:x])}]))
           ;; The single injection call:
-          ;; (re-frame.core/make-frame-handle (re-frame.core/current-frame-id)
+          ;; (re-frame.core/make-capture-frame (re-frame.core/current-frame-id)
           ;;   {:dispatch-opts <gate> :subscribe-call-site <gate>}).
           mfh-call (find-form #(and (seq? %)
-                                    (= 're-frame.core/make-frame-handle (first %)))
+                                    (= 're-frame.core/make-capture-frame (first %)))
                               exp)
           frame-arg (nth mfh-call 1)            ;; the captured-frame expr
           opts-map  (nth mfh-call 2)            ;; the {:dispatch-opts ... :subscribe-call-site ...}

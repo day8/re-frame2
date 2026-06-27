@@ -94,8 +94,8 @@
     (rf/reg-sub :wf/n (fn [db _] (:n db)))
     (rf/dispatch-sync [:wf/seed 7]  {:frame :wf/left})
     (rf/dispatch-sync [:wf/seed 99] {:frame :wf/right})
-    (let [sl (rf/with-frame :wf/left  (:subscribe (rf/frame-handle)))
-          sr (rf/with-frame :wf/right (:subscribe (rf/frame-handle)))]
+    (let [sl (rf/with-frame :wf/left  (:subscribe (rf/capture-frame)))
+          sr (rf/with-frame :wf/right (:subscribe (rf/capture-frame)))]
       (is (= 7  @(sl [:wf/n])) ":wf/left subscriber sees :wf/left's :n")
       (is (= 99 @(sr [:wf/n])) ":wf/right subscriber sees :wf/right's :n"))))
 

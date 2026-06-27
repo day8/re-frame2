@@ -184,8 +184,8 @@
     (rf/dispatch-sync [:seed 7]  {:frame :left})
     (rf/dispatch-sync [:seed 99] {:frame :right})
     ;; Capture frame-bound subscribers via with-frame.
-    (let [sl (rf/with-frame :left  (:subscribe (rf/frame-handle)))
-          sr (rf/with-frame :right (:subscribe (rf/frame-handle)))]
+    (let [sl (rf/with-frame :left  (:subscribe (rf/capture-frame)))
+          sr (rf/with-frame :right (:subscribe (rf/capture-frame)))]
       (is (= 7  @(sl [:n])) "left subscriber sees left's :n")
       (is (= 99 @(sr [:n])) "right subscriber sees right's :n")
       ;; And :rf/default is unaffected.
@@ -248,7 +248,7 @@
   ;; first. With the router's per-handler binding of
   ;; `frame/*current-frame*` to the envelope's :frame, the call site
   ;; reports the handler's frame, not :rf/default. This is the contract
-  ;; that lets `(:dispatch (rf/frame-handle))`, `(:subscribe (rf/frame-handle))`, etc. — all of
+  ;; that lets `(:dispatch (rf/capture-frame))`, `(:subscribe (rf/capture-frame))`, etc. — all of
   ;; which capture the value of
   ;; `(rf/current-frame-id)` at call time — capture the right frame when
   ;; called from a handler body. Asserts the observable property

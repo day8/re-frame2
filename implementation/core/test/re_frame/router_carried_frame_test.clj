@@ -8,7 +8,7 @@
     1. explicit `{:frame …}` opt WINS (override);
     2. otherwise `frame/require-current-frame!` reads the scope/hold stamp
        (`with-frame` / frame-provider / a captured `*current-frame*`
-       binding via a frame-handle);
+       binding via a capture-frame);
     3. no frame ⇒ NO enqueue — the dispatch raises
        `:rf.error/no-frame-context` at envelope-build time, BEFORE any
        frame-registry lookup. There is no `:rf/default` floor.
@@ -154,14 +154,14 @@
 ;; ---- frame-bound (held) dispatch after unwind works -----------------------
 
 (deftest frame-bound-dispatch-after-unwind-works
-  (testing "a frame-handle CAPTURED inside the scope carries the frame
+  (testing "a capture-frame CAPTURED inside the scope carries the frame
             stamp as a VALUE; calling its `:dispatch` after the scope
             unwinds still targets the captured frame (the hold tier)"
     (rf/reg-frame :app/main {:doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [handle (rf/with-frame :app/main
-                   (rf/frame-handle))]            ;; no-arg capture inside scope
+                   (rf/capture-frame))]            ;; no-arg capture inside scope
       (is (= :app/main (:frame handle))
           "the handle captured the scope frame at creation time")
       ;; Fire after the scope has unwound — the held stamp survives.

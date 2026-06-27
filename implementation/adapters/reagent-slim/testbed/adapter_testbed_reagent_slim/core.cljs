@@ -51,12 +51,12 @@
 ;; EP-0002 (rf2-9o48ih): `root` is a `reg-view` so it carries the
 ;; `:contextType` wiring the slim substrate needs to read the enclosing
 ;; frame-provider's frame from React context; the frame-bound `dispatch`
-;; is captured at RENDER time via `(rf/frame-handle)` so the click
+;; is captured at RENDER time via `(rf/capture-frame)` so the click
 ;; handlers (which fire outside any render scope) still route to
 ;; `:rf/default`. Mirrors the stock Reagent / UIx / Helix testbeds.
 (reg-view root []
   (let [n        @(rf/subscribe [:counter/value])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     [:div
      [:h1 {:data-testid "rf-adapter-testbed-reagent-slim"}
       "reagent-slim adapter testbed"]

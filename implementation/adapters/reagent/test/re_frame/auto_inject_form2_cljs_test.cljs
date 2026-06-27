@@ -4,8 +4,8 @@
   body. The injection is a single OUTER `let`:
 
       (fn outer [args]
-        (let [dispatch  (:dispatch (rf/frame-handle))
-              subscribe (:subscribe (rf/frame-handle))]
+        (let [dispatch  (:dispatch (rf/capture-frame))
+              subscribe (:subscribe (rf/capture-frame))]
           body))
 
   For Form-1 (body is plain hiccup), `dispatch` / `subscribe` are
@@ -79,8 +79,8 @@
             let injected. The macro expansion is:
 
                 (fn outer [args]
-                  (let [dispatch  (:dispatch (rf/frame-handle))
-                        subscribe (:subscribe (rf/frame-handle))]
+                  (let [dispatch  (:dispatch (rf/capture-frame))
+                        subscribe (:subscribe (rf/capture-frame))]
                     body))               ;; body = `(fn inner [...] ...)`
 
             Clojure lexical closure means `inner` sees `dispatch` /
@@ -136,7 +136,7 @@
         ;; this is the Spec 004 §Form-2 contract: 'refer to the same
         ;; lexical bindings'. If the macro had re-injected per inner
         ;; call (a bug shape), the values would be fresh fn objects
-        ;; minted by `(:dispatch (rf/frame-handle))` / `(:subscribe (rf/frame-handle))` per call,
+        ;; minted by `(:dispatch (rf/capture-frame))` / `(:subscribe (rf/capture-frame))` per call,
         ;; not identical to the outer body's.
         (is (identical? (:dispatch  @outer-captured)
                         (:dispatch  @inner-captured))

@@ -41,7 +41,7 @@ Helix's `use-effect` is a macro whose first argument is the deps vector and whos
 
 ### Outer / inner pattern
 
-Compose `use-effect` with the standard outer/inner split: the **outer** `defnc` reads subs via `use-subscribe` and produces props; the **inner** `defnc` owns the library lifecycle via `use-effect`. Capture `(:dispatch (rf/frame-handle))` in a `let` above the `use-effect` call so the dispatcher carries the surrounding frame into the effect body.
+Compose `use-effect` with the standard outer/inner split: the **outer** `defnc` reads subs via `use-subscribe` and produces props; the **inner** `defnc` owns the library lifecycle via `use-effect`. Capture `(:dispatch (rf/capture-frame))` in a `let` above the `use-effect` call so the dispatcher carries the surrounding frame into the effect body.
 
 ```clojure
 (ns my-app.tiles
@@ -53,7 +53,7 @@ Compose `use-effect` with the standard outer/inner split: the **outer** `defnc` 
 ;; Inner — owns the imperative lifecycle. Plain Helix defnc.
 (defnc tile-inner [{:keys [tile-id]}]
   (let [ref      (hooks/use-ref nil)
-        dispatch (:dispatch (rf/frame-handle))]   ;; captured at render — carries the frame
+        dispatch (:dispatch (rf/capture-frame))]   ;; captured at render — carries the frame
     (hooks/use-effect
       [tile-id]
       (let [el       (.-current ref)
@@ -71,7 +71,7 @@ Compose `use-effect` with the standard outer/inner split: the **outer** `defnc` 
 
 Four things matter:
 
-1. **`(:dispatch (rf/frame-handle))` is captured in the `let` above `use-effect`**, not inside the effect body. The dispatcher closes over the frame at render-time; the effect body fires after commit but the closure is already established. Inside the effect body, `dispatch` carries the right frame.
+1. **`(:dispatch (rf/capture-frame))` is captured in the `let` above `use-effect`**, not inside the effect body. The dispatcher closes over the frame at render-time; the effect body fires after commit but the closure is already established. Inside the effect body, `dispatch` carries the right frame.
 2. **The cleanup fn is mandatory.** Without it, the listener leaks across re-mounts and across hot-reloads. The cleanup runs on unmount and before each re-run when deps change.
 3. **The deps vector matters.** Include every prop the effect reads so React re-runs the effect when those props change. An empty deps vector means "run once on mount, clean up on unmount."
 4. **Don't call `use-subscribe` inside the effect body.** Hooks must be called at the top of the component body, not inside another hook's callback. Subscribe in the outer (or in the inner's top-level `let`) and pass the value as a dep.
@@ -79,6 +79,6 @@ Four things matter:
 ### Cross-references
 
 - [Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004-Views.md#views-must-not-attach-native-dom-event-listeners-from-render-bodies) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004-Views.md#views-must-not-own-imperative-library-lifecycles-directly) — bare `addEventListener` in a render body leaks listeners and silently routes dispatches to `:rf/default`; library lifecycles belong in `use-effect`.
-- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(:dispatch (rf/frame-handle))` at render-time to carry the frame.
+- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(:dispatch (rf/capture-frame))` at render-time to carry the frame.
 - **Outer/inner Pattern (Pattern-OuterInner)** — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries); the worked example above is one instance.
 - [Helix 0.2.x docs — `use-effect`](https://github.com/lilactown/helix/blob/master/docs/creating-components.md) — the underlying hook's signature, deps-vector semantics, and stale-closure considerations.
