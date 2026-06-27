@@ -138,7 +138,7 @@
              ;; Per rf2-cry25 §Production elision: the view's dev source-
              ;; coord literal (WITH `:column`, via `coords-form`), reused
              ;; for the `*pending-coords*` binding in the `do` form below.
-             ;; The injected frame-handle's `:dispatch-opts` /
+             ;; The injected capture-frame-bundle’s `:dispatch-opts` /
              ;; `:subscribe-call-site` args ride their OWN outer
              ;; `interop/debug-enabled?` gate (see `dispatch-opts-form` /
              ;; `sub-coord-form`) so the `:rf.trace/call-site` keyword +
@@ -167,7 +167,7 @@
              ;;
              ;; Per rf2-kkut0 (frame-affordance redesign) + rf2-cry25
              ;; (Option A, Mike-ruled): the reg-view injection is now SUGAR
-             ;; over a single `make-frame-handle` — the handle captures the
+             ;; over a single `make-capture-frame` — the handle captures the
              ;; render-time frame ONCE, and the injected `dispatch` /
              ;; `subscribe` NOUNS are its `:dispatch` / `:subscribe` ops.
              ;; They shadow the coord-capturing `dispatch` / `subscribe`
@@ -181,9 +181,9 @@
              ;; stays spliced VERBATIM (`~@body`) — no code-walking, no
              ;; rewriting of user view code; the blast radius is the
              ;; handle's opts only. Render-time frame capture is preserved
-             ;; (`make-frame-handle` captures `(current-frame-id)` once).
+             ;; (`make-capture-frame` captures `(current-frame-id)` once).
              fn-body  `(fn ~sym ~args
-                         (let [handle#    (re-frame.core/make-frame-handle
+                         (let [handle#    (re-frame.core/make-capture-frame
                                             (re-frame.core/current-frame-id)
                                             {:dispatch-opts       ~dispatch-opts-form
                                              :subscribe-call-site ~sub-coord-form})

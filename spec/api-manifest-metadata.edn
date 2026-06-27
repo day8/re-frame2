@@ -577,7 +577,7 @@
   ;; `core_call_site_macros.cljc`), the SAME cross-namespace-reach rationale as
   ;; `->interceptor` (row above). It is NOT a supported app/tool surface: the
   ;; front-door read shape is `subscribe`, `subscribe-once`, or the `:subscribe`
-  ;; op from a `frame-handle`. Grounded by the 0-caller backbone in
+  ;; op from a `capture-frame`. Grounded by the 0-caller backbone in
   ;; ai/findings/API-review/codex/frame-targeting-and-lifecycle.md (no real HoF
   ;; caller in examples/tools). No API.md var-row (an `:implementation` var is
   ;; below the supported surface, like `->interceptor`).
@@ -587,21 +587,21 @@
   ;; View ergonomics (spec/API.md §View ergonomics).
   ["re-frame.core" "with-frame"]          {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "with-new-frame"]      {:tier :front-porch :owner "002" :status "v1"}
-  ["re-frame.core" "frame-handle"]        {:tier :front-porch :owner "002" :status "v1"}
+  ["re-frame.core" "capture-frame"]       {:tier :front-porch :owner "002" :status "v1"}
   ;; EP-0024 Open Issue #8 (rf2-5vla7c): the carry/targeting helpers below are
-  ;; RETIERED off the app-facing facade to `:implementation`. `frame-handle`
+  ;; RETIERED off the app-facing facade to `:implementation`. `capture-frame`
   ;; (above) stays the ONE public carry primitive; these survive exported from
   ;; `re-frame.core` ONLY for cross-namespace / test reach (NOT a supported
   ;; app/tool surface — an app MUST NOT depend on them), the same rationale as
   ;; `->interceptor`. None carries an API.md var-row. Grounded by the 0-caller
   ;; backbone in ai/findings/API-review/codex/frame-targeting-and-lifecycle.md.
-  ;;   - `make-frame-handle` — the lower-level `frame-handle` constructor;
-  ;;     `frame-handle` is the public face. Exported so the `reg-view` macro's
-  ;;     emitted body can reference `re-frame.core/make-frame-handle`.
+  ;;   - `make-capture-frame` — the lower-level `capture-frame` constructor;
+  ;;     `capture-frame` is the public face. Exported so the `reg-view` macro's
+  ;;     emitted body can reference `re-frame.core/make-capture-frame`.
   ;;   - `frame-bound-fn` / `frame-bound-fn*` — frame-rebinding closures whose
-  ;;     real use cases `frame-handle` (or an explicit `{:frame …}` opt) now
+  ;;     real use cases `capture-frame` (or an explicit `{:frame …}` opt) now
   ;;     expresses. Retained for implementation/test reach only.
-  ["re-frame.core" "make-frame-handle"]   {:tier :implementation :owner "002" :status "EP-0024 (internal frame-handle constructor)"}
+  ["re-frame.core" "make-capture-frame"]  {:tier :implementation :owner "002" :status "EP-0024 (internal capture-frame constructor)"}
   ["re-frame.core" "frame-bound-fn"]      {:tier :implementation :owner "002" :status "EP-0024 (internal carry helper)"}
   ["re-frame.core" "frame-bound-fn*"]     {:tier :implementation :owner "002" :status "EP-0024 (internal carry helper)"}
   ["re-frame.core" "view"]                {:tier :advanced    :owner "004" :status "v1"}

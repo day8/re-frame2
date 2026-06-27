@@ -76,6 +76,7 @@
   {:namespace "re-frame.core", :var "active-head", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "adapter-disposed?", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "app-db-value", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "capture-frame", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "clear-event", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "clear-fx", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "clear-http-interceptor", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
@@ -107,7 +108,6 @@
   {:namespace "re-frame.core", :var "frame-bound-fn", :tier :implementation, :kind :macro, :owner "002", :status "EP-0024 (internal carry helper)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-bound-fn*", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal carry helper)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-generation", :tier :tooling, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "frame-handle", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-ids", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-meta", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-provider", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? false}
@@ -127,8 +127,8 @@
   {:namespace "re-frame.core", :var "install-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "machine-has-tag?", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "make-capture-frame", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal capture-frame constructor)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-frame", :tier :advanced, :kind :fn, :owner "002", :status "EP-0024", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "make-frame-handle", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal frame-handle constructor)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-meta", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-state", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutations", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}

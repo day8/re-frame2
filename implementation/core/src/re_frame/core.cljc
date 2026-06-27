@@ -864,7 +864,7 @@
 ;; does. The discriminator is the FIRST arg's shape: an event-vec is ALWAYS a
 ;; vector, a frame target NEVER is (a keyword id or a `:rf.frame/object`-marked
 ;; object map), so `vector?` on arg-1 cleanly separates the two 2-arg forms —
-;; every existing `(dispatch* [..] opts)` caller (the frame-handle closures, the
+;; every existing `(dispatch* [..] opts)` caller (the capture-frame closures, the
 ;; macro expansion, programmatic HoF callers) stays byte-identical. The
 ;; frame-first form lowers to the established `{:frame target}` opt, which
 ;; `re-frame.router/build-envelope` normalizes through `frame/frame-target->id`
@@ -981,7 +981,7 @@
   reaches it fully-qualified across a namespace boundary (see
   `re-frame.core-call-site-macros/build-subscribe-form`). NOT an app-facing
   surface — the public read shapes are `subscribe`, `subscribe-once`, or the
-  `:subscribe` op from a `frame-handle`. Arities mirror
+  `:subscribe` op from a `capture-frame`. Arities mirror
   `re-frame.subs/subscribe`."
   ([query-v]            (subs/subscribe query-v))
   ([frame-id query-v]   (subs/subscribe frame-id query-v)))
@@ -1074,7 +1074,7 @@
      targets an explicit frame, otherwise resolves via `current-frame`.
      Use `subscribe-once` for a one-shot read; for a frame carried
      across an async boundary use the `:subscribe` op from a
-     `frame-handle`. Captures call-site coords (rf2-ts1a). Per Spec 006
+     `capture-frame`. Captures call-site coords (rf2-ts1a). Per Spec 006
      §Lookup algorithm."
      ([query-v]
       (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
@@ -1086,16 +1086,16 @@
 ;; (`inject-cofx` macro removed from the public facade — rf2-w9xyx1; see the
 ;; comment by `subscribe*` above.)
 
-;; ---- frame-handle (the keystone) + frame-aware closures ------------------
+;; ---- capture-frame (the keystone) + frame-aware closures ------------------
 ;;
 ;; `current-frame-id` reads the carried-invariant scope/hold stamp via
 ;; `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
 ;; var or a React-context frame-provider scope, with NO `:rf/default`
-;; floor — absence raises `:rf.error/no-frame-context`. `frame-handle` is
+;; floor — absence raises `:rf.error/no-frame-context`. `capture-frame` is
 ;; the keystone: a per-frame OPERATION BUNDLE (`{:frame :dispatch
 ;; :dispatch-sync :subscribe}`) captured at CREATION time, so its ops
 ;; survive async boundaries that unwind the dynamic-var / React-context
-;; scope. The no-arg `frame-handle` / `frame-bound-fn*` capture forms
+;; scope. The no-arg `capture-frame` / `frame-bound-fn*` capture forms
 ;; capture ONLY when a real scope exists at capture time.
 
 (defn current-frame-id
@@ -1113,10 +1113,10 @@
   (frame/require-current-frame! :current-frame-id
                                 {:where 're-frame.core/current-frame-id}))
 
-(defn make-frame-handle
-  "INTERNAL constructor for `frame-handle` (and the `reg-view` injection
+(defn make-capture-frame
+  "INTERNAL constructor for `capture-frame` (and the `reg-view` injection
   sugar) — `:tier :implementation` (EP-0024 Open Issue #8, rf2-5vla7c).
-  Not an app-facing surface — call `frame-handle` instead. It is a plain
+  Not an app-facing surface — call `capture-frame` instead. It is a plain
   (technically public) Var rather
   than `defn-` ONLY so the `reg-view` macro's emitted body can reference
   it fully-qualified (a `defn-` private would fail the CLJ analyzer when
@@ -1173,15 +1173,15 @@
          (subs/subscribe frame query-v))
        (subs/subscribe frame query-v)))})
 
-(defn frame-handle
+(defn capture-frame
   "Return a per-frame OPERATION BUNDLE — the keystone affordance for
   carrying a frame into closures and across async boundaries. Per Spec
-  002 §frame-handle and Spec 004 §Affordance for plain fns.
+  002 §capture-frame and Spec 004 §Affordance for plain fns.
 
   Two arities:
-    (frame-handle)            — capture the ambient frame
+    (capture-frame)           — capture the ambient frame
                                 (`(current-frame-id)`) at CREATION time.
-    (frame-handle frame-id)   — bundle locked to an explicit `frame-id`;
+    (capture-frame frame-id)  — bundle locked to an explicit `frame-id`;
                                 no surrounding `with-frame` / frame-
                                 provider needed.
 
@@ -1198,7 +1198,7 @@
   WebSocket `onmessage` / observer callbacks\":
 
     (rf/reg-view StreamView [_]
-      (let [{:keys [dispatch]} (rf/frame-handle)]   ;; captures render frame
+      (let [{:keys [dispatch]} (rf/capture-frame)]   ;; captures render frame
         (ws/subscribe! (fn [msg] (dispatch [:ws/incoming msg])))
         [:div \"streaming…\"]))
 
@@ -1211,14 +1211,14 @@
   time via `frame/require-current-frame!` — it captures ONLY when a real
   scope exists at capture time. Capturing outside any scope raises
   `:rf.error/no-frame-context`, never a captured `:rf/default` (per Spec
-  002 §Resolver surface). Use the 1-arity `(frame-handle frame-id)` to
+  002 §Resolver surface). Use the 1-arity `(capture-frame frame-id)` to
   lock a handle to a named frame from outside any scope (the right shape
   for async callbacks / tools / tests / SSR)."
-  ([]         (make-frame-handle
+  ([]         (make-capture-frame
                 (frame/require-current-frame!
-                  :frame-handle {:where 're-frame.core/frame-handle})
+                  :capture-frame {:where 're-frame.core/capture-frame})
                 nil))
-  ([frame-id] (make-frame-handle frame-id nil)))
+  ([frame-id] (make-capture-frame frame-id nil)))
 
 ;; ---- frame-scope lexical macros ------------------------------------------
 
@@ -1234,7 +1234,7 @@
      compile time on a vector argument.
 
      For async closures that fire after body returns, capture via
-     `frame-handle` / `frame-bound-fn` / `frame-bound-fn*`. Per
+     `capture-frame` / `frame-bound-fn` / `frame-bound-fn*`. Per
      Spec 002 §with-frame."
      {:arglists '([frame-id body+])}
      [frame-id & body]
@@ -1257,7 +1257,7 @@
      frame-id.
 
      For async closures that fire after body returns, capture via
-     `frame-handle` / `frame-bound-fn` — the body's dynamic binding has
+     `capture-frame` / `frame-bound-fn` — the body's dynamic binding has
      unwound and `destroy-frame!` has already run by then. Per Spec 002
      §with-frame."
      {:arglists '([[sym expr] body+])}
@@ -1269,8 +1269,8 @@
   `:tier :implementation`; NOT an app-facing surface). Higher-order
   callback wrapper (the `*`-twin of the `frame-bound-fn` macro): take an
   existing fn `f` and return a new fn that re-establishes
-  `*current-frame*` for `f`'s body. `frame-handle` is the ONE public
-  carry primitive — author async / tooling paths with `frame-handle` or
+  `*current-frame*` for `f`'s body. `capture-frame` is the ONE public
+  carry primitive — author async / tooling paths with `capture-frame` or
   an explicit `{:frame …}` opt; this helper is retained only for
   implementation / test reach. The captured frame value is closed
   over — no dynamic-var read at call time, so the wrapped fn dispatches
@@ -1284,11 +1284,11 @@
                                      at wrap time.
 
   The `frame-bound-fn` MACRO is the `fn`-syntax counterpart; this fn
-  takes an already-held fn value. Prefer `frame-handle` for the common
+  takes an already-held fn value. Prefer `capture-frame` for the common
   dispatch / subscribe case — `frame-bound-fn*` re-establishes the
   dynamic binding around an arbitrary fn body (e.g. one that itself
   calls `current-frame-id`), which is why it survives internally even
-  though `frame-handle` is the public carry primitive.
+  though `capture-frame` is the public carry primitive.
 
   Use it when a callback is constructed in one synchronous moment (a
   render-fn, an event handler body, a module install! routine) but
@@ -1333,7 +1333,7 @@
 #?(:clj
    (defmacro frame-bound-fn
      "INTERNAL carry helper (EP-0024 Open Issue #8, rf2-5vla7c —
-     `:tier :implementation`; NOT an app-facing surface — `frame-handle`
+     `:tier :implementation`; NOT an app-facing surface — `capture-frame`
      is the one public carry primitive). Return a fn that captures the
      current frame and re-binds `*current-frame*` inside its body. The
      `fn`-syntax sugar over `frame-bound-fn*` — write the argv + body
@@ -1349,7 +1349,7 @@
      into the captured frame even when it fires after the surrounding
      `with-frame` / `frame-provider` scope has unwound (the async-
      boundary case). For the common dispatch / subscribe case prefer
-     `frame-handle`. Per Spec 002 §frame-bound-fn."
+     `capture-frame`. Per Spec 002 §frame-bound-fn."
      [argv & body]
      (rvm/expand-frame-bound-fn argv body)))
 
