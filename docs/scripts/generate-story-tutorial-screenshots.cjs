@@ -39,7 +39,7 @@ const APPS = {
     out: path.join(IMPL_ROOT, 'out', 'examples', 'counter-with-stories'),
   },
   '/nine': {
-    html: path.join(REPO_ROOT, 'examples', 'reagent', 'nine_states', 'index.html'),
+    html: path.join(REPO_ROOT, 'examples', 'patterns', 'nine_states', 'index.html'),
     out: path.join(IMPL_ROOT, 'out', 'examples', 'nine-states-with-stories'),
   },
 };
