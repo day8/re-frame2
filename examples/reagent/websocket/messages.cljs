@@ -109,7 +109,7 @@
    `rf/dispatch` would throw `:rf.error/no-frame-context`. The fix is to
    capture the frame's `dispatch` back where a frame *was* in scope and
    thread it in here — a captured `dispatch` carries its frame across the
-   async gap. See docs/guide/glossary.md#frame-handle."
+   async gap. See docs/guide/glossary.md#capture-frame."
   [dispatch actor-id kind payload]
   (when actor-id
     (dispatch [actor-id [kind payload]])))
@@ -134,8 +134,8 @@
         ;; means a frame is in scope — but the deferred deliveries below
         ;; fire from a bare `setTimeout` callback, long after it's gone.
         ;; So grab the frame's `dispatch` here, while we still can, and
-        ;; carry it into each delivery. See docs/guide/glossary.md#frame-handle.
-        dispatch (:dispatch (rf/frame-handle))]
+        ;; carry it into each delivery. See docs/guide/glossary.md#capture-frame.
+        dispatch (:dispatch (rf/capture-frame))]
     (swap! mock-server-state assoc-in [:sockets id]
            {:actor-id actor-id
             :open?    open?})
@@ -193,8 +193,8 @@
 
    A click handler fires with no frame in scope, so the caller passes in a
    frame-bound `dispatch` / `dispatch-sync` pair (from a captured
-   `(rf/frame-handle)`) — a bare `rf/dispatch` here would raise
-   `:rf.error/no-frame-context`. See docs/guide/glossary.md#frame-handle."
+   `(rf/capture-frame)`) — a bare `rf/dispatch` here would raise
+   `:rf.error/no-frame-context`. See docs/guide/glossary.md#capture-frame."
   [{:keys [dispatch dispatch-sync]} actor-id kind payload]
   (when actor-id
     (if (:sync? @mock-server-state)
@@ -205,9 +205,9 @@
   "Push a made-up server message to every live mock socket — the inbound
    path the 'Trigger server push' button (and the tests) exercise.
 
-   `handle` is a `(rf/frame-handle)` bundle holding the caller's frame, so
+   `handle` is a `(rf/capture-frame)` bundle holding the caller's frame, so
    the deferred dispatch can carry it across the click-handler / async
-   boundary. See docs/guide/glossary.md#frame-handle."
+   boundary. See docs/guide/glossary.md#capture-frame."
   [handle body]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]
     (when @open?
@@ -216,7 +216,7 @@
 (defn simulate-disconnect!
   "Yank every live mock socket closed and let the parent's reconnect
    cascade take it from there — this is what the 'Drop connection' button
-   does. `handle` is the caller's `(rf/frame-handle)` bundle (see
+   does. `handle` is the caller's `(rf/capture-frame)` bundle (see
    `send-server-push!`)."
   [handle]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]

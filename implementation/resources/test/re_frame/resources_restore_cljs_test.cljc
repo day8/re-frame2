@@ -738,7 +738,7 @@
   [frame-id]
   (filter (fn [[fid _ _]] (= fid frame-id)) (keys @timers/timer-table)))
 
-(defn- frame-handle-keys
+(defn- work-handle-keys
   "The work-ledger handle-table keys (`[frame-id work-id]`) for `frame-id`."
   [frame-id]
   (filter (fn [[fid _]] (= fid frame-id)) (keys @work-ledger/handle-table)))
@@ -754,14 +754,14 @@
       (timers/schedule! fid rkey timers/stale-kind 600000)
       (work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid})
       (is (seq (frame-timer-keys fid)) "a stale timer is armed for the frame")
-      (is (seq (frame-handle-keys fid)) "a work handle is recorded for the frame")
+      (is (seq (work-handle-keys fid)) "a work handle is recorded for the frame")
       ;; restore the frame's snapshot (a mid-flight fetching entry)
       (let [e (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15 :current-work wid})]
         (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
       (is (empty? (frame-timer-keys fid))
           "the frame's stale/GC timer handles are GONE after restore")
-      (is (empty? (frame-handle-keys fid))
+      (is (empty? (work-handle-keys fid))
           "the frame's work-ledger host handles are GONE after restore")
       ;; cleanup any stray timers (none expected)
       (timers/cancel-for-key! fid rkey))))
@@ -788,7 +788,7 @@
       (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid)
       (is (empty? (frame-timer-keys fid))
           "no stale/GC timer is armed by restore (lazy re-arm on next ensure)")
-      (is (empty? (frame-handle-keys fid))
+      (is (empty? (work-handle-keys fid))
           "no work handle is created by restore (no eager refetch)"))))
 
 (deftest clear-host-transients-on-restore-is-pure-subset

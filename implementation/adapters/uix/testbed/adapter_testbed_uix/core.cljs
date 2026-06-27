@@ -29,7 +29,7 @@
 
 (defui root []
   (let [n        (uix-adapter/use-subscribe [:counter/value])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     ($ :div
        ($ :h1 {:data-testid "rf-adapter-testbed-uix"}
           "UIx adapter testbed")
@@ -48,7 +48,7 @@
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in the UIx
-  ;; `frame-provider` so the `use-subscribe` / `frame-handle` reads inside
+  ;; `frame-provider` so the `use-subscribe` / `capture-frame` reads inside
   ;; `root` resolve to it.
   (rf/init! uix-adapter/adapter)
   (rf/reg-frame :rf/default {})

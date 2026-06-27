@@ -1,12 +1,12 @@
-(ns re-frame.frame-handle-test
+(ns re-frame.capture-frame-test
   "Design-pinning tests for the frame-affordance redesign (rf2-kkut0.1):
-  `frame-handle` (the keystone OPERATION BUNDLE), `frame-bound-fn` /
+  `capture-frame` (the keystone OPERATION BUNDLE), `frame-bound-fn` /
   `frame-bound-fn*`, `current-frame-id`, `app-db-value`, and the absence of
   the removed public names (`bound-fn`, `dispatcher`, `subscriber`,
-  `get-frame-db`, `current-frame`). Per Spec 002 §frame-handle and
+  `get-frame-db`, `current-frame`). Per Spec 002 §capture-frame and
   `re-frame.core.cljc`.
 
-  `frame-handle` exists to support async callbacks where the dynamic-var
+  `capture-frame` exists to support async callbacks where the dynamic-var
   frame binding has already unwound: it captures the frame at CREATION
   time and its `:dispatch` / `:dispatch-sync` / `:subscribe` ops always
   target THAT frame — not whatever the caller's current frame is when an
@@ -41,10 +41,10 @@
 
 ;; ---- shape: a handle is an operation bundle ------------------------------
 
-(deftest frame-handle-returns-operation-bundle
-  (testing "(frame-handle frame-id) returns {:frame :dispatch :dispatch-sync :subscribe}"
+(deftest capture-frame-returns-operation-bundle
+  (testing "(capture-frame frame-id) returns {:frame :dispatch :dispatch-sync :subscribe}"
     (rf/reg-frame :fh/shape {:doc "shape probe"})
-    (let [h (rf/frame-handle :fh/shape)]
+    (let [h (rf/capture-frame :fh/shape)]
       (is (= :fh/shape (:frame h))
           ":frame is the captured frame id")
       (is (fn? (:dispatch h))      ":dispatch is a fn")
@@ -53,13 +53,13 @@
 
 ;; ---- captures at creation, not op-call time ------------------------------
 
-(deftest frame-handle-captures-frame-at-creation
-  (testing "(frame-handle) captures the active frame at CREATION; the bundle's
+(deftest capture-frame-captures-frame-at-creation
+  (testing "(capture-frame) captures the active frame at CREATION; the bundle's
             :dispatch routes to THAT frame after the with-frame scope unwinds"
     (rf/reg-frame :fh/A {:doc "frame A — the capture target"})
     (rf/reg-event :fh/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; Capture inside :fh/A; fire OUTSIDE.
-    (let [{:keys [dispatch]} (rf/with-frame :fh/A (rf/frame-handle))]
+    (let [{:keys [dispatch]} (rf/with-frame :fh/A (rf/capture-frame))]
       ;; The dynamic-var binding has unwound. The captured op must still
       ;; route to :fh/A.
       (dispatch [:fh/inc])
@@ -71,7 +71,7 @@
       (is (nil? (:n (rf/app-db-value :rf/default)))
           ":rf/default's app-db was NOT touched — capture is frame-faithful"))))
 
-(deftest frame-handle-subscribe-captures-frame
+(deftest capture-frame-subscribe-captures-frame
   (testing "the bundle's :subscribe op resolves against the captured frame
             after the with-frame scope unwinds"
     (rf/reg-frame :fh/B {:doc "frame B — the subscribe target"})
@@ -82,20 +82,20 @@
     ;; so the assertion can prove the captured subscribe reads :fh/B, not
     ;; :rf/default's app-db.
     (rf/dispatch-sync [:fh/seed :default-value] {:frame :rf/default})
-    (let [{:keys [subscribe]} (rf/with-frame :fh/B (rf/frame-handle))
+    (let [{:keys [subscribe]} (rf/with-frame :fh/B (rf/capture-frame))
           reaction            (subscribe [:fh/value])]
       (is (= :B-value @reaction)
           "captured :subscribe resolves against :fh/B's app-db, not :rf/default"))))
 
 ;; ---- per-call :frame CANNOT override the captured frame ------------------
 
-(deftest frame-handle-locked-frame-cannot-be-overridden
+(deftest capture-frame-locked-frame-cannot-be-overridden
   (testing "a per-call :frame in dispatch opts MUST NOT override the captured
             frame — the handle is LOCKED to one frame"
     (rf/reg-frame :fh/locked {:doc "the locked target"})
     (rf/reg-frame :fh/other  {:doc "the would-be override"})
     (rf/reg-event :fh/touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
-    (let [{:keys [dispatch]} (rf/frame-handle :fh/locked)]
+    (let [{:keys [dispatch]} (rf/capture-frame :fh/locked)]
       ;; Attempt to redirect to :fh/other via a per-call :frame opt.
       (dispatch [:fh/touch] {:frame :fh/other})
       (test-support/poll-until #(:touched? (rf/app-db-value :fh/locked))
@@ -105,30 +105,30 @@
       (is (nil? (:touched? (rf/app-db-value :fh/other)))
           "the per-call :frame :fh/other was IGNORED — the handle is locked"))))
 
-;; ---- contract: (frame-handle) outside any scope RAISES (EP-0002) ---------
+;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
 ;;
 ;; rf2-jue6sp: the no-arg capture form captures ONLY when a real scope
 ;; exists at capture time. Capturing outside any with-frame / provider
 ;; raises :rf.error/no-frame-context — it does NOT capture :rf/default.
 
-(deftest frame-handle-outside-with-frame-raises-no-frame-context
-  (testing "(frame-handle) with no active scope raises :rf.error/no-frame-context
+(deftest capture-frame-outside-with-frame-raises-no-frame-context
+  (testing "(capture-frame) with no active scope raises :rf.error/no-frame-context
             instead of capturing :rf/default (rf2-jue6sp)"
     (is (nil? frame/*current-frame*) "no with-frame scope established")
-    (let [e (try (rf/frame-handle) nil
+    (let [e (try (rf/capture-frame) nil
                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "no-arg frame-handle outside any scope must throw")
+      (is (some? e) "no-arg capture-frame outside any scope must throw")
       (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e)))
           ":rf.error/id is the carried-invariant absence error")
-      (is (= :frame-handle (:operation (ex-data e)))
-          ":operation attributes the failure to frame-handle"))))
+      (is (= :capture-frame (:operation (ex-data e)))
+          ":operation attributes the failure to capture-frame"))))
 
-(deftest frame-handle-explicit-frame-works-outside-scope
-  (testing "(frame-handle frame-id) needs no scope — the explicit-id capture
+(deftest capture-frame-explicit-frame-works-outside-scope
+  (testing "(capture-frame frame-id) needs no scope — the explicit-id capture
             shape for async callbacks / tools / tests (rf2-jue6sp)"
     (rf/reg-event :fh/explicit-touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (is (nil? frame/*current-frame*) "no scope established")
-    (let [h (rf/frame-handle :rf/default)]
+    (let [h (rf/capture-frame :rf/default)]
       (is (= :rf/default (:frame h))
           "the explicit frame-id is captured verbatim")
       ((:dispatch h) [:fh/explicit-touch])

@@ -55,7 +55,7 @@ The skeleton, briefly:
   (fn [_initial-spec]
     (let [el-ref        (atom nil)
           vega-instance (atom nil)
-          dispatch      (:dispatch (rf/frame-handle))]   ;; captured at render — carries the frame
+          dispatch      (:dispatch (rf/capture-frame))]   ;; captured at render — carries the frame
       (r/create-class
         {:display-name           "vega-inner"
          :reagent-render         (fn [_spec] [:div {:ref #(reset! el-ref %)}])
@@ -73,7 +73,7 @@ Four things matter (same as full Reagent — the slim adapter's lifecycle semant
 
 1. **Per-mount state in closure atoms.** Don't `def` / `defonce` at top-level.
 2. **`:component-will-unmount` is mandatory** — without it the library instance and any listeners it attached leak across re-mounts and hot-reloads.
-3. **`(:dispatch (rf/frame-handle))` is captured during render**, not inside the lifecycle callback. The handle carries the surrounding frame; lifecycle callbacks fire after commit but the closure is established at render-time.
+3. **`(:dispatch (rf/capture-frame))` is captured during render**, not inside the lifecycle callback. The handle carries the surrounding frame; lifecycle callbacks fire after commit but the closure is established at render-time.
 4. **Subscriptions live in the outer or in `:reagent-render`** — reactive context is undefined inside `:component-did-mount` / `:component-did-update` / `:component-will-unmount`.
 
 ### Cross-references
@@ -83,5 +83,5 @@ Four things matter (same as full Reagent — the slim adapter's lifecycle semant
 - [`IMPL-SPEC.md` §6](IMPL-SPEC.md) — the implementation contract: validation throw shape, React-class wrapper, lifecycle key → method mapping.
 - [Spec 004 §Form-3 (class — out of scope for the macro)](../../../spec/004-Views.md#form-3-class--out-of-scope-for-the-macro) — why Form-3 ships through `reg-view*` rather than the macro.
 - [Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004-Views.md#views-must-not-attach-native-dom-event-listeners-from-render-bodies) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004-Views.md#views-must-not-own-imperative-library-lifecycles-directly) — bare `addEventListener` in a render body leaks listeners and silently routes dispatches to `:rf/default`; library lifecycles belong in Form-3.
-- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(:dispatch (rf/frame-handle))` at render-time to carry the frame.
+- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(:dispatch (rf/capture-frame))` at render-time to carry the frame.
 - **Outer/inner Pattern (Pattern-OuterInner)** — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries).

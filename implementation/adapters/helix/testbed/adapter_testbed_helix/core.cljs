@@ -30,7 +30,7 @@
 
 (defnc root []
   (let [n        (helix-adapter/use-subscribe [:counter/value])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     (d/div
       (d/h1 {:data-testid "rf-adapter-testbed-helix"}
             "Helix adapter testbed")
@@ -49,7 +49,7 @@
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in the Helix
-  ;; `frame-provider` so the `use-subscribe` / `frame-handle` reads inside
+  ;; `frame-provider` so the `use-subscribe` / `capture-frame` reads inside
   ;; `root` resolve to it.
   (rf/init! helix-adapter/adapter)
   (rf/reg-frame :rf/default {})

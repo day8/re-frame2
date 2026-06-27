@@ -2531,7 +2531,7 @@
   `:rf/default` floor. It now FAILS LOUDLY with
   `:rf.error/no-frame-context`, replacing the retired
   `:rf.warning/dispatch-from-async-callback-fell-through-to-default`. The
-  fix is to capture a `frame-handle` / `frame-bound-fn` at render time
+  fix is to capture a `capture-frame` / `frame-bound-fn` at render time
   (covered by `assert-dfc-dispatch-later-survives-the-timer` et al.).
   ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
@@ -2591,16 +2591,16 @@
         50))))
 
 (defn assert-dfc-dispatcher-survives-set-timeout
-  "(:dispatch (rf/frame-handle)) captures the in-flight frame; the captured fn is safe to
+  "(:dispatch (rf/capture-frame)) captures the in-flight frame; the captured fn is safe to
   call from setTimeout (rf2-l5q3). ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
-  (testing (str name " — (:dispatch (rf/frame-handle)) survives setTimeout")
+  (testing (str name " — (:dispatch (rf/capture-frame)) survives setTimeout")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           parent (mint-kw substrate-kw "dfc-parent-bound")
           landed (mint-kw substrate-kw "dfc-landed-bound")]
       (rf/reg-event parent
         (fn [_ _]
-          (let [d (:dispatch (rf/frame-handle))]
+          (let [d (:dispatch (rf/capture-frame))]
             (js/setTimeout (fn [] (d [landed])) 0))
           {}))
       (rf/reg-event landed (fn [{:keys [db]} _] {:db (update db :received (fnil conj []) :landed-bound)}))
@@ -2610,7 +2610,7 @@
           (js/setTimeout
             (fn []
               (is (= [:landed-bound] (dfc-received tenant-a))
-                  "(:dispatch (rf/frame-handle)) captured tenant-a at call time; the setTimeout callback dispatches there")
+                  "(:dispatch (rf/capture-frame)) captured tenant-a at call time; the setTimeout callback dispatches there")
               (is (empty? (dfc-received :rf/default)) ":rf/default sees nothing")
               (done))
             10))

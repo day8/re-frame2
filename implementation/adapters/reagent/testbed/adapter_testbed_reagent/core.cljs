@@ -37,15 +37,15 @@
 ;; view in the codebase (Spec 002 §Reading the frame from React context).
 (reg-view root []
   ;; EP-0002 (rf2-9o48ih): capture a frame-bound `dispatch` at RENDER time via
-  ;; `(rf/frame-handle)`. The reg-view resolves the surrounding frame-provider's
+  ;; `(rf/capture-frame)`. The reg-view resolves the surrounding frame-provider's
   ;; frame through React context here; the handle closes over it, so the
   ;; `:on-click` handler — which fires LATER (on user click), outside any render
   ;; or `with-frame` scope — still routes to `:rf/default`. A bare
   ;; `#(rf/dispatch [:counter/inc])` would resolve no frame at click time and
   ;; raise `:rf.error/no-frame-context` (the runtime never synthesises a frame
-  ;; from absence). Mirrors the UIx / Helix testbeds' `frame-handle` pattern.
+  ;; from absence). Mirrors the UIx / Helix testbeds' `capture-frame` pattern.
   (let [n        @(rf/subscribe [:counter/value])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     [:div
      [:h1 {:data-testid "rf-adapter-testbed-reagent"}
       "Reagent adapter testbed"]

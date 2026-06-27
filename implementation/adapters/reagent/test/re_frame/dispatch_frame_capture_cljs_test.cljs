@@ -18,7 +18,7 @@
     3. `:fx [[:dispatch ...]]` from a `reg-event` handler returning an
        `:fx` effects map (the documented workaround).
     4. `:fx [[:dispatch-later {:ms 0 :event ...}]]` and the
-       `(:dispatch (rf/frame-handle))` capture-at-creation affordance.
+       `(:dispatch (rf/capture-frame))` capture-at-creation affordance.
 
   Per rf2-l5q3 the fix routes through `process-event!`: the drain
   loop now binds `frame/*current-frame*` to the envelope's `:frame`
@@ -27,7 +27,7 @@
   event's frame. Async escapes (setTimeout / Promise.then /
   requestAnimationFrame) still need an explicit-capture affordance —
   `:fx [[:dispatch ...]]` (canonical), `:dispatch-later`, or
-  `(:dispatch (rf/frame-handle))`. See spec/002-Frames.md §Dispatch and the
+  `(:dispatch (rf/capture-frame))`. See spec/002-Frames.md §Dispatch and the
   dynamic-binding tier."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
@@ -126,7 +126,7 @@
 ;;
 ;; This test documents the inherent dynamic-scope limit and points
 ;; users at the three explicit-capture affordances (`:fx [[:dispatch
-;; ...]]` / `:dispatch-later` / `(:dispatch (rf/frame-handle))`) covered in the
+;; ...]]` / `:dispatch-later` / `(:dispatch (rf/capture-frame))`) covered in the
 ;; deftests below.
 
 (deftest direct-dispatch-from-set-timeout-raises-no-frame-context
@@ -137,7 +137,7 @@
     ;; dead dynamic binding means no carried frame stamp, so the dispatch
     ;; now FAILS LOUDLY with `:rf.error/no-frame-context`. The throw is
     ;; caught here so the timer callback does not crash the host; the fix
-    ;; is to capture a `frame-handle` / use `:dispatch-later` (the
+    ;; is to capture a `capture-frame` / use `:dispatch-later` (the
     ;; deftests below). (Touched by the router bead to retire the old
     ;; fall-through expectation + stop the uncaught-async crash; the
     ;; adapter root/view migration bead — rf2-69r7ui — owns this surface
@@ -242,22 +242,22 @@
             50))
         50))))
 
-;; ---- 4b. frame-handle :dispatch — async with explicit capture -------------
+;; ---- 4b. capture-frame :dispatch — async with explicit capture -------------
 ;;
-;; `(:dispatch (rf/frame-handle))` captures the current frame at creation
+;; `(:dispatch (rf/capture-frame))` captures the current frame at creation
 ;; time and returns a dispatch op locked to that frame. This is the same
 ;; shape `:fx [[:dispatch ...]]` uses internally — exposed for plain-fn
 ;; callers (test setup, REPL, async libraries that don't speak re-frame
-;; fx). Per rf2-kkut0 `frame-handle` is the keystone affordance replacing
+;; fx). Per rf2-kkut0 `capture-frame` is the keystone affordance replacing
 ;; the removed `dispatcher` / `subscriber` nouns.
 
 (deftest dispatcher-survives-set-timeout
-  (testing "(:dispatch (rf/frame-handle)) captures the in-flight frame; the captured fn is safe to call from setTimeout"
+  (testing "(:dispatch (rf/capture-frame)) captures the in-flight frame; the captured fn is safe to call from setTimeout"
     (async done
       (seed-frames!)
       (rf/reg-event :rf-l5q3/parent-bound
                        (fn [_ _]
-                         (let [d (:dispatch (rf/frame-handle))]
+                         (let [d (:dispatch (rf/capture-frame))]
                            (js/setTimeout
                              (fn [] (d [:rf-l5q3/landed-bound]))
                              0))
@@ -271,7 +271,7 @@
           (js/setTimeout
             (fn []
               (is (= [:landed-bound] (received :rf-l5q3/tenant-a))
-                  "(:dispatch (rf/frame-handle)) captured :tenant-a at call time; the setTimeout callback dispatches there")
+                  "(:dispatch (rf/capture-frame)) captured :tenant-a at call time; the setTimeout callback dispatches there")
               (is (empty? (received :rf/default))
                   ":rf/default sees nothing")
               (done))

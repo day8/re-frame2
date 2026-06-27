@@ -459,7 +459,7 @@
    error IS the diagnostic now: the bare reagent fn fails fast rather than
    targeting a conventional default. To capture the surrounding frame, a
    plain fn must use `reg-view` (which wires `:contextType`) or capture a
-   `(rf/frame-handle)` at render time.
+   `(rf/capture-frame)` at render time.
 
    Browser-only — requires a real React render so the React-context
    tier actually pushes the Provider's value."
