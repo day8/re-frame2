@@ -51,7 +51,7 @@
 ;; Here's the one thing UIx does differently. It's plain React, so a view is
 ;; a `defui` component that asks for what it needs out loud: `use-subscribe`
 ;; is a hook that reads a subscription, and `dispatch` comes off a
-;; `(rf/capture-frame)`. The handle grabs the in-scope frame and freezes it
+;; `(rf/capture-frame)`. That frame api freezes the in-scope frame
 ;; into a value, so the `dispatch` we close over still knows which frame to
 ;; target when a click fires much later — by which point we're deep in an
 ;; event handler with no frame in scope to ask. So grab it at render time,

@@ -82,7 +82,7 @@
         failed?       @(subscribe [:ws/failed?])
         any-active?   (or connected? reconnecting?)
         ;; Drop calls a mock-server seam that ends up dispatching from
-        ;; outside any render scope. So we grab this view's frame handle now,
+        ;; outside any render scope. So we grab this view's frame api now,
         ;; while we're rendering and a frame is in scope, and pass it along —
         ;; the deferred dispatch rides the frame in. Without it, a bare
         ;; dispatch out there would raise :rf.error/no-frame-context.
@@ -148,7 +148,7 @@
   (let [connected?  @(subscribe [:ws/connected?])
         last-reply  @(subscribe [:messages/last-reply])
         ;; Same story as `lifecycle-buttons`: the server-push button
-        ;; dispatches from outside the render, so capture the frame handle
+        ;; dispatches from outside the render, so capture the frame api
         ;; here and hand it along.
         handle      (rf/capture-frame)]
     [:div.demo-buttons

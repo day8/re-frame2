@@ -558,7 +558,7 @@
 
   The sub is created via a `(rf/capture-frame :rf/xray)` `:subscribe`
   so the watcher reads the Xray frame's app-db (where the issues feed
-  lives) — the handle locks the held reaction to `:rf/xray` without a
+  lives) — the frame api locks the held reaction to `:rf/xray` without a
   surrounding dynamic-frame scope. The reaction is held in a `defonce`
   atom so re-install on `:after-load` does not double-watch."
   []

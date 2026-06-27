@@ -38,7 +38,7 @@
 (reg-view root []
   ;; EP-0002 (rf2-9o48ih): capture a frame-bound `dispatch` at RENDER time via
   ;; `(rf/capture-frame)`. The reg-view resolves the surrounding frame-provider's
-  ;; frame through React context here; the handle closes over it, so the
+  ;; frame through React context here; the frame api closes over it, so the
   ;; `:on-click` handler — which fires LATER (on user click), outside any render
   ;; or `with-frame` scope — still routes to `:rf/default`. A bare
   ;; `#(rf/dispatch [:counter/inc])` would resolve no frame at click time and

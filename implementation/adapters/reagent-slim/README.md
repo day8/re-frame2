@@ -73,7 +73,7 @@ Four things matter (same as full Reagent — the slim adapter's lifecycle semant
 
 1. **Per-mount state in closure atoms.** Don't `def` / `defonce` at top-level.
 2. **`:component-will-unmount` is mandatory** — without it the library instance and any listeners it attached leak across re-mounts and hot-reloads.
-3. **`(:dispatch (rf/capture-frame))` is captured during render**, not inside the lifecycle callback. The handle carries the surrounding frame; lifecycle callbacks fire after commit but the closure is established at render-time.
+3. **`(:dispatch (rf/capture-frame))` is captured during render**, not inside the lifecycle callback. The frame api carries the surrounding frame; lifecycle callbacks fire after commit but the closure is established at render-time.
 4. **Subscriptions live in the outer or in `:reagent-render`** — reactive context is undefined inside `:component-did-mount` / `:component-did-update` / `:component-will-unmount`.
 
 ### Cross-references

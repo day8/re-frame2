@@ -413,7 +413,7 @@ per-call `{:frame frame}` opt — cleaner than threading a `dispatch-fn`
 through every intermediate fn. For ops that fire after the dynamic frame
 context unwinds (async clipboard / `setTimeout` continuations, held
 watcher subscriptions), capture a `(rf/capture-frame)` once and call its
-`:dispatch` / `:subscribe` — the bundle survives the async boundary. The
+`:dispatch` / `:subscribe` — the frame api survives the async boundary. The
 de-singleton sweep (rf2-1w07r EPIC,
 closed via rf2-nesy9) applied this end-to-end: every Xray panel, modal,
 and static surface now captures its instance frame, and the

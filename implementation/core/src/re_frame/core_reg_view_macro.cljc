@@ -167,20 +167,20 @@
              ;;
              ;; Per rf2-kkut0 (frame-affordance redesign) + rf2-cry25
              ;; (Option A, Mike-ruled): the reg-view injection is now SUGAR
-             ;; over a single `make-capture-frame` — the handle captures the
+             ;; over a single `make-capture-frame` — the frame api captures the
              ;; render-time frame ONCE, and the injected `dispatch` /
              ;; `subscribe` NOUNS are its `:dispatch` / `:subscribe` ops.
              ;; They shadow the coord-capturing `dispatch` / `subscribe`
              ;; MACROS for the whole view body, so a view's on-click
              ;; `#(dispatch [...])` would otherwise classify as
              ;; `:source :unknown` with no call-site. We pass the view's
-             ;; coord into the handle's `:dispatch-opts` so the dispatch
+             ;; coord into the frame api's `:dispatch-opts` so the dispatch
              ;; carries `:source :ui` + the view's `:rf.trace/call-site`,
              ;; and `:subscribe-call-site` so the subscribe carries the
              ;; same call-site on its synchronous error path. The body
              ;; stays spliced VERBATIM (`~@body`) — no code-walking, no
              ;; rewriting of user view code; the blast radius is the
-             ;; handle's opts only. Render-time frame capture is preserved
+             ;; frame api's opts only. Render-time frame capture is preserved
              ;; (`make-capture-frame` captures `(current-frame-id)` once).
              fn-body  `(fn ~sym ~args
                          (let [handle#    (re-frame.core/make-capture-frame

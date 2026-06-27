@@ -3086,7 +3086,7 @@
   Both gestures dispatch through the lexically-captured `dispatch-fn` —
   the frame-bound `dispatch` the surrounding `reg-view` body injects
   (the macro expands it over a `capture-frame` capturing the render
-  frame). The handle bound the instance frame synchronously during
+  frame). The frame api bound the instance frame synchronously during
   render, so the dispatch lands on the SURROUNDING instance frame even
   though the gesture fires later (after
   React's synthetic-event timing has popped the dynamic frame context).
@@ -3256,7 +3256,7 @@
   The popup OPEN event dispatches through the lexically-captured
   `dispatch-fn` — the frame-bound `dispatch` the surrounding `reg-view`
   body injects (the macro expands it over a `capture-frame` capturing the
-  render frame). The handle bound the instance frame synchronously
+  render frame). The frame api bound the instance frame synchronously
   during render, so the popup-open write lands on the SURROUNDING
   instance frame even though the click fires after React's
   synthetic-event timing has popped the dynamic frame context.

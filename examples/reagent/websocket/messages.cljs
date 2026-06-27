@@ -205,7 +205,7 @@
   "Push a made-up server message to every live mock socket — the inbound
    path the 'Trigger server push' button (and the tests) exercise.
 
-   `handle` is a `(rf/capture-frame)` bundle holding the caller's frame, so
+   `handle` is a `(rf/capture-frame)` frame api holding the caller's frame, so
    the deferred dispatch can carry it across the click-handler / async
    boundary. See docs/guide/glossary.md#capture-frame."
   [handle body]
@@ -216,7 +216,7 @@
 (defn simulate-disconnect!
   "Yank every live mock socket closed and let the parent's reconnect
    cascade take it from there — this is what the 'Drop connection' button
-   does. `handle` is the caller's `(rf/capture-frame)` bundle (see
+   does. `handle` is the caller's `(rf/capture-frame)` frame api (see
    `send-server-push!`)."
   [handle]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]
