@@ -184,6 +184,7 @@ nav:
       - "Observability": guide/concepts/observability.md
     - "How-to":
       - guide/how-to/index.md
+      - "Boot and mount an app": guide/how-to/boot-and-mount-an-app.md
       - "Add auth": guide/how-to/add-auth.md
       - "Build a form": guide/how-to/build-a-form.md
       - "Validate with schemas": guide/how-to/validate-with-schemas.md

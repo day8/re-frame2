@@ -44,77 +44,26 @@ spell out the shape to look for.
 
 ## Convention: example mount-isolation — defer DOM mount to `mount!`
 
-The example wrappers all compile into **one** `:node-test` bundle and share **one**
-re-frame registry; the DOM-dependent tests compile into **one** `:browser-test`
-bundle, **one** Chromium page, sharing **one** `#app` mount point. So an example
-must not touch the DOM just by being loaded:
+How an example *boots and mounts* — `boot!` installs the adapter, `mount!`
+creates the frame via the `frame-provider` ensure form, the `defonce` root plus
+`^:dev/after-load` give hot reload — is the canonical app-startup shape, covered
+in [Boot and mount an app](../docs/guide/how-to/boot-and-mount-an-app.md). The
+only part that's *test-specific* is this one rule:
 
-> Do no DOM mount side effects at namespace-load time. Defer `create-root` (or
-> your substrate's equivalent) to the example's `mount!` fn.
+> Example `core` namespaces are co-required by their `cljs-test` wrappers under
+> the **node-test** build (`ns-regexp "cljs-test$"`, no DOM), so they must not
+> mount at ns-load — an ns-load `create-root` crashes with no `js/document`.
+
+So the `create-root` call lives **inside `mount!`** (created lazily, behind a
+`(exists? js/document)` guard), never at the top level of the namespace. That's
+what lets the same `core` ns load cleanly both in a browser and headlessly on
+Node. The rule is enforced by code review.
 
 `run` is the bundle entry point, wired as the `:init-fn` of the example's
 shadow-cljs build in
 [`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn) (e.g.
 `:examples/counter` → `:init-fn counter.core/run`). shadow-cljs resolves the symbol
 inside the compiled bundle, so it needs no `^:export`.
-
-A mount at ns-load instead would have a co-required example race `create-root` on
-the same shared `#app`, leaking one example's mount into another's tests. This is
-enforced by code review.
-
-### Boot shape: `boot!`, `mount!`, `frame-provider`
-
-A TodoMVC-style example splits its boot into two fns, called in order by `run`:
-
-- **`boot!`** runs once, before the first render: install the adapter
-  (`rf/init!`) and any host listeners. Listener installs are made idempotent
-  (remove-then-add the same Var) so a repeated `run` or a reload never stacks
-  duplicates.
-- **`mount!`** creates the React root **lazily** on first call (not at ns-load)
-  and renders. The render root is a `frame-provider {:id … :initial-events …}`:
-  on first mount it creates the app frame, applies its config, and runs
-  `:initial-events` once to seed app-db; on a later mount it reuses the frame
-  and skips re-seeding, so state survives.
-
-The React root lives in a `defonce` atom and `mount!` carries `^:dev/after-load`
-— that pair **is the hot-reload requirement**. `defonce` keeps the one root across
-reloads (React rejects a second `create-root` on a live node), and
-`^:dev/after-load` makes shadow re-run `mount!` after each reload so the edited
-views re-render against the surviving root and frame.
-
-The shape every example uses (Reagent shown; UIx and Helix do the same):
-
-```clojure
-;; ns-load: no DOM side effects. The atom holds the React root once mount! makes it.
-(defonce react-root (atom nil))
-
-(def app-frame :rf/default)            ; an id we pick; no framework privilege
-
-;; ^:dev/after-load: shadow re-runs this on every reload. defonce root + lazy
-;; create-root means the root is made once and reused across reloads.
-(defn ^:dev/after-load mount! []
-  (when (exists? js/document)
-    (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root
-                ;; frame-provider creates + seeds the frame on first mount,
-                ;; reuses it (no re-seed) on reload.
-                [rf/frame-provider {:id             app-frame
-                                    :initial-events [[:counter/initialise]]}
-                 [counter-app]])))
-
-(defn- boot! []                        ; install adapter + listeners, once
-  (rf/init! reagent-adapter/adapter))
-
-(defn run []                           ; shadow :init-fn — runs once, at page load
-  (boot!)
-  (mount!))
-```
-
-[`examples/reagent/todomvc/core.cljs`](reagent/todomvc/core.cljs) is the fullest
-worked version (it adds an idempotent `hashchange` listener in `boot!` and a
-`:url-bound? true` frame in `mount!`);
-[`examples/reagent/counter/core.cljs`](reagent/counter/core.cljs) is the minimal one.
 
 ## Convention: prefix every registered id
 
