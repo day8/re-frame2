@@ -59,7 +59,7 @@ npm run test:adapter-smokes
 
 Shadow-cljs build id is `testbeds/ssr-basic`; output lands in
 `implementation/out/testbeds/ssr-basic/`. The orchestrator
-(`examples/scripts/serve-and-run-adapter-smokes.cjs`) stages this
+(`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`) stages this
 testbed's `index.html` next to `main.js` and serves the directory
 at `/ssr-basic/`.
 

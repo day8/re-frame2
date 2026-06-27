@@ -73,7 +73,7 @@ orchestrator) and navigates the Xray testbed URLs against it.
 
 The pipeline needs the example bundles compiled and served. The
 canonical examples test orchestrator
-(`examples/scripts/serve-and-run-adapter-smokes.cjs`, invoked via
+(`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`, invoked via
 `npm run test:adapter-smokes` from `implementation/`) builds and serves every
 example bundle on `http://127.0.0.1:8040` (its default port; override
 with `EXAMPLES_PORT`, and point this script at the same port via

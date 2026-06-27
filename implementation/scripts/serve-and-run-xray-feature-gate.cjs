@@ -181,7 +181,7 @@ function compileSurfaces() {
 // relative paths like `_shared/css/reagent.css`, so any staged surface
 // whose HTML lives under `examples/` gets the `_shared/` tree mirrored
 // alongside its main.js + index.html. Mirrors the equivalent
-// `stageShared` step in examples/scripts/serve-and-run-adapter-smokes.cjs
+// `stageShared` step in implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs
 // (rf2-sivlu — without this the counter index.html 404s on its
 // stylesheet under the Xray gate, the inline layout breaks, and the
 // `source coordinates and launch-mode availability` scenario fails on

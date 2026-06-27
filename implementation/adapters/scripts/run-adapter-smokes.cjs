@@ -63,7 +63,9 @@ const {
 // is no examples/package.json by design. Resolve playwright
 // out of implementation/node_modules explicitly so the runner can be
 // invoked from any cwd.
-const IMPL_ROOT = path.resolve(__dirname, '..', '..', 'implementation');
+// __dirname is <repo>/implementation/adapters/scripts, so IMPL_ROOT is two
+// levels up.
+const IMPL_ROOT = path.resolve(__dirname, '..', '..');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
 // ADAPTER_SMOKE_BASE_URL is always set by the orchestrator
@@ -165,14 +167,14 @@ function withTimeout(promise, ms, label) {
   if (missing.length > 0) {
     console.error(
       `ADAPTER_SMOKES manifest references spec(s) not on disk:\n  ${missing.join('\n  ')}\n` +
-        `Fix examples/scripts/adapter-smoke-filter.cjs (a renamed/removed smoke?).`,
+        `Fix implementation/adapters/scripts/adapter-smoke-filter.cjs (a renamed/removed smoke?).`,
     );
     process.exit(1);
   }
   if (undeclared.length > 0) {
     console.error(
       `Found spec(s) under ${ADAPTER_SMOKE_SPEC_ROOTS.join(', ')} not declared in the ADAPTER_SMOKES manifest:\n  ${undeclared.join('\n  ')}\n` +
-        `Add an entry to examples/scripts/adapter-smoke-filter.cjs (or remove the stray spec).`,
+        `Add an entry to implementation/adapters/scripts/adapter-smoke-filter.cjs (or remove the stray spec).`,
     );
     process.exit(1);
   }

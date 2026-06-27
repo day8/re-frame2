@@ -29,8 +29,9 @@
  *      manifest: its driver file is not named
  *      spec.cjs/*.spec.cjs (so the shared adapter-smoke spec-walker never
  *      discovers it and its reconcile guard stays green) AND it is not an
- *      entry in examples/scripts/adapter-smoke-filter.cjs (whose Reagent/UIx/
- *      Helix set is its own surface). This is the two-way drift guard.
+ *      entry in implementation/adapters/scripts/adapter-smoke-filter.cjs
+ *      (whose Reagent/UIx/Helix set is its own surface). This is the
+ *      two-way drift guard.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
  * check-reagent-slim-boundary.test.cjs. Wired into package.json via
@@ -51,7 +52,7 @@ const SMOKE = path.join(TESTBED_DIR, 'smoke.cjs');
 const RUNNER = path.join(IMPL_ROOT, 'scripts', 'serve-and-run-reagent-slim-smoke.cjs');
 const SHADOW_EDN = path.join(IMPL_ROOT, 'shadow-cljs.edn');
 const PKG_JSON = path.join(IMPL_ROOT, 'package.json');
-const ADAPTER_SMOKE_FILTER = path.join(REPO_ROOT, 'examples', 'scripts', 'adapter-smoke-filter.cjs');
+const ADAPTER_SMOKE_FILTER = path.join(IMPL_ROOT, 'adapters', 'scripts', 'adapter-smoke-filter.cjs');
 const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'test.yml');
 const CHANGED_SURFACES = path.join(
   REPO_ROOT,

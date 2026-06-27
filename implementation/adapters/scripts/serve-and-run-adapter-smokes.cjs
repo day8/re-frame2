@@ -38,21 +38,25 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { resolveExamplesPort } = require('./examples-port.cjs');
+// examples-port.cjs (free-port resolution) + examples-staging.cjs (the
+// shared staging/cleaning helpers) live in the example tree because the
+// example dev runner (serve-example.cjs) and the Story launchers depend on
+// them there. This orchestrator imports them across-tree — the same shape it
+// uses for the implementation tree's local-browser-harness below — rather than
+// duplicating either, so all the browser harnesses stage + resolve ports
+// identically. The adapter-specific manifest moves with this runner.
+const { resolveExamplesPort } = require('../../../examples/scripts/examples-port.cjs');
 const {
   ADAPTER_SMOKES,
   parseFilterPatterns,
   selectEntries,
 } = require('./adapter-smoke-filter.cjs');
-// Shared staging helpers (rf2-pdo5mx) — the recursive copy + _shared fan-out
-// live in one place so the standalone-example dev runner (serve-example.cjs)
-// reuses the SAME staging this orchestrator does, rather than duplicating it.
-const { stageShared, cleanStageDirs } = require('./examples-staging.cjs');
+const { stageShared, cleanStageDirs } = require('../../../examples/scripts/examples-staging.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
   waitForHttpReady,
-} = require('../../implementation/scripts/lib/local-browser-harness.cjs');
+} = require('../../scripts/lib/local-browser-harness.cjs');
 
 // Narrow filter. When set, only the ADAPTER_SMOKES entries the filter
 // selects are compiled + staged, and the value is propagated to the
@@ -106,9 +110,10 @@ const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // `EXAMPLES_PORT` overrides the default; when unset the resolver scans
 // forward from 8050 to the next free port, and when set-but-busy it throws
 // an actionable message (no raw EACCES stack). No CLI surface is added.
-// __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
-// (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+// __dirname is <repo>/implementation/adapters/scripts. IMPL_ROOT is
+// <repo>/implementation (where shadow-cljs runs and node_modules lives);
+// REPO_ROOT is <repo>.
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const RUNNER = path.resolve(__dirname, 'run-adapter-smokes.cjs');
