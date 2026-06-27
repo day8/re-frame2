@@ -30,10 +30,10 @@
    New to the terms? docs/guide/glossary.md defines event, subscription,
    app-db, and view; docs/guide/concepts/views.md covers views and hiccup
    in depth."
-  ;; We render through stock Reagent (`reagent.dom.client`). The adapter
-  ;; is the value that teaches re-frame2 how to talk to a given rendering
-  ;; library — swap it and the same app runs on UIx or Helix. See
-  ;; docs/guide/glossary.md#adapter.
+  ;; We render through stock Reagent (`reagent.dom.client` +
+  ;; `re-frame.adapter.reagent`). The adapter is the value that teaches
+  ;; re-frame2 how to talk to a given rendering library — swap it and the
+  ;; same app runs on UIx or Helix. See docs/guide/glossary.md#adapter.
   (:require [reagent.dom.client :as rdc]
             [clojure.string     :as str]
             [re-frame.core      :as rf]
@@ -264,17 +264,19 @@
     (into [:p] (inline-md->hiccup block))))
 
 (defn markdown->hiccup
-  "The whole parser, top level. Split the text on blank lines into blocks,
-   figure out each block's shape (heading? list? paragraph?), and run the
-   inline rules over it. Just enough markdown for the seed content.
+  "The whole pure-CLJS parser, top level. Split the text on blank lines
+   into blocks, figure out each block's shape (heading? list? paragraph?),
+   and run the inline rules over it. Just enough markdown for the seed
+   content.
 
    Returns a vector of block hiccup for the caller to splice into a
-   container. The fiddly detail is the `:key` on each block. React renders
-   these as a list, and it uses keys to decide what moved versus what's
-   new. We key by content (its hash), not by index — index keys would
-   re-key every block below an edit and make React redraw the lot, when
-   all you did was add a sentence. Two identical blocks would collide, so
-   we mix in the position to keep keys unique."
+   container; Reagent renders that vector as a seq of children. The fiddly
+   detail is the `:key` on each block. React renders these as a list, and
+   it uses keys to decide what moved versus what's new. We key by content
+   (its hash), not by index — index keys would re-key every block below an
+   edit and make React redraw the lot, when all you did was add a sentence.
+   Two identical blocks would collide, so we mix in the position to keep
+   keys unique."
   [s]
   (let [blocks (->> (str/split (or s "") #"\r?\n\r?\n")
                     (remove str/blank?))]

@@ -33,9 +33,9 @@
    - The reply settles the same way every time. A success (`:ok`) commits:
      `:populates` overwrites the optimistic guess with the server's authoritative
      board. A failure (`:error`) rolls back: the recorded value returns and the
-     optimistic change visibly reverts. The verdict reads recorded facts — which
-     write this is, plus each entry's revision when the patch applied — so no
-     wall-clock race decides who wins.
+     optimistic change visibly reverts. The verdict reads recorded facts — the
+     generation-acceptance verdict (which write this is) plus each entry's
+     revision when the patch applied — so no wall-clock race decides who wins.
 
    - Rollback is the thing you actually watch. A 'Fail the next write' toggle
      arms the demo backend to answer the next mutation with a 503. The optimistic

@@ -32,9 +32,9 @@
    This drives the real server path, not a stand-in. It drains the blocking
    page resource before rendering (`ssr/drain-blocking-resources!`) and ships
    only the allowed runtime-db projection (`payload-policy/project-runtime-db`)
-   under `:rf/runtime-db` — never the full cache. The app-db slice goes through
-   the same fail-closed allowlist (`apply-policy`) the production Ring host
-   uses. The static `index.html` next to this file carries a pre-baked payload
+   under `:rf/runtime-db` — never the full cache. The `:rf/app-db` slice goes
+   through the same fail-closed allowlist (`apply-policy`) the production Ring
+   host uses. The static `index.html` next to this file carries a pre-baked payload
    so the browser side runs without a Clojure server in the box.
 
    For the full picture see [Resources: SSR and hydration](../../../docs/resources/concepts.md#ssr-and-hydration)

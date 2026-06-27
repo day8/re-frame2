@@ -38,12 +38,13 @@
 ;; ============================================================================
 
 ;; A person's `:id` does real work: it's the selection, and it's the React
-;; `:key`. It also lives in app-db forever, which means it has to survive a
-;; replay unchanged — replay a recording and you must get the *same* ids back.
-;; That rules out `(random-uuid)` at the write site (a fresh random number every
-;; time is the opposite of reproducible). So we count instead: a plain `:int`
-;; handed out from a `:next-id` counter that lives in the db, where replay can
-;; see it. See docs/guide/glossary.md#recordable-vs-ambient-coeffects.
+;; `:key`. It also lives in durable app-db (`[:crud :people]`) forever, which
+;; means it has to survive a replay unchanged — replay a recording and you must
+;; get the *same* ids back. That rules out `(random-uuid)` at the write site (a
+;; fresh random number every time is the opposite of reproducible). So we count
+;; instead: a monotonic `:int` handed out from a `:next-id` counter that lives in
+;; the db, where replay can see it.
+;; See docs/guide/glossary.md#recordable-vs-ambient-coeffects.
 (def Person
   [:map
    [:id      :int]

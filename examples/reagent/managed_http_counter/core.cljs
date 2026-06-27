@@ -5,10 +5,10 @@
   That's the whole idea, and it's built on one effect: `:rf.http/managed`.
   You describe a request as data; the runtime owns the rest of its life —
   encode, send, decode, sort the failures, retry, abort. When the answer
-  comes home it arrives as an ordinary event, re-dispatched to the very
-  handler that sent the request. So \"send\" and \"receive\" are two passes
-  through one pure function, and you never go near js/fetch. The HTTP guide
-  has the full contract: docs/resources/http.md.
+  comes home it arrives as an ordinary event, re-dispatched — via default
+  reply addressing — to the very handler that sent the request. So \"send\"
+  and \"receive\" are two passes through one pure function, and you never go
+  near js/fetch. The HTTP guide has the full contract: docs/resources/http.md.
 
   Five buttons walk the whole surface:
 
@@ -329,10 +329,10 @@
 ;; ============================================================================
 ;;
 ;; We keep the React root in an atom and only build it lazily inside `run`,
-;; never at ns-load. That's the mount-isolation rule from examples/TESTING.md:
-;; loading a namespace must have zero DOM side effects, so that two example
-;; namespaces sharing a page can't race each other to call `create-root` on
-;; the same `#app`.
+;; never at ns-load. That's the mount-isolation rule from examples/TESTING.md
+;; §Example mount-isolation convention: loading a namespace must have zero DOM
+;; side effects, so that two example namespaces sharing a page can't race each
+;; other to call `create-root` on the same `#app`.
 
 (defonce react-root (atom nil))
 

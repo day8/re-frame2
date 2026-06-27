@@ -51,9 +51,10 @@
      `[:boot/staging <staging-key>]`, then signals done. The runtime
      reads a `:spawn-all`'s `:on-child-done` / `:on-child-error` events
      only to track the join — they never reach the parent's `:on` table,
-     and the join-resolution event carries no per-child data. So the
-     payload can't ride the event; it goes through the staging slot, and
-     the parent reads the whole slot once the join resolves.
+     and the synthesised join-resolution event
+     (`:on-all-complete [:boot/deps-ready]`) carries no per-child data. So
+     the payload can't ride the event; it goes through the staging slot,
+     and the parent reads the whole slot once the join resolves.
    - The single `:spawn` in `:configuring` is the exception: its
      completion event *does* reach the parent's `:on` table (only join
      events get intercepted). So the config child carries its payload on

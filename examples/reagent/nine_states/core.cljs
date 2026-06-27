@@ -76,15 +76,17 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            ;; Schemas ship as their own artefact. Requiring this ns wires
-            ;; up the hooks the `rf/reg-app-schema` call below leans on.
+            ;; Schemas ship as their own artefact, day8/re-frame2-schemas.
+            ;; Requiring this ns wires up the hooks the `rf/reg-app-schema`
+            ;; call below leans on.
             [re-frame.schemas]
-            ;; Likewise machines: requiring this registers `rf/reg-machine`
-            ;; and the `:rf/machine` / `:rf/machine-has-tag?` subs we use
-            ;; throughout.
+            ;; Likewise machines, from day8/re-frame2-machines: requiring
+            ;; this registers `rf/reg-machine` and the `:rf/machine` /
+            ;; `:rf/machine-has-tag?` subs we use throughout.
             [re-frame.machines]
-            ;; Managed-HTTP. Requiring it registers the `:rf.http/managed`
-            ;; fx (and its family) that the load events dispatch.
+            ;; Managed-HTTP ships in day8/re-frame2-http. Requiring it
+            ;; registers the `:rf.http/managed` fx (and its family) that
+            ;; the load events dispatch.
             [re-frame.http.managed]
             ;; The framework's canned-reply stubs
             ;; (`:rf.http/managed-canned-success` / `-failure`). Our little

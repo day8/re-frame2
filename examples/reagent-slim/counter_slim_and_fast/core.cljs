@@ -18,7 +18,8 @@
    You'll also spot two sibling files here that have nothing to teach you:
    `bundle-isolation-entry` and `bundle-isolation-fixture`. They exist to
    prove a CI gate, live entirely off to the side, and boot the same app
-   through the shared `boot!` helper below. Read past them."
+   through the shared `boot!` helper below — the entry just hands it a hook
+   that exercises the pure-CLJS SSR path the gate inspects. Read past them."
   (:require [reagent2.dom.client                :as rdc]
             [re-frame.core                      :as rf]
             [re-frame.views]

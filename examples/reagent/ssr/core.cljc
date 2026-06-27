@@ -166,9 +166,12 @@
 ;; ../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.)
 ;;
 ;; It's also paranoid in the good way — it fails closed. A payload that isn't a
-;; map, or a slice that's present but malformed, leaves the frame-state exactly
-;; as it was rather than installing garbage. Along the way it tucks the server's
-;; render hash aside for the verify step that follows the first render.
+;; map, or a slice (`:rf/app-db` / `:rf/runtime-db`) that's present but not a
+;; map, leaves the frame-state exactly as it was rather than installing garbage.
+;; (A wholly-absent slice key isn't malformed — that's the no-server-slice
+;; first-load shape, which falls back to the existing partition value.) Along
+;; the way it tucks the server's render hash aside for the verify step that
+;; follows the first render.
 ;;
 ;; This example has no machines and doesn't hydrate a route, so its runtime-db
 ;; slice is empty here — but the shape is the same one a richer app fills in.

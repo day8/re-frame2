@@ -47,7 +47,8 @@
   (:require [re-frame.core :as rf]
             ;; `re-frame.machines` ships in day8/re-frame2-machines.
             ;; Requiring it is what wires up the machine vocabulary: the
-            ;; `:rf.machine/spawn` / `:rf.machine/destroy` fx and the
+            ;; late-bind hook behind `rf/make-machine-handler`, the
+            ;; `:rf.machine/spawn` / `:rf.machine/destroy` fx, and the
             ;; `:rf/machine` / `:rf/machine-has-tag?` subs you'll see used
             ;; below. Skip the require and they simply aren't there.
             [re-frame.late-bind]
@@ -94,11 +95,12 @@
         (seq (:queue data)))
 
       :current-socket?
-      ;; "Is this from the socket we're actually using right now?" Every
-      ;; inbound event stamps the id of the socket it came from
-      ;; (`:source-socket-id`, the actor's `:rf/self-id`). We let it
-      ;; through only if that matches the live socket — otherwise it's a
-      ;; straggler from a connection we've already replaced, and we drop it.
+      ;; The connection-epoch check: "is this from the socket we're
+      ;; actually using right now?" Every inbound event stamps the id of
+      ;; the socket it came from (`:source-socket-id`, the actor's
+      ;; `:rf/self-id`). We let it through only if that matches the live
+      ;; socket — otherwise it's a straggler from a connection we've
+      ;; already replaced, and we drop it.
       (fn guard-current-socket? [{data :data [_ {:keys [source-socket-id]}] :event}]
         (and (some? (:socket-id data))
              (= source-socket-id (:socket-id data))))}
@@ -274,8 +276,9 @@
                               (dispatch!
                                 [:ws/connection [:ws/-socket-spawned id]]
                                 ;; Tag where this dispatch came from:
-                                ;; `:source :websocket` is the reserved slot
-                                ;; for events that originate at the socket.
+                                ;; `:source :websocket` is the reserved
+                                ;; functional-origin slot for events that
+                                ;; originate at the socket.
                                 {:source :websocket})))}
 
        ;; On the way out, null the :socket-id. The runtime already destroys

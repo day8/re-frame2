@@ -63,7 +63,10 @@
    no function slots anywhere. The view at the heart of each is the
    example's own `login.core/root-view`, named by id. And the canonical
    Story vocabulary installs itself on the first `reg-*` call, so there's no
-   boot step to remember."
+   boot step to remember.
+
+   Examples are test-free: these stories carry no `:script` / `:rf.assert/*`
+   — they're a showcase, not a test surface."
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
             ;; Source the example's registrations (the machine, schemas,

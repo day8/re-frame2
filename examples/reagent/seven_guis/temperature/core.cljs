@@ -22,7 +22,8 @@
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Required for its side effect: loading this ns installs the
+            ;; `re-frame.schemas` ships in day8/re-frame2-schemas. Required
+            ;; for its side effect: loading this ns installs the late-bind
             ;; hooks that make `rf/reg-app-schema` resolve. No var from it is
             ;; used directly — it just has to be on the page.
             [re-frame.schemas]

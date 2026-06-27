@@ -176,9 +176,10 @@
       :one-way true
       :return  (and (valid-date? s)
                     (valid-date? r)
-                    ;; ISO dates sort correctly as plain strings — the whole
-                    ;; reason the format is yyyy-mm-dd — so a string compare is
-                    ;; all we need to check return ≥ start.
+                    ;; ISO dates sort correctly as plain strings — that's the
+                    ;; whole reason the format is yyyy-mm-dd — so a plain
+                    ;; lexicographic string compare is all we need to check
+                    ;; return ≥ start.
                     (<= (compare s r) 0)))))
 
 (rf/reg-sub :flight/book-enabled?

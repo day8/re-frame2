@@ -17,8 +17,9 @@
    - `:rf.route/id` / `:rf.route/params` — read the active route as subs
    - `route-link` — renders links that drive navigation
    - `:rf/url-requested` — the event a user clicking an anchor fires
-   - `install-history-listener!` — wires up Back/Forward and the first-load
-     URL→state sync, so the address bar and your app-db stay in agreement"
+   - `install-history-listener!` — wires up Back/Forward (popstate) and the
+     first-load URL→state sync, so the address bar and your app-db stay in
+     agreement"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
@@ -183,11 +184,12 @@
   ;; Tell re-frame2 to render through Reagent. Every adapter namespace exports
   ;; an `adapter` var; hand it straight to `init!` and you're done.
   (rf/init! reagent-adapter/adapter)
-  ;; Teach the app to listen to the browser's own navigation. This does two
-  ;; jobs: right now, it syncs the current URL into state (so a deep link or a
-  ;; refresh lands on the right page), and from here on, every Back/Forward
-  ;; finds whichever frame owns the URL and updates its `:rf/route` slice.
-  ;; Idempotent, so hot reload can call it again without complaint.
+  ;; Teach the app to listen to the browser's own navigation (the popstate
+  ;; event). This does two jobs: right now, it syncs the current URL into state
+  ;; (so a deep link or a refresh lands on the right page), and from here on,
+  ;; every Back/Forward resolves whichever frame owns the URL at pop time and
+  ;; updates its `:rf/route` slice. Idempotent, so hot reload can call it again
+  ;; without complaint.
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root

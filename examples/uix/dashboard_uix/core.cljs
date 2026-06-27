@@ -18,8 +18,8 @@
      - sparklines drawn as inline SVG from plain CLJS arithmetic — no
        chart library
      - two controls that re-derive the view: the filter chips (which
-       cards show) and the range picker (how many points each sparkline
-       draws, plus the header label)
+       cards show) and the range picker (how many trailing points each
+       sparkline draws, plus the header label)
 
    The derivation graph is the concept worth slowing down for; the
    guide glossary has the full picture

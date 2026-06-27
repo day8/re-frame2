@@ -17,8 +17,9 @@
    - **Cancellation that always lands** — whenever the parent leaves
      `:working` (you hit Cancel, the job finishes, the frame is
      destroyed, a timeout fires), one `:rf.machine/destroy` fx tears
-     down every child still standing. Their in-flight timers go down
-     with them, so nothing keeps ticking after the curtain falls.
+     down every child still standing. Their in-flight timers and HTTP
+     requests go down with them, so nothing keeps ticking after the
+     curtain falls.
    - **Live progress** — each child fires a `:progress` event at the
      parent after every chunk. The parent stashes it in
      `:data :progress`, the `:work/progress-fraction` sub recomputes,

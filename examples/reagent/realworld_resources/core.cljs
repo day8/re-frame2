@@ -173,8 +173,9 @@
 ;; interceptor decorates the entire Conduit API at a stroke: the route-caused
 ;; reads (`/articles/feed`, the lists, detail), the writes (favorite / follow /
 ;; comment / settings / save-article), and the auth machine's session-restore
-;; `GET /user`. The auth slice is the single source of truth, and this is the
-;; single place it's read. Nice when one fact lives in exactly one spot.
+;; `GET /user`. No per-call `:request` fn threads the token: the auth slice is
+;; the single source of truth, and this is the single place it's read. Nice when
+;; one fact lives in exactly one spot.
 ;;
 ;; The token is read from `(:frame ctx)` — the frame this cascade is running
 ;; under — rather than a hard-coded id, so the header follows along to a

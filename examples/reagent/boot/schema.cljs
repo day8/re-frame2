@@ -11,7 +11,8 @@
 
    - **App-db slices** sit at fixed app-db paths — `[:boot/staging]` plus
      the four top-level slices (`[:config]`, `[:flags]`, `[:user]`,
-     `[:routes]`). Those attach with `rf/reg-app-schema` on the path.
+     `[:routes]`). Those attach with `rf/reg-app-schema` on the path; an
+     app schema validates the app-db partition only.
    - **Machine `:data`** can't go through `reg-app-schema`, because a
      snapshot lives in runtime-db, not app-db (docs/guide/glossary.md#runtime-db).
      Instead, each machine carries its own `[:schemas :data]` slot on
@@ -143,9 +144,9 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 
-;; A failing app-db schema makes the runtime roll the commit back. Each slot
-;; below starts out nil — the boot machine fills it in later — so every
-;; registration wears a `:maybe` to stay valid through the loading phases.
+;; A failing app-db schema makes the runtime roll the commit back, post-commit.
+;; Each slot below starts out nil — the boot machine fills it in later — so
+;; every registration wears a `:maybe` to stay valid through the loading phases.
 ;; (No machine snapshots here: those validate via the machine's own
 ;; `:schemas {:data ...}` in boot.cljs. A `reg-app-schema` on a snapshot path
 ;; would guard nothing, since snapshots live in runtime-db, not app-db.)
