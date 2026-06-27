@@ -94,15 +94,20 @@ them from colliding.
 
 Some sibling examples register the **same** ids on purpose, because the
 id-identity *is* the demonstration — byte-for-byte identical dataflow proving
-parity across a boundary:
+parity across a boundary. These are the two blessed parity exceptions; each
+example's own README links here for the canonical statement.
 
-- **Stock vs slim counter** — [`reagent/counter`](reagent/counter/) and
-  [`reagent-slim/counter_slim_and_fast`](reagent-slim/counter_slim_and_fast/) share
-  the `:counter/*` event + sub ids, proving the two Reagent bridges run identical
-  dataflow.
-- **Cross-substrate counter + login** — the Reagent, UIx, and Helix
-  counter/login triplets share their event, sub, fx, machine, and schema ids,
-  proving one dataflow across three reactive substrates.
+#### Exception 1 — the stock/slim counter `:counter/*` id share
+
+[`reagent/counter`](reagent/counter/) and
+[`reagent-slim/counter_slim_and_fast`](reagent-slim/counter_slim_and_fast/) share
+the `:counter/*` event + sub ids, proving the two Reagent bridges run identical
+dataflow.
+
+#### Exception 2 — the cross-substrate Reagent/UIx/Helix id share
+
+The Reagent, UIx, and Helix counter/login triplets share their event, sub, fx,
+machine, and schema ids, proving one dataflow across three reactive substrates.
 
 Both are safe because each side is a **separate standalone build** that never
 shares a JS runtime, and the bundle-isolation gates
