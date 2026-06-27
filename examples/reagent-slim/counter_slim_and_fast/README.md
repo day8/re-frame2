@@ -1,10 +1,14 @@
-# counter-slim-and-fast — slim-substrate counter
+# The same counter, on a leaner substrate
 
-This is the canonical counter from [`examples/reagent/counter/`](../../reagent/counter/), running on a different substrate.
+This is a counter: a number on screen, an increment button, a decrement button. Click them and the number goes up and down. It is the *same* counter as [`examples/reagent/counter/`](../../reagent/counter/) — same buttons, same behaviour — running on a different [substrate](../../../docs/guide/how-to/use-uix-helix-or-slim.md) underneath.
 
-Every event, subscription, and view stays exactly as it was. Only the [substrate](../../../docs/guide/how-to/use-uix-helix-or-slim.md) underneath changes.
+Every event, subscription, and view stays exactly as it was. Only the substrate underneath changes.
 
-That swap is the whole point. re-frame2's core is substrate-agnostic: your events, subscriptions, and app-db never know which React-family rendering library is underneath them. The [`day8/reagent-slim`](../../../implementation/adapters/reagent-slim/) rewrite is a leaner substrate than stock Reagent. This example re-mounts the canonical counter on it and gets identical behaviour — same clicks, same counts, same dataflow. We call that **adapter parity**, and proving it is why this example exists.
+That sameness is the point:
+
+> **Swap the rendering library underneath your app, and nothing above it can tell.**
+
+re-frame2's core is substrate-agnostic: your events, subscriptions, and app-db never know which React-family rendering library is underneath them. The [`day8/reagent-slim`](../../../implementation/adapters/reagent-slim/) rewrite is a leaner substrate than stock Reagent. This example re-mounts the canonical counter on it and gets identical behaviour — same clicks, same counts, same dataflow. We call that **adapter parity**, and proving it is why this example exists.
 
 ## What changes (and how little it is)
 

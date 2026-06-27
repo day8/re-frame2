@@ -1,6 +1,6 @@
 # 7GUIs in re-frame2
 
-[7GUIs](https://eugenkiss.github.io/7guis/) is a cross-framework benchmark of seven small UI tasks. This folder builds all seven in re-frame2.
+[7GUIs](https://eugenkiss.github.io/7guis/) is a cross-framework benchmark of seven small UI tasks. This folder builds all seven in re-frame2 — each one a tiny app you open and click in your browser.
 
 The tasks are ordered so each one adds a problem the last didn't have. A counter. Then two fields that must stay in sync. Then a form with a validation rule. Then a timer. Then a list you can edit. Then undo/redo. Then a working spreadsheet. The point isn't the widgets. Each task hides a *famous trap*, and a framework either has an honest answer for it or papers over the crack.
 
@@ -40,12 +40,6 @@ A common worry is that "everything is an event and a subscription" gets heavy as
 
 The parts that stay hard — parsing a formula, detecting a cycle, getting the timer's generation logic right — are *real* domain problems, not framework friction. They live in plain pure functions you can unit-test on the JVM, no browser needed.
 
-Each task lives in its own sub-folder under `seven_guis/<name>/`, with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`). Watch a task's build to view it in a browser:
-
-```bash
-shadow-cljs watch examples/cells
-```
-
 ## How these compare to the original 7GUIs reference
 
 The reference implementations on the [7GUIs site](https://eugenkiss.github.io/7guis/tasks) are typically tens of lines of imperative code per task. The re-frame2 versions run a little longer, and the extra lines buy something:
@@ -56,3 +50,11 @@ The reference implementations on the [7GUIs site](https://eugenkiss.github.io/7g
 - Every artefact — each event, subscription, and view — stays named and individually queryable, rather than dissolving into one imperative update loop where nothing has a handle.
 
 The verbosity tax is real, and small. In return, every artefact is named, queryable, schema-able, and AI-amenable — at about the scale of the imperative reference, with the famous traps engineered out rather than carefully avoided.
+
+## How to run
+
+Each task lives in its own sub-folder under `seven_guis/<name>/`, with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`). Watch a task's build to view it in a browser:
+
+```bash
+shadow-cljs watch examples/cells
+```

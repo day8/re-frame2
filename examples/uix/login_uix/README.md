@@ -1,14 +1,21 @@
 # login_uix — UIx substrate login
 
-This is the canonical login example, rendered with **UIx** instead of Reagent.
-It is the [`examples/reagent/login/`](../../reagent/login/) twin, with one
-thing changed: the [substrate](../../../docs/guide/glossary.md#substrate) that
-draws the pixels.
+This is a login form. You type an email and a password, hit **Sign in**, and
+one of three things happens: you're signed in, you get an error and can try
+again, or — after four wrong tries — the account locks and a locked-out panel
+takes the form's place. There's no real server to set up: a small stub answers
+the login right in the page, so you just start it and click.
+
+The one twist is the renderer. This is the
+[`examples/reagent/login/`](../../reagent/login/) twin, with one thing
+changed — the [substrate](../../../docs/guide/glossary.md#substrate) that draws
+the pixels. Here that's **UIx** instead of Reagent.
 
 Everything below the [view](../../../docs/guide/glossary.md#view) layer stays
 the same — the same schemas, the same machine, the same named subscriptions,
 the same canned HTTP stub, with the same ids and shapes. Only the views are
-written differently. So this is a clear place to see where the substrate
+written differently. That's the idea worth taking away: swapping the renderer
+changes almost nothing. So this is a clear place to see where the substrate
 boundary falls, and how little sits on the substrate side of it.
 
 That is the whole point of re-frame2's

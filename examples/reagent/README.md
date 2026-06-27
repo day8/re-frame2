@@ -4,7 +4,7 @@ This folder holds the **full set of worked Reagent examples** — every example 
 
 Reagent is the canonical [substrate](../../docs/guide/glossary.md#substrate), and that matters here. Every Spec — 002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, 016 Resources, and every Pattern-* doc — was written against the Reagent [adapter](../../docs/guide/glossary.md#adapter). It is the substrate the framework was designed on. If a contract holds anywhere, it holds here first.
 
-Two nearby folders are *not* part of this set. One is a Story showcase driven end-to-end on the counter; it lives with the tool that owns it, at [`tools/story/testbeds/counter_with_stories/`](../../tools/story/testbeds/counter_with_stories/). The counter is just what that Story exercises, so it is catalogued with the tool, not here.
+Two nearby folders are *not* part of this set. Both are Story showcases that live with the tool that owns them: one drives Story end-to-end on the counter, at [`tools/story/testbeds/counter_with_stories/`](../../tools/story/testbeds/counter_with_stories/); the other does the same for a login form, in `login_form/` beside it. The counter and login form are just what those Stories exercise, so they are catalogued with the tool, not here.
 
 Two examples *do* ship an extra Story showcase, layered right on top: [`login/`](login/) and [`nine_states/`](nine_states/). Each one reaches into its own example's real [machine](../../docs/machines/glossary.md#machine) and [views](../../docs/guide/glossary.md#view) and lists that example's UI states as Story variants. They live in the example folder because they showcase *that* example. Each example's README has its run command.
 

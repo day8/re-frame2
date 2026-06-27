@@ -1,29 +1,36 @@
-# Long-running work — Pattern-LongRunningWork worked example
+# Long-running work that always stops cleanly
 
-This example runs a long job and, more importantly, stops it cleanly.
+This example runs a job split across three workers at once. Click **Start
+work** and three progress bars race to the finish, each worker grinding
+through its own 100 items in parallel. While they run, you can stop the job
+three ways: click **Cancel**, let it finish on its own, or click **Hide** to
+make the whole panel vanish — the demo's stand-in for navigating away or
+closing the tab. However it ends, every worker shuts down cleanly, with no
+stray timers left firing into a screen that's gone.
 
-Starting a five-second job is easy. The bug that ships is in *stopping* it.
-The user hits **Hide**, navigates away, or closes the tab while workers are
-still running — and their timers keep firing into a view that is gone. This
-example makes cancellation reliable on **every** exit path: the user clicks
-`:cancel`, the work finishes on its own, *or* the React component unmounts.
-It gets there with a
-[machine](../../../docs/machines/glossary.md#machine) instead of hand-written
-teardown.
+Starting a five-second job is easy. The bug that ships is in *stopping* it —
+and that's the idea worth taking away:
 
-It demonstrates the `:spawn-all` shape from
-[`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md).
-When a job splits into independent shards, you model it as **one parent
-coordinator and N child workers**. The children run in parallel; the parent
-waits for them all to finish. The parent's busy state owns the spawn, so
-leaving that state — by any route — tears every surviving child down in one
-move. You never wire cancellation by hand; the state graph does it.
+> **Stopping the work isn't cleanup you run — it's a state you leave.**
 
-Pattern-LongRunningWork also describes a single-worker shape that processes
-one long computation in chunks. Reach for that when the work *doesn't* split.
-When it *does* split into independent pieces, the same chunk-by-chunk idiom
-composes over `:spawn-all`: one parent, N children, one declarative
-spawn-and-join.
+There are three ways the job can end, and the hand-written version writes
+three separate teardown paths that all have to stay in sync. This one writes
+none. Every worker lives inside the parent's single `:working` state. Leaving
+that state — by any of the three routes — tears every worker down in one
+move. You don't wire cancellation by hand; the
+[machine](../../../docs/machines/glossary.md#machine) does.
+
+This is the runnable companion to
+[`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md),
+and it shows the `:spawn-all` shape. When a job splits into independent
+shards, you model it as **one parent coordinator and N child workers**: the
+children run in parallel, and the parent waits for them all. (Why split it up
+at all, instead of one big machine? See **Why this shape**, below.)
+
+The same spec also describes a single-worker shape — for one long computation
+that *doesn't* split into pieces. When the work *does* split, the
+chunk-by-chunk idiom composes straight over `:spawn-all`: one parent, N
+children, one declarative spawn-and-join.
 
 ## What this example demonstrates
 

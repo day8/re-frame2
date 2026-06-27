@@ -1,13 +1,25 @@
-# ssr — Spec 011 SSR + hydration worked example
+# Server-rendered HTML the browser wakes up
 
-One app. It runs twice. The server renders a "recent articles" page to
-an HTML string and ships it. The client picks that HTML up, adopts it,
-and wakes it into the live app. There is no second, server-flavoured
-copy of the code. It works because the same [event
+Open the page and the list of articles is already there — fully formed,
+before any of your JavaScript runs. The page arrives as finished HTML,
+not an empty shell that fills in later. Then the browser takes over:
+rather than blanking the screen and rebuilding, it adopts that HTML and
+wakes it into a live app, so the **Hide bodies** button works like in
+any single-page app.
+
+That's server-side rendering (SSR), and the trick is that it's all
+*one app, run twice*: the server renders the "recent articles" page to
+an HTML string and ships it; the browser picks that string up and runs
+it.
+
+> **The same code runs on both sides — only the output differs: a
+> string on the server, a live DOM in the browser.**
+
+The same [event
 handlers](../../../docs/guide/glossary.md#event-handler),
 [subscriptions](../../../docs/guide/glossary.md#subscription), and
 [views](../../../docs/guide/glossary.md#view) run on the JVM and in the
-browser. The only difference is the output: a string instead of a DOM.
+browser.
 
 This is the smallest end-to-end example of every contract surface in
 [Spec 011](../../../spec/011-SSR.md) — the worked companion to

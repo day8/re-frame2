@@ -1,10 +1,16 @@
-# flows — Spec 013 worked example
+# A shopping cart that keeps its totals up to date
 
-A shopping cart. Its subtotal and total are *flows*: the framework keeps them computed and stored in app-db. This is the companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md).
+This example is a small shopping cart. It has three line items, each with a quantity you can nudge up or down, plus a running subtotal and total. Bump a quantity and the subtotal and total update on their own. Click **Apply 10% discount** and the total drops; click **Remove discount** and it climbs back. It all runs in your browser — there's nothing to set up.
 
-A flow and a subscription both derive a value from state, but they store it differently. A [subscription](../../../spec/013-Flows.md) keeps its result in a view-facing cache — perfect for views, but nothing else can see it. A **flow** keeps its result in [app-db](../../../spec/013-Flows.md). So an event handler can read it as plain data, it comes back under time-travel, and it survives the wire.
+Those totals aren't worked out in the [view](../../../docs/guide/glossary.md#view). The framework computes them and stores them in [app-db](../../../docs/guide/glossary.md#app-db), right next to the line items they come from — and a derived value kept in app-db like that is a [flow](../../../docs/guide/glossary.md#flow). That's the idea worth taking away:
+
+> **Some computed values are state, not just something a view shows.**
+
+A [subscription](../../../docs/guide/glossary.md#subscription) derives a value too, but it keeps the result in a view-facing cache — perfect for rendering, invisible to everything else. A flow writes its result to app-db instead. So an [event](../../../docs/guide/glossary.md#event) handler can read it as plain data, it comes back under time-travel, and it survives the wire.
 
 You declare three things: the `:inputs` to watch, a pure `:derive`, and the `:output-path` to write. When an input changes, the runtime re-runs `:derive` and writes the result — in step with the event cascade. The cart's subtotal and total are exactly that kind of value.
+
+This is the runnable companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md), the spec for flows. New to flows? Read the [flows guide](../../../docs/guide/concepts/flows.md) first — this example assumes the basics.
 
 ## Why a flow and not a sub
 

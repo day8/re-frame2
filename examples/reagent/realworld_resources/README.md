@@ -1,8 +1,8 @@
 # RealWorld (Conduit) on resources + mutations
 
-This is the RealWorld "Conduit" app — the medium.com clone many frameworks build to prove they can do something real. Here it is built on **[resources](../../../docs/resources/concepts.md)** for its reads and **mutations** for its writes. There are no `:status` fields, no `:loading?` booleans, and no hand-written "which screens did this edit break?" bookkeeping. You declare what each read *is* and what each write *touches*, once. The framework runs the cache.
+This is a complete, working blog — the RealWorld "Conduit" app, the medium.com clone many frameworks build to prove they can do something real. You can browse articles, open one to read it with its comments, favourite it, follow its author, write and edit your own posts, register, log in, and edit your profile. Nothing needs setting up: a fake backend runs right in the page, so you just start it and click around.
 
-> **A sibling, not a rewrite.** [`examples/reagent/realworld/`](../realworld/) is the *same app* built one level lower — directly on [`:rf.http/managed`](../../../spec/014-HTTPRequests.md), with each read's `{:status :data :error}` slice and the optimistic rollback wired by hand. That version is the canonical demo of managed HTTP, and it stays. This version builds the same Conduit on the declarative server-state surface that sits *on top* of managed HTTP. Read the two side by side: the difference between them is exactly what resources and mutations do for you.
+Underneath that ordinary-looking app is the point of the example. Every read is a **[resource](../../../docs/resources/concepts.md)**; every write is a **mutation**. There are no `:status` fields, no `:loading?` booleans, and no hand-written "which screens did this edit break?" bookkeeping. You declare what each read *is* and what each write *touches*, once, and the framework runs the cache.
 
 ## The one idea this example exists to show
 
@@ -17,6 +17,8 @@ If you have used TanStack Query, RTK Query, or SWR, this shape is familiar — a
 - **Views never fetch.** A route or an event causes the load. The view only reads.
 - **Scope is part of a read's identity.** It is required, so one user's feed can never surface in another's cache.
 - **Invalidation is causal.** A write declares its consequences as data. You never remember to call `invalidate()` at the right moment.
+
+> **A sibling, not a rewrite.** [`examples/reagent/realworld/`](../realworld/) is the *same app* built one level lower — directly on [`:rf.http/managed`](../../../spec/014-HTTPRequests.md), with each read's `{:status :data :error}` slice and the optimistic rollback wired by hand. That version is the canonical demo of managed HTTP, and it stays. This version builds the same Conduit on the declarative server-state surface that sits *on top* of managed HTTP. Read the two side by side: the difference between them is exactly what resources and mutations do for you.
 
 The rest of this document walks the app one capability at a time, simplest first. The [`resources/`](../resources/) example is a gentler introduction to the read side alone. This is the full app, with the write side and everything built on it.
 

@@ -1,6 +1,6 @@
 # Worked examples
 
-Worked examples that compose the spec's primitives into real UI — each one readable top to bottom and runnable. They range from the counter (the smallest app the pattern admits) to RealWorld (the widest surface in the repo).
+These are small, complete apps you can run and read top to bottom. They range from the counter (the smallest app the pattern admits) to RealWorld (the widest surface in the repo) — each one composing the spec's primitives into real UI.
 
 ## Layout — grouped by substrate
 

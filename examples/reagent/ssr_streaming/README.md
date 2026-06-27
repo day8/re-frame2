@@ -1,7 +1,4 @@
-# ssr_streaming — Spec 011 Streaming SSR worked example
-
-Streaming SSR stops the page from waiting on its slowest part. The shell
-ships first; each slow region streams in as its data lands.
+# A dashboard that streams in, card by card
 
 This example is a dashboard with three slow cards (revenue, signups,
 latency), plus a fourth that fails on purpose. The page shell and header
@@ -11,9 +8,10 @@ microservices behind those cards: the browser paints a usable skeleton
 within ~50ms, and the real numbers trickle in over ~300ms each — instead
 of the whole page sitting blank until the slowest service answers.
 
-That's the React-18 / Next.js `loading.js` move: ship the shell first,
-fill the holes as the data lands. In re-frame2 it's *one marker*, not a
-component API. You wrap every slow region of the
+That's *streaming SSR*: the page stops waiting on its slowest part. It's
+the React-18 / Next.js `loading.js` move — ship the shell first, fill the
+holes as the data lands. In re-frame2 it's *one marker*, not a component
+API. You wrap every slow region of the
 [view](../../../docs/guide/glossary.md#view) in a
 [`:rf/suspense-boundary`](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)
 and name a `:fallback` to show in the meantime:

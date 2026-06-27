@@ -1,14 +1,21 @@
-# counter_helix — Helix substrate counter
+# A counter, rendered with Helix
 
-The canonical counter, rendered through Helix instead of Reagent.
-
-The point of this example is one fact: the
-[events](../../../docs/guide/glossary.md#event) and the
-[subscription](../../../docs/guide/glossary.md#subscription) here are
-identical — character for character — to the ones in the
+A number on screen, with a minus button to its left and a plus button to
+its right. Click `+` to count up and `-` to count down; it starts at 5.
+That's the whole app — the same little counter as the
 [Reagent](../../reagent/counter/) and [UIx](../../uix/counter_uix/)
-counters. Not similar. The same characters on disk. Only the view layer
-at the bottom of the file changes.
+versions, except Helix draws it. (Helix is React, with hooks all the way
+down.)
+
+And that's the idea worth taking away:
+
+> **The view layer is the only part that knows it's Helix.**
+
+The [events](../../../docs/guide/glossary.md#event) and the
+[subscription](../../../docs/guide/glossary.md#subscription) in this file
+are identical — character for character — to the ones in the Reagent and
+UIx counters. Not similar. The same characters on disk. Only the view, at
+the bottom of the file, changes.
 
 That is re-frame2's [substrate](../../../docs/guide/glossary.md#substrate)
 story in miniature. Your events, your subscriptions, and your

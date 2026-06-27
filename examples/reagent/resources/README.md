@@ -1,13 +1,20 @@
-# resources — Spec 016 worked example
+# An articles list that fetches its own data
 
-A small server-state app: an articles list and an article detail. It is built on
-re-frame2 **resources** — declarative, cached reads. The framework owns the
-fetching, the deduping, the staleness, and the cache. So your views just read the
-data; they never touch the network.
+This example is an articles list and an article's detail. Click **Preview** on a
+row to peek at an article, **Open in reader** to read it, or **Refresh** to reload
+the list. Each fetch flashes a brief loading skeleton, then the data lands.
+There's no server to set up — a stub answers every request right in the page, so
+you just start it and click.
+
+The point is what your views *don't* do: they never touch the network. They just
+read the data — the framework owns the fetching, the deduping, the staleness, and
+the cache. That's what re-frame2 **resources** are. Underneath it's all ordinary
+re-frame2: app-db, events, subscriptions. Resources don't ask you to leave the
+loop you already know.
 
 This is the worked companion to [Spec
-016](../../../spec/016-Resources.md) (the EP-0003 read-resource MVP) and the
-guide at [docs/resources/concepts.md](../../../docs/resources/concepts.md).
+016](../../../spec/016-Resources.md) and the guide at
+[docs/resources/concepts.md](../../../docs/resources/concepts.md).
 
 ## The one idea: owner versus cause
 
@@ -18,12 +25,11 @@ One distinction makes the whole resource surface click: **owner versus cause**.
 - A **cause** is just provenance — *why* a fetch happened. It is recorded for the
   trace and changes nothing's lifetime.
 
-**Owner = lifetime; cause = explanation.** Every fetch here is one, the other, or
-both. The four patterns below are four answers to the same question: *who is
-holding this read alive, and why did it just fetch?*
+> **Owner = lifetime; cause = explanation.**
 
-It is all ordinary re-frame2 — app-db, events, subscriptions. Views stay passive;
-fetches are caused. Resources don't ask you to leave the loop you already know.
+Every fetch here is one, the other, or both. The four patterns below are four
+answers to the same question: *who is holding this read alive, and why did it just
+fetch?*
 
 ## What this demonstrates
 
@@ -139,4 +145,6 @@ static file tree.
 shadow-cljs watch examples/resources
 ```
 
-Then serve `out/examples/resources/` over HTTP and open it.
+Then serve `out/examples/resources/` over HTTP and open it. Click **Preview**,
+**Refresh**, or **Open in reader** and watch the skeleton flash before each reply
+lands — all served by the in-page stub.
