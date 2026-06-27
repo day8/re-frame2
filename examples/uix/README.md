@@ -1,6 +1,8 @@
 # UIx — examples
 
-These examples run re-frame2 on **UIx**, one of the [substrates](../../docs/guide/glossary.md#substrate) it can render through. They make one point: your dataflow doesn't care which substrate you pick.
+This folder holds three examples you can run in your browser — a counter, a login form, and a dashboard — each built on **UIx**. Click into one and it behaves like any web app: the counter's +/- buttons move a number, the login form submits and shows a welcome banner on success, and the dashboard fills the page with a multi-pane layout.
+
+They're here to make one point: your dataflow doesn't care which substrate you pick. UIx is one of the [substrates](../../docs/guide/glossary.md#substrate) re-frame2 can render through, and the counter and login reuse their Reagent siblings' logic untouched — only the view layer is rewritten.
 
 UIx renders through React hooks, not Reagent's reactive atoms. But it plugs into the *same* `re-frame.adapter.context` React Context that the Reagent [adapter](../../docs/guide/glossary.md#adapter) exposes (Decision 2). A single app could even mix the two — though the sane default is to pick one substrate and stay with it.
 

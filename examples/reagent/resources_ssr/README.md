@@ -1,16 +1,24 @@
-# resources_ssr — Spec 016 §SSR worked example
+# A server-rendered page that arrives already filled in
 
-This example renders a server page whose state is a re-frame2
-**resource** — a live cache the framework owns — and ships that cache to
-the client so the page hydrates without re-fetching.
+This example renders a list of articles on the server and sends the page
+to the browser with the list already in it. Open the page and the
+articles are on screen at the first paint — no spinner, and the browser
+doesn't go back to fetch them again. You don't need a running Clojure
+server to see it: the [`index.html`](index.html) here ships with a
+pre-baked payload that stands in for what a real server would send.
 
-The sibling [`examples/reagent/ssr/`](../ssr/) is simpler: the server
-bakes a fetched list into app-db and hands that frozen value across. Here
-the state isn't a value you froze. It's the framework's
-[resource](../../../docs/resources/glossary.md#resource) cache — with its
-own identity, scope, and staleness. So SSR has to ship the cache itself,
-faithfully enough that the client renders the list on the first paint
-**and** knows not to re-fetch something it was just handed fresh.
+Here's the idea worth taking away:
+
+> **The list isn't a value the server froze. It's a cache the client rebuilds.**
+
+The sibling [`examples/reagent/ssr/`](../ssr/) does the frozen-value
+version: the server fetches a list, bakes it into app-db, and hands that
+snapshot across. This example is the harder case. The list's state is a
+re-frame2 [resource](../../../docs/resources/glossary.md#resource) — a
+live cache the framework owns, with its own identity, scope, and
+staleness. So SSR can't just freeze a value; it has to ship *the cache
+itself* — faithfully enough that the client renders the list on the first
+paint **and** knows not to re-fetch something it was just handed fresh.
 
 That's the load-bearing idea. A hydrated resource isn't a snapshot pasted
 into app-db. It's the runtime's resource cache rebuilt on the client, so
@@ -125,7 +133,7 @@ likewise bakes a plain SSR payload into *its* `index.html`.
 
 ## Deferred — not built here
 
-- **Mutation with invalidation** — the next slice (EP-0003 slice 11). No
+- **Mutation with invalidation** — the next phase. No
   [mutation](../../../docs/resources/glossary.md#mutation) example is
   built; see [`../resources/README.md`](../resources/README.md).
 - **GraphQL** — a deferred later phase.

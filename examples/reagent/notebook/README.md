@@ -1,9 +1,11 @@
-# notebook — Reagent design-led example
+# A markdown editor with a live preview
 
-A small markdown editor built on the [Reagent](https://github.com/reagent-project/reagent)
-[substrate](../../../docs/guide/glossary.md#substrate). The layout has
-three panes: a documents tree on the left, a markdown editor in the
-middle, a live preview on the right.
+Type markdown in the middle pane and watch it render, live, in the
+preview on the right. Pick a document from the tree on the left to edit
+it, or start a new one. That's the whole app: three panes — a documents
+tree, a markdown editor, a live preview — built on the
+[Reagent](https://github.com/reagent-project/reagent)
+[substrate](../../../docs/guide/glossary.md#substrate).
 
 It shows two things. First, re-frame2 and Reagent scale past the
 counter — a whole editor is just a tree of registered

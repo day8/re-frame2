@@ -1,6 +1,6 @@
 # RealWorld (Conduit) in re-frame2
 
-[Conduit](https://github.com/gothinkster/realworld) is a Medium-style blogging app: sign in, write articles, follow authors, favourite posts, comment, paginate. This example builds it in re-frame2.
+[Conduit](https://github.com/gothinkster/realworld) is a Medium-style blogging app: sign in, write articles, follow authors, favourite posts, comment, paginate. This example builds it in re-frame2. There's no backend to set up — a small fake one runs right in the page — so you can run it and click through the whole app offline.
 
 Most of the other examples isolate one idea and show it cleanly — a flow here, a state machine there. This one is the opposite. Conduit is a whole product, and it has been built in dozens of frameworks so you can compare how each one holds together. So this is where re-frame2's pieces — core, schemas, machines, routing, flows, and managed HTTP — all have to work in one running app. Seeing them fit together is the lesson the single-idea examples can't teach.
 

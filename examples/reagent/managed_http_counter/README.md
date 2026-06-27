@@ -1,14 +1,14 @@
-# managed_http_counter — Spec 014 managed-HTTP example
+# A counter where every click asks the server
 
-A counter whose buttons don't add anything locally. Each click asks the server what the new count should be. The answer comes back as an ordinary [event](../../../docs/guide/glossary.md#event).
+The buttons on this counter don't add anything locally. You click **+1**, and instead of bumping a number in the page, the click asks the server what the new count should be. The answer comes back as an ordinary [event](../../../docs/guide/glossary.md#event) — and that event is what moves the count.
 
-That is the whole point. This is the smallest honest demo of [managed HTTP](../../../docs/resources/glossary.md#managed-http): the [`:rf.http/managed`](../../../spec/014-HTTPRequests.md) [effect](../../../docs/guide/glossary.md#effect). You describe a request as data, and the framework owns its whole lifecycle. Your code never touches `js/fetch`.
+Five buttons — **+1 / Fail / Retry-recover / Start long / Cancel** — walk the full managed-HTTP surface: a success, a real failure, a retry that recovers, and a real cancel of a request that is really in flight. Small enough to hold in your head; complete enough to hit every code path.
+
+Underneath, all of them lean on one idea. This is the smallest honest demo of [managed HTTP](../../../docs/resources/glossary.md#managed-http): the [`:rf.http/managed`](../../../spec/014-HTTPRequests.md) [effect](../../../docs/guide/glossary.md#effect). You describe a request as data, and the framework owns its whole lifecycle. Your code never touches `js/fetch`.
 
 The [event handler](../../../docs/guide/glossary.md#event-handler) stays a pure function. It returns a `:db` and an `:fx` that describes the request, and then it's done. There is no promise to chain and no callback to thread back. The reply comes home as a dispatched event, and the same handler that sent the request handles the answer.
 
 ## What this demonstrates
-
-Five buttons — **+1 / Fail / Retry-recover / Start long / Cancel** — walk the full managed-HTTP surface: a success, a real failure, a retry that recovers, and a real cancel of a request that is really in flight. Small enough to hold in your head; complete enough to hit every code path.
 
 - **`:rf.http/managed` — the request is data.** A click dispatches an event whose [effect map](../../../docs/guide/glossary.md#effect-map) carries `:rf.http/managed` with a request envelope. From there the runtime owns everything: encode, send, decode, classify the outcome, track in-flight handles, retry, abort. The handler is already finished — it only *described* the call. (The `rf.http/get` helper used here just builds that same `[:rf.http/managed args-map]` envelope, so the call site reads as one line.)
 

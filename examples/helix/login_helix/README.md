@@ -1,12 +1,12 @@
-# login_helix — Helix substrate login
+# A login form, drawn with Helix
 
-This is the login example, rendered through **Helix**.
+This is a login form. You type an email and a password, hit **Sign in**, and one of three things happens: you're signed in, you get an error and can try again, or — after four wrong tries — the account locks and the form is replaced by a locked-out panel. There's no server to set up: a small stub answers the login request right in the page, so you just start it and click.
 
-It is the same feature as [`examples/reagent/login/`](../../reagent/login/) — the same machine, the same schemas, the same HTTP stub — only the rendering library differs. The login flow itself is taught in full at that reference example. What this twin shows is the *seam* between the two halves of the app.
+It is the same feature as [`examples/reagent/login/`](../../reagent/login/) — the same machine, the same schemas, the same HTTP stub — only the rendering library differs. The login flow itself is taught in full at that reference example. What this twin shows is what changes when you swap that library, and that is the idea worth taking away:
 
-`core.cljs` draws that seam as a literal line: a `SUBSTRATE BOUNDARY` comment. Everything above it knows nothing about what renders the app. Everything below it is the only code that does. That line is what makes re-frame2 substrate-agnostic.
+> **Swap the rendering library and almost nothing else moves.**
 
-So read this as the Reagent example seen from the rendering side. Everything above the boundary is identical — id for id — to its Reagent and UIx siblings. Everything below it is the Helix part: `defnc` components that read [subscriptions](../../../docs/guide/glossary.md#subscription) through a hook. Read the three side by side and you see exactly which layers move when you switch [substrate](../../../docs/guide/glossary.md#substrate). Almost nothing does.
+You can see exactly how little moves in `core.cljs` itself, which draws the dividing line as a literal `SUBSTRATE BOUNDARY` comment. Above it is the half that knows nothing about what renders the app — identical, id for id, to its Reagent and UIx siblings. Below it is the only code that does the rendering: the Helix part, `defnc` components that read [subscriptions](../../../docs/guide/glossary.md#subscription) through a hook. That split between the two halves of the app is what makes re-frame2 substrate-agnostic. Read the three side by side and you see exactly which layers move when you switch [substrate](../../../docs/guide/glossary.md#substrate). Almost none of them do.
 
 ## What this demonstrates
 

@@ -1,4 +1,4 @@
-# process_monitor_helix — Helix design-led example
+# A process monitor with a log that scrolls on its own
 
 A terminal-style process monitor with two panes. The left pane shows a
 filterable list of processes. The right pane shows a live log feed that

@@ -1,6 +1,8 @@
-# login — a full feature, wired end to end
+# A login form, wired end to end
 
-A login flow, built the way a real feature is. Most other examples in this tree show one idea on its own — a subscription, a flow, a single effect. This one shows a whole feature with all the pieces wired together: a state machine, a couple of schemas, managed HTTP, and several registered views.
+This example is a login form. You type an email and a password, hit **Sign in**, and one of three things happens: you're signed in, you get an error and can try again, or — after four wrong tries — the account locks and the form is replaced by a locked-out panel. There's no real server to set up: a small stub answers the login request right in the page, so you just start it and click.
+
+Most other examples in this tree show one idea on its own — a subscription, a flow, a single effect. This one is a whole feature, built the way a real feature is, with all the pieces wired together: a state machine, a couple of schemas, managed HTTP, and several registered views.
 
 Read this when you've seen the smaller examples and you want to know how the pieces fit.
 
@@ -8,7 +10,11 @@ Everything in the feature shares one prefix: `:auth.login/*`. The machine, the e
 
 ## What this demonstrates
 
-The central idea is the **state machine**. A login isn't a value you read. It's a question: are we idle, mid-submit, showing an error, signed in, or locked out? That's five named **states**, with a fixed set of arrows between them:
+The central idea is the **state machine**. A login isn't a value you read:
+
+> **A login is a situation you're in, not a value you hold.**
+
+Are we idle, mid-submit, showing an error, signed in, or locked out? That's five named **states**, with a fixed set of arrows between them:
 
 ```
 :idle → :submitting → {:error-shown | :authed | :locked-out}

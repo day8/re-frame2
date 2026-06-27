@@ -1,14 +1,24 @@
 # Nine States of UI — worked example
 
-A data-driven screen passes through more states than the happy one. An
-empty account, a slow network, a rejected form, a list of four thousand
-items — all real, all easy to forget. A well-known UX taxonomy names
-**nine** states such a screen typically goes through: *Nothing, Loading,
-Empty, One, Some, Too Many, Incorrect, Correct, Done.*
+This example is one small **todos list** with a control panel of
+buttons above it. Click a button and the screen rearranges itself to
+match what just happened — a "Get started" welcome, a "Loading…"
+message, an empty "No todos yet", a single focused todo, a plain short
+list, or a "too many" view with a search box. Type into the add-a-todo
+form and submit: too short and you get a validation error, three
+characters or more and it confirms "✓ Todo added." Press **Archive**
+and the whole list freezes — it goes read-only and the controls grey
+out. There's no backend to set up; a tiny fake server runs right in the
+page, so you just start it and click.
 
-This example builds all nine for one small domain — a **todos list** —
-and shows the clean way to handle them: not nine booleans and a tower of
-`cond`, but a single
+Why does one little list move through so many states? Because a
+data-driven view passes through far more than the happy one — an empty
+account, a slow network, a rejected form, a list of four thousand items
+— all real, all easy to forget. A well-known UX taxonomy names the
+**nine states** such a screen typically goes through: *Nothing,
+Loading, Empty, One, Some, Too Many, Incorrect, Correct, Done.* This
+example builds all nine for one small domain, and shows the clean way to
+handle them: not nine booleans and a tower of `cond`, but a single
 [state machine](../../../docs/machines/concepts.md).
 
 The key idea is that the nine states aren't one axis. They're **three

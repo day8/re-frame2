@@ -1,15 +1,21 @@
-# routing — Spec 012 worked example
+# A three-page site with real URLs
 
-The one idea: **the URL is just application state.** A route is a
+This is a small website you click through: a home page, an articles
+list, and an article-detail page, plus a 404 page for anything else.
+Each page has its own real URL, and the browser's Back and Forward
+buttons work. Click a link and the page changes in place — no
+full-page reload — while the address bar updates to match.
+
+Here's the one idea worth taking away: **the URL is just application
+state.** A route is a
 [registration](../../../docs/guide/glossary.md#registration). Navigating is
 dispatching an [event](../../../docs/guide/glossary.md#event). The active
 route is a [subscription](../../../docs/guide/glossary.md#subscription) your
 views watch. There is no router object and no route context to thread
 through your tree.
 
-This is the smallest app that puts all three to work: a three-page
-site — home, an articles list, an article detail — with a real URL, a
-404 page, and working Back/Forward. It's the worked companion to
+This is the smallest app that puts all three to work — just a
+three-page site. It's the worked companion to
 [Construction Prompt CP-7](../../../spec/Construction-Prompts.md) and
 [Spec 012](../../../spec/012-Routing.md).
 

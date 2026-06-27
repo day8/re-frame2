@@ -1,12 +1,16 @@
-# dashboard_uix — UIx design-led example
+# An analytics dashboard with sparklines
 
-An analytics dashboard, "Atlas", built on the [UIx](https://github.com/pitch-io/uix)
-[substrate](../../../docs/guide/glossary.md#substrate). It's a grid of
-metric cards with hand-drawn SVG sparklines, a row of filter chips, and
-a time-range picker. There's no chart library, no HTTP, and no
-[state machine](../../../docs/machines/glossary.md#machine) — just a
-[view](../../../docs/guide/glossary.md#view) tree reading a
-[subscription](../../../docs/guide/glossary.md#subscription) graph.
+This example is an analytics dashboard called "Atlas". It's a grid of
+metric cards, a row of filter chips along the top, and a time-range
+picker; each card carries a small hand-drawn SVG sparkline. Click a
+chip to show or hide a category of metric; pick a range to set how
+much history each sparkline draws — everything redraws the instant you
+click. That's the whole app: a [view](../../../docs/guide/glossary.md#view)
+tree reading a [subscription](../../../docs/guide/glossary.md#subscription)
+graph, on the [UIx](https://github.com/pitch-io/uix)
+[substrate](../../../docs/guide/glossary.md#substrate). No chart
+library, no HTTP, and no
+[state machine](../../../docs/machines/glossary.md#machine).
 
 The point: re-frame2's core is substrate-agnostic. Swap Reagent for UIx
 and your [events](../../../docs/guide/glossary.md#event),
@@ -48,8 +52,8 @@ and gets one settled answer. That's the
 [derivation graph](../../../docs/guide/glossary.md#the-derivation-graph)
 doing the bookkeeping you'd otherwise do by hand.
 
-**The UIx hook idiom, end-to-end.** UIx components are `defui` functions.
-They read state through a React hook —
+**You read state through a React hook.** UIx components are `defui`
+functions, and inside one you call
 `(uix-adapter/use-subscribe [:dashboard/visible-metrics])` at the top of
 the body — instead of dereferencing a
 [`subscribe`](../../../docs/guide/glossary.md#subscribe--derive) the way

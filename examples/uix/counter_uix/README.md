@@ -1,10 +1,15 @@
-# counter_uix — UIx substrate counter
+# A counter, rendered with UIx
 
-This is the [Reagent counter](../../reagent/counter/) again — same minus
-button, same plus button, same number. The only difference is that it
-renders through a different
-[substrate](../../../docs/guide/glossary.md#substrate). That sounds like a
-big change. It almost isn't.
+A number on screen, with a minus button to its left and a plus button to
+its right. Click plus and the number goes up by one; click minus and it
+goes down by one. It starts at 5. That's the whole app.
+
+What makes it worth a look is that this is the *same* counter as the
+[Reagent counter](../../reagent/counter/) — same buttons, same number,
+same behaviour. The only thing that changed is the
+[substrate](../../../docs/guide/glossary.md#substrate) it renders
+through: UIx here, Reagent there. That sounds like a big change. It
+almost isn't.
 
 The [events](../../../docs/guide/glossary.md#event), the
 [subscription](../../../docs/guide/glossary.md#subscription), and the

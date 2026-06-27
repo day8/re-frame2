@@ -1,12 +1,17 @@
-# infinite_feed — EP-0021 infinite-resource worked example
+# A feed that grows as you load more
 
-A load-more / infinite-scroll timeline: one feed that grows as you ask for more.
-It's built on the first-class **infinite resource** primitive
-([EP-0021](../../../docs/EP/EP-0021-infinite-resources.md),
-[Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)).
+This example is a feed: a list of items with a **Load more** button at the
+bottom. Click the button and the next batch of items appends to the list you
+already have. Keep clicking and the feed keeps growing, one page at a time,
+until it runs out — then the button is replaced by an end-of-feed marker. Each
+click shows a brief spinner while the page loads. There's no backend to run: a
+canned dataset in the page stands in for the server, so you just start it and
+click.
 
-The one idea to carry away: **the view does almost nothing.** It reads a list and
-renders it. Clicking "Load more" dispatches a single [event](../../../docs/guide/glossary.md#event)
+> **The view reads a list and renders it. Everything else lives in the runtime.**
+
+That's the one idea to carry away — **the view does almost nothing.** Clicking
+"Load more" dispatches a single [event](../../../docs/guide/glossary.md#event)
 that carries no page number. The view holds no cursor, no `:loading-more?` flag,
 no list slice to append to, and no append reducer. All of that — the accumulated
 pages, the cursor for the next page, the in-flight tracking, the end-of-feed
@@ -20,6 +25,8 @@ family, with growth driven by a **causal** `:rf.resource/load-more`
 [event](../../../docs/guide/glossary.md#event). It's the worked companion to the
 guide's load-more half,
 [docs/resources/how-to/paginate-a-feed.md](../../../docs/resources/how-to/paginate-a-feed.md).
+
+## Two ways to paginate
 
 There are two ways to paginate, and this is the second.
 
@@ -84,8 +91,8 @@ The view reads the combined `[:rf.resource/infinite-state …]` view-model —
 `:fetching?`), `:page-error`, `:loading?`, `:has-data?` — and dispatches **one**
 causal event. Worth restating, because it's the payoff: there is **no app-db
 list slice, no `:loading-more?` flag, no cursor threading, and no append
-reducer**. The runtime owns every bit of it. Before EP-0021 you hand-rolled all
-four on every feed you built; closing that gap is what this primitive is for.
+reducer**. The runtime owns every bit of it. Hand-rolling all four on every feed you build
+is exactly the work this primitive removes.
 
 **Enveloped pages need a `:page->items` accessor.** Real paginated endpoints
 rarely hand you a bare array — they wrap it. This feed's pages arrive as `{:items
@@ -143,7 +150,9 @@ infinite_feed/
 shadow-cljs watch examples/infinite-feed
 ```
 
-Then open the example's [`index.html`](index.html) over HTTP.
+Then open the example's [`index.html`](index.html) over HTTP. Click **Load
+more** and watch the next batch of items append; keep clicking until the feed
+runs out and the button turns into an end-of-feed marker.
 
 ## Cross-references
 

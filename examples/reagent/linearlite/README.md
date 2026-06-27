@@ -1,7 +1,9 @@
-# linearlite — EP-0019 optimistic-mutation + rollback worked example
+# An issue board that updates instantly — and reverts if the save fails
 
 A small issue tracker, in the style of Linearlite. It's a board of cards you
-**create**, **retitle**, and move between **statuses**.
+**create**, **retitle**, and move between **statuses**. Every one of those
+actions lands on screen instantly — the board never waits on the network to
+redraw.
 
 It exists to show one hard UX problem. Writing to a server takes time, but the
 user expects the screen to react *now*. So you show the change immediately,
@@ -13,18 +15,13 @@ Done by hand, it's a bug farm: a `:saving?` flag, a hidden copy of the old
 value, a race between the reply and the next click, and an undo path you wrote
 from memory that doesn't quite match the screen. This example does none of that
 by hand. The whole move is a built-in runtime feature
-([EP-0019](../../../docs/EP/EP-0019-optimistic-mutation-rollback.md),
-[Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations)).
+([Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations);
+the design rationale lives in the
+[optimistic-mutation design note](../../../docs/EP/EP-0019-optimistic-mutation-rollback.md)).
 You write only the *forward* change — "make the card look like this." The
 runtime does the rest: it applies the change before the request goes out,
 remembers exactly what was there before, and puts it back untouched if the write
 fails.
-
-This is the **write-side flagship** of the dogfood examples. It mirrors
-[`reagent/infinite_feed/`](../infinite_feed/), the read-side EP-0021 load-more
-dogfood. There the runtime owns accumulating pages of data you read. Here it owns
-applying your optimistic guess, recording the true inverse, and the
-conflict-aware rollback — and you write only the forward patch.
 
 > **Coming from TanStack Query / SWR?** You know this shape: an `onMutate` that
 > writes the cache early, a context object holding the snapshot, and an `onError`
@@ -158,5 +155,5 @@ optimistic change reverts.
 ## Related examples
 
 - [`examples/reagent/realworld_resources/`](../realworld_resources/) — the **`:optimistic-tags`** (tag-addressed) counterpart: a favorite that flips across the detail, every list, and the session feed at once.
-- [`examples/reagent/infinite_feed/`](../infinite_feed/) — the read-side EP-0021 load-more dogfood; this example is its write-side flagship sibling.
+- [`examples/reagent/infinite_feed/`](../infinite_feed/) — the read-side load-more example: there the runtime owns accumulating the pages you read; here it owns applying your optimistic write and rolling it back.
 - [`examples/reagent/resources/`](../resources/) — the single-page resource lifecycle (ensure / refetch / owners / causes) the board read builds on.

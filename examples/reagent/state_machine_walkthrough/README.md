@@ -1,23 +1,35 @@
-# state_machine_walkthrough — runnable companion to the machines chapter
+# A login form that locks you out
 
-This is the [machines chapter](../../../docs/machines/concepts.md)'s login
-flow, lifted off the page and made to run. Every snippet the chapter shows
-lives here as real, compiling code, in the order the chapter introduces it.
+This example puts a login form in your browser — an email field, a password
+field, a **Sign in** button. Fill it in and submit. The attempt fails, and an
+error message appears with a **Dismiss** button. It fails *every* time, on
+purpose. After three rejections, a fourth submit locks the account: the form
+disappears and an "Account locked" panel takes its place. Across the top, a
+banner names the machine's current state the whole way through, so you watch it
+step `:idle → :submitting → :error-shown` and back, then finally settle in
+`:locked-out`. There's no server to run — the login call is stubbed out — so you
+just start it and click.
 
-The chapter builds a login [machine](../../../docs/machines/glossary.md#machine)
-one idea at a time: a [transition](../../../docs/machines/glossary.md#transition)
-table, then [guards](../../../docs/machines/glossary.md#guard),
+The form runs on a [machine](../../../docs/machines/glossary.md#machine), which
+is really just an [event handler](../../../docs/guide/glossary.md#event-handler)
+written as a transition table. That's the idea worth taking away:
+
+> **A machine is just data — so the same value that renders in a browser also unit-tests on the JVM.**
+
+The `login-flow` value you click through here is the very same value a test
+drives as a sequence of pure function calls: feed it a state and an event, get
+the next state back — no frame, no DOM, no network, microseconds per transition.
+One table, two lives. This example shows both.
+
+This is the [machines chapter](../../../docs/machines/concepts.md)'s login flow,
+lifted off the page and made to run. Every snippet the chapter shows lives here
+as real, compiling code, in the order the chapter introduces it — the
+[transition](../../../docs/machines/glossary.md#transition) table first, then
+[guards](../../../docs/machines/glossary.md#guard),
 [actions](../../../docs/machines/glossary.md#action),
-[tags](../../../docs/machines/glossary.md#state-tag), and an HTTP call whose
-reply lands back inside the machine. If a passage left you wanting to poke at
-it, poke here.
-
-The one idea worth taking away: a single transition table does double duty.
-The same `login-flow` value you click through in a browser is the value a test
-drives as a sequence of pure function calls on the JVM — no frame, no DOM, no
-network, microseconds per transition. A machine is just an
-[event handler](../../../docs/guide/glossary.md#event-handler), so its behaviour
-is data you can either render or unit-test. This example shows both.
+[tags](../../../docs/machines/glossary.md#state-tag), and finally an HTTP call
+whose reply lands back inside the machine. If a passage left you wanting to poke
+at it, poke here.
 
 ## What this demonstrates
 

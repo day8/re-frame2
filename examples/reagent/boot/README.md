@@ -1,20 +1,26 @@
-# boot — Pattern-Boot example
+# Booting an app, step by step
 
-This example boots an app with a [state
-machine](../../../docs/machines/concepts.md) called `:app/boot`. Before
-the real UI can show, the app has to wake up: fetch config, load a few
-things the first screen needs, then hand over. This machine runs that
-whole sequence.
+Before this app can show its real UI, it has to wake up: fetch config,
+load the few things the first screen needs, then hand over. This example
+runs that whole startup in front of you. You watch a progress screen step
+through its phases — configuring, loading, hydrating — and then the real
+app appears. If a load fails, you get an error screen with a **Retry**
+button instead. It runs on its own; there's no server to set up.
 
-The usual way is a chain of side effects in a view's mount hook or a
-top-level `js` block. It works until a fetch fails, two loads could have
-run in parallel, or you ask "what state is the app in right now?" — and
-the only answer is "somewhere in that callback pyramid."
+The startup sequence is a [state
+machine](../../../docs/machines/concepts.md) called `:app/boot`, and
+that's the idea worth taking away:
 
-A machine is a better fit. Boot *is* a lifecycle: named stages, a happy
-path, a failure branch, a retry. As a machine, the boot logic is one
-piece of data you read top to bottom — not control flow scattered across
-handlers. It's the canonical shape from
+> **Startup is a lifecycle, not a pile of callbacks.**
+
+The usual way to boot is a chain of side effects in a view's mount hook
+or a top-level `js` block. It works until a fetch fails, two loads could
+have run in parallel, or you ask "what state is the app in right now?" —
+and the only answer is "somewhere in that callback pyramid." A machine is
+a better fit. Boot *is* a lifecycle: named stages, a happy path, a
+failure branch, a retry. As a machine, the boot logic is one piece of
+data you read top to bottom — not control flow scattered across handlers.
+It's the canonical shape from
 [`spec/Pattern-Boot.md`](../../../spec/Pattern-Boot.md), made runnable.
 
 ## What this example demonstrates
