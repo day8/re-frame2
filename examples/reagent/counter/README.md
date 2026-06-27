@@ -65,15 +65,13 @@ changes. That seam is the whole point of the
 
 re-frame2 never creates a frame for you. An app must stand its frame up
 itself, and this counter is the smallest place to watch that happen end
-to end. Four steps, all in `run`:
+to end. Two steps, all in `run`:
 
 ```clojure
 (rf/init! reagent-adapter/adapter)              ;; install the adapter (NOT a frame)
-(rf/reg-frame app-frame {})                     ;; register the app's frame
-(rf/with-frame app-frame
-  (rf/dispatch-sync [:counter/initialise]))     ;; boot it: seed app-db, synchronously
 (rdc/render @react-root
-  [rf/frame-provider {:frame app-frame} ;; scope the frame to the view tree
+  [rf/frame-provider {:id app-frame             ;; stand the frame up: create + seed
+                      :initial-events [[:counter/initialise]]}
    [counter-app]])
 ```
 
@@ -82,17 +80,15 @@ Each step does one job:
 - [`init!`](../../../docs/guide/glossary.md#init) tells the runtime which
   [substrate](../../../docs/guide/glossary.md#substrate) to render
   through, and nothing else. It does not create a frame.
-- `reg-frame` registers the app's frame. The example names it
+- [`frame-provider`](../../../docs/guide/glossary.md#frame-provider) wraps
+  the view tree and stands the frame up. Given `:id`, it *ensures* a named
+  frame — creating it on the first mount and reusing it untouched on a hot
+  reload, never re-seeding — and runs `:initial-events` once on creation
+  to seed `app-db` before the first render. The example names the frame
   `:rf/default`, but that name has no special meaning — you ask for it
-  like any other.
-- The boot dispatch runs inside `with-frame`, so it lands in the right
-  frame. It uses
-  [`dispatch-sync`](../../../docs/guide/glossary.md#dispatch-sync) — the
-  synchronous sibling of `dispatch` — so `app-db` is seeded *before* the
-  first render, not a tick later.
-- `frame-provider` wraps the view tree. That's what lets the
-  `dispatch` and `subscribe` calls inside the views find their frame
-  instead of raising `:rf.error/no-frame-context`.
+  like any other. Wrapping the tree is also what lets the `dispatch` and
+  `subscribe` calls inside the views find their frame instead of raising
+  `:rf.error/no-frame-context`.
 
 If you're coming from re-frame v1, this is the thing to notice: there's
 no global, implicit app any more. The payoff is that frames are
