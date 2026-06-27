@@ -130,16 +130,18 @@ One note on the substrate choice: this is **stock Reagent**
 (`reagent.dom.client` + `re-frame.adapter.reagent`), not reagent-slim.
 That keeps the trio on the reference substrate for each adapter.
 
-The mount is the ordinary re-frame2 boot, in four steps.
+The mount is the ordinary re-frame2 boot, in two steps.
 [`init!`](../../../docs/guide/glossary.md#init) installs the Reagent
-[adapter](../../../docs/guide/glossary.md#adapter).
-[`reg-frame`](../../../docs/guide/glossary.md#registration) registers the
-app [frame](../../../docs/guide/glossary.md#frame). A
-[`dispatch-sync`](../../../docs/guide/glossary.md#dispatch-sync) seeds
-the [app-db](../../../docs/guide/glossary.md#app-db) before the first
-paint. Then the tree renders inside a `frame-provider`, so
-every `dispatch`/`subscribe` in the tree resolves to that frame. Render
-with no provider and those calls raise `:rf.error/no-frame-context` —
+[adapter](../../../docs/guide/glossary.md#adapter). Then the tree renders
+inside a [`frame-provider`](../../../docs/guide/glossary.md#frame-provider)
+given `{:id app-frame :initial-events [[:notebook/initialise]]}`: the
+`:id` stands the app [frame](../../../docs/guide/glossary.md#frame) up —
+creating it on the first mount, reusing it untouched on a hot reload — and
+`:initial-events` fires once on creation to seed the
+[app-db](../../../docs/guide/glossary.md#app-db) before the first paint.
+With the tree inside the provider, every `dispatch`/`subscribe` resolves
+to that frame; render with no provider and those calls raise
+`:rf.error/no-frame-context` —
 [identity is carried, not found](../../../docs/guide/glossary.md#frame-identity-is-carried-not-found),
 even for a three-pane toy.
 

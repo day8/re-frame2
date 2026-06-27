@@ -100,14 +100,17 @@ the dataflow stays the star.
 
 The mount is the ordinary re-frame2 boot.
 [`init!`](../../../docs/guide/glossary.md#init) installs the UIx adapter.
-[`reg-frame`](../../../docs/guide/glossary.md#registration) registers the
-app [frame](../../../docs/guide/glossary.md#frame). A
-[`dispatch-sync`](../../../docs/guide/glossary.md#dispatch-sync) seeds
-the [app-db](../../../docs/guide/glossary.md#app-db) before the first
-paint. Then the tree renders inside a `frame-provider`, so every
-`use-subscribe` and `capture-frame` resolves to that frame through React
-context. Render with *no* provider and the hooks raise
-`:rf.error/no-frame-context` — [identity is carried, not
+Then the tree renders inside a
+[`frame-provider`](../../../docs/guide/glossary.md#frame-provider) given
+`{:id app-frame :initial-events [[:dashboard/initialise]]}`: the `:id`
+stands the app [frame](../../../docs/guide/glossary.md#frame) up —
+creating it on the first mount, reusing it untouched on a hot reload — and
+`:initial-events` fires once on creation to seed the
+[app-db](../../../docs/guide/glossary.md#app-db) before the first paint.
+With the tree inside the provider, every `use-subscribe` and
+`capture-frame` resolves to that frame through React context; render with
+*no* provider and the hooks raise `:rf.error/no-frame-context` —
+[identity is carried, not
 found](../../../docs/guide/glossary.md#frame-identity-is-carried-not-found),
 even here.
 
