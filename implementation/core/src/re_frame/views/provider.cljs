@@ -118,7 +118,7 @@
 
   SHAPE 1 — `{:frame existing-id}` — SCOPE-ONLY. Provide an ALREADY-CREATED
   frame's id to descendants via the shared React context. Creates / refreshes
-  / destroys NOTHING. Inside the subtree, `(rf/frame-handle)` /
+  / destroys NOTHING. Inside the subtree, `(rf/capture-frame)` /
   `reg-view`-registered descendants resolve to the named frame. FAILS LOUD
   when the named frame is ABSENT (`:rf.error/frame-provider-frame-absent`) —
   scoping a subtree to a frame that does not exist is a configuration error.

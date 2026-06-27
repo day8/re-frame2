@@ -955,7 +955,7 @@
   "Substrate-agnostic CORE of the frame-provider (rf2-z7hfp). Given a
   resolved frame keyword and a children value, returns the shared frame
   Context Provider React element scoping that frame to its subtree —
-  inside the subtree, `(rf/frame-handle)` / `reg-view`-registered
+  inside the subtree, `(rf/capture-frame)` / `reg-view`-registered
   descendants resolve to the named frame. Per Spec 002 §What
   `frame-provider` is (CLJS reference).
 

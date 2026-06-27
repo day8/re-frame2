@@ -253,7 +253,7 @@
         ;; `unknown-dispatch-opts` returns nil under `interop/debug-enabled?
         ;; false`, so the whole `when-let` body — including the diagnostics-
         ;; ns warning fn — DCEs in production. Every dispatch path
-        ;; (`dispatch!`, `dispatch-sync!`, the frame-handle ops) funnels
+        ;; (`dispatch!`, `dispatch-sync!`, the capture-frame ops) funnels
         ;; through here, so this is the single chokepoint for the check. The
         ;; dispatch proceeds unchanged regardless (warn-only).
         _                  (when-let [unknown (diag/unknown-dispatch-opts opts)]
@@ -2517,7 +2517,7 @@
 
       The binding does NOT survive async escapes (setTimeout,
       Promise.then, requestAnimationFrame): the JS callback fires on
-      a fresh stack with no dynamic binding. Use `(rf/frame-handle)`
+      a fresh stack with no dynamic binding. Use `(rf/capture-frame)`
       (capture-at-creation), `:fx [[:dispatch ...]]` (fx-walker
       threads the frame), or `:dispatch-later` (frame captured in
       closure) for those paths. Per rf2-l5q3.

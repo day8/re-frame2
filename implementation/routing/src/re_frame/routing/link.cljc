@@ -127,7 +127,7 @@
            ;; rf2-o3nam4: CAPTURE the render-time frame ONCE, here at render —
            ;; NOT at click time. `:route/link` is registered via `reg-view*`
            ;; with this prebuilt fn, so it does NOT receive the `reg-view`
-           ;; macro's injected `make-frame-handle` render-time capture
+           ;; macro's injected `make-capture-frame` render-time capture
            ;; (core_reg_view_macro.cljc) and must capture for itself.
            ;; A real browser click fires LONG after render, by which point the
            ;; render-time `with-frame` / frame-provider dynamic scope has
@@ -135,8 +135,8 @@
            ;; `:rf.error/no-frame-context` (no scope) or silently route to the
            ;; wrong ambient frame (router.cljc §build-envelope). Capturing now
            ;; pins the navigation to the frame that RENDERED the link and
-           ;; survives the async boundary, exactly as `frame-handle` /
-           ;; `make-frame-handle` do for view bodies. `require-current-frame!`
+           ;; survives the async boundary, exactly as `capture-frame` /
+           ;; `make-capture-frame` do for view bodies. `require-current-frame!`
            ;; raises at the RENDER site if a link is rendered outside any frame
            ;; scope — fail with the render stack, not a detached click.
            ;; (rf2-afdlyr realm collapse: the former (realm, frame) address
