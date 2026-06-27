@@ -25,7 +25,7 @@ The single rule for the lifecycle: **`:loading` and `:fetching` are not intercha
 
 ## Canonical declaration — slice form
 
-The dominant shape; used wherever an explicit `:status` keyword and Pattern-RemoteData's full 5-key slice is wanted. Lifted from `examples/reagent/realworld/articles.cljs` (one of seven slice-form resources in realworld):
+The dominant shape; used wherever an explicit `:status` keyword and Pattern-RemoteData's full 5-key slice is wanted. Lifted from `examples/real-apps/realworld_http/articles.cljs` (one of seven slice-form resources in realworld):
 
 ```clojure
 (def RequestSlice
@@ -97,7 +97,7 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
 
 ## Canonical declaration — `:data-region` machine form
 
-Used when the lifecycle is *part of* a larger page's machine (the page already has a `:type :parallel` machine with `:form` / `:mode` axes — see `patterns/nine-states.md`), or when the lifecycle plus a per-region cancellation/`:spawn` are wanted. Lifted from `examples/reagent/realworld/tags.cljs`:
+Used when the lifecycle is *part of* a larger page's machine (the page already has a `:type :parallel` machine with `:form` / `:mode` axes — see `patterns/nine-states.md`), or when the lifecycle plus a per-region cancellation/`:spawn` are wanted. Lifted from `examples/real-apps/realworld_http/tags.cljs`:
 
 ```clojure
 (rf/reg-machine :realworld/tags
@@ -147,9 +147,9 @@ Realworld ships both shapes side-by-side. `articles`, `feed`, `article`, `commen
 
 ## Worked example
 
-- **Slice form**: `examples/reagent/realworld/articles.cljs` — articles list with `?tag=` query, revalidate-on-route, full lifecycle.
-- **Machine form**: `examples/reagent/realworld/tags.cljs` — popular-tags list, single-region `reg-machine`, tag-shaped view queries.
-- **Compose with NineStates**: `examples/reagent/nine_states/core.cljs` — `:data` region as one axis of a parallel machine, with cardinality cascade (`:empty` / `:one` / `:some` / `:too-many`).
+- **Slice form**: `examples/real-apps/realworld_http/articles.cljs` — articles list with `?tag=` query, revalidate-on-route, full lifecycle.
+- **Machine form**: `examples/real-apps/realworld_http/tags.cljs` — popular-tags list, single-region `reg-machine`, tag-shaped view queries.
+- **Compose with NineStates**: `examples/patterns/nine_states/core.cljs` — `:data` region as one axis of a parallel machine, with cardinality cascade (`:empty` / `:one` / `:some` / `:too-many`).
 
 ## Why `:loading` vs `:fetching` is non-negotiable
 
@@ -171,4 +171,4 @@ This leaf is the **hand-rolled** slice (or machine region). If the same fetch is
 
 ---
 
-*Derived from `examples/reagent/realworld/articles.cljs` (slice form) and `examples/reagent/realworld/tags.cljs` (machine form) @ main `89bd9c3`. Re-verify if RealWorld's slice shape changes.*
+*Derived from `examples/real-apps/realworld_http/articles.cljs` (slice form) and `examples/real-apps/realworld_http/tags.cljs` (machine form) @ main `89bd9c3`. Re-verify if RealWorld's slice shape changes.*

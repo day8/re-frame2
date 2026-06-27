@@ -72,7 +72,7 @@ This is a complement to, not a replacement for, the slice form above — apply t
 
 ## Canonical declaration — slice form
 
-The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/reagent/realworld/auth.cljs` for the `:auth :login-form` and `:auth :register-form` slices, and in `examples/reagent/realworld/article_editor.cljs` and `comments.cljs`).
+The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/real-apps/realworld_http/auth.cljs` for the `:auth :login-form` and `:auth :register-form` slices, and in `examples/real-apps/realworld_http/article_editor.cljs` and `comments.cljs`).
 
 ```clojure
 (def FormSlice
@@ -127,7 +127,7 @@ The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/r
 
 ## Canonical declaration — `:form-region` machine form
 
-Used when the form's lifecycle is *part of* a larger page's machine (composes with `patterns/nine-states.md`), or when tag-shaped queries are wanted in place of slice-field comparisons. Lifted from `examples/reagent/realworld/settings.cljs`:
+Used when the form's lifecycle is *part of* a larger page's machine (composes with `patterns/nine-states.md`), or when tag-shaped queries are wanted in place of slice-field comparisons. Lifted from `examples/real-apps/realworld_http/settings.cljs`:
 
 ```clojure
 (rf/reg-machine :settings/form
@@ -186,9 +186,9 @@ Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-
 
 ## Worked example
 
-- **Slice form**: `examples/reagent/realworld/auth.cljs` — login + register; `examples/reagent/realworld/article_editor.cljs` — full editor; `examples/reagent/realworld/comments.cljs` — comment form.
-- **Machine form**: `examples/reagent/realworld/settings.cljs` — single-region `reg-machine` with `:neutral / :incorrect / :submitting / :correct`.
-- **Compose with NineStates**: `examples/reagent/nine_states/core.cljs` — `:form` region as one axis of a parallel machine, with the `Incorrect` / `Correct` rendering folded into the page's render-priority.
+- **Slice form**: `examples/real-apps/realworld_http/auth.cljs` — login + register; `examples/real-apps/realworld_http/article_editor.cljs` — full editor; `examples/real-apps/realworld_http/comments.cljs` — comment form.
+- **Machine form**: `examples/real-apps/realworld_http/settings.cljs` — single-region `reg-machine` with `:neutral / :incorrect / :submitting / :correct`.
+- **Compose with NineStates**: `examples/patterns/nine_states/core.cljs` — `:form` region as one axis of a parallel machine, with the `Incorrect` / `Correct` rendering folded into the page's render-priority.
 
 ## Why error visibility hinges on `submit-attempted? OR touched`
 
@@ -210,4 +210,4 @@ Three options exist for "when do per-field errors show?":
 
 ---
 
-*Derived from `examples/reagent/realworld/auth.cljs` (slice form), `examples/reagent/realworld/settings.cljs` (machine form), and `examples/reagent/login/` @ main `89bd9c3`. Re-verify if Forms-pattern slice shape changes.*
+*Derived from `examples/real-apps/realworld_http/auth.cljs` (slice form), `examples/real-apps/realworld_http/settings.cljs` (machine form), and `examples/core/login/` @ main `89bd9c3`. Re-verify if Forms-pattern slice shape changes.*

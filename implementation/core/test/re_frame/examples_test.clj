@@ -6,7 +6,7 @@
   Per rf2-kx74 examples are grouped per substrate; the example sources
   (`ssr.core`, `ssr-streaming.core`, `state-machine-walkthrough.core`)
   live under
-  ../examples/reagent/{ssr,ssr_streaming,state_machine_walkthrough}/ on
+  ../examples/capabilities/{ssr/ssr,ssr/ssr_streaming,machines/state_machine_walkthrough}/ on
   disk. The example source a learner reads is pure demonstrative code —
   the example tree is test-free by convention (rf2-8cevm: no test/ or
   *.spec.cjs under examples/).
@@ -143,7 +143,7 @@
 ;; ============================================================================
 
 (deftest ssr-example-runs-end-to-end
-  (testing "examples/reagent/ssr — the server flow renders the loaded articles"
+  (testing "examples/capabilities/ssr/ssr — the server flow renders the loaded articles"
     (require 'ssr.core :reload)
     ;; Boot the runtime (idempotent) — installs the SSR adapter and the
     ;; :rf/default frame. `re-frame.ssr` exports its own `adapter` var
@@ -221,7 +221,7 @@
                              {:id "b" :title "Article B" :body "Body B"}]))))))
 
 (deftest ssr-example-handle-request-tears-down-per-request-frame
-  (testing "examples/reagent/ssr — handle-request leaves no per-request frame
+  (testing "examples/capabilities/ssr/ssr — handle-request leaves no per-request frame
             in the registry and no SSR request slot after it returns
             (Spec 011 §Per-request frame teardown contract)"
     (require 'ssr.core :reload)
@@ -256,7 +256,7 @@
                  "leftover slots: " (pr-str (keys @ssr-request/request-slots))))))))
 
 (deftest ssr-example-handle-request-tears-down-on-throw
-  (testing "examples/reagent/ssr — handle-request destroys the per-request
+  (testing "examples/capabilities/ssr/ssr — handle-request destroys the per-request
             frame even when the render path throws, so a failing request
             leaks nothing (Spec 011 §Per-request frame teardown contract —
             cleanup runs on the throw path too)"
@@ -307,7 +307,7 @@
 ;; ============================================================================
 
 (deftest ssr-example-per-request-frame-carries-and-validates-articles-schema
-  (testing "examples/reagent/ssr — the per-request SERVER frame carries the
+  (testing "examples/capabilities/ssr/ssr — the per-request SERVER frame carries the
             :articles schema (the rf2-9wc2ed per-request registration) and
             validation runs ON THAT FRAME, not on :rf/default (rf2-i6p308)"
     (require 'ssr.core :reload)
@@ -389,7 +389,7 @@
     @traces))
 
 (deftest ssr-example-client-hydration-stashes-server-hash-and-seeds-db
-  (testing "examples/reagent/ssr — ssr/hydrate! against the example's
+  (testing "examples/capabilities/ssr/ssr — ssr/hydrate! against the example's
             framework-owned :rf/hydrate stashes the payload's :rf/render-hash
             under [:rf.runtime/ssr :hydration :server-hash] and replaces app-db
             with the :rf/app-db slice"
@@ -413,7 +413,7 @@
           "the server render-hash is stashed for the verify step"))))
 
 (deftest ssr-example-client-hydration-matching-hash-is-silent
-  (testing "examples/reagent/ssr — a client render-tree whose hash MATCHES the
+  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES the
             payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch"
     (require 'ssr.core :reload)
     (rf/init! ssr/adapter)
@@ -434,7 +434,7 @@
                (pr-str (mapv :operation traces)))))))
 
 (deftest ssr-example-client-hydration-divergent-hash-fires-mismatch
-  (testing "examples/reagent/ssr — a client render-tree whose hash DIVERGES
+  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash DIVERGES
             from the payload's :rf/render-hash emits :rf.ssr/hydration-mismatch
             (the verify step the example's `run` wires via :render-tree-fn)"
     (require 'ssr.core :reload)
@@ -456,7 +456,7 @@
                (pr-str (mapv :operation traces)))))))
 
 (deftest ssr-example-client-hydration-malformed-payload-does-not-replace-db
-  (testing "examples/reagent/ssr — a MALFORMED payload (a present-but-non-map
+  (testing "examples/capabilities/ssr/ssr — a MALFORMED payload (a present-but-non-map
             :rf/app-db slice) is rejected fail-closed: app-db is left
             unchanged (Spec 011 §The :rf/hydrate event — both partitions
             validate fail-closed before installation)"
@@ -484,7 +484,7 @@
 ;; ============================================================================
 
 (deftest ssr-streaming-example-runs-end-to-end
-  (testing "examples/reagent/ssr_streaming — the server stream produces shell + chunks + payload"
+  (testing "examples/capabilities/ssr/ssr_streaming — the server stream produces shell + chunks + payload"
     (require 'ssr-streaming.core :reload)
     (rf/init! ssr/adapter)
     (let [handle-request (resolve 'ssr-streaming.core/handle-request)
@@ -545,7 +545,7 @@
     (some-> (second m) edn/read-string)))
 
 (deftest ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/reagent/ssr — the payload the dynamic `handle-request`
+  (testing "examples/capabilities/ssr/ssr — the payload the dynamic `handle-request`
             emits feeds into `ssr/hydrate!` against the example's `:rf/default`
             client frame with NO `:rf.error/hydration-frame-id-mismatch` (the
             payload omits the per-request server frame-id) and seeds the
@@ -576,7 +576,7 @@
             "the client app-db carries the server's articles after hydration")))))
 
 (deftest ssr-example-payload-script-escapes-script-breakout
-  (testing "examples/reagent/ssr — a server-provided string containing
+  (testing "examples/capabilities/ssr/ssr — a server-provided string containing
             `</script>` (round-tripped through app-db) is escaped by the
             EDN-aware `<script>`-body encoder, so it CANNOT close the
             `__rf_payload` envelope, and the payload still round-trips through
@@ -616,7 +616,7 @@
             "the payload round-trips through the EDN reader unchanged")))))
 
 (deftest ssr-streaming-example-final-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/reagent/ssr_streaming — the dynamic `handle-request`
+  (testing "examples/capabilities/ssr/ssr_streaming — the dynamic `handle-request`
             `:final-payload` feeds into `ssr/hydrate!` against the example's
             `:rf/default` client frame with NO frame-id mismatch (it omits the
             per-request server frame-id) and seeds the client app-db with the
@@ -642,7 +642,7 @@
             "the client app-db carries the three streamed cards after hydration")))))
 
 (deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/reagent/resources_ssr — the payload the dynamic
+  (testing "examples/capabilities/ssr/resources_ssr — the payload the dynamic
             `handle-request` emits (under the valid
             `:rf.ssr.payload/whole-app-db` policy, NOT the invalid empty
             `[]`) feeds into `ssr/hydrate!` against the example's `:rf/default`

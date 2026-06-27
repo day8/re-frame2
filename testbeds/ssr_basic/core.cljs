@@ -4,7 +4,7 @@
   This surface exercises the SSR round-trip from the browser end. The
   pre-rendered HTML and the serialised payload are baked into the static
   `index.html` (the shape `re-frame.ssr/render-to-string` + the JVM
-  payload builder would emit — see `examples/reagent/ssr/core.cljc`'s
+  payload builder would emit — see `examples/capabilities/ssr/ssr/core.cljc`'s
   `handle-request` for the reference). The browser-side `run` reads the
   payload, dispatches `:rf/hydrate` (locked `:replace-app-db` policy per
   [spec/011-SSR.md §The :rf/hydrate event]), renders against the now-

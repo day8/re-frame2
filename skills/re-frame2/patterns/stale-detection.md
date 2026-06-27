@@ -137,7 +137,7 @@ The owner is also responsible for *advancing* — typically in the same handler 
 
 ## Worked example
 
-No standalone example app — every state machine using `:after` is an inline example (the substrate-owned variant), and the routing example in `examples/reagent/routing/` exercises the nav-token variant. The substrate's behaviour is verified by the conformance suite under `spec/conformance/fixtures/` (look for the `stale-after` and `nav-token` fixtures).
+No standalone example app — every state machine using `:after` is an inline example (the substrate-owned variant), and the routing example in `examples/capabilities/routing/routing/` exercises the nav-token variant. The substrate's behaviour is verified by the conformance suite under `spec/conformance/fixtures/` (look for the `stale-after` and `nav-token` fixtures).
 
 ## Pointer to the spec
 

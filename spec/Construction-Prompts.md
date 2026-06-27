@@ -1213,17 +1213,17 @@ Override keys are interceptor **references**, matched by exact canonical referen
 
 ## Worked examples (each prompt, in action)
 
-The [7GUIs example series](../examples/reagent/seven_guis/README.md) and the [login example](../examples/reagent/login/core.cljs) demonstrate every prompt in working code (the `examples/` tree is test-free per [`examples/README.md`](../examples/README.md); real-regression coverage lives in the substrate contract tests, the framework gates, and adapter-level smoke tests):
+The [7GUIs example series](../examples/core/seven_guis/README.md) and the [login example](../examples/core/login/core.cljs) demonstrate every prompt in working code (the `examples/` tree is test-free per [`examples/README.md`](../examples/README.md); real-regression coverage lives in the substrate contract tests, the framework gates, and adapter-level smoke tests):
 
 | Prompt | Example |
 |---|---|
-| CP-1 (event handler) | All examples; especially the bookkeeping events in [Flight Booker](../examples/reagent/seven_guis/flight_booker/core.cljs) and the undo events in [Circle Drawer](../examples/reagent/seven_guis/circle_drawer/core.cljs) |
-| CP-2 (subscription) | [Temperature Converter](../examples/reagent/seven_guis/temperature/core.cljs) shows `:<-` chains; [Flight Booker](../examples/reagent/seven_guis/flight_booker/core.cljs) shows multi-input chains for derived enabled-state |
-| CP-3 (registered fx) | [Login](../examples/reagent/login/core.cljs) shows `:platforms` metadata + a stub fx for tests; [Timer](../examples/reagent/seven_guis/timer/core.cljs) shows `:dispatch-later`; [Flight Booker](../examples/reagent/seven_guis/flight_booker/core.cljs) shows a custom `:notify` fx |
+| CP-1 (event handler) | All examples; especially the bookkeeping events in [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) and the undo events in [Circle Drawer](../examples/core/seven_guis/circle_drawer/core.cljs) |
+| CP-2 (subscription) | [Temperature Converter](../examples/core/seven_guis/temperature/core.cljs) shows `:<-` chains; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows multi-input chains for derived enabled-state |
+| CP-3 (registered fx) | [Login](../examples/core/login/core.cljs) shows `:platforms` metadata + a stub fx for tests; [Timer](../examples/core/seven_guis/timer/core.cljs) shows `:dispatch-later`; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows a custom `:notify` fx |
 | CP-4 (registered view) | All examples use Var-reference Form-1 (canonical) |
-| CP-5 (state machine) | [Login](../examples/reagent/login/core.cljs) — full transition table with guards, actions, terminal states |
-| CP-6 (feature scaffold) | [Login](../examples/reagent/login/core.cljs) is a full feature: schema + events + subs + views + machine + tests |
-| CP-7 (route) | [Routing example](../examples/reagent/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:rf.route/navigate`, `:rf.route/handle-url-change`, `route-link`, server-and-client-shared handler |
-| CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../examples/reagent/login/core.cljs) and [Flight Booker](../examples/reagent/seven_guis/flight_booker/core.cljs) also attach event schemas |
-| CP-9 (SSR setup) | [SSR example](../examples/reagent/ssr/core.cljc) — single `.cljc` file demonstrating both server (`handle-request` returning HTML+payload) and client (`:rf/hydrate` seeding) flows; JVM-runnable smoke test |
-| CP-11 (interceptor) | [Circle Drawer](../examples/reagent/seven_guis/circle_drawer/core.cljs) registers the `:undoable` static interceptor (`{:before :after}`) and references it by id from undoable events; [RealWorld](../examples/reagent/realworld/routing.cljs) registers a `:realworld.routing/auth-guard` and references it from the frame's `:interceptors` |
+| CP-5 (state machine) | [Login](../examples/core/login/core.cljs) — full transition table with guards, actions, terminal states |
+| CP-6 (feature scaffold) | [Login](../examples/core/login/core.cljs) is a full feature: schema + events + subs + views + machine + tests |
+| CP-7 (route) | [Routing example](../examples/capabilities/routing/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:rf.route/navigate`, `:rf.route/handle-url-change`, `route-link`, server-and-client-shared handler |
+| CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../examples/core/login/core.cljs) and [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) also attach event schemas |
+| CP-9 (SSR setup) | [SSR example](../examples/capabilities/ssr/ssr/core.cljc) — single `.cljc` file demonstrating both server (`handle-request` returning HTML+payload) and client (`:rf/hydrate` seeding) flows; JVM-runnable smoke test |
+| CP-11 (interceptor) | [Circle Drawer](../examples/core/seven_guis/circle_drawer/core.cljs) registers the `:undoable` static interceptor (`{:before :after}`) and references it by id from undoable events; [RealWorld](../examples/real-apps/realworld_http/routing.cljs) registers a `:realworld.routing/auth-guard` and references it from the frame's `:interceptors` |

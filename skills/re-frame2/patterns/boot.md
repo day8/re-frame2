@@ -4,7 +4,7 @@ Application boot as a chained-async sequence — the canonical state-machine sha
 
 Boot is a composition of two **managed external effect** surfaces: state-machine `:spawn` (the per-phase actors) and `:rf.http/managed` (the per-phase fetches). Both surfaces inherit the nine-property umbrella contract — framework-owned lifecycle, structured failure taxonomy, retry/abort/teardown semantics, trace-bus observability, and the uniform reply envelope for async completion — which is what lets the boot machine reason about per-phase failure uniformly. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names how to *sequence* the phases.
 
-> **Worked example:** `examples/reagent/boot/` ships the canonical machine — `:configuring → :loading-deps → :hydrating → :ready` with one `:spawn`'d loader and a fan-out `:spawn-all` parallel-load step.
+> **Worked example:** `examples/patterns/boot/` ships the canonical machine — `:configuring → :loading-deps → :hydrating → :ready` with one `:spawn`'d loader and a fan-out `:spawn-all` parallel-load step.
 
 ## When to use this pattern
 
@@ -145,7 +145,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 ## Worked example
 
-`examples/reagent/boot/` — canonical Pattern-Boot. `:app/boot` cycles `:configuring → :loading-deps → :hydrating → :ready` (`:failed` terminal sibling). `:configuring` `:spawn`s one `:boot/loader` for `/config`; `:loading-deps` fans out three parallel loaders via `:spawn-all`; `:hydrating` applies staged payloads via one `:enter-hydrating` action and self-transitions to `:ready`. See `examples/reagent/boot/boot.cljs` + `schema.cljs`. A narrower single-purpose-flow instance lives at `examples/reagent/login/core.cljs`.
+`examples/patterns/boot/` — canonical Pattern-Boot. `:app/boot` cycles `:configuring → :loading-deps → :hydrating → :ready` (`:failed` terminal sibling). `:configuring` `:spawn`s one `:boot/loader` for `/config`; `:loading-deps` fans out three parallel loaders via `:spawn-all`; `:hydrating` applies staged payloads via one `:enter-hydrating` action and self-transitions to `:ready`. See `examples/patterns/boot/boot.cljs` + `schema.cljs`. A narrower single-purpose-flow instance lives at `examples/core/login/core.cljs`.
 
 ## Pointers
 
@@ -153,4 +153,4 @@ SKILL-REDIRECT.md → *Pattern — Boot* (auth-machine retry-ownership, SSR hand
 
 ---
 
-*Derived from `examples/reagent/boot/boot.cljs` and Pattern-Boot in the spec @ main `89bd9c3`.*
+*Derived from `examples/patterns/boot/boot.cljs` and Pattern-Boot in the spec @ main `89bd9c3`.*

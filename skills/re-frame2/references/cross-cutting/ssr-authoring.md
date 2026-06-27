@@ -118,7 +118,7 @@ Drop any of these and you reintroduce a fail-open hydration path. Hydration inst
            schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 ```
 
-Matches `examples/reagent/ssr/core.cljc` and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf.runtime/ssr :hydration :server-hash]`** (a runtime-db path) — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
+Matches `examples/capabilities/ssr/ssr/core.cljc` and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf.runtime/ssr :hydration :server-hash]`** (a runtime-db path) — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
 
 ## The trace events you'll see
 
@@ -143,7 +143,7 @@ When the page shell + header should render immediately while slow subtrees strea
  [slow-card card-id]]                         ;; renders the fallback until the card's data resolves, then streams in
 ```
 
-Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card dashboard) — read it for the `:rf/suspense-boundary` marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Spec: [`spec/011-SSR.md §Streaming`](../../../../spec/011-SSR.md#streaming-ssr). For the parallel data-fetch fan-out an SSR request needs, see [`../../patterns/ssr-loaders.md`](../../patterns/ssr-loaders.md). Low priority — skip unless the task is explicitly streaming SSR.
+Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slow-card dashboard) — read it for the `:rf/suspense-boundary` marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Spec: [`spec/011-SSR.md §Streaming`](../../../../spec/011-SSR.md#streaming-ssr). For the parallel data-fetch fan-out an SSR request needs, see [`../../patterns/ssr-loaders.md`](../../patterns/ssr-loaders.md). Low priority — skip unless the task is explicitly streaming SSR.
 
 ## Common gotchas
 
@@ -160,10 +160,10 @@ Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card da
 - Spec normative: [`spec/011-SSR.md §Head/meta contract`](../../../../spec/011-SSR.md) (`reg-head` / `render-head` / `active-head`); [`§The :rf/hydrate event`](../../../../spec/011-SSR.md) (check fxs).
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
 - Guide concept: [`docs/ssr/concepts.md`](../../../../docs/ssr/concepts.md) — narrative walkthrough, head/meta and hydration sections.
-- Worked example: [`examples/reagent/ssr/core.cljc`](../../../../examples/reagent/ssr/core.cljc) — the reference `:rf/hydrate` body matches this leaf verbatim.
+- Worked example: [`examples/capabilities/ssr/ssr/core.cljc`](../../../../examples/capabilities/ssr/ssr/core.cljc) — the reference `:rf/hydrate` body matches this leaf verbatim.
 - Production observability: [`production-observability.md`](production-observability.md) — the always-on event/error-emit listeners. Note `:rf.ssr/*` diagnostics do NOT ride the error-emit substrate (they elide with the trace channel unless separately promoted); instrument SSR drift via your own app event through those listeners, or the `:rf/public-error` projector server-side.
 - Trace catalogue: [`spec/009-Instrumentation.md §Error event catalogue`](../../../../spec/009-Instrumentation.md) — `:rf.ssr/*` keywords.
 
 ---
 
-*Derived from `re-frame.ssr.head` and `:rf.ssr/check-*` fxs @ main. Verified shapes: `examples/reagent/ssr/core.cljc:112-118` (canonical `:rf/hydrate`); `spec/011-SSR.md §Head/meta contract` (head surface); `spec/Spec-Schemas.md §:rf/head-model` (head-model shape).*
+*Derived from `re-frame.ssr.head` and `:rf.ssr/check-*` fxs @ main. Verified shapes: `examples/capabilities/ssr/ssr/core.cljc:112-118` (canonical `:rf/hydrate`); `spec/011-SSR.md §Head/meta contract` (head surface); `spec/Spec-Schemas.md §:rf/head-model` (head-model shape).*

@@ -98,7 +98,7 @@
 
 ;; The login examples' SHIPPED outer-event schema. This is the shape
 ;; registered on the :auth.login/flow machine in all three login examples
-;; (examples/reagent/login, examples/uix/login_uix, examples/helix/login_helix).
+;; (examples/core/login, examples/substrates/uix/login, examples/substrates/helix/login).
 ;; Kept here as the executable spec of that shape so its malformed-submit
 ;; rejection is a real regression gate (the examples tree is test-free, so the
 ;; schema contract is pinned in the framework suite).

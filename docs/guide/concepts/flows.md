@@ -89,7 +89,7 @@ Reach for a flow only when **all** of these hold:
 The RealWorld editor's submit gate is the canonical case. "Can the user submit?" means *the draft is valid AND differs from the loaded baseline*. The **submit handler** needs that answer, not just the button — and that single requirement is what tips the value from view-input to state:
 
 ```clojure
-;; Condensed from examples/reagent/realworld_resources/article_editor.cljs
+;; Condensed from examples/real-apps/realworld_resources/article_editor.cljs
 (def can-submit-flow
   {:id     :editor/can-submit?
    :doc    "True when the draft is valid AND differs from the loaded baseline."
@@ -215,7 +215,7 @@ The same atomic rule covers a throw in a [coeffect](../glossary.md#coeffect) sup
 Here's the trick a materialised view in a database can't do: you can switch a flow on and off *while the app runs*. Because flows are registered against the runtime rather than compiled into event chains, they're data the framework holds in a registry — and data can be added or removed at any time. Two reserved [effects](../glossary.md#effect) — actions the framework performs on a handler's behalf — do it: `:rf.fx/reg-flow` (register a flow map) and `:rf.fx/clear-flow` (remove one by id). Use this for a wizard step's derived check, a feature gate, an "advanced mode" — derivations that should only run while something is engaged:
 
 ```clojure
-;; Condensed from examples/reagent/flows/core.cljs — a 10%-off feature gate
+;; Condensed from examples/core/flows/core.cljs — a 10%-off feature gate
 (rf/reg-event :cart/apply-discount
   (fn [_cofx _event]
     {:fx [[:rf.fx/reg-flow {:id     :cart/discount-rate

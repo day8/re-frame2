@@ -1,6 +1,6 @@
 (ns re-frame.realworld-resources-cljs-test
   "Integration test: drives the RealWorld-on-resources example
-   (`examples/reagent/realworld_resources/`) through the example-SPECIFIC wiring
+   (`examples/real-apps/realworld_resources/`) through the example-SPECIFIC wiring
    the bead rf2-3slxrk named as the false-green gap — the composition `test:
    examples-compile` + the generic resource/mutation artefact tests do NOT pin:
 
@@ -26,7 +26,7 @@
         HTTP and stores the session.
 
    The fixture fns + the deterministic transport stub live HERE (the adapter test
-   tree), not under examples/reagent/realworld_resources/ — the example source
+   tree), not under examples/real-apps/realworld_resources/ — the example source
    stays test-free per the locked test-free-examples policy (rf2-8cevm). The ns
    requires the example's production source (`realworld-resources.core`, which
    chains in every feature ns — resources / mutations / scope / routing / auth /
@@ -202,7 +202,7 @@
 ;; ============================================================================
 
 (deftest session-scope-resolves-from-auth-username-and-fails-closed-logged-out
-  (testing "examples/reagent/realworld_resources — the named :realworld/session
+  (testing "examples/real-apps/realworld_resources — the named :realworld/session
             resolver derives [:rf.scope/session {:username …}] from
             [:auth :user :username], and resolves nil when logged out (fail-closed)"
     ;; logged out → nil (the fail-closed unresolved condition)
@@ -220,7 +220,7 @@
           "scope/session-scope matches the named resolver's value"))))
 
 (deftest feed-resource-spec-scope-is-the-named-from-db-reference
-  (testing "examples/reagent/realworld_resources — the :realworld/feed resource
+  (testing "examples/real-apps/realworld_resources — the :realworld/feed resource
             declares :scope {:from-db :realworld/session} (a derived-scope
             REFERENCE the runtime resolves at every site)"
     (is (= {:from-db :realworld/session}
@@ -235,7 +235,7 @@
 ;; ============================================================================
 
 (deftest bearer-interceptor-injects-token-when-authed-and-noops-when-logged-out
-  (testing "examples/reagent/realworld_resources — bearer-auth-interceptor reads
+  (testing "examples/real-apps/realworld_resources — bearer-auth-interceptor reads
             [:auth :token] from the cascade's frame and injects
             `Authorization: Token <jwt>`; it is a no-op when logged out"
     ;; LOGGED OUT — the public reads must not carry an auth header.
@@ -258,7 +258,7 @@
 ;; ============================================================================
 
 (deftest favorite-populates-detail-invalidates-both-scopes-and-replies-once
-  (testing "examples/reagent/realworld_resources — :realworld/favorite seeds the
+  (testing "examples/real-apps/realworld_resources — :realworld/favorite seeds the
             detail entry from its reply (authoritative load), invalidates the
             global article tags AND the session feed in one set of per-target
             descriptors, and fires no extra wiring; the call-site :reply-to
@@ -312,7 +312,7 @@
 ;; ============================================================================
 
 (deftest editor-flow-gates-submit-and-reply-to-navigates-to-the-saved-article
-  (testing "examples/reagent/realworld_resources — :editor/can-submit? materialises
+  (testing "examples/real-apps/realworld_resources — :editor/can-submit? materialises
             valid-AND-dirty into app-db; a blank draft is invalid; a valid+dirty
             draft submits the save mutation; the :reply-to [:editor/replied]
             continuation re-seeds a clean draft and navigates to the saved article"
@@ -351,7 +351,7 @@
 ;; ============================================================================
 
 (deftest logout-clears-the-session-scoped-feed-and-releases-the-lease
-  (testing "examples/reagent/realworld_resources — :auth/clear-session clears the
+  (testing "examples/real-apps/realworld_resources — :auth/clear-session clears the
             auth slice, drops the session-scoped cache via :rf.resource/clear-scope
             (so the next user never reads the prior user's feed), and releases the
             principal-switch lease. Public global reads are untouched."
@@ -386,7 +386,7 @@
 ;; ============================================================================
 
 (deftest auth-machine-login-stores-the-session
-  (testing "examples/reagent/realworld_resources — the :auth/flow machine drives
+  (testing "examples/real-apps/realworld_resources — the :auth/flow machine drives
             :idle → :submitting → :authed on a login success and stores the
             session (auth is a command/machine, deliberately NOT a read-resource)"
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
@@ -415,7 +415,7 @@
 ;; ============================================================================
 
 (deftest session-token-cofx-is-a-recordable-generator
-  (testing "examples/reagent/realworld_resources — the saved JWT is an app-owned
+  (testing "examples/real-apps/realworld_resources — the saved JWT is an app-owned
             world-read that feeds durable [:auth :token], so it is a recordable
             GENERATOR (a `:recordable? true` reg-cofx whose supplier reads
             localStorage), NOT a provided fact stamped at the dispatch site

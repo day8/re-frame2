@@ -472,4 +472,4 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
 - [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — the retry-ownership rule the auth-machine worked example illustrates.
 - Boot-as-state-machine study — the Dash8 / rf8 study that surfaced the hybrid retry-ownership boundary.
-- [examples/reagent/login/core.cljs](../examples/reagent/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.
+- [examples/core/login/core.cljs](../examples/core/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.

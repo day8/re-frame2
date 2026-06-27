@@ -11,7 +11,7 @@ Help an AI write working re-frame2 ClojureScript application code while spending
 ## 2. Pillars (locked)
 
 1. **Correctness — recipes over explanations.** Operationalised guidance ("use a machine when X") over abstract principles. The AI reaches for a canonical shape, doesn't derive one. **Q14 lock applies: NO verification module** — no `references/verify.md`, no "verify before claiming done" hard rule. The author runs tests; the skill stops at writing the code.
-2. **Idiomaticness — verified against `implementation/**` + `examples/reagent/**`.** The CLJS reference is the source of truth for *what the API is*. The spec corpus is *why*; it's never quoted for surface claims.
+2. **Idiomaticness — verified against `implementation/**` + `examples/**`.** The CLJS reference is the source of truth for *what the API is*. The spec corpus is *why*; it's never quoted for surface claims.
 3. **Context economy — distillation discipline.** `SKILL.md` is a router; one-level-deep leaves carry the depth. Every line costs context every time it loads. SKILL.md targets ~300-400 lines (under Anthropic's 500-line ceiling); reference / pattern leaves target ~150, ceiling 250.
 4. **Assume training knowledge — teach only the re-frame2 binding.** The AI already knows what WebSockets, FSMs, optimistic updates, and HTTP retry are. The skill's job is to bridge that to the specific re-frame2 features (`reg-machine`, `:rf.http/managed`, `:fsm/parallel-regions`, etc.). The **cut-test**: if a sentence could be written about React, Vue, or Elm unchanged, it belongs in training data, not this skill.
 
@@ -23,7 +23,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 For every code snippet in a leaf, the surface (function name, arity, options keyword set) is verified against `implementation/**`. If the spec says X and `implementation/<feature>/src/...` says Y, the implementation wins and a `bd` bead gets filed against the spec.
 
-### L2 — Examples in `examples/reagent/<x>/` are canonical
+### L2 — Examples in `examples/**` are canonical
 
 When a pattern has a worked example, the leaf points at it and matches its shape. The example reflects the implementation as currently shipped.
 

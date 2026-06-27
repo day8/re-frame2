@@ -467,7 +467,7 @@ must re-run the matrix).
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
 | S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
-| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent-slim/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
+| S3 | `implementation/adapters/reagent-slim/*`, `examples/substrates/reagent_slim/counter/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
 | S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |
 | S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,resources,epoch}/*`, `implementation/deps.edn` (note: `schemas/*` also fires `template_expensive`; `machines/*` also fires `playground` — see S5a; `resources/*` added rf2-dxndhc) | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
 | S5a | `implementation/machines/*` (rf2-2h1yhk — the SCI bundle bakes in the machines artefact + its reserved `:rf.machine/*` lifecycle keywords, so a keyword rename can stale the committed `playground-rf2.js`; in ADDITION to the S5 columns it fires `playground`) | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   | ✓ |

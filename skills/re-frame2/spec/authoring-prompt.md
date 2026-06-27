@@ -11,9 +11,9 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > *Read these first (in this order):*
 >
 > *1. `skills/re-frame2/spec/design.md` — the locked design decisions (L1 through L11). Pillars 1-4 in §2 are non-negotiable. Q14 lock applies (NO verification module).*
-> *2. `skills/re-frame2/spec/inputs.md` — the canonical inputs the skill leans on (`implementation/**`, `examples/reagent/**`, `spec/**` for design rationale).*
+> *2. `skills/re-frame2/spec/inputs.md` — the canonical inputs the skill leans on (`implementation/**`, `examples/**`, `spec/**` for design rationale).*
 > *3. `implementation/core/src/re_frame/core.cljc` + `frame.cljc` + `fx.cljc` + `events.cljc` + `subs.cljc` + `test_support.cljc` — the surfaces the skill teaches. Every code snippet in a leaf is verified against these.*
-> *4. `examples/reagent/{counter,login,boot,nine_states,managed_http_counter}/` — the worked examples. The pattern leaves match these shapes.*
+> *4. `examples/core/{counter,login,managed_http_counter}/` + `examples/patterns/{boot,nine_states}/` — the worked examples. The pattern leaves match these shapes.*
 > *5. `skills/re-frame-migration/SKILL.md` + `skills/re-frame2-implementor/SKILL.md` — the voice / density / load-bearing-rules style to mirror. SKILL.md cardinal-rules framing comes from these.*
 > *6. `spec/000-Vision.md` + `spec/Conventions.md` — the AI-first design principles and naming conventions.*
 >
@@ -73,11 +73,11 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 >
 > *Cardinal rules to bake in (these go in SKILL.md):*
 >
-> *1. **Implementation is ground truth.** When `spec/` and `implementation/**` disagree, the implementation wins. Recipes are verified against `implementation/**` + `examples/reagent/**`.*
+> *1. **Implementation is ground truth.** When `spec/` and `implementation/**` disagree, the implementation wins. Recipes are verified against `implementation/**` + `examples/**`.*
 > *2. **Recipes over explanations.** The AI reaches for a canonical shape; doesn't derive from first principles.*
 > *3. **Distinguish orchestration from state.** Machines when "what can happen next" depends on mode; slices when state is a field.*
 > *4. **Schemas at boundaries, not everywhere.** `reg-app-schema` for trust-boundary paths.*
-> *5. **Examples in `examples/reagent/**` are canonical.** When a pattern has a worked example, match its shape.*
+> *5. **Examples in `examples/**` are canonical.** When a pattern has a worked example, match its shape.*
 > *6. **Frames before globals.** Code talks to a frame; never bypasses `dispatch` / `subscribe`.*
 > *7. **Reserved namespaces are reserved.** `:rf/*` is framework-owned.*
 > *8. **`reg-*` macros over `register-*` functions.** Macros capture source-coords.*

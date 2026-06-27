@@ -4,7 +4,7 @@
    hand-rolled markdown subset (rf2-ke9gtx) with a real CommonMark library
    (`io.github.nextjournal/markdown`, hiccup-emitting mode).
 
-   The renderer source is example code (`examples/reagent/...`), but the
+   The renderer source is example code (`examples/real-apps/realworld_shared/...`), but the
    regression contract lives HERE in the adapter test tree per the
    test-free-examples policy (rf2-8cevm) — the same posture the prior
    markdown work used. Runs under the always-on `:node-test` gate (markdown-it

@@ -37,7 +37,7 @@ Step 2's `:initial-events` is the seam into the **frame-startup** lane — the e
 
   (rf/init! reagent-adapter/adapter)
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
 
 After `init!`, create your frame(s) — that's the next subsection.
 
@@ -178,7 +178,7 @@ App-boot and frame-startup lanes (what app authors read):
 - [01 — Core](01-core.md) — `reg-frame` / `make-frame` / `configure` rowed in registration and configuration.
 - [Frames: isolated worlds](../guide/concepts/frames.md) — the app-boot narrative, and why `init!` doesn't create a frame.
 - [Pattern — Boot](../../spec/Pattern-Boot.md) — the `:initial-events` boot sequence, from chained events to a boot state machine.
-- [counter example](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter) — the minimal `init!` + `reg-frame` + `frame-provider` boot.
+- [counter example](https://github.com/day8/re-frame2/tree/main/examples/core/counter) — the minimal `init!` + `reg-frame` + `frame-provider` boot.
 
 Adapter-author lane (what substrate authors read):
 

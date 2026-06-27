@@ -24,7 +24,7 @@ The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces li
     (rf/dispatch-sync [:app/server-init] {:frame f})   ;; setup dispatch, not :initial-events
     (ssr/render-to-string [app-root] {:frame f}))
   ```
-- **In the wild**: [ssr](https://github.com/day8/re-frame2/tree/main/examples/reagent/ssr)
+- **In the wild**: [ssr](https://github.com/day8/re-frame2/tree/main/examples/capabilities/ssr/ssr)
 
 ### `render-tree-hash`
 
@@ -57,7 +57,7 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
     → {:shell-html "..." :continuations [{:id :subtree} ...]}
   ```
 - **Description**: Walk the tree once; at each `:rf/suspense-boundary` emit a `<template …suspense-fallback>` placeholder and record a continuation. Returns the shell-html (ready to flush) and the continuations to drain.
-- **In the wild**: [ssr_streaming](https://github.com/day8/re-frame2/tree/main/examples/reagent/ssr_streaming)
+- **In the wild**: [ssr_streaming](https://github.com/day8/re-frame2/tree/main/examples/capabilities/ssr/ssr_streaming)
 
 ### `streaming-render-continuation`
 

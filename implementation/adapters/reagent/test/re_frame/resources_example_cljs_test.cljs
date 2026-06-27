@@ -1,5 +1,5 @@
 (ns re-frame.resources-example-cljs-test
-  "Integration test: drives the resources example (`examples/reagent/resources/`)
+  "Integration test: drives the resources example (`examples/capabilities/resources/resources/`)
    through the FOUR causal patterns it teaches — route-driven page load,
    event-driven lease ensure/release, manual refresh as a cause, and a
    machine-owned resource. Closes the false-green gap rf2-3slxrk named:
@@ -11,7 +11,7 @@
    drift while every gate stayed green.
 
    The fixture fns + the deterministic transport stub live HERE (the adapter
-   test tree), not under examples/reagent/resources/ — the example source stays
+   test tree), not under examples/capabilities/resources/resources/ — the example source stays
    test-free per the locked test-free-examples policy (rf2-8cevm). The ns
    requires the example's production source (`resources.core`) so its resources,
    routes, events, subs, and the reader machine register at ns-load, then
@@ -184,7 +184,7 @@
 ;; ============================================================================
 
 (deftest articles-route-entry-causes-the-list-load-under-the-route-owner
-  (testing "examples/reagent/resources — entering :resources.app/articles ensures
+  (testing "examples/capabilities/resources/resources — entering :resources.app/articles ensures
             the :articles/list resource under the route nav-token owner, the view
             reads it passively, and it settles :loaded on the reply (the route
             CAUSES the fetch; the view never asks)"
@@ -210,7 +210,7 @@
         (is (= 2 (count (:data vm))) "the view-model carries the two articles")))))
 
 (deftest article-detail-route-threads-the-url-slug-into-resource-params
-  (testing "examples/reagent/resources — :resources.app/article-detail maps the
+  (testing "examples/capabilities/resources/resources — :resources.app/article-detail maps the
             URL slug into the :article/by-slug resource params, so the detail
             read is a per-slug cache entry"
     (rf/dispatch-sync [:rf.route/navigate :resources.app/article-detail {:slug "owners-vs-causes"}])
@@ -230,7 +230,7 @@
 ;; ============================================================================
 
 (deftest preview-opens-an-app-lease-and-close-releases-it
-  (testing "examples/reagent/resources — :resources.app/preview-opened ensures the
+  (testing "examples/capabilities/resources/resources — :resources.app/preview-opened ensures the
             detail under an app `[:lease …]` owner (and records the open slug);
             :resources.app/preview-closed releases the lease so the entry can GC
             (the mandatory release path for an app-minted lease, Spec 016 §Active
@@ -261,7 +261,7 @@
 ;; ============================================================================
 
 (deftest manual-refresh-is-a-cause-and-forces-a-refetch-keeping-data
-  (testing "examples/reagent/resources — :resources.app/refresh-articles dispatches
+  (testing "examples/capabilities/resources/resources — :resources.app/refresh-articles dispatches
             :rf.resource/refetch with a `:cause` and NO `:owner` (a refresh wants
             fresh data but keeps nothing alive — the route owns liveness). It
             refetches an already-loaded list into :fetching while prior data stays
@@ -295,7 +295,7 @@
 ;; ============================================================================
 
 (deftest reader-start-stop-events-record-and-clear-the-reader-slice
-  (testing "examples/reagent/resources — :resources.app/start-reader records the
+  (testing "examples/capabilities/resources/resources — :resources.app/start-reader records the
             active reader instance in app-db (the view's stop affordance reads it)
             and fires the machine-start marker; :resources.app/stop-reader emits
             the actor-destroy fx and clears the slice. The start/stop event glue
@@ -335,7 +335,7 @@
 ;; ============================================================================
 
 (deftest first-slug-projection-layers-over-the-passive-list-resource
-  (testing "examples/reagent/resources — :resources.app/first-slug is an ordinary
+  (testing "examples/capabilities/resources/resources — :resources.app/first-slug is an ordinary
             EP-0004 sub LAYERED over the passive `[:rf.resource/data …]` input
             (Spec 016 §No :select key — projections are subs, not resource hooks)"
     (rf/dispatch-sync [:rf.route/navigate :resources.app/articles])

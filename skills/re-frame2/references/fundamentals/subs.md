@@ -46,7 +46,7 @@ The query-vector is `[sub-id & args]`. Its first element is the sub id; args rid
 
 ## Canonical mini-example
 
-From `examples/reagent/todomvc/subs.cljs`:
+From `examples/core/todomvc/subs.cljs`:
 
 ```clojure
 (rf/reg-sub :todo/sorted-todos

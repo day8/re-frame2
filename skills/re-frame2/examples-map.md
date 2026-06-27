@@ -1,4 +1,4 @@
-# Examples map — when to point at which `examples/reagent/<x>/`
+# Examples map — when to point at which `examples/**`
 
 > **Audience:** authors writing re-frame2 ClojureScript application code.
 > **Use when:** a task lands on a pattern or a primitive whose shape needs to be cross-checked against a known-shipping worked example.
@@ -9,85 +9,85 @@ This file is a one-paragraph-per-example index. It names what each example demon
 
 The full catalogue (with maturity, build ids, and end-to-end Playwright coverage) lives at [`examples/README.md`](../../examples/README.md). The substrate policy (Reagent is canonical; UIx and Helix ship a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md).
 
-## counter — `examples/reagent/counter/`
+## counter — `examples/core/counter/`
 
 The smallest possible re-frame2 app. One `reg-event`, one `reg-sub`, one `reg-view` Var, an `:initial-fx` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, when verifying the canonical macro-shapes (`reg-event`, `reg-sub`, `reg-view` Form-1 with a Var reference), or when checking the minimum-viable `app-db` schema attachment. Exercises 002 Frames and 004 Views. The pedagogical "hello world" — its shape sets the bar for every other example.
 
-## counter_slim_and_fast — `examples/reagent-slim/counter_slim_and_fast/`
+## counter_slim_and_fast — `examples/substrates/reagent_slim/counter/`
 
 The counter dataflow mounted on the slim Reagent rewrite (`day8/reagent-slim`) — the `reagent2.*` substrate that excludes `reagent.impl.*` and `react-dom/server`. Same six-domino dataflow as `counter/`, but every Reagent import points at `reagent2.*` and `(rf/init!)` takes the slim adapter Var. Point at this fixture only when the task is about substrate-swap, the adapter-owned bundle-isolation contract (`check-reagent-slim-bundle-isolation.cjs`), or proving that the slim adapter is API-shape-compatible with the stock Reagent adapter. It is not a human-facing teaching example; it is the live isolation fixture for the slim epic.
 
 ## counter_with_stories — `tools/story/testbeds/counter_with_stories/`
 
-The canonical worked example / testbed for the Story epic (`tools/story/`, the `day8/re-frame2-story` artefact). Tool-owned testbed: it lives alongside the tool it exercises rather than under `examples/reagent/`. The counter with seven `reg-*` Story macros wired end-to-end — `reg-tag`, `reg-mode`, `reg-decorator`, `reg-story-panel`, `reg-story`, `reg-variant`, `reg-workspace` — four variants exercising three of the seven canonical `:rf.assert/*` events plus the built-in `force-fx-stub` decorator. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. Point at this example when authoring any Story-substrate code: tag definitions, modes, decorators, variants, workspaces, or the `:rf.assert/*` family. The Stage 8 worked example for the Story epic; exercises 007 Stories, 002 Frames, and 008 Testing.
+The canonical worked example / testbed for the Story epic (`tools/story/`, the `day8/re-frame2-story` artefact). Tool-owned testbed: it lives alongside the tool it exercises rather than under `examples/`. The counter with seven `reg-*` Story macros wired end-to-end — `reg-tag`, `reg-mode`, `reg-decorator`, `reg-story-panel`, `reg-story`, `reg-variant`, `reg-workspace` — four variants exercising three of the seven canonical `:rf.assert/*` events plus the built-in `force-fx-stub` decorator. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. Point at this example when authoring any Story-substrate code: tag definitions, modes, decorators, variants, workspaces, or the `:rf.assert/*` family. The Stage 8 worked example for the Story epic; exercises 007 Stories, 002 Frames, and 008 Testing.
 
-## boot — `examples/reagent/boot/`
+## boot — `examples/patterns/boot/`
 
-The canonical Pattern-Boot worked example — a four-state `:app/boot` machine (`:configuring → :loading-deps → :hydrating → :ready`, plus terminal `:failed`) that drives the initialisation graph. `:configuring` `:spawn`s one reusable `:boot/loader` child for `/config`; `:loading-deps` fans out THREE parallel `:boot/loader` children via `:spawn-all` for routes / flags / user; `:hydrating` applies the staged payloads to top-level app-db slices via one consolidated `:enter-hydrating` action and self-transitions to `:ready`. Point at this example when authoring a multi-step boot sequence, when verifying the canonical `:spawn` + `:spawn-all` composition, or when wiring boundary schemas for hydration payloads. Exercises Pattern-Boot, 005 StateMachines, and 010 Schemas. The single-purpose narrower instance lives at `examples/reagent/login/`.
+The canonical Pattern-Boot worked example — a four-state `:app/boot` machine (`:configuring → :loading-deps → :hydrating → :ready`, plus terminal `:failed`) that drives the initialisation graph. `:configuring` `:spawn`s one reusable `:boot/loader` child for `/config`; `:loading-deps` fans out THREE parallel `:boot/loader` children via `:spawn-all` for routes / flags / user; `:hydrating` applies the staged payloads to top-level app-db slices via one consolidated `:enter-hydrating` action and self-transitions to `:ready`. Point at this example when authoring a multi-step boot sequence, when verifying the canonical `:spawn` + `:spawn-all` composition, or when wiring boundary schemas for hydration payloads. Exercises Pattern-Boot, 005 StateMachines, and 010 Schemas. The single-purpose narrower instance lives at `examples/core/login/`.
 
-## login — `examples/reagent/login/`
+## login — `examples/core/login/`
 
 The single-feature scaffold: everything a typical login flow needs, in one file. Events + subs + views + a state machine + a managed-HTTP demo stub + a Malli machine-snapshot schema + a browserless headless test. Point at this example when authoring **any** feature that combines a state machine with HTTP, or when verifying the shapes of `:auth/busy`, `:auth/authenticated`, and other `:tags`-based view queries (the canonical replacement for boolean-discriminator subs). The canonical home of Pattern-Forms; also the canonical CP-5 / CP-6 / CP-8 worked example. Exercises 005 StateMachines, 014 HTTPRequests, 010 Schemas, and 008 Testing. If you only read one machine-based example, read this one.
 
-## managed_http_counter — `examples/reagent/managed_http_counter/`
+## managed_http_counter — `examples/core/managed_http_counter/`
 
 A compact Spec 014 demo — a counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover (canned-stub), and abort. Includes a tiny `/api/` directory served as canned JSON so the example runs without a backend. Point at this example when verifying the canonical shape of an `:rf.http/managed` call, the eight-category `:rf.http/*` failure taxonomy, the retry-with-backoff configuration, the abort-token wiring, or the encode/decode pipeline. The compact, single-feature complement to RealWorld for Spec 014; the canonical Pattern-ManagedHTTP example. Exercises 014 HTTPRequests and Pattern-AsyncEffect.
 
-## nine_states — `examples/reagent/nine_states/`
+## nine_states — `examples/patterns/nine_states/`
 
 The nine canonical UI states (Nothing / Loading / Empty / One / Some / Too Many / Incorrect / Correct / Done) for a single domain. One parallel-region machine with three orthogonal regions (data / form / mode), state tags on every state, a render-priority selector sub, and a single `case` in the root view. Pedagogically exhaustive — exercises every machine grammar concept (parallel regions, tags, guards, actions, `:always`, `:after`) inside one focused example. Point at this example when authoring **any** parallel-region machine, or when designing a page that needs to render every legal lifecycle state distinctly. The canonical Pattern-NineStates example; the worked reference for parallel-region tagging and render-priority collapsing. Exercises Pattern-NineStates, Pattern-RemoteData, Pattern-Forms, and 005 StateMachines.
 
-## realworld — `examples/reagent/realworld/`
+## realworld — `examples/real-apps/realworld_http/`
 
 The de-facto cross-framework benchmark — [RealWorld (Conduit)](https://github.com/gothinkster/realworld). The widest API-surface example in the repo: auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue all sketched on the current API surface. Maturity is **worked scaffold** — it covers breadth, not depth. Point at this example when verifying how the conventions hold up across many features composed in one app (feature-prefix discipline, schema attachment at HTTP boundaries, route-driven data loads, the SSR `:rf/server-init` cofx). Not a teaching example — read individual files (`auth.cljs`, `articles.cljs`, `routing.cljs`) for the relevant cross-cutting shape. Exercises 014 HTTPRequests, 012 Routing, 005 StateMachines, 011 SSR, Pattern-RemoteData, and Pattern-Forms.
 
-## resources — `examples/reagent/resources/`
+## resources — `examples/capabilities/resources/resources/`
 
 The focused **read-side** Pattern-Resources example for the optional `day8/re-frame2-resources` artefact (Spec 016). Route-driven page load via the route's `:resources` metadata, event-driven `:rf.resource/ensure` under an app `[:lease …]` owner with a release path, a manual refresh wired as a *cause* (not an owner), and a machine-owned resource — all read through passive `[:rf.resource/state]` (and the sibling single-fact `[:rf.resource/*]`) subscriptions, with scope as the fail-closed leak boundary (an explicit `:rf.scope/global` claim). Point at this example when authoring the read half of a server-state cache — `reg-resource`, ensure/refetch/release-owner, owners-vs-causes, fresh-skip/staleness — without the write side. Exercises Pattern-Resources, 016 Resources, 014 HTTPRequests, and 012 Routing. The focused complement to the full `realworld_resources/` dogfood; read it for the lifecycle shapes, not for mutations.
 
-## realworld_resources — `examples/reagent/realworld_resources/`
+## realworld_resources — `examples/real-apps/realworld_resources/`
 
-The **EP-0016 dogfood**: RealWorld (Conduit) rebuilt on resources + mutations end-to-end — the write-side counterpart the focused `resources/` example deliberately omits. It exercises the completion surface the [`patterns/resources.md`](./patterns/resources.md) leaf teaches: `reg-mutation` writes, call-site **`:reply-to`** continuations (settings save, article create/edit/delete, the social controls), **per-target scoped invalidation descriptors** (one favourite/save stales global article tags *and* the session-scoped `[:feed]` in one mutation), **populate-as-authoritative-load** (`:populates` returning the canonical `{target value}` map form), and a **named `reg-resource-scope` resolver** (`:realworld/session`) referenced everywhere as `{:from-db :realworld/session}` — the feed resource's `:scope`, the home-route feed entry, the mutations' session invalidation descriptor, and (via `resolve-resource-scope`) logout's `clear-scope`. Point at this example when authoring **any** resource mutation, mixed-scope invalidation, post-write workflow continuation, or named-scope-resolver wiring. The sibling of the managed-HTTP `examples/reagent/realworld/` (kept intact as the Spec 014 counterpart) — read the two side by side to see what resources buy you. Exercises Pattern-Resources, 016 Resources, 014 HTTPRequests, 012 Routing, and Pattern-Forms.
+The **EP-0016 dogfood**: RealWorld (Conduit) rebuilt on resources + mutations end-to-end — the write-side counterpart the focused `resources/` example deliberately omits. It exercises the completion surface the [`patterns/resources.md`](./patterns/resources.md) leaf teaches: `reg-mutation` writes, call-site **`:reply-to`** continuations (settings save, article create/edit/delete, the social controls), **per-target scoped invalidation descriptors** (one favourite/save stales global article tags *and* the session-scoped `[:feed]` in one mutation), **populate-as-authoritative-load** (`:populates` returning the canonical `{target value}` map form), and a **named `reg-resource-scope` resolver** (`:realworld/session`) referenced everywhere as `{:from-db :realworld/session}` — the feed resource's `:scope`, the home-route feed entry, the mutations' session invalidation descriptor, and (via `resolve-resource-scope`) logout's `clear-scope`. Point at this example when authoring **any** resource mutation, mixed-scope invalidation, post-write workflow continuation, or named-scope-resolver wiring. The sibling of the managed-HTTP `examples/real-apps/realworld_http/` (kept intact as the Spec 014 counterpart) — read the two side by side to see what resources buy you. Exercises Pattern-Resources, 016 Resources, 014 HTTPRequests, 012 Routing, and Pattern-Forms.
 
-## routing — `examples/reagent/routing/`
+## routing — `examples/capabilities/routing/routing/`
 
 The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf/url-requested`, route-not-found handling, and the `:can-leave?` guard. The CP-7 worked example. Point at this example when authoring routes, navigating between them, gating navigation with `:can-leave?`, or wiring an anchor's `href` to dispatch a navigation event instead of a browser-default page load. Exercises 012 Routing. Compact and single-purpose; the canonical home of the routing primitives.
 
-## ssr — `examples/reagent/ssr/`
+## ssr — `examples/capabilities/ssr/ssr/`
 
 The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, `:rf/server-init` cofxs, the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR and 004 Views. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
 
-## state_machine_walkthrough — `examples/reagent/state_machine_walkthrough/`
+## state_machine_walkthrough — `examples/capabilities/machines/state_machine_walkthrough/`
 
 The runnable companion to `docs/machines/concepts.md` — the guide chapter's login flow rendered as live code, with smoke tests for every section. Browser layer drives the canonical lockout scenario (three failures → `:locked-out`). Point at this example when teaching the machine grammar from scratch, when verifying the chapter's worked shape against the live implementation, or when authoring an event-driven sequence of FSM transitions that needs to be testable from a browser spec. Exercises 005 StateMachines, 014 HTTPRequests, and 008 Testing. Pedagogical sibling of `login/` — same domain, different aim (`login/` is the "single-feature scaffold"; this is the chapter's walkthrough).
 
-## todomvc — `examples/reagent/todomvc/`
+## todomvc — `examples/core/todomvc/`
 
 The canonical cross-framework benchmark — persistence (localStorage), in-place editing, bulk actions (mark-all-done, clear-completed), remaining-count derivation, and hash-routing filters (`#/`, `#/active`, `#/completed`). Point at this example when verifying a slice-shaped feature with a list of items, a derivation-heavy subscription graph (the filtered list, the remaining count, the all-completed flag), an interceptor-based localStorage persistence pattern, or the integration of `reg-route` with a list-filtering view. Exercises 002 Frames, 004 Views, and 012 Routing. The classic shape benchmark; if a feature looks like "manage a list with filters", this is the shape reference.
 
-## 7GUIs — `examples/reagent/seven_guis/`
+## 7GUIs — `examples/core/seven_guis/`
 
-A cluster of six small benchmark apps from the [7GUIs](https://eugenkiss.github.io/7guis/) suite — `temperature/`, `flight_booker/`, `timer/`, `crud/`, `circle_drawer/`, `cells/`. Each app is a focused stress on one shape: bidirectional derivations (`temperature`), form-validity-driven button enablement (`flight_booker`), `:dispatch-later` periodic ticks (`timer`), list-CRUD with selection-as-state (`crud`), undo/redo via a snapshot-on-write interceptor and modal-as-state (`circle_drawer`), and a full formula-graph subscription substrate with cycle detection (`cells`). Point at the 7GUIs cluster when picking the right shape for a small focused concern: a controlled input pair, a Book-button-enables-only-when-valid flow, a periodic-tick UI, list operations with selection, undo/redo, or formula-driven cell propagation. Exercises 004 Views, 002 Frames, 006 ReactiveSubstrate, and Pattern-Forms. See `examples/reagent/seven_guis/README.md` for the cluster's own narrative.
+A cluster of six small benchmark apps from the [7GUIs](https://eugenkiss.github.io/7guis/) suite — `temperature/`, `flight_booker/`, `timer/`, `crud/`, `circle_drawer/`, `cells/`. Each app is a focused stress on one shape: bidirectional derivations (`temperature`), form-validity-driven button enablement (`flight_booker`), `:dispatch-later` periodic ticks (`timer`), list-CRUD with selection-as-state (`crud`), undo/redo via a snapshot-on-write interceptor and modal-as-state (`circle_drawer`), and a full formula-graph subscription substrate with cycle detection (`cells`). Point at the 7GUIs cluster when picking the right shape for a small focused concern: a controlled input pair, a Book-button-enables-only-when-valid flow, a periodic-tick UI, list operations with selection, undo/redo, or formula-driven cell propagation. Exercises 004 Views, 002 Frames, 006 ReactiveSubstrate, and Pattern-Forms. See `examples/core/seven_guis/README.md` for the cluster's own narrative.
 
-## websocket — `examples/reagent/websocket/`
+## websocket — `examples/patterns/websocket/`
 
 The canonical Pattern-WebSocket worked example — a connection lifecycle machine where a hierarchical compound `:active` state parents `:connecting` / `:authenticating` / `:connected` and owns a `:spawn`d socket actor whose lifetime spans all three child leaves; `:reconnecting` rides `:after` exponential backoff; `:always` flushes the offline send-queue on `:connected`; `:fsm/tags` carry queryable connection-state predicates for the view; the live `:socket-id` doubles as the connection epoch for staleness checks; request/reply correlation is wired end-to-end. Runs against an in-process mock WebSocket — no network needed. Point at this example when authoring any long-lived-connection feature, when verifying the `:spawn`-at-parent-level lifetime idiom, the connection-epoch staleness pattern, or `:after`-backoff reconnection. Source spans `connection.cljs` (the machine), `messages.cljs`, `schema.cljs`, and `views.cljs`. Exercises Pattern-WebSocket, Pattern-StaleDetection, and 005 StateMachines. The worked-source companion to `patterns/websocket.md`.
 
-## long_running_work — `examples/reagent/long_running_work/`
+## long_running_work — `examples/patterns/long_running_work/`
 
 The canonical Pattern-LongRunningWork worked example — a `:work/flow` parent coordinator spawns N `:work/processor` worker children via `:spawn-all` and joins on `:all`; each child processes its shard in chunks, yielding between chunks via `:after` so the browser stays responsive, and dispatches a `:progress` event back to the parent on every chunk (the parent's internal self-transition updates `:data :progress`, which the `:work/progress-fraction` sub recomputes). Cooperative cancellation is uniform: every exit path (user `:cancel`, `:on-all-complete`, frame destroy, `:after`) fires one `:rf.machine/destroy` whose cascade tears down every in-flight child timer/request. Point at this example when authoring a CPU-bound batch job, a parent/child fan-out-and-join via `:spawn-all`, progress reporting through `:data`, or the destroy-cascade cancellation contract. Source: `worker.cljs` (the `:work/flow` + `:work/processor` machines), `core.cljs`, `schema.cljs`, `views.cljs`. Exercises Pattern-LongRunningWork and 005 StateMachines. The worked-source companion to `patterns/long-running-work.md`.
 
-## ssr_streaming — `examples/reagent/ssr_streaming/`
+## ssr_streaming — `examples/capabilities/ssr/ssr_streaming/`
 
 The streaming-SSR worked example for [Spec 011 §Streaming](../../spec/011-SSR.md#streaming-ssr) — a dashboard with three slow cards where the page shell + header render immediately on the server, then each card streams its content as its own data fetch resolves. Demonstrates the `:rf/suspense-boundary` hiccup marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Point at this example when authoring streaming server-rendered views, suspense boundaries, or per-subtree hydration. Lives in a single `core.cljc` (cross-platform JVM/browser). Exercises 011 SSR §Streaming and 004 Views. The streaming complement to the minimal `ssr/` walkthrough.
 
-## notebook — `examples/reagent/notebook/`
+## notebook — `examples/core/notebook/`
 
-The design-led Reagent example — a three-pane editorial layout (documents tree · markdown editor · live preview) that proves the substrate drives a substantive multi-pane UI. The design-led counterpart to `examples/uix/dashboard_uix/` and `examples/helix/process_monitor_helix/`; all three share the "Editorial Warm" identity from `examples/_shared/css/style.css`. A tiny pure-CLJS markdown parser keeps the bundle small. Point at this example when authoring a multi-pane layout, a master-detail editor shape, or when verifying the shared design-system identity across substrates. Single `core.cljs`. Exercises 002 Frames and 004 Views. Not a pattern-teaching example — read it for layout/identity shape, not for a primitive.
+The design-led Reagent example — a three-pane editorial layout (documents tree · markdown editor · live preview) that proves the substrate drives a substantive multi-pane UI. The design-led counterpart to `examples/substrates/uix/dashboard/` and `examples/substrates/helix/process_monitor/`; all three share the "Editorial Warm" identity from `examples/_shared/css/style.css`. A tiny pure-CLJS markdown parser keeps the bundle small. Point at this example when authoring a multi-pane layout, a master-detail editor shape, or when verifying the shared design-system identity across substrates. Single `core.cljs`. Exercises 002 Frames and 004 Views. Not a pattern-teaching example — read it for layout/identity shape, not for a primitive.
 
 ## Adapter smoke-pairs
 
-Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md), the UIx and Helix substrates each ship a curated smoke-pair (counter + login) rather than a 1:1 mirror of the Reagent set. Point at `examples/uix/counter_uix/` and `examples/uix/login_uix/` (and the Helix counterparts at `examples/helix/`) only when authoring against UIx or Helix specifically. The dataflow is identical to the Reagent siblings; only the view layer differs (`defui` for UIx, `defnc` for Helix, plus the `use-subscribe` hook).
+Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md), the UIx and Helix substrates each ship a curated smoke-pair (counter + login) rather than a 1:1 mirror of the Reagent set. Point at `examples/substrates/uix/counter/` and `examples/substrates/uix/login/` (and the Helix counterparts at `examples/substrates/helix/`) only when authoring against UIx or Helix specifically. The dataflow is identical to the Reagent siblings; only the view layer differs (`defui` for UIx, `defnc` for Helix, plus the `use-subscribe` hook).
 
 ## How to use this map during an authoring task
 
@@ -106,4 +106,4 @@ Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md
 
 ---
 
-*Derived from `examples/reagent/**` and `examples/README.md` @ main `89bd9c3`. Re-verify whenever a new worked example lands.*
+*Derived from `examples/**` and `examples/README.md` @ main `89bd9c3`. Re-verify whenever a new worked example lands.*

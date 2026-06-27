@@ -42,7 +42,7 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
    :dispose-adapter! …}
   ```
 - **Description**: The adapter spec passed to `(rf/init! ...)`.
-- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix)
+- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/substrates/uix/counter)
 
 ### `uix-adapter/use-subscribe`
 
@@ -53,7 +53,7 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   (use-subscribe frame-kw query-v) → current sub value
   ```
 - **Description**: "Subscribe inside a UIx component." The hook-shaped equivalent of `subscribe` for UIx components. Re-renders when the sub value changes.
-- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix)
+- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/substrates/uix/counter)
 
 ### `uix-adapter/use-current-frame`
 
@@ -132,7 +132,7 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
    :dispose-adapter! …}
   ```
 - **Description**: The adapter spec passed to `(rf/init! ...)`.
-- **In the wild**: [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)
+- **In the wild**: [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/substrates/helix/counter)
 
 ### `helix-adapter/use-subscribe`
 
@@ -143,7 +143,7 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   (use-subscribe frame-kw query-v) → current sub value
   ```
 - **Description**: "Subscribe inside a Helix component."
-- **In the wild**: [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)
+- **In the wild**: [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/substrates/helix/counter)
 
 ### `helix-adapter/use-current-frame`
 

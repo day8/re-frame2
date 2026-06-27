@@ -23,7 +23,7 @@ The single rule: declare the axes as regions; tag each state with its axis-level
 
 ## Canonical declaration
 
-Lifted from `examples/reagent/nine_states/core.cljs`. Three regions; tags on every state; an eventless `:always` cascade picks the cardinality bucket; the priority table is plain data.
+Lifted from `examples/patterns/nine_states/core.cljs`. Three regions; tags on every state; an eventless `:always` cascade picks the cardinality bucket; the priority table is plain data.
 
 ```clojure
 (rf/reg-machine :ui/nine-states
@@ -111,7 +111,7 @@ The root view branches once, in a `case`, on the resolved keyword. Disabled-attr
 
 ## Worked example
 
-`examples/reagent/nine_states/core.cljs` — the full machine declaration, render-priority table, `:ui/render` selector, per-state views, and headless tests per state. Read it in full for the implementation-as-shipped shape, including how the form slice composes with the `:form` region.
+`examples/patterns/nine_states/core.cljs` — the full machine declaration, render-priority table, `:ui/render` selector, per-state views, and headless tests per state. Read it in full for the implementation-as-shipped shape, including how the form slice composes with the `:form` region.
 
 ## Why a render-priority vector beats a `cond` in the view
 
@@ -125,4 +125,4 @@ The render-priority **vector** is the load-bearing move. A priority `cond` in th
 
 ---
 
-*Derived from `examples/reagent/nine_states/core.cljs` @ main `89bd9c3`. Re-verify after substantial reshape of the nine-states example.*
+*Derived from `examples/patterns/nine_states/core.cljs` @ main `89bd9c3`. Re-verify after substantial reshape of the nine-states example.*

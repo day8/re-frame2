@@ -79,21 +79,25 @@
                  "epoch/test"
                  ;; rf2-p10npe — Resources artefact test tree.
                  "resources/test"
-                 ;; Per rf2-kx74 examples are grouped per substrate. The
-                 ;; combined :test alias loads every example tree onto
-                 ;; the classpath so JVM tests can `require` the example
-                 ;; source namespaces like `ssr.core` (lives under
-                 ;; examples/reagent/ssr/) and `realworld.*` (under
-                 ;; examples/reagent/realworld/). rf2-cd2zo folded every
-                 ;; example's headless test fixtures into the framework
-                 ;; test tree (re-frame.examples-test for the JVM-driven
-                 ;; ssr / ssr_streaming / state_machine_walkthrough; the
-                 ;; reagent adapter-test bridges for the CLJS ones), so
+                 ;; examples are organised by concept; each bucket is a
+                 ;; classpath root so JVM tests can `require` the example
+                 ;; source namespaces like `ssr.core` (under
+                 ;; examples/capabilities/ssr/ssr/) and `realworld-http.*`
+                 ;; (under examples/real-apps/realworld_http/). rf2-cd2zo
+                 ;; folded every example's headless test fixtures into the
+                 ;; framework test tree (re-frame.examples-test for the
+                 ;; JVM-driven ssr / ssr_streaming / state_machine_walkthrough;
+                 ;; the reagent adapter-test bridges for the CLJS ones), so
                  ;; the examples/.../test/ source dirs are gone and the
                  ;; example tree is test-free (rf2-8cevm).
-                 "../examples/reagent"
-                 "../examples/uix"
-                 "../examples/helix"]
+                 "../examples/core"
+                 "../examples/capabilities/machines"
+                 "../examples/capabilities/routing"
+                 "../examples/capabilities/resources"
+                 "../examples/capabilities/ssr"
+                 "../examples/patterns"
+                 "../examples/real-apps"
+                 "../examples/substrates"]
    :extra-deps  {;; rf2-try1x — silent-on-success reporter.
                  day8/re-frame2-test-quiet {:local/root "test-quiet"}
                  io.github.cognitect-labs/test-runner

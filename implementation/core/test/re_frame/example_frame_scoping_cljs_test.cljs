@@ -66,7 +66,7 @@
             [seven-guis.timer.core]
             [seven-guis.circle-drawer.core]
             [seven-guis.cells.core]
-            [realworld.comments]))
+            [realworld-http.comments]))
 
 ;; The fixture's ambient `:rf/default` pin is REMOVED (`:ambient-frame nil`)
 ;; and `:clear-app-schemas?` is OMITTED so the example ns-load schemas

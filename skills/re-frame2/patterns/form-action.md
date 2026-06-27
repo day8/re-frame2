@@ -102,7 +102,7 @@ The scrub is per-named-path, owned by the registration, not a whole-action toggl
 
 ## Worked example
 
-No standalone example app — the SSR worked apps are `examples/reagent/ssr/core.cljc` (head/hydration baseline). The `/cart/add` shape above is the canonical summary lifted from the spec; substitute the route + form schema.
+No standalone example app — the SSR worked apps are `examples/capabilities/ssr/ssr/core.cljc` (head/hydration baseline). The `/cart/add` shape above is the canonical summary lifted from the spec; substitute the route + form schema.
 
 ## Pointers
 

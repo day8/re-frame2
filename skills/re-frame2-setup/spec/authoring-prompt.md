@@ -12,7 +12,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 >
 > *1. `skills/re-frame2-setup/spec/design.md` — the locked design decisions (L1 through L10). Pillars 1-4 in §2 are non-negotiable. Q14 lock applies (NO verification module).*
 > *2. `skills/re-frame2-setup/spec/inputs.md` — the canonical inputs the skill leans on.*
-> *3. `examples/reagent/counter/` — the canonical first-counter shape (`core.cljs`, `index.html`; the examples share a single repo-level build, so there is no per-example `shadow-cljs.edn` — derive the greenfield build from the generator template, per `inputs.md`). `references/first-counter.md` is a trimmed version of this example.*
+> *3. `examples/core/counter/` — the canonical first-counter shape (`core.cljs`, `index.html`; the examples share a single repo-level build, so there is no per-example `shadow-cljs.edn` — derive the greenfield build from the generator template, per `inputs.md`). `references/first-counter.md` is a trimmed version of this example.*
 > *4. `implementation/core/src/re_frame/core.cljc` (for the `rf/init!` contract) + `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs` (for the adapter spec map shape).*
 > *5. `skills/re-frame-migration/SKILL.md` + `skills/re-frame-migration/spec/` — the closest structural sibling with an existing `spec/` triad. Voice / shape mirror this.*
 > *6. `skills/re-frame2/SKILL.md` — the parent skill the author switches to once setup is done. The setup skill's routing-on-exit table points here.*
@@ -86,9 +86,9 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 ## Notes on the reauthoring contract
 
 - The prompt above is a one-shot — feed it to a fresh session, it produces the skill.
-- The prompt assumes the session has read access to the repo and access to `examples/reagent/counter/`.
+- The prompt assumes the session has read access to the repo and access to `examples/core/counter/`.
 - The prompt does **not** ask the session to verify the resulting skill — Mike reads the PR and comments.
-- If the canonical `examples/reagent/counter/` shape has changed between authoring passes, `references/first-counter.md` needs re-derivation.
+- If the canonical `examples/core/counter/` shape has changed between authoring passes, `references/first-counter.md` needs re-derivation.
 
 ## When to re-author
 

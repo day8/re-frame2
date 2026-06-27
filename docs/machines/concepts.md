@@ -52,7 +52,7 @@ The fix isn't better `cond` clauses. It's spotting the shape and writing it down
 Here's that exact flow, written as one piece of data. Read it top to bottom — it tells you the whole story.
 
 ```clojure
-;; Adapted from examples/reagent/state_machine_walkthrough/core.cljc
+;; Adapted from examples/capabilities/machines/state_machine_walkthrough/core.cljc
 (def login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
@@ -405,7 +405,7 @@ This is where machines pay you back hardest. `machine-transition` runs one trans
       (is (= :locked-out (:state s2))))))
 ```
 
-The return value is a result map. Destructure `::result/snap` and `::result/fx`, or discriminate with `result/ok?` / `result/fail?` — a throwing action surfaces as a *failure value*, not an exception out of your test, so one assertion style covers both paths. These run on the JVM in microseconds, which is exactly the testing experience you want for the flows where testing usually gets hard. The complete login flow with these tests lives at [`examples/reagent/state_machine_walkthrough/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) and runs on every CI pass.
+The return value is a result map. Destructure `::result/snap` and `::result/fx`, or discriminate with `result/ok?` / `result/fail?` — a throwing action surfaces as a *failure value*, not an exception out of your test, so one assertion style covers both paths. These run on the JVM in microseconds, which is exactly the testing experience you want for the flows where testing usually gets hard. The complete login flow with these tests lives at [`examples/capabilities/machines/state_machine_walkthrough/`](https://github.com/day8/re-frame2/tree/main/examples/capabilities/machines/state_machine_walkthrough) and runs on every CI pass.
 
 ## When the machine grows
 

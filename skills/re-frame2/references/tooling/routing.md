@@ -59,7 +59,7 @@ Framework-shipped subs (registered by `re-frame.routing`): `:rf/route` (whole sl
 
 ## Canonical mini-example
 
-Distilled from `examples/reagent/routing/core.cljs`.
+Distilled from `examples/capabilities/routing/routing/core.cljs`.
 
 ```clojure
 (ns app.core
@@ -155,11 +155,11 @@ Flow on `:rf/url-requested`:
 ## Deeper material
 
 - Full path-pattern grammar, ranking algorithm, query coercion, scroll fx contract → `SKILL-REDIRECT.md` → *EP — Routing (012)*.
-- Worked three-page example (home / list / detail, popstate, headless tests) → `examples/reagent/routing/`.
+- Worked three-page example (home / list / detail, popstate, headless tests) → `examples/capabilities/routing/routing/`.
 - Slice schema (`:rf/route-slice`), pattern schema (`:rf/route-pattern`), rank schema (`:rf/route-rank`) → `SKILL-REDIRECT.md` → *Spec schemas*.
 - Interceptor-based guards (`auth-guard`, redirects), tags-driven policies → *EP — Routing (012)* §Redirects and guards.
 - SSR routing (server frame handles `:rf.route/handle-url-change` on the request URL) → `SKILL-REDIRECT.md` → *EP — SSR (011)*.
 
 ---
 
-*Derived from `implementation/routing/` (artefact source) and `examples/reagent/routing/` @ main `89bd9c3`. Re-verify after route-metadata or `:can-leave` protocol changes.*
+*Derived from `implementation/routing/` (artefact source) and `examples/capabilities/routing/routing/` @ main `89bd9c3`. Re-verify after route-metadata or `:can-leave` protocol changes.*

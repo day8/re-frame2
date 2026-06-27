@@ -4,7 +4,7 @@
 
    This file follows the same shape as the canonical counter example in
    the re-frame2 reference implementation
-   (examples/reagent/counter/core.cljs) — keep it small; everything
+   (examples/core/counter/core.cljs) — keep it small; everything
    interesting lives in events.cljs / subs.cljs / views.cljs."
   (:require [reagent.dom.client       :as rdc]
             [re-frame.core            :as rf]

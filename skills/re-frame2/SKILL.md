@@ -69,11 +69,11 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 
 ## Cardinal rules
 
-1. **Implementation is ground truth.** When spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/reagent/**`.
+1. **Implementation is ground truth.** When spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/**`.
 2. **Recipes over explanations.** Use the canonical shape; do not re-derive from first principles.
 3. **Distinguish orchestration from state.** State machines for *modes* (legal-transitions-depend-on-current-state); slices for *fields*. See [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md). **For machines, the standing mental model is: think how you'd do it in xstate, then map onto re-frame2** — xstate is the widely-known FSM model in your training data, and most concepts translate cleanly (`:type :parallel`, `:tags`, `:guards`/`:actions`, `:always`, `:after`, final states). A handful of slots re-frame2 deliberately renames or omits (`invoke`→`:spawn`, `context`→`:data`, no `assign`/action-vectors/compound-guard-data); those divergences are the trap. The translation key + divergence flags live in [`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md).
 4. **Schemas at boundaries.** `reg-app-schema` for paths that cross trust boundaries (HTTP payloads, persisted state, snapshot restores). Do not schema-fence every internal key.
-5. **Match the canonical shape.** When a pattern has a worked example or reference declaration, match its shape; don't re-derive. (In the re-frame2 repo itself, the canonical worked examples live under `examples/reagent/<x>/`; in a consumer app, the canonical shape is the one in the relevant pattern / fundamentals leaf and any reference views your project already follows.)
+5. **Match the canonical shape.** When a pattern has a worked example or reference declaration, match its shape; don't re-derive. (In the re-frame2 repo itself, the canonical worked examples live under `examples/**`; in a consumer app, the canonical shape is the one in the relevant pattern / fundamentals leaf and any reference views your project already follows.)
 6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
 7. **`:rf/*` is reserved.** Application keywords pick their own feature prefix (`:cart/...`, `:auth/...`).
 8. **`reg-*` macros over `register-*` functions.** Macros capture source coordinates that tools rely on; functional registrations are for advanced cases only.
@@ -140,7 +140,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 2. Load at most two leaves (the relevant fundamentals or pattern; a second only if the task spans two surfaces).
 3. Match the canonical declaration in the leaf; do not re-derive.
 4. Pick the feature prefix (`:cart/...`, `:auth/...`) — never `:rf/*`.
-5. Cross-check a worked example or reference view that uses the same shape when one exists (in the re-frame2 repo, that's `examples/reagent/<x>/`; in a consumer app, your project's own reference views).
+5. Cross-check a worked example or reference view that uses the same shape when one exists (in the re-frame2 repo, that's `examples/**`; in a consumer app, your project's own reference views).
 6. Schema only at boundaries.
 7. Use `reg-*` macros unless the macro shape can't express the need.
 8. Cut-test comments: would I write this same comment in a React / Vue / Elm app? If yes, cut it.

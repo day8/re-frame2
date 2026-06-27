@@ -112,11 +112,11 @@ shape the developer reads about in:
 
 - [Quickstart — your first app](../../../docs/guide/quickstart.md)
   — the friendly walkthrough.
-- [`examples/reagent/counter/`](../../../examples/reagent/counter/) —
+- [`examples/core/counter/`](../../../examples/core/counter/) —
   the canonical Reagent counter.
-- [`examples/uix/counter_uix/`](../../../examples/uix/counter_uix/) —
+- [`examples/substrates/uix/counter/`](../../../examples/substrates/uix/counter/) —
   the UIx counter.
-- [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) —
+- [`examples/substrates/helix/counter/`](../../../examples/substrates/helix/counter/) —
   the Helix counter.
 
 What the template emits is what the guide walks through. A

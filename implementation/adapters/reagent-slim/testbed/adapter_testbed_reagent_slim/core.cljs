@@ -6,7 +6,7 @@
    per-adapter smoke lives with the adapter. This testbed proves the
    day8/reagent-slim substrate wires up end-to-end in a real browser —
    mount through `reagent2.dom.client`, subscribe, dispatch, re-render —
-   without depending on the `examples/reagent-slim/counter_slim_and_fast`
+   without depending on the `examples/substrates/reagent_slim/counter`
    teaching example.
 
    It closes the gap the rf2-xsgu8a review found: the slim example's only

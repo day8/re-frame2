@@ -38,7 +38,7 @@ my-app/
         └── ssr_test.cljc        ; cljc test for the cljc source ns
 ```
 
-Mirrors `examples/reagent/realworld/` (`examples/reagent/realworld/core.cljs:1-63`,
+Mirrors `examples/real-apps/realworld_http/` (`examples/real-apps/realworld_http/core.cljs:1-63`,
 `README.md:43-59`). Replace `myapp` with the project's own segment.
 
 ## Source files — one feature, one .cljs
@@ -50,11 +50,11 @@ views, machines. Don't split a feature across `events.cljs` / `subs.cljs`
 together. The single-feature shape is what `realworld/auth.cljs`,
 `realworld/articles.cljs`, and `realworld/comments.cljs` show:
 machine + supporting events + subs + views, all in one ns
-(`examples/reagent/realworld/auth.cljs:1-23`).
+(`examples/real-apps/realworld_http/auth.cljs:1-23`).
 
 Tiny apps that don't carve into features (counter, login) collapse to a
 single `core.cljs` and skip the per-feature step
-(`examples/reagent/counter/core.cljs`, `examples/reagent/login/core.cljs`).
+(`examples/core/counter/core.cljs`, `examples/core/login/core.cljs`).
 
 When the app grows past a single file, promote each section into its
 own feature file before the per-feature file grows past ~400 lines.
@@ -99,7 +99,7 @@ Story integration tests live alongside the stories file, not under
 
 Boundary schemas live in one `schema.cljs` at the top of the feature
 tree. Each `reg-app-schema` call attaches a Malli schema to a path the
-feature owns (`examples/reagent/realworld/schema.cljs:1-23`).
+feature owns (`examples/real-apps/realworld_http/schema.cljs:1-23`).
 
 A single project-wide `schema.cljs` is the default for small-to-medium
 apps. Larger apps that vendor a sub-feature with its own boundary may
@@ -120,11 +120,11 @@ conditionals (`#?(:clj ...)` / `#?(:cljs ...)`) to split platform-
 specific code. The runtime SSR walkthrough shows the canonical layout —
 schema and event handlers are shared, the server's `handle-request` is
 `#?(:clj ...)`, the client's `run` is `#?(:cljs ...)`
-(`examples/reagent/ssr/core.cljc:188-269`).
+(`examples/capabilities/ssr/ssr/core.cljc:188-269`).
 
 When SSR is one boundary of a larger app, the SSR-specific code goes in
 its own `ssr.cljc` next to the other feature files
-(`examples/reagent/realworld/ssr.cljc:1-50`). The entry ns
+(`examples/real-apps/realworld_http/ssr.cljc:1-50`). The entry ns
 (`core.cljs`) requires it; the ssr.cljc holds the hydration-payload
 helper, the slice-selector, and the client bootstrap that calls
 `:rf/hydrate`.
@@ -150,13 +150,13 @@ The entry ns is named `core`. It:
 
 If the app server-renders, `core.cljc` (not `.cljs`) and the `run`
 body sits inside `#?(:cljs ...)`; the JVM-side `handle-request` lives
-in the same ns (`examples/reagent/ssr/core.cljc:188-269`).
+in the same ns (`examples/capabilities/ssr/ssr/core.cljc:188-269`).
 
 ## Routing — one `routing.cljs`
 
 Route registrations belong in a single `routing.cljs`. It owns the
 `reg-route` table, auth-gating helpers, and a small `route-link`
-helper view (`examples/reagent/realworld/routing.cljs:1-49`). The
+helper view (`examples/real-apps/realworld_http/routing.cljs:1-49`). The
 entry ns requires `routing` for side-effects and calls its
 `install-router!` from `run` (`realworld/core.cljs:310-312`).
 
@@ -197,4 +197,4 @@ frame — and let `core` orchestrate the wiring.
 
 ---
 
-*Derived from the canonical worked examples (`examples/reagent/realworld/`, `examples/reagent/counter/`, `examples/reagent/login/`, `examples/reagent/ssr/`, `tools/story/testbeds/counter_with_stories/`) @ main `89bd9c3`. The shape is example-driven; re-verify after substantial restructure of those examples.*
+*Derived from the canonical worked examples (`examples/real-apps/realworld_http/`, `examples/core/counter/`, `examples/core/login/`, `examples/capabilities/ssr/ssr/`, `tools/story/testbeds/counter_with_stories/`) @ main `89bd9c3`. The shape is example-driven; re-verify after substantial restructure of those examples.*

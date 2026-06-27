@@ -105,7 +105,7 @@ When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic 
 
 ## Canonical mini-example
 
-Per-test isolated frame, from `examples/reagent/login/core.cljs`:
+Per-test isolated frame, from `examples/core/login/core.cljs`:
 
 ```clojure
 (with-new-frame [f (rf/make-frame

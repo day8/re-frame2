@@ -15,7 +15,7 @@
 > [003-DepsNew-Rebuild-Plan §5 SSR opt-in row](003-DepsNew-Rebuild-Plan.md#5-cross-references-to-locked-v1-emit-spec) ·
 > [000-Vision §Non-goals](000-Vision.md) ·
 > [001-Substrate-Variants §SSR](001-Substrate-Variants.md) ·
-> [`examples/reagent/ssr/`](../../../examples/reagent/ssr/) ·
+> [`examples/capabilities/ssr/ssr/`](../../../examples/capabilities/ssr/ssr/) ·
 > [`implementation/ssr/`](../../../implementation/ssr/) ·
 > [`implementation/ssr-ring/`](../../../implementation/ssr-ring/).
 
@@ -29,7 +29,7 @@
   accumulator, payload-policy enforcement, FNV-1a render-tree hash,
   Ring-shaped `ssr-handler`. JVM tests green
   (63 tests / 327 assertions).
-- A canonical worked example — `examples/reagent/ssr/` — already
+- A canonical worked example — `examples/capabilities/ssr/ssr/` — already
   exists. It has a `core.cljc` (shared JVM + CLJS namespace
   carrying events, fx, subs, views, and a JVM `handle-request` that
   demonstrates the per-request frame + render-to-string flow), an
@@ -43,8 +43,8 @@
   doesn't even know the keyword), no `_*/server.clj` source, no
   `.cljc` shared core, no ssr / ssr-ring coords in `_reagent/deps.edn`,
   no `:server` shadow-cljs build, no Ring deps, no Jetty alias.
-- **Recommended scaffolding shape** (per `examples/reagent/ssr/`,
-  `examples/reagent/realworld/ssr.cljc`, and the ssr-ring host-adapter
+- **Recommended scaffolding shape** (per `examples/capabilities/ssr/ssr/`,
+  `examples/real-apps/realworld_http/ssr.cljc`, and the ssr-ring host-adapter
   test surface):
   see [§3 Recommended template additions](#3-recommended-template-additions).
 - **Recommended decision.** Add `:include-ssr?` as a **Reagent-only**
@@ -103,10 +103,10 @@ the full Spec 011 surface:
 `implementation/ssr-ring/` `clojure -M:test` → **63 tests /
 327 assertions, 0 failures, 0 errors** (this worktree, 2026-05-20).
 
-### 1.3 Canonical worked example — `examples/reagent/ssr/`
+### 1.3 Canonical worked example — `examples/capabilities/ssr/ssr/`
 
 The example is the closest existing real-world template input.
-Inventory (relative to `examples/reagent/ssr/`):
+Inventory (relative to `examples/capabilities/ssr/ssr/`):
 
 ```
 ssr/
@@ -152,7 +152,7 @@ that surface rather than a worked-example port.
 
 ### 1.4 Multi-route / realworld shape
 
-[`examples/reagent/realworld/ssr.cljc`](../../../examples/reagent/realworld/ssr.cljc)
+[`examples/real-apps/realworld_http/ssr.cljc`](../../../examples/real-apps/realworld_http/ssr.cljc)
 is the next step beyond a single-route demo: a hand-curated
 `ssr-slice-keys` allowlist projecting `app-db` to the payload, a
 `hydration-payload` builder, a `read-server-payload` /
@@ -166,12 +166,12 @@ take once users grow beyond the starter.
 
 Verified by emitting a fresh `acme/ssr-test` scaffold against the
 local `:local/root` template and walking the tree. Comparing to
-`examples/reagent/ssr/`'s file inventory:
+`examples/capabilities/ssr/ssr/`'s file inventory:
 
 | Slot | Current template | Required for `:include-ssr? true` | Source under `_reagent/` |
 |---|---|---|---|
 | Flag wiring in `hooks.clj` | NOT present (data-fn ignores `:include-ssr?`) | Add `coerce-include-ssr?` + `:include-ssr?` branches in `template-fn`. Reagent-only guard, matching `:include-story?`. | — |
-| `_reagent/core.cljs` | Pure-CLJS counter boot | Default path unchanged. Under `:include-ssr? true`, swap to `core_with_ssr.cljc` (shared JVM + CLJS, mirrors `examples/reagent/ssr/core.cljc`). | New: `core_with_ssr.cljc` |
+| `_reagent/core.cljs` | Pure-CLJS counter boot | Default path unchanged. Under `:include-ssr? true`, swap to `core_with_ssr.cljc` (shared JVM + CLJS, mirrors `examples/capabilities/ssr/ssr/core.cljc`). | New: `core_with_ssr.cljc` |
 | Server entry namespace | Absent | New file `server.clj` — composite handler shape (static `/main.js` + favicon 204 + `re-frame.ssr.ring/ssr-handler`); reference body the `implementation/ssr-ring/test/re_frame/ssr/ring_e2e_validator_test.clj` Jetty bring-up. | New: `server.clj` |
 | `_reagent/deps.edn` | core + adapter + schemas + xray + reagent | Under `:include-ssr? true`, swap to `deps_with_ssr.edn` adding `day8/re-frame2-ssr`, `day8/re-frame2-ssr-ring`, `ring/ring-jetty-adapter` (or `info.sunng/ring-jetty9-adapter` per Ring 2.x), and a `:server` alias with `:exec-fn <ns>.server/-main`. Same pattern `:include-story?` uses with `deps_with_story.edn`. | New: `deps_with_ssr.edn` |
 | `_shared/shadow-cljs.edn` | Single `:app` browser build | Under `:include-ssr? true`, swap to `shadow-cljs_with_ssr.edn` that retains `:app` and points `:output-dir` somewhere `server.clj`'s `:static-root` can locate. (The example's `server.clj` already accepts `:static-root` as an arg — no shadow-side change strictly required, but the README/quick-start needs to reference both watchers.) | New: `shadow-cljs_with_ssr.edn` (optional; current shape may suffice with documentation only) |
@@ -179,7 +179,7 @@ local `:local/root` template and walking the tree. Comparing to
 | `_shared/package.json` | react/react-dom + shadow | Under `:include-ssr? true`, no change (JVM-side handles SSR; no node-side render dep). | — |
 | README quick-start | Single `npx shadow-cljs watch app` flow | Under `:include-ssr? true`, README quick-start branches: (1) `clojure -X:server` to run the SSR server, (2) `npx shadow-cljs watch app` to build the client bundle. Hot-reload of the JVM side is `(require '<ns>.server :reload)` from a REPL. | Either two README variants or one README with a conditional SSR section (deps-new lacks Mustache; needs separate `README_with_ssr.md`) |
 | `_shared/events.cljs` | Counter increment event | Under `:include-ssr? true`, fold `:rf/server-init` in (the bead spec calls for "boot the server" verifying counter still works post-hydration). Recommend keeping events.cljs substrate-shared and adding `_shared/events_with_ssr.cljs` (variant pattern same as the `_with_story` files). | New: `events_with_ssr.cljs` |
-| Tests | `events_test.cljs` only | Under `:include-ssr? true`, add a headless `ssr_test.clj` mirroring the `ssr-tests` fn in `examples/reagent/ssr/core.cljc`. Same gate the worked example uses — boots `ssr/adapter`, renders the root view, asserts HTML content + render-hash marker. | New: `_shared/ssr_test.clj` |
+| Tests | `events_test.cljs` only | Under `:include-ssr? true`, add a headless `ssr_test.clj` mirroring the `ssr-tests` fn in `examples/capabilities/ssr/ssr/core.cljc`. Same gate the worked example uses — boots `ssr/adapter`, renders the root view, asserts HTML content + render-hash marker. | New: `_shared/ssr_test.clj` |
 
 ### 2.1 Decision: separate-file variants vs. conditional inclusion
 
@@ -261,7 +261,7 @@ follow once the SSR worked-example coverage matches Reagent's.")
 
 ### 3.2 Bead B — emit the SSR file body under `_reagent/`
 
-- `_reagent/core_with_ssr.cljc` (port from `examples/reagent/ssr/core.cljc`,
+- `_reagent/core_with_ssr.cljc` (port from `examples/capabilities/ssr/ssr/core.cljc`,
   rebrand counter — the locked sample). Same shape:
   `:rf/server-init`, `:rf/hydrate` (re-registered for documentary
   value or relying on the auto-registered default), `reg-view`
@@ -313,7 +313,7 @@ end-to-end by running it against an `:include-ssr? true` emission.
 ## 4. Spec-side gaps surfaced (Spec 011)
 
 None. The reference impl is complete and tested. The walk through
-`examples/reagent/ssr/core.cljc` + `server.clj` +
+`examples/capabilities/ssr/ssr/core.cljc` + `server.clj` +
 `implementation/ssr-ring/` flushed up zero ambiguity that would
 need a Spec 011 amendment — the contract is locked, the impl
 matches, the worked example demonstrates the canonical shape.
@@ -329,7 +329,7 @@ SSR support is implementable as a template variant today.)
 | `implementation/ssr-ring/` `clojure -M:test` | 63 tests / 327 assertions, 0 failures, 0 errors |
 | Template emission `acme/ssr-test :substrate :reagent` | succeeded; emitted 18-file pure-CLJS SPA (no SSR) |
 | Manual file-shape walk of emitted app | `src/acme/ssr_test/{core,events,subs,views,schema}.cljs` + `test/acme/ssr_test/events_test.cljs`; no `core.cljc`, no `server.clj`, no SSR coord, no Ring dep — matches §2 gap analysis |
-| `examples/reagent/ssr/` file inventory | `core.cljc` + `index.html` + `test/ssr/core_test.clj` — demonstrates SSR + hydration mechanics; Ring host-adapter boot reference lives in `implementation/ssr-ring/test/re_frame/ssr/ring_e2e_validator_test.clj` |
+| `examples/capabilities/ssr/ssr/` file inventory | `core.cljc` + `index.html` + `test/ssr/core_test.clj` — demonstrates SSR + hydration mechanics; Ring host-adapter boot reference lives in `implementation/ssr-ring/test/re_frame/ssr/ring_e2e_validator_test.clj` |
 | `implementation/ssr/src/re_frame/ssr.cljc` `:rf/hydrate` auto-registration | confirmed at L276-278 (`events/reg-event :rf/hydrate {:rf/framework-authority? true} hydrate/hydrate-event-handler`) — scaffolded apps need only `:require` `re-frame.ssr` |
 
 ## 6. Recommended next actions

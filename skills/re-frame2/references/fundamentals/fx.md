@@ -50,7 +50,7 @@ Machine fx-ids (`:rf.machine/spawn`, `:rf.machine/destroy`) ship in `day8/re-fra
 
 ## Canonical mini-example
 
-From `examples/reagent/todomvc/events.cljs`:
+From `examples/core/todomvc/events.cljs`:
 
 ```clojure
 (rf/reg-fx :todo.storage/save

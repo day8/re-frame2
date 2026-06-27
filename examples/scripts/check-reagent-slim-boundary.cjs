@@ -5,25 +5,26 @@
  *
  * The boundary this guards
  * ------------------------
- * re-frame2 ships TWO Reagent substrates with two separate example trees:
+ * re-frame2 ships TWO Reagent substrates:
  *
- *   examples/reagent/**       — the STOCK Reagent substrate. Mounts via
- *                               `reagent.dom.client` + the stock adapter
- *                               `re-frame.adapter.reagent`.
- *   examples/reagent-slim/**  — the SLIM (day8/reagent-slim) substrate. Mounts
- *                               via `reagent2.*` + `re-frame.adapter.reagent-slim`.
+ *   STOCK Reagent  — the examples in core/ capabilities/ patterns/ real-apps/.
+ *                    Mounts via `reagent.dom.client` + the stock adapter
+ *                    `re-frame.adapter.reagent`.
+ *   SLIM           — the day8/reagent-slim substrate, in
+ *                    examples/substrates/reagent_slim/. Mounts via `reagent2.*`
+ *                    + `re-frame.adapter.reagent-slim`.
  *
  * The slim substrate's whole point is bundle isolation: its user-facing import
  * point is `reagent2.*` (not stock `reagent.*`) and it wires
  * `re-frame.adapter.reagent-slim`. That wiring belongs ONLY to the
- * examples/reagent-slim/ tree. rf2-2bih3 (PR #3137) confirmed the stock tree
+ * examples/substrates/reagent_slim/ tree. rf2-2bih3 (PR #3137) confirmed the stock tree
  * was clean of slim wiring at the time, but shipped WITHOUT a guard keeping it
  * so — a future edit could silently re-cross the boundary (e.g. a copy/paste
  * from the slim counter), and no automated gate would catch it.
  *
  * What this gate does (STATIC — no browser, no Playwright, no compile)
  * -------------------------------------------------------------------
- * It walks every tracked Clojure(Script) source under examples/reagent/ and
+ * It walks every tracked Clojure(Script) source in the stock-Reagent buckets and
  * FAILS if any of them requires a slim-substrate namespace:
  *
  *   - `reagent2.*`                    (the slim substrate's user-facing import)
@@ -38,7 +39,7 @@
  * This is NOT a per-example *.spec.cjs — examples/ stays test-free (rf2-8cevm).
  * It is a pure static scanner, wired into the always-run `test:script-policy`
  * gate (see implementation/scripts/check-reagent-slim-boundary.test.cjs) so a
- * slim require leaking into examples/reagent/ turns that gate RED in CI without
+ * slim require leaking into the stock-Reagent examples turns that gate RED in CI without
  * a new .github workflow job.
  *
  * CLI
@@ -59,11 +60,18 @@ const path = require('path');
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const EXAMPLES_ROOT = path.join(REPO_ROOT, 'examples');
-// The stock Reagent tree this gate guards. The slim tree
-// (examples/reagent-slim/) is the legitimate home of the slim wiring and is
-// NEVER walked — `reagent-slim` !== `reagent`, so a prefix walk over
-// examples/reagent/ does not reach into it.
-const STOCK_REAGENT_ROOT = path.join(EXAMPLES_ROOT, 'reagent');
+// The stock-Reagent examples this gate guards now live across the concept
+// buckets (core/, capabilities/, patterns/, real-apps/). The slim example is
+// the legitimate home of slim wiring and lives under
+// examples/substrates/reagent_slim/ — part of the substrates/ tree, which this
+// gate NEVER walks (substrates/ holds the non-stock-Reagent ports: uix, helix,
+// reagent-slim).
+const STOCK_REAGENT_ROOTS = [
+  path.join(EXAMPLES_ROOT, 'core'),
+  path.join(EXAMPLES_ROOT, 'capabilities'),
+  path.join(EXAMPLES_ROOT, 'patterns'),
+  path.join(EXAMPLES_ROOT, 'real-apps'),
+];
 
 // ---------------------------------------------------------------------------
 // Forbidden slim-substrate namespaces. Each rule matches a namespace SYMBOL as
@@ -102,9 +110,9 @@ const SOURCE_EXTS = new Set(['.clj', '.cljs', '.cljc']);
 // (examples/reagent-slim/) and is never reached by this prefix walk.
 // ---------------------------------------------------------------------------
 
-function listStockReagentSources(root = STOCK_REAGENT_ROOT) {
+function listStockReagentSources(roots = STOCK_REAGENT_ROOTS) {
   const out = [];
-  const stack = [root];
+  const stack = [...roots];
   while (stack.length > 0) {
     const dir = stack.pop();
     let entries;
@@ -158,10 +166,10 @@ function scanFile(io, absPath) {
   for (const rule of detectForbidden(source)) {
     errors.push(
       `${rel}: requires ${rule.label} — slim wiring is forbidden in the ` +
-        `stock examples/reagent/ tree. The slim substrate belongs ONLY to ` +
-        `examples/reagent-slim/. Use stock Reagent (reagent.* + ` +
-        `re-frame.adapter.reagent) here, or move the example to ` +
-        `examples/reagent-slim/.`,
+        `stock-Reagent examples (core/ capabilities/ patterns/ real-apps/). ` +
+        `The slim substrate belongs ONLY to examples/substrates/reagent_slim/. ` +
+        `Use stock Reagent (reagent.* + re-frame.adapter.reagent) here, or ` +
+        `move the example under examples/substrates/reagent_slim/.`,
     );
   }
   return { rel, errors };
@@ -179,7 +187,7 @@ function scanAll(opts = {}) {
 module.exports = {
   REPO_ROOT,
   EXAMPLES_ROOT,
-  STOCK_REAGENT_ROOT,
+  STOCK_REAGENT_ROOTS,
   FORBIDDEN,
   SOURCE_EXTS,
   listStockReagentSources,
@@ -202,8 +210,9 @@ if (require.main === module) {
   if (files.length < 20) {
     console.error(
       `check-reagent-slim-boundary: only ${files.length} source file(s) ` +
-        `found under examples/reagent/ — expected the full set. Walk or ` +
-        `layout drift; refusing to pass a vacuous gate.`,
+        `found under the stock-Reagent buckets (core/ capabilities/ patterns/ ` +
+        `real-apps/) — expected the full set. Walk or layout drift; refusing ` +
+        `to pass a vacuous gate.`,
     );
     process.exit(1);
   }
@@ -231,10 +240,11 @@ if (require.main === module) {
     );
     for (const e of errors) console.error(`  - ${e}`);
     console.error(
-      `\nThe stock examples/reagent/ tree must use stock Reagent wiring only ` +
-        `(reagent.* + re-frame.adapter.reagent). reagent2.* and ` +
-        `re-frame.adapter.reagent-slim belong ONLY to examples/reagent-slim/. ` +
-        `Fix the require, or move the example under examples/reagent-slim/.`,
+      `\nThe stock-Reagent examples (core/ capabilities/ patterns/ real-apps/) ` +
+        `must use stock Reagent wiring only (reagent.* + ` +
+        `re-frame.adapter.reagent). reagent2.* and re-frame.adapter.reagent-slim ` +
+        `belong ONLY to examples/substrates/reagent_slim/. Fix the require, or ` +
+        `move the example under examples/substrates/reagent_slim/.`,
     );
     process.exit(1);
   }

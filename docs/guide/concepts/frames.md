@@ -224,7 +224,7 @@ The reason follows straight from the carried rule. A provider's scope is render-
 The fix is always the same move: **capture the frame as a value while it's still in scope, and close over it.** The capture tool is [`capture-frame`](../glossary.md#capture-frame):
 
 ```clojure
-;; Adapted from examples/reagent/websocket/messages.cljs
+;; Adapted from examples/patterns/websocket/messages.cljs
 (defn open-socket!
   "Call from inside an effect handler — opening a socket is an effect,
    not a view's job, and the runtime establishes the frame scope around

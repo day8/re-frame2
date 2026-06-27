@@ -15,7 +15,7 @@ You need two things in place before any of this works. Boot the resources artefa
 A [cache tag](../glossary.md#cache-tag) names a *fact*, not a resource. `[:article "welcome"]` and `[:article-list]` are facts — a specific article, and the list as a whole. When two resources carry the same tag, that tag becomes the join key a write uses to reach both of them at once.
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/resources.cljs
+;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 ;; The detail read — tagged with the article's identity and the list identity.
 (rf/reg-resource :article/by-slug
   {:params-schema [:map [:slug :string]]
@@ -191,7 +191,7 @@ The four members:
 Sometimes the write's reply carries the updated data back to you. `:populates` puts that data straight into the cache *before* the invalidation runs, so the change appears instantly with no refetch round-trip.
 
 ```clojure
-;; Adapted from examples/reagent/realworld_resources/mutations.cljs
+;; Adapted from examples/real-apps/realworld_resources/mutations.cljs
 (rf/reg-mutation :article/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
@@ -358,6 +358,6 @@ Save an article with the list and detail pages mounted, then open [Xray](../../g
 
 > **The dev-mode tripwire.** Because the cross-scope miss is silent *by construction*, the framework also surfaces it as a dev-only warning at the moment of the mismatched invalidation: `:rf.warning/mutation-scope-mismatch`. Its heuristic — a descriptor matched zero entries in its resolved scope while the same tags *do* match an entry in a *different* scope — carries the mutation, the instance, the scope it invalidated in, the scope that actually held the data, and the tags, with a `:hint` naming the fix. It's gated behind the debug flag and [elided](../../guide/glossary.md#elide) from production builds entirely, so it costs you nothing shipped. A deliberate `:cross-scope? true` descriptor is never flagged, and a tag that matches nothing anywhere (a true nothing-to-invalidate) doesn't warn either — only the genuine "you resolved the *wrong* scope" case trips it.
 
-The full read→write→invalidate→refetch loop runs live in [the RealWorld resources example](../../../examples/reagent/realworld_resources/); the normative contract is [Spec 016 — Resources](../../../spec/016-Resources.md).
+The full read→write→invalidate→refetch loop runs live in [the RealWorld resources example](../../../examples/real-apps/realworld_resources/); the normative contract is [Spec 016 — Resources](../../../spec/016-Resources.md).
 
 > **From re-frame v1.** None of this existed in v1. There was no managed server-state layer at all — you fetched in an [effect handler](../../guide/glossary.md#effect-handler), hand-wrote the reply into [app-db](../../guide/glossary.md#app-db) yourself, and there was no cache, so nothing ever went "stale." Invalidation was a phrase you didn't need because you owned every byte of the read path. The cost was that every screen reinvented loading flags, every write hand-coded which views to refresh, and a stale read was a bug you wrote, not a state the framework tracked. re-frame2's resources move that whole concern under the framework: the write *declares* what it breaks (`:invalidates`), and the read path refetches. The v1 instinct to reach for an effect that pokes `app-db` after a save is the exact thing this page replaces.

@@ -32,7 +32,7 @@ These paths live in [app-db](../glossary.md#app-db) — your app's single state 
 A page reload throws away app-db, so to stay logged in across refreshes the token has to live somewhere durable — `localStorage`. The tempting move is to sprinkle `localStorage` calls through login, logout, and your tests. Don't. Give persistence exactly **one seam**: a single [effect](../glossary.md#effect) that writes on a truthy token and removes on `nil`. Login, logout, and tests all hit the same edge.
 
 ```clojure
-;; Adapted from examples/reagent/realworld/auth.cljs
+;; Adapted from examples/real-apps/realworld_http/auth.cljs
 ;; Requires: [re-frame.core :as rf] [re-frame.http.managed] [re-frame.routing :as routing]
 ;; — pulling in each namespace registers its events/effects as a load-time side effect.
 (rf/reg-fx :auth.session/persist
@@ -62,7 +62,7 @@ Now the auth-specific wrinkle: *which kind* of coeffect this is. Coeffects come 
 So register `:auth.session/token` as a **recordable, provided** coeffect. It carries no supplier function — its value is stamped onto the boot dispatch by the host boundary (the same shape as the framework's built-in `:rf/time-ms` clock), recorded once, and replayed faithfully:
 
 ```clojure
-;; Adapted from examples/reagent/realworld/auth.cljs
+;; Adapted from examples/real-apps/realworld_http/auth.cljs
 ;; Recordable + provided: no generator — the value is stamped onto the boot
 ;; dispatch by the host (see "Read the host once at the boundary" below).
 (rf/reg-cofx :auth.session/token
@@ -78,7 +78,7 @@ The init event in step 4 declares this coeffect and folds the saved token into t
 A provided coeffect needs an owner to stamp its value. For session restore that owner is your boot code: read `localStorage` *once*, at the host boundary, and hand the value to the init dispatch on the `:rf.cofx` envelope. The handler never touches `localStorage` — it reads the recorded fact flat.
 
 ```clojure
-;; Adapted from examples/reagent/realworld/core.cljs — the host read happens
+;; Adapted from examples/real-apps/realworld_http/core.cljs — the host read happens
 ;; ONCE here, at the boundary; its value rides the boot dispatch as a recordable
 ;; coeffect, so replay / epoch-restore re-presents the captured token verbatim.
 (defn read-jwt-from-storage []
@@ -128,7 +128,7 @@ The failure handler is unchanged from the form recipe. Notice login does **not**
 
 > **Gotcha — keep the credential out of the trace on the way *in*, too.** The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value ([Spec 015 — Data classification](../../../spec/015-Data-Classification.md)).
 
-> **Going deeper — when to reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../../machines/glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/reagent/realworld/)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
+> **Going deeper — when to reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../../machines/glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/real-apps/realworld_http/)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
 
 ## 3. Decorate requests once, at the frame seam
 
@@ -137,7 +137,7 @@ Now the user has a token. Every authenticated request needs to carry it in an `A
 Instead, write it **once**, as an HTTP interceptor. An HTTP interceptor's `:before` is a function that receives a *context* map — call it `ctx` — holding the in-flight request, edits it, and returns it. Ours reads the token from the frame's app-db and stamps the `Authorization` header onto every outbound managed request crossing that frame:
 
 ```clojure
-;; Adapted from examples/reagent/realworld/core.cljs
+;; Adapted from examples/real-apps/realworld_http/core.cljs
 (defn- bearer-auth [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
     (cond-> ctx
@@ -208,7 +208,7 @@ Then the guard. It has one job it must get exactly right: **gate every navigatio
 The fix is to normalise all three to one target, then redirect identically:
 
 ```clojure
-;; Adapted from examples/reagent/realworld/routing.cljs
+;; Adapted from examples/real-apps/realworld_http/routing.cljs
 (defn- nav-target
   "Normalise a navigation event to {:id <route-id> :params <map>}; nil for
    non-navigation events (the guard short-circuits)."
@@ -265,7 +265,7 @@ Now attach the guard — by reference. It's registered once under `:my-app/auth-
 The init event from step 1 restores the saved session and classifies the token path, with the egress protection in place before any off-box egress. Because its `:auth.session/token` coeffect is *provided* — stamped at the boundary, not computed by a registered supplier — the session restore is dispatched directly at boot (step 1's boundary dispatch), **not** from the frame's `:initial-events`. A `:dispatch` fan-out doesn't forward `:rf.cofx`, so `:initial-events` couldn't supply the host-read token; the boundary dispatch is the one place that owns it:
 
 ```clojure
-;; Adapted from examples/reagent/realworld/auth.cljs
+;; Adapted from examples/real-apps/realworld_http/auth.cljs
 ;; The init event reads the saved token (step 1's provided cofx), seeds the
 ;; slice, and classifies the durable token path :sensitive via the commit-plane
 ;; classification effect (EP-0025) — returned alongside :db. Frames always start
@@ -297,7 +297,7 @@ The init event from step 1 restores the saved session and classifies the token p
 A guard's headline feature is returning the user to exactly where they were headed. Step 4's guard stashed that target at `[:auth :return-to]`; step 2's success handler already dispatches `:auth/post-login-redirect`. Here's the handler it calls — it reads **and clears** the stash in one step:
 
 ```clojure
-;; Adapted from examples/reagent/realworld/auth.cljs
+;; Adapted from examples/real-apps/realworld_http/auth.cljs
 (rf/reg-event :auth/post-login-redirect
   (fn [{:keys [db]} _]
     (let [return-to (get-in db [:auth :return-to])]

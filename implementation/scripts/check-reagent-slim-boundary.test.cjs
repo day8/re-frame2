@@ -37,7 +37,7 @@ const {
   scanFile,
   scanAll,
   listStockReagentSources,
-  STOCK_REAGENT_ROOT,
+  STOCK_REAGENT_ROOTS,
 } = scanner;
 
 let failed = 0;
@@ -69,7 +69,7 @@ it('the real stock-Reagent tree exposes a non-vacuous set of sources', () => {
   );
 });
 
-it('LIVE: no stock examples/reagent/ source requires slim wiring', () => {
+it('LIVE: no stock-Reagent example source requires slim wiring', () => {
   const { errors } = scanAll({ files: realSources });
   assert.strictEqual(
     errors.length,
@@ -178,7 +178,7 @@ it('the stock adapter on a require line with no alias is NOT flagged', () => {
 // ---- scanFile / scanAll integration --------------------------------------
 
 it('scanFile reports a clean stock source with no errors', () => {
-  const p = path.join(STOCK_REAGENT_ROOT, 'counter', 'core.cljs');
+  const p = path.join(STOCK_REAGENT_ROOTS[0], 'counter', 'core.cljs');
   const io = makeIo({ [p]: STOCK_NS });
   assert.deepStrictEqual(scanFile(io, p).errors, []);
 });
@@ -186,7 +186,7 @@ it('scanFile reports a clean stock source with no errors', () => {
 it('TEETH: scanFile reports a slim require leaking into the stock tree', () => {
   // A stock-tree path that (wrongly) carries slim wiring — exactly the
   // regression this gate exists to catch.
-  const p = path.join(STOCK_REAGENT_ROOT, 'counter', 'core.cljs');
+  const p = path.join(STOCK_REAGENT_ROOTS[0], 'counter', 'core.cljs');
   const leaked = STOCK_NS.replace(
     '[re-frame.adapter.reagent    :as reagent-adapter]',
     '[re-frame.adapter.reagent-slim :as reagent-adapter]',
@@ -202,8 +202,8 @@ it('TEETH: scanFile reports a slim require leaking into the stock tree', () => {
 });
 
 it('TEETH: scanAll surfaces a reagent2 leak across the synthetic tree', () => {
-  const clean = path.join(STOCK_REAGENT_ROOT, 'counter', 'core.cljs');
-  const dirty = path.join(STOCK_REAGENT_ROOT, 'demo', 'core.cljs');
+  const clean = path.join(STOCK_REAGENT_ROOTS[0], 'counter', 'core.cljs');
+  const dirty = path.join(STOCK_REAGENT_ROOTS[0], 'demo', 'core.cljs');
   const io = makeIo({
     [clean]: STOCK_NS,
     [dirty]: STOCK_NS.replace('[reagent.dom.client          :as rdc]', '[reagent2.dom.client :as rdc]'),

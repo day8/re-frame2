@@ -110,7 +110,7 @@ This fails three ways, and the failures *are* the reasons for the architecture â
 Here is the same load, written so the handler stays pure. An [effect](../glossary.md#effect), here, is a description of something the runtime should do to the outside world:
 
 ```clojure
-;; cf. examples/reagent/realworld/articles.cljs
+;; cf. examples/real-apps/realworld_http/articles.cljs
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug]}]]
     {:db (assoc db :article/loading? true)

@@ -143,7 +143,7 @@ A [**view**](../../guide/glossary.md#view) is a pure function from subscription 
 An optional map right after the tag carries attributes — `[:a {:href "/"} "home"]`. That's the entire notation; there's no template language to learn, because markup here *is* data. Register views with `reg-view`, still in `articles.cljs`:
 
 ```clojure
-;; Adapted from examples/reagent/realworld/articles.cljs
+;; Adapted from examples/real-apps/realworld_http/articles.cljs
 (reg-view article-preview [{:keys [article]}]
   (let [{:keys [slug title description tagList author createdAt]} article]
     [:div.article-preview
@@ -222,7 +222,7 @@ Now for `core.cljs`. You're replacing the whole file from setup: the placeholder
 
 ```clojure
 ;; src/conduit/core.cljs
-;; Adapted from examples/reagent/routing/core.cljs
+;; Adapted from examples/capabilities/routing/routing/core.cljs
 (ns conduit.core
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]

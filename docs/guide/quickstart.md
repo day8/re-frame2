@@ -183,7 +183,7 @@ Now restore an older row. The counter returns to that exact moment — value, pa
 
 ## Running it locally
 
-The snippets above are the whole app *except* for boot. Boot is the one place you name the rendering [substrate](glossary.md#substrate) and the [frame](glossary.md#frame), so adapt `examples/reagent/counter/` to match:
+The snippets above are the whole app *except* for boot. Boot is the one place you name the rendering [substrate](glossary.md#substrate) and the [frame](glossary.md#frame), so adapt `examples/core/counter/` to match:
 
 ```clojure
 (ns quickstart.core

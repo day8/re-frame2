@@ -382,8 +382,8 @@ The point of the render-priority vector is that these cross-region overlaps are 
 
 The canonical worked example is:
 
-- [examples/reagent/nine_states/core.cljs](../examples/reagent/nine_states/core.cljs)
-- [examples/reagent/nine_states/README.md](../examples/reagent/nine_states/README.md)
+- [examples/patterns/nine_states/core.cljs](../examples/patterns/nine_states/core.cljs)
+- [examples/patterns/nine_states/README.md](../examples/patterns/nine_states/README.md)
 
 It demonstrates the full machine declaration, the render-priority table, the `:ui/render` selector sub, per-state views, and a headless test per state asserting against tags + the resolved render-model keyword.
 
@@ -425,7 +425,7 @@ The point is not numerology. The point is to make the **important** UI states ex
 - [Pattern-StaleDetection.md](Pattern-StaleDetection.md) — the epoch idiom for suppressing stale HTTP replies.
 - [CP-5-MachineGuide.md §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) — the N-machines-per-region pattern, the right answer when axes are independent features.
 - [004-Views.md §Loading state is explicit](004-Views.md#loading-state-is-explicit-not-implicit) — the explicit-state view philosophy this pattern exemplifies.
-- [examples/reagent/nine_states/README.md](../examples/reagent/nine_states/README.md) — worked example.
+- [examples/patterns/nine_states/README.md](../examples/patterns/nine_states/README.md) — worked example.
 
 ## Conformance checklist
 

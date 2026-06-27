@@ -138,7 +138,7 @@ A boot-registered listener has **no frame scope** when the reply fires — it is
 
 ## Worked example
 
-No standalone example app — the HTTP instance appears in `examples/reagent/login/` (the `:http` fx + reply-driven state machine) and `examples/reagent/managed_http_counter/` (the `:rf.http/managed` fx, the substrate's batteries-included version of this pattern). For the full async-fx + lifecycle slice, see Pattern-RemoteData and Pattern-ManagedHTTP.
+No standalone example app — the HTTP instance appears in `examples/core/login/` (the `:http` fx + reply-driven state machine) and `examples/core/managed_http_counter/` (the `:rf.http/managed` fx, the substrate's batteries-included version of this pattern). For the full async-fx + lifecycle slice, see Pattern-RemoteData and Pattern-ManagedHTTP.
 
 ## Pointer to the spec
 
@@ -146,4 +146,4 @@ Full rationale, the architectural properties that make the shape work, and the c
 
 ---
 
-*Derived from Pattern-AsyncEffect in the spec @ main `89bd9c3`, with the HTTP instance shape extracted from `examples/reagent/login/` and `examples/reagent/managed_http_counter/`. No standalone example; re-verify against the chosen substrate when authoring a new instance.*
+*Derived from Pattern-AsyncEffect in the spec @ main `89bd9c3`, with the HTTP instance shape extracted from `examples/core/login/` and `examples/core/managed_http_counter/`. No standalone example; re-verify against the chosen substrate when authoring a new instance.*

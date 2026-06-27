@@ -20,7 +20,7 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
   (reg-machine machine-id machine-spec)
   ```
 - **Description**: The canonical macro. Walks the literal spec form at expansion time and co-locates per-element source on each `:guards` / `:actions` entry (`{:fn .. :source-coords .. :source-code ..}`) plus a reference-site `:source-coords` on each `:states`-tree map node (state-node / transition map) — Xray uses these to navigate from a snapshot back to the guard/action definition or the state-node. Top-level call-site coords land on `handler-meta`.
-- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) · [websocket](https://github.com/day8/re-frame2/tree/main/examples/reagent/websocket)
+- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/capabilities/machines/state_machine_walkthrough) · [websocket](https://github.com/day8/re-frame2/tree/main/examples/patterns/websocket)
 
 ### `re-frame.machines/reg-machine*`
 
@@ -81,7 +81,7 @@ The canonical machine read is the framework-registered subscription vector `[:rf
   (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
     [:div "State: " (name state)])
   ```
-- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
+- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/capabilities/machines/state_machine_walkthrough)
 
 ### `re-frame.machines/machines`
 

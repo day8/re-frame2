@@ -236,4 +236,4 @@ Pattern-RemoteData is the specific case of Pattern-AsyncEffect for HTTP requests
 - [Pattern-WebSocket.md](Pattern-WebSocket.md) — sibling pattern for long-lived connections.
 - [Pattern-Boot.md](Pattern-Boot.md) — chained async sequence at startup; carries the worked example for the retry-ownership boundary.
 - [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — when the async fx is `:rf.http/managed`, retry partitions: transport-level retry inside the fx (function of attempt count + category), semantic retry at the state-machine layer that drives the fx (response-conditional, app-state-conditional). Both layers compose without overlap.
-- [examples/reagent/login/core.cljs](../examples/reagent/login/core.cljs) — `:http` fx registration and reply-driven state machine.
+- [examples/core/login/core.cljs](../examples/core/login/core.cljs) — `:http` fx registration and reply-driven state machine.

@@ -5,7 +5,7 @@
    (rf2-t5ky67 issue 2 / Spec 005 §Schema validation).
 
    The fixture fns live HERE (the adapter test tree), not under
-   examples/reagent/login/ — the example source stays test-free per the
+   examples/core/login/ — the example source stays test-free per the
    locked test-free-examples policy (rf2-8cevm). The ns requires the
    example's production source (`login.core`) so its machine / events /
    schemas register at ns-load, then exercises them directly.

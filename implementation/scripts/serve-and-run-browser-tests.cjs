@@ -89,7 +89,7 @@ cleanup.addCleanup(removeOwnershipToken);
 cleanup.installSignalHandlers();
 
 // shadow-cljs's :browser-test target generates an index.html with an empty
-// <body>. Some example namespaces (e.g. examples/reagent/nine_states/core.cljs)
+// <body>. Some example namespaces (e.g. examples/patterns/nine_states/core.cljs)
 // historically did `(rdc/create-root (js/document.getElementById "app"))` at
 // namespace-load time. Per rf2-gkf9 the example mounts now defer `create-root`
 // to their `run` fn, but the test harness still needs a single `#app` host so

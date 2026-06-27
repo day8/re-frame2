@@ -141,7 +141,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 
 ## Worked example
 
-`examples/reagent/long_running_work/` — three parallel `:work/processor` children coordinated by `:work/flow` via `:spawn-all`. The Show / Hide wrapper's `r/with-let` cleanup dispatches `[:work/flow [:cancel]]`. The machines live in `worker.cljs`; `core.cljs` / `schema.cljs` / `views.cljs` complete it; `test/long_running_work/worker_test.cljs` is the CLJS unit test.
+`examples/patterns/long_running_work/` — three parallel `:work/processor` children coordinated by `:work/flow` via `:spawn-all`. The Show / Hide wrapper's `r/with-let` cleanup dispatches `[:work/flow [:cancel]]`. The machines live in `worker.cljs`; `core.cljs` / `schema.cljs` / `views.cljs` complete it; `test/long_running_work/worker_test.cljs` is the CLJS unit test.
 
 ## Pointer to the spec
 
@@ -149,4 +149,4 @@ Full rationale — `:spawn-all` runtime, join-state layout, `:join` modes (`:all
 
 ---
 
-*Derived from Pattern-LongRunningWork and the worked example `examples/reagent/long_running_work/` @ main `89bd9c3`.*
+*Derived from Pattern-LongRunningWork and the worked example `examples/patterns/long_running_work/` @ main `89bd9c3`.*

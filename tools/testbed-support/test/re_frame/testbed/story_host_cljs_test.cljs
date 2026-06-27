@@ -226,49 +226,51 @@
             checkout-root joined with that subdir and configures it as Story's
             project-root — so a classpath-relative Story coord composes to an
             ABSOLUTE on-disk path, not a nil-root relative one. Covers the
-            `examples/reagent` subdir the two example Story showcases use."
+            `examples/core` subdir the login Story showcase uses."
     (with-redefs [testbed-config/checkout-root "/home/dev/re-frame2"]
-      (#'host/configure-story-source-root! "examples/reagent")
-      (is (= "/home/dev/re-frame2/examples/reagent"
+      (#'host/configure-story-source-root! "examples/core")
+      (is (= "/home/dev/re-frame2/examples/core"
              (story-config/get-project-root))
           "Story's project-root is the absolute checkout/subdir join")
       ;; The open-in-editor prepend is `(str root "/" file)`; reproduce that
       ;; single join to prove a representative example Story coord reaches
-      ;; the intended on-disk file (under <checkout>/examples/reagent/...).
+      ;; the intended on-disk file (under <checkout>/examples/core/...).
       (let [composed (str (story-config/get-project-root) "/" "login/stories.cljs")]
-        (is (= "/home/dev/re-frame2/examples/reagent/login/stories.cljs"
+        (is (= "/home/dev/re-frame2/examples/core/login/stories.cljs"
                composed)
             "the composed editor path reaches the real example source file")
-        (is (str/includes? composed "/examples/reagent/")
+        (is (str/includes? composed "/examples/core/")
             "the example source-root segment is present (not missing)")))))
 
 (deftest example-story-builds-resolve-absolute-source-coords
   (testing "rf2-77wqzi: the two example Story dev builds named in the bead —
             `:examples/login-with-stories` and
-            `:examples/nine-states-with-stories` — both host their Story
-            sources under `examples/reagent`, so the host-owned config
-            resolves each build's representative Story coord to an ABSOLUTE
-            on-disk path under `<checkout>/examples/reagent/...`. This
+            `:examples/nine-states-with-stories` — host their Story sources
+            under `examples/core` and `examples/patterns` respectively, so the
+            host-owned config resolves each build's representative Story coord
+            to an ABSOLUTE on-disk path under `<checkout>/<subdir>/...`. This
             enumerates the affected builds explicitly so a future regression
             (dropping the `:source-subdir` opt or the build-env define) trips
-            here. Each entry is `[build-id story-coord expected-on-disk]`."
+            here. Each entry is `[build-id story-coord source-subdir expected-on-disk]`."
     (with-redefs [testbed-config/checkout-root "/home/dev/re-frame2"]
-      (doseq [[build coord expected]
+      (doseq [[build coord subdir expected]
               [[:examples/login-with-stories
                 "login/stories.cljs"
-                "/home/dev/re-frame2/examples/reagent/login/stories.cljs"]
+                "examples/core"
+                "/home/dev/re-frame2/examples/core/login/stories.cljs"]
                [:examples/nine-states-with-stories
                 "nine_states/stories.cljs"
-                "/home/dev/re-frame2/examples/reagent/nine_states/stories.cljs"]]]
+                "examples/patterns"
+                "/home/dev/re-frame2/examples/patterns/nine_states/stories.cljs"]]]
         (story-config/set-project-root! nil)
-        (#'host/configure-story-source-root! "examples/reagent")
+        (#'host/configure-story-source-root! subdir)
         (let [root     (story-config/get-project-root)
               composed (str root "/" coord)]
-          (is (= "/home/dev/re-frame2/examples/reagent" root)
-              (str build " configures the absolute examples/reagent root"))
+          (is (= (str "/home/dev/re-frame2/" subdir) root)
+              (str build " configures the absolute " subdir " root"))
           (is (= expected composed)
               (str build " Story coord composes to the real on-disk file"))
-          (is (str/includes? composed "/examples/reagent/")
+          (is (str/includes? composed (str "/" subdir "/"))
               (str build " keeps the example source-root segment")))))))
 
 (deftest source-subdir-omitted-configures-no-root

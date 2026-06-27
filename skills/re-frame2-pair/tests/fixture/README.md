@@ -1,6 +1,6 @@
 ;; tests/fixture — minimal re-frame2 app for re-frame2-pair validation.
 ;;
-;; A deliberately tiny re-frame2 counter (mirrors examples/reagent/counter)
+;; A deliberately tiny re-frame2 counter (mirrors examples/core/counter)
 ;; with `re-frame2-pair.runtime` wired in as a shadow-cljs `:devtools :preloads`
 ;; entry. re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces target
 ;; this fixture.
@@ -12,7 +12,7 @@
 # re-frame2-pair fixture app
 
 Minimal re-frame2 counter app used by `tests/shim`, `tests/e2e`, and
-`tests/prompts`. Mirrors `examples/reagent/counter/core.cljs`, with
+`tests/prompts`. Mirrors `examples/core/counter/core.cljs`, with
 `re-frame2-pair.runtime` preloaded.
 
 ## Layout

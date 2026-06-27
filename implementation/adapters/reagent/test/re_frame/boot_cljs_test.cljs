@@ -9,7 +9,7 @@
    framework-shipped stubs (Spec 014 §Testing).
 
    The fixture fns + canned-stub helpers live HERE (the adapter test
-   tree), not under examples/reagent/boot/ — the example source stays
+   tree), not under examples/patterns/boot/ — the example source stays
    test-free per the locked test-free-examples policy (rf2-8cevm). The
    ns requires the example's production source (`boot.core`, which
    chains in `boot.boot` / `boot.schema`) so the boot machine, loader,

@@ -1,10 +1,10 @@
 (ns re-frame.todomvc-cljs-test
-  "Integration test: drives the TodoMVC example (examples/reagent/todomvc/)
+  "Integration test: drives the TodoMVC example (examples/core/todomvc/)
    through its cold-boot + add trajectory and guards the sorted-map id
    invariant.
 
    The fixture lives HERE (the adapter test tree), not under
-   examples/reagent/todomvc/ — the example source stays test-free per the
+   examples/core/todomvc/ — the example source stays test-free per the
    locked test-free-examples policy (rf2-8cevm). The ns requires the
    example's production source (`todomvc.core`, which chains in
    `todomvc.db` / `todomvc.events` / `todomvc.subs` / `todomvc.views`) so

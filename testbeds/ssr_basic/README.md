@@ -68,5 +68,5 @@ at `/ssr-basic/`.
 - [`spec/011-SSR.md` §Hydration is a defined protocol](../../spec/011-SSR.md) — the round-trip contract.
 - [`spec/011-SSR.md` §Payload scope](../../spec/011-SSR.md) — the canonical four payload keys.
 - [`spec/011-SSR.md` §Response storage substrate](../../spec/011-SSR.md) — the per-request side-channel substrate the `:rf/response` slot serialises.
-- [`examples/reagent/ssr/core.cljc`](../../examples/reagent/ssr/core.cljc) — the JVM-side `handle-request` reference; the static index.html is the byte-shape this function would emit.
+- [`examples/capabilities/ssr/ssr/core.cljc`](../../examples/capabilities/ssr/ssr/core.cljc) — the JVM-side `handle-request` reference; the static index.html is the byte-shape this function would emit.
 - [`implementation/ssr/test/re_frame/ssr_end_to_end_test.clj`](../../implementation/ssr/test/re_frame/ssr_end_to_end_test.clj) — the JVM-side end-to-end coverage; this testbed pairs with it on the browser side.

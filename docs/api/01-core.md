@@ -40,7 +40,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
                                :on-success [:counter/loaded]
                                :on-failure [:counter/load-failed]}]]}))
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter), [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter), [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/core/managed_http_counter)
 
 ### `reg-sub`
 
@@ -80,7 +80,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
       {:id article-id :article article :comments comments
        :can-edit? (:edit? viewer)}))
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
 
 ### `reg-fx`
 
@@ -95,7 +95,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (rf/reg-fx :app/scroll-to-top
     (fn [_args] (js/window.scrollTo 0 0)))
   ```
-- **In the wild**: [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter)
+- **In the wild**: [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/core/managed_http_counter)
 
 ### `reg-cofx`
 
@@ -119,7 +119,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
     (fn [{:keys [db ui/local-theme]} _]
       {:db (assoc db :ui/theme (or local-theme "system"))}))
   ```
-- **In the wild**: [todomvc](https://github.com/day8/re-frame2/tree/main/examples/reagent/todomvc)
+- **In the wild**: [todomvc](https://github.com/day8/re-frame2/tree/main/examples/core/todomvc)
 
 ### `reg-frame`
 
@@ -148,7 +148,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
      :initial-events [[:app/init]]      ;; classifies [:auth :token] at creation
      :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}})
   ```
-- **In the wild**: [boot](https://github.com/day8/re-frame2/tree/main/examples/reagent/boot)
+- **In the wild**: [boot](https://github.com/day8/re-frame2/tree/main/examples/patterns/boot)
 
 ### `make-frame`
 
@@ -167,7 +167,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
                         :initial-events [[:rf/set-db {:count 0}]]}
      [counter-view label]])
   ```
-- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
+- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/core/seven_guis)
 
 ### `reg-view`
 
@@ -186,7 +186,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
      [:span @(subscribe [:counter/value])]
      [:button {:on-click #(dispatch [:counter/inc])} "+"]])
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
 
 ### `reg-view*`
 
@@ -214,7 +214,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
                :submitting {:on {:ok :done :err :idle}}
                :done      {}}})
   ```
-- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
+- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/capabilities/machines/state_machine_walkthrough)
 
 > **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core` (rf2-wad2fl — front-porch shrink). Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](../machines/api.md#re-framemachinesreg-machine).
 
@@ -232,7 +232,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (rf/reg-app-schema [:cells]
     {:schema [:map [:cells/grid [:map-of :keyword :string]]]})
   ```
-- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
+- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/core/seven_guis)
 
 ### `reg-app-schemas`
 
@@ -249,7 +249,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
      [:articles] ArticlesState
      [:profile]  ProfileState})
   ```
-- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
+- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### `reg-flow`
 
@@ -283,7 +283,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
     {:on-match [[:home/load]]}
     "/")
   ```
-- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/reagent/routing)
+- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/capabilities/routing/routing)
 
 ### `reg-head`
 
@@ -398,7 +398,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   ```clojure
   [:button {:on-click #(rf/dispatch [:counter/inc])} "+"]
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
 
 ### `dispatch*`
 
@@ -423,7 +423,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   ```clojure
   (rf/dispatch-sync [:counter/initialise])   ;; one-shot app-boot event
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
 
 ### `dispatch-sync*`
 
@@ -448,7 +448,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   ```clojure
   [:span @(rf/subscribe [:counter/value])]
   ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
 
 ### `subscribe-once`
 

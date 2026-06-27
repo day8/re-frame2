@@ -413,9 +413,9 @@ LAYOUT_CHECKS: tuple[LayoutCheck, ...] = (
     ),
     LayoutCheck(
         readme="examples/README.md",
-        section="Layout — grouped by substrate",
+        section="Layout",
         base_dir="examples",
-        # _shared/ is a private cross-example helper lib, not a substrate.
+        # _shared/ is a private cross-example helper lib, not a bucket.
         ignore=frozenset({"_shared"}),
     ),
 )

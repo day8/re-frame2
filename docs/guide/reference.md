@@ -96,11 +96,11 @@ The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registr
 
 The [examples catalogue](../../examples/README.md) is the runnable canon. When you're starting something new, the fastest path is usually to fork the one closest to what you're building and delete what you don't need — half a working app beats a blank file every time. The tree:
 
-- **Pedagogical sketches** — [`counter`](../../examples/reagent/counter/), [`login`](../../examples/reagent/login/), `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `boot`, `flows`, `websocket`, `long_running_work`. Each isolates one surface, composed end-to-end. Read these to *learn* a feature.
+- **Pedagogical sketches** — [`counter`](../../examples/core/counter/), [`login`](../../examples/core/login/), `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `boot`, `flows`, `websocket`, `long_running_work`. Each isolates one surface, composed end-to-end. Read these to *learn* a feature.
 - **Benchmarks** — `todomvc`, the `seven_guis` cluster, `nine_states`. Same primitives, fuller compositions — read these to see the pieces fit together under load.
-- **Server state** — [`resources`](../../examples/reagent/resources/), `resources_ssr`, `ssr_streaming`.
-- **The RealWorld pair** — [`realworld`](../../examples/reagent/realworld/) on `:rf.http/managed`, and [`realworld_resources`](../../examples/reagent/realworld_resources/) on resources + mutations. This is the "what does a *real* one look like?" answer, and the app this guide's [tutorial](../resources/tutorial/index.md) builds.
-- **Other substrates** — `uix/` and `helix/` each carry counter + login (the dataflow is *identical*; only the view layer differs — which is rather the point), plus one design-led example each. `reagent-slim/` carries the slim adapter's counter fixture.
+- **Server state** — [`resources`](../../examples/capabilities/resources/resources/), `resources_ssr`, `ssr_streaming`.
+- **The RealWorld pair** — [`realworld`](../../examples/real-apps/realworld_http/) on `:rf.http/managed`, and [`realworld_resources`](../../examples/real-apps/realworld_resources/) on resources + mutations. This is the "what does a *real* one look like?" answer, and the app this guide's [tutorial](../resources/tutorial/index.md) builds.
+- **Other substrates** — `substrates/uix/` and `substrates/helix/` each carry counter + login (the dataflow is *identical*; only the view layer differs — which is rather the point), plus one design-led example each. `substrates/reagent_slim/` carries the slim adapter's counter fixture.
 
 ## Tools, and where their docs live
 

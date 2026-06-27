@@ -55,7 +55,7 @@ Some handlers need to know things about the outside world — the current time, 
 The handler below stamps *when* a refresh was asked for, then asks for an HTTP request:
 
 ```clojure
-;; my-app/articles.cljs — adapted from examples/reagent/realworld/articles.cljs
+;; my-app/articles.cljs — adapted from examples/real-apps/realworld_http/articles.cljs
 (rf/reg-event :articles/refresh
   {:doc "User asked for a fresh feed: stamp when, issue the request."
    :rf.cofx/requires [:rf/time-ms]}

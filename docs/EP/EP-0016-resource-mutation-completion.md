@@ -95,9 +95,9 @@ framework.
 The RealWorld comparison is unusually useful because it is the same application
 implemented twice:
 
-- `examples/reagent/realworld/` demonstrates the lower-level managed-HTTP,
+- `examples/real-apps/realworld_http/` demonstrates the lower-level managed-HTTP,
   app-db, event, subscription, machine, and hand-written cache-coherence style.
-- `examples/reagent/realworld_resources/` demonstrates the Spec 016 resource
+- `examples/real-apps/realworld_resources/` demonstrates the Spec 016 resource
   style over the same problem.
 
 Across the covered read surface, the resources version removes whole classes of
@@ -1096,7 +1096,7 @@ kept as dogfood acceptance rather than the only proof of correctness.
 14. Tooling/trace output explains resolver id, resolved scope, invalidation
     descriptors, hit counts, and continuation dispatch.
 
-Dogfood acceptance for `examples/reagent/realworld_resources/`:
+Dogfood acceptance for `examples/real-apps/realworld_resources/`:
 
 - settings save uses call-site `:reply-to`;
 - editor save/delete uses call-site `:reply-to` after the editor port lands on
