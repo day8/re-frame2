@@ -61,7 +61,7 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   the hook changes.
 
 - **No magic, no auto-injection.** A UIx component reads `dispatch` off a
-  [`frame-handle`](../../../docs/guide/glossary.md#frame-handle) and calls
+  [`capture-frame`](../../../docs/guide/glossary.md#capture-frame) and calls
   `use-subscribe` itself. Nothing threads state into your components behind your
   back — the read and the dispatch are right there in the function body. The
   view layer is explicit; the model beneath it is shared by all three

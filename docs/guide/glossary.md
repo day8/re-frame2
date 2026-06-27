@@ -237,9 +237,9 @@ Most apps create one frame at boot and then forget about it. But because frames 
 
 Related: [Frames](concepts/frames.md).
 
-### **frame-handle**
+### **capture-frame**
 
-A [frame](#frame) captured as a *value* — a bundle of that frame's `dispatch`/`subscribe` — so you can carry it across an async boundary. Grab one (`rf/frame-handle`) while the frame is in scope, and a later `setTimeout`, promise, or WebSocket callback can still dispatch into the right frame instead of raising `:rf.error/no-frame-context`.
+A [frame](#frame) captured as a *value* — a bundle of that frame's `dispatch`/`subscribe` — so you can carry it across an async boundary. Grab one (`rf/capture-frame`) while the frame is in scope, and a later `setTimeout`, promise, or WebSocket callback can still dispatch into the right frame instead of raising `:rf.error/no-frame-context`.
 
 Related: [Frames](concepts/frames.md).
 

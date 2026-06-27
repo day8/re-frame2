@@ -27,7 +27,7 @@ The split is forced by reactive context: subs want render-time reads; lifecycle 
 
 ## The one cross-adapter discipline — capture the frame at render-time
 
-Capture `(rf/frame-handle)` in the inner's top-level `let` (Reagent: in the closure around `create-class`) and use its `:dispatch` op for any library callback. A bare `(rf/dispatch …)` from inside a lifecycle callback fires on a fresh stack with no `*current-frame*` binding and — under the EP-0002 carried invariant — fails loudly with `:rf.error/no-frame-context` rather than routing to a default. Capture the handle while the frame scope still exists.
+Capture `(rf/capture-frame)` in the inner's top-level `let` (Reagent: in the closure around `create-class`) and use its `:dispatch` op for any library callback. A bare `(rf/dispatch …)` from inside a lifecycle callback fires on a fresh stack with no `*current-frame*` binding and — under the EP-0002 carried invariant — fails loudly with `:rf.error/no-frame-context` rather than routing to a default. Capture the handle while the frame scope still exists.
 
 ## Canonical declaration (Reagent — a Mapbox-shaped widget)
 
@@ -44,7 +44,7 @@ Pseudo-code; library calls are illustrative. Substitute D3 / Three.js / CodeMirr
   (fn [_initial-pos]
     (let [el-ref       (atom nil)     ;; mount-point handle
           map-instance (atom nil)     ;; library instance (per-mount, NOT defonce)
-          dispatch     (:dispatch (rf/frame-handle))]   ;; captured at render — carries frame
+          dispatch     (:dispatch (rf/capture-frame))]   ;; captured at render — carries frame
       (r/create-class
         {:display-name "map-inner"
          :component-did-mount
@@ -87,11 +87,11 @@ See the per-adapter README "Imperative escape hatch" sections for the hooks-shap
 
 ## Animations are a special case
 
-Regime C (library-bridged: Framer Motion, React-Spring, GSAP, AutoAnimate) **is** this pattern — outer derives state-driven props (target opacity, x/y, easing), inner hands them to the library, completion callbacks bridge via the captured `frame-handle`. Regimes A (CSS-driven `:class`) and B (per-frame RAF loop in a registered fx) do *not* use this pattern — no library to wrap.
+Regime C (library-bridged: Framer Motion, React-Spring, GSAP, AutoAnimate) **is** this pattern — outer derives state-driven props (target opacity, x/y, easing), inner hands them to the library, completion callbacks bridge via the captured `capture-frame`. Regimes A (CSS-driven `:class`) and B (per-frame RAF loop in a registered fx) do *not* use this pattern — no library to wrap.
 
 ## Anti-patterns
 
-- **`addEventListener` from a render body.** Fires with no carried frame — under EP-0002 a bare `dispatch` in the callback raises `:rf.error/no-frame-context` (there is no `:rf/default` to fall open to) — and leaks. The right home is the inner's mount hook with cleanup on unmount; capture a `frame-handle` for any dispatch the listener fires after commit.
+- **`addEventListener` from a render body.** Fires with no carried frame — under EP-0002 a bare `dispatch` in the callback raises `:rf.error/no-frame-context` (there is no `:rf/default` to fall open to) — and leaks. The right home is the inner's mount hook with cleanup on unmount; capture a `capture-frame` for any dispatch the listener fires after commit.
 - **Owning the library lifecycle in a render body.** `(js/MyLib. el opts)` from a Form-1 builds a fresh instance every render — leaking at the rate of reactive updates. Build it once in the mount hook.
 - **`@(subscribe …)` inside a lifecycle hook.** No reactive context after commit. Subscribe in the outer; pass the value as a prop.
 - **Stashing the instance in `defonce` / top-level `def`.** Leaks across mounts and hot-reloads; breaks when the component mounts twice (two frames). The instance is per-mount — closure cell only.
@@ -103,7 +103,7 @@ No standalone example app — the per-adapter READMEs carry the worked spelling 
 ## Pointers
 
 - Spec: [`spec/Pattern-StatefulComponents.md`](../../../spec/Pattern-StatefulComponents.md) — the full outer/inner rationale, the per-adapter table, the animations-as-special-case discussion, the antipattern reasons.
-- Substrate: `SKILL-REDIRECT.md` → *EP — Views (004)* §View antipatterns (the normative MUST-NOTs), §Form-3, §Animations Regime C; *EP — Frames (002)* (why `frame-handle` must be captured at render-time).
+- Substrate: `SKILL-REDIRECT.md` → *EP — Views (004)* §View antipatterns (the normative MUST-NOTs), §Form-3, §Animations Regime C; *EP — Frames (002)* (why `capture-frame` must be captured at render-time).
 - Compose: `patterns/reusable-components.md` (a `[customer-chart id]` is a reusable component that also wraps a library), `patterns/async-effect.md` (when the library exposes its own async callbacks, e.g. a tile-loaded event).
 
 ---

@@ -8,7 +8,7 @@
   app-db. The de-singleton refactor (rf2-lnluk + rf2-r0o63)
   parameterized the shell frame and made every out-of-render dispatch
   capture the SURROUNDING instance frame via a frame-bound dispatch
-  (`reg-view`'s injected `dispatch` / `(:dispatch (rf/frame-handle))` /
+  (`reg-view`'s injected `dispatch` / `(:dispatch (rf/capture-frame))` /
   `rf/current-frame-id`), so N instances stay isolated.
 
   This SOURCE-TEXT guard (JVM, runs in the fast `clojure -M:test`
@@ -24,7 +24,7 @@
        `:on-*` handler — the bare global dispatch that leaks to
        `:rf/default` after render unwinds. The fix is to dispatch
        through a captured frame-aware dispatcher (the reg-view-injected
-       `dispatch`, a threaded `dispatch-fn`, or `(:dispatch (rf/frame-handle))`).
+       `dispatch`, a threaded `dispatch-fn`, or `(:dispatch (rf/capture-frame))`).
 
   ## Migration state — COMPLETE (rf2-1w07r EPIC closed via rf2-nesy9)
 
@@ -176,7 +176,7 @@
              "file. The render-tree singleton literal entrenches the "
              "one-shell lock. Capture the surrounding instance frame "
              "instead — the reg-view-injected `dispatch` / `subscribe`, a "
-             "threaded `dispatch-fn`, or `(:dispatch (rf/frame-handle))` / "
+             "threaded `dispatch-fn`, or `(:dispatch (rf/capture-frame))` / "
              "`(rf/current-frame-id)`. (The single permitted `:rf/xray` is "
              "`defaults/default-frame-id`, a bare `def`, not a map "
              "literal.) Offenders:\n  "
@@ -191,7 +191,7 @@
              "gone, so a bare global dispatch leaks to `:rf/default`. "
              "Dispatch through a captured frame-aware dispatcher (the "
              "reg-view-injected `dispatch`, a threaded `dispatch-fn`, or "
-             "`(:dispatch (rf/frame-handle))`). Offenders:\n  "
+             "`(:dispatch (rf/capture-frame))`). Offenders:\n  "
              (report offs)))))
 
 (deftest pending-migration-allowlist-stays-honest

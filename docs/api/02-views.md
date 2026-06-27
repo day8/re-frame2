@@ -1,6 +1,6 @@
 # 02 — Views
 
-Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the shared dataflow (frames, subscriptions, dispatch, source metadata, registry ids) is uniform across Reagent, UIx, and Helix, and the same `frame-handle` carry primitive composes across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
+Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the shared dataflow (frames, subscriptions, dispatch, source metadata, registry ids) is uniform across Reagent, UIx, and Helix, and the same `capture-frame` carry primitive composes across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
 
 There are **two registration lanes**, and you almost certainly want only one of them:
 
@@ -9,7 +9,7 @@ There are **two registration lanes**, and you almost certainly want only one of 
 
 If you're not sure, you're an application author: use the app-facing lane and skip the tooling lane entirely.
 
-This chapter also covers the substrate-agnostic ergonomic surface (`frame-handle`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
+This chapter also covers the substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
 
 ## App-facing view registration
 
@@ -89,7 +89,7 @@ This is the lane for **tools, dynamic hosts, and library code** — not applicat
     - **You don't want a Var.** Inside a `let` or a closure, or when the view is a one-off built from configuration data.
     - **You're writing a Form-3 component.** Reagent's `create-class` wraps a map of lifecycle methods around a render-fn; the call shape is `(rf/reg-view* :id (r/create-class {...}))`. This is the one app-facing reason to touch the starred form.
     - **You're consumer-side library code.** Libraries that ship registered views (a charting library, a table widget) often want to register without imposing a `def` on the consumer's namespace.
-- **Note**: The `*` follows Clojure's own `let` / `let*`, `fn` / `fn*` idiom — the un-starred form is the macro shorthand; the starred form is the underlying primitive. Inside a `reg-view*` body there's no auto-injected `dispatch` / `subscribe`; capture a `(rf/frame-handle)` at render and use its ops if the view needs frame-bound dispatch.
+- **Note**: The `*` follows Clojure's own `let` / `let*`, `fn` / `fn*` idiom — the un-starred form is the macro shorthand; the starred form is the underlying primitive. Inside a `reg-view*` body there's no auto-injected `dispatch` / `subscribe`; capture a `(rf/capture-frame)` at render and use its ops if the view needs frame-bound dispatch.
 
 ### `view`
 
@@ -112,7 +112,7 @@ A tool's own chrome — Story's panel grid, Xray's inspector views — is regist
 
 ## The substrate-agnostic ergonomic surface
 
-These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope or ensure a frame** (`frame-provider`, `with-frame`, `with-new-frame`), **hold** (`frame-handle` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
+These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope or ensure a frame** (`frame-provider`, `with-frame`, `with-new-frame`), **hold** (`capture-frame` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
 
 ### `frame-provider`
 
@@ -136,19 +136,19 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
   ```
 - **Description**: `with-frame` pins `*current-frame*` to an existing frame-id; the frame is not created or destroyed. `with-new-frame` evals `expr`, binds the resulting id to `sym`, runs body in that frame's dynamic context, and destroys the frame on exit. Each rejects the other's argument shape at compile time. Documented in [002 §with-frame and with-new-frame](../../spec/002-Frames.md#with-frame-and-with-new-frame).
 
-### `frame-handle`
+### `capture-frame`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (frame-handle)          → {:frame :dispatch :dispatch-sync :subscribe}
-  (frame-handle frame-id) → {:frame :dispatch :dispatch-sync :subscribe}
+  (capture-frame)          → {:frame :dispatch :dispatch-sync :subscribe}
+  (capture-frame frame-id) → {:frame :dispatch :dispatch-sync :subscribe}
   ```
 - **Description**: The keystone affordance. Captures the active frame at CREATION time and returns an **operation bundle** whose `:dispatch` / `:dispatch-sync` / `:subscribe` ops always target the captured frame — they survive async boundaries (`Promise.then`, `setTimeout`, WebSocket `onmessage`, observer callbacks) where the ambient frame lookup would have unwound. The handle is *locked* to one frame: a per-call `:frame` opt MUST NOT override it. It's an operation bundle, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, not the handle itself.
 - **Example**:
   ```clojure
   (rf/reg-view stream-view []
-    (let [{:keys [dispatch]} (rf/frame-handle)]          ;; captures the render frame
+    (let [{:keys [dispatch]} (rf/capture-frame)]          ;; captures the render frame
       (ws/subscribe! (fn [msg] (dispatch [::incoming msg]))) ;; fires LATER, but bound
       [:div "streaming…"]))
   ```
@@ -157,21 +157,21 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
 > re-frame2 also shipped `frame-bound-fn` (a `fn`-syntax macro) and
 > `frame-bound-fn*` (its `*`-twin) for wrapping an arbitrary fn whose body
 > re-establishes the frame. EP-0024 Open Issue #8 retiered both to internal
-> (`:tier :implementation`) — `frame-handle` (or an explicit `{:frame …}` opt)
+> (`:tier :implementation`) — `capture-frame` (or an explicit `{:frame …}` opt)
 > expresses the real use cases, and the empirical backbone found no app or tool
 > calling them. They are no longer app API; author async / tooling paths with
-> `frame-handle`.
+> `capture-frame`.
 
-### When to reach for `frame-handle`
+### When to reach for `capture-frame`
 
 The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` (per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant), the runtime never synthesises `:rf/default` from absence — frame identity is *carried*, not *found*).
 
-The fix is to capture the frame *at the point you have it* and carry it as a value with **`frame-handle`**: build the operation bundle inside a render body or under `with-frame`, store it, and invoke its `:dispatch` / `:subscribe` ops from any later async context.
+The fix is to capture the frame *at the point you have it* and carry it as a value with **`capture-frame`**: build the operation bundle inside a render body or under `with-frame`, store it, and invoke its `:dispatch` / `:subscribe` ops from any later async context.
 
 ```clojure
-;; frame-handle composes inside with-frame
+;; capture-frame composes inside with-frame
 (rf/with-frame :tool
-  (let [{:keys [dispatch]} (rf/frame-handle)]   ;; captures :tool frame
+  (let [{:keys [dispatch]} (rf/capture-frame)]   ;; captures :tool frame
     (js/setTimeout #(dispatch [::tick]) 1000)))  ;; fires :tool even after with-frame unwinds
 ```
 
@@ -243,11 +243,11 @@ In the entries below, `<adapter>` stands for the adapter namespace alias the con
   (use-subscribe query-v) → value
   (use-subscribe frame-kw query-v) → value
   ```
-- **Description**: The hook-shaped read. Matches the React/UIx/Helix idiom; there's no auto-injection — components call the hook and `(rf/frame-handle)` directly.
+- **Description**: The hook-shaped read. Matches the React/UIx/Helix idiom; there's no auto-injection — components call the hook and `(rf/capture-frame)` directly.
 - **Example**:
   ```clojure
   (let [count    (uix-adapter/use-subscribe [:count])
-        {:keys [dispatch]} (rf/frame-handle)]
+        {:keys [dispatch]} (rf/capture-frame)]
     ($ :button {:on-click #(dispatch [:inc])} count))
   ```
 - **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/uix/counter_uix) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/helix/counter_helix)

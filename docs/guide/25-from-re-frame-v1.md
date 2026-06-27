@@ -140,7 +140,7 @@ Inside that tree, every bare `dispatch` / `subscribe` you already wrote works un
 
 ### The async-callback fix: capture a frame handle
 
-The capture is one line, and it's worth seeing concretely because it's the most common Type B fix in a real codebase. `(rf/frame-handle)` snapshots the *current* frame and hands back a [**frame-handle**](glossary.md#frame-handle) — a small bundle with the keys `:frame`, `:dispatch`, `:dispatch-sync`, and `:subscribe`, whose `dispatch` always targets the frame it captured, even after the render scope that produced it has unwound. So you grab the handle while the scope is still live (during render, or inside an event handler), close over it, and call its `:dispatch` from the callback:
+The capture is one line, and it's worth seeing concretely because it's the most common Type B fix in a real codebase. `(rf/capture-frame)` snapshots the *current* frame and hands back a [**capture-frame**](glossary.md#capture-frame) — a small bundle with the keys `:frame`, `:dispatch`, `:dispatch-sync`, and `:subscribe`, whose `dispatch` always targets the frame it captured, even after the render scope that produced it has unwound. So you grab the handle while the scope is still live (during render, or inside an event handler), close over it, and call its `:dispatch` from the callback:
 
 ```clojure
 ;; WRONG in v2 — the bare dispatch fires after the scope unwound → :rf.error/no-frame-context
@@ -149,13 +149,13 @@ The capture is one line, and it's worth seeing concretely because it's the most 
 
 ;; RIGHT — capture the handle while the scope is live, dispatch through it later
 (defn poll! []
-  (let [{:keys [dispatch]} (rf/frame-handle)]      ;; snapshot now, on the current frame
+  (let [{:keys [dispatch]} (rf/capture-frame)]      ;; snapshot now, on the current frame
     (js/setTimeout #(dispatch [:tick]) 1000)))      ;; the callback targets the captured frame
 ```
 
-You can also pass `(rf/frame-handle frame-id)` to capture a *named* frame rather than the ambient one. Read its app-db with `(rf/app-db-value (:frame h))` — the handle carries operations, not state.
+You can also pass `(rf/capture-frame frame-id)` to capture a *named* frame rather than the ambient one. Read its app-db with `(rf/app-db-value (:frame h))` — the handle carries operations, not state.
 
-> **Coming from React Context?** The merged `frame-provider {:frame …}` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a `frame-handle` while the scope was live. Same lesson, louder failure.
+> **Coming from React Context?** The merged `frame-provider {:frame …}` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a `capture-frame` while the scope was live. Same lesson, louder failure.
 
 ### Views render under a frame scope
 

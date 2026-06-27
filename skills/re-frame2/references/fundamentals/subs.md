@@ -83,7 +83,7 @@ Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-c
 - **Subscribe returns a reaction.** Always deref with `@`. Inside a Reagent view this auto-tracks; outside of a reactive context the deref is a one-shot read and won't update.
 - **The query-vector is the cache key.** `[:my-sub 1]` and `[:my-sub 2]` are distinct cache entries. Re-using the same vector across renders is fine; constructing fresh vectors with identical content is also fine (`=`-equal keys hit the same cache slot).
 - **Signal subs (`:<-`) accept a query-vector, not just an id.** `:<- [:other-sub arg]` is legal and threads the arg through.
-- **Subs run inside the calling frame's context.** A plain Reagent fn can't read the surrounding `frame-provider`'s frame, so a bare `subscribe` in it raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through) — use `reg-view` so the frame is captured via React context, or capture a `frame-handle`. See [frames.md](frames.md).
+- **Subs run inside the calling frame's context.** A plain Reagent fn can't read the surrounding `frame-provider`'s frame, so a bare `subscribe` in it raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through) — use `reg-view` so the frame is captured via React context, or capture a `capture-frame`. See [frames.md](frames.md).
 
 ## Deeper material
 

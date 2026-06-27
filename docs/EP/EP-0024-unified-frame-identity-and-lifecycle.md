@@ -98,7 +98,7 @@ Goals:
   — a dynamic var cannot cross React's render boundary). The old scope-only
   `frame-provider` becomes the new `rf/frame-provider-existing`; the
   `frame-provider` name is repurposed for the owned lifecycle boundary;
-- keep `frame-handle` as the callback carry primitive;
+- keep `capture-frame` as the callback carry primitive;
 - remove or retier public spellings that duplicate the target/carry/lifecycle
   roles;
 - make registrar generation reads name their data source honestly if they remain
@@ -297,7 +297,7 @@ The public API has three different jobs, and each job gets one spelling.
 | **Scope** descendants to an existing frame (lexical / non-React) | `with-frame` | Does not create or destroy the frame. Establishes context only. |
 | **Scope** an existing frame into a React subtree | `frame-provider {:frame …}` | Provides an already-created frame id through React context. `:frame` only. Fails loud when the frame is absent. Creates / refreshes / destroys nothing. |
 | **Ensure** a named frame for a React subtree's mounted lifetime | `frame-provider {:id …}` | Creates the frame if absent, reuses it without re-seeding if present, provides its id to descendants. No destroy-on-unmount. Same constructor opts as `make-frame`. |
-| **Carry** a frame across async callback boundaries | `frame-handle` | Captures operations targeted at the current or explicit frame. |
+| **Carry** a frame across async callback boundaries | `capture-frame` | Captures operations targeted at the current or explicit frame. |
 | **Own** a frame lifetime (explicit teardown) | `make-frame` + `destroy-frame!`, `with-new-frame`, or `make-frame`/`destroy-frame!` inside a `create-class` | Creation and teardown are explicit ownership operations. |
 
 Note the naming — ONE merged config-shaped **`frame-provider`** dispatched on
@@ -354,23 +354,23 @@ This split keeps the user's question small:
 
 - "I already have a frame; how do I scope children?" Use `with-frame` (lexical / non-React) or `frame-provider-existing` (into a React subtree).
 - "This component owns a frame lifetime." Use `frame-provider`.
-- "This callback will fire later." Use `frame-handle`.
+- "This callback will fire later." Use `capture-frame`.
 
 ### Carry primitive
 
-`frame-handle` is the public carry primitive for callbacks that fire after the
+`capture-frame` is the public carry primitive for callbacks that fire after the
 render or lexical frame context has unwound.
 
 Illustrative shape:
 
 ```clojure
-(let [{:keys [dispatch subscribe]} (rf/frame-handle)]
+(let [{:keys [dispatch subscribe]} (rf/capture-frame)]
   (set! (.-onclick button)
         #(dispatch [:todo/add "A"])))
 ```
 
 `frame-bound-fn` and `frame-bound-fn*` are not app-facing carry primitives if
-`frame-handle` can express the real use cases. They may move to an internal
+`capture-frame` can express the real use cases. They may move to an internal
 namespace if implementation code still needs them.
 
 ### Registrar and generation reads
@@ -445,7 +445,7 @@ off-pattern public spellings. The migration is source-level:
 - replace view-created `make-frame` plus manual provider lifetimes with the
   UI-owned `rf/frame-provider` boundary;
 - replace scope-only uses of the old `frame-provider` with `rf/with-frame`;
-- replace `frame-bound-fn` use with `frame-handle`;
+- replace `frame-bound-fn` use with `capture-frame`;
 - replace any create-twice frame setup with one `make-frame` call;
 - migrate registrar target-map reads per `rf2-10nggz` (the home for the read
   grammar).
@@ -502,8 +502,8 @@ Expected slices:
    (Reagent / UIx / Helix) against the shared create/provide/destroy/idempotent
    contract.
 6. Retier or remove frame-first operation arities, `frame-bound-fn`,
-   `frame-bound-fn*`, `subscribe*`, and direct `make-frame-handle` exposure
-   (move to internal namespaces; keep `frame-handle` public) — grounded by the
+   `frame-bound-fn*`, `subscribe*`, and direct `make-capture-frame` exposure
+   (move to internal namespaces; keep `capture-frame` public) — grounded by the
    0-caller backbone in `ai/findings/API-review/claude/frame-targeting-and-carrying.md`.
 7. Remove the second live-frame registry and any teardown hook whose only job was
    keeping it coherent.
@@ -565,7 +565,7 @@ All open issues are resolved as of the 2026-06-18 acceptance (operator rulings o
    removed (see §Registrar and generation reads).
 
 8. **Which helper spellings are removed vs retiered?**
-   **Resolved:** keep `frame-handle` public; move `make-frame-handle`,
+   **Resolved:** keep `capture-frame` public; move `make-capture-frame`,
    `frame-bound-fn`, `frame-bound-fn*`, `subscribe*`, and the frame-first
    operation arities to internal namespaces. Grounded by the 0-caller backbone in
    `ai/findings/API-review/claude/frame-targeting-and-carrying.md`.

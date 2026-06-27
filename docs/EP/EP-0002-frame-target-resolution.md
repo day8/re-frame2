@@ -345,7 +345,7 @@ That must fail immediately.
 Async code must carry frame identity explicitly.
 
 ```clojure
-(let [dispatch (:dispatch (rf/frame-handle :app/main))]
+(let [dispatch (:dispatch (rf/capture-frame :app/main))]
   (.then promise #(dispatch [:loaded %])))
 
 (def on-message
@@ -548,7 +548,7 @@ otherwise produce a structured error.
 The low-level readers may return nil so detection, frame pickers, and tooling
 can model "no context" without throwing while they decide how to present the
 state. Public frame-scoped operations are not low-level readers. `rf/dispatch`,
-`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/frame-handle`, no-arg
+`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/capture-frame`, no-arg
 `rf/frame-bound-fn*`, and context-defaulting read/clear helpers should call the
 require helper and fail outside context. This keeps the nil-returning resolver
 from becoming a second, softer fallback contract.
@@ -600,7 +600,7 @@ Update:
 - no-arg `sub-cache`;
 - zero-arity `clear-sub-cache!`;
 - `current-frame-id`;
-- no-arg `frame-handle`;
+- no-arg `capture-frame`;
 - no-arg `frame-bound-fn*`;
 - one-arity `machine-by-system-id`;
 - `sub-machine`;
@@ -722,7 +722,7 @@ It must not borrow `:rf/default` marks.
   :profile/load-clicked
   (fn [cofx _]
     (let [frame-id (:rf.frame/id cofx)
-          dispatch (:dispatch (rf/frame-handle frame-id))]
+          dispatch (:dispatch (rf/capture-frame frame-id))]
       {:fx [[:promise
              {:work       #(fetch-profile)
               :on-success #(dispatch [:profile/loaded %])}]]]})))
@@ -929,7 +929,7 @@ Update read surfaces:
 - no-arg `sub-cache`;
 - zero-arity `clear-sub-cache!`;
 - `current-frame-id`;
-- no-arg `frame-handle`;
+- no-arg `capture-frame`;
 - no-arg `frame-bound-fn*`;
 - `machine-by-system-id`, `sub-machine`, and `machine-has-tag?`.
 
@@ -1184,7 +1184,7 @@ The contract is authored as the appendix argues — *one carried invariant*, the
 - **R2 — Reuse scope/hold/override (appendix B), not a bespoke six-source list.**
   The §Frame Target Invariant six-source list is **superseded** by the published
   [`docs/api/02-views.md`](../api/02-views.md) triad — **scope** (`with-frame` /
-  `with-new-frame` / `frame-provider`), **hold** (`frame-handle` /
+  `with-new-frame` / `frame-provider`), **hold** (`capture-frame` /
   `frame-bound-fn` / `frame-bound-fn*` / captured envelope), **override** (the
   per-call `{:frame …}`). The six sources are instances of these three. The triad
   collapses at a boundary to the only distinction that matters: **carried as a
@@ -1517,7 +1517,7 @@ The EP is written subtractively — "remove the `:rf/default` fallback," "delete
 §Frame Target Invariant introduces six resolution sources. That is still a *fallback chain* — the old four-tier chain with its worst rung amputated; the architecture of "search a priority list of ambient places" survived the surgery. It is also a *new* vocabulary, when [`docs/api/02-views.md`](../api/02-views.md) already organises the multi-frame surface into three intents:
 
 - **scope** — `frame-provider`, `with-frame` / `with-new-frame`;
-- **hold** — `frame-handle`, `frame-bound-fn` / `frame-bound-fn*`;
+- **hold** — `capture-frame`, `frame-bound-fn` / `frame-bound-fn*`;
 - **override** — the per-call `{:frame …}`.
 
 The EP's six sources are just instances of these three (explicit arg → *override*; `with-frame` / provider → *scope*; captured handle / dispatch envelope → *hold*; harness selection → *override*). Re-expressing the resolver in the **already-taught** triad — rather than a bespoke priority list — means one vocabulary across views, resolution, and migration. And the triad collapses further into the only distinction that matters at a boundary: **carried as a value** (*hold* + *override*) vs **ambient in an established scope** (*scope*). The danger was never "ambient"; it was "ambient *with an invented floor*." Remove the floor and ambient-from-an-explicit-scope is honest.
@@ -1532,7 +1532,7 @@ The masterpiece move is to make the *carrier* of frame identity one canonical, i
 
 The EP lists `with-frame` as resolution-source #2, ahead of captured handles. But its own §Async Boundaries concedes that `with-frame` "supplies a frame only for the synchronous evaluation"; it evaporates at the first `.then` / `setTimeout`. That is **the same failure family the EP exists to abolish** — a context that looks present and silently isn't.
 
-re-frame2 already has the more honest primitive: the *hold* intent **reifies the frame into a value**. `frame-handle` hands you `{:dispatch :subscribe …}` bound to a frame; `frame-bound-fn*` captures one; `reg-view` injects frame-bound `dispatch` / `subscribe` as lexical bindings. In that model the frame is **the functions you are holding** — nothing ambient, nothing to evaporate, identity carried by construction. That is exactly what async and tooling need, and it is more functional (values over dynamic scope).
+re-frame2 already has the more honest primitive: the *hold* intent **reifies the frame into a value**. `capture-frame` hands you `{:dispatch :subscribe …}` bound to a frame; `frame-bound-fn*` captures one; `reg-view` injects frame-bound `dispatch` / `subscribe` as lexical bindings. In that model the frame is **the functions you are holding** — nothing ambient, nothing to evaporate, identity carried by construction. That is exactly what async and tooling need, and it is more functional (values over dynamic scope).
 
 So invert the teaching hierarchy: the captured handle (*hold*) is the robust carrier and the primary mental model; `with-frame` (*scope*) is convenience sugar for a synchronous lexical block, used inside roots and never near an async hop. The EP currently needs a special async rule *because* it put the fragile primitive first; foreground *hold* and the special case largely dissolves.
 

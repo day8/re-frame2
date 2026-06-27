@@ -117,7 +117,7 @@
   for the form's synchronous evaluation — once the Promise resolves
   on a later tick, the original lexical frame is gone (this matches
   the macro's contract per Spec 002, where async closures must
-  capture a `frame-handle` (or wrap via `frame-bound-fn` /
+  capture a `capture-frame` (or wrap via `frame-bound-fn` /
   `frame-bound-fn*`) so the captured ops survive the boundary).
 
   ## Mailbox machinery
@@ -212,7 +212,7 @@
   / namespaced keyword survives the round-trip without quoting
   surprises. `with-frame` is the framework's lexical frame-binding
   macro (Spec 002 §with-frame); per its contract, async closures
-  inside the form must capture a `frame-handle` (or wrap via
+  inside the form must capture a `capture-frame` (or wrap via
   `frame-bound-fn` / `frame-bound-fn*`) for the binding to survive
   later ticks. We document that asymmetry in the ns docstring rather
   than enforcing it here — the body is opaque user-supplied source."

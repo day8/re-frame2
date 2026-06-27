@@ -204,7 +204,7 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 
 - **Single-frame** (no frames in play): `dispatch`, `dispatch-sync`, `subscribe`.
 - **Scope:** `with-frame`, `with-new-frame`, `frame-provider {:frame …}` (the merged provider's SCOPE-only shape — scope an existing frame into a React subtree; fails loud if absent). (The merged provider's `{:id …}` shape **ensures** a named frame instead — see below.)
-- **Hold** (carry a frame's ops as a value, across async): `frame-handle` — the one public carry primitive. (`frame-bound-fn` / `frame-bound-fn*` were retiered to internal under EP-0024 Open Issue #8 — `frame-handle` or an explicit `{:frame …}` opt expresses the real use cases.)
+- **Hold** (carry a frame's ops as a value, across async): `capture-frame` — the one public carry primitive. (`frame-bound-fn` / `frame-bound-fn*` were retiered to internal under EP-0024 Open Issue #8 — `capture-frame` or an explicit `{:frame …}` opt expresses the real use cases.)
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
 - **Reads / lifecycle:** `app-db-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `frame-value->id`, `reg-frame`, `frame-ids`, `frame-meta` (see [§Public registrar query API](#public-registrar-query-api)).
 
@@ -213,12 +213,12 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 | `frame-provider` | Component (Reagent) | MERGED config-shaped provider — ONE component, TWO shapes dispatched on the prop map. **SCOPE-only** `[rf/frame-provider {:frame :todo} & children]`: provides an ALREADY-CREATED frame id through React context; creates / refreshes / destroys nothing; FAILS LOUD when the frame is absent (`:rf.error/frame-provider-frame-absent`). **ENSURE** `[rf/frame-provider {:id :todo :images […] :initial-events [[:rf/set-db {}]]} & children]`: creates the frame if absent (via `make-frame`), REUSES it WITHOUT re-seeding if present (idempotent re-mount preserves durable state and does NOT replay `:initial-events`), provides its id to descendants; NO destroy-on-unmount. `:id` required on the ENSURE shape (a missing/non-keyword `:id` → `:rf.error/ensure-frame-provider-missing-id`). Owned destroy-on-unmount retired (EP-0024 amendment); true ownership stays `make-frame` + `destroy-frame!` in a `create-class`. | v1 | front-porch | 002 |
 | `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | front-porch | 002 |
 | `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | front-porch | 002 |
-| `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. Read app-db via `(app-db-value (:frame h))`, not the handle | v1 | front-porch | 002, 004 |
+| `capture-frame` | Fn | `(capture-frame)` *or* `(capture-frame frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. Read app-db via `(app-db-value (:frame h))`, not the handle | v1 | front-porch | 002, 004 |
 | `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | advanced | 001, 004 |
 
 `with-frame` (pin) and `with-new-frame` (eval-bind-run-destroy) are documented in [002 §with-frame and with-new-frame](002-Frames.md#with-frame-and-with-new-frame). The macros are non-overlapping: each rejects the other's argument shape at compile time, with `:recovery` pointing the caller at the right sibling.
 
-`frame-handle` is the keystone affordance — it replaces the removed `dispatcher` / `subscriber` nouns and is the single answer to "carry a frame's dispatch/subscribe ops across an async boundary." **The handle is locked:** a per-call `:frame` opt MUST NOT override the frame captured at handle creation — the captured frame always wins (per [002 §`frame-handle`](002-Frames.md#frame-handle--the-keystone-affordance-cljs-reference)). The older `frame-bound-fn` / `frame-bound-fn*` frame-rebinding closures were retiered to internal (`:tier :implementation`) under EP-0024 Open Issue #8 — `frame-handle` (or an explicit `{:frame …}` opt) expresses the real use cases, so they are no longer taught as app API.
+`capture-frame` is the keystone affordance — it replaces the removed `dispatcher` / `subscriber` nouns and is the single answer to "carry a frame's dispatch/subscribe ops across an async boundary." **The handle is locked:** a per-call `:frame` opt MUST NOT override the frame captured at handle creation — the captured frame always wins (per [002 §`capture-frame`](002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference)). The older `frame-bound-fn` / `frame-bound-fn*` frame-rebinding closures were retiered to internal (`:tier :implementation`) under EP-0024 Open Issue #8 — `capture-frame` (or an explicit `{:frame …}` opt) expresses the real use cases, so they are no longer taught as app API.
 
 ---
 
@@ -236,7 +236,7 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
 | `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | adapter | 006, 008 |
 | `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent adapter's late-bind seam) | v1 | adapter | 006, 011 |
 
-Per Decision 1 the hook is named `use-subscribe` (matching the React/UIx idiom). Per Decision 3 there is no auto-injection — UIx components call the hook and `(:dispatch (rf/frame-handle))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
+Per Decision 1 the hook is named `use-subscribe` (matching the React/UIx idiom). Per Decision 3 there is no auto-injection — UIx components call the hook and `(:dispatch (rf/capture-frame))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
 The shared React Context that backs `frame-provider` lives in `re-frame.adapter.context` (CLJS-only file in core, factored out per Decision 2) — both the Reagent adapter and the UIx adapter consume the same `createContext` object so a future mixed-substrate app's frame-provider chain composes across substrates.
 
@@ -256,7 +256,7 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
 | `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | adapter | 006, 008 |
 | `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent and UIx adapters' late-bind seam) | v1 | adapter | 006, 011 |
 
-Per (transferring Decision 1) the hook is named `use-subscribe`. Per Decision 3 there is no auto-injection — Helix components call the hook and `(:dispatch (rf/frame-handle))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover Helix; Helix users register with `rf/reg-view*` if they need registry-keyed view addressing.
+Per (transferring Decision 1) the hook is named `use-subscribe`. Per Decision 3 there is no auto-injection — Helix components call the hook and `(:dispatch (rf/capture-frame))` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover Helix; Helix users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
 The shared React Context that backs `frame-provider` lives in `re-frame.adapter.context` (CLJS-only file in core, factored out per Decision 2) — the Reagent, UIx, and Helix adapters all consume the same `createContext` object so a mixed-substrate app's frame-provider chain composes across substrates.
 
@@ -975,10 +975,10 @@ These surfaces are **removed or renamed** — not part of the public projection 
 | `dispatch-sync-with` (master) | Use `(dispatch-sync event {:fx-overrides {...}})` | MIGRATION M-4 |
 | `dispatch-to` (proposed earlier) | Use `(dispatch event {:frame :todo})` | 002 |
 | `subscribe-to` (proposed earlier) | Use `(subscribe query-v {:frame :todo})` | 002 |
-| `frame-dispatcher` / `bound-dispatcher` / `bound-subscriber` (proposed earlier) | Use `(rf/frame-handle)` (the keystone OPERATION BUNDLE — captures the frame at creation; safe during render and from async callbacks) | 002 |
-| `bound-fn` (CLJS macro) | Use `(rf/frame-handle)` — the keystone OPERATION BUNDLE captures the frame and carries `dispatch` / `subscribe` across the boundary. (The `frame-bound-fn` / `frame-bound-fn*` closures still exist but are retiered to internal under EP-0024 Open Issue #8 — not app API.) | 002 |
-| `dispatcher` | Use `(:dispatch (rf/frame-handle))` *or* the `dispatch` injected in a `reg-view` body | 002 |
-| `subscriber` | Use `(:subscribe (rf/frame-handle))` *or* the `subscribe` injected in a `reg-view` body | 002 |
+| `frame-dispatcher` / `bound-dispatcher` / `bound-subscriber` (proposed earlier) | Use `(rf/capture-frame)` (the keystone OPERATION BUNDLE — captures the frame at creation; safe during render and from async callbacks) | 002 |
+| `bound-fn` (CLJS macro) | Use `(rf/capture-frame)` — the keystone OPERATION BUNDLE captures the frame and carries `dispatch` / `subscribe` across the boundary. (The `frame-bound-fn` / `frame-bound-fn*` closures still exist but are retiered to internal under EP-0024 Open Issue #8 — not app API.) | 002 |
+| `dispatcher` | Use `(:dispatch (rf/capture-frame))` *or* the `dispatch` injected in a `reg-view` body | 002 |
+| `subscriber` | Use `(:subscribe (rf/capture-frame))` *or* the `subscribe` injected in a `reg-view` body | 002 |
 | `current-frame` | Renamed to `current-frame-id` (returns a frame-id keyword) | 002 |
 | `get-frame-db` | Renamed to `app-db-value` (returns the app-db VALUE, a plain map) | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle (see [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) | 009 |

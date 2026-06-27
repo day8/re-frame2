@@ -223,13 +223,13 @@
       ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu totals) 1) "%")})
       ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
-;; To dispatch from a view, grab `dispatch` off a frame-handle.
-;; `(rf/frame-handle)` captures the current frame as a value, so the click
+;; To dispatch from a view, grab `dispatch` off a capture-frame.
+;; `(rf/capture-frame)` captures the current frame as a value, so the click
 ;; handler we close over below still lands in this app's frame when it fires.
-;; See docs/guide/glossary.md#frame-handle
+;; See docs/guide/glossary.md#capture-frame
 (defnc level-chips []
   (let [active   (helix-adapter/use-subscribe [:process-monitor/level-filter])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     (d/div {:class "pm-chips"}
       (for [level [:info :warn :error]]
         (d/button {:key   (name level)
@@ -240,7 +240,7 @@
           (name level))))))
 
 (defnc process-row [{:keys [process selected?]}]
-  (let [dispatch (:dispatch (rf/frame-handle))
+  (let [dispatch (:dispatch (rf/capture-frame))
         {:keys [id status cpu mem pid] process-name :name} process
         cpu-pct (min 100 cpu)]
     (d/li {:class (str "pm-row"
@@ -293,13 +293,13 @@
 
 (defnc monitor []
   ;; This component owns the tick loop's lifecycle: mount arms it, unmount
-  ;; retires it. We capture `(:dispatch (rf/frame-handle))` here in the `let`,
+  ;; retires it. We capture `(:dispatch (rf/capture-frame))` here in the `let`,
   ;; at render-time, while the frame is still in scope. By the time the effect
   ;; and its cleanup actually run — after commit — that scope is gone, so a
   ;; dispatch fetched in there would have no frame to land in. Grab it now,
   ;; close over it, and you're safe. The Helix adapter README §use-effect has
   ;; the long version.
-  (let [dispatch (:dispatch (rf/frame-handle))]
+  (let [dispatch (:dispatch (rf/capture-frame))]
     (helix-hooks/use-effect
       ;; Empty deps ⇒ run once on mount, clean up once on unmount.
       []
@@ -334,7 +334,7 @@
 ;; The frame this app runs under. The `frame-provider` in `run` is the single
 ;; place it's set up — it creates the frame, seeds app-db, and threads the
 ;; frame into React context. Everything downstream (`use-subscribe`, the
-;; `(rf/frame-handle)` capture in `monitor`) finds this frame through that
+;; `(rf/capture-frame)` capture in `monitor`) finds this frame through that
 ;; context.
 (def app-frame :rf/default)
 

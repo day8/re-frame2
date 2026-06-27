@@ -154,7 +154,7 @@
 
   Per rf2-r0o63 — the post-fix `popup-affordance-button` dispatches
   through the SUPPLIED frame-aware dispatcher (the one the surrounding
-  `reg-view` body captured via `(:dispatch (rf/frame-handle))`), NOT a bare
+  `reg-view` body captured via `(:dispatch (rf/capture-frame))`), NOT a bare
   `rf/dispatch` with a `{:frame :rf/xray}` literal. The dispatcher
   closure already bound the instance frame at render time, so this stub
   stands in for it; the affordance's contract is the single-arg event

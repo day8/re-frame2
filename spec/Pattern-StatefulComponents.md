@@ -85,7 +85,7 @@ The three things that are identical across adapters:
 - **Update receives the new props.** Inside the hook body, you can read the current props (via `reagent/argv this` on Reagent or the captured fn parameter on hooks-based adapters) and push them to the library instance.
 - **Cleanup is mandatory.** Unmount fires before the DOM node is removed. Skipping cleanup leaks the library instance, its listeners, and any tile / data caches it holds, across every navigation that re-mounts the component.
 
-The one cross-adapter discipline: **capture `(rf/frame-handle)` at render-time**, in the inner's top-level `let` (or, on Reagent, in the closure around `create-class`), and use its `:dispatch` op. The handle carries the surrounding frame; the lifecycle callback fires after commit but the handle is established at render-time, so dispatches from inside the callback resolve to the right frame. A bare `(rf/dispatch […])` from inside a lifecycle callback escapes the frame scope, carries no frame stamp, and fails loudly with `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through; per [Spec 002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)).
+The one cross-adapter discipline: **capture `(rf/capture-frame)` at render-time**, in the inner's top-level `let` (or, on Reagent, in the closure around `create-class`), and use its `:dispatch` op. The handle carries the surrounding frame; the lifecycle callback fires after commit but the handle is established at render-time, so dispatches from inside the callback resolve to the right frame. A bare `(rf/dispatch […])` from inside a lifecycle callback escapes the frame scope, carries no frame stamp, and fails loudly with `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through; per [Spec 002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)).
 
 ## Worked example — a Mapbox-shaped widget
 
@@ -102,7 +102,7 @@ A small map view, parameterised by a current position from `app-db`. The shape i
     (let [el-ref       (atom nil)            ;; mount-point handle
           map-instance (atom nil)            ;; library instance handle
           marker       (atom nil)            ;; library-owned marker
-          dispatch     (:dispatch (rf/frame-handle))]  ;; captured at render — carries frame
+          dispatch     (:dispatch (rf/capture-frame))]  ;; captured at render — carries frame
       (r/create-class
         {:display-name "map-inner"
 
@@ -159,7 +159,7 @@ The hooks-based adapters (UIx, Helix) compress the lifecycle into a single `use-
 
 ## Animations are a special case of this pattern
 
-[Spec 004 §Regime C — Library-bridged animations](004-Views.md#regime-c--library-bridged-animations-framer-motion-react-spring-gsap-autoanimate) describes animation libraries (Framer Motion, React-Spring, GSAP, AutoAnimate) that own their own imperative timing inside their own component tree. **The wrapping shape is exactly this pattern.** Animation libraries are not a separate category from stateful JS components — they are one instance of it. The outer reads subs and produces state-derived props (target opacity, target x/y, easing curve, target colour); the inner is a Form-3 / `use-effect` wrapper that hands the library those props; the library's internal completion callbacks (e.g. Framer Motion's `onAnimationComplete`) are bridged at the inner boundary, dispatching via the same captured `(rf/frame-handle)` discipline.
+[Spec 004 §Regime C — Library-bridged animations](004-Views.md#regime-c--library-bridged-animations-framer-motion-react-spring-gsap-autoanimate) describes animation libraries (Framer Motion, React-Spring, GSAP, AutoAnimate) that own their own imperative timing inside their own component tree. **The wrapping shape is exactly this pattern.** Animation libraries are not a separate category from stateful JS components — they are one instance of it. The outer reads subs and produces state-derived props (target opacity, target x/y, easing curve, target colour); the inner is a Form-3 / `use-effect` wrapper that hands the library those props; the library's internal completion callbacks (e.g. Framer Motion's `onAnimationComplete`) are bridged at the inner boundary, dispatching via the same captured `(rf/capture-frame)` discipline.
 
 Regimes A (CSS-driven transitions) and B (per-frame RAF loops in a registered fx) of [Spec 004 §Animations](004-Views.md#animations) do **not** use this pattern. Choose the regime by what the state needs to know:
 
@@ -181,6 +181,6 @@ The shapes that look tempting but compose badly with re-frame2's reactive flow. 
 - [Spec 004 §View antipatterns](004-Views.md#view-antipatterns) — the normative "MUST NOT" rules that make this pattern the right answer.
 - [Spec 004 §Form-3 (class — out of scope for the macro)](004-Views.md#form-3-class--out-of-scope-for-the-macro) — why Form-3 ships through `reg-view*` rather than the `reg-view` macro.
 - [Spec 004 §Animations — Regime C](004-Views.md#regime-c--library-bridged-animations-framer-motion-react-spring-gsap-autoanimate) — animation libraries as a special case of this pattern.
-- [Spec 002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body) — why `(rf/frame-handle)` must be captured at render-time, not inside the lifecycle callback.
+- [Spec 002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body) — why `(rf/capture-frame)` must be captured at render-time, not inside the lifecycle callback.
 - [Pattern — Async Effect](Pattern-AsyncEffect.md) — the sibling pattern for "external work + dispatched reply" outside the view layer (HTTP, IndexedDB, WebSocket, RAF loops); composes with this pattern when the library exposes its own async callbacks (e.g. a tile-loaded event from a map library).
 - [Reagent adapter README §Imperative escape hatch](../implementation/adapters/reagent/README.md), [Reagent-slim adapter README §Imperative escape hatch](../implementation/adapters/reagent-slim/README.md) and [`FORM-3.md`](../implementation/adapters/reagent-slim/FORM-3.md), [UIx adapter README §Imperative escape hatch](../implementation/adapters/uix/README.md), [Helix adapter README §Imperative escape hatch](../implementation/adapters/helix/README.md) — the four per-adapter spellings.

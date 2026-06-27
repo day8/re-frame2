@@ -426,7 +426,7 @@
 ;; The Helix view idiom, and the only place this example differs from the
 ;; Reagent reference. A view is a plain `defnc`. It reads a subscription
 ;; through the adapter's `use-subscribe` hook, and takes `dispatch` off a
-;; `frame-handle`. `:rf/machine-has-tag?` reads are *ask, don't tell* state-tag
+;; `capture-frame`. `:rf/machine-has-tag?` reads are *ask, don't tell* state-tag
 ;; queries; `:auth.login/error` is a named sub. To the call site they're
 ;; identical — both are just subscriptions.
 
@@ -435,10 +435,10 @@
         busy?    (helix-adapter/use-subscribe [:rf/machine-has-tag?
                                                :auth.login/flow :auth/busy])
         err      (helix-adapter/use-subscribe [:auth.login/error])
-        ;; Take `dispatch` off the render-time frame-handle. It resolves to
+        ;; Take `dispatch` off the render-time capture-frame. It resolves to
         ;; this frame (`:rf/default`) through the provider in `run`. Every
         ;; dispatch goes to a frame; there is no global dispatch.
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     ;; Controlled inputs: each input's `:value` reads the draft from the
     ;; `:auth.login/draft` sub, and `:on-change` dispatches
     ;; `:auth.login/edit-field`. The draft lives in app-db, not in a `use-state`
@@ -521,7 +521,7 @@
     ;; runs.
     ;;
     ;; The provider also scopes the frame into React context, so the
-    ;; `use-subscribe` hook and the `(rf/frame-handle)` capture in `login-form`
+    ;; `use-subscribe` hook and the `(rf/capture-frame)` capture in `login-form`
     ;; resolve to it. The provider is required — without it those reads raise
     ;; `:rf.error/no-frame-context`.
     (.render @react-root

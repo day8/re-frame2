@@ -13,9 +13,9 @@
      - `reg-event` / `reg-sub` — the same on every substrate
      - `rf/init!` with the UIx adapter
      - `use-subscribe`, the UIx-idiomatic way to read a subscription
-     - `(:dispatch (rf/frame-handle))` to dispatch from a click handler
+     - `(:dispatch (rf/capture-frame))` to dispatch from a click handler
      - the frame-provider, which scopes the app frame to the view subtree
-       so `use-subscribe` and `frame-handle` resolve to it
+       so `use-subscribe` and `capture-frame` resolve to it
 
    For the full substrate tour see
    `docs/guide/how-to/use-uix-helix-or-slim.md`."
@@ -51,15 +51,15 @@
 ;; Here's the one thing UIx does differently. It's plain React, so a view is
 ;; a `defui` component that asks for what it needs out loud: `use-subscribe`
 ;; is a hook that reads a subscription, and `dispatch` comes off a
-;; `(rf/frame-handle)`. The handle grabs the in-scope frame and freezes it
+;; `(rf/capture-frame)`. The handle grabs the in-scope frame and freezes it
 ;; into a value, so the `dispatch` we close over still knows which frame to
 ;; target when a click fires much later — by which point we're deep in an
 ;; event handler with no frame in scope to ask. So grab it at render time,
-;; while the frame is still around. See `docs/guide/glossary.md#frame-handle`.
+;; while the frame is still around. See `docs/guide/glossary.md#capture-frame`.
 
 (defui counter-buttons []
   (let [count    (uix-adapter/use-subscribe [:counter/value])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/dec])} "-")
        ($ :span {:style #js {:margin "0 1em"} :data-testid "counter-value"} count)
@@ -81,11 +81,11 @@
 ;; The whole frame lifecycle lives in one spot — the `frame-provider {:id
 ;; app-frame …}` down in `run`. The first mount creates the app frame and
 ;; runs its `:initial-events` once to seed app-db. After that, every
-;; `use-subscribe` hook and every render-time `(rf/frame-handle)` resolves to
+;; `use-subscribe` hook and every render-time `(rf/capture-frame)` resolves to
 ;; that frame. Mount again under the same `:id` — which is what a hot reload
 ;; does — and it reuses the live frame without re-seeding, so the counter
 ;; holds onto whatever you'd clicked it up to. Forget the provider entirely
-;; and `use-subscribe` / `frame-handle` raise `:rf.error/no-frame-context`:
+;; and `use-subscribe` / `capture-frame` raise `:rf.error/no-frame-context`:
 ;; the runtime won't conjure a frame for you, so the app has to stand one up.
 ;; See `docs/guide/concepts/frames.md`.
 ;;

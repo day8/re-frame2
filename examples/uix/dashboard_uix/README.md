@@ -59,7 +59,7 @@ it to you in the shape React's rules-of-hooks expect.
 
 To [dispatch](../../../docs/guide/glossary.md#dispatch) on a click, the
 chips read the frame's `:dispatch` from
-[`(rf/frame-handle)`](../../../docs/guide/glossary.md#frame-handle) at
+[`(rf/capture-frame)`](../../../docs/guide/glossary.md#capture-frame) at
 render time. That's the idiomatic way to dispatch from inside a UIx
 event callback.
 
@@ -101,7 +101,7 @@ app [frame](../../../docs/guide/glossary.md#frame). A
 [`dispatch-sync`](../../../docs/guide/glossary.md#dispatch-sync) seeds
 the [app-db](../../../docs/guide/glossary.md#app-db) before the first
 paint. Then the tree renders inside a `frame-provider`, so every
-`use-subscribe` and `frame-handle` resolves to that frame through React
+`use-subscribe` and `capture-frame` resolves to that frame through React
 context. Render with *no* provider and the hooks raise
 `:rf.error/no-frame-context` — [identity is carried, not
 found](../../../docs/guide/glossary.md#frame-identity-is-carried-not-found),

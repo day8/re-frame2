@@ -66,8 +66,8 @@ tick loop, third below, is where the real care went.
 
 - **Per-row dispatch, captured across the hook boundary.** Each process
   row and each filter chip is a `defnc` that grabs `dispatch` off a
-  [`frame-handle`](../../../docs/guide/glossary.md#frame-handle) —
-  `(:dispatch (rf/frame-handle))` — and closes over it. So clicking a
+  [`capture-frame`](../../../docs/guide/glossary.md#capture-frame) —
+  `(:dispatch (rf/capture-frame))` — and closes over it. So clicking a
   row [dispatches](../../../docs/guide/glossary.md#dispatch)
   `[:process-monitor/select-process id]` into the right frame. The
   `monitor` `use-effect` uses the same trick to carry the frame into its

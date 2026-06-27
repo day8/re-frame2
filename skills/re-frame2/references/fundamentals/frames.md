@@ -2,7 +2,7 @@
 
 ## When to load
 
-Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider`'s `{:frame …}` shape to scope a React subtree to an existing frame (or its `{:id …}` shape to ensure a named frame for a subtree), or carrying the current frame into an async callback via `frame-handle`.
+Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider`'s `{:frame …}` shape to scope a React subtree to an existing frame (or its `{:id …}` shape to ensure a named frame for a subtree), or carrying the current frame into an async callback via `capture-frame`.
 
 ## The teaching model: frame identity is carried, not found
 
@@ -15,14 +15,14 @@ The one rule (EP-0002 carried invariant): **frame identity is a value that trave
 | Create + own + destroy a frame for a scope (tests / SSR) | `with-new-frame` |
 | Scope a React subtree to an **existing** frame | `frame-provider {:frame …}` (SCOPE-only) |
 | Ensure a **named** frame for a subtree (create-if-absent, reuse-no-reseed) | `frame-provider {:id …}` (ENSURE) |
-| Hold a frame's ops as a value (async / closures) | `frame-handle` — the one public carry primitive |
+| Hold a frame's ops as a value (async / closures) | `capture-frame` — the one public carry primitive |
 | One-off explicit routing (`dispatch`) | `{:frame …}` trailing opt on `dispatch` / `dispatch-sync` |
 | One-off explicit routing (`subscribe`) | leading `frame-id` arg — `(rf/subscribe :frame-id query-v)` (NOT a `{:frame …}` opt) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
 | Read a frame's runtime-db / whole frame-state (tools, SSR) | `runtime-db-value` / `frame-state-value` |
 | Install state from outside a cascade (tools, tests, SSR) | `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` |
 
-A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/frame-handle)`. An arbitrary async callback captures `(rf/frame-handle)` in scope and calls its `:dispatch` / `:subscribe` ops.
+A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/capture-frame)`. An arbitrary async callback captures `(rf/capture-frame)` in scope and calls its `:dispatch` / `:subscribe` ops.
 
 ## What a frame is
 
@@ -92,16 +92,16 @@ A trailing `{:frame …}` map passed to `subscribe` is **not** an opts map — i
 
 ## Carrying the frame into async callbacks
 
-When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic var → React context) has unwound by the time it runs — so a bare `dispatch` inside it would raise `:rf.error/no-frame-context`. The keystone affordance is **`frame-handle`** — a per-frame OPERATION BUNDLE captured at creation time. Its ops carry the captured frame as a value and survive async boundaries:
+When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic var → React context) has unwound by the time it runs — so a bare `dispatch` inside it would raise `:rf.error/no-frame-context`. The keystone affordance is **`capture-frame`** — a per-frame OPERATION BUNDLE captured at creation time. Its ops carry the captured frame as a value and survive async boundaries:
 
 ```clojure
-(let [{:keys [dispatch]} (rf/frame-handle)]        ;; captures the scope's frame as a value, now
+(let [{:keys [dispatch]} (rf/capture-frame)]        ;; captures the scope's frame as a value, now
   (.then promise #(dispatch [:result-arrived %])))
 ```
 
-`(rf/frame-handle)` captures `(current-frame-id)`; `(rf/frame-handle :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}`. The handle is an OPERATION BUNDLE, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, never off the handle. A per-call `:frame` opt cannot override the captured frame; the handle is locked to one frame.
+`(rf/capture-frame)` captures `(current-frame-id)`; `(rf/capture-frame :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}`. The handle is an OPERATION BUNDLE, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, never off the handle. A per-call `:frame` opt cannot override the captured frame; the handle is locked to one frame.
 
-`frame-handle` is the **one public carry primitive** — every async / callback / tooling boundary captures it (or routes with an explicit `{:frame …}` opt). (The older `frame-bound-fn` / `frame-bound-fn*` closures were retiered to internal under EP-0024 Open Issue #8 and are no longer app API.)
+`capture-frame` is the **one public carry primitive** — every async / callback / tooling boundary captures it (or routes with an explicit `{:frame …}` opt). (The older `frame-bound-fn` / `frame-bound-fn*` closures were retiered to internal under EP-0024 Open Issue #8 and are no longer app API.)
 
 ## Canonical mini-example
 
@@ -167,14 +167,14 @@ User-supplied keys win on conflict with preset expansion.
 
 (`with-frame` remains for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`. True lifetime *ownership* — destroy-on-unmount — is now explicit: `make-frame` + `destroy-frame!` inside a `create-class`, where the component declares it owns the frame's life.)
 
-`reg-view`-wrapped components participate in the provider automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default. Use `reg-view`, or capture a `(rf/frame-handle)` at render time and call its bound ops. (Per spec/004 §Plain Reagent fns; the old `:rf.warning/plain-fn-under-non-default-frame-once` warning is superseded by the loud error.)
+`reg-view`-wrapped components participate in the provider automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default. Use `reg-view`, or capture a `(rf/capture-frame)` at render time and call its bound ops. (Per spec/004 §Plain Reagent fns; the old `:rf.warning/plain-fn-under-non-default-frame-once` warning is superseded by the loud error.)
 
 ## Common gotchas
 
 - **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
-- **Wrapping plain Reagent fns in a `frame-provider` doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `frame-handle`.
+- **Wrapping plain Reagent fns in a `frame-provider` doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `capture-frame`.
 - **`:rf/default` is an ordinary id, not a fallback.** The runtime never creates or infers it; it carries no privilege. You may register and scope it explicitly like any other frame (a migration sometimes picks it for familiarity), but a single-frame app is freer choosing a descriptive id like `:app/main` and establishing it at the root.
 
 ## Images, frames, and the event stream (EP-0023 — the multi-frame public model)

@@ -368,11 +368,11 @@ Tag invalidation reaches a feed the same way it reaches any resource: a write th
 
 Resetting on a filter change needs **no code at all** — and this falls straight out of the identity model. A different filter is a different *identity params* value, so it's a different feed instance that first-loads page 0 on its own. The old accumulation is a separate, GC-eligible entry; you don't clear it, you just stop owning it. And because the feed is a real scoped resource, a per-user feed (a scope resolver instead of `:rf.scope/global`) is dropped wholesale on `clear-scope` at logout — coherence a hand-rolled app-db slice simply can't buy.
 
-> **Going deeper — infinite scroll instead of a button.** Want the feed to load as the user nears the bottom? Wire an `IntersectionObserver` to a sentinel `div`. One catch: the observer callback fires *outside frame context* — the browser calls it directly, not as part of your app's render or event loop — so a bare `rf/dispatch` there has no frame to target and raises `:rf.error/no-frame-context` ([frame identity is carried, not found](../../guide/glossary.md#frame-identity-is-carried-not-found)). The fix is to capture a [frame-handle](../../guide/glossary.md#frame-handle) while you *are* still in frame context (during render or mount) and dispatch through that:
+> **Going deeper — infinite scroll instead of a button.** Want the feed to load as the user nears the bottom? Wire an `IntersectionObserver` to a sentinel `div`. One catch: the observer callback fires *outside frame context* — the browser calls it directly, not as part of your app's render or event loop — so a bare `rf/dispatch` there has no frame to target and raises `:rf.error/no-frame-context` ([frame identity is carried, not found](../../guide/glossary.md#frame-identity-is-carried-not-found)). The fix is to capture a [capture-frame](../../guide/glossary.md#capture-frame) while you *are* still in frame context (during render or mount) and dispatch through that:
 >
 > ```clojure
 > ;; Create at mount (Form-3), observe a sentinel div, disconnect on unmount.
-> (let [{:keys [dispatch]} (rf/frame-handle)]
+> (let [{:keys [dispatch]} (rf/capture-frame)]
 >   (js/IntersectionObserver.
 >    (fn [entries _]
 >      (when (.-isIntersecting (aget entries 0))

@@ -4,16 +4,16 @@
   Per spec/004-Views.md and rf2-kkut0 (frame-affordance redesign),
   `reg-view` is a defn-shape macro that auto-injects two lexical
   bindings — `dispatch` and `subscribe` — into the body, sourced from a
-  single `frame-handle` (the keystone OPERATION BUNDLE):
-  `(:dispatch (re-frame.core/make-frame-handle ...))` and
-  `(:subscribe (re-frame.core/make-frame-handle ...))`. clj-kondo doesn't
+  single `capture-frame` (the keystone OPERATION BUNDLE):
+  `(:dispatch (re-frame.core/make-capture-frame ...))` and
+  `(:subscribe (re-frame.core/make-capture-frame ...))`. clj-kondo doesn't
   macroexpand by default, so without this hook the body's `dispatch` /
   `subscribe` references all read as `Unresolved symbol`.
 
   The hook rewrites `(reg-view sym [args] body)` into
 
       (defn sym [args]
-        (let [handle    (re-frame.core/make-frame-handle
+        (let [handle    (re-frame.core/make-capture-frame
                           (re-frame.core/current-frame-id) {})
               dispatch  (:dispatch handle)
               subscribe (:subscribe handle)]
@@ -109,7 +109,7 @@
                              (api/list-node
                                [(api/keyword-node :dispatch)
                                 (api/list-node
-                                  [(api/token-node 're-frame.core/make-frame-handle)
+                                  [(api/token-node 're-frame.core/make-capture-frame)
                                    (api/list-node
                                      [(api/token-node 're-frame.core/current-frame-id)])
                                    (api/map-node [])])])
@@ -117,7 +117,7 @@
                              (api/list-node
                                [(api/keyword-node :subscribe)
                                 (api/list-node
-                                  [(api/token-node 're-frame.core/make-frame-handle)
+                                  [(api/token-node 're-frame.core/make-capture-frame)
                                    (api/list-node
                                      [(api/token-node 're-frame.core/current-frame-id)])
                                    (api/map-node [])])])])
