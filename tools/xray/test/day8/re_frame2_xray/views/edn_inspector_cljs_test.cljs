@@ -3545,7 +3545,7 @@
 
   Per rf2-r0o63 — the gesture dispatches through the SUPPLIED frame-aware
   dispatcher (the one the surrounding `reg-view` body captured via
-  `(:dispatch (rf/frame-handle))`), NOT a bare `rf/dispatch` with a `{:frame :rf/xray}`
+  `(:dispatch (rf/capture-frame))`), NOT a bare `rf/dispatch` with a `{:frame :rf/xray}`
   literal. The dispatcher closure already bound the instance frame at
   render time; this stub stands in for it."
   ([make-attrs] (with-captured-dispatch-spy make-attrs :on-double-click nil))

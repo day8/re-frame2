@@ -24,8 +24,8 @@ So read this as the Reagent example seen from the rendering side. Everything abo
   hands each view a `dispatch` and `subscribe` already bound to the right
   [frame](../../../docs/guide/glossary.md#frame). Helix views skip `reg-view`
   (it stays Reagent-only), so here the binding is done by hand: grab a
-  [frame-handle](../../../docs/guide/glossary.md#frame-handle) with
-  `(rf/frame-handle)` at render time and pull `dispatch` off it. That is one
+  [capture-frame](../../../docs/guide/glossary.md#capture-frame) with
+  `(rf/capture-frame)` at render time and pull `dispatch` off it. That is one
   extra line per component — the honest cost of crossing the boundary. The
   layer beneath never notices.
 

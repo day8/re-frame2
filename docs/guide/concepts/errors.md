@@ -121,7 +121,7 @@ The fix is always the same: **carry the frame** across the async gap. In an [eff
                                    {:frame frame}))))))
 ```
 
-Delete either `{:frame frame}` and that callback's dispatch raises `:rf.error/no-frame-context`. In a [view](../glossary.md#view), you render under the [frame-provider](../glossary.md#frame-provider) — and registered views do this for you, so you rarely think about it. At the REPL or in a test, wrap the work in `with-frame` / `with-new-frame`, or grab a [frame-handle](../glossary.md#frame-handle) to carry across the boundary by value.
+Delete either `{:frame frame}` and that callback's dispatch raises `:rf.error/no-frame-context`. In a [view](../glossary.md#view), you render under the [frame-provider](../glossary.md#frame-provider) — and registered views do this for you, so you rarely think about it. At the REPL or in a test, wrap the work in `with-frame` / `with-new-frame`, or grab a [capture-frame](../glossary.md#capture-frame) to carry across the boundary by value.
 
 ### A handler throws
 

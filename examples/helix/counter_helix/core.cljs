@@ -14,7 +14,7 @@
      - `reg-event` / `reg-sub` — the same on every substrate
      - `rf/init!` with the Helix adapter
      - `use-subscribe`, the Helix-idiomatic way to read a subscription
-     - `(:dispatch (rf/frame-handle))` to dispatch from a click handler
+     - `(:dispatch (rf/capture-frame))` to dispatch from a click handler
 
    For the full substrate tour see
    `docs/guide/how-to/use-uix-helix-or-slim.md`."
@@ -65,15 +65,15 @@
 ;; needs out loud — `defnc` directly, since the `reg-view` macro is Reagent-only
 ;; (UIx and Helix both read state with `use-subscribe`). `use-subscribe` is a
 ;; hook that reads a subscription.
-;; `dispatch` comes off a `(rf/frame-handle)`: the handle captures the in-scope
+;; `dispatch` comes off a `(rf/capture-frame)`: the handle captures the in-scope
 ;; frame as a value, so the closed-over `dispatch` still finds this frame when
 ;; a click fires later — on a stack that no longer has any frame in scope. So
 ;; grab it at render time, while the frame is still around. See
-;; `docs/guide/glossary.md#frame-handle`.
+;; `docs/guide/glossary.md#capture-frame`.
 
 (defnc counter-buttons []
   (let [count    (helix-adapter/use-subscribe [:counter/value])  ;; read: re-renders when :counter/value changes
-        dispatch (:dispatch (rf/frame-handle))]                  ;; write: dispatch, captured off the render-time handle
+        dispatch (:dispatch (rf/capture-frame))]                  ;; write: dispatch, captured off the render-time handle
     (d/div
        (d/button {:on-click #(dispatch [:counter/dec])} "-")
        (d/span {:style {:margin "0 1em"} :data-testid "counter-value"} count)
@@ -94,7 +94,7 @@
 ;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
 ;; with no special status — the runtime never conjures a frame for you, so we
 ;; name one here and hand it to the provider. From there the `use-subscribe`
-;; hook and the render-time `(rf/frame-handle)` both resolve to it. See
+;; hook and the render-time `(rf/capture-frame)` both resolve to it. See
 ;; `docs/guide/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 

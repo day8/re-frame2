@@ -86,7 +86,7 @@ Here's the part people are usually nervous about, and it turns out to be the eas
 
 (defui counter-buttons []
   (let [count    (uix-adapter/use-subscribe [:counter/value])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/dec])} "-")
        ($ :span {:style #js {:margin "0 1em"}} count)
@@ -96,21 +96,21 @@ Here's the part people are usually nervous about, and it turns out to be the eas
 Three rules govern every UIx and Helix component, and once they click you won't think about them again:
 
 - **Read subs with `use-subscribe`.** It's a React hook built on `useSyncExternalStore`, which *is* the substrate's native "re-render when this changes" mechanism — so a re-frame2 subscription behaves like any other hook your team already trusts. It resolves the [frame](../glossary.md#frame) from the surrounding provider; the 2-arg form `(use-subscribe frame-id [:q …])` pins the read to an explicit frame instead.
-- **Take `dispatch` off `(rf/frame-handle)` at render time.** Grab it during render; never reach for a bare `rf/dispatch` inside a callback. (The next step explains exactly why.)
+- **Take `dispatch` off `(rf/capture-frame)` at render time.** Grab it during render; never reach for a bare `rf/dispatch` inside a callback. (The next step explains exactly why.)
 - **There is no `reg-view` macro here.** That sugar is Reagent-only. UIx components are plain `defui`, Helix components plain `defnc`. (`rf/reg-view*` exists for the rare component that needs a registry id, but you'll reach for it about as often as you reach for `forwardRef`.)
 
 > **For JavaScript developers.** `use-subscribe` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe frame-id [:q])`.
 
 ## Step 3 — Why callbacks dispatch off the handle
 
-Step 2's second rule said: grab `dispatch` off `(rf/frame-handle)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason, and what the handle gives you.
+Step 2's second rule said: grab `dispatch` off `(rf/capture-frame)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason, and what the handle gives you.
 
-It's the async-boundary rule from [Frames](../concepts/frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. [`(rf/frame-handle)`](../glossary.md#frame-handle), called *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found). In Reagent `reg-view` injects `dispatch` for you; UIx/Helix have no such injection, so you pull it off the handle yourself.
+It's the async-boundary rule from [Frames](../concepts/frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. [`(rf/capture-frame)`](../glossary.md#capture-frame), called *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found). In Reagent `reg-view` injects `dispatch` for you; UIx/Helix have no such injection, so you pull it off the handle yourself.
 
 And the handle gives you more than just a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
 
 ```clojure
-(rf/frame-handle)
+(rf/capture-frame)
 ;; =>
 {:frame         :rf/default
  :dispatch      (fn ([event]) ([event opts]))   ;; async-dispatch into the captured frame
@@ -118,20 +118,20 @@ And the handle gives you more than just a dispatch function — it's a small map
  :subscribe     (fn [query-v])}                 ;; one-shot read (not reactive — see below)
 ```
 
-You'll most often pull `:dispatch` straight off that map (that's what `(:dispatch (rf/frame-handle))` in the view above is doing), but all four entries are there:
+You'll most often pull `:dispatch` straight off that map (that's what `(:dispatch (rf/capture-frame))` in the view above is doing), but all four entries are there:
 
 - `:dispatch-sync` is the one you want when an event must settle before the next line runs (initialisation, a confirm-then-read flow).
 - `:subscribe` is a plain frame-locked *read* of a sub's current value — handy inside a callback where you need to peek at state without making the component reactive on it. (For *reactive* reads that re-render the component, use the `use-subscribe` hook from Step 2, not the handle's `:subscribe`.)
 
 The captured frame is authoritative: a per-call `:frame` in the dispatch opts can't override it — the handle is locked to one frame for life.
 
-The no-arg `(rf/frame-handle)` captures the *ambient* frame at call time, which is exactly what you want inside a component render (the surrounding provider's frame). Outside any provider — an async callback, a tool, a test — there's no ambient frame to capture, so the no-arg form raises `:rf.error/no-frame-context`. For those cases reach for the 1-arg `(rf/frame-handle frame-id)`, which locks the bundle to a named frame with no surrounding scope required:
+The no-arg `(rf/capture-frame)` captures the *ambient* frame at call time, which is exactly what you want inside a component render (the surrounding provider's frame). Outside any provider — an async callback, a tool, a test — there's no ambient frame to capture, so the no-arg form raises `:rf.error/no-frame-context`. For those cases reach for the 1-arg `(rf/capture-frame frame-id)`, which locks the bundle to a named frame with no surrounding scope required:
 
 ```clojure
 ;; A WebSocket handler fires long after render, outside any frame scope.
 ;; Lock a handle to the frame by name at setup time, then dispatch from it.
 ;; ({:keys [dispatch]} just pulls the :dispatch entry out of the handle map.)
-(let [{:keys [dispatch]} (rf/frame-handle :rf/default)]
+(let [{:keys [dispatch]} (rf/capture-frame :rf/default)]
   (ws/on-message (fn [msg] (dispatch [:ws/incoming msg]))))
 ```
 
@@ -139,7 +139,7 @@ The no-arg `(rf/frame-handle)` captures the *ambient* frame at call time, which 
 
 ## Step 4 — Mount it: scope a frame into the subtree
 
-Step 3 said the surrounding provider supplies a view's ambient frame. This is that provider. [`frame-provider`](../glossary.md#frame-provider) — in its `{:frame …}` scope shape — wraps a chunk of your React tree and declares "everything rendered below me reads from *this* frame" — so the `use-subscribe` hooks underneath it know which world to read, and the `frame-handle` captures underneath it know which world to dispatch into. (It's the React-context counterpart to the lexical `rf/with-frame` you may have met elsewhere: same idea, scoped through the component tree instead of through a `let`.)
+Step 3 said the surrounding provider supplies a view's ambient frame. This is that provider. [`frame-provider`](../glossary.md#frame-provider) — in its `{:frame …}` scope shape — wraps a chunk of your React tree and declares "everything rendered below me reads from *this* frame" — so the `use-subscribe` hooks underneath it know which world to read, and the `capture-frame` captures underneath it know which world to dispatch into. (It's the React-context counterpart to the lexical `rf/with-frame` you may have met elsewhere: same idea, scoped through the component tree instead of through a `let`.)
 
 So the last move is to mount the root inside it. The scope shape takes a `:frame` opt naming an already-registered frame, with the subtree as idiomatic `$` trailing children:
 
@@ -181,17 +181,17 @@ The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. T
 
 > **True ownership is explicit.** The ensure shape deliberately does *not* destroy the frame on unmount — a genuine unmount leaves the frame live, and a remount reuses it. When a component should own a frame's whole lifetime (a modal that wants its world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns both the birth and the death.
 
-> **Gotcha — a captured handle can outlive a destroyed frame.** If you *do* take explicit ownership and `destroy-frame!` a frame, a handle you captured against it (a `frame-handle :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the teardown — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when you destroy the frame, or hold the data in a longer-lived frame if it must outlast the widget.
+> **Gotcha — a captured handle can outlive a destroyed frame.** If you *do* take explicit ownership and `destroy-frame!` a frame, a handle you captured against it (a `capture-frame :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the teardown — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when you destroy the frame, or hold the data in a longer-lived frame if it must outlast the widget.
 
 > **From re-frame v1.** There's no `:db` / `:initial-db` / `:on-create` here — a frame always starts `app-db = {}` and you seed it with `[:rf/set-db {…}]` as the first `:initial-events` step, as the `:checkout` example does. [Frames — Seeding initial state](../concepts/frames.md#seeding-initial-state) is the full init surface.
 
 ## Step 6 — Helix is the same moves, different notation
 
-Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` (this time from `re-frame.adapter.helix`), the same `frame-handle` dispatch, and the same `($ helix-adapter/frame-provider {:frame ...} ...)` mount — here over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) line-for-line with [`examples/uix/counter_uix/`](../../../examples/uix/counter_uix/); the diff is notation, nothing more.
+Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` (this time from `re-frame.adapter.helix`), the same `capture-frame` dispatch, and the same `($ helix-adapter/frame-provider {:frame ...} ...)` mount — here over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) line-for-line with [`examples/uix/counter_uix/`](../../../examples/uix/counter_uix/); the diff is notation, nothing more.
 
 All three React-shaped adapters read the *same* React context object for frame routing, which means a provider chain even composes across substrates — a Reagent provider wrapping a UIx subtree resolves correctly.
 
-> **For JavaScript developers.** UIx and Helix differ from each other the way they would in any React-CLJS project, not in any re-frame2-specific way. UIx ships a richer, more instrumented hook layer; Helix is the deliberately *minimal* React wrapper — a smaller surface, no hook auto-instrumentation. For re-frame2's purposes the view-author-facing trio (`use-subscribe`, `frame-handle` dispatch, `frame-provider {:frame …}` mount) is byte-identical between them.
+> **For JavaScript developers.** UIx and Helix differ from each other the way they would in any React-CLJS project, not in any re-frame2-specific way. UIx ships a richer, more instrumented hook layer; Helix is the deliberately *minimal* React wrapper — a smaller surface, no hook auto-instrumentation. For re-frame2's purposes the view-author-facing trio (`use-subscribe`, `capture-frame` dispatch, `frame-provider {:frame …}` mount) is byte-identical between them.
 
 ## Step 7 — reagent-slim: kilobytes for capability
 
@@ -209,7 +209,7 @@ Mechanically it's a small swap: your app depends on exactly one of `{day8/re-fra
 
 (If you have a `r/dom-node` call, it moves to a `:ref` callback — `findDOMNode` is gone in React 19.) The worked twin is [`examples/reagent-slim/counter_slim_and_fast/`](../../../examples/reagent-slim/counter_slim_and_fast/), whose events, subs, and views are byte-for-byte the stock Reagent counter's.
 
-> **The imperative escape hatch survives the diet.** Most views are Form-1 / Form-2 and don't notice slim at all. The small fraction that genuinely own a piece of host-DOM lifecycle — a charting library, a map widget — use Reagent's Form-3 class-component shape via `reagent2.core/create-class`, registered through `rf/reg-view*`. Slim caps `create-class` to **seven** keys: the render fn `:reagent-render`, the four lifecycle hooks `:component-did-mount` / `:component-did-update` / `:component-will-unmount` / `:get-snapshot-before-update`, the React-19 error-boundary callback `:component-did-catch`, and the compile-time `:display-name`. That's exactly the set the real-world Day8 codebases use (re-com, re-frame-10x, and two internal apps), and nothing else — pass any other key and it fails loud at `create-class` time with `:rf.error/create-class-key-unsupported`, naming the offending key and listing the supported set. The deprecated `will-*` lifecycles, `:should-component-update`, and `:get-derived-state-from-props` aren't in the cap because nobody uses them under React 19; the FORM-3 doc carries a migration recipe for each. The rule for dispatching from inside a lifecycle callback is the same as everywhere else: capture `(:dispatch (rf/frame-handle))` at *render* time, then call it from the callback.
+> **The imperative escape hatch survives the diet.** Most views are Form-1 / Form-2 and don't notice slim at all. The small fraction that genuinely own a piece of host-DOM lifecycle — a charting library, a map widget — use Reagent's Form-3 class-component shape via `reagent2.core/create-class`, registered through `rf/reg-view*`. Slim caps `create-class` to **seven** keys: the render fn `:reagent-render`, the four lifecycle hooks `:component-did-mount` / `:component-did-update` / `:component-will-unmount` / `:get-snapshot-before-update`, the React-19 error-boundary callback `:component-did-catch`, and the compile-time `:display-name`. That's exactly the set the real-world Day8 codebases use (re-com, re-frame-10x, and two internal apps), and nothing else — pass any other key and it fails loud at `create-class` time with `:rf.error/create-class-key-unsupported`, naming the offending key and listing the supported set. The deprecated `will-*` lifecycles, `:should-component-update`, and `:get-derived-state-from-props` aren't in the cap because nobody uses them under React 19; the FORM-3 doc carries a migration recipe for each. The rule for dispatching from inside a lifecycle callback is the same as everywhere else: capture `(:dispatch (rf/capture-frame))` at *render* time, then call it from the callback.
 
 ### Server-rendering and the two HTML paths
 
@@ -229,7 +229,7 @@ Once you've seen all four substrates, the whole port collapses to one table. The
 | Events, subs, fx, app-db | identical | identical | identical |
 | Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-subscribe [:q])` | `(helix-adapter/use-subscribe [:q])` |
 | Read a sub from an explicit frame | `@(subscribe f [:q])` | `(uix-adapter/use-subscribe f [:q])` | `(helix-adapter/use-subscribe f [:q])` |
-| Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (rf/frame-handle))` | `(:dispatch (rf/frame-handle))` |
+| Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (rf/capture-frame))` | `(:dispatch (rf/capture-frame))` |
 | View form | `reg-view` + hiccup | `defui` + `$` | `defnc` + `helix.dom` |
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` | `(rf/reg-view* id render-fn)` |
 | Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` | `($ helix-adapter/frame-provider {:frame f} ($ app))` |

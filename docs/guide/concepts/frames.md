@@ -221,7 +221,7 @@ There is exactly one place a frame gets lost: a callback built while a frame was
 
 The reason follows straight from the carried rule. A provider's scope is render-time knowledge, and a handler's scope ends when the handler returns. So when the callback finally runs, it's on a fresh stack with no frame anywhere — and a bare `dispatch` inside it raises `:rf.error/no-frame-context`.
 
-The fix is always the same move: **capture the frame as a value while it's still in scope, and close over it.** The capture tool is [`frame-handle`](../glossary.md#frame-handle):
+The fix is always the same move: **capture the frame as a value while it's still in scope, and close over it.** The capture tool is [`capture-frame`](../glossary.md#capture-frame):
 
 ```clojure
 ;; Adapted from examples/reagent/websocket/messages.cljs
@@ -231,16 +231,16 @@ The fix is always the same move: **capture the frame as a value while it's still
    every running handler and its effects. The socket's callbacks fire
    much later, on frameless stacks."
   [url]
-  (let [{:keys [dispatch]} (rf/frame-handle)   ;; capture NOW
+  (let [{:keys [dispatch]} (rf/capture-frame)   ;; capture NOW
         socket             (js/WebSocket. url)]
     (set! (.-onmessage socket)
           (fn [e] (dispatch [:ws/message-received (.-data e)])))
     socket))
 ```
 
-`(rf/frame-handle)` reads the frame in scope *at creation time* and returns a bundle of operations locked to it — `{:frame ... :dispatch ... :dispatch-sync ... :subscribe ...}`. The captured `dispatch` carries its frame inside the closure, so it routes correctly whenever and wherever the socket fires. Trigger the opening effect from the left pane and the socket's messages land in the left frame; trigger it from the right pane and they land in the right one. Same code.
+`(rf/capture-frame)` reads the frame in scope *at creation time* and returns a bundle of operations locked to it — `{:frame ... :dispatch ... :dispatch-sync ... :subscribe ...}`. The captured `dispatch` carries its frame inside the closure, so it routes correctly whenever and wherever the socket fires. Trigger the opening effect from the left pane and the socket's messages land in the left frame; trigger it from the right pane and they land in the right one. Same code.
 
-`frame-handle` is the one public carry primitive — reach for it (or an explicit `{:frame …}` opt) for every async / callback / tooling boundary.
+`capture-frame` is the one public carry primitive — reach for it (or an explicit `{:frame …}` opt) for every async / callback / tooling boundary.
 
 > **For JavaScript developers.** This is the classic "capture `this` / capture the closure variable" problem, but the runtime makes the failure mode *loud* instead of silent. In JS, a stale closure over the wrong store often just works against the wrong data and you never notice. Here, a callback that didn't capture its frame throws — so you're forced to capture at the right moment.
 
@@ -255,7 +255,7 @@ And there's one case where you need none of this: scheduling from inside an even
 
 `:dispatch` and `:dispatch-later` effects are stamped with the in-flight frame before any timer or microtask boundary — zero ceremony. If the deferred work is just a dispatch, this is the shape.
 
-> **Gotcha — when `frame-handle` is still needed inside an effect handler.** Reach for `frame-handle` only for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler. The effect system carries the frame for the dispatches *it* schedules, not for callbacks you register with the outside world.
+> **Gotcha — when `capture-frame` is still needed inside an effect handler.** Reach for `capture-frame` only for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler. The effect system carries the frame for the dispatches *it* schedules, not for callbacks you register with the outside world.
 
 This page is the canonical home of the capture pattern. When the [views](views.md) and [subscriptions](subscriptions.md) pages warn "don't dispatch bare from async callbacks," this is the full story they're pointing at.
 
@@ -302,7 +302,7 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
 
 Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.)
 
-> **Gotcha — the scope macros are synchronous-only, like the dynamic binding underneath them.** `with-frame` establishes the frame via a dynamic var, which evaporates the instant control crosses an async boundary. An async callback created inside a `with-frame` body that fires *after* the body returns is back in frameless territory — and `with-new-frame` has already destroyed its frame by then. That's the same async cliff as the WebSocket above; the same fix applies — capture a `frame-handle` (or pass an explicit `{:frame …}`) before the boundary.
+> **Gotcha — the scope macros are synchronous-only, like the dynamic binding underneath them.** `with-frame` establishes the frame via a dynamic var, which evaporates the instant control crosses an async boundary. An async callback created inside a `with-frame` body that fires *after* the body returns is back in frameless territory — and `with-new-frame` has already destroyed its frame by then. That's the same async cliff as the WebSocket above; the same fix applies — capture a `capture-frame` (or pass an explicit `{:frame …}`) before the boundary.
 
 ## Advanced
 

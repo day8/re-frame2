@@ -14,7 +14,7 @@
    framework sub. When the flow finally gives up, the terminal `:locked-out`
    state swaps the form for a dead-end locked-account panel.
 
-   For the boundary mechanics — `use-subscribe`, `frame-handle`,
+   For the boundary mechanics — `use-subscribe`, `capture-frame`,
    `frame-provider`, and what stays put across React wrappers — see
    docs/guide/how-to/use-uix-helix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
@@ -410,7 +410,7 @@
 ;;
 ;; Here, at last, is the substrate seam — and it's a thin one. A UIx view is
 ;; just a `defui`: it reads each subscription through the `use-subscribe` hook
-;; and gets `dispatch` off `(rf/frame-handle)`. The Reagent twin registers the
+;; and gets `dispatch` off `(rf/capture-frame)`. The Reagent twin registers the
 ;; same views with `reg-view` and is simply handed `dispatch`/`subscribe`. The
 ;; subscription vectors and event vectors don't change one character between
 ;; them; all that differs is how a React component reaches the wires. See
@@ -425,7 +425,7 @@
         busy?    (uix-adapter/use-subscribe [:rf/machine-has-tag?
                                              :auth.login/flow :auth/busy])
         err      (uix-adapter/use-subscribe [:auth.login/error])
-        dispatch (:dispatch (rf/frame-handle))]
+        dispatch (:dispatch (rf/capture-frame))]
     ($ :form.login-form
        {:data-testid "login-form"
         :on-submit (fn [e]
@@ -496,7 +496,7 @@
     ;; applies the config (`:fx-overrides` points `:rf.http/managed` at our demo
     ;; stub), and runs `:initial-events` once. On a hot reload it finds the frame
     ;; already there, reuses it, and skips the events. The `:id :rf/default`
-    ;; names the frame that `use-subscribe` and the `(rf/frame-handle)` inside
+    ;; names the frame that `use-subscribe` and the `(rf/capture-frame)` inside
     ;; `login-form` resolve against — which is why those calls need a provider
     ;; somewhere above them in the tree.
     ;;

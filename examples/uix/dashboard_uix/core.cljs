@@ -229,7 +229,7 @@
   ;; screen reader announce one labelled set of toggles instead of three
   ;; loose buttons.
   (let [active-tags (uix-adapter/use-subscribe [:dashboard/active-tags])
-        dispatch    (:dispatch (rf/frame-handle))]
+        dispatch    (:dispatch (rf/capture-frame))]
     ($ :div.dash-chips {:role "group" :aria-label "Filter metrics by category"}
        (for [{:keys [id label]} all-tags]
          (let [on? (contains? active-tags id)]
@@ -272,7 +272,7 @@
   ;; As with the chips, `is-on` is paint only; `aria-checked` is the state
   ;; assistive tech reads.
   (let [active-range-id (uix-adapter/use-subscribe [:dashboard/range])
-        dispatch        (:dispatch (rf/frame-handle))
+        dispatch        (:dispatch (rf/capture-frame))
         n               (count ranges)
         active-idx      (or (some (fn [[i {:keys [id]}]]
                                     (when (= active-range-id id) i))
@@ -345,7 +345,7 @@
 
 ;; The id of the frame this app lives in. The `frame-provider` down in `run`
 ;; creates it, seeds its app-db, and scopes it into React context — which is
-;; how `use-subscribe` and `(rf/frame-handle)` find it. The guide glossary
+;; how `use-subscribe` and `(rf/capture-frame)` find it. The guide glossary
 ;; covers frame-provider (../../../docs/guide/glossary.md#frame-provider).
 (def app-frame :rf/default)
 

@@ -420,7 +420,7 @@
 ;; The Reagent first-counter leaf uses `reg-view` (auto-injected
 ;; dispatch/subscribe) — a Reagent-only construct. UIx/Helix have no
 ;; auto-injection: they read subs via the adapter `use-subscribe` hook and
-;; dispatch via `(:dispatch (rf/frame-handle))`. Supplying only
+;; dispatch via `(:dispatch (rf/capture-frame))`. Supplying only
 ;; deps/entry-root substitutions for UIx/Helix would leave an author to
 ;; combine a UIx/Helix entry ns with the Reagent `reg-view` counter — a
 ;; non-compiling scaffold. These guards require the substrate VIEW snippets to
@@ -444,9 +444,9 @@
           (str "The UIx/Helix view snippets must read subscriptions through "
                "the adapter `use-subscribe` hook (no auto-injected `subscribe` "
                "on these substrates) (rf2-74uffk)."))
-      (is (str/includes? body "(:dispatch (rf/frame-handle))")
+      (is (str/includes? body "(:dispatch (rf/capture-frame))")
           (str "The UIx/Helix view snippets must dispatch via "
-               "`(:dispatch (rf/frame-handle))` — there is no auto-injected "
+               "`(:dispatch (rf/capture-frame))` — there is no auto-injected "
                "`dispatch` on these substrates (rf2-74uffk)."))
       ;; The "everything else is identical" claim must NOT swallow views.
       (is (not (re-find #"(?i)views.{0,40}identical across substrates" body))

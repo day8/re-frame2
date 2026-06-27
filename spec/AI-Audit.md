@@ -271,7 +271,7 @@ Pattern contract is id-based (per recent edits), but the CLJS reference accepts 
 
 ### G-D. The plain-Reagent-fn footgun — RESOLVED (EP-0002)
 
-Plain Reagent fns rendered inside a `frame-provider` used to silently route to `:rf/default` (a P8 hidden-context violation). **EP-0002 closes this**: there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — the footgun is now loud at runtime (the "make it loud" resolution, taken to its strongest form: a structured error, not a warning). Fix at the call site is `reg-view`, `with-frame`, or a captured `frame-handle`.
+Plain Reagent fns rendered inside a `frame-provider` used to silently route to `:rf/default` (a P8 hidden-context violation). **EP-0002 closes this**: there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — the footgun is now loud at runtime (the "make it loud" resolution, taken to its strongest form: a structured error, not a warning). Fix at the call site is `reg-view`, `with-frame`, or a captured `capture-frame`.
 
 ### G-E. View invocation has two forms — Var canonical, `(view :id)` for late-binding
 

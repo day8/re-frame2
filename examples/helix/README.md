@@ -23,7 +23,7 @@ Here is the part worth slowing down for. The dataflow — events, subscriptions,
 
 Copying that layer into three substrate trees looks like copy-paste waiting to rot. It isn't — the duplication is deliberate, and it is the intended v2 style. The byte-for-byte id match is not an accident to refactor away; it *is* the parity demonstration. The same `:counter/*` and `:auth.login/*` ids driving a Reagent `reg-view`, a UIx `defui`, and a Helix `defnc` is the proof — visible in the diff — that the adapter contract is the whole story and nothing leaks across the seam. So the layer is pointedly **not** hoisted into one shared namespace. Each substrate example is a self-contained `:browser` build, and a shared model required into all three would quietly defeat the parity claim.
 
-One substrate-specific note. The `reg-view` macro is Reagent-only, so Helix users write `defnc` directly. They pull `dispatch` off a `(rf/frame-handle)` for click handlers and call `dispatch` and `use-subscribe` explicitly — there is no auto-injection of those bindings the way `reg-view` does it.
+One substrate-specific note. The `reg-view` macro is Reagent-only, so Helix users write `defnc` directly. They pull `dispatch` off a `(rf/capture-frame)` for click handlers and call `dispatch` and `use-subscribe` explicitly — there is no auto-injection of those bindings the way `reg-view` does it.
 
 ## What each example demonstrates
 

@@ -320,7 +320,7 @@
 
   `dispatch-fn` (rf2-r0o63) is the frame-bound `dispatch` the
   surrounding `resizable-table` `reg-view` body injects (the macro
-  expands it over a `frame-handle` capturing the render frame). The
+  expands it over a `capture-frame` capturing the render frame). The
   pointer-move/up handlers run OUTSIDE the React tree (via raw
   `window.addEventListener`), so the dynamic frame
   context has unwound by the time they fire — but the injected

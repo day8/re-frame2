@@ -402,7 +402,7 @@ brings the full chrome onto the same footing.
 (affordance click handlers, raw window listeners, components rendered
 outside their own provider) resolves to the surrounding **instance**
 frame via a captured frame-bound op (`reg-view`'s injected `dispatch` /
-`subscribe`, which the macro expands over a `frame-handle` that captures
+`subscribe`, which the macro expands over a `capture-frame` that captures
 the render frame) — never a literal and never a bare global
 `rf/dispatch`. For a deeply-fanned tree of plain `defn` renderers (e.g.
 the Trace / Epoch / Machine panels), the canonical idiom is a
@@ -412,7 +412,7 @@ the Trace / Epoch / Machine panels), the canonical idiom is a
 per-call `{:frame frame}` opt — cleaner than threading a `dispatch-fn`
 through every intermediate fn. For ops that fire after the dynamic frame
 context unwinds (async clipboard / `setTimeout` continuations, held
-watcher subscriptions), capture a `(rf/frame-handle)` once and call its
+watcher subscriptions), capture a `(rf/capture-frame)` once and call its
 `:dispatch` / `:subscribe` — the bundle survives the async boundary. The
 de-singleton sweep (rf2-1w07r EPIC,
 closed via rf2-nesy9) applied this end-to-end: every Xray panel, modal,

@@ -375,7 +375,7 @@
 ;; Same shape as settings.cljs. The render is a pure registered `reg-view` that
 ;; never dispatches; the one off-render reaction it needs (seed-on-load in edit
 ;; mode) lives in a Form-3 wrapper's lifecycle hooks. The frame is captured at
-;; render via `rf/frame-handle`, so the reaction's out-of-render dispatch still
+;; render via `rf/capture-frame`, so the reaction's out-of-render dispatch still
 ;; carries the right frame.
 
 (reg-view ^{:doc "The pure article-editor form — a function of subs, and it never
@@ -447,12 +447,12 @@
    only one? The save/delete success continuation is the mutation's `:reply-to
    [:editor/replied]` target, not a reaction — a reply-side continuation only
    exists for a write. The seed watches a RESOURCE read settle, and a read has no
-   reply-to, so it has to stay a Form-3 reaction.) `rf/frame-handle` is captured
+   reply-to, so it has to stay a Form-3 reaction.) `rf/capture-frame` is captured
    here during render, under the frame-provider, so the reaction's dispatch carries
    the frame; unmount disposes the reaction and releases the edit-mode article
    lease."
   []
-  (let [{:keys [dispatch subscribe]} (rf/frame-handle)
+  (let [{:keys [dispatch subscribe]} (rf/capture-frame)
         seeded?   (atom false)
         watcher   (atom nil)]
     (r/create-class

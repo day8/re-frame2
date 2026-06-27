@@ -12,7 +12,7 @@ A view is a **pure function `(state, props) → render-tree`**. The pattern-leve
 
 These are pattern-level commitments; they hold across the eight in-scope JS-cross-compile-to-React+VDOM languages (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) — ClojureScript, TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS).
 
-The render-tree shape is specified in [§The render-tree shape](#the-render-tree-shape-pattern-level-contract). The CLJS realisation of the frame-explicit commitment — `reg-view` and the hiccup invocation forms — is specified in [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract) and [§How registered views are used in hiccup](#how-registered-views-are-used-in-hiccup). The frame-routing mechanics that `reg-view` consumes (React-context resolution, `with-frame` scoping, the UI-owned `frame-provider` lifecycle boundary, `frame-handle` carry) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) — Spec 004 owns the view-side API surface; 002 owns the frame-side mechanics.
+The render-tree shape is specified in [§The render-tree shape](#the-render-tree-shape-pattern-level-contract). The CLJS realisation of the frame-explicit commitment — `reg-view` and the hiccup invocation forms — is specified in [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract) and [§How registered views are used in hiccup](#how-registered-views-are-used-in-hiccup). The frame-routing mechanics that `reg-view` consumes (React-context resolution, `with-frame` scoping, the UI-owned `frame-provider` lifecycle boundary, `capture-frame` carry) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) — Spec 004 owns the view-side API surface; 002 owns the frame-side mechanics.
 
 ### What is server-renderable, what is client-only
 
@@ -178,7 +178,7 @@ Both lanes write into the same view registry; the split is about *who registers 
 
 - **Auto-id derivation.** The registered id is `(keyword (str *ns*) (str sym))` — the same shape Clojure uses for `defn` Vars. Override by attaching `^{:rf/id :explicit/id}` metadata to the symbol.
 - **Auto-defs the symbol.** `reg-view` defs `sym` to the wrapped render fn. There is no separate `(def sym (reg-view …))` step. Hiccup heads can be Var references (`[sym args]`) or `(rf/view :id)` results — both resolve to the same wrapped fn.
-- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to the `:dispatch` / `:subscribe` ops of a single `frame-handle` (`(rf/frame-handle)`) capturing the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically. The macro also threads the view's definition-site source-coord into the handle (via `:dispatch-opts` / `:subscribe-call-site`) so a view's `#(dispatch [...])` classifies as `:source :ui` and carries the reg-view's `:rf.trace/call-site` for "go to code" — view-level precision, dev-only-elidable. See [009 §`:rf.trace/call-site`](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line).
+- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to the `:dispatch` / `:subscribe` ops of a single `capture-frame` (`(rf/capture-frame)`) capturing the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically. The macro also threads the view's definition-site source-coord into the handle (via `:dispatch-opts` / `:subscribe-call-site`) so a view's `#(dispatch [...])` classifies as `:source :ui` and carries the reg-view's `:rf.trace/call-site` for "go to code" — view-level precision, dev-only-elidable. See [009 §`:rf.trace/call-site`](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line).
 
 ```clojure
 (rf/reg-view counter [label]
@@ -215,7 +215,7 @@ The **tooling/host lane**'s registration primitive: a plain function. No auto-de
 - The body is Reagent Form-3 (`reagent.core/create-class`) — out of scope for the macro.
 - The view is registered without a Var binding (e.g. a `defn` that registers as a side effect).
 
-Inside a `reg-view*` body the user must capture the frame explicitly via `(rf/frame-handle)` (and use its `:dispatch` / `:subscribe` ops) if they need frame-bound dispatch — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
+Inside a `reg-view*` body the user must capture the frame explicitly via `(rf/capture-frame)` (and use its `:dispatch` / `:subscribe` ops) if they need frame-bound dispatch — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
 
 The `*` suffix is the standard Clojure idiom for the unsweetened, runtime-callable surface beneath a macro (`let` / `let*`, `fn` / `fn*`). Per [Conventions §`*`-suffix naming](Conventions.md), this convention applies wherever a macro has a fn partner; `reg-view` / `reg-view*` is the only such pair in v1.
 
@@ -297,7 +297,7 @@ Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. T
 
 Under the EP-0002 carried invariant ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)) there is **no `:rf/default` floor**. A plain fn that cannot read the context resolves to *nil*, and its `subscribe`/`dispatch` (qualified `rf/`, the ambient 1-arity form) raises `:rf.error/no-frame-context` — the operation **fails fast** rather than silently routing to a conventional default. This is the sharper successor to the old warn-and-fall-through behaviour: a bare reagent fn that depends on the surrounding frame now errors loudly at the call site rather than reading the wrong frame's app-db.
 
-A plain fn is therefore only safe when it establishes its own frame scope — inside an explicit `with-frame`, or by capturing a `(rf/frame-handle)` at render time and using its bound ops (see §Affordance for plain fns below). A single-frame app keeps working by establishing exactly **one** root `frame-provider` / `with-frame`; *inside that scope* registered views (`reg-view`) pick up the frame ergonomically.
+A plain fn is therefore only safe when it establishes its own frame scope — inside an explicit `with-frame`, or by capturing a `(rf/capture-frame)` at render time and using its bound ops (see §Affordance for plain fns below). A single-frame app keeps working by establishing exactly **one** root `frame-provider` / `with-frame`; *inside that scope* registered views (`reg-view`) pick up the frame ergonomically.
 
 ### The footgun is now `:rf.error/no-frame-context`
 
@@ -329,19 +329,19 @@ Plain fns are allowed indefinitely; the warning is a *quality-of-life* signal, n
 
 A future re-frame2.x or v2 may make `reg-view` mandatory if the ecosystem follows. Not in v1.
 
-### Affordance for plain fns: `(rf/frame-handle)`
+### Affordance for plain fns: `(rf/capture-frame)`
 
-For users who want frame awareness in a plain fn without registering it, capture a `frame-handle` at render time and use its ops:
+For users who want frame awareness in a plain fn without registering it, capture a `capture-frame` at render time and use its ops:
 
 ```clojure
 (defn my-plain-view [label]
-  (let [{:keys [dispatch subscribe]} (rf/frame-handle)  ;; captures the render frame
+  (let [{:keys [dispatch subscribe]} (rf/capture-frame)  ;; captures the render frame
         n @(subscribe [:count])]
     [:button {:on-click #(dispatch [:inc])}
      (str label ": " n)]))
 ```
 
-Same closure mechanic as `reg-view` (which is sugar over the same `frame-handle`), just opt-in per-call. Slightly more verbose; useful as an escape hatch. The handle is locked to the frame captured at render — its ops survive the `:on-click` callback's async boundary.
+Same closure mechanic as `reg-view` (which is sugar over the same `capture-frame`), just opt-in per-call. Slightly more verbose; useful as an escape hatch. The handle is locked to the frame captured at render — its ops survive the `:on-click` callback's async boundary.
 
 ## Form-1, Form-2, Form-3 components
 
@@ -477,7 +477,7 @@ When a view wraps a stateful JS library that owns its own DOM subtree (D3 charts
 | UIx | `uix.core/use-effect` inside a `defui` |
 | Helix | `helix.hooks/use-effect` inside a `defnc` |
 
-The lifecycle hook runs after commit; cleanup is mandatory (the returned teardown fn). Inside the hook, the `frame-handle` was already built during render — its `:dispatch` / `:subscribe` ops (or one built via `(rf/frame-handle)` from the hook body) close over the captured frame at mount time and carry it correctly through any subsequent imperative callbacks the library registers.
+The lifecycle hook runs after commit; cleanup is mandatory (the returned teardown fn). Inside the hook, the `capture-frame` was already built during render — its `:dispatch` / `:subscribe` ops (or one built via `(rf/capture-frame)` from the hook body) close over the captured frame at mount time and carry it correctly through any subsequent imperative callbacks the library registers.
 
 ## Animations
 
@@ -505,7 +505,7 @@ This regime subsumes into the general outer/inner pattern for wrapping stateful 
 
 ### Choosing a regime
 
-Most animations are Regime A. Reach for B only when the state genuinely advances per-frame (games, physics, scroll-momentum). Reach for C only when a third-party library owns the timing. Genuine "completion-sensing" cases — "the state must wait for an exact `animationend`" — are rare, and usually signal that Regime A's "state is truth, visual catches up" approach was not fully exploited. When the case is genuine, the lifecycle hook (Form-3 / `use-effect`) is the escape hatch: it attaches `addEventListener "animationend"` after commit, cleans up on unmount, and carries the frame correctly because the `frame-handle` was built during render.
+Most animations are Regime A. Reach for B only when the state genuinely advances per-frame (games, physics, scroll-momentum). Reach for C only when a third-party library owns the timing. Genuine "completion-sensing" cases — "the state must wait for an exact `animationend`" — are rare, and usually signal that Regime A's "state is truth, visual catches up" approach was not fully exploited. When the case is genuine, the lifecycle hook (Form-3 / `use-effect`) is the escape hatch: it attaches `addEventListener "animationend"` after commit, cleans up on unmount, and carries the frame correctly because the `capture-frame` was built during render.
 
 ## Open questions
 
@@ -560,7 +560,7 @@ The `reg-view` macro rejects bodies whose top-level form is `(reagent.core/creat
      :component-will-unmount (fn [this] ...)}))
 ```
 
-Inside a Form-3 body, the user captures frame-bound dispatch/subscribe explicitly via `(rf/frame-handle)` (and its `:dispatch` / `:subscribe` ops) if needed — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
+Inside a Form-3 body, the user captures frame-bound dispatch/subscribe explicitly via `(rf/capture-frame)` (and its `:dispatch` / `:subscribe` ops) if needed — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
 
 ### Hot-reload behaviour for re-registered views
 

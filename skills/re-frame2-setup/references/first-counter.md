@@ -4,7 +4,7 @@ End-to-end worked example: a working re-frame2 counter in one file. This is the 
 
 Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, **greenfield setup is done** — switch the author to the main `re-frame2` skill for everything else.
 
-> **Reagent only.** This leaf uses Reagent's `reg-view` macro (with auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/frame-handle))`, and mount through their own root API. For a UIx/Helix greenfield, do **not** use this Reagent counter: take the complete generator route (SKILL.md cardinal rule 4) or copy the substrate-specific entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md). The events and subs below (`reg-event` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
+> **Reagent only.** This leaf uses Reagent's `reg-view` macro (with auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/capture-frame))`, and mount through their own root API. For a UIx/Helix greenfield, do **not** use this Reagent counter: take the complete generator route (SKILL.md cardinal rule 4) or copy the substrate-specific entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md). The events and subs below (`reg-event` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
 
 ## Contents
 

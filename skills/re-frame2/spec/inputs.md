@@ -12,7 +12,7 @@ Path: `implementation/core/src/re_frame/**`, `implementation/reagent/src/re_fram
 
 Specific files the leaves lean on:
 
-- `implementation/core/src/re_frame/core.cljc` — the public single-import API surface (`reg-event` — the one public event registrar — `reg-sub`, `reg-fx`, `reg-cofx`, `reg-interceptor`, `dispatch`, `subscribe`, `with-frame`, `frame-handle`, etc.).
+- `implementation/core/src/re_frame/core.cljc` — the public single-import API surface (`reg-event` — the one public event registrar — `reg-sub`, `reg-fx`, `reg-cofx`, `reg-interceptor`, `dispatch`, `subscribe`, `with-frame`, `capture-frame`, etc.).
 - `implementation/core/src/re_frame/frame.cljc` — `reg-frame`, `make-frame`, `destroy-frame!`, frame metadata grammar, `:fx-overrides`.
 - `implementation/core/src/re_frame/fx.cljc` — `do-fx`, `:fx-overrides` resolution (id-redirect + fn-value branches), per-call vs per-frame merge.
 - `implementation/core/src/re_frame/events.cljc` + `router.cljc` — event-state cycle, effect-shape policing.

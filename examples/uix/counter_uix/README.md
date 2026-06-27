@@ -21,7 +21,7 @@ React-family library is rendering them.
 Above the view, you write in the idiom your substrate prefers. For UIx,
 that idiom is hooks. So instead of Reagent's reactive ratom, you call a
 `use-subscribe` hook. And instead of a macro handing you `dispatch`, you
-pull it off a frame-handle yourself. The
+pull it off a capture-frame yourself. The
 [adapter](../../../docs/guide/glossary.md#adapter) is the small map of glue
 that makes that swap a one-liner.
 
@@ -47,11 +47,11 @@ that makes that swap a one-liner.
   `(uix-adapter/use-subscribe [:counter/value])` directly. This is the
   React way to read derived state: a hook, not a dereferenced reactive
   atom. Same subscription, same cached value.
-- **`dispatch` off a frame-handle** — UIx has no `reg-view` macro to inject
+- **`dispatch` off a capture-frame** — UIx has no `reg-view` macro to inject
   `dispatch` for you (that convenience stays Reagent-only; UIx users write
   `defui` directly). So the view grabs a
-  [frame-handle](../../../docs/guide/glossary.md#frame-handle) —
-  `(:dispatch (rf/frame-handle))` — and closes over it. A frame-handle is a
+  [capture-frame](../../../docs/guide/glossary.md#capture-frame) —
+  `(:dispatch (rf/capture-frame))` — and closes over it. A capture-frame is a
   frame captured *as a value*. It pins the render-time frame, so the
   closed-over `dispatch` keeps firing into the right frame even from an
   async callback, instead of raising `:rf.error/no-frame-context` once the

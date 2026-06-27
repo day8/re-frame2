@@ -107,7 +107,7 @@
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
 ;; that includes the reg-* fn-aliases (reg-event, reg-sub, reg-fx,
 ;; reg-cofx, ...), plus init!, configure, clear-event,
-;; current-frame-id, frame-handle, frame-bound-fn*, app-db-value, etc.
+;; current-frame-id, capture-frame, frame-bound-fn*, app-db-value, etc.
 ;; The macro-only public names (dispatch/dispatch-sync/subscribe) have no
 ;; same-named runtime var so they are NOT in the copy; we add them below.
 ;; (`inject-cofx` was removed from the public facade in EP-0017 / rf2-w9xyx1

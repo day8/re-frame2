@@ -155,7 +155,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
       react-root))
   ```
   (Helix uses `(.render react-root ($ helix-adapter/frame-provider {:frame :rf/default} ($ views/counter-app)))` against a `react-dom/client` root, with `$` from `helix.core`, and the same `reg-frame :rf/default {}` + `with-frame` / `dispatch-sync` boot — see the template's `_helix/core.cljs`. Every adapter's `frame-provider` (its `{:frame …}` SCOPE-only shape) scopes the already-registered carried frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe.)
-- **views** — this is the substitution `first-counter.md` does **not** cover. The Reagent first-counter uses `reg-view` with auto-injected `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/frame-handle))`, captured once per render (the handle closes over the render-time frame, so a closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. The events and subs are the same `reg-event` / `reg-sub` forms as the Reagent counter — only the view layer differs. Copy the matching `views.cljs` verbatim (verified against the template's `_uix/views.cljs` / `_helix/views.cljs`):
+- **views** — this is the substitution `first-counter.md` does **not** cover. The Reagent first-counter uses `reg-view` with auto-injected `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/capture-frame))`, captured once per render (the handle closes over the render-time frame, so a closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. The events and subs are the same `reg-event` / `reg-sub` forms as the Reagent counter — only the view layer differs. Copy the matching `views.cljs` verbatim (verified against the template's `_uix/views.cljs` / `_helix/views.cljs`):
 
   ```clojure
   ;; UIx — src/your_app/views.cljs
@@ -166,7 +166,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
   (defui counter-buttons []
     (let [value    (uix-adapter/use-subscribe [:counter/value])
-          dispatch (:dispatch (rf/frame-handle))]
+          dispatch (:dispatch (rf/capture-frame))]
       ($ :div
          ($ :button {:on-click #(dispatch [:counter/increment])} "+1")
          ($ :span {:style #js {:margin "0 1em"}} value))))
@@ -187,7 +187,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
   (defnc counter-buttons []
     (let [value    (helix-adapter/use-subscribe [:counter/value])
-          dispatch (:dispatch (rf/frame-handle))]
+          dispatch (:dispatch (rf/capture-frame))]
       (d/div
         (d/button {:on-click #(dispatch [:counter/increment])} "+1")
         (d/span {:style {:margin "0 1em"}} value))))

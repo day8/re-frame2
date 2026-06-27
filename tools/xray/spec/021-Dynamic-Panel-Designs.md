@@ -3879,7 +3879,7 @@ re-break what phase 1 lands. All five are tested in
    `[:rf.xray.edn-inspector/toggle-node panel-id mount-id path rendered-expanded?]`
    via the **reg-view-injected frame-bound `dispatch`** — the widget
    is `reg-view`-registered (per rf2-y59tb) so the macro expands its
-   body's `dispatch` over a `frame-handle` capturing the surrounding
+   body's `dispatch` over a `capture-frame` capturing the surrounding
    `frame-provider`'s frame from React context. Mounted under `:rf/xray`
    (App-DB panel) the click lands
    in `:rf/xray`'s app-db; under any other frame it lands in that

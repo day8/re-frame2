@@ -556,7 +556,7 @@
   from empty → non-empty issue list IFF `:auto-open-on-error?` is on
   AND Xray is not already visible.
 
-  The sub is created via a `(rf/frame-handle :rf/xray)` `:subscribe`
+  The sub is created via a `(rf/capture-frame :rf/xray)` `:subscribe`
   so the watcher reads the Xray frame's app-db (where the issues feed
   lives) — the handle locks the held reaction to `:rf/xray` without a
   surrounding dynamic-frame scope. The reaction is held in a `defonce`
@@ -577,7 +577,7 @@
   (when (and (nil? @auto-open-watcher)
              (exists? js/window)
              (some? (frame/frame :rf/xray)))
-    (when-let [reaction ((:subscribe (rf/frame-handle :rf/xray))
+    (when-let [reaction ((:subscribe (rf/capture-frame :rf/xray))
                          [:rf.xray/issues-ribbon])]
       (let [watch-fn (fn [_k _r _old new-val]
                        (let [n      (count (:issues new-val))
