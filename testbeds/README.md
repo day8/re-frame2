@@ -34,7 +34,7 @@ Per-surface conventions (every testbed in this directory follows them):
 2. **Stark code.** No tutorial commentary in the bodies; HOT PATH comments only at the trigger sites — the one or two lines that produce the framework event the consumer is watching for.
 3. **Minimal app-db.** A testbed is *not* the place to show off a realistic app shape; the `non-trivial-app-db/` testbed (Tier 3) is where that lives.
 4. **Reagent canonical.** A surface ships under a single substrate unless cross-substrate behaviour is the point.
-5. **Central build wiring.** Shadow-cljs build entries live in [`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn) under the `:testbeds/*` build-id prefix; the examples orchestrator at [`examples/scripts/serve-and-run-adapter-smokes.cjs`](../examples/scripts/serve-and-run-adapter-smokes.cjs) picks them up via the same source-path + index.html + outDir triple every example uses.
+5. **Central build wiring.** Shadow-cljs build entries live in [`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn) under the `:testbeds/*` build-id prefix; the adapter-smoke orchestrator at [`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`](../implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs) picks them up via the same source-path + index.html + outDir triple every example uses.
 
 ## Running a testbed in dev
 

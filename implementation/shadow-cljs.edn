@@ -1892,7 +1892,7 @@
   ;; a minimal counter that proves the adapter wires up — mount,
   ;; subscribe, dispatch, re-render — without depending on any example.
   ;;
-  ;; The orchestrator (examples/scripts/serve-and-run-adapter-smokes.cjs)
+  ;; The orchestrator (implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs)
   ;; stages each bundle into out/examples/adapter-testbeds/<name>/ next
   ;; to the testbed's hand-written index.html and the companion spec.cjs
   ;; (discovered by the runner via ADAPTER_SMOKE_SPEC_ROOTS).
@@ -1933,7 +1933,7 @@
   ;; browser coverage was compile-only + the release-bundle sentinel grep).
   ;;
   ;; Deliberately NOT in the shared adapter-smoke manifest
-  ;; (examples/scripts/adapter-smoke-filter.cjs): it is the slim adapter's OWN
+  ;; (implementation/adapters/scripts/adapter-smoke-filter.cjs): it is the slim adapter's OWN
   ;; gate, driven by scripts/serve-and-run-reagent-slim-smoke.cjs (npm
   ;; test:reagent-slim:smoke) — mirroring how the slim bundle-isolation
   ;; contract ships its own check-reagent-slim-bundle-isolation.cjs rather

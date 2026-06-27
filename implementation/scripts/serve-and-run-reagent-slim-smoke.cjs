@@ -14,7 +14,7 @@
  *
  * WHY A DEDICATED RUNNER (not the shared adapter-smoke harness):
  * the slim substrate's behavioural smoke is the day8/reagent-slim adapter's
- * own gate. Folding it into examples/scripts/adapter-smoke-filter.cjs would
+ * own gate. Folding it into implementation/adapters/scripts/adapter-smoke-filter.cjs would
  * couple it to that shared Reagent/UIx/Helix manifest + reconcile guard;
  * instead — mirroring how the slim bundle-isolation contract ships its OWN
  * script (check-reagent-slim-bundle-isolation.cjs) rather than the shared

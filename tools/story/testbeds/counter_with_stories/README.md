@@ -116,11 +116,10 @@ under build id `examples/counter-with-stories`.
 npm run test:adapter-smokes
 ```
 
-The orchestrator at
-[`examples/scripts/serve-and-run-adapter-smokes.cjs`](../../../../examples/scripts/serve-and-run-adapter-smokes.cjs)
-compiles every example, stages this directory's `index.html`,
-serves the output over HTTP on `127.0.0.1:8030`, and runs every
-`*.spec.cjs` under `examples/`. The spec navigates between
+The adapter-smoke orchestrator at
+[`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`](../../../../implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs)
+compiles each adapter smoke, stages this directory's `index.html`,
+serves the output over HTTP, and runs the paired `spec.cjs`. The spec navigates between
 `/counter-with-stories/#/` and `/counter-with-stories/#/stories`,
 verifying both surfaces render.
 

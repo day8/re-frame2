@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /*
- * Tests for `examples/scripts/adapter-smoke-filter.cjs` — the shared
- * adapter-smoke manifest + filter-selection logic used by BOTH the
- * orchestrator (serve-and-run-adapter-smokes.cjs) and the Playwright
- * runner (run-adapter-smokes.cjs).
+ * Tests for `implementation/adapters/scripts/adapter-smoke-filter.cjs` —
+ * the shared adapter-smoke manifest + filter-selection logic used by BOTH
+ * the orchestrator (serve-and-run-adapter-smokes.cjs) and the Playwright
+ * runner (run-adapter-smokes.cjs), both colocated with the adapters under
+ * implementation/adapters/scripts/.
  *
  * Regression for rf2-l72e2: the two scripts used to apply the same
  * ADAPTER_SMOKE_FILTER value to two different string spaces (build ids vs
@@ -35,7 +36,7 @@ const {
   parseFilterPatterns,
   normalizeForFilter,
   entryIdentities,
-} = require('../../examples/scripts/adapter-smoke-filter.cjs');
+} = require('../adapters/scripts/adapter-smoke-filter.cjs');
 
 let failed = 0;
 

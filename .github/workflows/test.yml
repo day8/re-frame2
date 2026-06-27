@@ -1819,7 +1819,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # rf2-9grp6 — narrow scope. The orchestrator at
-      # examples/scripts/serve-and-run-adapter-smokes.cjs supports a
+      # implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs supports a
       # comma-separated ADAPTER_SMOKE_FILTER (substring OR-match against
       # shadow-cljs build ids). `adapters/` matches exactly the 3
       # adapter smokes (adapters/reagent-testbed, adapters/uix-testbed,

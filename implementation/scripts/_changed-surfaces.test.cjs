@@ -645,27 +645,49 @@ test('Adapter source change fires adapter_testbed_smokes (rf2-t5slp regression g
   assert.equal(result.adapter_testbed_smokes, 'true');
 });
 
-test('examples/scripts/adapter-smoke-filter.cjs (shared manifest) fires adapter_testbed_smokes (rf2-l72e2)', () => {
-  const result = classify('examples/scripts/adapter-smoke-filter.cjs');
+// The adapter-smoke harness (orchestrator + runner + shared manifest) lives
+// under implementation/adapters/scripts/ — with the adapters it drives. A
+// harness-script edit fires ONLY adapter_testbed_smokes (its dedicated case),
+// not the broad adapter-source fan-out the rest of implementation/adapters/*
+// triggers.
+const ADAPTER_HARNESS_FILES = [
+  'implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs',
+  'implementation/adapters/scripts/run-adapter-smokes.cjs',
+  'implementation/adapters/scripts/adapter-smoke-filter.cjs',
+];
+for (const file of ADAPTER_HARNESS_FILES) {
+  test(`${file} (adapter-smoke harness) fires adapter_testbed_smokes`, () => {
+    const result = classify(file);
+    assert.equal(result.adapter_testbed_smokes, 'true');
+  });
+}
+
+// A harness-script edit must NOT trip the full adapter-SOURCE fan-out
+// (implementation_jvm / tools_jvm / mcp_conformance / template_expensive),
+// which the broad implementation/adapters/* case fires for an actual adapter
+// source change. The dedicated harness case keeps the tier tight.
+test('adapter-smoke harness edit fires ONLY adapter_testbed_smokes, not the adapter-source fan-out', () => {
+  const result = classify('implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs');
   assert.equal(result.adapter_testbed_smokes, 'true');
+  assert.notEqual(result.implementation_jvm, 'true', 'harness edit must not fire implementation_jvm');
+  assert.notEqual(result.tools_jvm, 'true', 'harness edit must not fire tools_jvm');
+  assert.notEqual(result.mcp_conformance, 'true', 'harness edit must not fire mcp_conformance');
 });
 
 // rf2-y9o5e3 — every EXECUTABLE examples/scripts gate file must fire the
 // browser gate it drives, so a PR breaking a launcher / shared port
-// resolver can't avoid the gate it can break. The adapter-smoke
-// orchestrator + runner + helpers (incl. examples-port.cjs) fire
-// adapter_testbed_smokes; the Story launchers + their dedicated port
-// resolver fire story_xray_browser; the SHARED port-resolver.cjs fires
-// BOTH. Static-only scanners (check-examples-assets.cjs,
-// check-reagent-slim-boundary.cjs) stay on the always-on JS harness path
-// (cljs_browser only) — they have always-on .test.cjs coverage under
-// test:script-policy and drive no browser gate.
+// resolver can't avoid the gate it can break. The two adapter-smoke helpers
+// that STAY under examples/scripts/ (the example dev runner + Story launchers
+// share them) — spec-helpers.cjs (the Playwright assertion matchers) and
+// examples-port.cjs (the port resolver) — fire adapter_testbed_smokes; the
+// Story launchers + their dedicated port resolver fire story_xray_browser;
+// the SHARED port-resolver.cjs fires BOTH. Static-only scanners
+// (check-examples-assets.cjs, check-reagent-slim-boundary.cjs) stay on the
+// always-on JS harness path (cljs_browser only) — they have always-on
+// .test.cjs coverage under test:script-policy and drive no browser gate.
 
 const ADAPTER_SMOKE_GATE_FILES = [
-  'examples/scripts/serve-and-run-adapter-smokes.cjs',
-  'examples/scripts/run-adapter-smokes.cjs',
   'examples/scripts/spec-helpers.cjs',
-  'examples/scripts/adapter-smoke-filter.cjs',
   'examples/scripts/examples-port.cjs',
 ];
 for (const file of ADAPTER_SMOKE_GATE_FILES) {

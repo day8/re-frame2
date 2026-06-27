@@ -52,8 +52,8 @@
 
 const path = require('path');
 
-// __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+// __dirname is <repo>/implementation/adapters/scripts. REPO_ROOT is <repo>.
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 // The canonical adapter-smoke set: the three adapter smokes. Each entry
 // pairs a shadow-cljs build id with the hand-written spec.cjs that drives

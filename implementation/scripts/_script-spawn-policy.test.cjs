@@ -72,6 +72,11 @@ const EXAMPLES_SCRIPTS_DIR = path.resolve(
   'examples',
   'scripts',
 );
+// The adapter-smoke harness (orchestrator + runner + manifest) moved here,
+// colocated with the adapters it drives. It runs the SAME shadow-cljs
+// compile + http-server spawn posture, so it must stay under this shell-free
+// spawn policy.
+const ADAPTERS_SCRIPTS_DIR = path.resolve(__dirname, '..', 'adapters', 'scripts');
 
 const { test, run } = createPolicyTestSuite('script-spawn-policy');
 
@@ -91,7 +96,11 @@ function cjsFilesIn(dir) {
 // Playwright runners, port resolvers, helpers, and static scanners; none
 // may carry a shell:true/npx.cmd posture, so the whole dir is scanned.
 function gateScriptFiles() {
-  return [...cjsFilesIn(SCRIPTS_DIR), ...cjsFilesIn(EXAMPLES_SCRIPTS_DIR)];
+  return [
+    ...cjsFilesIn(SCRIPTS_DIR),
+    ...cjsFilesIn(EXAMPLES_SCRIPTS_DIR),
+    ...cjsFilesIn(ADAPTERS_SCRIPTS_DIR),
+  ];
 }
 
 // Any `shell:` option whose RHS is NOT the literal `false` is a
@@ -198,19 +207,21 @@ test('serve-and-run-xray-feature-gate.cjs resolves shadow-cljs runner + spawns i
   assert.match(src, /spawnSync\(\s*process\.execPath,\s*args/);
 });
 
-// rf2-y9o5e3 — positive guards for the three examples/scripts browser-gate
-// launchers. Each must resolve the shadow-cljs JS entry-point and spawn it
-// shell-free under process.execPath (the same hardened posture as the
-// implementation/scripts launchers above), so a future edit can't quietly
-// regress to the npx.cmd/cmd.exe/shell posture this bead removed.
-const EXAMPLES_LAUNCHERS = [
-  'serve-and-run-adapter-smokes.cjs',
-  'serve-and-run-story-feature-load-tests.cjs',
-  'serve-and-run-story-play-scripts.cjs',
+// rf2-y9o5e3 — positive guards for the browser-gate launchers. Each must
+// resolve the shadow-cljs JS entry-point and spawn it shell-free under
+// process.execPath (the same hardened posture as the implementation/scripts
+// launchers above), so a future edit can't quietly regress to the
+// npx.cmd/cmd.exe/shell posture this bead removed. The adapter-smoke
+// orchestrator lives under implementation/adapters/scripts/ now; the two
+// Story launchers stay under examples/scripts/.
+const GATE_LAUNCHERS = [
+  ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
+  ['serve-and-run-story-feature-load-tests.cjs', EXAMPLES_SCRIPTS_DIR],
+  ['serve-and-run-story-play-scripts.cjs', EXAMPLES_SCRIPTS_DIR],
 ];
-for (const base of EXAMPLES_LAUNCHERS) {
+for (const [base, dir] of GATE_LAUNCHERS) {
   test(`${base} resolves shadow-cljs runner + spawns the compile under process.execPath (rf2-y9o5e3)`, () => {
-    const src = fs.readFileSync(path.join(EXAMPLES_SCRIPTS_DIR, base), 'utf8');
+    const src = fs.readFileSync(path.join(dir, base), 'utf8');
     assert.match(
       src,
       /require\.resolve\(\s*['"]shadow-cljs\/cli\/runner\.js['"]/,

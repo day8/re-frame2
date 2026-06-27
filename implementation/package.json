@@ -39,7 +39,7 @@
     "test:examples-compile": "node scripts/check-examples-compile.cjs",
     "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",
     "test:reagent-slim:smoke": "node scripts/serve-and-run-reagent-slim-smoke.cjs",
-    "test:adapter-smokes": "node ../examples/scripts/serve-and-run-adapter-smokes.cjs",
+    "test:adapter-smokes": "node adapters/scripts/serve-and-run-adapter-smokes.cjs",
     "test:testbed-tenant-switcher": "node scripts/serve-and-run-tenant-switcher-testbed.cjs",
     "dev:example": "node ../examples/scripts/serve-example.cjs",
     "story:build": "node scripts/story-build.cjs",

@@ -8,7 +8,7 @@
  * `generate-story-tutorial-screenshots.cjs`.
  *
  * Pipeline:
- *   1. The orchestrator at examples/scripts/serve-and-run-adapter-smokes.cjs
+ *   1. The orchestrator at implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs
  *      builds + serves every example bundle on http://127.0.0.1:8040
  *      (its default port; override with EXAMPLES_PORT, and point this
  *      script at the same port via SCREENSHOT_BASE_URL).

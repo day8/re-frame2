@@ -174,12 +174,26 @@ else
         cljs_prod=true
         reagent_slim_bundle=true
         ;;
+      implementation/adapters/scripts/*)
+        # The adapter-smoke harness (orchestrator + runner + shared
+        # manifest) lives with the adapters it drives. A harness-script
+        # edit drives the adapter-testbed-smokes job (via
+        # `npm run test:adapter-smokes`) but does NOT change adapter source,
+        # so it fires ONLY that gate — not the full adapter-source fan-out
+        # the broad implementation/adapters/* case below triggers. This
+        # mirrors the dedicated harness-script case the examples tree used
+        # before the harness moved here. (spec-helpers.cjs / examples-port.cjs
+        # / examples-staging.cjs still live under examples/scripts/ and have
+        # their own cases there, since the example dev runner and the Story
+        # launchers share them.)
+        adapter_testbed_smokes=true
+        ;;
       implementation/adapters/*)
         # rf2-bxdk8 + rf2-cjp0i — the adapter-testbed-smokes gate is
         # scoped to the 3 adapter smokes at
         # implementation/adapters/<reagent|uix|helix>/testbed/. Adapter
-        # source changes are the canonical trigger; orchestrator-script
-        # changes are caught by the harness-script case below.
+        # source changes are the canonical trigger; harness-script
+        # changes are caught by the dedicated case above.
         implementation_jvm=true
         cljs_node_test=true
         adapter_diagnostic=true
@@ -192,20 +206,19 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      examples/scripts/serve-and-run-adapter-smokes.cjs|examples/scripts/run-adapter-smokes.cjs|examples/scripts/spec-helpers.cjs|examples/scripts/adapter-smoke-filter.cjs|examples/scripts/examples-port.cjs)
-        # rf2-bxdk8 + rf2-cjp0i — the orchestrator + runner + helpers
-        # under examples/scripts/ drive the adapter-testbed-smokes job
-        # (via `npm run test:adapter-smokes`). rf2-l72e2 —
-        # adapter-smoke-filter.cjs is the shared adapter-smoke manifest +
-        # selection logic both the orchestrator and runner import, so a
-        # change to it must fire the gate too. rf2-y9o5e3 —
-        # examples-port.cjs is the port resolver
-        # the orchestrator's main() calls before any compile/serve; a
-        # break there false-greens the adapter smoke gate, so it fires it
-        # too. These are the adapter-smoke executable paths under
-        # examples/scripts/; the rest of examples/** is test-free per
-        # rf2-8cevm. (port-resolver.cjs is shared with the Story launchers
-        # and is handled in its own case below so it fires BOTH gates.)
+      examples/scripts/spec-helpers.cjs|examples/scripts/examples-port.cjs)
+        # rf2-bxdk8 + rf2-cjp0i — the adapter-smoke harness moved to
+        # implementation/adapters/scripts/ (its own case above), but two
+        # of the helpers it imports still live under examples/scripts/
+        # because the example dev runner and the Story launchers share
+        # them: spec-helpers.cjs (the Playwright assertion matchers the
+        # adapter specs use) and examples-port.cjs (rf2-y9o5e3 — the port
+        # resolver the orchestrator's main() calls before any compile/serve;
+        # a break there false-greens the adapter smoke gate). A change to
+        # either still drives the adapter-testbed-smokes job. The rest of
+        # examples/** is test-free per rf2-8cevm. (port-resolver.cjs is
+        # shared with the Story launchers and is handled in its own case
+        # below so it fires BOTH gates; examples-staging.cjs likewise.)
         adapter_testbed_smokes=true
         ;;
       examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/run-story-feature-load-tests.cjs|examples/scripts/serve-and-run-story-play-scripts.cjs|examples/scripts/story-feature-load-port.cjs)
