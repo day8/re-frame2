@@ -32,8 +32,8 @@
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 (def tick-ms
-  "How long, in milliseconds, between one tick and the next. 100ms is smooth
-   enough to look continuous without flooding the loop with events."
+  "Wall-clock delay, in milliseconds, between one tick and the next. 100ms is
+   smooth enough to look continuous without flooding the loop with events."
   100)
 
 ;; ============================================================================

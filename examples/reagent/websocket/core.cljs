@@ -16,13 +16,43 @@
    - `views.cljs` — the UI that drives the machine and shows its state.
    - `schema.cljs` — Malli schemas for the machine `:data` and app-db.
 
+   The machine features this example puts through their paces:
+
+   - **Hierarchical compound `:active`** parenting `:connecting`,
+     `:authenticating`, `:connected`. The socket-actor `:spawn` is on the
+     parent so it survives the success-path leaf transitions.
+
+   - **`:after` exponential backoff** in `:reconnecting`. Leaving the
+     state cancels the timer, so a backoff from a prior visit can't fire
+     late.
+
+   - **`:always` cascades** — `:reconnecting`'s max-retries guard, and
+     `:connected`'s queue-flush on entry.
+
+   - **`:tags`** — `:websocket/connected`, `:websocket/reconnecting`,
+     `:websocket/failed`, so the view asks tag-shaped questions instead of
+     unfolding the snapshot's hierarchical `:state` vector.
+
+   - **Two staleness defences** — the backoff timer (runtime-cancelled on
+     exit) and the connection-epoch (`:current-socket?` guard against the
+     live `:socket-id`).
+
+   - **Request/reply correlation** — `:in-flight` map, request-id stamp,
+     timeout via `:dispatch-later`, reply-event dispatch on the correlated
+     `:ws/received`.
+
+   - **Reconnect cascade** — exit-from-`:active` clears the `:socket-id`;
+     the runtime destroys the socket actor; the `:reconnecting` `:after`
+     re-enters `:active`, which spawns a fresh one.
+
    For the grammar the machine leans on, see docs/machines/concepts.md;
    for where this example sits among the others, docs/machines/examples.md.
 
    No network required: a small in-process mock server stands in for a
    real endpoint, so the app runs standalone. Its real coverage lives in
-   the CLJS contract tests (`npm run test:cljs`, ns
-   `re-frame.websocket-cljs-test`)."
+   the CLJS substrate contract tests (`npm run test:cljs`, ns
+   `re-frame.websocket-cljs-test`). The example tree is test-free, so
+   `npm run test:adapter-smokes` does not build this example."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -40,9 +70,10 @@
          machine to life in its `:disconnected` start state.
 
          The `:ws.app/*` prefix (rather than a plain `:app/initialise`)
-         is deliberate. Several examples share one test bundle, and a
-         common event key would have them stepping on each other's
-         registrations. Namespacing keeps each example to itself."}
+         is deliberate. Several examples (the realworld + counter
+         examples among them) share one test bundle, and a common event
+         key would have them stepping on each other's registrations.
+         Namespacing keeps each example to itself."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:ws.messages/initialise]]
           [:dispatch [:ws.connection/initialise]]]}))
@@ -52,10 +83,11 @@
 ;; ============================================================================
 ;;
 ;; We hold the React root in an atom and create it lazily inside `run`,
-;; never at ns-load. The reason is mundane but real: several examples
-;; share one `#app` element in the test bundle, and creating roots at
-;; ns-load would race several of them onto the same container. Building it
-;; in `run` keeps loading this namespace free of DOM side effects.
+;; never at ns-load. The reason is mundane but real: several example
+;; namespaces share one `#app` element in the browser-test bundle, and
+;; creating roots at ns-load would race several of them onto the same
+;; container. Building it in `run` keeps loading this namespace free of
+;; DOM side effects.
 
 (defonce react-root (atom nil))
 

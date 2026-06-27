@@ -200,11 +200,11 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-;; One slice sub does the digging; everyone else reads from it. `:drawer/slice`
-;; reaches into app-db once to grab the `:drawer` map, and the subs below chain
-;; off it with `:<-`. So the [:drawer ...] walk happens a single time per app-db
-;; swap, not once per dependent sub — a small habit that keeps a subscription
-;; graph cheap as it grows.
+;; One Layer-2 slice sub does the digging; the Layer-3 readers below all read
+;; from it. `:drawer/slice` reaches into app-db once to grab the `:drawer` map,
+;; and the subs below chain off it with `:<-`. So the [:drawer ...] walk happens
+;; a single time per app-db swap, not once per dependent recompute — a small
+;; habit that keeps a subscription graph cheap as it grows.
 ;; See docs/guide/concepts/subscriptions.md.
 
 (rf/reg-sub :drawer/slice (fn [db _] (:drawer db)))

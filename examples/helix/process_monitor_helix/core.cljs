@@ -17,8 +17,8 @@
        trick is keeping it to exactly one live chain; see the EVENTS block.
      - Per-row dispatch from inside a `defnc` row component.
 
-   The visual identity is shared across all three design-led examples; it
-   lives in examples/_shared/css/style.css."
+   The 'Editorial Warm' visual identity is shared across all three design-led
+   examples; it lives in examples/_shared/css/style.css."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]

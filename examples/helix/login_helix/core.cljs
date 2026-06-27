@@ -2,17 +2,20 @@
   "The login example, rendered through Helix.
 
    A login form, a state machine for the submit/auth lifecycle, schemas
-   guarding the boundaries, and a stubbed HTTP call. The Reagent, UIx,
-   and Helix login examples share all of that — the machine, the
-   schemas, the managed-HTTP surface — and differ only in the view
-   layer. Here the views are Helix `defnc` components that read subs
-   through the adapter's `use-subscribe` hook.
+   guarding the boundaries, and a stubbed HTTP call. Same dataflow,
+   schemas, machine, and HTTP stub as examples/reagent/login and
+   examples/uix/login_uix — the machine, the schemas, the managed-HTTP
+   surface are all substrate-agnostic, and the view layer is the only
+   thing that changes between substrates. Here the views are Helix
+   `defnc` components that read subs through the adapter's `use-subscribe`
+   hook.
 
    The machine's states wear tags — `:auth/busy`, `:auth/authenticated`,
    `:auth/locked` — and the views ask about them with the
    `:rf/machine-has-tag?` framework sub. Keep guessing the password and the
-   fourth wrong try trips the retry guard: the form is replaced by a
-   dead-end locked panel.
+   fourth wrong try trips the retry guard: the flow lands in the terminal
+   `:locked-out` state, and the form is replaced by a dead-end,
+   non-interactive locked-account panel.
 
    The machines guide (docs/machines/concepts.md) and the form recipe
    (docs/guide/how-to/build-a-form.md) cover the two big ideas at
@@ -42,10 +45,10 @@
 ;;
 ;; You might expect this shared half to live in one file the three examples
 ;; require. It deliberately doesn't. Each example is its own self-contained
-;; `:browser` build, and a gate checks that a Helix bundle carries no Reagent
-;; or UIx code — a shared file pulled into all three would blow that apart. So
-;; the lesson here is "one dataflow, three view layers," not "factor out the
-;; common bit." The duplication is on purpose.
+;; `:browser` build, and the bundle-isolation gate proves a Helix bundle
+;; carries no Reagent or UIx code — a shared file pulled into all three would
+;; blow that apart. So the lesson here is "one dataflow, three view layers,"
+;; not "factor out the common bit." The duplication is on purpose.
 
 ;; ============================================================================
 ;; SCHEMAS
@@ -79,9 +82,11 @@
 ;; login request fires.
 ;;
 ;; Second, that trailing `[:? :any]` is the slot for the HTTP reply. When the
-;; managed-HTTP call comes back, the framework tacks the payload on as the last
-;; arg, so a delivered reply reads `[:auth.login/flow [:auth.login/success]
-;; <payload>]` — three elements, not two. Leave the optional slot out and the
+;; managed-HTTP call comes back, the framework appends the payload —
+;; `{:kind ... :value ...}` on success, `{:kind ... :failure ...}` on failure —
+;; as the last arg of the `:on-success` / `:on-failure` event vector, so a
+;; delivered reply reads `[:auth.login/flow [:auth.login/success] <payload>]` —
+;; three top-level elements, not two. Leave the optional slot out and the
 ;; `:cat` rejects every reply, validation fails, and the flow sits in
 ;; `:submitting` forever, wondering where its answer went. See
 ;; docs/guide/how-to/validate-with-schemas.md.

@@ -21,9 +21,9 @@
    - A final `__rf_payload` chunk carrying the canonical full state. The
      deltas are a speed bet; this is the truth, and it wins any tie.
 
-  One artefact, two runtimes: the `:clj` branch is what a Ring server
-  calls per request, the `:cljs` branch is what the page boots once the
-  chunks land.
+  One `.cljc` artefact, two runtimes: the `:clj` branch is what a Ring
+  server calls per request, the `:cljs` branch is what the page boots once
+  the chunks land.
 
   See the [SSR guide — Streaming](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)."
   (:require [re-frame.core :as rf]
@@ -203,8 +203,8 @@
                               :payload :rf.ssr.payload/whole-app-db}))
            ;; Strip the payload's `:rf/frame-id` before it goes over the
            ;; wire. The two sides don't share a frame id: the server renders
-           ;; under this per-request gensym, the client hydrates a fixed
-           ;; `app-frame` (below). When `ssr/hydrate!` sees a frame-id on the
+           ;; under this per-request gensym frame (`fid`), the client hydrates
+           ;; a fixed `app-frame` (below). When `ssr/hydrate!` sees a frame-id on the
            ;; wire, it checks it against the client's explicit `:frame` and
            ;; fails closed if they differ — which a gensym always would. Send
            ;; no frame-id and the client's explicit target simply stands. (If

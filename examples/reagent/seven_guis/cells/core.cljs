@@ -278,9 +278,11 @@
   "Compute one cell's display value. `visited` is the set of cell ids already on
    the current evaluation path — our cycle guard. If we're asked to evaluate a
    cell that's already on the path, A1 → B1 → A1 has come back to bite us, so we
-   bail with :error/cycle instead of recursing forever. A formula recurses with
-   itself added to the set; a literal parses to a number or stays text; an
-   untouched cell is simply 0."
+   bail with :error/cycle instead of recursing forever. A formula that failed to
+   parse returns its stored `[:error/parse msg]` pair as-is, so the actionable
+   message rides through to the view; a well-formed formula recurses with itself
+   added to the set; a literal parses to a number or stays text; an untouched
+   cell is simply 0."
   [id cells visited]
   (cond
     (visited id)  :error/cycle

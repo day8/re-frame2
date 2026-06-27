@@ -26,9 +26,10 @@
 ;; describe the next one. It takes coeffects (which carry the current
 ;; app-db) and the event vector, and returns an effect map. The `{:db …}`
 ;; key just means "make this the new app-db", and the runtime commits it
-;; for you, all at once. Notice the handler never reaches out and pokes
-;; app-db — it only computes a value and hands it back. Pure all the way
-;; down. See `docs/guide/glossary.md#event-handler`.
+;; for you atomically — all at once, no half-applied state. Notice the
+;; handler never reaches out and pokes app-db — it only computes a value
+;; and hands it back. Pure all the way down. See
+;; `docs/guide/glossary.md#event-handler`.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -102,8 +103,8 @@
   ;; `init!` tells re-frame2 which reactive substrate to render through —
   ;; here, Reagent. Each adapter ns exports an `adapter` var; you require the
   ;; ns and pass that var. One call, at startup, and you're done. Note it
-  ;; installs the adapter, not a frame — those come later, via the provider.
-  ;; See `docs/guide/glossary.md#init`.
+  ;; installs the adapter for the whole process, not a frame — frames come
+  ;; later, via the provider. See `docs/guide/glossary.md#init`.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

@@ -37,7 +37,11 @@
 
    In a real codebase you'd split this across login/schema.cljc,
    events.cljs, subs.cljs, views.cljs, and machines.cljs. It lives in one
-   file here so you can read it top to bottom in one sitting."
+   file here so you can read it top to bottom in one sitting.
+
+   Examples are test-free: login's behaviour is covered by the substrate
+   contract suite (`npm run test:cljs`) and the framework gates, not by a
+   test alongside this file."
   ;; This example runs on stock Reagent. It's also the cross-substrate
   ;; reference base — mirrored 1:1 as `login-uix` and `login-helix` — so
   ;; staying on Reagent keeps the three an honest apples-to-apples
@@ -416,7 +420,7 @@
 ;; it's fair to show a field's error). This single event is the *entire* job
 ;; of an input's `:on-change` — it sets no view-local state, because there
 ;; is none. The `:schema` swats away any malformed edit-field vector at the
-;; boundary before the handler sees it.
+;; `:where :event` boundary before the handler sees it.
 (rf/reg-event :auth.login/edit-field
   {:doc    "Controlled-input edit: write one field into the login-form draft
             and mark it touched."

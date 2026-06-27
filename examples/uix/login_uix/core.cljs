@@ -64,9 +64,9 @@
 ;; framework tacks the reply map (`{:kind ... :value ...}` or
 ;; `{:kind ... :failure ...}`) onto the end of the `:on-success` / `:on-failure`
 ;; vector, so what actually arrives is
-;; `[:auth.login/flow [:auth.login/success] <payload>]` — three elements deep.
-;; Leave off that optional slot and the `:cat` rejects every reply, failing
-;; validation before the handler ever runs. See
+;; `[:auth.login/flow [:auth.login/success] <payload>]` — three top-level
+;; elements, not two. Leave off that optional slot and the `:cat` rejects every
+;; reply, failing validation before the handler ever runs. See
 ;; docs/guide/glossary.md#the-uniform-reply.
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
@@ -225,7 +225,8 @@
     ;; we have to wipe the old `:error` on the way through. If we don't, the
     ;; stale failure message hangs around (the view shows `:auth.login/error`
     ;; whenever it's non-nil) looking for all the world like it belongs to the
-    ;; request now in flight. Same `:clear-error` action the :idle exit uses.
+    ;; request now in flight. Same `:clear-error` action the :idle → :submitting
+    ;; transition uses.
     {:on {:auth.login/dismiss {:target :idle}
           :auth.login/submit  {:target :submitting
                                :action :clear-error}}}

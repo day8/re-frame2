@@ -62,7 +62,9 @@
 ;; dataflow behind.
 ;;
 ;; Helix is plain React, so a view is a `defnc` component that asks for what it
-;; needs out loud. `use-subscribe` is a hook that reads a subscription.
+;; needs out loud — `defnc` directly, since the `reg-view` macro is Reagent-only
+;; (UIx and Helix both read state with `use-subscribe`). `use-subscribe` is a
+;; hook that reads a subscription.
 ;; `dispatch` comes off a `(rf/frame-handle)`: the handle captures the in-scope
 ;; frame as a value, so the closed-over `dispatch` still finds this frame when
 ;; a click fires later — on a stack that no longer has any frame in scope. So
