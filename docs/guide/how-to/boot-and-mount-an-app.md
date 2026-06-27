@@ -1,7 +1,8 @@
 # Boot and mount an app
 
-An app entry point has two jobs:
+An app's entry/boot namespace has three jobs:
 
+- require the namespaces that register the app's behaviour;
 - install the reactive adapter for the process;
 - render a view tree inside a frame.
 
@@ -25,6 +26,7 @@ function. Keep the process setup inline in `run`, and put DOM work in `mount!`.
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
+            ;; These namespaces are required for their registrations.
             [counter.events]
             [counter.subs]
             [counter.views :refer [counter-app]]))
@@ -55,6 +57,13 @@ Wire `run` as the build's `:init-fn`, for example
 `rf/init!` is process setup. `mount!` is browser setup. Keeping the DOM touch
 inside `mount!` lets the namespace load in tests or Node hosts where
 `js/document` is not present.
+
+The `ns` form is also part of boot. `counter.events` and `counter.subs` may look
+unused in this namespace, but requiring them loads their `reg-event` and
+`reg-sub` forms. A real app's entry/boot namespace usually requires every
+namespace whose top-level registrations must exist before the app runs: events,
+effects, coeffects, subscriptions, views, routes, resources, machines, and
+schemas.
 
 ## What the Provider Does
 
@@ -178,6 +187,7 @@ tooling harness needs to create the frame before rendering.
 
 | Moment | What should happen |
 | --- | --- |
+| Namespace load | The entry/boot namespace requires the registration namespaces, so their `reg-*` forms run. |
 | First page load | `run` installs the adapter, installs any host listeners, and mounts the view. |
 | First mount of `{:id ...}` | The provider creates the frame and runs `:initial-events`. |
 | Hot reload | The reload hook re-renders into the same root and reuses the same frame. |
@@ -187,7 +197,7 @@ tooling harness needs to create the frame before rendering.
 ## No DOM Work at Namespace Load
 
 Keep `create-root`, `render`, and browser listener installation out of top-level
-namespace code.
+namespace code. Requiring registration namespaces is fine; browser work is not.
 
 Top-level registration is fine:
 
