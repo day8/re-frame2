@@ -9,10 +9,12 @@
        (return ≥ start) constraint holds.
      - Clicking Book pops up a confirmation message.
 
-   This task is about constrained UI input: the Book button's enabled state
-   is derived from three other fields. Computing it imperatively after every
-   change risks missing a path. Here it is a subscription, so it is always
-   in sync.
+   This task is really about *derived UI state*. The Book button's
+   enabled-ness depends on three other fields, and the imperative way to keep
+   it correct — recompute it after every keystroke, in every handler — is the
+   kind of thing you get right four times and wrong the fifth. So we don't.
+   We make it a subscription. It recomputes itself whenever its inputs change,
+   and there is no fifth path to forget.
 
    Demonstrates:
    - A schema-bound app-db slice
@@ -21,7 +23,8 @@
    - UI state driven by sub return values"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Require re-frame.schemas to make rf/reg-app-schema available.
+            ;; Loading re-frame.schemas registers its late-bind hooks, which
+            ;; is what makes rf/reg-app-schema resolve below.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -33,17 +36,21 @@
 
 (def date-pattern  #"^\d{4}-\d{2}-\d{2}$")    ;; ISO yyyy-mm-dd
 
+;; The slice stores dates as the raw text the user typed, not as parsed dates.
+;; That's deliberate: someone mid-keystroke at "2026-05-" hasn't typed a date
+;; yet, and we don't want app-db to lie about that. Parsing and validity are
+;; questions we ask later, in the subscriptions.
 (def FlightState
   [:map
    [:trip-type   [:enum :one-way :return]]
-   [:start-text  :string]                    ;; raw text the user typed; we don't parse until validation
+   [:start-text  :string]
    [:return-text :string]])
 
-;; Bind the schema to the app frame so it validates that frame's commits.
-;; `reg-app-schema` is frame-local, so `with-frame` names the target frame
-;; by id. We use `:rf/default` to match the `frame-provider {:id …}` at the
-;; render root. Binding is by id, so this works even though it runs at
-;; ns-load, before the provider creates the frame.
+;; A schema is frame-local, so it binds inside a frame. The render root runs
+;; this app in `:rf/default` (see the `frame-provider {:id …}` below), so we
+;; name that frame here. Binding is by id, which is why this works even though
+;; it runs at ns-load — before the provider has actually created the frame.
+;; From here on, every commit to the `[:flight]` slice is validated.
 (with-frame :rf/default
   (rf/reg-app-schema [:flight] {:schema FlightState}))
 
@@ -54,8 +61,9 @@
 (rf/reg-event :flight/initialise
   {:doc "Seed the flight slice."}
   (fn handler-flight-initialise [{:keys [db]} _]
-    ;; Seed both date fields to a fixed valid ISO date. The 7GUIs task seeds
-    ;; "today"; a constant keeps the example deterministic instead.
+    ;; Both date fields start on the same valid ISO date. The 7GUIs task seeds
+    ;; "today", but a constant keeps the example deterministic — and keeps the
+    ;; tests from failing at midnight.
     {:db (assoc db :flight {:trip-type   :one-way
                        :start-text  "2026-05-06"
                        :return-text "2026-05-06"})}))
@@ -101,6 +109,20 @@
 ;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
+;;
+;; This is where the example earns its keep. The slice holds three raw fields;
+;; the UI needs answers — is this date valid? should Book be clickable? — and
+;; we compute those as a small chain of subscriptions.
+;;
+;; The base layer (`:flight/trip-type`, `:flight/start-text`,
+;; `:flight/return-text`) just reads the slice. Each sub above it asks one
+;; sharper question by `:<-` chaining off the answers below: is the start date
+;; valid, does return need validating at all, do the two dates make sense
+;; together. `:flight/book-enabled?` sits at the top and ANDs the lot.
+;;
+;; The payoff: the button's enabled-ness is a pure function of state that
+;; recomputes itself. Nothing in the event handlers has to remember to keep it
+;; in sync, because nothing in the event handlers ever touches it.
 
 (rf/reg-sub :flight/trip-type   (fn [db _] (get-in db [:flight :trip-type])))
 (rf/reg-sub :flight/start-text  (fn [db _] (get-in db [:flight :start-text])))
@@ -154,10 +176,15 @@
       :one-way true
       :return  (and (valid-date? s)
                     (valid-date? r)
-                    (<= (compare s r) 0)))))     ;; ISO dates compare lexicographically
+                    ;; ISO dates sort correctly as plain strings — the whole
+                    ;; reason the format is yyyy-mm-dd — so a string compare is
+                    ;; all we need to check return ≥ start.
+                    (<= (compare s r) 0)))))
 
 (rf/reg-sub :flight/book-enabled?
-  {:doc "True when the Book button should be enabled."}
+  {:doc "The keystone sub: Book is clickable only when the start date is
+         valid, the return date is valid (or unused), and the two are in a
+         sensible order. Three smaller answers, ANDed into one."}
   :<- [:flight/start-valid?]
   :<- [:flight/return-valid?]
   :<- [:flight/dates-coherent?]
@@ -207,23 +234,24 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; Hold the React root in an atom and create it lazily inside `run`, not at
-;; ns-load. ns-load must have no DOM side effects so co-required example
-;; namespaces don't race `create-root` onto the shared `#app`. See
-;; examples/TESTING.md, the Example mount-isolation convention.
+;; The React root lives in an atom and is created lazily inside `run`, never at
+;; ns-load. Loading a namespace must do no DOM side effects, so that co-loaded
+;; example namespaces don't race each other to `create-root` onto the shared
+;; `#app`. See examples/TESTING.md, the Example mount-isolation convention.
 (defonce react-root (atom nil))
 
-;; The frame lifecycle lives in one place: the `frame-provider {:id app-frame
-;; …}` at the render root below. On first mount it creates the app frame,
-;; applies its config, and runs `:initial-events` once to seed app-db. On hot
-;; reload it reuses the same frame and skips re-seeding. `app-frame` is just
-;; an id we pick and hand to the provider. See the counter example for the
-;; same mount shape: examples/reagent/counter/core.cljs.
+;; The whole frame lifecycle lives in one place: the `frame-provider {:id
+;; app-frame …}` at the render root below. On first mount it creates the app
+;; frame, applies its config, and runs `:initial-events` once to seed app-db.
+;; On hot reload it reuses the same frame and skips re-seeding, so your
+;; half-filled form survives a save. `app-frame` is just an id we pick and hand
+;; to the provider — the runtime won't guess it for us. Same mount shape as the
+;; counter: examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
   ;; `init!` installs the reactive adapter for the process. The adapter ns
-  ;; exports an `adapter` var; pass it directly.
+  ;; exports an `adapter` var; pass it straight in.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

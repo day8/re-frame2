@@ -1,37 +1,41 @@
 (ns seven-guis.cells.core
-  "7GUIs #7 — Cells.
+  "7GUIs #7 — Cells: a tiny spreadsheet.
 
-   A small spreadsheet with cells A1..Z100. Each cell holds either a literal
-   value or a formula. Formulas reference other cells. Changes propagate.
+   A 26×100 grid (A1..Z100). Type a number into a cell, or a formula like
+   `=(+ A1 B2)` that refers to other cells. Edit a cell anyone depends on and
+   the change ripples outward, the way it does in every spreadsheet you've ever
+   used. That ripple is the whole exercise.
 
-   This is a test of change propagation through a dependency graph. Each
-   cell's display value is a subscription (`:cells/value`) parameterised by
-   id, derived purely from the cell map in app-db. The subscription layer
-   handles propagation, so there are no hand-maintained per-cell observers
-   to keep in sync.
+   Here's the trick, and it's a good one: there is no propagation code. We
+   never track who-depends-on-whom or push updates along edges. Each cell's
+   display value is just a subscription — `:cells/value` parameterised by id —
+   that reads the cell map out of app-db and computes a number. The derivation
+   graph does the rippling for us.
 
-   Every `:cells/value` sub takes the whole cell map (`:cells/all-cells`) as
-   its single input. Committing any cell produces a fresh map identity, so
-   every mounted value reaction recomputes — dependent or not. This stays
-   cheap because the evaluator is a pure function over a small grid (26×100),
-   and the subscription layer `=`-dedups each result, so a cell whose value
-   is unchanged does not re-render. See the derivation graph in
-   ../../../../docs/guide/glossary.md#the-derivation-graph.
+   How? Every `:cells/value` reads the *whole* cell map (`:cells/all-cells`) as
+   its one input. Commit any edit and that map gets a fresh identity, so every
+   cell on screen recomputes — dependents and bystanders alike. Sounds
+   wasteful; isn't. The evaluator is a pure function over a small grid, and the
+   subscription layer `=`-dedups every result, so a cell whose value didn't
+   actually move doesn't re-render. We trade a little recompute (cheap) for
+   zero bookkeeping (priceless). The
+   [derivation graph](../../../../docs/guide/glossary.md#the-derivation-graph)
+   has the full story.
 
-   Demonstrates:
-   - Pure derivation of every cell from a single shared input sub
-   - `=`-dedup in the subscription layer avoiding re-render of unchanged cells
-   - Cycles detected via a visited-set walk during evaluation
-   - Typed error markers propagated through arithmetic (never throws)
-   - Open-map cell registry (sparse storage)
-   - Pure parser + evaluator (no eval, no host I/O)
+   What this example shows off:
+   - Every cell derived purely from one shared input sub — no per-cell wiring
+   - `=`-dedup keeping unchanged cells from re-rendering
+   - Cycles (A1 → B1 → A1) caught by a visited-set walk, not a stack overflow
+   - Bad arithmetic turned into typed error markers — the evaluator never throws
+   - A sparse cell registry: only edited cells take up space
+   - A pure parser + evaluator — no `eval`, no host I/O, runs anywhere
 
-   Scope: 26 cols × 100 rows. Formulas of the form '=expr' where expr is a
-   simple S-expression-flavored calculator (numbers, +, -, *, /, cell refs)."
+   The formula language is a tiny parenthesised calculator: numbers, cell refs
+   (A1..Z100), and `+ - * /`, all written prefix inside `()`."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Loading re-frame.schemas registers the hooks that make
-            ;; rf/reg-app-schema resolve.
+            ;; Pulled in for its side effect: loading it wires up the hooks that
+            ;; make `rf/reg-app-schema` actually do something.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -48,14 +52,23 @@
   100)
 
 (def cell-re
-  "Cell-id regex — one capital letter + 1-3 digits (e.g. A1, Z99, A100).
-   The grid is 26 cols × 100 rows, so row 100 cell-ids (A100..Z100) carry
-   three digits and MUST match here, otherwise a formula referencing a
-   row-100 cell parses as #PARSE even though the cell exists in the grid."
+  "Matches a cell id: one capital letter, then 1-3 digits (A1, Z99, A100).
+   The three-digit allowance is load-bearing. Row 100 really exists, so its
+   ids (A100..Z100) need three digits — leave those out and a formula pointing
+   at a perfectly valid row-100 cell would be rejected as #PARSE. Off-by-one
+   errors love a good fencepost."
   #"^[A-Z]\d{1,3}$")
 
-(defn cell-id [col row] (str (char (+ 65 col)) row))
-(defn parse-cell-id [s]
+;; The two directions between a grid coordinate and its name. 65 is the
+;; ASCII code for "A", so column 0 reads as A, column 1 as B, and so on.
+(defn cell-id
+  "Coordinate → name: `(cell-id 0 1)` => \"A1\"."
+  [col row] (str (char (+ 65 col)) row))
+
+(defn parse-cell-id
+  "Name → coordinate: \"A1\" => `[0 1]`. Returns nil for anything that isn't
+   a valid cell id."
+  [s]
   (when (re-matches cell-re s)
     [(- (int (.charAt s 0)) 65) (js/parseInt (subs s 1))]))
 
@@ -63,6 +76,9 @@
 ;; SCHEMA
 ;; ============================================================================
 
+;; What one cell remembers. We keep the raw text alongside the parsed form so
+;; editing shows you exactly what you typed, while the evaluator works from the
+;; pre-parsed AST.
 (def CellEntry
   [:map
    [:raw     :string]                  ;; what the user typed
@@ -76,11 +92,11 @@
    [:selected-id [:maybe :string]]
    [:editing-id  [:maybe :string]]])
 
-;; Register the app-db schema for the app frame. `reg-app-schema` needs a
-;; frame in scope, so `with-frame :rf/default` names the frame `run` mounts.
-;; The schema binds by frame id, so this works at ns-load even though the
-;; frame does not exist yet; once it does, the schema validates its
-;; `[:cells]` commits.
+;; Hand the schema to the frame so every commit under `[:cells]` gets validated.
+;; `reg-app-schema` needs a frame in scope, and `with-frame` supplies one by id
+;; — `:rf/default`, the same name `run` mounts down below. The id is all that's
+;; needed: we can register the schema here at load time, before the frame
+;; actually exists, and it snaps into place once the frame is created.
 (with-frame :rf/default
   (rf/reg-app-schema [:cells] {:schema CellsState}))
 
@@ -88,15 +104,19 @@
 ;; PARSER + EVALUATOR
 ;; ============================================================================
 ;;
-;; Tiny S-expression flavor: '=(+ A1 (* B2 3))'. Pure functions, JVM-runnable.
+;; A formula is a string like '=(+ A1 (* B2 3))'. Turning that into an answer
+;; is two steps: parse the text into an AST, then walk the AST computing a
+;; number. Everything here is a pure function — no `eval`, no DOM, no surprises
+;; — so it runs just as happily on the JVM in a unit test as it does in the
+;; browser.
 
 (def num-re
-  "Full-string numeric grammar: optional sign, integer and/or fractional
-   part, optional exponent. Anchored end-to-end so lax prefixes like
-   \"1abc\" or \"1.2.3\" are rejected — `js/parseFloat` would otherwise
-   silently accept their leading numeric run (\"1abc\" → 1), letting an
-   invalid token/literal evaluate as a number instead of surfacing a
-   parse error / staying text."
+  "Matches a string that is *entirely* a number: optional sign, an integer
+   and/or fractional part, optional exponent. The anchors (`^`…`$`) matter.
+   Without them `js/parseFloat` is too forgiving — it reads \"1abc\" as 1 and
+   \"1.2.3\" as 1.2, happily swallowing the leading numeric run. That would let
+   junk masquerade as a number instead of surfacing as a parse error or staying
+   plain text, so we insist the whole string be numeric or nothing."
   #"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
 
 (defn parse-num
@@ -109,8 +129,10 @@
         (when-not (js/isNaN n) n)))))
 
 (defn tokenise [s]
-  ;; Splits a formula body into tokens. Whitespace-separated; '(' and ')'
-  ;; split out as their own tokens.
+  ;; Chop a formula body into tokens. Tokens are whitespace-separated, and we
+  ;; pad the parens with spaces first so "(+" becomes "( +" — that way "(" and
+  ;; ")" fall out as tokens of their own without anyone needing to write spaces
+  ;; around them.
   (->> (-> s
            (str/replace #"\(" " ( ")
            (str/replace #"\)" " ) ")
@@ -124,9 +146,11 @@
   "=(+ A1 B2) — start with '=', then numbers, cell refs (A1..Z100), and +-*/ inside ().")
 
 (defn parse-tokens [tokens]
-  ;; Returns [ast remaining-tokens] or throws on malformed input. Each
-  ;; ex-info carries the offending token in its data so `parse-formula` can
-  ;; build an actionable, position-aware message.
+  ;; A little recursive-descent parser. Reads one expression off the front of
+  ;; the token list and returns [ast remaining-tokens]; a "(" recurses to gobble
+  ;; a nested list until its ")". Malformed input throws, and each thrown
+  ;; ex-info tucks the offending token into its data so `parse-formula` can point
+  ;; the user right at it.
   (if (empty? tokens)
     [nil tokens]
     (let [[t & more] tokens]
@@ -140,7 +164,8 @@
                                        (recur (conj acc child) rest-toks))))
         ")" (throw (ex-info "an extra ')' has no matching '(' — remove it or add a '('"
                             {:token ")"}))
-        ;; Atom: number, cell ref, or operator symbol.
+        ;; Anything else is a single atom: a number, a cell ref, an operator,
+        ;; or — if it's none of those — a typo we explain.
         (let [num (parse-num t)]
           (cond
             (some? num)                    [num                             more]
@@ -151,15 +176,17 @@
                                                            {:token t}))))))))
 
 (defn parse-error-message
-  "Build an actionable parse-error message for cell `id` (may be nil) whose
-   formula text is `raw`, given the caught exception `e`. Names the cell, shows
-   the formula, points at the offending token where known, and states the
-   expected shape in user terms."
+  "Turn a caught parse exception into a sentence a human can act on. Names the
+   cell `id` (may be nil), echoes the formula `raw`, points at the offending
+   token when we know it, and reminds the user what a good formula looks like.
+   A blank \"#PARSE\" tells you nothing; \"can't parse … token '%'\" tells you
+   where to look."
   [id raw e]
   (let [reason (or (ex-message e) "could not be parsed")
         token  (:token (ex-data e))
-        ;; Token position in the formula body (1-based, after the '='), where
-        ;; the offending token can be located. Best-effort: nil when unknown.
+        ;; Where in the formula the bad token sits, 1-based after the '='. We
+        ;; just find the token's first occurrence — good enough to nudge the
+        ;; eye, and nil if we can't locate it.
         pos    (when (and token (string? raw))
                  (let [i (str/index-of raw token)]
                    (when i (inc i))))]
@@ -169,9 +196,11 @@
          " — " reason ". Expected " formula-shape-hint)))
 
 (defn parse-formula
-  "Parse `raw` (a \"=...\" formula) for cell `id` (used only to make the error
-   message name the cell). Returns the AST on success, or a `[:error/parse msg]`
-   pair carrying an actionable message on failure."
+  "Parse a \"=...\" formula into an AST. `id` is only along for the ride so a
+   failure message can name the cell. Note the return contract: success gives
+   you the AST, failure gives you a `[:error/parse msg]` pair. We don't throw
+   across this boundary — the error becomes a value that rides all the way
+   through evaluation and out to the cell as a tooltip."
   ([raw] (parse-formula nil raw))
   ([id raw]
    (let [body (subs raw 1)]
@@ -196,8 +225,10 @@
   (when (parse-error? ast) (second ast)))
 
 (defn collect-deps [ast]
-  ;; Returns the set of cell ids referenced anywhere in the AST. A parse-error
-  ;; pair (`[:error/parse msg]`) is not an AST and carries no deps.
+  ;; Walk the AST and gather every cell id it mentions. We stash this set on the
+  ;; cell when we commit it — handy for tooling and debugging, even though
+  ;; evaluation doesn't lean on it (the derivation graph already knows the
+  ;; dependencies). A parse-error pair isn't an AST, so it contributes nothing.
   (cond
     (parse-error? ast)    #{}
     (vector? ast)         (apply clojure.set/union (map collect-deps ast))
@@ -207,7 +238,12 @@
 
 (declare evaluate-cell)
 
-(defn evaluate-ast [ast cells visited]
+(defn evaluate-ast
+  "Walk an AST to a value. Numbers are themselves, a cell ref defers to
+   `evaluate-cell`, and a list applies its operator to evaluated args. Errors
+   are values here, not exceptions — they flow upward instead of unwinding the
+   stack."
+  [ast cells visited]
   (cond
     (number? ast) ast
     (nil? ast)    nil
@@ -218,10 +254,9 @@
     (vector? ast)
     (let [[op & args] ast
           vals        (mapv #(evaluate-ast % cells visited) args)]
-      ;; Propagate errors/non-numbers rather than feeding them to the op
-      ;; (which would throw): surface an upstream error marker if one
-      ;; reached us, else :error/type for text-in-arithmetic. `-` and `/`
-      ;; with no args throw an arity error, so guard empty `vals` too.
+      ;; Only do arithmetic if every argument actually came back a number.
+      ;; Feeding text or an error marker to `+` would throw, and so would `-`
+      ;; or `/` with no args at all — hence the `seq` guard too.
       (if (and (seq vals) (every? number? vals))
         (case (str op)
           "+" (apply + vals)
@@ -229,18 +264,24 @@
           "*" (apply * vals)
           "/" (if (some zero? (rest vals)) :error/div-by-zero (apply / vals))
           :error/unknown-op)
-        ;; Surface the first upstream error marker that reached us — a
-        ;; referenced cell's parse-error pair or a keyword error marker — else
-        ;; :error/type for text-in-arithmetic.
+        ;; Something upstream wasn't a number. If a real error reached us — a
+        ;; referenced cell's parse-error pair, or a keyword marker like
+        ;; :error/cycle — pass the first one along unchanged so the original
+        ;; cause survives. Otherwise it's plain text in a sum: :error/type.
         (or (first (filter parse-error? vals))
             (first (filter keyword? vals))
             :error/type)))
 
     :else :error/eval))
 
-(defn evaluate-cell [id cells visited]
-  ;; Returns the cell's display value, :error/cycle, or the parse-error pair
-  ;; `[:error/parse msg]` (the actionable message rides through to the view).
+(defn evaluate-cell
+  "Compute one cell's display value. `visited` is the set of cell ids already on
+   the current evaluation path — our cycle guard. If we're asked to evaluate a
+   cell that's already on the path, A1 → B1 → A1 has come back to bite us, so we
+   bail with :error/cycle instead of recursing forever. A formula recurses with
+   itself added to the set; a literal parses to a number or stays text; an
+   untouched cell is simply 0."
+  [id cells visited]
   (cond
     (visited id)  :error/cycle
     :else
@@ -274,7 +315,9 @@
         (assoc-in [:cells :editing-id]  id))}))
 
 (rf/reg-event :cells/commit
-  {:doc "Commit the user's edit. Parses formulas and stores deps."
+  {:doc "Save the user's edit. Parses any formula up front and stashes the AST
+         and its deps on the cell — so evaluation later is just a walk, never a
+         re-parse. Blank input deletes the cell, keeping the map sparse."
    :schema [:cat [:= :cells/commit] :string :string]}
   (fn handler-cells-commit [{:keys [db]} [_ id raw]]
     {:db (let [formula? (and (string? raw) (str/starts-with? raw "="))
@@ -297,14 +340,15 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
-;; The :cells/value sub is parameterised by id — `(subscribe [:cells/value
-;; "A1"])`. Each cell's display value derives from the full cells map, so
-;; every value reaction recomputes on any edit; the subscription layer
-;; =-dedups the result so only cells whose value actually changed re-render.
+;; This is where the propagation magic actually lives — which is to say,
+;; nowhere special. `:cells/value` is parameterised by id, so a view asks for a
+;; specific cell with `(subscribe [:cells/value "A1"])`. Every such sub reads
+;; the one shared input below and computes from scratch, and `=`-dedup makes
+;; that cheap. No edges, no listeners, no propagation engine.
 
 (rf/reg-sub :cells/all-cells
-  {:doc "The sparse cell map (only edited cells are present). Single input to
-         every cell's value/raw sub."}
+  {:doc "The sparse cell map — only edited cells are present. Every cell's value
+         and raw sub hangs off this one input."}
   (fn sub-cells-all-cells [db _] (get-in db [:cells :cells])))
 
 (rf/reg-sub :cells/raw
@@ -313,10 +357,11 @@
   (fn sub-cells-raw [cells [_ id]] (get-in cells [id :raw] "")))
 
 (rf/reg-sub :cells/value
-  {:doc "Display value of cell `id`. Pure derivation against the full cells map.
-         The evaluator already turns bad input into typed error markers; the
-         try/catch is a defence-in-depth backstop so a value reaction can never
-         throw out of its compute (which would break render of the whole grid)."}
+  {:doc "Display value of cell `id` — a pure derivation over the whole cell map.
+         The evaluator already turns bad input into typed error markers, so this
+         try/catch is belt-and-suspenders: if some unforeseen input ever slips
+         through and throws, one cell shows #EVAL instead of taking the entire
+         grid's render down with it."}
   :<- [:cells/all-cells]
   (fn sub-cells-value [cells [_ id]]
     (try
@@ -335,14 +380,20 @@
 ;; VIEW
 ;; ============================================================================
 
+;; One cell. It has two faces: while you're editing it shows an <input> holding
+;; the raw text; otherwise it shows the computed value. Which face we wear comes
+;; straight from subscriptions, so any edit anywhere just flows back in.
 (reg-view cell-view [id]
   (let [editing-id @(subscribe [:cells/editing-id])
         editing?   (= editing-id id)
         raw        @(subscribe [:cells/raw   id])
         value      @(subscribe [:cells/value id])
-        ;; A parse error rides through as `[:error/parse msg]`; pull out the
-        ;; actionable message to surface on hover.
+        ;; A parse error arrives as `[:error/parse msg]`; pull the message out so
+        ;; we can show it on hover.
         parse-err  (parse-error-text value)
+        ;; Pick what the cell shows. The error markers map to the familiar
+        ;; spreadsheet hash-codes (#CYCLE, #DIV/0, …); anything else is just the
+        ;; value, stringified.
         display    (cond
                      editing?                  raw
                      parse-err                 "#PARSE"
@@ -351,12 +402,12 @@
                      (= value :error/type)     "#TYPE"
                      (= value :error/div-by-zero) "#DIV/0"
                      :else                     (str value))]
-    ;; `data-cell`/`data-cell-input` carry the grid coordinate as a domain
-    ;; attribute; `data-testid` mirrors the cluster's test-hook scheme so the
-    ;; six examples share one selector convention. On a parse error the
-    ;; actionable message rides in `title` (native hover tooltip) and is
-    ;; mirrored to `data-parse-error` so it is inspectable, with an
-    ;; `cell--parse-error` class for styling.
+    ;; The `data-*` attributes are hooks for tests and tooling: `data-cell`
+    ;; tags the coordinate, and `data-testid` follows the same naming the other
+    ;; seven-GUIs examples use, so one selector convention covers them all. When
+    ;; the cell holds a parse error we also stash the message three ways — in
+    ;; `title` for a native hover tooltip, in `data-parse-error` for inspection,
+    ;; and as a class to style it.
     [:td.cell (cond-> {:data-cell   id
                        :data-testid (str "cells-cell-" id)
                        :on-click    #(dispatch [:cells/start-editing id])}
@@ -389,26 +440,29 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and created lazily inside `run`, not at
-;; ns-load. ns-load must produce no DOM side effects, so co-required example
-;; namespaces don't race `create-root` onto the shared `#app`.
+;; We hold the React root in an atom and create it lazily inside `run`, never at
+;; load time. Loading a namespace must not touch the DOM — otherwise several
+;; example namespaces sharing this page would all race to call `create-root` on
+;; the same `#app` element. Once is plenty.
 (defonce react-root (atom nil))
 
-;; The frame lives in one spot: the `frame-provider {:id app-frame …}` in
-;; `run`. On first mount it creates the frame, applies its config, and runs
-;; `:initial-events` once to seed app-db. Thereafter every `dispatch` and
-;; `subscribe` in the tree resolves to that frame. On hot reload the provider
-;; reuses the existing frame and skips re-seeding, so the grid keeps its
-;; values. `init!` (below) only installs the adapter; the provider creates the
-;; frame. See ../../../../docs/guide/glossary.md#frame-provider.
+;; The frame's whole life happens in one place: the `frame-provider` down in
+;; `run`. First mount creates the frame, applies its config, and fires
+;; `:initial-events` once to seed app-db. After that every `dispatch` and
+;; `subscribe` in the tree finds *this* frame. On hot reload the provider reuses
+;; the frame it already made and skips the seeding, so your grid keeps the
+;; values you typed. (`init!` below doesn't make the frame — the provider does.)
+;; The [frame-provider](../../../../docs/guide/glossary.md#frame-provider)
+;; glossary entry has the longer version.
 ;;
-;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
-;; with no framework privilege.
+;; `app-frame` is just an id we chose. `:rf/default` is an ordinary frame id —
+;; no special powers, despite the official-looking name.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; `init!` installs the reactive adapter for the process. Each adapter ns
-  ;; exports an `adapter` var; require the ns and pass that var directly.
+  ;; `init!` tells re-frame2 which reactive substrate to render through — here,
+  ;; Reagent. Every adapter namespace exports an `adapter` var; you require the
+  ;; namespace and hand that var straight in.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

@@ -1,26 +1,33 @@
 (ns routing.core
-  "A small three-page routing app: home, articles list, article detail.
-   See the [routing guide](../../../docs/routing/concepts.md).
+  "A small three-page routing app: home, an articles list, and an article
+   detail page. See the [routing guide](../../../docs/routing/concepts.md).
 
-   The one idea: the URL is application state you read through a subscription,
-   and navigation is just an event. A route is a registration, the active route
-   is a sub, and `root-view` is a `case` over `:rf.route/id`. No router object,
-   no route context to thread through the tree.
+   Here's the one idea worth taking away: the URL is just application state,
+   and you read it through a subscription. Navigation, then, is just an event.
+   So a route is a registration, the active route is a sub, and `root-view` is
+   a plain `case` over `:rf.route/id` — pick a page by id and render it. No
+   router object to hold, no route context to thread down through the tree.
 
-   The surface this example uses:
+   If you've used a router that hands you an object full of methods, this will
+   feel almost suspiciously quiet. That's the point.
 
-   - `reg-route` for the route table
-   - `:rf.route/id` and `:rf.route/params` to read the active route as subs
-   - `route-link` for links that drive navigation
-   - `:rf/url-requested` for user-initiated anchor clicks
-   - `install-history-listener!` for popstate + initial-load URL→state sync"
+   The pieces of the routing surface this example leans on:
+
+   - `reg-route` — declares the route table, one entry per page
+   - `:rf.route/id` / `:rf.route/params` — read the active route as subs
+   - `route-link` — renders links that drive navigation
+   - `:rf/url-requested` — the event a user clicking an anchor fires
+   - `install-history-listener!` — wires up Back/Forward and the first-load
+     URL→state sync, so the address bar and your app-db stay in agreement"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            ;; Routing ships in the day8/re-frame2-routing artefact. Requiring
-            ;; it registers the route subs the `rf/reg-route` calls below depend
-            ;; on; without this require those calls throw
-            ;; :rf.error/routing-artefact-missing.
+            ;; Routing lives in its own artefact (day8/re-frame2-routing), so
+            ;; you opt into it with a require. The require has a side effect:
+            ;; it registers the route subs that the `rf/reg-route` calls below
+            ;; lean on. Forget it and those calls greet you with
+            ;; :rf.error/routing-artefact-missing — which is the runtime's
+            ;; polite way of saying "you asked for routing but never packed it".
             [re-frame.routing]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -28,6 +35,12 @@
 ;; ============================================================================
 ;; ROUTES
 ;; ============================================================================
+;;
+;; The route table: one `reg-route` per page, each pairing a route id with a
+;; URL pattern. A pattern segment like `:id` is a hole the matcher fills in
+;; and hands back as a param. This is the whole map of the app, written as
+;; data — the kind of thing you can read top-to-bottom and just *know* where
+;; the doors are.
 
 (rf/reg-route :routing.app/home
   {:doc  "Landing page."} "/")
@@ -39,7 +52,8 @@
   {:doc    "Detail page for one article."
    :params [:map [:id :string]]} "/articles/:id")
 
-;; The runtime emits :rf.route/not-found for unmatched URLs.
+;; When a URL matches nothing, the runtime routes to :rf.route/not-found for
+;; you. Register it like any other route and you decide what that page says.
 (rf/reg-route :rf.route/not-found
   {:doc  "Fallback page for unmatched URLs."} "/_404")
 
@@ -47,10 +61,14 @@
 ;; APP DATA
 ;; ============================================================================
 
-;; The articles collection lives under :routing.app/articles-list. Route
-;; ids and sub/app-db keys live in separate registries, so a clash is
-;; harmless — but a distinct key (not :routing.app/articles, the route
-;; id) keeps the example easy to scan.
+;; Now the boring-but-honest part: the actual articles. Routing tells you
+;; *which* page; this is the data the pages render.
+;;
+;; The articles live under :routing.app/articles-list. Route ids and
+;; app-db/sub keys live in separate registries, so naming this key
+;; :routing.app/articles (same as the route) wouldn't actually clash. But
+;; giving it a distinct name keeps the example scannable — "which one's the
+;; route, which one's the data?" should never be a puzzle.
 (rf/reg-event :routing.app/initialise
   (fn [{:keys [db]} _]
     {:db {:routing.app/articles-list
@@ -69,12 +87,18 @@
 ;; PAGES
 ;; ============================================================================
 ;;
-;; Links use `rf/route-link`, the framework view shipped by the routing
-;; artefact. It renders an `<a href=...>`, intercepts plain primary-button
-;; clicks to dispatch `:rf/url-requested`, and defers modifier-key and
-;; middle-click clicks to the browser so open-in-new-tab still works. Any
-;; passthrough HTML attrs on the props map (e.g. `:data-testid`) land on the
-;; underlying `<a>`. See the routing guide, "Linking from views":
+;; One view per page. Links between them use `rf/route-link`, a small view the
+;; routing artefact ships so you don't hand-roll anchors.
+;;
+;; It renders a real `<a href=...>` — so it looks and feels like a normal
+;; link, and the href is even right if someone hovers or copies it. The trick
+;; is in the click: a plain left-click is caught and turned into a
+;; `:rf/url-requested` event (no full page reload), while modifier-clicks and
+;; middle-clicks are waved straight through to the browser, because nobody
+;; likes a link that's forgotten how to open in a new tab. Any extra HTML
+;; attrs you pass (here `:data-testid`) ride along onto the `<a>`.
+;;
+;; See the routing guide, "Linking from views":
 ;; ../../../docs/routing/concepts.md#linking-from-views
 
 (reg-view home-page []
@@ -98,9 +122,10 @@
 (reg-view article-detail-page []
   (let [id      (:id @(subscribe [:rf.route/params]))
         article @(subscribe [:routing.app/article-by-id id])]
-    ;; The back-link is page-chrome shared by both the found and
-    ;; not-found states, so compute only the differing inner content
-    ;; per branch and render the link once.
+    ;; The "← Back" link is the same in both cases — found or not — so it's
+    ;; page chrome, not page content. We let each branch decide only the bit
+    ;; that actually differs (the article, or the apology) and render the link
+    ;; once underneath. Say a thing once.
     [:div
      (if article
        [:<> [:h1 (:title article)]
@@ -119,6 +144,11 @@
                          :data-testid "route-link-home"}
           "Home"]]]))
 
+;; And here's the router, in its entirety. Subscribe to the active route id,
+;; `case` over it, render the matching page. That's it — no <Routes>, no
+;; <Switch>, no nesting. The URL changes, the sub updates, this re-renders the
+;; new page. If you were expecting more machinery, that's the whole trick:
+;; routing is just another sub feeding just another view.
 (reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :routing.app/home           [home-page]
@@ -130,37 +160,45 @@
 ;; MOUNT (+ router wiring)
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`
-;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
-;; convention: ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`.
+;; We stash the React root in an atom and create it lazily inside `run`,
+;; rather than at namespace load. The rule (see examples/TESTING.md, the
+;; mount-isolation convention) is that loading a namespace must touch no DOM:
+;; the test harness loads several example namespaces side by side, and if each
+;; eagerly grabbed `#app` they'd trample one another's `create-root`. Lazy
+;; means whoever calls `run` wins the element, and only then.
 (defonce react-root (atom nil))
 
-;; The frame id the whole app runs under. `:rf/default` is an ordinary id
-;; with no framework privilege — the runtime won't infer it for you, so you
-;; establish it like any other (the provider in `run` does that). A frame
-;; owns the browser URL by carrying `:url-bound? true`, which this app's
-;; provider sets. See the routing guide, "The browser is just another event
-;; source": ../../../docs/routing/concepts.md#the-browser-is-just-another-event-source
+;; The id of the one frame this whole app runs under. `:rf/default` looks
+;; special, but it isn't — it's an ordinary id with no secret privileges, and
+;; the runtime won't conjure it for you. You stand it up like any other (the
+;; provider in `run` does exactly that). The one bit of magic worth knowing:
+;; a frame "owns" the browser URL when it carries `:url-bound? true`, and this
+;; app's provider flips that on. That's what connects the address bar to *this*
+;; frame's route state. See the routing guide, "The browser is just another
+;; event source":
+;; ../../../docs/routing/concepts.md#the-browser-is-just-another-event-source
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Install the Reagent adapter. Each adapter ns exports an `adapter`
-  ;; var; pass it directly to `init!`.
+  ;; Tell re-frame2 to render through Reagent. Every adapter namespace exports
+  ;; an `adapter` var; hand it straight to `init!` and you're done.
   (rf/init! reagent-adapter/adapter)
-  ;; Install the framework popstate listener. It does the initial
-  ;; URL→state sync now, then on each Back/Forward resolves the URL-owner
-  ;; frame at pop time and updates that frame's `:rf/route` slice. Safe to
-  ;; call again on hot reload.
+  ;; Teach the app to listen to the browser's own navigation. This does two
+  ;; jobs: right now, it syncs the current URL into state (so a deep link or a
+  ;; refresh lands on the right page), and from here on, every Back/Forward
+  ;; finds whichever frame owns the URL and updates its `:rf/route` slice.
+  ;; Idempotent, so hot reload can call it again without complaint.
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; The frame provider sets up the app frame in one spot. On first mount
-    ;; it creates the frame under `app-frame`, marks it `:url-bound? true` so
-    ;; it owns the URL, and runs `:initial-events` once to seed app-db. On
-    ;; hot reload it reuses the existing frame and skips the seed. Everything
-    ;; in `root-view` then dispatches and subscribes against this frame.
+    ;; The frame provider is where the app frame actually comes to life — one
+    ;; tidy spot for the whole setup. First mount: it creates the frame under
+    ;; `app-frame`, flips on `:url-bound? true` so this frame owns the URL, and
+    ;; fires `:initial-events` once to seed app-db with our articles. Hot
+    ;; reload: it finds the frame already there and quietly skips the seed, so
+    ;; your edits don't reset the page out from under you. From then on every
+    ;; `dispatch` and `subscribe` inside `root-view` is wired to this frame.
     (rdc/render @react-root
                 [rf/frame-provider {:id app-frame
                                     :doc "Routing demo frame."

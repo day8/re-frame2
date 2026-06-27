@@ -1,20 +1,24 @@
 (ns realworld.auth
   "Authentication for the RealWorld (Conduit) example.
 
-   The auth flow is a state machine. Login, register, session restore, and
-   logout are all sub-events routed through one handler:
+   Auth is one of those things that looks like a pile of unrelated buttons —
+   sign in, sign up, restore my session, log out — but is really a single
+   state machine wearing four hats. So that's how it's modelled here: login,
+   register, session restore, and logout are all sub-events fed into one
+   machine through one handler:
 
      (rf/dispatch [:auth/flow [:auth/login creds]])
 
-   The login/register draft slices live under [:auth ...]; the machine
-   snapshot lives in runtime-db at
+   The login and register draft forms live in app-db under [:auth ...]; the
+   machine's own snapshot lives over in runtime-db at
    [:rf.runtime/machines :snapshots :auth/flow]."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; State machines ship in the re-frame2-machines artefact.
-            ;; Requiring the ns registers its hooks so `rf/reg-machine`
-            ;; (called below) and the `:rf/machine` sub resolve. See the
-            ;; machines guide: ../../../docs/machines/index.md
+            ;; State machines live in their own artefact. We require it purely
+            ;; for the side effect of loading it: that registers the hooks that
+            ;; make `rf/reg-machine` (below) and the `:rf/machine` sub resolve
+            ;; to something. No alias needed — we just want it in the room. See
+            ;; the machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld.schema :as schema]
             [realworld.http :as rh])
@@ -24,20 +28,22 @@
 ;; FX / COFX
 ;; ============================================================================
 ;;
-;; One fx for the localStorage seam. Arg shape is `{:token <token-or-nil>}`
-;; — write on truthy, remove on nil. One seam means one fx to mock in
-;; tests, called by the machine's `:store-session` and `:clear-session`
-;; actions with different args.
+;; Talking to localStorage is a side effect, so it gets its own fx — one
+;; little doorway between our pure handlers and the browser's storage. The arg
+;; is `{:token <token-or-nil>}`: a truthy token writes, nil removes. Keeping it
+;; to a single seam means there's exactly one thing to stub in tests; the
+;; machine's `:store-session` and `:clear-session` actions both call it, just
+;; with different args.
 ;;
-;; Conformance-contract surface: the official RealWorld browser/E2E suite
-;; reads the session from `localStorage["jwtToken"]`, so this seam uses
-;; that exact key verbatim — it is NOT namespaced. Conformance is validated
-;; against standalone serving (one app per origin).
+;; One detail that isn't ours to choose: the official RealWorld E2E suite reads
+;; the session straight out of `localStorage["jwtToken"]`, so we use that exact
+;; key, un-namespaced, verbatim. Conformance is checked against standalone
+;; serving (one app per origin), so there's no collision to worry about.
 
 (rf/reg-fx :auth.session/persist
-  {:doc       "Persist (or clear) the JWT in localStorage under the official
-               contract key `jwtToken`. Arg `{:token t}` writes
-               the token when truthy; nil removes the key."
+  {:doc       "Save or clear the JWT in localStorage, under the contract key
+               `jwtToken`. `{:token t}` writes a truthy token; nil removes the
+               key entirely."
    :platforms #{:client}}
   (fn fx-auth-session-persist [_m {:keys [token]}]
     (when-let [ls (.-localStorage js/globalThis)]
@@ -45,39 +51,40 @@
         (.setItem    ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
-;; The saved JWT is read from localStorage at boot and `:auth/initialise`
-;; folds it into durable app-db at [:auth :token]. A durable write must
-;; fold a RECORDED fact, not an ambient `localStorage` read at the write
-;; site — replay and epoch-restore could not reproduce the latter. So the
-;; JWT comes from a recordable coeffect: `:auth.session/token` is a
-;; `:recordable? true` registration whose supplier reads localStorage. The
-;; supplier runs once, its value is recorded onto the causal token, and
-;; replay re-presents the captured token verbatim. See the coeffects guide
-;; on the two grades: ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
+;; At boot we read the saved JWT out of localStorage and `:auth/initialise`
+;; folds it into durable app-db at [:auth :token]. Here's the subtlety: a
+;; durable write has to fold a RECORDED fact, not a live localStorage read
+;; taken in the handler — otherwise replay and epoch-restore, which don't have
+;; your localStorage, can't reproduce it. So the JWT arrives as a recordable
+;; coeffect. `:auth.session/token` is a `:recordable? true` registration whose
+;; supplier reads localStorage; that supplier runs once, its value is recorded
+;; onto the causal token, and from then on replay hands back the captured token
+;; verbatim. See the coeffects guide on the two grades:
+;; ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
 ;;
-;; This is also why `ssr.cljc` may redact [:auth :token] from the hydration
-;; payload — the client re-derives the token through this recorded boot
-;; coeffect, not an ambient write-site read.
+;; It's also why `ssr.cljc` can happily redact [:auth :token] from the
+;; hydration payload: the client doesn't need the server to ship it the token,
+;; it re-derives it through this recorded boot coeffect.
 (defn read-jwt-from-storage
-  "Read the saved JWT from localStorage (or nil) — the supplier body for the
-   `:auth.session/token` recordable coeffect. nil when absent or
-   unavailable (e.g. node, logged-out first run)."
+  "Read the saved JWT out of localStorage, or nil if there isn't one — the
+   supplier behind the `:auth.session/token` recordable coeffect. nil when
+   the key is absent or storage isn't there at all (node, or a logged-out
+   first run)."
   []
   (some-> (.-localStorage js/globalThis)
           (.getItem "jwtToken")))
 
 (rf/reg-cofx :auth.session/token
   {:recordable? true
-   :doc "Recordable coeffect: the saved JWT (or nil), read from
-         localStorage. The supplier runs at the start of the boot dispatch;
-         its value is recorded onto the causal token and re-presented
-         verbatim under replay and epoch-restore — so the durable write
-         that folds it (`:auth/initialise` → [:auth :token]) replays the
-         captured token, never a live localStorage re-read. A handler folds
-         it by declaring `:rf.cofx/requires [:auth.session/token]` and
-         reading it flat. A production dispatch carries no cofx — the
-         supplier is the source; tests pin an exact value via the
-         dispatch-site `:rf.cofx` stub (`{:rf.cofx {:auth.session/token \"…\"}}`)."}
+   :doc "Recordable coeffect: the saved JWT (or nil), read from localStorage.
+         The supplier fires once, at the start of the boot dispatch, and its
+         value is recorded onto the causal token — so the durable write that
+         folds it (`:auth/initialise` → [:auth :token]) replays the captured
+         token rather than re-reading localStorage on every replay. A handler
+         opts in by declaring `:rf.cofx/requires [:auth.session/token]` and
+         reading it flat. Live dispatches carry no cofx — the supplier is the
+         source of truth; tests pin an exact value through the dispatch-site
+         `:rf.cofx` stub (`{:rf.cofx {:auth.session/token \"…\"}}`)."}
   (fn [] (read-jwt-from-storage)))
 
 ;; ============================================================================
@@ -85,16 +92,17 @@
 ;; ============================================================================
 
 (rf/reg-event :auth/store-session
-  {:doc "Store the authenticated session. The JWT has one durable home: the
-         classified `[:auth :token]` path (declared sensitive by
-         `:auth/classify-token` in core.cljs). The User payload is stored at
-         `[:auth :user]` with its `:token` field stripped off (`dissoc`), so
-         the JWT is not duplicated into the unclassified
-         `[:auth :user :token]` slot — a second copy there would ship raw
-         off-box, because classification does not propagate; each path is
-         its own declaration. Views and subs read `:auth/user` for identity
-         (username, bio, image); the bearer-auth interceptor reads the token
-         from `[:auth :token]`. See the keep-secrets how-to:
+  {:doc "Stash the authenticated session. The JWT gets exactly one durable
+         home: the classified `[:auth :token]` path (marked sensitive by
+         `:auth/classify-token` in core.cljs). The User payload goes to
+         `[:auth :user]` — but with its `:token` field `dissoc`'d off first,
+         so the JWT doesn't end up quietly duplicated at the unclassified
+         `[:auth :user :token]`. That second copy would ship raw off-box,
+         because classification doesn't propagate down the tree — each path
+         declares its own sensitivity, so two copies means two declarations,
+         and we'd have forgotten one. Views and subs read `:auth/user` for
+         who-you-are (username, bio, image); the bearer-auth interceptor reads
+         the token from `[:auth :token]`. See the keep-secrets how-to:
          ../../../docs/guide/how-to/keep-secrets-out-of-traces.md"}
   (fn [{:keys [db]} [_ user]]
     {:db (-> db
@@ -108,13 +116,13 @@
         (assoc-in [:auth :token] nil))}))
 
 (rf/reg-event :auth/post-login-redirect
-  {:doc "Bounce the freshly-authenticated user back to the route the auth
-         guard intercepted (`[:auth :return-to]`, set in routing.cljs), or
-         home when there is none. Dispatched by the auth machine's
-         `:store-session` action — a machine action sees no `:db` and emits
-         no `:db`, so the bounce is an ordinary event. Reads and clears the
-         slot in one step so a later plain login can't re-bounce to a stale
-         target."}
+  {:doc "Drop the freshly-signed-in user back where they were headed before
+         the auth guard sent them to login (`[:auth :return-to]`, stashed in
+         routing.cljs), or home if there's no such crumb. The auth machine's
+         `:store-session` action dispatches this — a machine action can't see
+         or emit `:db`, so the redirect rides as an ordinary event. It reads
+         and clears the slot in the same step, so a later ordinary login can't
+         get bounced to a stale target left lying around."}
   (fn [{:keys [db]} _]
     (let [return-to (get-in db [:auth :return-to])]
       {:db (update db :auth dissoc :return-to)
@@ -126,25 +134,24 @@
 ;; AUTH STATE MACHINE
 ;; ============================================================================
 
-;; The auth machine carries a `[:schemas :data]` that validates the
-;; snapshot's `:data` slot. Registering the machine here is what makes that
-;; schema live rather than inert. This machine validates only its `:data`
-;; (no outer event-vector `:schema`), so the opts map carries just `:doc` +
-;; `:rf.http/decode-schemas`.
+;; The machine carries a `[:schemas :data]` that validates its snapshot's
+;; `:data` slot, and registering it here is what brings that schema to life
+;; instead of leaving it as decoration. This one only validates its `:data`
+;; (there's no outer event-vector `:schema`), so the opts map is short: just
+;; `:doc` and `:rf.http/decode-schemas`.
 (rf/reg-machine :auth/flow
-  {:doc "The auth flow: idle → submitting/restoring → authed | error.
-         HTTP requests go via `:rf.http/managed`. Login / register /
-         restore do not retry — one submission per click; a transient
-         error surfaces in `:error` and the user retries."
+  {:doc "The auth flow in one line: idle → submitting/restoring → authed |
+         error. Requests go out via `:rf.http/managed`. Login, register, and
+         restore don't retry — it's one submission per click; a transient
+         failure parks a message in `:error` and the user takes another swing."
    :rf.http/decode-schemas [schema/UserResponse]}
-  ;; The spec map does not carry :id; the id is the surrounding
-  ;; reg-machine id.
+  ;; No :id in the spec map — the id is just the `reg-machine` id above.
   {:initial :idle
    :data    {:error nil}
-   ;; The snapshot lives in runtime-db at
-   ;; [:rf.runtime/machines :snapshots :auth/flow], so its :data shape is
-   ;; validated here via [:schemas :data], not via an app-schema (app
-   ;; schemas validate the app-db partition only).
+   ;; The snapshot lives in runtime-db (at
+   ;; [:rf.runtime/machines :snapshots :auth/flow]), not app-db. App-schemas
+   ;; only police the app-db partition, so the snapshot's :data shape is
+   ;; validated right here via [:schemas :data] instead.
    :schemas {:data schema/AuthFlowData}
    :guards
    {:has-token?
@@ -191,11 +198,10 @@
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
-      ;; A machine action sees no `:db` and emits no `:db`, so the
-      ;; post-login bounce-back runs as an ordinary event
-      ;; (`:auth/post-login-redirect`) that reads the guard-stashed
-      ;; `:return-to` slot, navigates there (or home), and clears it. See
-      ;; routing.cljs for where the slot is set.
+      ;; A machine action can't touch `:db`, so the post-login bounce-back is
+      ;; farmed out to an ordinary event (`:auth/post-login-redirect`): it
+      ;; reads the guard-stashed `:return-to` slot, sends you there (or home),
+      ;; and clears it. routing.cljs is where that slot gets set.
       (let [user (:user value)]
         {:data {:error nil}
          :fx [[:dispatch [:auth/store-session user]]
@@ -243,15 +249,17 @@
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
   (fn handler-auth-initialise [{:keys [db auth.session/token]} _]
-    ;; Dispatch `:auth/flow [:auth/restore token]` unconditionally — even
-    ;; when `token` is nil. This first delivery spawns the auth machine's
-    ;; snapshot (the machine materialises at `:idle` on its first event), so
-    ;; the navbar's `:auth/state` sub reads `:idle` rather than `nil` from
-    ;; cold boot. The do-we-have-a-token? decision is then the machine's
-    ;; `:idle` `:has-token?` guard: a blank token routes to the no-op
-    ;; `{:target :idle}` branch, a real one kicks `:begin-restore`. Guarding
-    ;; the dispatch here would skip the machine spawn on a no-token boot and
-    ;; split the token decision across two sites.
+    ;; Always fire `:auth/flow [:auth/restore token]`, even when `token` is
+    ;; nil. Why bother restoring nothing? Because that first event is also
+    ;; what spawns the machine's snapshot (a machine materialises at `:idle`
+    ;; on its very first event), so the navbar's `:auth/state` sub reads
+    ;; `:idle` from cold boot instead of an awkward `nil`. The actual
+    ;; do-we-have-a-token? question then belongs to one place — the `:idle`
+    ;; state's `:has-token?` guard: a blank token takes the no-op
+    ;; `{:target :idle}` branch, a real one kicks off `:begin-restore`.
+    ;; Guarding the dispatch up here would skip the machine spawn on a
+    ;; no-token boot AND split that one decision across two sites, which is
+    ;; how subtle bugs are born.
     {:db (assoc db :auth {:user nil
                           :token token})
      :fx [[:dispatch [:auth/flow [:auth/restore token]]]]}))
@@ -325,9 +333,9 @@
   (fn [db _] (get-in db [:auth :token])))
 
 (rf/reg-sub :auth/flow-state
-  {:doc "Current state of the auth machine snapshot."}
-  ;; Machine snapshots live in runtime-db — read them through the
-  ;; `:rf/machine` sub (the public surface), not a raw db path.
+  {:doc "The current auth machine snapshot."}
+  ;; Snapshots live in runtime-db, but you don't go digging for them by path
+  ;; — `:rf/machine` is the front door. Read through it.
   :<- [:rf/machine :auth/flow]
   (fn [snapshot _] snapshot))
 
@@ -358,8 +366,9 @@
   (fn [db _] (get-in db [:auth :login-form])))
 
 (rf/reg-sub :auth.login-form/field-error
-  {:doc "Per-field validation error for the login form. Reveal every error
-         after the first submit click, or once a field is :touched. See the
+  {:doc "The validation error for one login-form field — or nil while we're
+         keeping quiet. The rule of politeness: don't nag about a field until
+         the user has either touched it or hit submit at least once. See the
          forms how-to: ../../../docs/guide/how-to/build-a-form.md"}
   :<- [:auth.login-form/slice]
   (fn [form [_ field]]
@@ -374,9 +383,10 @@
   (fn [db _] (get-in db [:auth :register-form])))
 
 (rf/reg-sub :auth.register-form/field-error
-  {:doc "Per-field validation error for the register form. Reveal every
-         error after the first submit click, or once a field is :touched.
-         See the forms how-to: ../../../docs/guide/how-to/build-a-form.md"}
+  {:doc "The validation error for one register-form field, or nil while we
+         hold our tongue. Same rule as the login form: stay quiet until the
+         field is touched or the user has tried to submit. See the forms
+         how-to: ../../../docs/guide/how-to/build-a-form.md"}
   :<- [:auth.register-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)

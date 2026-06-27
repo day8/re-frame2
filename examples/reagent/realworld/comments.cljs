@@ -1,12 +1,17 @@
 (ns realworld.comments
   "Article detail plus comments for the RealWorld (Conduit) example.
 
-   This namespace shows:
+   The article-detail page is where re-frame2's optimistic-update story really
+   earns its keep: post a comment and it appears instantly, delete one and it
+   vanishes instantly, and if the server later disagrees, the change quietly
+   rolls back. Worth a read for:
+
    - `:article` and `:comments` in the plain remote-data slice shape.
    - `:comment-form` in the plain form slice shape.
-   - Route-driven loads reading the current slug from the runtime-db
+   - Route-driven loads that read the current slug off the runtime-db
      coeffect at `[:rf.runtime/routing :current :params :slug]`.
-   - Optimistic post/delete flows that roll back via ordinary events."
+   - Optimistic post / delete flows that roll back through nothing fancier
+     than ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [realworld-shared.avatar :as avatar]
@@ -34,22 +39,23 @@
 ;; RECORDABLE COEFFECTS
 ;; ============================================================================
 ;;
-;; The optimistic temp-id is written into durable app-db (the optimistic
-;; card is conj'd into `[:comments :data]`) and used as a join key — it
-;; correlates the optimistic card with its eventual save
-;; (`:comment-form/submit-success`) or rollback
-;; (`:comment-form/submit-error`). A value written durably or used as a
-;; join key must come from a recordable coeffect, not a fresh
-;; `random-uuid` at the write site — otherwise replay mints a different id
-;; and the correlation breaks. So this is a recordable `reg-cofx`: the
-;; supplier runs once, the id is recorded onto the causal token, and replay
-;; re-presents it verbatim. `:comment-form/submit` declares it via
-;; `:rf.cofx/requires` and reads it flat, staying pure and replayable. See
-;; the coeffects guide:
+;; Here's a sneaky one. When you post a comment optimistically, we conj a
+;; temp card into durable app-db at `[:comments :data]` with a made-up id, and
+;; later use that id as a join key to find the card again — to swap in the
+;; saved comment (`:comment-form/submit-success`) or yank it back out
+;; (`:comment-form/submit-error`). The catch: anything written durably or used
+;; as a join key has to be reproducible on replay. A fresh `(random-uuid)`
+;; minted in the handler is the opposite of reproducible — replay would mint a
+;; DIFFERENT id, the join key wouldn't match, and the correlation would quietly
+;; fall apart. So the id comes from a recordable coeffect instead: the supplier
+;; runs once, the id is recorded onto the causal token, and replay hands back
+;; the very same string. `:comment-form/submit` asks for it via
+;; `:rf.cofx/requires` and reads it flat, staying pure and replayable. See the
+;; coeffects guide:
 ;; ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
 (rf/reg-cofx :realworld/temp-comment-id
   {:recordable? true
-   :doc "Replayable optimistic temp-id for a newly-posted comment."}
+   :doc "A replay-safe temp-id for an optimistically-posted comment."}
   (fn [] (str "temp-" (random-uuid))))
 
 ;; ============================================================================
@@ -75,21 +81,23 @@
 ;; ============================================================================
 
 (rf/reg-event :article/load
-  {:doc "Load the article matching
+  {:doc "Load the article named by
          `[:rf.runtime/routing :current :params :slug]` (the route lives in
          runtime-db).
 
-         This handler shows default reply addressing: with no `:on-success`
-         / `:on-failure`, the framework re-dispatches the reply back to this
-         same event id, merging `:rf/reply` into the original message map.
-         The body branches on `(:rf/reply msg)` — one event id, two roles.
-         See the HTTP guide on when request and reply belong together:
+         This one's a little demo of default reply addressing. Leave off
+         `:on-success` / `:on-failure` and the framework loops the reply back
+         to this very same event id, with `:rf/reply` merged into the message.
+         So the handler runs twice for one load — once to send the request,
+         once when the answer comes back — and branches on `(:rf/reply msg)`
+         to tell which hat it's wearing. One event id, two roles. See the HTTP
+         guide on when request and reply belong together:
          ../../../docs/resources/http.md#when-request-and-reply-belong-together"
    :rf.http/decode-schemas [schema/ArticleResponse]
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ msg]]
     (if-let [reply (:rf/reply msg)]
-      ;; Reply branch — handle success or failure.
+      ;; Reply hat — the answer's back. Success or failure?
       (case (:kind reply)
         :success
         {:db (-> db
@@ -103,8 +111,9 @@
                  (assoc-in [:article :status] :error)
                  (assoc-in [:article :error] (rh/failure->message (:failure reply))))})
 
-      ;; Initial dispatch — issue the managed request. Default reply
-      ;; addressing routes the reply back here.
+      ;; Request hat — first time through, fire the managed request. With no
+      ;; explicit handlers, default reply addressing brings the answer right
+      ;; back to this event.
       (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
         {:db (-> db
                  (assoc-in [:article :status]
@@ -123,10 +132,11 @@
 ;; ============================================================================
 
 (rf/reg-event :comments/load
-  {:doc "Load comments for the current article. Uses explicit success /
-         failure handlers (cf. :article/load above, which uses default
-         reply addressing) — both shapes are valid; pick whichever reads
-         best for the handler."
+  {:doc "Load the comments for the current article. This one names explicit
+         success / failure handlers — the opposite choice from :article/load
+         just above, which lets the reply default back to itself. Both styles
+         are perfectly valid; reach for whichever reads more clearly in the
+         handler at hand. Here, separate handlers keep the load logic tidy."
    :rf.http/decode-schemas [schema/CommentsResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
@@ -170,13 +180,14 @@
         (update-in [:comment-form :touched] (fnil conj #{}) field))}))
 
 (rf/reg-event :comment-form/submit
-  {:doc "Optimistically post a new comment. No retry — the user clicked
-         once. The temp-id correlates the optimistic UI card with the
-         eventual save / rollback: the partial event vectors in
-         `:on-success` / `:on-failure` pre-populate the correlation arg. The
-         temp-id comes from a recordable coeffect (the
-         `:realworld/temp-comment-id` reg-cofx above), never a fresh
-         `random-uuid` at the write site."
+  {:doc "Post a new comment, optimistically — the card shows up before the
+         server has weighed in. No retry; the user clicked once and means it.
+         The temp-id is the thread that ties the optimistic card to its
+         eventual save or rollback: it's baked into the partial event vectors
+         in `:on-success` / `:on-failure` so the reply knows which card it's
+         talking about. And it comes from the recordable
+         `:realworld/temp-comment-id` coeffect above, never a fresh
+         `random-uuid` here — see that block for the why."
    :rf.http/decode-schemas [schema/CommentResponse]
    :rf.cofx/requires [:realworld/temp-comment-id]}
   (fn [{:keys [db] rt :rf.db/runtime temp-id :realworld/temp-comment-id} _]
@@ -193,12 +204,12 @@
                                  :image     (:image user)
                                  :following false}}]
       (if (str/blank? body)
-        ;; Client-side validation failure. Validation messages live in
-        ;; `:errors` (`:_form` for whole-form, otherwise per-field);
-        ;; `:submit-error` is reserved for transport / non-field HTTP
-        ;; failures. Flip :submit-attempted? so the view's per-field-error
-        ;; sub reveals the :body error even on a fresh, never-:touched
-        ;; textarea.
+        ;; Empty comment — fail it on the client, no round trip needed.
+        ;; Validation messages live in `:errors` (`:_form` for the whole form,
+        ;; otherwise keyed per field); `:submit-error` is kept for transport /
+        ;; non-field HTTP failures, a separate concern. We flip
+        ;; :submit-attempted? so the per-field-error sub will surface the
+        ;; :body error even on a textarea the user never touched.
         {:db (-> db
                  (assoc-in [:comment-form :submit-attempted?] true)
                  (assoc-in [:comment-form :errors] {:body "Comment body is required."})
@@ -223,11 +234,12 @@
     {:db (let [saved (:comment value)]
       (-> db
           (assoc-in [:comment-form] (comment-form-defaults))
-          ;; Replace the optimistic temp card IN PLACE with the saved
-          ;; comment — preserve its position so a confirmed comment does
-          ;; not visibly teleport from where it was appended (the bottom)
-          ;; to the top. Mirrors favorites.cljs/update-article-in-list:
-          ;; map, swap the matching entry, keep order.
+          ;; Swap the optimistic temp card for the saved comment IN PLACE,
+          ;; right where it already sits. If we appended the saved one instead,
+          ;; the comment would visibly jump from the bottom (where it landed
+          ;; optimistically) to the top — a tiny teleport the eye absolutely
+          ;; catches. Same move as favorites.cljs/update-article-in-list: map
+          ;; over, replace the match, keep the order.
           (update-in [:comments :data]
                      (fn [comments]
                        (mapv (fn [comment]
@@ -245,8 +257,9 @@
                   (rh/failure->message failure)))}))
 
 (rf/reg-event :comment/delete
-  {:doc "Optimistically remove a comment, then DELETE. On failure, the
-         rollback handler re-inserts the comment at its original index."}
+  {:doc "Whisk a comment off the screen first, then send the DELETE. If the
+         server says no, the rollback handler slots the comment back in at its
+         original index, as though nothing happened."}
   (fn [{:keys [db] rt :rf.db/runtime} [_ id]]
     (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
           comments (vec (get-in db [:comments :data]))
@@ -264,10 +277,11 @@
                           :on-failure [:comment/delete-rollback prior]})]]})))
 
 (rf/reg-event :comment/delete-success
-  {:doc "Nothing to do on success: the optimistic delete already removed the
-         comment, so confirming it is a no-op. The handler exists only as the
-         `:on-success` reply target — work happens in `:comment/delete-rollback`
-         when the server says no."}
+  {:doc "Success means: do nothing, gracefully. The optimistic delete already
+         took the comment off the screen, so there's literally nothing left to
+         do — this handler exists only to give `:on-success` a target to land
+         on. All the real work lives in `:comment/delete-rollback`, for the day
+         the server says no."}
   (fn [{:keys [db]} _] {:db db}))
 
 (rf/reg-event :comment/delete-rollback
@@ -275,11 +289,13 @@
     {:db (if (and (some? index) comment)
       (update-in db [:comments :data]
                  (fn [xs]
-                   ;; Clamp to the CURRENT length: the captured index is from
-                   ;; optimistic-delete time and the list may have shrunk since
-                   ;; (a `:comments/loaded` re-fetch or a concurrent delete).
-                   ;; Without the clamp, `subvec` throws IndexOutOfBounds when
-                   ;; index > (count xs) and the whole event drain dies.
+                   ;; Clamp the re-insert point to the list's CURRENT length.
+                   ;; The index we saved was true at optimistic-delete time, but
+                   ;; the list may have shrunk since — a `:comments/loaded`
+                   ;; re-fetch, or a second delete racing this one. Skip the
+                   ;; clamp and `subvec` throws IndexOutOfBounds the moment
+                   ;; index > (count xs), taking the whole event drain down with
+                   ;; it. A little defensive arithmetic is cheaper than that.
                    (let [xs (vec xs)
                          i  (min (max 0 index) (count xs))]
                      (vec (concat (subvec xs 0 i)
@@ -291,20 +307,21 @@
 ;; ARTICLE-DETAIL SOCIAL CONTROLS
 ;; ============================================================================
 ;;
-;; The official Conduit article page puts contextual controls ON THE DETAIL
-;; PAGE: a non-author viewer can follow/unfollow the AUTHOR; the author sees
-;; Edit Article (→ /editor/:slug) and Delete Article. Logged-out viewers see
-;; neither (the controls are auth-gated like the favorite toggle). The follow
-;; here targets the article's OWN author profile (`[:article :data :author]`),
-;; distinct from profile.cljs's `:profile/follow` which targets the profile-page
-;; banner slice.
+;; Conduit puts a few context-aware buttons right on the article page. If
+;; you're reading someone else's article, you can follow or unfollow the
+;; author; if it's your own, you get Edit Article (→ /editor/:slug) and Delete
+;; Article instead. Logged out, you get neither — these are auth-gated, same as
+;; the favorite toggle. Note the follow here acts on the article's OWN author
+;; (`[:article :data :author]`), which is a different slice from
+;; profile.cljs's `:profile/follow` (that one drives the profile-page banner).
+;; Same gesture, two homes.
 
 (rf/reg-event :article/toggle-follow-author
-  {:doc "Optimistically toggle following the article's author, then POST/DELETE
-         /profiles/:username/follow. On failure the prior flag is restored.
-         Auth-gated (same rationale as :article/toggle-favorite): a logged-out
-         click navigates to login rather than issuing a tokenless write the real
-         Conduit backend would 401."
+  {:doc "Flip following-the-author on or off optimistically, then send the
+         POST/DELETE to /profiles/:username/follow; restore the old flag if it
+         fails. Auth-gated (same reasoning as :article/toggle-favorite): a
+         logged-out click goes to login instead of firing a tokenless write the
+         real Conduit backend would just 401 anyway."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
     (if (nil? (get-in db [:auth :user]))
@@ -333,9 +350,10 @@
     {:db (assoc-in db [:article :data :author :following] previous-following)}))
 
 (rf/reg-event :article/delete
-  {:doc "Delete the current article from the DETAIL page (author only). No
-         retry — destructive, one click. On success navigate home; the editor's
-         own Delete path (article_editor.cljs) remains reachable too."}
+  {:doc "Delete the current article, straight from the DETAIL page (authors
+         only). No retry — it's destructive and it's one click. On success we
+         head home. (The editor has its own Delete path too, in
+         article_editor.cljs; both lead to the same place.)"}
   (fn [{:keys [db]} _]
     (let [slug (get-in db [:article :data :slug])]
       (if (nil? slug)
@@ -370,8 +388,9 @@
   (fn [article _] (:author article)))
 
 (rf/reg-sub :article/own?
-  {:doc "True when the signed-in viewer is the article's author — gates the
-         Edit / Delete controls on the detail page."}
+  {:doc "Is this the reader's own article? True when the signed-in user is the
+         author — which is what reveals the Edit / Delete controls on the
+         detail page."}
   (fn [db _]
     (let [me (get-in db [:auth :user :username])]
       (and me (= me (get-in db [:article :data :author :username]))))))
@@ -394,9 +413,10 @@
   (fn [db _] (:comment-form db)))
 
 (rf/reg-sub :comment-form/field-error
-  {:doc "Per-field validation error for the comment form. Reveal every
-         error after the first submit click, or once the field is :touched.
-         See the forms how-to: ../../../docs/guide/how-to/build-a-form.md"}
+  {:doc "The validation error for one comment-form field, or nil while we stay
+         quiet. Same courtesy as the other forms: no error shown until the
+         field is touched or the user has tried to submit. See the forms
+         how-to: ../../../docs/guide/how-to/build-a-form.md"}
   :<- [:comment-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)
@@ -429,12 +449,12 @@
           :on-click #(dispatch [:comment/delete (:id comment)])}
          [:i.ion-trash-a]])]]))
 
-(reg-view ^{:doc "The article-detail contextual controls: the
-                  author byline plus, per the official Conduit template, the
-                  author's Follow/Unfollow for a non-author viewer OR Edit /
-                  Delete for the author. Logged-out viewers see the byline only.
-                  Rendered twice on the page (banner + footer) like the official
-                  template."}
+(reg-view ^{:doc "The byline-with-buttons strip. Always shows the author; then,
+                  following the official Conduit template, adds Follow/Unfollow
+                  if you're a visitor, or Edit / Delete if the article is yours.
+                  Logged out, it's just the byline. The page renders it twice
+                  (once up top in the banner, once down in the footer), exactly
+                  as the official template does."}
           article-meta []
   (let [article @(subscribe [:article/data])
         author  @(subscribe [:article/author])
@@ -483,12 +503,13 @@
        (= article-status :loading)
        [:div.article-preview "Loading article…"]
 
-       ;; Only surface the error view when there is no article to show. A
-       ;; failed re-fetch (`:status :error`) of an already-loaded article
-       ;; leaves the prior `:data` in place — render it (the `article`
-       ;; branch below) rather than blanking a page the user is reading.
-       ;; Never blank loaded data on a refresh failure. (tags.cljs keeps
-       ;; prior `:tags` visible across a `:fetch-failed` the same way.)
+       ;; Show the error view only when there's no article to fall back on. If
+       ;; a re-fetch of an already-loaded article fails (`:status :error`), the
+       ;; prior `:data` is still sitting there — so render it (via the `article`
+       ;; branch below) instead of yanking the page out from under someone
+       ;; mid-read. The rule: never blank loaded data on a refresh failure.
+       ;; (tags.cljs keeps its prior `:tags` up across a `:fetch-failed` for the
+       ;; same reason.)
        (and article-error (nil? article))
        [:div.article-preview.error
         (str "Couldn't load article: " (pr-str article-error))]
@@ -500,12 +521,13 @@
           [:h1 {:data-testid "article-title"} (:title article)]
           [:p {:data-testid "article-description"} (:description article)]
           [:span.article-controls
-           ;; The official RealWorld article-detail favorite
-           ;; control shows visible "Favorite"/"Unfavorite" text and toggles
-           ;; `.btn-outline-primary` (not favorited) ↔ `.btn-primary`
-           ;; (favorited) — the E2E contract asserts on both. The compact
-           ;; heart-only button on article cards stays `.btn-outline-primary`
-           ;; (that one is correct per the official client).
+           ;; The big favorite button on the detail page spells it out —
+           ;; "Favorite" / "Unfavorite" — and swaps `.btn-outline-primary`
+           ;; (not favorited) for `.btn-primary` (favorited); the E2E suite
+           ;; checks both the text and the class. (The compact heart-only
+           ;; button on the article cards stays `.btn-outline-primary`
+           ;; throughout — that's the official client's behaviour there, not
+           ;; an oversight here.)
            (let [favorited? (:favorited article)]
              [:button.btn.btn-sm
               {:type        "button"

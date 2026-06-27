@@ -1,38 +1,38 @@
 (ns realworld.settings
   "User settings page for the RealWorld (Conduit) example.
 
-   Here the form's lifecycle lives entirely in a state machine,
-   `:settings/form`, whose state-keyword is the form lifecycle (`:neutral`
-   / `:incorrect` / `:correct` / `:submitting`). The other four forms in
-   realworld (`:auth :login-form`, `:auth :register-form`, `:editor`,
-   `:comment-form`) keep the plain
-   `{:draft :submitted :status :errors :touched :submit-error}` slice
-   shape, so a reader can compare the two shapes side by side. See the
-   forms how-to: ../../../docs/guide/how-to/build-a-form.md
+   This is the form-as-a-machine case. The settings form's whole lifecycle
+   lives inside a state machine, `:settings/form`, whose state-keyword IS the
+   lifecycle (`:neutral` / `:incorrect` / `:correct` / `:submitting`). The
+   other four forms in realworld (`:auth :login-form`, `:auth :register-form`,
+   `:editor`, `:comment-form`) stick with the plain
+   `{:draft :submitted :status :errors :touched :submit-error}` slice, so the
+   two approaches sit side by side for comparison. See the forms how-to:
+   ../../../docs/guide/how-to/build-a-form.md
 
-   The shape:
+   What moving the form into a machine buys (and costs):
 
-   - The form lifecycle (`:neutral` / `:incorrect` / `:correct` +
-     `:submitting`) maps one-to-one onto machine states; the slice's
-     `:status` field is gone because the state-keyword is the status.
-   - The draft, errors, touched, submit-error, submitted, and loaded-at
-     fields live in the machine's `:data` map (no app-db slice).
-   - The slice's `:submitting?` boolean becomes a per-state
-     `:settings/in-flight` tag queried with `rf/machine-has-tag?`.
+   - The lifecycle (`:neutral` / `:incorrect` / `:correct` + `:submitting`)
+     becomes machine states, one for one — the slice's `:status` field is gone,
+     because the state-keyword now IS the status.
+   - The draft, errors, touched, submit-error, submitted, and loaded-at all
+     move into the machine's `:data` map; there's no app-db slice.
+   - The slice's `:submitting?` boolean turns into a per-state
+     `:settings/in-flight` tag, asked with `rf/machine-has-tag?`.
 
-   Logout stays on the auth machine path (`:auth/flow`).
+   Logout stays where it belongs, on the auth machine (`:auth/flow`).
 
-   This form submits eagerly: pressing 'Update Settings' triggers a server
-   roundtrip with no prior client-side validate step. The `:submit-invalid`
-   / `:incorrect` transition exists so the lifecycle is complete; a real
-   app would run a Malli validate against the draft inside `:settings/submit`
-   and dispatch `:submit-invalid` when it returned errors."
+   One honest simplification: this form submits eagerly. Hitting 'Update
+   Settings' goes straight to a server round-trip, with no client-side validate
+   step first. The `:submit-invalid` → `:incorrect` transition is wired up
+   anyway, so the lifecycle is complete and you can see where validation WOULD
+   slot in — a real app would run a Malli validate against the draft inside
+   `:settings/submit` and dispatch `:submit-invalid` when it found problems."
   (:require [re-frame.core :as rf]
-            ;; State machines ship in the re-frame2-machines artefact.
-            ;; Requiring the ns registers its hooks so `rf/reg-machine`
-            ;; (called below) and the `:rf/machine` / `:rf/machine-has-tag?`
-            ;; subs resolve. See the machines guide:
-            ;; ../../../docs/machines/index.md
+            ;; State machines live in their own artefact; we require it to load
+            ;; it, which registers the hooks that make `rf/reg-machine` (below)
+            ;; and the `:rf/machine` / `:rf/machine-has-tag?` subs resolve. See
+            ;; the machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld.schema :as schema]
             [realworld.http :as rh])
@@ -57,11 +57,12 @@
 ;; THE MACHINE — :settings/form  (one region; the form lifecycle)
 ;; ============================================================================
 ;;
-;; The form lifecycle maps one-to-one onto machine states. Compare with the
-;; slice form used by the other four realworld forms:
+;; The form lifecycle becomes machine states, one for one. Hold the two shapes
+;; up next to each other — the slice the other four forms use, and the machine
+;; this one uses:
 ;;
-;;     ;; SLICE FORM (used by :auth :login-form, :auth :register-form, :editor, :comment-form)
-;;     ;; The slice carries an explicit :status keyword.
+;;     ;; SLICE FORM (:auth :login-form, :auth :register-form, :editor, :comment-form)
+;;     ;; A plain map with an explicit :status keyword.
 ;;     {:draft        {...}
 ;;      :submitted    nil
 ;;      :status       :idle | :submitting
@@ -69,29 +70,29 @@
 ;;      :touched      #{}
 ;;      :submit-error nil}
 ;;
-;;     ;; MACHINE FORM (used here)
-;;     ;; The state-keyword IS the lifecycle; the rest lives in :data.
+;;     ;; MACHINE FORM (this file)
+;;     ;; The state-keyword IS the lifecycle; the rest moves into :data.
 ;;     {:state :neutral | :incorrect | :correct | :submitting
 ;;      :data  {:draft {...} :errors {} :touched #{} :submit-error nil
 ;;              :submitted nil :loaded-at nil}
 ;;      :tags  #{...}}
 ;;
-;; The form's load-bearing boolean — `:submitting?` — becomes a tag query
-;; against the active state:
+;; And the form's one load-bearing boolean, `:submitting?`, becomes a tag
+;; question about the current state:
 ;;
 ;;     :submitting?  = (= :submitting status)            ;; slice form
 ;;     :submitting?  = @(rf/machine-has-tag? :settings/form :settings/in-flight)
 ;;
-;; The view doesn't need to know which state-keyword carries the
-;; "in-flight" intent; the tag does.
+;; Same upside as the tags machine: the view never has to know WHICH state
+;; means \"in-flight\". It asks the tag and moves on.
 
 (def settings-form-machine
   {:initial :neutral
    :data    initial-data
    ;; The snapshot lives in runtime-db
-   ;; ([:rf.runtime/machines :snapshots :settings/form]), so its :data shape
-   ;; is validated here via [:schemas :data], not via an app-schema (app
-   ;; schemas validate the app-db partition only).
+   ;; ([:rf.runtime/machines :snapshots :settings/form]), not app-db, so its
+   ;; :data shape is validated right here via [:schemas :data] — an app-schema
+   ;; only sees the app-db partition.
    :schemas {:data schema/SettingsFormData}
 
    :actions
@@ -103,10 +104,10 @@
                  (assoc :loaded-at now))})
 
     :edit-field
-    ;; :edit carries [field value]; touches the field, clears any
-    ;; prior submit-error so a fresh edit doesn't keep the old error
-    ;; banner visible, and drops the per-field error entry for the
-    ;; edited field so the inline error disappears as the user types.
+    ;; :edit carries {field value}. It writes the value, marks the field
+    ;; touched, clears any leftover submit-error (so an old banner doesn't
+    ;; linger while you're fixing things), and drops THIS field's inline error
+    ;; — the red text fades as you type, which is how forms should feel.
     (fn action-edit-field [{data :data [_ {:keys [field value]}] :event}]
       {:data (-> data
                  (assoc-in [:draft field] value)
@@ -115,9 +116,9 @@
                  (assoc :submit-error nil))})
 
     :set-errors
-    ;; :submit-invalid carries the per-field error map. Touch every error
-    ;; field too, so the inline error shows even on fields the user hasn't
-    ;; interacted with yet.
+    ;; :submit-invalid carries the per-field error map. We also mark every
+    ;; errored field touched, so the inline messages appear even on fields the
+    ;; user never got around to filling in.
     (fn action-set-errors [{data :data [_ {:keys [errors]}] :event}]
       {:data (-> data
                  (assoc :errors errors)
@@ -125,9 +126,9 @@
                  (assoc :submit-error nil))})
 
     :begin-submit
-    ;; :submit-valid carries the draft snapshot we just dispatched to
-    ;; the server. Clear :errors and :submit-error so they don't
-    ;; linger from a prior failed attempt.
+    ;; :submit-valid carries the draft snapshot we just sent to the server.
+    ;; Wipe :errors and :submit-error so nothing lingers from a previous failed
+    ;; attempt while this one's in flight.
     (fn action-begin-submit [{data :data [_ {:keys [submitted]}] :event}]
       {:data (-> data
                  (assoc :submitted submitted)
@@ -135,9 +136,9 @@
                  (assoc :submit-error nil))})
 
     :store-user
-    ;; :submit-succeeded carries the server's returned user. Re-seed
-    ;; the draft from the new user so a subsequent edit starts from
-    ;; the freshly-saved state.
+    ;; :submit-succeeded carries the user the server saved. Re-seed the draft
+    ;; from it, so the next edit starts from the freshly-saved values rather
+    ;; than whatever was typed before the save.
     (fn action-store-user [{data :data [_ {:keys [user]}] :event}]
       {:data (-> data
                  (assoc :draft (draft-from-user user))
@@ -157,9 +158,9 @@
 
    :states
    {:neutral
-    ;; The resting state. The form is open; the user hasn't seen a
-    ;; validation error or a success acknowledgement yet (or they
-    ;; have, and a subsequent :edit reset the region to :neutral).
+    ;; The resting state — form open, nothing to report. Either the user hasn't
+    ;; hit a validation error or a success yet, or they did and a later :edit
+    ;; brought things back here. The calm default.
     {:tags #{:settings/neutral}
      :on   {:load           {:target :neutral    :action :seed-from-user}
             :edit           {:target :neutral    :action :edit-field}
@@ -168,9 +169,10 @@
             :reset          {:target :neutral    :action :reset-data}}}
 
     :incorrect
-    ;; Per-field validation error visible on a touched field, OR a
-    ;; server submit-error from the previous attempt. The first :edit
-    ;; clears errors and returns the region to :neutral.
+    ;; Something's wrong and showing: either a per-field validation error on a
+    ;; touched field, or a server submit-error from the last attempt. The first
+    ;; :edit clears the errors and drops back to :neutral — start fixing and the
+    ;; complaints go away.
     {:tags #{:settings/incorrect :form/invalid}
      :on   {:edit           {:target :neutral    :action :edit-field}
             :submit-invalid {:target :incorrect  :action :set-errors}
@@ -178,21 +180,21 @@
             :reset          {:target :neutral    :action :reset-data}}}
 
     :submitting
-    ;; Request in flight. The :settings/in-flight tag drives the
-    ;; disabled state of every form input and the submit button.
-    ;; The :form/transient tag exists so a view that wants to overlay
-    ;; transient acknowledgements (in-flight, success, error) can
-    ;; query one tag instead of three state-keywords.
+    ;; Request in flight. The :settings/in-flight tag is what greys out every
+    ;; input and the submit button while we wait. The :form/transient tag is a
+    ;; convenience: a view that wants to overlay any passing acknowledgement
+    ;; (in-flight, success, error) can watch that one tag instead of OR-ing
+    ;; three state-keywords.
     {:tags #{:settings/submitting :settings/in-flight :form/transient}
      :on   {:submit-succeeded {:target :correct   :action :store-user}
             :submit-failed    {:target :incorrect :action :set-submit-error}
             :reset            {:target :neutral   :action :reset-data}}}
 
     :correct
-    ;; Happy-path acknowledgement. Transient; the next :edit returns
-    ;; the region to :neutral. The slice-form equivalent is
-    ;; `:status :submitted` — there the view typically navigates away
-    ;; (and so does this one, see :settings/submit-succeeded below).
+    ;; The happy-path "saved!" beat. Transient — the next :edit returns to
+    ;; :neutral. In slice form this is `:status :submitted`, where the view
+    ;; usually navigates away on success; this one does too, see
+    ;; :settings/submit-success below.
     {:tags #{:settings/correct :form/success :form/transient}
      :on   {:edit  {:target :neutral :action :edit-field}
             :reset {:target :neutral :action :reset-data}}}}})
@@ -203,19 +205,22 @@
 ;; PUBLIC EVENT API
 ;; ============================================================================
 ;;
-;; Each event fans out to one or more machine broadcasts; views and sibling
-;; namespaces dispatch these names and never touch the machine directly.
+;; These are the front door. Each event translates into one or more machine
+;; broadcasts, and views and sibling namespaces dispatch THESE names — they
+;; never reach past them to poke the machine directly. The machine stays an
+;; implementation detail.
 
 (rf/reg-event :settings/initialise
-  {:doc "Reset the settings-form machine to its initial state.
-         Dispatched from :app/initialise."}
+  {:doc "Reset the settings-form machine to its initial state. Dispatched from
+         :app/initialise at boot."}
   (fn handler-settings-initialise [_ _]
     {:fx [[:dispatch [:settings/form [:reset]]]]}))
 
 (rf/reg-event :settings/load
-  {:doc "Seed the form draft from the currently-authenticated user.
-         Dispatched by the :realworld.user/settings :on-match (see routing.cljs)
-         and by tests after :auth/store-session."
+  {:doc "Fill the form draft from the currently signed-in user, so the page
+         opens pre-populated rather than blank. Dispatched by the
+         :realworld.user/settings :on-match (routing.cljs), and by tests after
+         an :auth/store-session."
    :rf.cofx/requires [:rf/time-ms]}
   (fn handler-settings-load [{:keys [db rf/time-ms]} _]
     (let [user (get-in db [:auth :user])]
@@ -224,20 +229,20 @@
                                 :now  time-ms}]]]]})))
 
 (rf/reg-event :settings/edit-field
-  {:doc  "User edited a form field. Broadcasts :edit into the machine —
-          the :form region returns from :correct / :incorrect to
-          :neutral and updates the draft + :touched."
+  {:doc  "The user changed a field. Broadcasts :edit into the machine, which
+          brings the region back from :correct / :incorrect to :neutral and
+          updates the draft + :touched. Typing settles the form down."
    :schema [:cat [:= :settings/edit-field] :keyword :string]}
   (fn handler-settings-edit-field [_ [_ field value]]
     {:fx [[:dispatch [:settings/form
                       [:edit {:field field :value value}]]]]}))
 
 (rf/reg-event :settings/submit
-  {:doc "Save the user-settings draft. No retry — one submission per click.
-         Broadcasts :submit-valid into the machine (which transitions to
-         :submitting and clears prior errors); on reply,
+  {:doc "Save the settings draft. No retry — one submission per click.
+         Broadcasts :submit-valid into the machine (which moves it to
+         :submitting and clears any prior errors); when the reply lands,
          :settings/submit-success / :settings/submit-error broadcast
-         :submit-succeeded / :submit-failed."
+         :submit-succeeded / :submit-failed in turn."
    :rf.http/decode-schemas [schema/UserResponse]}
   ;; The machine snapshot lives in runtime-db.
   (fn handler-settings-submit [{rt :rf.db/runtime} _]
@@ -255,10 +260,10 @@
                           :on-failure [:settings/submit-error]})]]})))
 
 (rf/reg-event :settings/submit-success
-  {:doc "Server accepted. Folds the new user into the machine's :data
-         via the :store-user action (region lands in :correct), pushes
-         the same user through :auth/store-session, and navigates to
-         the user's profile page."}
+  {:doc "Server said yes. Three things follow: fold the returned user into the
+         machine's :data via :store-user (region lands in :correct), push that
+         same user through :auth/store-session so the rest of the app sees the
+         update, and navigate off to the user's profile page."}
   (fn handler-settings-submit-success [_ [_ {:keys [value]}]]
     (let [user (:user value)]
       {:fx [[:dispatch [:settings/form
@@ -267,10 +272,11 @@
             [:dispatch [:rf.route/navigate :realworld.profile/show {:username (:username user)}]]]})))
 
 (rf/reg-event :settings/submit-error
-  {:doc "Server rejected. Folds a human-readable error message into the
-         machine's :data via the :set-submit-error action; the region
-         lands in :incorrect (the same surface the validation-error
-         path uses, since both render via :submit-error / :errors)."}
+  {:doc "Server said no. Folds a readable error message into the machine's
+         :data via :set-submit-error; the region lands in :incorrect — the very
+         same surface the client-side validation path uses, since both show up
+         through :submit-error / :errors. One place to render \"something's
+         wrong\", however it went wrong."}
   (fn handler-settings-submit-error [_ [_ {:keys [failure]}]]
     {:fx [[:dispatch [:settings/form
                       [:submit-failed {:submit-error (rh/failure->message failure)}]]]]}))
@@ -279,28 +285,27 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
-;; The view consumes plain names (`:settings/draft`,
-;; `:settings/submit-error`); the source is the machine's `:data`.
-;; `:settings/submitting?` is an `rf/machine-has-tag?` query under the hood,
-;; presented to the view as a plain boolean.
+;; The view sees plain, ordinary names (`:settings/draft`,
+;; `:settings/submit-error`), all sourced from the machine's `:data`. And
+;; `:settings/submitting?` is an `rf/machine-has-tag?` query underneath, handed
+;; to the view as a plain boolean — the machine-ness stays behind the curtain.
 
 (rf/reg-sub :settings/draft
-  {:doc "The settings form draft, projected off the machine's :data."}
+  {:doc "The settings-form draft, read out of the machine's :data."}
   :<- [:rf/machine :settings/form]
   (fn sub-settings-draft [snap _]
     (get-in snap [:data :draft])))
 
 (rf/reg-sub :settings/submit-error
-  {:doc "The most recent settings-submit error, projected off the
-         machine's :data."}
+  {:doc "The latest settings-submit error, read out of the machine's :data."}
   :<- [:rf/machine :settings/form]
   (fn sub-settings-submit-error [snap _]
     (get-in snap [:data :submit-error])))
 
 (rf/reg-sub :settings/submitting?
-  {:doc "Tag-shaped read of the form's in-flight intent — stands in for a
-         slice-form `(= :submitting status)` comparison; views see a plain
-         boolean."}
+  {:doc "Is a save in flight? A tag-shaped read of the form's in-flight intent —
+         the machine-form stand-in for a slice's `(= :submitting status)`. Views
+         just see a boolean."}
   :<- [:rf/machine-has-tag? :settings/form :settings/in-flight]
   (fn sub-settings-submitting? [in-flight? _]
     (boolean in-flight?)))

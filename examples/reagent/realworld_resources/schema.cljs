@@ -1,22 +1,23 @@
 (ns realworld-resources.schema
   "Malli schemas for the RealWorld-on-resources (Conduit) example.
 
-   These describe the wire payloads the RealWorld API returns. There are no
-   app-db slice schemas for the reads — the cached server-state lives in the
-   framework-owned runtime partition (`:rf.runtime/resources`), not in app-db, so
-   there are no `:articles` / `:article` / `:comments` / `:profile` slice paths to
-   validate. What stays in app-db here is only the small auth slice and the
-   per-form drafts.
+   Mostly these describe the wire payloads the RealWorld API returns. Notice what
+   they DON'T describe: there are no app-db slice schemas for any of the reads.
+   That's because the cached server-state lives in the framework-owned runtime
+   partition (`:rf.runtime/resources`), not in app-db — so there are no
+   `:articles` / `:article` / `:comments` / `:profile` paths in app-db to
+   validate in the first place. All app-db actually holds here is the small auth
+   slice and the per-form drafts.
 
-   The wire shapes double as resource `:data-schema` values and as the `:decode`
-   schemas inside each resource / mutation `:request`. See schema:
-   ../../../docs/guide/glossary.md#schema.
+   The wire shapes pull double duty: they're the resource `:data-schema` values
+   AND the `:decode` schemas inside each resource / mutation `:request`. See
+   schema: ../../../docs/guide/glossary.md#schema.
 
    The RealWorld API spec is documented at:
      https://github.com/gothinkster/realworld/tree/main/api"
   (:require [re-frame.core :as rf]
-            ;; The schemas runtime. Loading the ns registers the hooks so
-            ;; rf/reg-app-schemas resolves at the call site below.
+            ;; The schemas runtime. Loading it registers the hooks, so
+            ;; rf/reg-app-schemas has something to resolve at the call site below.
             [re-frame.schemas])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
@@ -27,14 +28,14 @@
 (def User
   "The authenticated user. Returned by /users/login, /users (register),
    /user (current user), and PUT /user (settings update)."
-  ;; The JWT is classified at the transient slot that introduces it, via the
-  ;; per-slot `:sensitive?` malli property on the `:decode` schema. `UserResponse`
-  ;; is the `:decode` schema for the login / register / restore / settings
-  ;; replies, so this redacts the token out of any off-box capture of the response
-  ;; body. The durable copy at [:auth :token] is classified separately by the
-  ;; `:sensitive` effect in core.cljs (classification does not propagate — each
-  ;; surface is declared on its own). See data classification:
-  ;; ../../../docs/guide/glossary.md#data-classification.
+  ;; The JWT is classified right at the transient slot that introduces it, via a
+  ;; per-slot `:sensitive?` Malli property on the `:decode` schema. Since
+  ;; `UserResponse` is the `:decode` schema for the login / register / restore /
+  ;; settings replies, this one declaration redacts the token from any off-box
+  ;; capture of the response body. The durable copy at [:auth :token] is a
+  ;; separate matter, classified by the `:sensitive` effect in core.cljs —
+  ;; classification doesn't propagate, so each surface declares its own. See data
+  ;; classification: ../../../docs/guide/glossary.md#data-classification.
   [:map
    [:email    :string]
    [:token    {:sensitive? true} :string]
@@ -79,10 +80,10 @@
 ;; WIRE-RESPONSE WRAPPERS
 ;; ============================================================================
 ;;
-;; The Conduit API wraps every payload in a singular/plural top-level key.
-;; These schemas describe the wire envelope; they are passed as `:decode` inside
-;; each resource / mutation `:request` (the resource transport lowers the decode
-;; onto managed HTTP).
+;; The Conduit API wraps every payload in a singular or plural top-level key
+;; (`{:article …}`, `{:articles […]}`, and so on). These schemas describe that
+;; envelope, and they get passed as `:decode` inside each resource / mutation
+;; `:request` — the resource transport lowers the decode onto managed HTTP.
 
 (def UserResponse     [:map [:user User]])
 (def ProfileResponse  [:map [:profile Profile]])
@@ -98,17 +99,18 @@
 ;; APP-DB SLICES — only what app-db still owns
 ;; ============================================================================
 ;;
-;; The cached reads live in runtime-db, not app-db. The only app-db schema is the
-;; auth slice plus the two auth form drafts. (The settings form is a mutation
-;; instance + a small draft slice; the auth machine snapshot lives in runtime-db
-;; and is validated by its own `:data-schema`, not an app-schema.)
+;; With the cached reads living in runtime-db, app-db is left with very little to
+;; validate: just the auth slice and the two auth form drafts. (The settings form
+;; is a mutation instance plus a small draft slice; the auth machine snapshot
+;; lives in runtime-db and is validated by its own `:data-schema`, not an
+;; app-schema.)
 
 (def AuthSlice
-  "The auth slice. :user holds the current User payload (or nil); :token is
-   the JWT (or nil). The resource cache scope is derived from :user's :username
-   by the named session resolver (see realworld-resources.scope), not stored
-   here. :return-to is the optional post-login bounce-back target stashed by
-   the routing auth-guard."
+  "The auth slice. :user holds the current User payload (or nil); :token is the
+   JWT (or nil). The resource cache scope isn't stored here — it's derived from
+   :user's :username by the named session resolver (see
+   realworld-resources.scope). :return-to is the optional post-login bounce-back
+   target the routing auth-guard stashes."
   [:map
    [:user      [:maybe User]]
    [:token     [:maybe :string]]
@@ -118,10 +120,10 @@
      [:params [:maybe :map]]]]])
 
 (def FormSlice
-  "The standard form draft slice for the login / register / settings drafts that
-   live in app-db. The submission lifecycle is a mutation INSTANCE
-   (`:rf.mutation/state`), so this slice carries only the editable draft +
-   touched-field bookkeeping."
+  "The standard form-draft slice, shared by the login / register / settings
+   drafts in app-db. The submission lifecycle isn't here — that's a mutation
+   instance (`:rf.mutation/state`) — so this slice carries only the editable draft
+   plus a little touched-field bookkeeping."
   [:map
    [:draft   :map]
    [:touched [:set :keyword]]
@@ -135,12 +137,12 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 ;;
-;; reg-app-schemas is frame-local: a bare ns-load call with no frame context
-;; fails. This example runs in `:rf/default` (the `frame-provider {:id …}` form
-;; in core.cljs creates it at the render root), so name it here. This is a
-;; frame-local REGISTRATION scoped by id, not a frame-creation/seed — it binds
-;; the id at ns-load; the frame itself is created later when the provider first
-;; renders.
+;; reg-app-schemas is frame-local, so a bare ns-load call with no frame context
+;; would fail. This app runs in `:rf/default` (the `frame-provider {:id …}` form
+;; in core.cljs creates it at the render root), so we name that id here. Worth
+;; being precise about what this is: a frame-local registration scoped by id, not
+;; a frame creation or seed. It binds the id at ns-load; the frame itself doesn't
+;; exist until the provider first renders.
 
 (with-frame :rf/default
   (rf/reg-app-schemas

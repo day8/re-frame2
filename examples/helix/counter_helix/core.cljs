@@ -1,42 +1,45 @@
 (ns counter-helix.core
-  "Counter, rendered with the Helix substrate.
+  "The counter, rendered on the Helix substrate.
 
-   The dataflow doesn't know which React-family library draws the pixels.
-   This counter runs the same events and subscription as the Reagent and
-   UIx counters; only the view and mount change. Here they render through
-   the Helix adapter, whose React state model is hooks all the way down.
-   It shows:
+   The dataflow couldn't care less which React library draws the pixels.
+   This is the same app as the Reagent and UIx counters — same events, same
+   subscription — with exactly one thing changed: how a view reads state and
+   gets hold of `dispatch`. Helix is React with hooks all the way down, so
+   here that part is a `defnc` component and a hook. Put this file beside the
+   other two counters and only the views differ; that seam is the whole point
+   of an adapter.
 
+   What you'll see here:
+
+     - `reg-event` / `reg-sub` — the same on every substrate
      - `rf/init!` with the Helix adapter
-     - `reg-event` / `reg-sub`, which are substrate-agnostic
-     - the `use-subscribe` hook, the Helix-idiomatic way to read a sub
-     - `(:dispatch (rf/frame-handle))` in click handlers — the component
-       reads its own sub and takes its own dispatch
+     - `use-subscribe`, the Helix-idiomatic way to read a subscription
+     - `(:dispatch (rf/frame-handle))` to dispatch from a click handler
 
-   See docs/guide/how-to/use-uix-helix-or-slim.md for the full walkthrough
-   of running one app on UIx or Helix."
+   For the full substrate tour see
+   `docs/guide/how-to/use-uix-helix-or-slim.md`."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
             [re-frame.core      :as rf]
             [re-frame.adapter.helix :as helix-adapter]))
 
-;; ============================================================================
-;; SUBSTRATE-AGNOSTIC LAYER  (events + sub)
-;; ============================================================================
+;; -- Events / subs -----------------------------------------------------------
 ;;
-;; Everything above the SUBSTRATE BOUNDARY below is the dataflow: the events
-;; and the `:counter/value` subscription. It is identical across the Reagent,
-;; UIx, and Helix counters — same `:counter/*` ids, same handler bodies. The
-;; dataflow does not know which substrate renders it; that sameness is the
-;; whole point of the example.
+;; This is where the work happens, and it's all just data. An event handler is
+;; a pure function: hand it the coeffects (which carry the current app-db) and
+;; the event vector, and it hands back an effect map. The `{:db …}` key means
+;; "replace app-db with this value", and the runtime commits it atomically at
+;; the end of the cascade. Not a word about React in here — so this block is
+;; byte-for-byte the same as the Reagent and UIx counters. See
+;; `docs/guide/glossary.md#event-handler`.
 ;;
-;; The three counters do not share this code through a common namespace, on
-;; purpose. Each substrate example is a self-contained `:browser` build, and
-;; a bundle-isolation test proves a Helix bundle carries no Reagent or UIx
-;; code (and vice versa). A shared namespace pulled into all three builds
-;; would break that. The boundary worth learning here is the SUBSTRATE
-;; BOUNDARY below — one dataflow, three view layers.
+;; You might wonder why the three counters retype these handlers instead of
+;; sharing one namespace. It's deliberate. Each example is its own self-
+;; contained build, and a bundle-isolation test checks that a Helix bundle
+;; ships zero Reagent or UIx code (and vice versa). A shared namespace dragged
+;; into all three builds would quietly break that guarantee. The seam worth
+;; learning is the substrate boundary below — one dataflow, three view layers.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -54,20 +57,21 @@
 ;; ──────────────────────────  SUBSTRATE BOUNDARY  ──────────────────────────
 ;; ============================================================================
 ;;
-;; Below this line is the only substrate-specific code in the example: the
-;; Helix views and the mount. The Reagent and UIx counters share every line
-;; above this divider and differ only below it (Reagent `reg-view`, UIx
-;; `defui` + `use-subscribe`, Helix `defnc` + `use-subscribe`).
+;; Everything below this line is the only substrate-specific code in the file:
+;; the Helix views and the mount. Cross the divider and you've left the shared
+;; dataflow behind.
 ;;
-;; Helix users write `defnc` directly; the `reg-view` macro is Reagent-only.
-;; The component reads its sub with `use-subscribe` and takes `dispatch` off
-;; `(rf/frame-handle)` itself. The handle captures the frame in scope at
-;; render time, so the closed-over `dispatch` still targets the right frame
-;; from a click handler that fires later.
+;; Helix is plain React, so a view is a `defnc` component that asks for what it
+;; needs out loud. `use-subscribe` is a hook that reads a subscription.
+;; `dispatch` comes off a `(rf/frame-handle)`: the handle captures the in-scope
+;; frame as a value, so the closed-over `dispatch` still finds this frame when
+;; a click fires later — on a stack that no longer has any frame in scope. So
+;; grab it at render time, while the frame is still around. See
+;; `docs/guide/glossary.md#frame-handle`.
 
 (defnc counter-buttons []
   (let [count    (helix-adapter/use-subscribe [:counter/value])  ;; read: re-renders when :counter/value changes
-        dispatch (:dispatch (rf/frame-handle))]                  ;; write: take dispatch off the render-time handle
+        dispatch (:dispatch (rf/frame-handle))]                  ;; write: dispatch, captured off the render-time handle
     (d/div
        (d/button {:on-click #(dispatch [:counter/dec])} "-")
        (d/span {:style {:margin "0 1em"} :data-testid "counter-value"} count)
@@ -78,29 +82,33 @@
 
 ;; -- Mount -------------------------------------------------------------------
 ;;
-;; The React root is held in an atom and created lazily inside `run`, not at
-;; ns-load. Loading the namespace must produce no DOM side effects, so that
-;; co-required example namespaces don't race each other to `createRoot` onto
-;; the shared `#app` element.
+;; The React root lives in an atom and gets created lazily inside `run`, never
+;; at ns-load. Loading a namespace must produce zero DOM side effects, so that
+;; co-required example namespaces don't race each other to call `createRoot` on
+;; the one shared `#app` element. See examples/TESTING.md, "mount-isolation".
 
 (defonce react-root (atom nil))
 
-;; The frame id this app runs in. `:rf/default` is an ordinary id with no
-;; framework privilege; we just pick it. The provider below creates the frame
-;; under this id, and the `use-subscribe` hook and render-time
-;; `(rf/frame-handle)` both resolve to it.
+;; `app-frame` is just an id we pick. `:rf/default` is an ordinary frame id
+;; with no special status — the runtime never conjures a frame for you, so we
+;; name one here and hand it to the provider. From there the `use-subscribe`
+;; hook and the render-time `(rf/frame-handle)` both resolve to it. See
+;; `docs/guide/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Install the Helix adapter. Pass the adapter value directly to init!.
+  ;; `init!` installs the reactive adapter for the process. Each adapter ns
+  ;; exports an `adapter` var; require the ns and pass that var. Call once at
+  ;; startup. See `docs/guide/glossary.md#init`.
   (rf/init! helix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    ;; The frame lives in one spot: the provider. Given `:id`, it creates the
-    ;; frame on first mount and runs `:initial-events` once to seed it. On hot
-    ;; reload it reuses the existing frame and skips seeding, so the count you
-    ;; were looking at survives. See docs/guide/concepts/frames.md.
+    ;; The whole frame lifecycle lives in one spot: this provider. The first
+    ;; mount creates the app frame and runs its `:initial-events` once to seed
+    ;; app-db. A later mount under the same `:id` — a hot reload — reuses the
+    ;; live frame and skips the seeding, so the count you were staring at
+    ;; survives the reload. See `docs/guide/concepts/frames.md`.
     (.render @react-root
              ($ helix-adapter/frame-provider {:id app-frame
                                               :initial-events [[:counter/initialise]]}

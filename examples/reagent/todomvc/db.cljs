@@ -1,25 +1,26 @@
 (ns todomvc.db
   "The shape of app-db, and the boot read that fills it.
 
-  Demonstrates: the single source of truth (`default-db` holds the todos and the
-  UI state, and nothing else; the active filter is derived from the route, never
-  stored), and a recordable coeffect (`reg-cofx :todo.storage/todos`) whose
-  supplier reads the saved todos in at boot, so the durable write stays
-  replayable instead of reaching for localStorage inside a handler.
-  See docs/guide/glossary.md (coeffect)."
+  Two ideas live here. First, the single source of truth: `default-db` holds
+  the todos and the UI state and nothing else — notably not the active filter,
+  which we derive from the route instead of storing twice. Second, a recordable
+  coeffect (`reg-cofx :todo.storage/todos`) that reads the saved todos in at
+  boot. Routing the storage read through a coeffect keeps the durable write
+  replayable, which a stray localStorage call inside a handler would quietly
+  break. See docs/guide/glossary.md (coeffect)."
   (:require [re-frame.core :as rf]))
 
-;; The default db carries no `:showing` slot. The active filter is derived from
-;; the route: the :showing sub (in subs.cljs) reads :rf.route/id and maps it to
-;; :all/:active/:completed.
+;; Notice there's no `:showing` slot here. The active filter isn't stored — it's
+;; derived: the :showing sub (in subs.cljs) reads :rf.route/id and maps it to
+;; :all/:active/:completed. One fact, one home.
 ;;
-;; The `:ui` slice holds the form/UI state. "Which row is being edited" and the
-;; live input drafts are application state, so they live in app-db, are read via
-;; subs, and are changed only by events. Inputs read `:drafts` for their
-;; `:value` (controlled) and dispatch edit events on `:on-change`. `:editing-id`
-;; names the single row in edit-in-place mode (nil = none). Two draft slots are
-;; enough: one for the new-todo header input, one shared by the single editing
-;; row.
+;; The `:ui` slice is where the form/UI state lives. "Which row is being edited"
+;; and the live input drafts are genuinely application state, so they get the
+;; full treatment: stored in app-db, read via subs, changed only by events.
+;; Inputs read `:drafts` for their `:value` (that's what makes them controlled)
+;; and dispatch edit events on `:on-change`. `:editing-id` names the one row in
+;; edit-in-place mode (nil = nobody's editing). Two draft slots cover it: one
+;; for the new-todo header input, one shared by the single editing row.
 (def default-ui
   {:editing-id nil
    :drafts     {:new "" :edit ""}})
@@ -48,24 +49,27 @@
       (catch :default _
         (sorted-map)))))
 
-;; The saved todos are a fact about the world (storage), and `:todo/initialise`
-;; folds them into durable app-db. A durable write must fold a RECORDED fact, not
-;; a live `localStorage` read at the write site — a live read could not be
-;; reproduced under replay or epoch-restore. So `:todo.storage/todos` is a
-;; RECORDABLE coeffect whose supplier reads localStorage: the supplier runs at
-;; the boot dispatch, its value is recorded onto the event envelope, and replay
-;; re-folds that captured snapshot rather than re-reading localStorage now.
+;; The saved todos are a fact about the world out there (storage), and
+;; `:todo/initialise` folds them into durable app-db. Here's the rule: a durable
+;; write has to fold a RECORDED fact, never a live `localStorage` read taken at
+;; the write site. Why? Because a live read can't be reproduced later under
+;; replay or epoch-restore — the world may have moved on. So `:todo.storage/todos`
+;; is a RECORDABLE coeffect: its supplier reads localStorage at the boot
+;; dispatch, the value gets stamped onto the event envelope, and replay re-folds
+;; that captured snapshot instead of reading localStorage all over again.
 ;;
-;; Registering a supplier with `reg-cofx` is the standard way to make a coeffect
-;; available. See docs/guide/glossary.md (coeffect) and
+;; `reg-cofx` is how you make a coeffect available. See
+;; docs/guide/glossary.md (coeffect) and
 ;; docs/guide/glossary.md#recordable-vs-ambient-coeffects.
 
 (defn read-todos-from-storage
-  "Read the saved TodoMVC items from localStorage, normalised to a sorted-map.
-   This is the supplier body for the `:todo.storage/todos` recordable coeffect.
-   nil/empty localStorage (first run, or a server with no localStorage) yields an
-   empty sorted-map. The sorted-map matters: allocate-next-id picks the max id
-   via `(last (keys todos))`, which only holds while the map stays sorted."
+  "Read the saved TodoMVC items from localStorage into a sorted-map. This is the
+   supplier body behind the `:todo.storage/todos` recordable coeffect.
+
+   nil or empty localStorage (a first run, or a server that has none at all)
+   gives back an empty sorted-map. And the sorted-map isn't incidental:
+   allocate-next-id grabs the highest id with `(last (keys todos))`, which only
+   tells the truth while the map stays sorted."
   []
   (or (some-> (.-localStorage js/globalThis)
               (.getItem ls-key)
@@ -76,8 +80,8 @@
   {:recordable? true
    :doc "Recordable coeffect: the saved TodoMVC items, read from localStorage as
          a sorted-map. The supplier runs at the boot dispatch; its value is
-         recorded onto the event envelope and re-presented verbatim under replay
-         / epoch-restore. A handler folds it into durable app-db by declaring
-         `:rf.cofx/requires [:todo.storage/todos]` and reading it flat — folding
-         a recorded fact, never a live read."}
+         recorded onto the event envelope and handed back verbatim under replay
+         or epoch-restore. To use it, a handler declares
+         `:rf.cofx/requires [:todo.storage/todos]` and reads it straight off the
+         coeffects map — folding a recorded fact, never a live read."}
   (fn [] (read-todos-from-storage)))

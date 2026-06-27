@@ -1,40 +1,39 @@
 (ns boot.views
-  "Views for the boot example. See views in the guide
-   (docs/guide/glossary.md#view).
+  "Views for the boot example (docs/guide/glossary.md#view).
 
-   The view tree has two halves split by the boot state:
+   The whole view tree pivots on one question — has the boot finished? —
+   and `root-view` is where that fork lives:
 
-   1. **Pre-ready** — while the boot machine is in any non-terminal
-      state, the root renders a `[boot-progress]` screen showing the
-      current phase. The main app view is NOT mounted yet — its
-      subscriptions would read empty slices and have to defend against
-      `nil` everywhere.
+   1. **Not yet** — while the boot machine is in any non-terminal state,
+      we render `[boot-progress]`, a screen that just names the current
+      phase. The main app stays unmounted, which spares it from reading
+      half-empty slices and guarding against `nil` at every turn.
 
-   2. **Post-ready** — once the boot machine reaches `:ready`, the root
-      swaps in `[main-app]`. The main view freely reads `:config`,
-      `:flags`, `:user`, and `:routes` from app-db; the slices are
-      populated and stable.
+   2. **Ready** — once the boot reaches `:ready`, we swap in `[main-app]`.
+      It reads `:config`, `:flags`, `:user`, and `:routes` straight from
+      app-db with no defensiveness, because by now they're all there and
+      not going anywhere.
 
-   The failure path renders `[boot-failed]` (terminal `:failed`), which
-   surfaces the error and offers a retry button. The retry dispatches
-   `[:app/boot [:boot/restart]]` straight back into the boot machine,
-   re-running it from `:configuring`. Re-boot uses a real event, not the
-   `:rf.machine/start` creation marker — the marker is inert once the
-   machine already exists.
+   3. **Failed** — `[boot-failed]` shows the error and a retry button.
+      Retry dispatches `[:app/boot [:boot/restart]]` to run the boot
+      again from `:configuring`. (A real event, note — not the
+      `:rf.machine/start` creation marker, which goes inert the moment
+      the machine exists.)
 
-   Splitting the views by boot state keeps all the loading logic in the
-   boot machine. The alternative — mount the main app and let each
-   sub-view render its own per-phase skeleton — scatters that logic
-   across the whole view tree. Here the views just read `:app.boot/ready?`.
+   Forking here, in one place, is the whole trick. It keeps every scrap
+   of loading logic inside the boot machine. The alternative — mount the
+   main app and let each sub-view paint its own loading skeleton — would
+   smear that logic across the entire tree. Instead the views just ask
+   `:app.boot/ready?` and get on with it.
 
-   The views are intentionally minimal — the goal is to show the boot
-   shape, not a polished UI."
+   The views are deliberately bare. The point is the boot shape, not a
+   pretty UI."
   (:require [re-frame.core :as rf]
             [boot.boot])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-(reg-view ^{:doc "Pre-ready screen — visible while the boot machine
-                  is in any non-terminal state."}
+(reg-view ^{:doc "The waiting screen — what you see while the boot
+                  machine is still working through its phases."}
           boot-progress []
   (let [state @(subscribe [:app.boot/state])]
     [:div.boot-progress {:data-testid "boot-progress"}
@@ -52,8 +51,8 @@
       ". The main app view does not mount until the boot reaches "
       [:code ":ready"] "."]]))
 
-(reg-view ^{:doc "Terminal :failed screen — surfaces the recorded
-                  error and offers a retry."}
+(reg-view ^{:doc "The :failed screen — shows what went wrong and offers
+                  a retry that re-runs the boot from the top."}
           boot-failed []
   (let [err @(subscribe [:app.boot/error])]
     [:div.boot-failed {:data-testid "boot-failed"}
@@ -68,9 +67,9 @@
                :on-click    #(dispatch [:app/boot [:boot/restart]])}
       "Retry boot"]]))
 
-(reg-view ^{:doc "Post-ready screen — the main app. By the time this
-                  renders, the four boot-loaded slices are populated
-                  in app-db and stable."}
+(reg-view ^{:doc "The main app — the screen the boot was clearing the
+                  way for. By the time it renders, all four loaded slices
+                  are sitting in app-db, populated and stable."}
           main-app []
   (let [config @(subscribe [:app/config])
         flags  @(subscribe [:app/flags])
@@ -98,10 +97,9 @@
        (for [{:keys [id path]} routes]
          ^{:key id} [:li (str id " → " path)])]]]))
 
-(reg-view ^{:doc "Root view — switches on the boot machine's state.
-                  This is the only place in the application that
-                  decides whether to mount the main app vs the
-                  boot-progress screen."}
+(reg-view ^{:doc "The fork in the road. Reads the boot machine's state
+                  and picks one of three screens — and it's the only
+                  place in the app that makes that call."}
           root-view []
   (let [state @(subscribe [:app.boot/state])]
     (cond

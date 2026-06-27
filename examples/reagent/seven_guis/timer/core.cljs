@@ -1,53 +1,60 @@
 (ns seven-guis.timer.core
   "7GUIs #4 — Timer.
 
-   A progress bar that fills as time elapses, a numeric display of elapsed
-   time, a slider that sets the duration, and a Reset button.
+   A progress bar that fills, the elapsed seconds beside it, a slider to set
+   the duration, and a Reset button. Time itself is the interesting part.
 
-   Rules:
-     - The progress bar fills from 0 to 100% over the duration.
-     - The slider changes the duration on the fly: shrinking it advances the
-       bar to full immediately when elapsed already exceeds duration.
-     - Reset sets elapsed back to zero.
+   The trick: time advances the same way everything else does — through a
+   dispatched event. A periodic `:timer/tick` nudges elapsed-ms forward, so
+   the clock lives *inside* the update loop rather than off to the side
+   mutating state behind the framework's back. No special path for time.
 
-   This is the 7GUIs test of time. A periodic event ticks elapsed time
-   forward through the same dispatch pipeline as every other change, so the
-   timer never lives outside the update model.
+   The rules are simple:
+     - The bar fills from 0 to 100% over the duration.
+     - The slider retargets the duration live: drag it below elapsed and the
+       bar jumps to full; drag it back up and the timer picks up again.
+     - Reset puts elapsed back to zero.
 
-   What it shows:
+   What it shows off:
    - `:dispatch-later` to schedule the next tick
-   - One source of truth: elapsed time lives in app-db
-   - Layered subscriptions deriving the progress percentage
-   - A controlled slider that dispatches on every change
+   - One source of truth: elapsed time is just a number in app-db
+   - Subscriptions layered to derive the progress percentage
+   - A controlled slider that dispatches on every drag
 
    Terms: events, subscriptions, app-db, frames — docs/guide/glossary.md."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Requiring this registers the hooks that make `rf/reg-app-schema` work.
+            ;; Pulling this in registers the hooks that teach the frame how to
+            ;; validate against a schema — that's what makes `rf/reg-app-schema` work.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 (def tick-ms
-  "Wall-clock delay in milliseconds between successive timer ticks."
+  "How long, in milliseconds, between one tick and the next. 100ms is smooth
+   enough to look continuous without flooding the loop with events."
   100)
 
 ;; ============================================================================
 ;; SCHEMA
 ;; ============================================================================
 
+;; The whole timer is four numbers. That's it — no objects, no timer handle,
+;; nothing hiding outside app-db. This schema spells them out, and the runtime
+;; checks every commit against it.
 (def TimerState
   [:map
-   [:elapsed-ms :int]                  ;; milliseconds since the last reset
-   [:duration-ms :int]                 ;; the slider's current value
-   [:tick-active? :boolean]            ;; whether a tick is in flight
-   [:tick-gen :int]])                  ;; generation token; bumped on Reset to retire stale ticks
+   [:elapsed-ms :int]                  ;; milliseconds counted since the last reset
+   [:duration-ms :int]                 ;; where the slider is parked
+   [:tick-active? :boolean]            ;; is a tick chain currently running?
+   [:tick-gen :int]])                  ;; generation token — the trick for retiring stale ticks (see below)
 
-;; `reg-app-schema` binds the schema to a frame, so it needs a frame in scope.
-;; `with-frame` names one. We use `:rf/default`, the same id the render root's
-;; `frame-provider` uses (see `run`), so the schema lands on the frame whose
-;; commits it validates. Schemas: docs/guide/how-to/validate-with-schemas.md.
+;; A schema belongs to a frame, so we need a frame in scope to register it.
+;; `with-frame` names one. We use `:rf/default` — the same id the render root's
+;; `frame-provider` picks (see `run`) — so the schema guards the very frame
+;; whose commits it's meant to validate. If you want the why and the how of
+;; schemas, that's docs/guide/how-to/validate-with-schemas.md.
 (with-frame :rf/default
   (rf/reg-app-schema [:timer] {:schema TimerState}))
 
@@ -55,23 +62,29 @@
 ;; EVENTS
 ;; ============================================================================
 ;;
-;; The tick chain runs on `:dispatch-later`, which has no cancel API. So we
-;; guard ticks with a generation token. Each tick carries the :tick-gen it was
-;; scheduled under. A handler that wants to retire the in-flight tick bumps
-;; :tick-gen; when that stale tick finally fires its gen no longer matches, so
-;; it no-ops. The handler then schedules a fresh tick under the new generation,
-;; keeping exactly one chain alive.
+;; Here's the wrinkle that shapes everything below. We schedule each tick with
+;; `:dispatch-later`, and `:dispatch-later` is fire-and-forget — there's no
+;; handle to cancel a tick once it's in the air. So how do we ever *stop* a
+;; tick, or start a clean one over the top of it?
 ;;
-;; Reset uses this to show 0.0 reliably: it zeros :elapsed-ms and bumps the
-;; generation, so a tick scheduled just before Reset can't re-increment elapsed
-;; after the zeroing. :timer/set-duration uses it too: when the chain has
-;; already stopped (elapsed reached the old duration) and the user raises the
-;; duration, it bumps the generation and arms one fresh tick — resuming the
-;; chain without a Reset. That is what makes the slider change duration on the
-;; fly even after the timer has finished.
+;; The answer is a generation token, `:tick-gen`. Think of it as a wristband at
+;; a club: every tick is stamped with the generation it was scheduled under,
+;; and when it finally fires it checks whether its stamp still matches the one
+;; in app-db. Want to retire whatever's in flight? Bump `:tick-gen`. The old
+;; tick still goes off — we can't stop that — but its wristband is now stale,
+;; so it quietly does nothing. Then we schedule a fresh tick under the new
+;; generation. Net result: exactly one live chain, ever.
+;;
+;; Two handlers lean on this:
+;;   - Reset bumps the generation so a tick scheduled a moment earlier can't
+;;     sneak elapsed back up after we've zeroed it. The display stays at 0.0.
+;;   - set-duration bumps it to *revive* a finished timer: if the chain already
+;;     stopped and the user drags the duration up, one fresh tick under the new
+;;     generation gets it moving again — no Reset needed. That's the on-the-fly
+;;     slider behaviour the 7GUIs task asks for.
 
 (rf/reg-event :timer/initialise
-  {:doc "Seed the timer slice and start the periodic tick."}
+  {:doc "Set up the timer slice from nothing and kick off the first tick."}
   (fn handler-timer-initialise [{:keys [db]} _]
     {:db (assoc db :timer {:elapsed-ms   0
                            :duration-ms  10000
@@ -80,34 +93,34 @@
      :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick 0]}]]}))
 
 (rf/reg-event :timer/tick
-  {:doc "Advance elapsed by one tick, scheduling the next while still ticking.
-         A tick whose generation no longer matches :tick-gen is dropped."}
+  {:doc "Nudge elapsed forward by one tick and, if there's still road ahead,
+         schedule the next one. A tick carrying a stale generation is ignored."}
   (fn handler-timer-tick [{:keys [db]} [_ gen]]
     (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)]
       (if (not= gen tick-gen)
-        ;; Stale tick from a retired generation. Drop it.
+        ;; Wrong wristband — this tick belongs to a retired generation. Ignore it.
         {}
         (let [next-elapsed (min (+ elapsed-ms tick-ms) duration-ms)
               done?        (>= next-elapsed duration-ms)]
           (cond-> {:db (assoc-in db [:timer :elapsed-ms] next-elapsed)}
-            ;; Continue ticking while not done and tick still active.
+            ;; Keep the chain alive only while there's room left and we haven't been stopped.
             (and tick-active? (not done?))
             (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick gen]}]])))))))
 
 (rf/reg-event :timer/set-duration
-  {:doc "User dragged the slider. Update the duration. If the tick chain had
-         already stopped (elapsed reached the old duration) and the new
-         duration leaves room to advance, re-arm one fresh tick under a
-         bumped generation so it resumes without a Reset. While a chain is
-         still live, just update the duration — the running tick keeps going
-         against the new target."
+  {:doc "The user dragged the slider, so retarget the duration. Two cases. If a
+         tick chain is still running, we just write the new target and let the
+         live tick race toward it. If the chain had already finished but the new
+         duration leaves room to keep going, we revive it with one fresh tick
+         under a bumped generation — see the EVENTS note above for why that bump
+         matters."
    :schema [:cat [:= :timer/set-duration] :int]}
   (fn handler-timer-set-duration [{:keys [db]} [_ ms]]
     (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)
-          ;; The chain stops scheduling once elapsed reaches duration.
+          ;; The chain stops scheduling itself the moment elapsed catches duration.
           was-stopped? (>= elapsed-ms duration-ms)
-          ;; Re-arm only when stopped, still active, and the new duration
-          ;; leaves elapsed below target (room to advance).
+          ;; Revive only if it had stopped, is still active, and the new target
+          ;; sits ahead of where we are — i.e. there's actually somewhere to go.
           rearm?       (and was-stopped? tick-active? (> ms elapsed-ms))
           next-gen     (if rearm? (inc tick-gen) tick-gen)
           db'          (cond-> (assoc-in db [:timer :duration-ms] ms)
@@ -116,8 +129,8 @@
         rearm? (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick next-gen]}]])))))
 
 (rf/reg-event :timer/reset
-  {:doc "User clicked Reset. Zero elapsed, retire any in-flight tick by
-         bumping :tick-gen, and arm a fresh tick under the new generation."}
+  {:doc "Reset was clicked. Zero elapsed, retire whatever tick is in flight by
+         bumping :tick-gen, and start a clean chain under the new generation."}
   (fn handler-timer-reset [{:keys [db]} _]
     (let [next-gen (inc (get-in db [:timer :tick-gen]))]
       {:db (-> db
@@ -129,16 +142,24 @@
 ;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
+;;
+;; The two base subs just read raw numbers out of app-db. The ones above them
+;; build on those — seconds and percentage are *derived*, never stored. The
+;; `:<-` arrows wire each sub to its inputs, so it recomputes only when an
+;; input actually changes. The view asks for the polished values and stays out
+;; of the arithmetic. Subscriptions: docs/guide/concepts/subscriptions.md.
 
 (rf/reg-sub :timer/elapsed-ms  (fn [db _] (get-in db [:timer :elapsed-ms])))
 (rf/reg-sub :timer/duration-ms (fn [db _] (get-in db [:timer :duration-ms])))
 
+;; Elapsed milliseconds, dressed up as seconds with one decimal for display.
 (rf/reg-sub :timer/elapsed-seconds
   :<- [:timer/elapsed-ms]
   (fn [ms _] (.toFixed (/ ms 1000.0) 1)))
 
 (rf/reg-sub :timer/progress-pct
-  {:doc "Fraction of duration elapsed, clamped to [0, 100]."}
+  {:doc "How far along we are, 0 to 100. A zero duration counts as full —
+         otherwise we'd be dividing by zero, and nobody enjoys that."}
   :<- [:timer/elapsed-ms]
   :<- [:timer/duration-ms]
   (fn [[e d] _]
@@ -178,25 +199,26 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and created lazily inside `run`, not at
-;; ns-load. ns-load must produce no DOM side effects, so co-required example
-;; namespaces don't race `create-root` onto the shared `#app` element.
+;; We stash the React root in an atom and build it lazily inside `run`, never at
+;; ns-load. Loading a namespace shouldn't touch the DOM — if it did, two example
+;; namespaces loaded together would both race to `create-root` the shared `#app`
+;; element, and exactly one of them would win. Lazy keeps that drama away.
 (defonce react-root (atom nil))
 
-;; The frame lifecycle lives in one place: the `frame-provider` below. On first
-;; mount it creates the frame, applies its config, and runs `:initial-events`
-;; once to seed app-db. From then on every `dispatch`/`subscribe` in the tree
-;; resolves to that frame. On hot reload it reuses the existing frame and skips
-;; re-seeding, so the timer keeps ticking across re-mounts.
-;; Frames: docs/guide/concepts/frames.md.
+;; All the frame's lifecycle happens in one spot — the `frame-provider` below.
+;; On first mount it creates the frame, applies its config, and fires
+;; `:initial-events` once to seed app-db. After that, every `dispatch` and
+;; `subscribe` in the tree resolves to this frame. On hot reload it reuses the
+;; frame it already has and skips re-seeding, so the timer keeps right on ticking
+;; while you edit. Frames: docs/guide/concepts/frames.md.
 ;;
-;; `app-frame` is just an id we pick — `:rf/default`, the same id the schema
-;; block above binds to.
+;; `app-frame` is just an id we chose — `:rf/default`, the same one the schema
+;; block up top binds to.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; `init!` installs the reactive adapter for the process. It does not create
-  ;; the frame — the `frame-provider` below does that.
+  ;; `init!` tells the runtime to render through the Reagent adapter. That's all
+  ;; it does — it does *not* create a frame. The `frame-provider` below does that.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

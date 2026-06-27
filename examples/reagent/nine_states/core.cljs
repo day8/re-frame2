@@ -1,12 +1,12 @@
 (ns nine-states.core
-  "Worked example: the **Nine States of UI**, modelled as a single
-   parallel state machine.
+  "The **Nine States of UI** — one small todos list, rendered every way it
+   can possibly be.
 
-   Most apps design only the happy path and leave the other eight states
-   visually undefined. This example renders all nine canonical UI states
-   for one small domain — a **todos list** — using one `:type :parallel`
-   machine with three regions, plus state tags carrying the per-axis
-   intent.
+   Most apps lavish attention on the happy path and quietly forget the
+   other eight states. The empty list, the spinner, the validation error,
+   the frozen archive — they get noticed when a user hits them, not
+   before. This example takes the whole taxonomy seriously and renders all
+   nine, driven by a single `:type :parallel` state machine.
 
    The nine states (the well-known UX taxonomy):
 
@@ -15,75 +15,80 @@
      3. Empty        — fetched, but the result is the empty list.
      4. One          — exactly one todo. Focused single-item layout.
      5. Some         — a small, manageable list.
-     6. Too Many     — overwhelming amount; needs filtering / pagination.
+     6. Too Many     — more than a person wants to scan; needs search / paging.
      7. Incorrect    — invalid form input; per-field validation error.
      8. Correct      — a happy-path success after a valid submit.
      9. Done/Frozen  — terminal state; the mode region is at `:done`.
 
-   The machine declaration carries the whole model in three regions:
+   The trick is that these nine aren't one axis — they're three, running
+   at once. A list can be *loading* while the form is *invalid* while the
+   page is still *active*. So the machine has three parallel regions, each
+   minding its own axis:
 
-     - `:data` region    — six cardinality states (Nothing / Loading /
-                            Empty / One / Some / Too Many) plus an `:error`
-                            branch. An `:always`-cascade picks the
-                            cardinality bucket after a successful fetch.
-     - `:form` region    — three states (Neutral / Incorrect / Correct)
-                            tracking the form lifecycle.
-     - `:mode` region    — two states (Active / Done); `:done` is
+     - `:data` region    — the request-lifecycle / cardinality axis. Six
+                            states (Nothing / Loading / Empty / One / Some /
+                            Too Many) plus an `:error` branch. After a
+                            successful fetch an `:always`-cascade counts the
+                            items and picks the cardinality bucket.
+     - `:form` region    — the form lifecycle: Neutral / Incorrect / Correct.
+     - `:mode` region    — the page lifecycle: Active / Done. `:done` is
                             terminal and read-only.
 
-   Every state carries `:tags` describing its per-axis intent
-   (`:data/loading`, `:form/invalid`, `:mode/done`, ...). One
-   render-priority table in data plus one selector sub (`:ui/render`)
-   collapse the tag union into a single render-model keyword. The root
-   view's `case` over `:ui/render` is the only branch site.
+   Each state wears `:tags` announcing its intent (`:data/loading`,
+   `:form/invalid`, `:mode/done`, ...). Three axes means several tags are
+   live at once — so how does the page decide what to draw? One
+   render-priority table (plain data) plus one selector sub (`:ui/render`)
+   collapse that tag union down to a single keyword, and the root view's
+   `case` over it is the only place the UI ever branches. Nine states, one
+   `case`.
 
    What this example demonstrates:
 
    - **Parallel regions + state tags** — three orthogonal axes in one
-     machine, queried by tag against the active configuration. See the
-     machines guide on [parallel regions]
+     machine, asked by tag rather than by state name. See the machines
+     guide on [parallel regions]
      (../../../docs/machines/concepts.md#when-the-machine-grows) and
      [state tags]
      (../../../docs/machines/concepts.md#guards-actions-tags-and-after--the-recognition-kit).
-   - **Managed-HTTP lifecycle** folded into the `:data` region: the
-     region's state-keyword IS the request status, so a separate
-     `:status` field disappears. See [managed HTTP]
+   - **A managed-HTTP lifecycle** folded right into the `:data` region:
+     the region's state-keyword *is* the request status, so there's no
+     separate `:status` field to keep in sync with it. See [managed HTTP]
      (../../../docs/resources/glossary.md#managed-http) and the
      [resource-status lifecycle]
      (../../../docs/resources/glossary.md#resource-status).
-   - **A form slice** — the `{:draft :errors :touched}` slice carries the
-     form runtime; the form region's state tracks the
-     validation/submission lifecycle. See [Build a form]
+   - **A form slice** — `{:draft :errors :touched}` holds the form's
+     working state in app-db; the form region's state tracks where it is
+     in the validate/submit lifecycle. See [Build a form]
      (../../../docs/guide/how-to/build-a-form.md).
-   - **Inspectability bias** — non-trivial guards and actions are named
-     entries in the machine's `:guards` / `:actions` maps; only trivial
-     transitions use inline fns.
+   - **Inspectability** — guards and actions worth a name get one, as
+     entries in the machine's `:guards` / `:actions` maps. Only the truly
+     trivial transitions stay inline. Future-you, reading a trace, will
+     thank present-you.
    - **Headless tests** — every state has a fixture that drives the
-     machine into that state and asserts against its tags + `:ui/render`,
-     without a browser. The example tree is test-free; the fixtures live
-     in the framework test tree at
+     machine there and checks its tags + `:ui/render`, no browser
+     required. The example tree itself is test-free; the fixtures live in
+     the framework test tree at
      `implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`.
 
-   The whole example is one file. In a real codebase it would split
-   across schema / events / subs / views / machines files."
+   It all lives in one file so you can read it top to bottom. A real
+   codebase would spread it across schema / events / subs / views /
+   machines files."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            ;; The schema-attachment ns lives in the
-            ;; day8/re-frame2-schemas artefact. Requiring it registers
-            ;; the hooks the `rf/reg-app-schema` calls below need.
+            ;; Schemas ship as their own artefact. Requiring this ns wires
+            ;; up the hooks the `rf/reg-app-schema` call below leans on.
             [re-frame.schemas]
-            ;; The state-machine ns lives in the day8/re-frame2-machines
-            ;; artefact. Requiring it registers the hooks `rf/reg-machine`
-            ;; and the `:rf/machine` / `:rf/machine-has-tag?` subs need.
+            ;; Likewise machines: requiring this registers `rf/reg-machine`
+            ;; and the `:rf/machine` / `:rf/machine-has-tag?` subs we use
+            ;; throughout.
             [re-frame.machines]
-            ;; Managed-HTTP ships in day8/re-frame2-http. Requiring it
-            ;; registers the `:rf.http/managed` fx (and family) the
-            ;; load-todos fx below dispatches.
+            ;; Managed-HTTP. Requiring it registers the `:rf.http/managed`
+            ;; fx (and its family) that the load events dispatch.
             [re-frame.http.managed]
-            ;; Registers the framework canned-stub fxs
-            ;; (`:rf.http/managed-canned-success` / `-failure`). The
-            ;; per-app demo stub below delegates to them.
+            ;; The framework's canned-reply stubs
+            ;; (`:rf.http/managed-canned-success` / `-failure`). Our little
+            ;; per-app demo stub below just delegates to these.
             [re-frame.http.test-support]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -94,9 +99,10 @@
 ;; ============================================================================
 
 (def too-many-threshold
-  "A 'small list' is up to this many items; beyond that we render the
-   'Too Many' UI (search + truncation). Named so the machine's
-   `:too-many?` guard and the test fixtures share one value."
+  "Where 'a manageable list' ends and 'too many' begins. Up to this many
+   items renders plainly; beyond it we switch to the search + truncation
+   UI. It's a named def so the machine's `:too-many?` guard and the test
+   fixtures all agree on the same number."
   7)
 
 (def new-todo-defaults
@@ -108,28 +114,29 @@
 ;; SCHEMAS
 ;; ============================================================================
 ;;
-;; The `:ui/nine-states` machine's `:data` slot is its own self-describing
-;; record (see the machine declaration). The form slice describes only
-;; what the form collects plus per-field validation state — no `:status`
-;; field, because the form region's state-keyword IS the status.
+;; The machine carries its own `:data` shape (see the declaration below), so
+;; the only thing left to describe here is the form slice: what the form
+;; collects plus its per-field validation state. Note there's no `:status`
+;; field — the form region's state-keyword already IS the status.
 
-;; The slice's `:draft` is a bare `:map`, not a stricter "valid submission"
-;; shape. A draft legitimately holds in-progress / invalid input (an empty
-;; title before the user types), so a min-length constraint here would
-;; reject the initial draft write under dev-mode schema validation. The
-;; valid-submission constraint lives in the form's validate fn (see
-;; `validate-new-todo`), not the slice schema — drafts and submissions are
-;; different shapes.
+;; A subtle but important call: `:draft` is a bare `:map`, not the stricter
+;; "this is a valid submission" shape. A draft is meant to hold
+;; in-progress, half-typed, not-yet-valid input — an empty title before the
+;; user types anything is perfectly normal. Put a min-length constraint
+;; here and dev-mode schema validation would reject that very first write.
+;; So validity lives where validity belongs: in the validate fn (see
+;; `validate-new-todo`), not the slice schema. Drafts and submissions are
+;; genuinely different shapes, and conflating them is a classic form bug.
 (def NewTodoSlice
   [:map
    [:draft   :map]
    [:errors  {:default {}} [:map-of :keyword [:vector :string]]]
    [:touched {:default #{}} [:set :keyword]]])
 
-;; `reg-app-schema` is frame-local: it needs a frame in scope, or it
-;; raises `:rf.error/no-frame-context`. This example runs in `:rf/default`
-;; (the same id `run`'s `frame-provider {:id …}` ensures), so name it
-;; explicitly here. See the frames glossary:
+;; `reg-app-schema` is frame-local — it needs a frame in scope or it raises
+;; `:rf.error/no-frame-context`. This example lives in `:rf/default` (the
+;; same id `run`'s `frame-provider {:id …}` sets up), so we name it here.
+;; Frame identity is carried, not magically found; see the frames glossary:
 ;; ../../../docs/guide/glossary.md#frame-identity-is-carried-not-found
 (with-frame :rf/default
   (rf/reg-app-schema [:new-todo] {:schema NewTodoSlice}))
@@ -138,16 +145,21 @@
 ;; RECORDABLE COEFFECTS
 ;; ============================================================================
 ;;
-;; A submitted todo's `:id` is written into durable machine data
-;; (`:data :items`) and used as a React `:key`. A durable id must be a
-;; fact the handler is handed, never an ambient `(random-uuid)` read at
-;; the write site — replaying the event stream would mint a different id
-;; and the snapshot and keys would not reproduce. So the generator is a
-;; *recordable* coeffect: it runs once, the minted value is recorded, and
-;; replay re-presents the same value instead of re-minting. `:new-todo/submit`
-;; declares it via `:rf.cofx/requires` and reads it from the coeffects map,
-;; staying pure and replayable. See the recordable-vs-ambient coeffects
-;; entry: ../../../docs/guide/glossary.md#recordable-vs-ambient-coeffects
+;; Here's a small problem with a tidy solution. A submitted todo needs an
+;; `:id` — it goes into durable machine data and doubles as the React
+;; `:key`. The obvious move is `(random-uuid)` right where we build the
+;; todo. The trouble: that's a side effect hiding inside a "pure" handler.
+;; Replay the event stream and it mints a *different* id every time, so the
+;; snapshot and keys never reproduce. Time-travel quietly breaks.
+;;
+;; The fix is to treat the fresh id like any other fact the handler needs
+;; from the outside world: feed it in as a coeffect. Marking the cofx
+;; `:recordable?` means it runs once for real, the value gets recorded, and
+;; on replay re-frame2 hands back the *same* value instead of minting a new
+;; one. `:new-todo/submit` asks for it via `:rf.cofx/requires` and reads it
+;; out of the coeffects map — pure, and replayable. See the
+;; recordable-vs-ambient coeffects entry:
+;; ../../../docs/guide/glossary.md#recordable-vs-ambient-coeffects
 (rf/reg-cofx :new-todo/todo-id
   {:recordable? true
    :doc "Replayable fresh id for a newly-submitted todo."}
@@ -157,25 +169,25 @@
 ;; FX  (test-friendly stubs)
 ;; ============================================================================
 ;;
-;; A real app would issue one `:rf.http/managed` request and override it at
-;; test time via the frame's `:fx-overrides`. For this self-contained
-;; example we ship one per-app stub that delegates to the framework's
-;; canned-success / canned-failure fxs, so the control panel can drive the
-;; data region into Empty / One / Some / Too Many without a server. See
-;; [managed HTTP](../../../docs/resources/http.md).
+;; A real app fires one `:rf.http/managed` request and swaps in a stub at
+;; test time via the frame's `:fx-overrides`. This example has no server to
+;; talk to, so it ships its own little stub that delegates to the
+;; framework's canned-success / canned-failure fxs. That's what lets the
+;; control panel conjure Empty / One / Some / Too Many on demand, no
+;; backend required. See [managed HTTP](../../../docs/resources/http.md).
 
 (defn- gen-todos [n]
   (vec (for [i (range n)]
          {:id (random-uuid) :title (str "Todo #" (inc i)) :done? false})))
 
 (rf/reg-fx :nine-states.http/managed-demo
-  {:doc       "Demo override for `:rf.http/managed`. Routes by URL:
-               `/api/todos` → success with N synthetic todos (N from
-               `:request :query :n`); `/api/todos/fail` → transport
-               failure. Delegates to the framework's
-               `:rf.http/managed-canned-success` /
-               `:rf.http/managed-canned-failure` so the reply shape
-               matches a real managed request."
+  {:doc       "Demo override for `:rf.http/managed`. A tiny fake server,
+               routing by URL: `/api/todos` succeeds with N synthetic
+               todos (N read from `:request :query :n`); `/api/todos/fail`
+               fails with a transport error. Either way it hands off to the
+               framework's `:rf.http/managed-canned-success` /
+               `:rf.http/managed-canned-failure`, so the reply has exactly
+               the shape a real managed request would produce."
    :platforms #{:client :server}}
   (fn fx-managed-demo [frame-ctx args-map]
     (let [url (-> args-map :request :url str)]
@@ -195,34 +207,37 @@
 ;; THE MACHINE — :ui/nine-states  (one machine, three regions)
 ;; ============================================================================
 ;;
-;; Three orthogonal axes, one declaration:
+;; This is the whole model. Three independent axes, all in one declaration,
+;; each ticking along on its own:
 ;;
-;;   :data — the request-lifecycle / cardinality axis (states 1-6, plus
-;;           an :error branch). After a successful fetch lands in
-;;           :resolving, an :always-cascade picks the cardinality bucket
-;;           by reading :items out of the shared :data.
+;;   :data — the request-lifecycle / cardinality axis (states 1-6, plus an
+;;           :error branch). When a fetch succeeds it lands in :resolving,
+;;           and an :always-cascade counts :items and picks the right
+;;           cardinality bucket. The count decides; we never do.
 ;;
-;;   :form — the Neutral / Incorrect / Correct form lifecycle (states 7
-;;           & 8). Driven by :submit-valid / :submit-invalid / :edit
-;;           events; transitions are pure (the slice's :errors / :touched
-;;           live in app-db, not in the machine's :data).
+;;   :form — the Neutral / Incorrect / Correct lifecycle (states 7 & 8),
+;;           driven by :submit-valid / :submit-invalid / :edit. These
+;;           transitions are pure — the slice's :errors / :touched live in
+;;           app-db, not in the machine's :data.
 ;;
-;;   :mode — the Active / Done axis (state 9). :done is terminal and
-;;           tagged :mode/read-only — the view inspects that tag to
-;;           disable the form and the control buttons.
+;;   :mode — the Active / Done axis (state 9). :done is terminal and wears
+;;           :mode/read-only, which is the tag the view reads to grey out
+;;           the form and the control buttons.
 ;;
-;; With parallel regions the snapshot's :state is a map keyed by region
-;; name; :data is shared across all regions; :tags is the union of every
-;; active state's tag set. See the machines guide:
+;; Because the regions run in parallel, a snapshot's :state is a map keyed
+;; by region name (one current state each), :data is shared across all
+;; three, and :tags is the union of every active state's tags. That union
+;; is the thing the render selector reads. See the machines guide:
 ;; ../../../docs/machines/concepts.md#when-the-machine-grows
 
 (def nine-states-machine
   {:type :parallel
 
-   ;; Shared :data: the data region's :items live here, plus the mode
-   ;; region's :archived-at stamp. Shared rather than per-region because
-   ;; the regions share one domain (when axes don't share data, prefer
-   ;; N separate machines).
+   ;; The machine's shared :data — :items for the data region, plus the
+   ;; mode region's :archived-at stamp. One shared bag rather than
+   ;; per-region pockets because these axes are facets of one domain. (If
+   ;; your axes don't share any data, that's usually a sign you want N
+   ;; separate machines, not one with parallel regions.)
    :data {:items       []
           :error       nil
           :archived-at nil}
@@ -242,8 +257,9 @@
 
    :actions
    {:set-items
-    ;; :fetch-succeeded carries the new items as the action's event
-    ;; payload's second element: [:fetch-succeeded {:items [...]}].
+    ;; The :fetch-succeeded event carries the new items in its second
+    ;; element — [:fetch-succeeded {:items [...]}] — so we pull them
+    ;; straight out of :event.
     (fn action-set-items [{data :data [_ {:keys [items]}] :event}]
       {:data (-> data
                  (assoc :items (vec items))
@@ -263,15 +279,14 @@
     {:initial :nothing
      :states
      {:nothing
-      ;; State 1 — never fetched. The :nothing tag (+ the absent
-      ;; :mode/done) drives the welcome view.
+      ;; State 1 — never fetched. The welcome screen.
       {:tags #{:data/nothing}
        :on   {:fetch-started :loading
               :reset         :nothing}}
 
       :loading
-      ;; State 2 — first fetch in flight. The :data/loading tag drives
-      ;; the spinner view.
+      ;; State 2 — a fetch is in flight. The :data/loading tag is what
+      ;; lights up the spinner.
       {:tags #{:data/loading :data/transient}
        :on   {:fetch-succeeded {:target :resolving
                                 :action :set-items}
@@ -279,8 +294,10 @@
                                 :action :set-error}}}
 
       :resolving
-      ;; Eventless microstep: after :set-items writes :items into
-      ;; :data, the cardinality guards pick a bucket. First match wins.
+      ;; A blink-and-you-miss-it microstep. :set-items has just written the
+      ;; new :items; now the cardinality guards race to claim it and the
+      ;; first match wins. The machine doesn't rest here — :always means it
+      ;; immediately moves on to whichever bucket fits.
       {:always [{:guard :empty?    :target :empty}
                 {:guard :one?      :target :one}
                 {:guard :too-many? :target :too-many}
@@ -323,16 +340,17 @@
               :reset          :neutral}}
 
       :incorrect
-      ;; State 7 — invalid input visible on a touched field. The
-      ;; :form/invalid tag drives the inline error view.
+      ;; State 7 — the user submitted something invalid. The :form/invalid
+      ;; tag drives the inline error message.
       {:tags #{:form/invalid}
        :on   {:submit-valid :correct
               :edit         :neutral
               :reset        :neutral}}
 
       :correct
-      ;; State 8 — happy-path acknowledgement. Transient; the next
-      ;; :edit returns the region to :neutral.
+      ;; State 8 — the brief "nice, that worked" moment. It's transient: as
+      ;; soon as the user edits again, an :edit drops the region back to
+      ;; :neutral.
       {:tags #{:form/success :form/transient}
        :on   {:edit  :neutral
               :reset :neutral}}}}
@@ -348,8 +366,9 @@
               :reset   :active}}
 
       :done
-      ;; State 9 — terminal. :mode/read-only is the tag the form and
-      ;; control panel inspect to disable inputs.
+      ;; State 9 — the end of the line. Once archived there's no event out
+      ;; of here. :mode/read-only is the tag the form and control panel
+      ;; read to disable every input.
       {:tags #{:mode/done :mode/read-only :mode/terminal}}}}}})
 
 (rf/reg-machine :ui/nine-states nine-states-machine)
@@ -358,23 +377,27 @@
 ;; EVENTS — top-level demo wrappers
 ;; ============================================================================
 ;;
-;; The control panel buttons dispatch high-level demo events that
-;; coordinate the form slice's app-db state with broadcasts into the
-;; :ui/nine-states machine. Wrapping them like this — rather than
-;; dispatching the machine directly from the view — keeps the imperative
-;; bits (clear the form, bump app-db) out of the view.
+;; The control-panel buttons dispatch friendly, high-level demo events.
+;; Each one does two things at once: it nudges the form slice in app-db and
+;; it broadcasts into the :ui/nine-states machine. Could the view dispatch
+;; the machine directly? Sure — but then the view would be juggling
+;; "clear the form, bump app-db, poke the machine" itself. Wrapping that up
+;; behind one named event keeps the imperative housekeeping out of the view,
+;; where it doesn't belong.
 
 (rf/reg-event :nine-states.app/initialise
-  {:doc "Seed the form slice + reset the machine to its initial state."}
+  {:doc "Back to square one: seed the form slice and reset the machine to
+         its initial state."}
   (fn handler-app-initialise [{:keys [db]} _]
     {:db (assoc db :new-todo new-todo-defaults)
      :fx [[:dispatch [:ui/nine-states [:reset]]]]}))
 
 (rf/reg-event :nine-states.demo/load
-  {:doc "Drive a synthetic fetch through the demo HTTP stub. The reply
-         folds back via :nine-states.demo/loaded → the machine's
-         :fetch-succeeded event; the :data region's :always-cascade
-         picks the cardinality bucket from the count."}
+  {:doc "Kick off a (synthetic) fetch through the demo HTTP stub. The reply
+         folds back through :nine-states.demo/loaded into the machine's
+         :fetch-succeeded event, and from there the :data region's
+         :always-cascade reads the count and picks the cardinality bucket.
+         Ask for n items, get the matching state."}
   (fn handler-demo-load [_ [_ {:keys [n]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
@@ -386,8 +409,8 @@
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
 (rf/reg-event :nine-states.demo/load-with-failure
-  {:doc "Drive a synthetic failing fetch — the :data region lands in
-         :error."}
+  {:doc "Same idea, but the fetch is rigged to fail — the :data region
+         lands in :error."}
   (fn handler-demo-load-with-failure [_ _]
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
@@ -397,20 +420,23 @@
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
 (rf/reg-event :nine-states.demo/loaded
-  {:doc "Successful fetch. Forwards the items to the machine via
-         :fetch-succeeded; the :always-cascade picks the bucket."}
+  {:doc "The fetch came back. Hand the items to the machine via
+         :fetch-succeeded and let the :always-cascade sort out the bucket."}
   (fn handler-demo-loaded [_ [_ {:keys [value]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-succeeded {:items value}]]]]}))
 
 (rf/reg-event :nine-states.demo/load-failed
-  {:doc "Failed fetch. Forwards the failure category to the machine."}
+  {:doc "The fetch fell over. Pass the failure category along to the
+         machine, which routes the :data region to :error."}
   (fn handler-demo-load-failed [_ [_ {:keys [failure]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-failed {:failure failure}]]]]}))
 
 ;; ---- form-slice events ----
 
 (defn- validate-new-todo
-  "Pure validator: returns a {field [errors...]} map. Empty when valid."
+  "Pure validator. Hand it a draft, get back a {field [errors...]} map —
+   empty when everything checks out. No app-db, no side effects, just
+   data in and data out, which makes it trivial to unit-test in isolation."
   [{:keys [title]}]
   (cond-> {}
     (or (nil? title) (< (count title) 3))
@@ -420,9 +446,10 @@
     (assoc :title ["Title must be at most 80 characters."])))
 
 (rf/reg-event :new-todo/edit-field
-  {:doc  "User edited a form field. Updates :draft and marks the field
-          touched; broadcasts :edit into the machine so the :form region
-          returns from :correct or :incorrect to :neutral."
+  {:doc  "The user typed in a field. Update the :draft, mark the field as
+          touched (so its errors are allowed to show), and broadcast :edit
+          into the machine — which gently returns the :form region from
+          :correct or :incorrect back to :neutral."
    :schema [:cat [:= :new-todo/edit-field] :keyword :string]}
   (fn handler-new-todo-edit-field [{:keys [db]} [_ field value]]
     {:db (-> db
@@ -431,31 +458,34 @@
      :fx [[:dispatch [:ui/nine-states [:edit]]]]}))
 
 (rf/reg-event :new-todo/submit
-  {:doc "Validate the draft. If invalid → :submit-invalid (the :form
-         region lands in :incorrect). If valid → append to the
-         machine's :data items via :fetch-succeeded, clear the draft,
-         and broadcast :submit-valid (the :form region lands in
-         :correct)."
-   ;; The new todo's durable id comes from a recordable coeffect, never
-   ;; read ambiently at the write site (see the `:new-todo/todo-id`
-   ;; reg-cofx above) — so replay re-presents the same id.
+  {:doc "The submit button. Validate the draft and fork:
+         invalid → :submit-invalid and the :form region lands in
+         :incorrect. Valid → append the new todo to the machine's items
+         (via :fetch-succeeded), clear the draft, and broadcast
+         :submit-valid so the :form region lands in :correct."
+   ;; The new todo's id comes from a recordable coeffect, not a
+   ;; `(random-uuid)` read here at the write site (see the
+   ;; `:new-todo/todo-id` reg-cofx above). That's what keeps replay
+   ;; handing back the same id every time.
    :rf.cofx/requires [:new-todo/todo-id]}
-  ;; The machine snapshot is durable runtime-db state — read it from the
-  ;; `:rf.db/runtime` coeffect.
+  ;; A machine snapshot is durable runtime-db state, so we read it from the
+  ;; `:rf.db/runtime` coeffect rather than from app-db.
   (fn handler-new-todo-submit [{:keys [db] rt :rf.db/runtime new-id :new-todo/todo-id} _]
     (let [draft  (get-in db [:new-todo :draft])
           errors (validate-new-todo draft)
           items  (get-in rt [:rf.runtime/machines :snapshots :ui/nine-states :data :items])]
       (if (seq errors)
-        ;; Incorrect — populate :errors, touch all error fields so they show.
+        ;; Invalid. Stash the errors and mark every offending field as
+        ;; touched, which is what lets those errors actually show.
         {:db (-> db
                  (assoc-in [:new-todo :errors]  errors)
                  (assoc-in [:new-todo :touched] (set (keys errors))))
          :fx [[:dispatch [:ui/nine-states [:submit-invalid]]]]}
-        ;; Correct — append the todo to the machine's items, clear the form.
-        ;; The :data region's lifecycle is the canonical path for changing
-        ;; items: bump through :loading → :resolving so the :always-cascade
-        ;; re-picks the cardinality bucket against the new count.
+        ;; Valid. Append the todo and clear the form. Note we don't quietly
+        ;; poke :items — we go the long way round, through the data region's
+        ;; real lifecycle (:loading → :resolving), so the :always-cascade
+        ;; re-counts and re-picks the cardinality bucket. One canonical path
+        ;; for changing items means one place the cardinality is decided.
         (let [new-items (conj (vec items)
                               {:id     new-id
                                :title  (:title draft)
@@ -480,14 +510,16 @@
 (rf/reg-sub :new-todo/touched :<- [:new-todo/slice] (fn [s _] (:touched s)))
 
 (rf/reg-sub :new-todo/field-error
-  {:doc "Per-field error, only after the user has touched the field."}
+  {:doc "The error for one field — but only once the user has actually
+         touched it. Nobody likes a form that scolds you for leaving a
+         field blank before you've even reached it."}
   :<- [:new-todo/errors]
   :<- [:new-todo/touched]
   (fn sub-new-todo-field-error [[errs touched] [_ field-id]]
     (when (touched field-id)
       (first (get errs field-id)))))
 
-;; The machine's :data items — read straight off the snapshot.
+;; The todos themselves — read straight off the machine's snapshot.
 (rf/reg-sub :todos/items
   :<- [:rf/machine :ui/nine-states]
   (fn sub-todos-items [snap _]
@@ -500,25 +532,30 @@
 
 ;; ---- render-priority + :ui/render selector ----
 ;;
-;; This is where the nine states collapse to one keyword. The render
-;; decision is a pure function over the snapshot's tag union, and it lives
-;; in exactly one readable place. The render-priority table is plain data:
-;; a vector of {:tag :render} pairs consulted in order. The :ui/render sub
-;; reads the machine's tag union and returns the first :render whose :tag
-;; is present. The root view's `case` just maps that keyword to a view fn.
+;; This is the keystone: the spot where three parallel axes collapse into
+;; one render decision. Several tags are live at once, but the page can only
+;; draw one thing, so we need a tie-breaker — and we make it plain data.
 ;;
-;; Priority order: :mode wins outright (the archived view replaces
-;; everything); :form wins next (the success / inline-error
-;; acknowledgement is transient and overlays whatever the :data region is
-;; at); :data picks the cardinality bucket as a fallback.
+;; `render-priority` is just a vector of {:tag :render} pairs read in order.
+;; The :ui/render sub walks it and returns the first :render whose :tag is
+;; present in the snapshot's tag union. That's the whole decision: a pure
+;; function over a data table, living in exactly one readable place. The
+;; root view's `case` does nothing cleverer than map the keyword to a view.
+;;
+;; The order encodes the priority, top to bottom:
+;;   :mode wins outright — once archived, that view replaces everything.
+;;   :form wins next — the success / error acknowledgement is a quick,
+;;     transient overlay on top of whatever the list is doing.
+;;   :data is the fallback — the steady-state cardinality bucket.
 
 (def render-priority
-  [;; mode region — read-only / terminal wins
+  [;; mode region — read-only / terminal trumps all
    {:tag :mode/done       :render :done}
-   ;; form region — transient acknowledgements (Correct/Incorrect)
+   ;; form region — the transient Correct / Incorrect acknowledgements
    {:tag :form/success    :render :correct}
    {:tag :form/invalid    :render :incorrect}
-   ;; data region — error first (also transient), then lifecycle, then cardinality
+   ;; data region — error first (also transient), then loading, then the
+   ;; resting cardinality buckets
    {:tag :data/loading    :render :loading}
    {:tag :data/error      :render :error}
    {:tag :data/nothing    :render :nothing}
@@ -528,10 +565,10 @@
    {:tag :data/too-many   :render :too-many}])
 
 (rf/reg-sub :ui/render
-  {:doc "Resolve the page's render-model keyword by consulting the
-         render-priority table against the machine's tag union. The
-         root view's `case` is the only branch site; everything else
-         reads tags directly."}
+  {:doc "Boil the whole page down to one keyword: walk the render-priority
+         table against the machine's tag union and return the first match.
+         This sub feeds the root view's `case` — the one and only place the
+         UI branches. Everything else just asks the tags directly."}
   :<- [:rf/machine :ui/nine-states]
   (fn sub-ui-render [snap _]
     (let [tags (:tags snap)]
@@ -543,7 +580,7 @@
 ;; VIEWS — one per render-model keyword
 ;; ============================================================================
 
-(reg-view ^{:doc "State 1 — Nothing: blank slate with a 'Get started' CTA."}
+(reg-view ^{:doc "State 1 — Nothing: a blank slate with a 'Get started' nudge."}
           view-nothing []
   [:div.state.state-nothing
    [:h2 "Welcome"]
@@ -555,7 +592,7 @@
   [:div.state.state-loading
    [:p "Loading todos…"]])
 
-(reg-view ^{:doc "Error branch — transport / server failure."}
+(reg-view ^{:doc "Error branch — the fetch failed; apologise and offer a retry."}
           view-error []
   (let [err @(subscribe [:todos/error])]
     [:div.state.state-error
@@ -582,7 +619,8 @@
      [:h2 (str (count todos) " todos")]
      [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))
 
-(reg-view ^{:doc "State 6 — Too Many: search + truncation."}
+(reg-view ^{:doc "State 6 — Too Many: more than anyone wants to scroll, so
+                  show a search box and truncate the rest."}
           view-too-many []
   (let [todos    @(subscribe [:todos/items])
         shown    (take too-many-threshold todos)
@@ -618,13 +656,16 @@
 ;; VIEWS — control panel + form + root
 ;; ============================================================================
 ;;
-;; The form and control panel use `(rf/machine-has-tag? :ui/nine-states
-;; :mode/read-only)` to disable themselves when the :mode region is :done.
-;; Querying by tag is cleaner than querying a specific state: the view
-;; asks "is it read-only?" and doesn't need to know which state of which
-;; region carries that intent. (Ask, don't tell.)
+;; The form and control panel grey themselves out once the page is archived,
+;; using `(rf/machine-has-tag? :ui/nine-states :mode/read-only)`. Notice
+;; what they DON'T ask: "are we in the :done state of the :mode region?"
+;; They ask "is this read-only?" and leave it at that. The view states an
+;; intent and lets the machine decide which state happens to carry it —
+;; ask, don't tell. Move that tag to another state tomorrow and these views
+;; don't change a line.
 
-(reg-view ^{:doc "Form for adding a todo. Drives the form region (states 7 & 8)."}
+(reg-view ^{:doc "The add-a-todo form — the thing that drives the form
+                  region through states 7 (Incorrect) and 8 (Correct)."}
           new-todo-form []
   (let [draft       @(subscribe [:new-todo/draft])
         field-err   @(subscribe [:new-todo/field-error :title])
@@ -642,7 +683,8 @@
      [:button {:type "submit" :disabled read-only?} "Add"]
      (when field-err [:p.error field-err])]))
 
-(reg-view ^{:doc "Buttons to drive the demo into each of the nine states."}
+(reg-view ^{:doc "Your remote control: one button per state, so you can
+                  jump the demo straight to any of the nine."}
           control-panel []
   (let [read-only? @(rf/machine-has-tag? :ui/nine-states :mode/read-only)]
     [:div.control-panel
@@ -669,9 +711,10 @@
                :data-testid "ns-button-archive"
                :disabled read-only?} "9. Archive (Done)"]]))
 
-(reg-view ^{:doc "Root view: one `case` over :ui/render picks exactly one
-                  per-state view; the form and control panel render
-                  alongside."}
+(reg-view ^{:doc "The root view, and the punchline of the whole example: a
+                  single `case` over :ui/render picks exactly one per-state
+                  view. The control panel and form sit alongside it,
+                  always on. Nine states, one branch."}
           root-view []
   [:div.app
    [:h1 "Nine States of UI — todos"]
@@ -696,32 +739,34 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 ;;
-;; The mount happens inside `run`, not at namespace-load time. The
-;; browser-test bundle `:require`s several example namespaces at once. If
-;; each called `rdc/create-root` against `(js/document.getElementById "app")`
-;; at ns-load, they would race to attach a root to the one `#app` element
-;; the harness shares — producing React "createRoot called on the same
-;; container twice" warnings and cross-example leakage. Deferring
-;; `create-root` to `run` keeps ns-load free of DOM side effects, so the
-;; namespaces co-exist in one build cleanly.
+;; The mount lives inside `run`, deliberately not at namespace-load time.
+;; Here's why: the browser-test bundle requires several example namespaces
+;; at once, and they all share one `#app` element. If each grabbed it with
+;; `rdc/create-root` the moment its ns loaded, they'd trample each other —
+;; React's "createRoot called on the same container twice" warning, plus
+;; cross-example leakage. Keeping `create-root` inside `run` means ns-load
+;; has zero DOM side effects, and the namespaces coexist in one build
+;; without a fuss.
 
 (defonce react-root (atom nil))
 
 (defn run []
-  ;; `init!` installs the Reagent adapter.
+  ;; Tell the runtime which substrate to render through. Just the adapter —
+  ;; no frame yet.
   (rf/init! reagent-adapter/adapter)
-  ;; The `frame-provider {:id …}` below owns the frame. On first mount it
-  ;; creates `:rf/default`, applies the config, and runs `:initial-events`
-  ;; once; on hot reload it reuses the existing frame and skips re-seeding.
-  ;; Config:
+  ;; The `frame-provider {:id …}` below is what actually owns the frame. On
+  ;; the first mount it creates `:rf/default`, applies the config, and fires
+  ;; `:initial-events` once; on a hot reload it finds the frame already
+  ;; standing and skips the re-seed. Two config keys do the work:
   ;;
-  ;; - `:fx-overrides` routes `:rf.http/managed` to the in-process canned-stub
-  ;;   fxs above, so the example runs standalone with no backend.
-  ;; - `:initial-events` seeds the app via `[:nine-states.app/initialise]`.
+  ;; - `:fx-overrides` points `:rf.http/managed` at our in-process stub, so
+  ;;   the example runs all on its own with no backend in sight.
+  ;; - `:initial-events` boots the app via `[:nine-states.app/initialise]`.
   ;;
-  ;; The provider also scopes the frame into React, so the `reg-view`-injected
-  ;; `dispatch`/`subscribe` (and `root-view`'s subs) resolve to `:rf/default`.
-  ;; This is the same `:rf/default` the `reg-app-schema` above is scoped to.
+  ;; The provider also scopes the frame into React — that's what lets the
+  ;; `dispatch`/`subscribe` injected into each `reg-view` (and `root-view`'s
+  ;; subs) find `:rf/default`. Same `:rf/default` the `reg-app-schema` up top
+  ;; attached to.
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

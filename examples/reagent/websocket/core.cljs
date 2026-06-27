@@ -1,43 +1,28 @@
 (ns websocket.core
-  "Entry point for the WebSocket example.
+  "The entry point for the WebSocket example.
 
-   This example models a WebSocket connection as a state machine. It
-   exercises:
+   The big idea: a connection is a question, not a value. You rarely care
+   what's *in* the connection variable — you care which state you're in
+   (connecting, authenticating, connected, dropped, reconnecting, given
+   up) and which events move you between them. That is exactly what a
+   machine is for, so this example models the whole connection lifecycle
+   as one.
 
-   - **Hierarchical compound `:active`** parenting `:connecting`,
-     `:authenticating`, `:connected`. The socket-actor `:spawn` is on the
-     parent so it survives the success-path leaf transitions.
+   This file is just the launchpad. The four interesting files do the
+   real work:
 
-   - **`:after` exponential backoff** in `:reconnecting`. Leaving the
-     state cancels the timer, so a backoff from a prior visit can't fire
-     late.
+   - `connection.cljs` — the `:ws/connection` machine, the heart of it.
+   - `messages.cljs` — the spawned socket actor + a tiny mock server.
+   - `views.cljs` — the UI that drives the machine and shows its state.
+   - `schema.cljs` — Malli schemas for the machine `:data` and app-db.
 
-   - **`:always` cascades** — `:reconnecting`'s max-retries guard, and
-     `:connected`'s queue-flush on entry.
+   For the grammar the machine leans on, see docs/machines/concepts.md;
+   for where this example sits among the others, docs/machines/examples.md.
 
-   - **`:tags`** — `:websocket/connected`, `:websocket/reconnecting`,
-     `:websocket/failed`, so the view asks tag-shaped questions instead of
-     unfolding the snapshot's hierarchical `:state` vector.
-
-   - **Two staleness defences** — the backoff timer (runtime-cancelled on
-     exit) and the connection-epoch (`:current-socket?` guard against the
-     live `:socket-id`).
-
-   - **Request/reply correlation** — `:in-flight` map, request-id stamp,
-     timeout via `:dispatch-later`, reply-event dispatch on the correlated
-     `:ws/received`.
-
-   - **Reconnect cascade** — exit-from-`:active` clears the `:socket-id`;
-     the runtime destroys the socket actor; the `:reconnecting` `:after`
-     re-enters `:active`, which spawns a fresh one.
-
-   See docs/machines/concepts.md for the machine grammar and
-   docs/machines/examples.md for this example's place in the set.
-
-   Coverage lives in the CLJS substrate contract tests (`npm run
-   test:cljs`, ns `re-frame.websocket-cljs-test`); the mock server keeps
-   the app self-contained. The example tree is test-free, so
-   `npm run test:adapter-smokes` does not build this example."
+   No network required: a small in-process mock server stands in for a
+   real endpoint, so the app runs standalone. Its real coverage lives in
+   the CLJS contract tests (`npm run test:cljs`, ns
+   `re-frame.websocket-cljs-test`)."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -51,12 +36,13 @@
 ;; ============================================================================
 
 (rf/reg-event :ws.app/initialise
-  {:doc "App boot. Seeds the messages slice + materialises the
-         connection machine's initial `:disconnected` snapshot.
+  {:doc "Boot the app: seed the messages slice and bring the connection
+         machine to life in its `:disconnected` start state.
 
-         Namespaced under `:ws.app/*` (not `:app/initialise`) so the
-         example can coexist with the realworld + counter examples
-         without re-registering a common event key."}
+         The `:ws.app/*` prefix (rather than a plain `:app/initialise`)
+         is deliberate. Several examples share one test bundle, and a
+         common event key would have them stepping on each other's
+         registrations. Namespacing keeps each example to itself."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:ws.messages/initialise]]
           [:dispatch [:ws.connection/initialise]]]}))
@@ -65,22 +51,25 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; The React root is held in an atom and created lazily inside `run`, not
-;; at ns-load. Several example namespaces share one `#app` element in the
-;; browser-test bundle; creating the root at ns-load would race multiple
-;; roots onto the same container. Creating it in `run` keeps ns-load free
-;; of DOM side effects.
+;; We hold the React root in an atom and create it lazily inside `run`,
+;; never at ns-load. The reason is mundane but real: several examples
+;; share one `#app` element in the test bundle, and creating roots at
+;; ns-load would race several of them onto the same container. Building it
+;; in `run` keeps loading this namespace free of DOM side effects.
 
 (defonce react-root (atom nil))
 
-;; The frame lives in one spot: the `frame-provider` at the render root.
+;; One place owns the frame: the `frame-provider` at the render root.
 ;; `run` installs the adapter, then renders `[frame-provider {:id ...}
-;; ...]`. The provider's `{:id}` shape creates the app frame on first
-;; mount, applies its config, and runs the `:initial-events` seed once; on
-;; hot reload it reuses that frame and skips the seed. So create, seed, and
-;; scope-into-React all happen there. The frame id `:rf/default` matches
-;; the id `schema.cljs` scopes its `reg-app-schema` to.
-;; See docs/guide/concepts/frames.md.
+;; ...]`. Pass the provider an `{:id}` and it does the whole dance for
+;; you — on first mount it creates the frame, applies its config, and
+;; fires the `:initial-events` seed once; on a hot reload it finds the
+;; existing frame and skips the seed. Create, seed, and scope-into-React,
+;; all in one spot.
+;;
+;; The id `:rf/default` is the same one `schema.cljs` scopes its
+;; `reg-app-schema` to — they have to agree, or the schema lands in a
+;; different frame than the app. See docs/guide/concepts/frames.md.
 (def app-frame :rf/default)
 
 (defn run []

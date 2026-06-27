@@ -1,33 +1,34 @@
 (ns realworld.profile
   "Profile pages for the RealWorld (Conduit) example.
 
-   This namespace shows:
-   - One parallel state machine `:ui/profile` with two orthogonal regions
+   A profile page is a banner up top and a tabbed list of articles below — two
+   moving parts that happen to load independently, which is exactly why a
+   two-region machine fits. Worth a read for:
+
+   - One parallel state machine `:ui/profile`, two orthogonal regions
      (`:tab` x `:data`). See the machines guide on parallel regions:
      ../../../docs/machines/concepts.md#when-the-machine-grows.
-   - A remote-data lifecycle folded into the `:data` region; the region's
-     state-keyword is the banner's status. The article-list items live in
-     app-db slices (`:profile.articles`, `:profile.favorites`) so
-     favorites.cljs's optimistic updates can find articles across slices.
-   - Tab switching expressed as `:tab` region transitions broadcast from
-     the route's `:on-match`, like the home page's `:home/load` broadcasts
-     its feed-region transition.
-   - The profile view's root is a `case` over `:profile/render`, a selector
-     sub that reads a render-priority table against the machine's tag
-     union.
+   - A remote-data lifecycle folded into the `:data` region, whose
+     state-keyword is the banner's status. The article items themselves live in
+     app-db slices (`:profile.articles`, `:profile.favorites`), within reach of
+     favorites.cljs's cross-slice optimistic updates.
+   - Tab switching as `:tab` region transitions broadcast from the route's
+     `:on-match` — the same move the home page makes with `:home/load`.
+   - The profile view's root: a `case` over `:profile/render`, a selector sub
+     reading a render-priority table against the machine's tag union.
 
-   Three remote-data slices behind the view:
-   - `:profile`             — public banner (username, bio, image, following)
-   - `:profile.articles`    — authored articles
-   - `:profile.favorites`   — favorited articles
+   Three remote-data slices sit behind the view:
+   - `:profile`             — the public banner (username, bio, image, following)
+   - `:profile.articles`    — articles they wrote
+   - `:profile.favorites`   — articles they liked
 
-   Follow/unfollow is optimistic and shared across the banner plus any
-   article cards rendered from the profile routes."
+   Follow/unfollow is optimistic, and shared between the banner and any article
+   cards the profile routes happen to render."
   (:require [re-frame.core :as rf]
-            ;; State machines ship in the re-frame2-machines artefact.
-            ;; Requiring the ns registers its hooks so `rf/reg-machine`
-            ;; (called below) and the `:rf/machine` subs resolve. See the
-            ;; machines guide: ../../../docs/machines/index.md
+            ;; State machines live in their own artefact; we require it to load
+            ;; it, which registers the hooks that make `rf/reg-machine` (below)
+            ;; and the `:rf/machine` subs resolve. See the machines guide:
+            ;; ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld-shared.avatar :as avatar]
             [realworld.schema :as schema]
@@ -38,8 +39,9 @@
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
-;; The route lives in runtime-db; `username-from-db` reads it off the
-;; runtime-db value (event handlers pass the `:rf.db/runtime` coeffect).
+;; Which profile are we on? It's in the URL. The route lives in runtime-db, and
+;; `username-from-db` digs the :username param out of it (handlers receive
+;; runtime-db via the `:rf.db/runtime` coeffect).
 (defn username-from-db [runtime-db]
   (get-in runtime-db [:rf.runtime/routing :current :params :username]))
 
@@ -47,24 +49,23 @@
 ;; THE MACHINE — :ui/profile  (one machine, two regions)
 ;; ============================================================================
 ;;
-;; The profile page has two orthogonal axes:
+;; Two independent things about a profile page, so two regions:
 ;;
-;;   :tab    — which list of articles is rendered (authored vs favorited).
-;;             Driven by `:show-articles` / `:show-favorites` broadcasts
-;;             from the route's `:on-match` (see `routing.cljs`'s
-;;             `:realworld.profile/show` and `:realworld.profile/favorites`). The
-;;             state-keyword tells the view which app-db slice's items
-;;             to render.
+;;   :tab    — which article list is showing, authored or favorited. Driven by
+;;             `:show-articles` / `:show-favorites` broadcasts from the route's
+;;             `:on-match` (see `:realworld.profile/show` and
+;;             `:realworld.profile/favorites` in routing.cljs). Its
+;;             state-keyword tells the view which app-db slice to render.
 ;;
-;;   :data   — the data lifecycle for the banner fetch. The slice's
-;;             `:status` field is still set for parity with other slices,
-;;             but the region's state-keyword is the page's render gate. The
-;;             article-list slices keep their slice shape and load
-;;             independently.
+;;   :data   — where the BANNER fetch is in its life. The slice still sets a
+;;             `:status` field for parity with its siblings, but it's this
+;;             region's state-keyword that gates the page render. The two
+;;             article-list slices keep their own slice shape and load on their
+;;             own schedule.
 ;;
-;; Every event delivered to the machine reaches every region. Region-
-;; distinct event names avoid collisions; each region handles `:reset` as a
-;; self-target.
+;; Parallel machine, so the usual deal: every event hits every region, the
+;; region event names stay distinct to avoid crosstalk, and each region treats
+;; `:reset` as a self-target.
 
 (def profile-machine
   {:type :parallel
@@ -100,9 +101,10 @@
               :reset           :nothing}}
 
       :refreshing
-      ;; Reload while prior banner remains visible. Tagged :data/loaded
-      ;; so the render-priority resolves to the `:loaded` view; the
-      ;; :data/refreshing tag could drive an inline indicator.
+      ;; A reload while the banner's still on screen. Tagged :data/loaded so
+      ;; render-priority keeps the `:loaded` view up (no flicker); the
+      ;; :data/refreshing tag is there if a view wants to show a subtle
+      ;; "updating" hint.
       {:tags #{:data/loaded :data/refreshing :data/transient}
        :on   {:fetch-succeeded {:target :loaded :action :clear-error}
               :fetch-failed    {:target :error  :action :set-error}
@@ -155,12 +157,10 @@
 ;; ============================================================================
 
 (rf/reg-event :profile/load
-  {:doc "Load the public profile (username, bio, image, following).
-         Public endpoint; data-fetch retry.
-
-         Broadcasts `:fetch-started` into the `:ui/profile` machine so
-         the `:data` region advances to `:loading` (or `:refreshing`
-         from `:loaded`)."
+  {:doc "Fetch the public profile banner — username, bio, image, following.
+         Public endpoint, so the house data-fetch retry applies. Broadcasts
+         `:fetch-started` into the `:ui/profile` machine, nudging the `:data`
+         region to `:loading` (or `:refreshing`, if a banner's already up)."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)]
@@ -198,10 +198,10 @@
        :fx [[:dispatch [:ui/profile [:fetch-failed {:failure message}]]]]})))
 
 (rf/reg-event :profile.articles/load
-  {:doc "Load the profile's authored articles. Public; data-fetch retry.
-         Also broadcasts `:show-articles` so the `:ui/profile` :tab
-         region tracks the active tab. `?page=` paginates the list via
-         `rh/paginate-path` (official RealWorld limit/offset)."
+  {:doc "Fetch the articles this user wrote. Public; house retry. Also
+         broadcasts `:show-articles` so the `:ui/profile` :tab region knows
+         which tab is live. `?page=` paginates via `rh/paginate-path` (the
+         official RealWorld limit/offset shape)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
@@ -238,10 +238,10 @@
         (assoc-in [:profile.articles :error] (rh/failure->message failure)))}))
 
 (rf/reg-event :profile.favorites/load
-  {:doc "Load the profile's favorited articles. Public; data-fetch retry.
-         Also broadcasts `:show-favorites` so the `:ui/profile` :tab
-         region tracks the active tab. `?page=` paginates the list via
-         `rh/paginate-path` (official RealWorld limit/offset)."
+  {:doc "Fetch the articles this user favorited. Public; house retry. Also
+         broadcasts `:show-favorites` so the `:ui/profile` :tab region knows
+         which tab is live. `?page=` paginates via `rh/paginate-path` (the
+         official RealWorld limit/offset shape)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
@@ -282,12 +282,11 @@
 ;; ============================================================================
 
 (rf/reg-event :profile/follow
-  {:doc "Optimistically mark the profile as followed; reconcile on reply.
-
-         Auth-gated (same rationale as favorites.cljs/:article/toggle-favorite):
-         following requires a session, so an unauthenticated click navigates
-         to login rather than optimistically flipping `:following` and then
-         rolling back after the real backend 401s."
+  {:doc "Mark the profile followed right away, then reconcile when the reply
+         lands. Auth-gated (same reasoning as
+         favorites.cljs/:article/toggle-favorite): following needs a session,
+         so a logged-out click heads to login instead of flipping `:following`
+         optimistically only to walk it back after the backend 401s."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (if (nil? (get-in db [:auth :user]))
@@ -306,8 +305,8 @@
     {:db (assoc-in db [:profile :data] (:profile value))}))
 
 (rf/reg-event :profile/unfollow
-  {:doc "Optimistically clear the followed flag; reconcile on reply.
-         Auth-gated like `:profile/follow` above."
+  {:doc "Clear the followed flag right away, then reconcile on the reply.
+         Auth-gated, same as `:profile/follow` above."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (if (nil? (get-in db [:auth :user]))
@@ -350,14 +349,14 @@
 
 ;; ---- render-priority + :profile/render selector ----
 ;;
-;; Plain data: a vector of {:tag :render} pairs consulted in order.
-;; The `:profile/render` sub reads the machine's tag union and returns
-;; the first :render whose :tag is present. The view's `case` over
-;; the resolved keyword is the only branch site.
+;; Same data-driven pattern as everywhere else: a plain vector of {:tag :render}
+;; pairs, read in order. `:profile/render` looks at the machine's active tags
+;; and returns the first matching :render, and the view's `case` on that
+;; keyword is the only branch site.
 ;;
-;; Priority rationale: the data region's lifecycle wins outright —
-;; `:loading` (first-load spinner) above `:error` above `:loaded`.
-;; `:refreshing` resolves to `:loaded` (the prior banner stays visible).
+;; The order is the policy: the data lifecycle wins — `:loading` (first-load
+;; spinner) over `:error` over `:loaded`. `:refreshing` resolves to `:loaded`,
+;; so the existing banner stays put during a reload.
 
 (def render-priority
   [{:tag :data/loading :render :loading}
@@ -366,9 +365,9 @@
    {:tag :data/nothing :render :nothing}])
 
 (rf/reg-sub :profile/render
-  {:doc "Resolve the profile page's render-model keyword by consulting
-         the render-priority table against the `:ui/profile` machine's
-         tag union. The root view's `case` is the only branch site."}
+  {:doc "Reduce the `:ui/profile` machine's active tags to one render keyword,
+         via the render-priority table. The root view's `case` on it is the
+         only branch site."}
   :<- [:rf/machine :ui/profile]
   (fn sub-profile-render [snap _]
     (let [tags (:tags snap)]
@@ -377,9 +376,8 @@
             render-priority))))
 
 (rf/reg-sub :profile/current-articles
-  {:doc "The article list currently rendered by the profile view: the
-         `:tab` region's active state-keyword picks which app-db slice
-         to read from."}
+  {:doc "Whichever article list the active tab calls for: the `:tab` region's
+         state picks the app-db slice — favorited vs authored."}
   :<- [:rf/machine :ui/profile]
   :<- [:profile.articles/data]
   :<- [:profile.favorites/data]
@@ -422,10 +420,11 @@
     (rh/page-count total)))
 
 (rf/reg-event :profile/show-page
-  {:doc "Navigate to a 1-indexed pagination page for the active profile tab.
-         Stays on the current profile route (authored vs favorited) and
-         username; changing `?page=` re-fires the route `:on-match`, re-running
-         the tab's load with the new limit/offset window."}
+  {:doc "Jump to a 1-indexed page within the active profile tab. It stays on
+         the same route (authored vs favorited) and the same username — only
+         `?page=` changes. That's enough to re-fire the route `:on-match`,
+         which re-runs the tab's load with the new limit/offset window. The URL
+         is the input; the data follows."}
   (fn [{rt :rf.db/runtime} [_ page]]
     (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
       {:fx [[:dispatch [:rf.route/navigate route-id params {:query {:page page}}]]]})))
@@ -434,22 +433,22 @@
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view ^{:doc "Data region :loading — first banner fetch in flight."}
+(reg-view ^{:doc "The :loading view — first banner fetch in flight."}
           profile-loading []
   [:div.article-preview "Loading profile…"])
 
-(reg-view ^{:doc "Data region :error — banner fetch failed."}
+(reg-view ^{:doc "The :error view — the banner fetch fell over."}
           profile-error []
   (let [err @(subscribe [:profile/error])]
     [:div.article-preview.error
      (str "Couldn't load profile: " (pr-str err))]))
 
-(reg-view ^{:doc "Data region :nothing — pre-fetch placeholder."}
+(reg-view ^{:doc "The :nothing view — the brief placeholder before any fetch."}
           profile-nothing []
   [:div.article-preview "No profile loaded."])
 
-(reg-view ^{:doc "Data region :loaded — banner, tabs, and the active
-                  tab's article list."}
+(reg-view ^{:doc "The :loaded view — the real thing: banner, tabs, and the
+                  active tab's article list."}
           profile-loaded []
   (let [profile      @(subscribe [:profile/data])
         own?         @(subscribe [:profile/own-profile?])

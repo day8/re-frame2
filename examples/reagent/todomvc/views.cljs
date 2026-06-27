@@ -1,12 +1,13 @@
 (ns todomvc.views
-  "The TodoMVC markup, as hiccup.
+  "The TodoMVC markup, written as hiccup.
 
-  Demonstrates: `reg-view` for the root (inside its body `subscribe` and
-  `dispatch` are already in scope), plain helper fns for the sub-views (which
-  take `dispatch`/`subscribe` as explicit args — the honest shape for a plain
-  fn), and hiccup as data-as-markup. A view reads derived state and dispatches
-  events on interaction; no business logic lives here.
-  See docs/guide/glossary.md (view)."
+  A few things on show. `reg-view` for the root view — inside its body
+  `subscribe` and `dispatch` are simply in scope, no ceremony. Plain helper fns
+  for the sub-views, which take `dispatch`/`subscribe` as explicit args, because
+  that's the honest shape for an ordinary function. And hiccup throughout, which
+  is really just markup-as-data. The job of a view is small and strict: read
+  derived state, dispatch events when the user does something. No business logic
+  sneaks in here. See docs/guide/glossary.md (view)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.views])
@@ -18,15 +19,18 @@
     :completed "#/completed"
     "#/"))
 
-;; A CONTROLLED text input. `:value` reads a draft sub. Every keystroke
-;; dispatches `on-change`, which writes the draft into app-db; the input never
-;; holds its own value. Enter commits (dispatches `on-commit`), Escape cancels
-;; (dispatches `on-cancel`), and blur commits. Cancel renders the input away, so
-;; a trailing blur has nothing left to save.
+;; A CONTROLLED text input — the workhorse behind both the header box and the
+;; edit-in-place box. `:value` comes from a draft sub, and every keystroke
+;; dispatches `on-change` to write that draft into app-db. The input itself
+;; never holds the text; app-db does. Enter commits (`on-commit`), Escape
+;; cancels (`on-cancel`), and losing focus commits too. There's a subtle bit
+;; here: cancelling unmounts the input, so the blur that follows finds nothing
+;; left to save. Tidy by accident, and on purpose.
 ;;
-;; `:autofocus?` focuses the input when it first mounts — the edit input wants
-;; this, since the row just entered edit mode. A `:ref` callback calls `.focus()`
-;; on the live node. It touches focus only, leaving `:value` bound to the sub.
+;; `:autofocus?` drops the cursor into the input the moment it mounts — exactly
+;; what the edit box wants, since the row just flipped into edit mode. A `:ref`
+;; callback calls `.focus()` on the real DOM node. It touches focus and nothing
+;; else; `:value` stays bound to the sub.
 (defn todo-input [{:keys [draft on-change on-commit on-cancel autofocus?] :as props}]
   (let [handle-keydown
         (fn [event]
@@ -43,21 +47,22 @@
         :on-key-down handle-keydown
         :on-blur     (fn [_] (on-commit))}
        (when autofocus?
-         ;; Focus-only ref: move the cursor into the freshly-mounted input.
+         ;; Focus-only ref: nudge the cursor into the just-mounted input.
          {:ref (fn [node] (when node (.focus node)))}))]))
 
 (defn todo-item [dispatch subscribe {:keys [id title completed]}]
-  ;; A plain form-1 fn. The per-row editing flag lives in app-db, so the row just
-  ;; reads "am I the editing row?" from a sub keyed by its id.
+  ;; A plain form-1 fn — nothing fancy. The per-row editing flag lives in app-db,
+  ;; so each row just asks a sub keyed by its own id: "am I the one being edited?"
   (let [editing? @(subscribe [:todo.ui/editing? id])]
     [:li {:class (str/join " " (cond-> []
                                  completed (conj "completed")
                                  editing?  (conj "editing")))}
      [:div.view
-      ;; Controlled checkbox, re-frame2 style: `:checked` reads the fact from
-      ;; app-db and `:on-click` dispatches the event that changes it. The state
-      ;; round-trips through app-db, so `:readOnly` is set to silence React's
-      ;; onChange warning for a checkbox React doesn't itself control.
+      ;; A controlled checkbox, re-frame2 style: `:checked` reads the fact out
+      ;; of app-db, and `:on-click` dispatches the event that changes it. Since
+      ;; the state takes the long way round through app-db, we set `:readOnly` to
+      ;; hush React's onChange warning about a checkbox it doesn't get to drive
+      ;; itself.
       [:input.toggle
        {:type "checkbox"
         :checked completed
@@ -86,7 +91,8 @@
      :draft       @(subscribe [:todo.ui/draft :new])
      :on-change   #(dispatch [:todo.ui/edit-field :new %])
      :on-commit   #(dispatch [:todo.ui/commit-new])
-     ;; The header input has nothing to cancel — Escape just clears the draft.
+     ;; The header input isn't editing anything, so there's nothing to cancel —
+     ;; Escape just empties the draft.
      :on-cancel   #(dispatch [:todo.ui/edit-field :new ""])}]])
 
 (defn task-list [dispatch subscribe]
@@ -127,10 +133,11 @@
         "Clear completed"])]))
 
 ;; The sub-views above (task-entry, task-list, todo-item, footer-controls) are
-;; plain Reagent helper fns that take `dispatch` / `subscribe` as explicit args —
-;; the clearest shape for internal helpers. `reg-view` is for the root: inside
-;; its body `dispatch` and `subscribe` are injected into scope, which is why the
-;; root threads them down to the helpers.
+;; plain Reagent helper fns. They take `dispatch` / `subscribe` as explicit args
+;; because that's the clearest shape for an internal helper — what it needs is
+;; right there in the signature. `reg-view` is reserved for the root: inside its
+;; body `dispatch` and `subscribe` arrive in scope for free, which is exactly why
+;; the root is the one threading them down to the helpers below.
 ;; See docs/guide/concepts/views.md.
 (reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]

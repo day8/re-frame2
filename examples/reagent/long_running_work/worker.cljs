@@ -1,35 +1,36 @@
 (ns long-running-work.worker
-  "The worker + parent-coordinator machines for the long-running-work
-   example.
+  "The two machines that do the actual work: a child and the parent
+   that orchestrates a swarm of them.
 
-   The `:spawn-all` shape: the parent coordinator spawns N children;
-   each child processes its own shard cooperatively, yielding to the
-   browser between chunks via `:after`; children dispatch `:progress`
-   events back to the parent for the UI; on completion each child
-   dispatches the parent's `:on-child-done` keyword. When all N report
-   done the runtime fires the parent's `:on-all-complete`. The user can
-   `:cancel` mid-flight; the parent leaves `:working` and the exit
-   cascade tears down every surviving child via the
-   `:rf.machine/destroy` fx — including any `:after` timers a worker had
-   pending. See the `:spawn` glossary entry
+   Here's the `:spawn-all` shape in one breath. The parent spawns N
+   children. Each child works its own shard, politely handing control
+   back to the browser between chunks via `:after`, and firing
+   `:progress` at the parent so the UI can keep up. When a child
+   finishes it dispatches the parent's `:on-child-done` keyword; once
+   all N have checked in, the runtime fires the parent's
+   `:on-all-complete`. And if the user bails out mid-flight with
+   `:cancel`, the parent leaves `:working` and the exit cascade fires
+   `:rf.machine/destroy` at every child still going — pending `:after`
+   timers and all. See the `:spawn` glossary entry
    (docs/machines/glossary.md#spawn).
 
-   This is how you express:
+   In other words, this is how you say:
 
-     - 'Run N parallel tasks and join on all done.'
-     - 'Show progress.'
-     - 'Cancellation must be reliable on every exit path — including
-        the user navigating away mid-flight.'
+     - 'Run N tasks in parallel and wait for all of them.'
+     - 'Show me how it's going.'
+     - 'And whatever happens — even if the user wanders off
+        mid-job — cancellation has to be airtight.'
 
-   One parent + N children (rather than one big chunked machine)
-   because each shard is independent and parallelisable, and it lets
-   the demo show both the join (`:on-all-complete`) and the
-   cascade-teardown: the `:work/flow` `:cancel` transition leaves the
-   state and that exit fires the per-child destroy."
+   Why a parent plus N children instead of one machine grinding through
+   chunks? Because the shards are independent, so they may as well run
+   at once — and splitting it this way lets the demo show off both
+   halves of the pattern: the join (`:on-all-complete`) and the
+   teardown cascade (`:work/flow`'s `:cancel` leaves `:working`, and
+   that exit destroys every child)."
   (:require [re-frame.core :as rf]
-            ;; Loading re-frame.machines wires up the runtime so
-            ;; rf/reg-machine (called below at ns-load) and the
-            ;; `:rf/machine` / `:rf/machine-has-tag?` subs resolve.
+            ;; Requiring re-frame.machines stands up the runtime, so the
+            ;; rf/reg-machine calls below (they run at ns-load) and the
+            ;; `:rf/machine` / `:rf/machine-has-tag?` subs all resolve.
             [re-frame.machines]
             [long-running-work.schema :as schema]))
 
@@ -38,75 +39,77 @@
 ;; ============================================================================
 
 (def items-per-shard
-  "How many mock items each child processes per shard. Three shards
-   running in parallel at 50ms/item produces a ~5-second job that's
-   long enough to demonstrate progress visibly and short enough to
-   keep the headless test fast."
+  "How many make-believe items each child grinds through. Three shards
+   in parallel at 50ms an item works out to a ~5-second job — long
+   enough that you can actually watch the bars move, short enough that
+   the headless test doesn't drag."
   100)
 
 (def default-tick-ms
-  "Wall-clock delay between chunks for the live UI. The child's
-   `:yielding` state declares `:after {tick-ms :processing}` so the
-   browser gets a render tick between chunks. Lifted to a named const
-   so headless tests can override it via the child's `:data :tick-ms`
-   (set from the parent's per-child invoke-spec :data)."
+  "How long a child pauses between chunks in the live UI. The child's
+   `:yielding` state declares `:after {tick-ms :processing}`, handing
+   the browser a render tick before it grabs the next item. It's a
+   named const so headless tests can dial it down (or to zero) via the
+   child's `:data :tick-ms`, which the parent sets per child on spawn."
   50)
 
 (def parent-id
-  "The parent coordinator machine's registered id. Children hard-code
-   this in their dispatch-back so they can address the parent without
-   any per-child plumbing. For a static `:spawn-all` declaration the
-   parent id is a literal in the parent's own source, so the child can
-   simply name it."
+  "Where a child sends its messages home: the parent's registered id.
+   Children just name it directly, with no per-child plumbing to thread
+   an address through — and they can, because in a static `:spawn-all`
+   the parent's id is a literal sitting right there in its own source."
   :work/flow)
 
 ;; ============================================================================
 ;; THE CHILD MACHINE — :work/processor
 ;; ============================================================================
 ;;
-;; Each child processes its own shard in chunks. One item per
-;; `:processing` entry; one browser-tick yield between chunks via
-;; `:yielding` + `:after`; per-step progress dispatched back to the
-;; parent so the UI's progress bar updates between chunks.
+;; A child works its shard one bite at a time. Each `:processing` entry
+;; handles a single item; then it yields for one browser tick via
+;; `:yielding` + `:after`, and reports `:progress` to the parent on the
+;; way so the bar keeps moving. Rinse and repeat until the shard's done.
 ;;
-;; The state graph:
+;; Here's the loop it walks:
 ;;
-;;     :idle           — initial; on spawn the runtime dispatches
-;;                       [:rf.machine.spawn/spawned], which transitions
-;;                       us to :processing.
-;;     :processing     — entry processes one item, bumps :processed,
-;;                       dispatches :progress to the parent. The :always
-;;                       cascade routes to :checking-done.
-;;     :checking-done  — eventless decision: done? → :done; else
-;;                       → :yielding.
-;;     :yielding       — :after {tick-ms :processing} schedules the
-;;                       next chunk after one browser tick.
-;;     :done           — terminal. :entry dispatches :on-child-done to
-;;                       the parent. The parent's exit cascade tears
-;;                       this child down once :on-all-complete fires.
-;;     :cancelled      — never reached cooperatively: cancellation
-;;                       cascades from the parent via :rf.machine/destroy.
-;;                       Included for shape-completeness / observability.
+;;     :idle           — where it starts. On spawn the runtime sends
+;;                       [:rf.machine.spawn/spawned], which nudges it
+;;                       into :processing.
+;;     :processing     — :entry does one item, bumps :processed, and
+;;                       reports :progress. The :always cascade then
+;;                       carries it to :checking-done with no event.
+;;     :checking-done  — a quick fork, no event needed: finished? →
+;;                       :done; more to do? → :yielding.
+;;     :yielding       — the pause. :after {tick-ms :processing} lines
+;;                       up the next chunk one browser tick later.
+;;     :done           — the end. :entry tells the parent :on-child-done.
+;;                       The parent's exit cascade clears this child away
+;;                       once :on-all-complete fires.
+;;     :cancelled      — a child never actually walks in here:
+;;                       cancellation comes from the parent as a
+;;                       :rf.machine/destroy, not an event routed inward.
+;;                       It's here for completeness, and so tools can see
+;;                       the full shape.
 
 (def processor-machine
-  {:doc "Process one shard of items in chunks. Cooperative yield via
-         `:after` between chunks; progress reported via :progress event
-         to the parent; terminal `:done` state dispatches the parent's
-         :on-child-done keyword (`:work/child-done`)."
+  {:doc "Works one shard, a chunk at a time. Yields to the browser
+         between chunks via `:after`, reports `:progress` to the parent
+         as it goes, and on reaching `:done` tells the parent
+         :on-child-done (`:work/child-done`)."
 
    :initial :idle
 
-   ;; Validates the child's initial `:data` at spawn time, before the
-   ;; snapshot installs. This is how a spawned child's shape is checked:
-   ;; the runtime gives each instance its own id (e.g. `:work/processor#0`),
-   ;; so no fixed app-db path can reach it — the machine `[:schemas :data]`
-   ;; slot validates the spawn regardless of id. (See schema.cljs.)
+   ;; Check the child's initial `:data` at spawn, before the snapshot
+   ;; even installs. This is the trick for validating a spawned child:
+   ;; the runtime hands each one its own id (`:work/processor#0`, …),
+   ;; so no fixed app-db path could ever name it — the machine's
+   ;; `[:schemas :data]` slot validates the spawn whatever the id turns
+   ;; out to be. (See schema.cljs.)
    :schemas {:data schema/ProcessorData}
 
-   ;; The :data is materialised from the parent's per-child invoke-spec
-   ;; :data slot at spawn time (see :work/flow below). :shard is the
-   ;; user-supplied id keyword the parent assigned (`:s1`/`:s2`/`:s3`);
-   ;; :total is the shard size; :tick-ms is the per-chunk yield delay.
+   ;; The parent fills this in per child on spawn, from its invoke-spec
+   ;; :data (see :work/flow below). :shard is the id the parent handed
+   ;; out (`:s1`/`:s2`/`:s3`); :total is the shard size; :tick-ms is the
+   ;; pause between chunks. The values here are just placeholders.
    :data    {:shard     nil
              :total     0
              :processed 0
@@ -114,24 +117,25 @@
 
    :guards
    {:done?
-    ;; Have we processed every item in this shard?
+    ;; Worked through every item in the shard?
     (fn guard-done? [{:keys [data]}]
       (>= (:processed data) (:total data)))
 
     :more-work?
+    ;; Still something left to do?
     (fn guard-more-work? [{:keys [data]}]
       (< (:processed data) (:total data)))}
 
    :actions
    {:process-one
-    ;; Process one item. In a real app this is whatever the per-item
-    ;; computation is (encoding, parsing, indexing, ...). Here we just
-    ;; bump the counter — what the example shows is the yield +
-    ;; progress-reporting + cancellation shape, not the per-item work.
+    ;; Do one item's worth of work. In a real app this would be the
+    ;; actual per-item job — encode a frame, parse a row, index a
+    ;; document. Here we just bump a counter, because the point of the
+    ;; example is the *shape* (yield, report, cancel), not the labour.
     ;;
-    ;; The action also dispatches a :progress event back to the parent
-    ;; so the UI's progress bar updates between chunks. The parent
-    ;; handles :progress as a self-transition that updates :data :progress.
+    ;; It also fires :progress at the parent so the bar moves between
+    ;; chunks. The parent treats :progress as a self-transition that
+    ;; folds the number into :data :progress.
     (fn action-process-one [{:keys [data]}]
       (let [shard         (:shard data)
             new-processed (inc (:processed data))]
@@ -139,68 +143,69 @@
          :fx   [[:dispatch [parent-id [:progress shard new-processed (:total data)]]]]}))
 
     :dispatch-done
-    ;; Terminal action: dispatch the parent's :on-child-done keyword.
-    ;; The runtime intercepts this at the parent's machine boundary and
-    ;; updates the join state. The second arg is the shard id (e.g. :s1)
-    ;; so the parent can tell which child completed.
+    ;; The child's last words: tell the parent :on-child-done. The
+    ;; runtime catches this at the parent's boundary and updates the
+    ;; join. We pass the shard id (e.g. :s1) so the parent knows which
+    ;; child just crossed the line.
     (fn action-dispatch-done [{:keys [data]}]
       (let [shard (:shard data)]
         {:fx [[:dispatch [parent-id [:work/child-done shard]]]]}))}
 
    :states
    {:idle
-    ;; The runtime synthesises [:rf.machine.spawn/spawned] when no explicit
-    ;; :start is supplied; declaring it as an :on entry lets the child
-    ;; auto-kick into :processing on spawn.
+    ;; The runtime conjures [:rf.machine.spawn/spawned] when there's no
+    ;; explicit :start to send. Listening for it here is what lets the
+    ;; child spring into :processing the instant it's spawned.
     {:tags #{:work/idle}
      :on   {:rf.machine.spawn/spawned :processing}}
 
     :processing
-    ;; Process one item, then immediately re-evaluate the work via
-    ;; the :always cascade. :always is an EVENTLESS transition — the
-    ;; runtime takes it on entry with no event needed, so the child
-    ;; flows straight to :checking-done after :process-one runs.
+    ;; Do one item, then take stock again. That second step is the
+    ;; :always cascade — an EVENTLESS transition the runtime follows on
+    ;; entry, no event required. So once :process-one runs, the child
+    ;; slides straight on to :checking-done.
     {:tags  #{:work/running :work/cancellable}
      :entry :process-one
      :always [{:target :checking-done}]}
 
     :checking-done
-    ;; Eventless decision: done → :done; more work → :yielding.
-    ;; :always evaluates first-match-wins; the :done? / :more-work?
-    ;; guards are mutually exclusive so the order doesn't matter
-    ;; semantically.
+    ;; The fork in the road, again eventless: done → :done, otherwise
+    ;; → :yielding. :always takes the first matching branch, but :done?
+    ;; and :more-work? can't both be true, so the order here is just for
+    ;; the reader.
     {:always [{:guard :done?      :target :done}
               {:guard :more-work? :target :yielding}]}
 
     :yielding
-    ;; The browser-yield seam. :after carries a runtime clock-driven
-    ;; delay; the cancellation cascade tears down the in-flight timer on
-    ;; child-destroy, so a worker cancelled mid-yield does NOT resume
-    ;; after the delay elapses.
+    ;; The breather — the one spot where the child steps aside for the
+    ;; browser. :after waits on the runtime clock, and if the child gets
+    ;; destroyed mid-wait, the cascade cancels that pending timer too:
+    ;; a worker killed here will NOT wake up and carry on once the delay
+    ;; runs out.
     ;;
-    ;; The :after key is a (fn [ctx] ms) form: it reads the per-child
-    ;; :tick-ms out of :data so tests and callers can stagger or
-    ;; zero-out the delay.
+    ;; :after is a (fn [ctx] ms) so it can read the child's own :tick-ms
+    ;; out of :data — handy for tests that want to stagger the delays or
+    ;; zero them out entirely.
     {:tags  #{:work/running :work/cancellable :work/yielding}
      :after {(fn after-tick-ms [{snap :snapshot}]
                (or (-> snap :data :tick-ms) default-tick-ms))
              :processing}}
 
     :done
-    ;; Terminal. Dispatch the parent's :on-child-done keyword as the
-    ;; child's last act. The exit cascade then tears the child down
-    ;; once the parent's :on-all-complete fires.
+    ;; Journey's end. The child's parting act is to tell the parent
+    ;; :on-child-done; the exit cascade then sweeps the child away once
+    ;; the parent's :on-all-complete fires.
     {:meta  {:terminal? true}
      :tags  #{:work/done}
      :entry :dispatch-done}
 
     :cancelled
-    ;; Declared but never entered by this example's transitions: the
-    ;; parent cancels a child by tearing it down via the
-    ;; :rf.machine/destroy fx, not by routing a cancel event in. The
-    ;; state stays so the machine's tag union exposes #{:work/cancelled}
-    ;; to tools, and so an app that DOES route cancellation as an in-FSM
-    ;; event has somewhere to land.
+    ;; Defined, but this example never routes a child into it. The
+    ;; parent cancels a child by destroying it with :rf.machine/destroy,
+    ;; not by sending a cancel event inward. We keep the state around for
+    ;; two reasons: so the machine's tags advertise #{:work/cancelled}
+    ;; to tools, and so an app that *does* prefer in-FSM cancellation
+    ;; has a place to land.
     {:meta {:terminal? true}
      :tags #{:work/cancelled}}}})
 
@@ -210,26 +215,27 @@
 ;; THE PARENT COORDINATOR — :work/flow
 ;; ============================================================================
 ;;
-;; Three children, one parent, one declarative :spawn-all entry. The
-;; parent's :data holds no per-child bookkeeping beyond the aggregated
-;; :progress map (the user wants to see it; the runtime doesn't read
-;; it). The join-state map — which children are done, failed, resolved —
-;; is runtime-owned and lives in runtime-db.
+;; One parent, three children, a single `:spawn-all` declaration. The
+;; parent keeps almost nothing of its own — just the aggregated
+;; :progress map, and only because the user likes to watch it (the
+;; runtime never reads it). The real ledger — who's done, who failed,
+;; who's resolved — is the join-state map, and that belongs to the
+;; runtime, tucked away in runtime-db.
 
 (def shards
-  "The shard ids this demo processes in parallel. Three is enough to
-   show the parallelism and the join; small enough to keep the UI
-   readable. Each shard is just a label here — in a real app it would
-   be a chunk of work (a slice of a dataset, a region of an image,
-   ...) the worker knows how to process."
+  "The shards this demo runs in parallel. Three is the sweet spot:
+   enough to show off the parallelism and the join, few enough to keep
+   the UI legible. Here a shard is just a label — in a real app it'd be
+   an actual slice of work (a chunk of a dataset, a region of an image)
+   that the worker knows how to chew on."
   [:s1 :s2 :s3])
 
 (def flow-machine
-  {:doc "Parent coordinator. Spawns one :work/processor per shard via
-         :spawn-all; joins on :all; cancels mid-flight on :cancel
-         or on the parent's :working state being exited by any means
-         (including user-driven unmount → :cancel dispatch from the
-         work-bench view's `r/with-let` finally cleanup)."
+  {:doc "The coordinator. Spawns one :work/processor per shard with
+         :spawn-all, joins on :all, and cancels mid-flight whenever
+         :working is left — whether by an explicit :cancel or by the
+         user hiding the bench (its `r/with-let` cleanup dispatches
+         :cancel for them)."
 
    :initial :idle
 
@@ -238,9 +244,8 @@
              :progress (zipmap shards (repeat 0))
              :outcome  nil}
 
-   ;; Validates the snapshot's :data slot. The snapshot lives in
-   ;; runtime-db, so [:schemas :data] — not an app-schema — is the
-   ;; validation surface.
+   ;; Guards the snapshot's :data. The snapshot lives in runtime-db, so
+   ;; [:schemas :data] — not an app-schema — is what does the checking.
    :schemas {:data schema/FlowData}
 
    :actions
@@ -251,48 +256,48 @@
                     :outcome  nil)})
 
     :record-progress
-    ;; Self-transition action — a child dispatched
+    ;; Filing a child's progress report. A child dispatched, say,
     ;;   [:work/flow [:progress :s1 5 100]]
-    ;; and the parent records the per-shard progress so the view's
-    ;; aggregate-progress sub recomputes.
+    ;; and we drop that count into the right slot, which nudges the
+    ;; view's aggregate-progress sub to recompute.
     (fn action-record-progress [{data :data [_ shard-id processed _total] :event}]
       {:data (assoc-in data [:progress shard-id] processed)})
 
     :stamp-outcome
-    ;; Stamp :outcome on entry to a terminal state so the UI can show
-    ;; "Complete" / "Cancelled" / "Failed" without a separate sub. The
-    ;; action's event payload's first element is the matching
-    ;; transition event keyword (`:work/all-done` / `:cancel`
-    ;; / `:work/any-failed`); we just record it as the outcome.
+    ;; Pin down how it all ended, on the way into a terminal state, so
+    ;; the UI can say "Complete" / "Cancelled" / "Failed" without a sub
+    ;; of its own. The event that brought us here names the ending
+    ;; (`:work/all-done` / `:cancel` / `:work/any-failed`) — we just
+    ;; translate it and record it.
     (fn action-stamp-outcome [{data :data [event-kw & _] :event}]
       {:data (assoc data :outcome
                     (case event-kw
                       :work/all-done    :complete
                       :cancel           :cancelled
                       :work/any-failed  :error
-                      ;; default: keep current
+                      ;; anything else: leave the outcome as it was
                       (:outcome data)))})}
 
    :states
    {:idle
-    ;; Initial state. :start kicks off the work; :reset returns from
-    ;; a terminal state back here.
+    ;; The resting state. :start sets the work going; :reset is how a
+    ;; terminal state finds its way back here.
     {:tags #{:flow/idle}
      :on   {:start {:target :working :action :reset-progress}
             :reset {:target :idle    :action :reset-progress}}}
 
     :working
-    ;; The :spawn-all-bearing state. On entry the runtime seeds the
-    ;; join-state map and spawns one child per entry below. On exit (by
-    ;; ANY transition, including :cancel / :work/all-done) it fires a
-    ;; single :rf.machine/destroy fx that reads the join state and tears
-    ;; every surviving child down.
+    ;; The heart of it — the state that carries :spawn-all. Entering it,
+    ;; the runtime seeds the join-state map and spawns a child for each
+    ;; entry below. Leaving it — by ANY route, :cancel or :work/all-done
+    ;; alike — fires a single :rf.machine/destroy that reads the join
+    ;; state and clears away every child still standing.
     ;;
-    ;; The :progress event is the per-step report from a child. It's an
-    ;; internal self-transition that updates :data :progress. Because
-    ;; :progress is NOT the parent's :on-child-done / :on-child-error
-    ;; keyword, the join machinery doesn't intercept it — the runtime
-    ;; feeds it straight into the parent's :on lookup.
+    ;; The :progress event is just a child checking in. It's an internal
+    ;; self-transition that updates :data :progress — and because
+    ;; :progress isn't the parent's :on-child-done / :on-child-error
+    ;; keyword, the join machinery leaves it alone and the runtime feeds
+    ;; it straight to the parent's :on table.
     {:tags #{:flow/working}
      :spawn-all
      {:children [{:id :s1 :machine-id :work/processor
@@ -302,31 +307,29 @@
                  {:id :s3 :machine-id :work/processor
                   :data {:shard :s3 :total items-per-shard :processed 0 :tick-ms default-tick-ms}}]
       :join             :all
-      ;; The keywords children dispatch back. The runtime intercepts
-      ;; events whose inner-event-id matches these and updates the
-      ;; join state.
+      ;; The keywords a child uses to phone home. The runtime watches
+      ;; for events whose inner id matches these and updates the join.
       :on-child-done    :work/child-done
       :on-child-error   :work/child-error
-      ;; The events the runtime dispatches into the parent when the
-      ;; join resolves. The parent's :on table below handles each.
+      ;; And the events the runtime sends *back* into the parent once
+      ;; the join resolves. The :on table below picks each one up.
       :on-all-complete  [:work/all-done]
       :on-any-failed    [:work/any-failed]}
-     :on    {;; Progress reports — internal self-transition (no :target):
-             ;; the action runs but :exit / :entry do NOT fire, so the
-             ;; :spawn-all entry cascade doesn't re-spawn children and the
-             ;; exit cascade doesn't tear them down. Omit :target to get
-             ;; an internal self-transition.
+     :on    {;; A progress report. Note there's no :target — that makes
+             ;; it an internal self-transition: the action runs, but
+             ;; :exit / :entry stay quiet, so the :spawn-all entry
+             ;; cascade won't re-spawn the children and the exit cascade
+             ;; won't tear them down. (Dropping :target is the whole
+             ;; trick.)
              :progress        {:action :record-progress}
-             ;; Join-resolution events. The runtime dispatches these
-             ;; into the parent when :on-all-complete / :on-any-failed
-             ;; resolve; the parent's transition handles them as
-             ;; ordinary state transitions.
+             ;; The join landing here. The runtime dispatches these the
+             ;; moment :on-all-complete / :on-any-failed resolve, and
+             ;; the parent treats them as plain old transitions.
              :work/all-done   {:target :complete  :action :stamp-outcome}
              :work/any-failed {:target :error     :action :stamp-outcome}
-             ;; Cooperative user-driven cancellation. The transition
-             ;; leaves :working, and that exit fires one
-             ;; :rf.machine/destroy fx that tears down every surviving
-             ;; child.
+             ;; The user pulling the plug. Leaving :working is the part
+             ;; that matters: that exit fires the one :rf.machine/destroy
+             ;; that takes every surviving child with it.
              :cancel          {:target :cancelled :action :stamp-outcome}}}
 
     :complete
@@ -347,8 +350,13 @@
 (rf/reg-machine :work/flow flow-machine)
 
 ;; ============================================================================
-;; SUBSCRIPTIONS — slice readers + aggregate progress
+;; SUBSCRIPTIONS — read the snapshot, then total it up
 ;; ============================================================================
+;;
+;; A little layered chain: the first sub grabs the parent's snapshot,
+;; the next few carve slices out of it, and the last couple do the
+;; arithmetic the progress bar wants. Each one stays small and reads
+;; only from the layer above — the usual subscription-graph shape.
 
 (rf/reg-sub :work/flow-snapshot
   :<- [:rf/machine :work/flow]
@@ -377,8 +385,8 @@
     (reduce + 0 (vals progress))))
 
 (rf/reg-sub :work/progress-fraction
-  {:doc "Aggregate progress, 0.0 .. 1.0. The view's progress bar
-         multiplies by 100 to render."}
+  {:doc "How far along, all up — a number from 0.0 to 1.0. The progress
+         bar multiplies by 100 to turn it into a width."}
   :<- [:work/items-done]
   :<- [:work/total-items]
   (fn [[done total] _]
@@ -399,6 +407,6 @@
 ;; ============================================================================
 
 (rf/reg-event :work/initialise
-  {:doc "Boot the parent machine to its :idle state."}
+  {:doc "Park the parent machine in :idle, ready to go."}
   (fn handler-work-initialise [_ _]
     {:fx [[:dispatch [:work/flow [:reset]]]]}))

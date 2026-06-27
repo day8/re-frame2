@@ -1,30 +1,35 @@
 (ns realworld.articles
   "Home-page article feeds for the RealWorld (Conduit) example.
 
-   This namespace shows:
-   - One parallel state machine with three orthogonal regions
+   The home page looks simple — a list of articles — but it's juggling three
+   independent questions at once: which feed are you looking at, is a tag
+   filter on, and where is the data in its load. That's a textbook fit for a
+   parallel state machine, and this namespace is the worked example. Worth a
+   read for:
+
+   - One parallel state machine, three orthogonal regions
      (`:feed` x `:filter` x `:data`). See the machines guide on parallel
      regions: ../../../docs/machines/concepts.md#when-the-machine-grows.
-   - A remote-data lifecycle tracked by the `:data` region. The region's
-     state-keyword drives the home-page render decision. The `:articles`
-     and `:feed` slices keep the plain 5-key slice shape so their items
-     live in app-db and favorites.cljs's optimistic updates can scan
-     across slices. The machine's `:data` region tracks the same lifecycle
-     and owns the render decision. See the `:data` region note below.
-   - Route-driven loading: the `/tag/:tag` route filters the list and
-     `?feed=following` switches to the authenticated feed (the official
-     RealWorld contract shapes). Each navigation broadcasts the matching
-     feed-region transition.
-   - Home-page tabs expressed as feed-region transitions.
-   - The home view's root is a `case` over `:articles.home/render`, a
-     selector sub that reads a render-priority table against the machine's
-     tag union.
-   - View reuse across the home page and profile pages."
+   - A remote-data lifecycle tracked by the `:data` region, whose
+     state-keyword drives the whole home-page render decision. The `:articles`
+     and `:feed` slices keep the plain 5-key slice shape so their items live
+     in app-db where favorites.cljs's optimistic updates can reach across and
+     patch them. (More on why the machine and the slice coexist in the `:data`
+     region note below.)
+   - Route-driven loading: `/tag/:tag` filters the list and `?feed=following`
+     switches to the authenticated feed — both the official RealWorld URL
+     shapes. Each navigation broadcasts the matching feed-region transition.
+   - Home-page tabs, expressed as feed-region transitions rather than ad-hoc
+     flags.
+   - The home view's root: a single `case` over `:articles.home/render`, a
+     selector sub that reads a render-priority table against the machine's tag
+     union.
+   - One article card reused across the home page and the profile pages."
   (:require [re-frame.core :as rf]
-            ;; State machines ship in the re-frame2-machines artefact.
-            ;; Requiring the ns registers its hooks so `rf/reg-machine`
-            ;; (called below) and the `:rf/machine` subs resolve. See the
-            ;; machines guide: ../../../docs/machines/index.md
+            ;; State machines live in their own artefact; we require it just to
+            ;; load it, which registers the hooks that make `rf/reg-machine`
+            ;; (below) and the `:rf/machine` subs resolve. See the machines
+            ;; guide: ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld-shared.avatar :as avatar]
             [realworld.schema :as schema]
@@ -38,47 +43,50 @@
 ;; THE MACHINE — :realworld/articles-home  (one machine, three regions)
 ;; ============================================================================
 ;;
-;; The home page has three orthogonal axes:
+;; Three independent questions, three regions. The trick of a parallel machine
+;; is that each axis gets to evolve on its own, instead of being mashed into
+;; one combinatorial blob of states:
 ;;
-;;   :feed   — which feed is rendered (global / your-feed / tag-filtered
-;;             global). The state-keyword tells the view which app-db
-;;             slice's items to read from (`:articles` for :global and
-;;             :tag-feed; `:feed` for :user-feed). Driven by the
-;;             home navigation events: the following toggle rides the
-;;             `?feed=following` query, and the tag filter is the
+;;   :feed   — which feed you're looking at (global / your-feed / tag-filtered
+;;             global). Its state-keyword tells the view which app-db slice to
+;;             read items from (`:articles` for :global and :tag-feed, `:feed`
+;;             for :user-feed). Driven by home navigation: the following toggle
+;;             rides the `?feed=following` query, and the tag filter is the
 ;;             `/tag/:tag` PATH route (`:realworld/home-tag`).
 ;;
-;;   :filter — whether a tag filter is active. Always `:tagged` whenever
-;;             :feed is :tag-feed; tracked as a separate region so views
-;;             that render the filter chip can ask a tag-shaped question
-;;             without inspecting the feed region.
+;;   :filter — is a tag filter on? It's always `:tagged` whenever :feed is
+;;             :tag-feed, but it earns its own region so a view rendering the
+;;             filter chip can ask a tag-shaped question without poking at the
+;;             feed region to infer the answer.
 ;;
-;;   :data   — the data lifecycle for whichever feed is active. The
-;;             region's state-keyword drives the home-page render decision
-;;             (via the render-priority table + the `:articles.home/render`
-;;             selector sub); the view never branches on the slice's
-;;             `:status`. The :resolving eventless microstep picks `:empty`
-;;             or `:some` from the count stored in the machine's `:data`.
+;;   :data   — where the active feed is in its load. This region's
+;;             state-keyword drives the entire home-page render decision (via
+;;             the render-priority table + the `:articles.home/render`
+;;             selector sub), so the view never has to branch on a slice's
+;;             `:status`. The `:resolving` eventless microstep then peeks at
+;;             the count in the machine's `:data` to decide between `:empty`
+;;             and `:some`.
 ;;
-;;             The `:articles` slice keeps the plain 5-key slice shape: its
-;;             article items live in app-db so favorites.cljs's optimistic
-;;             updates can scan across slices, and the slice keeps its
-;;             `:status` field. The machine's `:data` region tracks the
-;;             same lifecycle and owns the render decision. tags.cljs and
-;;             settings.cljs show the other shape, where the lifecycle
-;;             lives entirely in the machine and there is no slice.
+;;             So why keep BOTH a machine region and an `:articles` slice? The
+;;             slice keeps the plain 5-key shape because its article items have
+;;             to live in app-db, where favorites.cljs can reach across slices
+;;             and patch them. The machine's `:data` region tracks the same
+;;             lifecycle and owns the render call. (For the other shape — where
+;;             the lifecycle lives entirely in the machine and there's no slice
+;;             at all — see tags.cljs and settings.cljs.)
 ;;
-;; Every event delivered to the machine reaches every region (the parallel
-;; region broadcast). Region-distinct event names avoid collisions; each
-;; region handles `:reset` as a self-target.
+;; One thing to keep in mind: every event delivered to a parallel machine
+;; reaches every region — that's the broadcast. So the region event names are
+;; kept distinct to avoid crosstalk, and each region treats `:reset` as a
+;; self-target.
 
 (def home-machine
   {:type :parallel
 
-   ;; The machine carries the active feed's item-count (drives the
-   ;; cardinality bucket) plus the latest error map. The items live in
-   ;; app-db slices (`:articles`, `:feed`) so favorites.cljs's optimistic
-   ;; updates can find them across slices.
+   ;; The machine holds just two facts: the active feed's item-count (which
+   ;; picks the empty-vs-some bucket) and the latest error. The articles
+   ;; themselves stay in the app-db slices (`:articles`, `:feed`), where
+   ;; favorites.cljs can find and patch them across slices.
    :data {:count 0 :error nil}
 
    :guards
@@ -120,17 +128,19 @@
               :reset           :nothing}}
 
       :refreshing
-      ;; Reload while prior items remain visible. Tagged :data/some so
-      ;; the render-priority resolves to the `:some` view; the
-      ;; :data/refreshing tag drives the inline refresh indicator.
+      ;; A reload while the previous list is still on screen. Tagged
+      ;; :data/some so render-priority keeps showing the `:some` view (no
+      ;; flicker to a spinner); the :data/refreshing tag lights up the
+      ;; little inline "refreshing" indicator.
       {:tags #{:data/some :data/refreshing :data/transient}
        :on   {:fetch-succeeded {:target :resolving :action :set-count}
               :fetch-failed    {:target :error     :action :set-error}
               :reset           :nothing}}
 
       :resolving
-      ;; Eventless microstep: after :set-count writes the new count,
-      ;; pick the cardinality bucket. First match wins.
+      ;; An eventless microstep — it transitions on its own the instant it's
+      ;; entered. Once :set-count has written the new count, this picks the
+      ;; bucket: empty or not. First matching branch wins.
       {:always [{:guard :empty? :target :empty}
                 {:target :some}]}
 
@@ -170,9 +180,10 @@
               :reset         :global}}
 
       :tag-feed
-      ;; The `/tag/:tag` PATH route. Still reads from the :articles slice;
-      ;; the tag modifies the request URL upstream (the WIRE stays
-      ;; `/articles?tag=…`).
+      ;; The `/tag/:tag` PATH route. Still reads from the :articles slice —
+      ;; the tag only changes the request URL upstream. (The frontend route
+      ;; is `/tag/:tag`, but the WIRE stays `/articles?tag=…`; the two shapes
+      ;; are independent.)
       {:tags #{:feed/tag-feed}
        :on   {:show-global    {:target :global    :action :clear-count}
               :show-user-feed {:target :user-feed :action :clear-count}
@@ -213,24 +224,24 @@
 ;; ============================================================================
 
 (rf/reg-event :articles/load
-  {:doc "Fetch the global articles list, optionally filtered by the active
-         tag (the `/tag/:tag` route param; the wire query stays
-         `/articles?tag=…`). Goes via `:rf.http/managed` with a
-         Malli-decoded response and the standard data-fetch retry policy.
-         The request carries `:request-id :articles/load` so re-issuing it
-         (e.g. the user changes tag mid-load) supersedes the in-flight
-         request and `:articles/cancel` aborts it. See the HTTP guide:
-         ../../../docs/resources/http.md
+  {:doc "Fetch the global articles list, optionally narrowed to the active tag
+         (the `/tag/:tag` route param; on the wire that's still
+         `/articles?tag=…`). Goes out via `:rf.http/managed` with a
+         Malli-decoded response and the house data-fetch retry policy. It
+         carries `:request-id :articles/load`, which buys two things: re-issue
+         it (the user flips to a different tag mid-load) and the new request
+         supersedes the in-flight one, and `:articles/cancel` can abort it
+         outright. See the HTTP guide: ../../../docs/resources/http.md
 
-         Also broadcasts `:fetch-started` into the home machine so the
-         `:data` region advances to `:loading` (or `:refreshing` from
-         `:some`)."
+         It also broadcasts `:fetch-started` into the home machine, nudging the
+         `:data` region to `:loading` (or `:refreshing`, if a list is already
+         showing)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
-  ;; The route lives in runtime-db. `?page=` (1-indexed, on the route
-  ;; query) becomes the wire's limit/offset window via `rh/paginate-path`.
-  ;; The active tag is a `/tag/:tag` route param; the page is on the query.
-  ;; The wire stays `/articles?tag=…` — the frontend route shape and the
-  ;; API query string are independent.
+  ;; The route lives in runtime-db. The 1-indexed `?page=` off the route query
+  ;; becomes the wire's limit/offset window via `rh/paginate-path`. The active
+  ;; tag is a path param; the page is a query param; and on the wire it all
+  ;; collapses to `/articles?tag=…&limit=…&offset=…`. Frontend route shape and
+  ;; API query string are deliberately independent.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [current   (get-in rt [:rf.runtime/routing :current])
           tag       (get-in current [:params :tag])
@@ -255,17 +266,18 @@
                           :on-failure [:articles/load-failed]})]]})))
 
 (rf/reg-event :articles/loaded
-  {:doc "Successful fetch. Replace the list and clear any prior error.
-         Receives `{:kind :success :value <ArticlesResponse>}` (the
-         uniform reply map). Folds the new count into the home machine via
-         `:fetch-succeeded`; the `:data` region's `:resolving` `:always`
-         cascade then picks `:empty` or `:some`."
+  {:doc "The fetch came back happy. Swap in the new list and clear any stale
+         error. It arrives as `{:kind :success :value <ArticlesResponse>}` —
+         the same uniform reply shape every managed request returns. Folds the
+         fresh count into the home machine via `:fetch-succeeded`, and the
+         `:data` region's `:resolving` `:always` cascade takes it from there,
+         choosing `:empty` or `:some`."
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     (let [items (vec (:articles value))
-          ;; `articlesCount` is the grand total (all matching articles),
-          ;; not this page's size — it drives the page count. Fall back to
-          ;; the page size when the server omits it.
+          ;; `articlesCount` is the GRAND total across all matching articles,
+          ;; not the size of this page — it's what the page count is computed
+          ;; from. If the server leaves it out, fall back to this page's size.
           total (or (:articlesCount value) (count items))]
       {:db (-> db
                (assoc-in [:articles :status] :loaded)
@@ -277,10 +289,11 @@
                         [:fetch-succeeded {:items items}]]]]})))
 
 (rf/reg-event :articles/load-failed
-  {:doc "Failed fetch. Keep prior data when present and surface a
-         human-readable error message (projected from the failure map).
-         Folds the failure into the home machine via `:fetch-failed`; the
-         `:data` region advances to `:error`."}
+  {:doc "The fetch failed. Hold on to whatever list was already showing (no
+         point blanking the page over a hiccup) and surface a readable error
+         message, projected from the failure map. Folds the failure into the
+         home machine via `:fetch-failed`, sending the `:data` region to
+         `:error`."}
   (fn [{:keys [db]} [_ {:keys [failure]}]]
     (let [message (rh/failure->message failure)]
       {:db (-> db
@@ -290,8 +303,9 @@
                         [:fetch-failed {:failure message}]]]]})))
 
 (rf/reg-event :articles/cancel
-  {:doc "Abort an in-flight :articles/load — e.g. when the user navigates
-         away from the home page mid-fetch. See the HTTP guide on aborts:
+  {:doc "Abort an in-flight :articles/load — say the user wanders off the home
+         page before it lands. No sense letting a reply arrive for a screen
+         nobody's looking at. See the HTTP guide on aborts:
          ../../../docs/resources/http.md#the-search-box-race-cured"}
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :articles/load]]}))
@@ -317,17 +331,19 @@
 
 ;; ---- render-priority + :articles.home/render selector ----
 ;;
-;; The render-priority table is plain data: a vector of {:tag :render}
-;; pairs consulted in order. The `:articles.home/render` sub reads the
-;; machine's tag union and returns the first :render whose :tag is
-;; present. The home view's `case` over the resolved keyword is the
-;; only branch site; everything else reads tags directly.
+;; "Which view do I show?" is data, not code. The render-priority table is a
+;; plain vector of {:tag :render} pairs, read top to bottom. The
+;; `:articles.home/render` sub looks at the machine's set of active tags and
+;; returns the first :render whose :tag is present. The home view's `case` over
+;; that one resolved keyword is the only place anything branches on render
+;; state — everywhere else just reads tags directly. Want to reorder the
+;; precedence? Reorder the vector; nobody touches the view.
 ;;
-;; Priority rationale: the data region's lifecycle wins outright —
-;; `:loading` (first-load spinner) above `:error` above the cardinality
-;; buckets. `:refreshing` resolves to `:some` (the prior list stays
-;; visible, with an inline refresh indicator the `:some` view renders
-;; via the `:data/refreshing` tag).
+;; The order encodes the priorities: the data lifecycle wins outright —
+;; `:loading` (the first-load spinner) beats `:error` beats the count buckets.
+;; `:refreshing` resolves to `:some` on purpose, so a reload leaves the
+;; existing list up, with just an inline refresh indicator (rendered by the
+;; `:some` view off the `:data/refreshing` tag).
 
 (def render-priority
   [{:tag :data/loading :render :loading}
@@ -337,9 +353,9 @@
    {:tag :data/nothing :render :empty}])
 
 (rf/reg-sub :articles.home/render
-  {:doc "Resolve the home page's render-model keyword by consulting the
-         render-priority table against the machine's tag union. The
-         root view's `case` is the only branch site."}
+  {:doc "Boil the machine's active tags down to a single render keyword, by
+         running them past the render-priority table. The home view's `case`
+         on this keyword is the one and only branch site."}
   :<- [:rf/machine :realworld/articles-home]
   (fn sub-articles-home-render [snap _]
     (let [tags (:tags snap)]
@@ -348,9 +364,9 @@
             render-priority))))
 
 (rf/reg-sub :articles.home/active-articles
-  {:doc "The article list currently rendered by the home view: the
-         `:feed` region's active state-keyword picks which app-db slice
-         to read from."}
+  {:doc "Whichever article list the home view should be showing right now. The
+         `:feed` region's active state decides which app-db slice to pull from
+         — `:feed` for your-feed, `:articles` for everything else."}
   :<- [:rf/machine :realworld/articles-home]
   :<- [:articles/data]
   :<- [:feed/data]
@@ -361,9 +377,10 @@
 
 ;; ---- pagination (official RealWorld limit/offset) ----
 ;;
-;; The page-number control + articles-count read from the SAME `:feed` region
-;; the article list reads from: the active feed's grand `articlesCount` drives
-;; the page count, and the 1-indexed current page rides the route query.
+;; The page-number control reads from the SAME `:feed` region the article list
+;; does, so the two never disagree: the active feed's grand `articlesCount`
+;; sets how many pages there are, and the 1-indexed current page rides along
+;; in the route query.
 
 (rf/reg-sub :articles.home/articles-count
   {:doc "Grand article count for the active home feed (global / user-feed),
@@ -396,7 +413,9 @@
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view ^{:doc "A single article card used across the home page and profile pages."}
+(reg-view ^{:doc "One article card — the little preview tile, reused on both the
+                  home page and the profile pages. Write it once, render it
+                  everywhere."}
           article-preview [{:keys [article]}]
   (let [{:keys [slug title description createdAt favoritesCount author tagList]} article]
     [:div.article-preview
@@ -426,13 +445,14 @@
          ^{:key tag}
          [:li.tag-default.tag-pill.tag-outline tag])]]]))
 
-(reg-view ^{:doc "Official RealWorld page-number control. Renders the
-                  Conduit `.pagination` / `.page-item` / `.page-link` markup
-                  with the active page marked `.active`. Reused by the home
-                  feeds and the profile lists — `on-select` is a 1-arg fn
-                  (page-number → navigation) so each call site routes to its
-                  own `?page=`. A single page renders nothing (the official
-                  client hides the control when there is nothing to page)."}
+(reg-view ^{:doc "The page-number control, Conduit-style. Renders the official
+                  `.pagination` / `.page-item` / `.page-link` markup with the
+                  current page marked `.active`. Shared by the home feeds and
+                  the profile lists: `on-select` is a 1-arg fn (page-number →
+                  navigation), so each caller decides where its own `?page=`
+                  lands. If there's only one page, it draws nothing — same as
+                  the official client, which hides the control when there's
+                  nothing to page through."}
           pagination [{:keys [current-page page-count on-select]}]
   (when (> page-count 1)
     [:nav
@@ -448,27 +468,27 @@
 
 ;; ---- per-render-state subviews ----
 
-(reg-view ^{:doc "Data region :loading — first fetch in flight, no prior items."}
+(reg-view ^{:doc "The :loading view — first fetch in flight, nothing to show
+                  yet. So we show a spinner-ish placeholder."}
           articles-loading []
   [:div.article-preview "Loading articles…"])
 
-(reg-view ^{:doc "Data region :error — fetch failed."}
+(reg-view ^{:doc "The :error view — the fetch didn't make it."}
           articles-error []
   (let [err @(subscribe [:articles/error])
         feed-err @(subscribe [:feed/error])]
     [:div.article-preview.error
      (str "Couldn't load articles: " (pr-str (or err feed-err)))]))
 
-(reg-view ^{:doc "Data region :empty / :nothing — no articles to show. Renders
-                  the official RealWorld `.article-preview.empty-feed-message`
-                  marker the E2E contract asserts on for empty
-                  list states."}
+(reg-view ^{:doc "The :empty / :nothing view — no articles to show. Renders the
+                  official `.article-preview.empty-feed-message` marker that
+                  the RealWorld E2E suite looks for on an empty list."}
           articles-empty []
   [:div.article-preview.empty-feed-message "No articles are here… yet."])
 
-(reg-view ^{:doc "Data region :some — articles to show. Inline refresh
-                  indicator overlays when the :data/refreshing tag is
-                  set (a same-feed reload in flight)."}
+(reg-view ^{:doc "The :some view — we have articles, so list them. If a
+                  same-feed reload is in flight (the :data/refreshing tag),
+                  an inline refresh indicator rides along on top."}
           articles-some []
   (let [articles    @(subscribe [:articles.home/active-articles])
         refreshing? @(rf/machine-has-tag? :realworld/articles-home :data/refreshing)]
@@ -478,7 +498,10 @@
        ^{:key (:slug article)}
        [article-preview {:article article}])]))
 
-(reg-view ^{:doc "Global feed / your feed / tag-filtered home page."}
+(reg-view ^{:doc "The home page itself — global feed, your feed, or a
+                  tag-filtered list, depending on the machine. The banner and
+                  the feed tabs are always here; the middle swaps based on
+                  render-mode."}
           home-page []
   (let [authed?      @(subscribe [:auth/authenticated?])
         selected-tag @(subscribe [:home/selected-tag])

@@ -1,40 +1,45 @@
 (ns realworld-resources.core
-  "Entry point for the RealWorld (Conduit) example. The read surface is
-   RESOURCES (`reg-resource`) and the write surface is MUTATIONS
-   (`reg-mutation`): the framework owns the server-state cache, views read it
-   passively, and a write invalidates the reads it affected. See the resources
-   guide: ../../../docs/resources/concepts.md.
+  "Entry point for the RealWorld (Conduit) example — a full Medium-style blogging
+   app, built to show off how re-frame2 handles server state.
 
-   Wires the app together:
-   - pulls in every feature ns (each registers its resources / mutations /
-     events / subs / views / the auth machine);
-   - installs the demo `:rf.http/managed` backend stub (resources + mutations
-     lower onto managed HTTP, so one stub serves the whole API);
-   - defines `:app/initialise` (the boot fan-out);
-   - defines the app shell + a route switch on `:rf.route/id`;
+   Two ideas carry the whole app. Reads are RESOURCES (`reg-resource`): named,
+   cached server-state the framework owns and your views read passively. Writes
+   are MUTATIONS (`reg-mutation`): they change remote state and invalidate the
+   reads they touched, so the right things refetch on their own. Read here,
+   write there, and the cache keeps itself honest. The resources guide has the
+   full story: ../../../docs/resources/concepts.md.
+
+   This namespace is the wiring closet. It:
+   - pulls in every feature ns (each one registers its own resources / mutations
+     / events / subs / views / the auth machine);
+   - installs a demo `:rf.http/managed` backend stub — since reads and writes
+     both lower onto managed HTTP, one stub serves the entire API;
+   - defines `:app/initialise`, the boot fan-out;
+   - defines the app shell and a route switch on `:rf.route/id`;
    - mounts the React root and installs the URL listener.
 
-   Per-feature work lives in:
-     resources.cljs  — every read as `reg-resource`
-     mutations.cljs  — every write as `reg-mutation` (+ :invalidates / :populates)
-     routing.cljs    — routes with `:resources` metadata + the auth guard
+   The actual features live next door:
+     resources.cljs  — every read, as a `reg-resource`
+     mutations.cljs  — every write, as a `reg-mutation` (+ :invalidates / :populates)
+     routing.cljs    — routes carrying `:resources` metadata + the auth guard
      auth.cljs       — the auth machine (login / register / restore / logout)
-     settings.cljs   — settings as a mutation instance
+     settings.cljs   — settings, modelled as a mutation instance
      scope.cljs      — the fail-closed session cache scope
-     schema.cljs     — Malli wire shapes + the small app-db schemas
+     schema.cljs     — Malli wire shapes + the handful of app-db schemas
      http.cljs       — the demo backend stub + failure projection
      views.cljs      — passive pages + the small UI event glue"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Managed HTTP — the single built-in resource/mutation transport.
+            ;; Managed HTTP — the one built-in transport both resources and
+            ;; mutations lower onto.
             [re-frame.http.managed]
-            ;; The canned-stub fxs the demo backend delegates to. A real Conduit
-            ;; deployment would drop this require.
+            ;; The canned-stub fxs the demo backend leans on. A real Conduit
+            ;; deployment would simply drop this require.
             [re-frame.http.test-support]
-            ;; Resources + mutations runtime.
+            ;; The resources + mutations runtime.
             [re-frame.resources]
-            ;; Routing + machines. Loading routing makes the `:resources` route
-            ;; key available; the auth machine needs machines.
+            ;; Routing + machines. Loading routing unlocks the `:resources` route
+            ;; key; the auth machine needs machines.
             [re-frame.routing]
             [re-frame.machines]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -56,22 +61,25 @@
 ;; ============================================================================
 
 (rf/reg-event :app/initialise
-  {:doc "App boot. Seeds the form drafts. Session restore is its own
-         `:initial-events` step (`:auth/initialise`), not part of this fan-out,
-         so its recordable token coeffect rides its own dispatch. The page reads
-         (articles, tags, feed, …) are caused by the route's `:resources`
-         metadata on the initial URL→route sync, not from here."}
+  {:doc "App boot. Seeds the two form drafts and nothing else. Session restore
+         is deliberately not here — it's its own `:initial-events` step
+         (`:auth/initialise`) so its recordable token coeffect can ride its own
+         dispatch. And the page reads (articles, tags, feed, …) aren't here
+         either: the route's `:resources` metadata pulls those in on the first
+         URL→route sync. Booting an app is mostly about deciding what NOT to do
+         up front."}
   (fn [_ _]
     {:fx [[:dispatch [:auth.login-form/initialise]]
           [:dispatch [:auth.register-form/initialise]]]}))
 
-;; The JWT at [:auth :token] is durable and sensitive. Classify it via the
-;; `:sensitive` effect, returned alongside `:db` from an event the frame runs at
-;; creation (`:initial-events`, before any off-box egress) so the raw token is
-;; redacted from anything that leaves the box. See data classification:
+;; The JWT at [:auth :token] is both durable and sensitive — exactly the kind of
+;; thing you don't want leaking off the box. The `:sensitive` effect marks it as
+;; such. We return it alongside `:db` from an event the frame runs at creation
+;; (`:initial-events`, before anything leaves the box), so the raw token is
+;; redacted from any capture, SSR payload, or trace. See data classification:
 ;; ../../../docs/guide/glossary.md#data-classification.
 (rf/reg-event :auth/classify-token
-  {:doc "Classifies the durable JWT path [:auth :token] sensitive at frame
+  {:doc "Marks the durable JWT path [:auth :token] as sensitive, at frame
          creation."}
   (fn [{:keys [db]} _]
     {:db db :sensitive [[:auth :token]]}))
@@ -96,7 +104,7 @@
                          [:i.ion-gear-a] " Settings"]]
           [:li.nav-item [rf/route-link {:to :realworld.profile/show :params {:username (:username user)}
                                         :class "nav-link" :data-testid "nav-username"}
-                         ;; Official navbar shows the user's avatar
+                         ;; The Conduit navbar shows the user's avatar
                          ;; (`.user-pic`) next to their name.
                          [:img.user-pic {:src (avatar/avatar-src (:image user))}]
                          " " (:username user)]]
@@ -113,11 +121,12 @@
             [:span.attribution "An interactive learning project from Thinkster."
              " Code & design licensed under MIT."]]])
 
-(reg-view ^{:doc "Confirm dialog shown when a `:can-leave` guard blocks a
-                   navigation (e.g. the editor with a dirty draft). Reads the
-                   blocked navigation off the `:rf/pending-navigation` sub; the
-                   buttons continue or cancel the pending nav. See route guard:
-                   ../../../docs/routing/glossary.md#route-guard."}
+(reg-view ^{:doc "The 'you have unsaved changes' dialog. It appears when a
+                   `:can-leave` guard blocks a navigation — typically the editor
+                   refusing to throw away a dirty draft. It reads the blocked
+                   navigation off the `:rf/pending-navigation` sub; the buttons
+                   either wave the navigation through or call it off. See route
+                   guard: ../../../docs/routing/glossary.md#route-guard."}
           pending-nav-dialog []
   (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.pending-nav-overlay {:data-testid "pending-nav-dialog"}
@@ -155,19 +164,23 @@
 ;; BEARER-AUTH HTTP INTERCEPTOR
 ;; ============================================================================
 ;;
-;; A single `:before` fn injects the Bearer token from the auth slice, so EVERY
-;; outbound `:rf.http/managed` request that crosses this frame picks the header
-;; up automatically. Resources AND mutations lower onto `:rf.http/managed`, so
-;; this one interceptor decorates the WHOLE Conduit API — the route-caused reads
-;; (`/articles/feed`, the lists, detail), the writes (favorite / follow /
-;; comment / settings / save-article), and the auth machine's session-restore
-;; `GET /user`. No `:request` fn threads the token per-call; the auth slice is
-;; the single source of truth and this is the single read site.
+;; The classic auth chore: every authenticated request needs an
+;; `Authorization: Token <jwt>` header. The tedious way is to thread the token
+;; through every call site. The pleasant way is right here — one `:before` fn
+;; that reads the token from the auth slice and stamps the header on its way out.
 ;;
-;; The token is read from `(:frame ctx)` — the frame the cascade runs under —
-;; not a hard-coded id, so the header tracks a non-default / multi-frame mount.
-;; The interceptor returns ctx unchanged when no token is present, so login /
-;; register / the public (logged-out) reads are unaffected.
+;; Because resources and mutations both lower onto `:rf.http/managed`, this one
+;; interceptor decorates the entire Conduit API at a stroke: the route-caused
+;; reads (`/articles/feed`, the lists, detail), the writes (favorite / follow /
+;; comment / settings / save-article), and the auth machine's session-restore
+;; `GET /user`. The auth slice is the single source of truth, and this is the
+;; single place it's read. Nice when one fact lives in exactly one spot.
+;;
+;; The token is read from `(:frame ctx)` — the frame this cascade is running
+;; under — rather than a hard-coded id, so the header follows along to a
+;; non-default or multi-frame mount. No token present? The interceptor hands ctx
+;; straight back, so login, register, and the public logged-out reads sail
+;; through untouched.
 (defn bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))
                       :auth :token)]
@@ -179,17 +192,18 @@
 ;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE
 ;; ============================================================================
 ;;
-;; The official RealWorld browser/E2E harness sometimes reads app session state
-;; through a global accessor. This installs `window.__conduit_debug__` with
-;; `getToken` / `getAuthState` / `getCurrentUser`, reading the live app frame's
-;; app-db.
+;; The official RealWorld browser/E2E harness sometimes peeks at session state
+;; through a global accessor, so we install `window.__conduit_debug__` with
+;; `getToken` / `getAuthState` / `getCurrentUser`, each reading the live app
+;; frame's app-db.
 ;;
-;; THIS IS A CONFORMANCE SURFACE, NOT A re-frame2 PATTERN. An unannotated global
-;; token accessor is the anti-pattern that gets copied into real apps: it
-;; bypasses the frame/sub system and leaks the raw JWT to any script on the
-;; page. Real re-frame2 code reads session state through subs under the frame
-;; provider, never a `window.*` global. This exists only so the external suite
-;; can introspect the demo; a production RealWorld app would not ship it.
+;; A loud warning, because this is the sort of code that gets copy-pasted: this
+;; is a conformance surface, NOT a re-frame2 pattern. A global token accessor
+;; like this is precisely the anti-pattern you don't want in a real app — it
+;; sidesteps the frame/sub system and hands the raw JWT to any script on the
+;; page. Real re-frame2 code reads session state through subs, under the frame
+;; provider, never off a `window.*` global. This exists only so the external test
+;; suite can introspect the demo; a production Conduit app would never ship it.
 (defn- install-conduit-debug! [frame-id]
   (when (exists? js/window)
     (set! (.-__conduit_debug__ js/window)
@@ -206,54 +220,55 @@
 
 (def app-frame :rf/default)
 
-;; `:rf/default` is an ordinary frame id with no framework privilege — `init!`
-;; installs only the adapter and creates no frame. This app earns URL ownership
-;; by declaring `:url-bound? true` on the frame below.
+;; `:rf/default` is just a frame id. It carries no special framework privilege —
+;; `init!` installs the adapter and creates no frame at all. This app earns URL
+;; ownership the honest way: by declaring `:url-bound? true` on the frame below.
 ;;
-;; The app frame is created, configured, and seeded in ONE spot: the
+;; The frame is created, configured, and seeded in exactly one place: the
 ;; `frame-provider {:id …}` ensure form at the render root. On first mount it
-;; creates the frame under `app-frame`, applies the config (`:url-bound? true`
-;; so it owns the URL; the auth-guard interceptor referenced by id; the demo
+;; creates the frame under `app-frame` and applies the config — `:url-bound? true`
+;; so it owns the URL, the auth-guard interceptor referenced by id, and the demo
 ;; `:rf.http/managed` routed through the in-process backend stub so reads and
-;; writes run without a network), and runs `:initial-events` once. Hot reload
-;; reuses the frame without re-seeding (durable app-db survives). That id is what
-;; every in-tree `dispatch`/`subscribe` resolves against.
+;; writes work with no network in sight — then runs `:initial-events` once. A hot
+;; reload reuses the frame and skips the re-seed (durable app-db survives). That
+;; same id is what every in-tree `dispatch` / `subscribe` resolves against.
 ;;
-;; `:initial-events` ordering carries two constraints:
-;;   - `:auth/classify-token` first: the JWT at [:auth :token] is a durable
-;;     sensitive fact, so classify it before any off-box egress (Xray capture,
-;;     an SSR payload) can see the raw token. See data classification:
+;; The order of `:initial-events` matters, for two reasons:
+;;   - `:auth/classify-token` goes first. The JWT at [:auth :token] is a durable
+;;     secret, so we mark it sensitive before anything (an Xray capture, an SSR
+;;     payload) could lay eyes on the raw value. See data classification:
 ;;     ../../../docs/guide/glossary.md#data-classification.
-;;   - `:auth/initialise` before `:app/initialise`: session restore reads the
-;;     saved JWT from a recordable coeffect (auth.cljs) and folds it into durable
-;;     [:auth :token]. It rides its own dispatch (not the `:app/initialise`
-;;     fan-out, which does not forward `:rf.cofx`) and runs first, so the token
-;;     is in app-db before the bearer-auth interceptor fires any authenticated
+;;   - `:auth/initialise` runs before `:app/initialise`. Session restore reads
+;;     the saved JWT from a recordable coeffect (auth.cljs) and folds it into
+;;     durable [:auth :token]. It rides its own dispatch — the `:app/initialise`
+;;     fan-out doesn't forward `:rf.cofx` — and goes first, so the token is in
+;;     app-db before the bearer-auth interceptor fires its first authenticated
 ;;     request.
 ;;
-;; The outbound `Authorization` Bearer header is not classified here — the
-;; framework's built-in HTTP carrier denylist already redacts it off-box. The
-;; session-scope key ([:auth :user :username]) is identity, not a secret, so it
-;; is deliberately not classified — over-redacting would obscure the cache-leak
-;; boundary this example shows.
+;; Two things we deliberately DON'T classify, since under-redacting and
+;; over-redacting are both mistakes. The outbound `Authorization` Bearer header
+;; is already redacted off-box by the framework's built-in HTTP carrier denylist,
+;; so doing it again here would be belt-and-braces noise. And the session-scope
+;; key ([:auth :user :username]) is identity, not a secret — redacting it would
+;; only blur the cache-leak boundary this whole example is here to show.
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  ;; Register the Bearer-auth interceptor at app boot, BEFORE the frame's
-  ;; `:initial-events` dispatch — session-restore fires an authenticated
-  ;; `GET /user` as soon as the JWT is hydrated, so the header must already be
-  ;; wired by the time `:auth/initialise` runs at frame creation (below).
+  ;; Register the bearer-auth interceptor at boot, before the frame's
+  ;; `:initial-events` dispatch. Timing matters: session-restore fires an
+  ;; authenticated `GET /user` the moment the JWT is hydrated, so the header has
+  ;; to be wired up before `:auth/initialise` runs at frame creation (below).
   (rf/reg-http-interceptor :realworld/bearer-auth
                            {:before bearer-auth-interceptor})
-  ;; The orchestrator serves this example at /realworld-resources/; strip that
-  ;; prefix before the matcher sees the URL so :realworld/home (path "/") matches.
-  ;; Set BEFORE install-router!'s initial URL→route sync (below).
+  ;; The dev orchestrator serves this example under /realworld-resources/. Strip
+  ;; that prefix before the matcher sees the URL, so :realworld/home (path "/")
+  ;; still matches. Has to happen before install-router!'s first URL→route sync.
   (routing/set-base-path! "/realworld-resources")
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; Create + configure + seed the app frame in one spot (see the block above).
-    ;; The frame is created synchronously during render, so it is live and seeded
-    ;; once this returns.
+    ;; Create + configure + seed the app frame, all in one place (see the block
+    ;; above). The frame is created synchronously during render, so by the time
+    ;; this call returns it's live and seeded.
     (rdc/render @react-root
                 [rf/frame-provider {:id              app-frame
                                     :doc             "RealWorld-on-resources demo frame."
@@ -264,20 +279,21 @@
                                                       [:auth/initialise]
                                                       [:app/initialise]]}
                  [root-view]])
-    ;; The frame is now live + session-seeded. These install ONGOING listeners
-    ;; (each doing its initial sync against that frame) — so they run AFTER the
-    ;; render that created it, not before.
+    ;; The frame is now live and session-seeded. The next three calls install
+    ;; ongoing listeners, each doing an initial sync against that frame — so they
+    ;; have to run AFTER the render that created it, never before.
     ;;
-    ;; install-router! installs the popstate handler AND does the initial
-    ;; URL→route sync (under the URL-owner frame), which fires the route's
-    ;; `:resources` ensures — server-state loads because the route became
-    ;; active, not because a view asked. The session token seeded above is
-    ;; already in app-db, so the bearer-auth interceptor decorates those reads.
+    ;; install-router! wires up the popstate handler and does the first URL→route
+    ;; sync (under the URL-owning frame). That sync fires the route's `:resources`
+    ;; ensures, which is the heart of the trick: server-state loads because the
+    ;; route became active, not because a view went looking for it. The session
+    ;; token seeded above is already in app-db, so the bearer-auth interceptor
+    ;; decorates those reads on the way out.
     (routing/install-router!)
-    ;; Focus/reconnect revalidation: refetch active-and-stale reads when the tab
-    ;; returns or the network reconnects (idempotent). The host signals are never
-    ;; dispatched by hand.
+    ;; Focus/reconnect revalidation: when the tab comes back or the network
+    ;; reconnects, refetch the reads that are both active and stale. Idempotent,
+    ;; and you never dispatch the host signals by hand.
     (rf/install-revalidation-listeners! app-frame)
-    ;; Conformance-contract surface — NOT a re-frame2 pattern; see
-    ;; install-conduit-debug! above. The external RealWorld suite may read it.
+    ;; The conformance surface — NOT a re-frame2 pattern; see install-conduit-debug!
+    ;; above. The external RealWorld suite may read it.
     (install-conduit-debug! app-frame)))

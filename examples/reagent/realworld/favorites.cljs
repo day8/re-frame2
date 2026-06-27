@@ -1,10 +1,13 @@
 (ns realworld.favorites
   "Favorite/unfavorite actions plus the authenticated user's feed.
 
-   The favorite toggle is shared across the home feed, profile lists, and
-   the article-detail page. The followed-authors feed is its own remote-data
-   slice so the home page can switch between feeds without throwing away
-   already-loaded global articles."
+   One favorite toggle, used in three places — the home feed, the profile
+   lists, and the article-detail page. The catch is that the same article can
+   be on screen in several of those at once, so a favorite has to be patched
+   everywhere it appears; the cross-slice helpers below are what make that
+   tidy. The followed-authors feed gets its own remote-data slice, so flipping
+   between feeds on the home page doesn't throw away global articles you've
+   already loaded."
   (:require [re-frame.core :as rf]
             [realworld.schema :as schema]
             [realworld.http :as rh]))
@@ -53,17 +56,13 @@
     {:db (assoc db :feed (request-slice))}))
 
 (rf/reg-event :feed/load
-  {:doc "Fetch the authenticated user's feed. Carries
-         `:request-id :feed/load` so :feed/cancel can abort an in-flight
-         load when the user navigates away.
-
-         Also broadcasts `:fetch-started` into the home machine so the
-         `:data` region advances to `:loading` (or `:refreshing` from
-         `:some`).
-
-         `?page=` (the home route's 1-indexed page) becomes the wire's
-         limit/offset window via `rh/paginate-path` — the same pagination
-         the global feed uses."
+  {:doc "Fetch the signed-in user's feed. Carries `:request-id :feed/load`, so
+         :feed/cancel can pull the plug if the user wanders off mid-load. Also
+         broadcasts `:fetch-started` into the home machine, nudging the `:data`
+         region to `:loading` (or `:refreshing`, if a list is already up). The
+         home route's 1-indexed `?page=` becomes the wire's limit/offset window
+         via `rh/paginate-path` — the very same pagination the global feed
+         uses."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
@@ -84,16 +83,17 @@
                           :on-failure [:feed/load-failed]})]]})))
 
 (rf/reg-event :feed/cancel
-  {:doc "Abort an in-flight :feed/load — e.g. when the user navigates away
-         mid-load. See the HTTP guide on aborts:
+  {:doc "Abort an in-flight :feed/load — say the user leaves before it lands.
+         No point delivering a reply to a screen that's gone. See the HTTP
+         guide on aborts:
          ../../../docs/resources/http.md#the-search-box-race-cured"}
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :feed/load]]}))
 
 (rf/reg-event :feed/loaded
-  {:doc "Successful user-feed fetch. Folds the new count into the home
-         machine via `:fetch-succeeded`; the `:data` region's
-         `:resolving` `:always`-cascade picks `:empty` or `:some`."
+  {:doc "The user-feed fetch came back happy. Folds the new count into the home
+         machine via `:fetch-succeeded`, and the `:data` region's `:resolving`
+         `:always` cascade takes it from there — `:empty` or `:some`."
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     (let [items (vec (:articles value))
@@ -107,8 +107,8 @@
                         [:fetch-succeeded {:items items}]]]]})))
 
 (rf/reg-event :feed/load-failed
-  {:doc "Failed user-feed fetch. Folds the failure into the home machine
-         via `:fetch-failed`; the `:data` region advances to `:error`."}
+  {:doc "The user-feed fetch didn't make it. Folds the failure into the home
+         machine via `:fetch-failed`, sending the `:data` region to `:error`."}
   (fn [{:keys [db]} [_ {:keys [failure]}]]
     (let [message (rh/failure->message failure)]
       {:db (-> db
@@ -121,39 +121,40 @@
 ;; FAVORITES
 ;; ============================================================================
 ;;
-;; Optimistic rollback shapes across the app. realworld has three
-;; optimistic-with-rollback flows, and they use three different rollback
-;; shapes on purpose — because the thing being rolled back differs:
+;; A short word on why the three optimistic-with-rollback flows in realworld
+;; don't share one rollback helper — because it looks like an obvious DRY
+;; opportunity, and it isn't. The reason is that each one is undoing a
+;; genuinely different shape of change:
 ;;
-;;   - favorite (here): snapshots {:favorited :favoritesCount} and patches
-;;     the article EVERYWHERE it appears (across the :articles / :feed /
-;;     :profile.* slices) via the shared `patch-article-everywhere` /
-;;     `update-article-in-list` helpers below — the cross-slice case.
-;;   - follow (profile.cljs): snapshots a single boolean — one field, one
-;;     slice — so a helper would be heavier than the `assoc-in` it replaces.
-;;   - comment-delete (comments.cljs): snapshots {:index :comment} and
-;;     re-inserts the removed comment at its original position — a positional
-;;     splice the map-and-swap helper here can't express (the entry is gone,
-;;     not present-to-map-over).
+;;   - favorite (here): snapshots {:favorited :favoritesCount} and patches the
+;;     article EVERYWHERE it appears (across the :articles / :feed / :profile.*
+;;     slices), using the shared `patch-article-everywhere` /
+;;     `update-article-in-list` helpers below. This is the cross-slice case.
+;;   - follow (profile.cljs): snapshots a single boolean — one field, one slice.
+;;     A helper here would be more ceremony than the `assoc-in` it'd replace.
+;;   - comment-delete (comments.cljs): snapshots {:index :comment} and slots the
+;;     removed comment back at its original position — a positional splice the
+;;     map-and-swap helper can't even express, because the entry is gone, not
+;;     sitting there waiting to be mapped over.
 ;;
-;; A single shared optimistic helper would have to abstract over "patch a
-;; field across N slices", "flip one boolean", and "re-insert at an index" —
-;; obscuring more than it saves. The shared surface that DOES pay off
-;; (cross-slice article patching) is already factored out below and reused
-;; by `:comment-form/submit-success`'s in-place swap. So: shared where it
-;; helps, distinct where the data shapes genuinely differ — not an oversight.
+;; One shared helper would have to paper over \"patch a field across N slices\",
+;; \"flip one boolean\", and \"re-insert at an index\" all at once — and an
+;; abstraction that vague hides more than it saves. The shared bit that DOES
+;; earn its keep (cross-slice article patching) is factored out below, and
+;; `:comment-form/submit-success` reuses it for its in-place swap. Shared where
+;; it helps, separate where the shapes truly differ — deliberate, not an
+;; oversight.
 
 (rf/reg-event :article/toggle-favorite
-  {:doc "Optimistically flip the favorited flag and bump the count, then
-         POST or DELETE the favorite. On failure the prior state is
-         restored (rollback).
+  {:doc "Flip the favorited flag and nudge the count immediately, then send the
+         POST or DELETE; if it fails, put the old values back (rollback).
 
-         Auth-gated: favoriting requires a session. An unauthenticated
-         click navigates to login instead of issuing a tokenless request
-         that the real Conduit backend would 401 — so there is no
-         optimistic flip-then-rollback flicker for a logged-out user. (The
-         demo stub 200s everything, which would mask the 401; gating here
-         keeps the example correct against the real backend it documents.)"
+         Auth-gated: favoriting needs a session, so a logged-out click goes to
+         login rather than firing a tokenless request the real Conduit backend
+         would 401 — which means no ugly flip-then-rollback flicker for a
+         signed-out user. (Why gate it when the demo stub 200s everything? That
+         friendly stub would happily mask the 401; gating here keeps the
+         example honest against the real backend it's documenting.)"
    :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} [_ slug]]
     (if (nil? (get-in db [:auth :user]))

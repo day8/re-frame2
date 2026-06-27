@@ -1,33 +1,39 @@
 (ns notebook.core
-  "Reagent design-led example — 'Notebook'. A three-pane editor:
+  "Notebook — a Reagent example that leans into design. Three panes:
 
-     [ documents tree ]  [ markdown editor ]  [ live preview ]
+     [ documents list ]  [ markdown editor ]  [ live preview ]
 
-   The point of the example: one app-db holds the state, events are the
-   only thing that change it, and the views are pure functions of
-   subscriptions. The same shape scales from a counter to this
-   multi-pane UI unchanged. Reading order, top to bottom:
+   The counter shows the dataflow loop with nothing in the way. This is
+   that same loop with more parts, and the lesson is that it doesn't
+   change shape: one app-db holds the state, events are the only thing
+   that change it, and the views are pure functions of subscriptions.
+   Counter to multi-pane editor, same idea throughout.
 
-     - selecting a document   dispatches  [:notebook/select id]
-     - editing the body       dispatches  [:notebook/edit-body text]
-     - the hiccup sub         derives     hiccup from the selected markdown
-     - the preview pane       subscribes  to that derivation
+   Trace one keystroke through it, top to bottom:
 
-   The idea worth noticing is the markdown preview. Rendering markdown is
-   a pure derivation (string -> hiccup) exposed as a subscription, so it
-   sits in the same subscription graph as everything else — not behind a
-   DOM escape hatch.
+     - picking a document   dispatches  [:notebook/select id]
+     - typing in the editor dispatches  [:notebook/edit-body text]
+     - the hiccup sub       derives     hiccup from the selected markdown
+     - the preview pane      subscribes  to that derivation, and re-renders
 
-   The markdown parser is a tiny pure-CLJS one (headings, bold, italic,
-   inline code, links, paragraphs, ordered + unordered lists). That keeps
-   the bundle small and the example free of an extra npm dependency.
+   The part worth slowing down for is the preview. Rendering markdown is
+   just a pure function, string -> hiccup, so we expose it as a
+   subscription and let it sit in the same graph as everything else. No
+   DOM escape hatch, no `dangerouslySetInnerHTML`, no special case — the
+   preview is a derived value like any other.
 
-   See docs/guide/glossary.md for the terms used below (event,
-   subscription, app-db, view); docs/guide/concepts/views.md covers
-   views and hiccup in depth."
-  ;; Substrate: stock Reagent (`reagent.dom.client` +
-  ;; `re-frame.adapter.reagent`). The adapter is the value that binds
-  ;; re-frame2 to the rendering library; see docs/guide/glossary.md#adapter.
+   The parser itself is a tiny hand-rolled one (headings, bold, italic,
+   inline code, links, paragraphs, ordered + unordered lists). It handles
+   exactly the seed content and not one feature more, which keeps the
+   bundle small and spares us an npm dependency for a demo.
+
+   New to the terms? docs/guide/glossary.md defines event, subscription,
+   app-db, and view; docs/guide/concepts/views.md covers views and hiccup
+   in depth."
+  ;; We render through stock Reagent (`reagent.dom.client`). The adapter
+  ;; is the value that teaches re-frame2 how to talk to a given rendering
+  ;; library — swap it and the same app runs on UIx or Helix. See
+  ;; docs/guide/glossary.md#adapter.
   (:require [reagent.dom.client :as rdc]
             [clojure.string     :as str]
             [re-frame.core      :as rf]
@@ -72,17 +78,19 @@
                         (if (= (:id d) id) (assoc d :body text) d))
                       docs))))}))
 
-;; A new document's id is derived from the documents already in app-db:
-;; scan the `doc-N` keyword ids and take max+1. Deriving the id from prior
-;; state keeps the handler replayable — replaying the event stream mints
-;; the same id. Reaching for `(rand-int)` would break that, since each
-;; replay would mint a different id. Seeded ids (`:welcome`, `:six-dominoes`,
-;; …) carry no `doc-` prefix, so the first minted id is `:doc-1`. See
+;; Where do new ids come from? Not a counter, not a random number — we
+;; read them out of the state we already have. Scan the existing `doc-N`
+;; ids, take the max, add one. The reason is replayability: an event
+;; should be a pure function of (db, event), so replaying the same event
+;; stream lands you in the same place every time. `(rand-int)` would
+;; quietly poison that — every replay would mint a different id. The
+;; seeded docs (`:welcome`, `:six-dominoes`, …) have no `doc-` prefix, so
+;; they're invisible to the scan and the first new id is `:doc-1`. See
 ;; docs/guide/concepts/events-and-the-cascade.md on replayable events.
 (defn- allocate-next-doc-id
-  "Deterministic next `:doc-N` id from the existing documents — max prior
-   N + 1 (1 when none yet). A pure function of prior app-db state, so it
-   replays identically."
+  "Next `:doc-N` id: highest existing N plus one (or 1 when there are
+   none). A pure function of the current documents, so it replays
+   identically — see the note above."
   [documents]
   (let [used-ns (->> documents
                      (keep (fn [{id :id}]
@@ -110,10 +118,12 @@
 (rf/reg-sub :notebook/selected-id
   (fn [db _] (:notebook/selected-id db)))
 
-;; A composed sub: `:<-` names this sub's inputs (other subs), so it
-;; recomputes only when the documents or the selected id actually change.
-;; The downstream subs (`-body`, `-hiccup`) chain off this one in turn.
-;; See docs/guide/concepts/subscriptions.md.
+;; Subs compose. The `:<-` lines wire this sub's inputs to other subs —
+;; here, the documents and the selected id — and the body below is a plain
+;; function of their values. The payoff is that it recomputes only when
+;; one of those inputs actually changes, and the subs downstream (`-body`,
+;; `-hiccup`) chain off this one in the same way. A little graph of pure
+;; derivations. See docs/guide/concepts/subscriptions.md.
 (rf/reg-sub :notebook/selected
   :<- [:notebook/documents]
   :<- [:notebook/selected-id]
@@ -128,49 +138,53 @@
 ;; MARKDOWN — tiny pure parser → hiccup
 ;; ============================================================================
 ;;
-;; The parser emits hiccup (vectors of keywords + child vectors) rather
-;; than raw HTML strings — Reagent renders hiccup natively without the
-;; `dangerouslySetInnerHTML` escape hatch, and the example stays free of
-;; an extra npm dependency.
+;; The trick here is the output: hiccup, not HTML strings. Reagent renders
+;; hiccup natively, so we never reach for `dangerouslySetInnerHTML` — the
+;; markdown becomes ordinary data flowing through the same pipeline as
+;; everything else. Bonus: no markdown library to pull in.
 
 (def ^:private safe-link-schemes
-  "Allowlist of URI schemes a markdown link may carry in the preview.
-   Anything else (notably `javascript:` and `data:`) is treated as
-   unsafe and rendered as inert text rather than a clickable anchor."
+  "The preview renders user-typed markdown, so a link is attacker-typed
+   input. We allowlist rather than blocklist: only these schemes get to
+   be clickable. Everything else — `javascript:`, `data:`, and friends —
+   is shown as plain text. Saying yes to a known-good set is far safer
+   than trying to enumerate every way a link can be hostile."
   #{"http" "https" "mailto"})
 
 (defn- safe-href
-  "Return `href` when it is safe to put on an `:a {:href ...}` in the
-   preview, else nil. Safe = an allowlisted absolute scheme, or a
-   scheme-less link (relative path or `#fragment`). Scheme detection
-   matches a leading `word:` prefix per RFC 3986 §3.1; a `:` that only
-   appears after a `/`, `?` or `#` is part of the path/query/fragment,
-   not a scheme, so such links are scheme-less and allowed."
+  "Decide whether `href` is safe to drop into `:a {:href ...}`; return it
+   if so, nil if not. Two things pass: an allowlisted absolute scheme, and
+   a scheme-less link (a relative path or `#fragment`, which can't run
+   code). The fiddly bit is telling a real scheme from a colon that just
+   happens to sit in a path. Per RFC 3986 §3.1 a scheme is a `word:`
+   prefix at the very start; a `:` that shows up only after a `/`, `?` or
+   `#` belongs to the path/query/fragment, so the link counts as
+   scheme-less and is allowed."
   [href]
   (let [h (str/trim (or href ""))
-        ;; A scheme is `ALPHA *( ALPHA / DIGIT / + / - / . ) :` at the
-        ;; very start. If the first `:` is preceded by a `/`, `?` or `#`
-        ;; it is not a scheme delimiter.
+        ;; Match a scheme — ALPHA then ALPHA/DIGIT/+/-/. — anchored to the
+        ;; start. Anchoring is the whole point: a `:` further in isn't a
+        ;; scheme delimiter and won't match here.
         m      (re-find #"(?i)^([a-z][a-z0-9+.-]*):" h)
         scheme (some-> m second str/lower-case)]
     (cond
       ;; No leading scheme → relative path or fragment → safe.
       (nil? scheme) href
-      ;; Allowlisted absolute scheme → safe.
+      ;; A scheme we trust → safe.
       (contains? safe-link-schemes scheme) href
-      ;; Anything else (javascript:, data:, vbscript:, …) → unsafe.
+      ;; Anything else (javascript:, data:, vbscript:, …) → not on our watch.
       :else nil)))
 
 (defn- split-by-regex
-  "Walk `coll` (a flat seq of strings + hiccup-vectors). For each
-   string element, find non-overlapping matches of `re`; each match
-   produces a hiccup element via `(mk match)`. Return a new flat seq
-   with strings split around matches and matches replaced. Non-string
-   elements (already-parsed hiccup) pass through untouched.
+  "The one moving part the inline parser is built on. Given a flat seq of
+   strings and already-built hiccup vectors, find every match of `re` in
+   the *strings* and replace each with `(mk match)`, leaving the text
+   around them intact. Hiccup vectors are already done, so they ride
+   through untouched — which is how we run several passes in a row without
+   one pass clobbering another's work.
 
-   Loops `re-find` one match at a time and pulls the before/after
-   substrings from the source manually (via `.indexOf` + `subs`),
-   recurring on the remaining tail."
+   It walks one `re-find` at a time, slices the before/after text out of
+   the source by hand (`.indexOf` + `subs`), and recurs on the tail."
   [coll re mk]
   (mapcat
     (fn [x]
@@ -191,22 +205,24 @@
     coll))
 
 (defn- inline-md->hiccup
-  "Parse one paragraph string into a hiccup seq with inline runs
-   (links, bold, italic, code) split out. Output is a flat seq the
-   caller splices into a parent block element. Rules run sequentially;
-   later passes only see plain-text fragments from earlier passes
-   (already-emitted hiccup vectors pass through untouched)."
+  "Turn one block of text into a flat seq of hiccup, pulling out the
+   inline runs — links, bold, italic, code — as it goes. The caller
+   splices the result into a parent element. The passes run one after
+   another, and each only ever sees the plain-text leftovers of the ones
+   before it (the hiccup they emitted just rides along), so a `**bold**`
+   pass can't accidentally chew on the innards of a link it shouldn't
+   touch. Simple rules, layered."
   [s]
   (-> [s]
       (split-by-regex #"\[([^\]]+)\]\(([^)]+)\)"
                       (fn [m]
                         (let [text (nth m 1)]
-                          ;; Sanitize the destination: only allowlisted
-                          ;; schemes (and scheme-less relative links)
-                          ;; become clickable anchors. Disallowed schemes
-                          ;; — `javascript:`, `data:`, … — render as inert
-                          ;; text so the preview never exposes an unsafe
-                          ;; clickable link on this user-controlled surface.
+                          ;; Run the destination past safe-href before
+                          ;; trusting it. A safe link becomes a real
+                          ;; anchor; anything dodgy degrades to plain text,
+                          ;; so a hostile `javascript:` URL in the markdown
+                          ;; renders harmlessly instead of becoming a
+                          ;; clickable trap.
                           (if-let [href (safe-href (nth m 2))]
                             [:a {:href   href
                                  :rel    "noopener noreferrer"
@@ -248,14 +264,17 @@
     (into [:p] (inline-md->hiccup block))))
 
 (defn markdown->hiccup
-  "Tiny pure-CLJS markdown parser: splits on blank lines, dispatches per
-   block-shape, runs inline rules. Sufficient for the example's seed
-   content. Returns a vector of block hiccup that the caller splices
-   into a parent container (Reagent renders this as a seq of children;
-   each block gets a content-derived :key so React preserves block
-   identity across edits that insert/remove/reorder blocks — an index
-   :key would re-key every block below an edit). Identical blocks are
-   disambiguated by their position so the keys stay unique."
+  "The whole parser, top level. Split the text on blank lines into blocks,
+   figure out each block's shape (heading? list? paragraph?), and run the
+   inline rules over it. Just enough markdown for the seed content.
+
+   Returns a vector of block hiccup for the caller to splice into a
+   container. The fiddly detail is the `:key` on each block. React renders
+   these as a list, and it uses keys to decide what moved versus what's
+   new. We key by content (its hash), not by index — index keys would
+   re-key every block below an edit and make React redraw the lot, when
+   all you did was add a sentence. Two identical blocks would collide, so
+   we mix in the position to keep keys unique."
   [s]
   (let [blocks (->> (str/split (or s "") #"\r?\n\r?\n")
                     (remove str/blank?))]
@@ -271,6 +290,13 @@
 ;; ============================================================================
 ;; VIEWS — shared 'Editorial Warm' palette
 ;; ============================================================================
+;;
+;; `reg-view` reads like a `defn`, and it is one — plus it registers the
+;; view and hands you `dispatch` and `subscribe` as ready-to-call locals.
+;; No `rf/` prefix, no frame to thread through; they find the frame in
+;; scope at render time on their own. Each view below just subscribes to
+;; what it needs and dispatches on interaction — pure functions of state,
+;; nothing reaching out to mutate. See docs/guide/concepts/views.md.
 
 (reg-view sidebar []
   (let [docs        @(subscribe [:notebook/documents])
@@ -327,26 +353,29 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; Lazy mount: defer `create-root` to `run` so loading the namespace has no
-;; DOM side effect. Many example namespaces share one DOM in the
-;; `:browser-test` bundle, so a `create-root` at ns-load would race roots
-;; onto the same container. See examples/TESTING.md (mount-isolation
-;; convention).
+;; Loading this namespace touches the DOM exactly never. We hold off on
+;; `create-root` until `run` is called. The reason is the test bundle:
+;; many example namespaces get loaded into one page there, and if each one
+;; grabbed a root the moment it loaded, they'd all fight over the same
+;; container. Defer the mount and they stay out of each other's way. See
+;; examples/TESTING.md (mount-isolation convention).
 
 (defonce react-root (atom nil))
 
-;; The frame is established in one spot: the `frame-provider {:id app-frame}`
-;; in the render call below. On first mount it creates the frame and runs
-;; `:initial-events` once to seed app-db before the first paint; on hot reload
-;; it reuses the same frame and skips the seed. Every in-tree
-;; `dispatch`/`subscribe` then resolves to that frame. `app-frame` is an
-;; ordinary frame id with no special privilege. See
+;; re-frame2 won't conjure a frame for you — an app stands up its own. We
+;; do it in exactly one place: the `frame-provider {:id app-frame}` in the
+;; render call below. First mount creates the frame and fires
+;; `:initial-events` once to seed app-db before anything paints; a hot
+;; reload finds the frame already there and skips the seed. From then on
+;; every `dispatch` and `subscribe` in the tree resolves to it. The name
+;; `:rf/default` is just an id — pick any keyword; it earns no special
+;; privileges for being the only one here. See
 ;; docs/guide/concepts/frames.md.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; `init!` installs the Reagent adapter. The frame itself is created by the
-  ;; `frame-provider` in the render call below.
+  ;; One job each: `init!` tells the runtime to render through Reagent. It
+  ;; does not make a frame — the `frame-provider` below does that.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
