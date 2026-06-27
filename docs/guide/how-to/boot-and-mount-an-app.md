@@ -1,16 +1,24 @@
 # Boot and mount an app
 
-You've written events, subscriptions, and views, and now you need the few lines that turn them into a running page — the entry point your build calls once at load. What you want is an app that mounts on first load, survives a hot reload with its [app-db](../glossary.md#app-db) intact, and re-renders your edited views without re-booting. This page is the recipe for exactly that: the canonical boot shape, split into the three small fns every example uses.
+An app entry point has two jobs:
 
-One term carries the page: a [**frame**](../glossary.md#frame) is one isolated, running instance of your app — its own [app-db](../glossary.md#app-db), event queue, and subscription cache. Booting an app is, in the end, *creating a frame and rendering a view into it*. The shape below does that in a way that's safe to run again — on a reload, on a co-required test host — without stacking duplicates or wiping state.
+- install the reactive adapter for the process;
+- render a view tree inside a frame.
 
-> **Installing the adapter does not create a frame.** `rf/init!` installs the [substrate adapter](../glossary.md#substrate) — the layer that drives your chosen React renderer (Reagent, UIx, Helix). It's a process-wide install, run once, and it makes *no* frame. The frame is created later, by the render root, on the first mount. Keep the two steps distinct in your head: **adapter is process-wide; frame is per-mount.**
+A [frame](../glossary.md#frame) is one isolated running instance of your app: its own
+[app-db](../glossary.md#app-db), event queue, runtime state, and subscription cache.
+`rf/init!` does not create a frame. It only installs the
+[adapter](../glossary.md#adapter) for your React substrate, such as Reagent, UIx,
+or Helix. The frame is created later by the rendered
+[frame-provider](../glossary.md#frame-provider).
 
-> **Coming from React?** This is your `createRoot(...).render(<App/>)` — except the render root carries the app's *state container* with it. In React you'd reach for a `<Provider>` (Redux) or a context to seed and hold state; here the [`frame-provider`](../glossary.md#frame) component *is* that provider, and it creates the frame, seeds it once, and reuses it across reloads. There's no separate store to wire.
+The goal is simple: first page load should create and seed the app; hot reload
+should re-render changed views without losing app-db.
 
-## 1. The shape: `boot!`, `mount!`, `run`
+## The Small Shape
 
-Three fns, called in order by one entry point. Here's the whole thing — the Reagent counter, the minimal worked version (UIx and Helix do the identical dance, only the `create-root`/`render` calls differ):
+For an app with no browser listeners, there is no need for a separate `boot!`
+function. Keep the process setup inline in `run`, and put DOM work in `mount!`.
 
 ```clojure
 (ns counter.core
@@ -21,56 +29,36 @@ Three fns, called in order by one entry point. Here's the whole thing — the Re
             [counter.subs]
             [counter.views :refer [counter-app]]))
 
-;; ns-load does NO DOM work. This atom holds the React root once mount! makes it.
+;; Namespace load does no DOM work. The root is created lazily by mount!.
 (defonce react-root (atom nil))
 
-(def app-frame :rf/default)            ; an id we pick; no framework privilege
+(def app-frame :rf/default)
 
-;; ^:dev/after-load: shadow re-runs this after every reload. The defonce root +
-;; lazy create-root mean the root is made once and reused across reloads.
 (defn ^:dev/after-load mount! []
-  (when (exists? js/document)
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                ;; frame-provider creates + seeds the frame on first mount,
-                ;; reuses it (no re-seed) on reload — so app-db survives.
                 [rf/frame-provider {:id             app-frame
                                     :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 
-(defn- boot! []                        ; install adapter + listeners, once
-  (rf/init! reagent-adapter/adapter))
-
-(defn run []                           ; shadow :init-fn — runs once, at page load
-  (boot!)
+(defn run []
+  (rf/init! reagent-adapter/adapter)
   (mount!))
 ```
 
-`run` is the entry point. Wire it as your build's `:init-fn` (e.g. `:init-fn counter.core/run` in `shadow-cljs.edn`); shadow resolves the symbol inside the compiled bundle, so it needs no `^:export`. The rest of the page is the *why* behind each of the four moves in that shape.
+Wire `run` as the build's `:init-fn`, for example
+`:init-fn counter.core/run` in `shadow-cljs.edn`.
 
-## 2. `boot!` — install the adapter, once
+`rf/init!` is process setup. `mount!` is browser setup. Keeping the DOM touch
+inside `mount!` lets the namespace load in tests or Node hosts where
+`js/document` is not present.
 
-`boot!` runs once, before the first render, and does the process-wide setup:
+## What the Provider Does
 
-```clojure
-(defn- boot! []
-  (rf/init! reagent-adapter/adapter))
-```
-
-That single `init!` installs the substrate adapter and nothing more. It does **not** create a frame — there's no app-db yet, no view mounted. If your app has host listeners to install (a `popstate`/`hashchange` listener, a `storage` listener), `boot!` is where they go, and you make them **idempotent** — remove-then-add the same Var — so a repeated `run` (a co-required test host calls it) or a reload that redefines the Var never stacks two listeners on the same event:
-
-```clojure
-(defn- boot! []
-  (rf/init! reagent-adapter/adapter)
-  (doto js/window
-    (.removeEventListener "hashchange" on-hashchange)   ; remove-then-add
-    (.addEventListener "hashchange" on-hashchange)))     ; → idempotent
-```
-
-## 3. `mount!` — create the frame with the `frame-provider` ensure form
-
-`mount!` renders, and the render root is a [`frame-provider`](../glossary.md#frame) — the component that *creates* the frame. The merged **ensure form** carries the id and the seed in one map:
+This form:
 
 ```clojure
 [rf/frame-provider {:id             app-frame
@@ -78,55 +66,161 @@ That single `init!` installs the substrate adapter and nothing more. It does **n
  [counter-app]]
 ```
 
-It does three things, in order, exactly once each over the life of the page:
+uses the **ensure** shape of `frame-provider`.
 
-- **Creates the frame on first mount.** The `:id` names it; the frame — its app-db, queue, sub cache — comes into being the first time this provider renders.
-- **Applies the config.** Any frame-level keys on the map (`:url-bound?`, `:drain-depth`, `:observability`, …) configure the new frame as it's created.
-- **Seeds once via `:initial-events`.** The vector of events runs, in order, against the fresh app-db — `[:counter/initialise]` here folds the starting state in. This is the *only* place the seed runs.
+On the first mount it:
 
-The payoff is the fourth, implicit thing: on a **remount** — which is what a hot reload triggers — the provider finds the frame already exists for that `:id`, **reuses it, and skips re-seeding**. So your app-db survives the reload untouched; the seed events don't fire a second time and clobber the state you were looking at. "Ensure" is the right verb: it ensures the frame exists and is seeded, whether that's the first render or the hundredth.
+- creates the frame named by `:id`;
+- applies the frame config;
+- runs the `:initial-events` once, in order, to seed app-db;
+- scopes descendant views, subscriptions, and dispatches to that frame.
 
-> **Why a vector of events, not a literal db value?** Seeding through `:initial-events` means the starting state is built the same way every other state change is — by dispatching events through the normal cascade — so it runs your real [handlers](../glossary.md#event-handler), [coeffects](../glossary.md#coeffect), and schema checks. The frame's first app-db is produced by the same machinery as its thousandth, with no special "initial value" back door.
+On a later remount under the same `:id`, such as a hot reload, it reuses the
+live frame. It does not replay `:initial-events`, and it does not destroy the
+frame on unmount. That is why app-db survives reload.
 
-## 4. The hot-reload pair: a `defonce` root and a `^:dev/after-load` remount
+If you edit the setup event itself and want the new setup to run, reset the
+frame or reload the page. Hot reload preserves state by design.
 
-Two annotations make the reload work, and they work together:
+## Hot Reload
+
+Two pieces make hot reload work:
 
 ```clojure
-(defonce react-root (atom nil))        ; the root, made once, kept across reloads
+(defonce react-root (atom nil))
 
-(defn ^:dev/after-load mount! []        ; shadow re-runs this after every reload
+(defn ^:dev/after-load mount! []
   ...)
 ```
 
-- **`defonce` React root.** The root is stored in a `defonce` atom, so it's created exactly once and the *same* root persists across every reload. React 18's `create-root` rejects a second call on a live DOM node — a `defonce` is what keeps you from making that second root and crashing the reload.
-- **`^:dev/after-load mount!`.** shadow-cljs re-runs every `^:dev/after-load` fn after it recompiles. So on each save, shadow re-runs `mount!`, which re-renders your *edited* views against the surviving root and the surviving frame. Boot is **not** re-run — `run` fired only at page load — so the adapter isn't reinstalled and the frame isn't recreated.
+`defonce` keeps the same React root across reloads. React should not get a
+second `create-root` call for a live DOM node.
 
-Put together: edit a view, save, and shadow re-renders the new view into the same root and the same frame, with app-db exactly as you left it. You see the visual change without losing the state you were debugging. That's the whole point of the pair — re-render without re-boot.
+`^:dev/after-load` tells shadow-cljs to call `mount!` after a successful
+reload. That re-renders the edited views into the same root and the same frame.
+It does not re-run `run`.
 
-## 5. Lazy root creation — no DOM side effect at ns-load
+## Host Listeners
 
-One placement detail makes the whole shape safe: the `create-root` call lives **inside `mount!`**, guarded by `when-not @react-root`, not at the top level of the namespace.
+Some apps also install browser listeners: `hashchange`, `popstate`, `storage`,
+or similar. Those listeners are process/browser wiring, not frame creation.
+
+When listener code can change during development, reinstall the listener from a
+hot-reload hook as well as from `run`. The browser removes listeners by exact
+function object identity, so keep the installed listener in a `defonce` cell and
+remove that stored value before adding the new one.
 
 ```clojure
-(defn ^:dev/after-load mount! []
-  (when (exists? js/document)
-    (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app")))) ; lazy
-    ...))
+(defonce hash-listener (atom nil))
+
+(defn- on-hashchange [_event]
+  (rf/dispatch [:rf.route/handle-url-change (current-path)]
+               {:frame app-frame}))
+
+(defn- install-host-listeners! []
+  (when-let [previous @hash-listener]
+    (.removeEventListener js/window "hashchange" previous))
+  (.addEventListener js/window "hashchange" on-hashchange)
+  (reset! hash-listener on-hashchange))
+
+(defn mount! []
+  ...)
+
+(defn ^:dev/after-load reload! []
+  (install-host-listeners!)
+  (mount!))
+
+(defn run []
+  (rf/init! reagent-adapter/adapter)
+  (install-host-listeners!)
+  (mount!))
 ```
 
-Loading the namespace therefore performs *no* DOM work — it only `def`s the empty atom and registers handlers, subs, and views. The root is created lazily, the first time `mount!` actually runs. This matters because the namespace gets loaded in places that have no DOM: a test wrapper that `:require`s your `core` ns to drive its events and subs headlessly on Node would crash on a top-level `create-root` (there's no `js/document`). Keeping the DOM touch inside `mount!`, behind the `(exists? js/document)` guard, lets the same namespace load cleanly in a browser and in a Node test. (The examples lean on exactly this — see [`examples/TESTING.md`](../../../examples/TESTING.md) for the test-host side of the contract.)
+The separate `install-host-listeners!` function earns its name because it runs in
+two situations: first page load and hot reload. A separate `boot!` wrapper is
+optional; use one only if it makes your app's entry point clearer.
 
-## The worked examples
+In this shape, put `^:dev/after-load` on `reload!`, not on `mount!`, so a reload
+reinstalls listeners and renders once.
 
-The shape above is the minimal version. Two real examples bracket the range:
+For history routing, prefer the routing helper where it fits. It already owns the
+same hot-reload-safe listener pattern.
 
-- [`examples/reagent/counter/core.cljs`](../../../examples/reagent/counter/core.cljs) — the minimal worked boot, essentially the snippet on this page.
-- [`examples/reagent/todomvc/core.cljs`](../../../examples/reagent/todomvc/core.cljs) — the fullest version: it adds an idempotent `hashchange` listener in `boot!` and marks the frame `:url-bound? true` in the `frame-provider` so it owns the address bar, seeding with two events (`[:todo/initialise]` then `[:rf.route/handle-url-change …]`).
+## Two Frame Shapes
 
-The UIx and Helix counters do the identical three-fn dance; only the substrate's `create-root`/`render` calls change.
+`frame-provider` has two useful shapes.
 
-> **From re-frame v1.** v1's `mount-root` did a `reagent/render` and you re-ran it from a `^:dev/after-load` hook by hand; the app's state lived in a single global `app-db` ratom that a reload left alone by luck of it being a `defonce`. The moves are the same — render once, re-render on reload — but the *state container* is now an explicit [frame](../glossary.md#frame) the `frame-provider` creates and owns, seeded declaratively through `:initial-events` rather than by a `dispatch-sync` you remembered to call before the first render. The reload-survives-state property is now a property of the frame, not an accident of a top-level ratom.
+Use `{:id ...}` when the rendered subtree should ensure its own frame exists:
 
-The frame lifecycle and the `frame-provider` contract in full are in [Frames](../concepts/frames.md) and [`spec/002-Frames.md`](../../../spec/002-Frames.md).
+```clojure
+[rf/frame-provider {:id             :counter/widget
+                    :initial-events [[:counter/initialise]]}
+ [counter-app]]
+```
+
+This creates the frame if absent, reuses it if present, and scopes descendants to
+it.
+
+Use `{:frame ...}` when the frame was already created somewhere else:
+
+```clojure
+(rf/reg-frame :checkout {:initial-events [[:checkout/initialise]]})
+
+[rf/frame-provider {:frame :checkout}
+ [checkout-app]]
+```
+
+This shape only scopes an existing frame into the React subtree. It creates
+nothing and destroys nothing. Use it when boot, tests, SSR/request setup, or a
+tooling harness needs to create the frame before rendering.
+
+## Lifecycle Summary
+
+| Moment | What should happen |
+| --- | --- |
+| First page load | `run` installs the adapter, installs any host listeners, and mounts the view. |
+| First mount of `{:id ...}` | The provider creates the frame and runs `:initial-events`. |
+| Hot reload | The reload hook re-renders into the same root and reuses the same frame. |
+| Host listener edit | Reinstall the stored listener so the browser calls the current code. |
+| Fresh setup wanted | Reset the frame or reload the page; remounting does not replay setup. |
+
+## No DOM Work at Namespace Load
+
+Keep `create-root`, `render`, and browser listener installation out of top-level
+namespace code.
+
+Top-level registration is fine:
+
+```clojure
+(rf/reg-event :counter/initialise ...)
+(rf/reg-sub :counter/value ...)
+```
+
+Top-level DOM work is not:
+
+```clojure
+;; Avoid this at namespace load.
+(defonce root (rdc/create-root (js/document.getElementById "app")))
+```
+
+The namespace may be loaded by a test host, a Story tool, or another namespace
+that wants the registrations without mounting the app. Lazy DOM work keeps that
+safe.
+
+## Worked Examples
+
+- [`examples/reagent/counter/core.cljs`](../../../examples/reagent/counter/core.cljs)
+  shows the smallest app shape.
+- [`examples/reagent/todomvc/core.cljs`](../../../examples/reagent/todomvc/core.cljs)
+  adds URL routing, a `hashchange` listener, and `:url-bound? true`.
+
+The UIx and Helix examples use the same lifecycle. Only the adapter, root
+creation, and render calls change.
+
+> **From re-frame v1.** The old `mount-root` pattern rendered again after a hot
+> reload while global app-db survived as a top-level value. In re-frame2, the
+> state container is explicit: a frame. The provider ensures or scopes that
+> frame, and `:initial-events` seed it through the normal event cascade.
+
+The full frame lifecycle is covered in [Frames](../concepts/frames.md) and
+[`spec/002-Frames.md`](../../../spec/002-Frames.md).
