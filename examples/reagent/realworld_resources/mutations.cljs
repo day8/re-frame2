@@ -1,43 +1,47 @@
 (ns realworld-resources.mutations
-  "The MUTATION registry — every RealWorld write as a named, causal write to
-   remote state that invalidates / patches / populates the cached resource reads
-   it affected. See ../../../docs/resources/glossary.md#mutation and
+  "The mutation registry — every write in the app, expressed as a named, causal
+   write to remote state that then invalidates / patches / populates whichever
+   cached reads it touched. See ../../../docs/resources/glossary.md#mutation and
    ../../../docs/resources/how-to/invalidate-after-a-mutation.md.
 
-   A resource is \"a sub you read and a cause you fire\"; a mutation is \"a cause
-   you fire and an instance you watch\". The read→write→invalidate→refetch loop,
+   A handy way to hold the two halves in your head: a resource is 'a sub you read
+   and a cause you fire'; a mutation is 'a cause you fire and an instance you
+   watch'. Put them together and you get the read→write→invalidate→refetch loop,
    end to end.
 
-   Each mutation:
-   - lowers its `:request` through the SAME managed-HTTP transport resources use
-     (the runtime owns reply addressing — the app `:request` MUST NOT supply
-     `:request-id` / `:on-success` / `:on-failure`);
-   - declares `:invalidates` — the resource `:tags` the write makes stale on
-     success (scoped, owner-aware: mounted-and-owned reads refetch, inactive ones
-     go stale). The detail page and any list refetch with NO further wiring;
-   - some also declare `:populates` — seeding the affected resource entry from
-     the write's own reply BEFORE the invalidation, so the change appears
-     immediately without waiting for the refetch round-trip.
+   Every mutation here does the same three-ish things:
+   - it lowers its `:request` through the same managed-HTTP transport the reads
+     use. The runtime owns reply addressing, so your `:request` must not supply
+     `:request-id` / `:on-success` / `:on-failure` — leave those to the framework;
+   - it declares `:invalidates` — the resource `:tags` this write makes stale on
+     success. It's scoped and owner-aware: mounted, owned reads refetch; inactive
+     ones simply go stale. The detail page and any affected list refetch with no
+     further wiring from you;
+   - some also declare `:populates` — seeding the affected entry straight from the
+     write's own reply, before the invalidation, so the change shows up
+     immediately instead of waiting on a refetch round-trip.
 
-   Runtime state is keyed by mutation INSTANCE id (not mutation id), so two
-   concurrent submissions never clobber each other. A view watches an instance
-   through the passive `[:rf.mutation/state {:instance …}]` sub
+   Runtime state is keyed by mutation INSTANCE id, not mutation id, so two
+   submissions in flight at once never step on each other. A view watches an
+   instance through the passive `[:rf.mutation/state {:instance …}]` sub
    (`{:pending? :success? :error? :settled? :result :error :optimistic?}`).
 
-   OPTIMISTIC ROLLBACK (../../../docs/resources/glossary.md#optimistic-update--rollback).
-   The favorite / unfavorite writes below declare `:optimistic-tags` — the heart
-   flips and the count moves on click, BEFORE the request is sent, across every
-   cached read showing that article (the detail, every list, the session feed) in
-   one tag-addressed apply. The runtime records the inverse itself, so the reply
-   settles deterministically: an `:ok` reply COMMITS (the `:populates` seed
-   overwrites the optimistic value with the server's), an `:error` reply ROLLS
-   BACK (the recorded `:before` is restored verbatim — the heart flips back).
-   `:on-conflict :invalidate` (the default) governs a contested rollback: if a
-   concurrent write moved the entry while ours was in flight, the stale inverse is
-   NOT restored — the read path refetches the authoritative value.
+   Optimistic rollback is the fun part
+   (../../../docs/resources/glossary.md#optimistic-update--rollback). The
+   favorite / unfavorite writes below declare `:optimistic-tags`: the heart flips
+   and the count moves the instant you click, before the request is even sent,
+   across every cached read showing that article (the detail, every list, the
+   session feed) in one tag-addressed apply. You only write the forward change —
+   the runtime records the inverse for you, so the reply settles by itself. An
+   `:ok` reply commits (the `:populates` seed overwrites your optimistic guess
+   with the server's truth); an `:error` reply rolls back (the recorded `:before`
+   is restored verbatim and the heart flips back, no apology needed).
+   `:on-conflict :invalidate` (the default) handles the awkward case: if a
+   competing write moved the entry while yours was in flight, the now-stale
+   inverse is NOT restored — the read path just refetches the authoritative value.
 
-   Writes do NOT retry by default; a mutation arms `:retry` only if its
-   `:request` declares it, and none here do."
+   And, as everywhere: writes don't retry by default. A mutation arms `:retry`
+   only if its `:request` asks for it, and none of these do."
   (:require [re-frame.core :as rf]
             [re-frame.http.managed]
             [re-frame.resources]
@@ -48,50 +52,51 @@
 ;; FAVORITE / UNFAVORITE  —  the optimistic write
 ;; ============================================================================
 ;;
-;; Favoriting is the canonical optimistic mutation: a tiny, reversible change (a
-;; boolean flip + a count of one) the user expects to land INSTANTLY. The same
-;; article appears in many cached reads at once — the detail, the home list, an
-;; author's articles, a profile's favorited tab, the session feed — and a
-;; favorite must flip in ALL of them the moment the heart is clicked, then settle
-;; to the server's authoritative value (and flip BACK everywhere if the write
-;; fails).
+;; Favoriting is the textbook optimistic mutation: a tiny, reversible change — a
+;; boolean flip and a count of one — that the user expects to land the instant
+;; they click. The catch is that the same article shows up in a lot of places at
+;; once: the detail page, the home list, an author's articles, a profile's
+;; favorited tab, the session feed. The heart has to flip in all of them
+;; immediately, then settle to whatever the server says — and flip back
+;; everywhere if the write fails. That's a lot to coordinate by hand. So we don't.
 ;;
-;; OPTIMISTIC-TAGS — the tag-addressed forward apply. The author cannot
-;; enumerate every cache key showing this article by hand (lists are paginated,
-;; scopes differ, entries come and go), so the optimistic apply is TAG-ADDRESSED:
-;; it patches every cached entry carrying `[:article slug]` — reusing the SAME
-;; tag index `:invalidates` matches against. One descriptor covers the global
-;; reads (detail + every list), a second covers the session feed via the same
-;; `{:from-db :realworld/session}` resolver the feed resource declares. The
-;; detail stores `{:article …}` and the lists store `{:articles […]}`, so the
-;; patch fn (`apply-fav` below) handles both envelope shapes. The session target
-;; is FAIL-CLOSED: logged out, the resolver returns nil and that target is
-;; silently dropped — an optimistic apply writes the cache, so it has a read's
-;; leak boundary, never an implicit global write.
+;; `:optimistic-tags` is the forward apply, addressed by tag. You can't realistically
+;; list every cache key showing this article — lists are paginated, scopes differ,
+;; entries come and go — so instead of naming keys, you name a tag: patch every
+;; cached entry carrying `[:article slug]`, reusing the very same tag index that
+;; `:invalidates` matches against. One descriptor covers the global reads (detail
+;; plus every list); a second covers the session feed, via the same
+;; `{:from-db :realworld/session}` resolver the feed resource itself uses. The
+;; detail stores `{:article …}` while the lists store `{:articles […]}`, so the
+;; patch fn (`apply-fav`, below) handles both envelope shapes. The session target
+;; is fail-closed: logged out, the resolver returns nil and that target quietly
+;; drops — an optimistic apply writes the cache, so it respects a read's leak
+;; boundary and never sneaks in an implicit global write.
 ;;
-;; THE INVERSE IS RUNTIME-RECORDED — the author writes only the FORWARD patch.
-;; The runtime snapshots each touched entry's `:before` and its `:revision` at
-;; apply time. The reply then settles deterministically:
-;;   - :ok    → COMMIT. `:populates` seeds the detail with the server's full
-;;              Article (the authoritative value overwrites the optimistic one),
-;;              then `:invalidates` refetches the lists / feed to truth.
-;;   - :error → ROLLBACK. The recorded `:before` is restored verbatim — every
-;;              heart flips back, every count returns. No manual undo, no app-db
-;;              bookkeeping.
-;;   - a competing write moved an entry while ours was in flight → `:on-conflict`
-;;              (default `:invalidate`) marks that entry stale and lets the read
-;;              path refetch, rather than restoring a now-stale inverse.
+;; You write only the forward patch; the runtime records the inverse. At apply
+;; time it snapshots each touched entry's `:before` and `:revision`, and from then
+;; on the reply settles itself:
+;;   - :ok    → commit. `:populates` seeds the detail with the server's full
+;;              Article (truth overwrites your optimistic guess), then
+;;              `:invalidates` refetches the lists / feed.
+;;   - :error → rollback. The recorded `:before` goes back verbatim — every heart
+;;              flips back, every count returns. No manual undo, no app-db
+;;              bookkeeping on your side.
+;;   - someone moved an entry while yours was in flight → `:on-conflict` (default
+;;              `:invalidate`) marks that entry stale and lets the read path
+;;              refetch, instead of restoring an inverse that's now out of date.
 ;;
-;; CROSS-SCOPE INVALIDATION IN ONE MUTATION. `:invalidates` is the success-time
-;; counterpart: a vector of PER-TARGET DESCRIPTORS, each naming its own scope.
-;; The global descriptor refetches the article + lists; the session descriptor
-;; refetches the feed via the same resolver. One mutation, two scopes — no
-;; app-level cross-scope patch, no home-page watcher.
+;; One mutation, two scopes. `:invalidates` is the success-time counterpart of the
+;; optimistic apply: a vector of per-target descriptors, each naming its own
+;; scope. The global descriptor refetches the article and lists; the session
+;; descriptor refetches the feed through the same resolver. No app-level
+;; cross-scope patching, no home-page watcher keeping things in sync.
 
 (defn- toggle-article-fav
-  "Toggle one Article map's `:favorited` flag and step `:favoritesCount` by
-   ±1. Pure; clamps the count at zero. Shared by the favorite + unfavorite
-   forward patches so the optimistic shape is declared once."
+  "Flip one Article's `:favorited` flag and nudge `:favoritesCount` by ±1. Pure,
+   and it clamps the count at zero so an over-eager unfavorite can't go negative.
+   Shared by the favorite and unfavorite forward patches, so the optimistic shape
+   is written down exactly once."
   [favorited? article]
   (when article
     (-> article
@@ -99,12 +104,13 @@
         (update :favoritesCount (fn [n] (max 0 (+ (or n 0) (if favorited? 1 -1))))))))
 
 (defn- apply-fav
-  "The FORWARD optimistic patch over ONE cached entry's `:data`, for any read
-   showing this article. Handles both stored shapes: the detail's `{:article
-   …}` envelope and a list's `{:articles […]}` envelope (it edits the matching
-   article in place by slug, leaving the rest untouched). `favorited?` is the
-   desired post-click state. The runtime records the inverse, so this fn never
-   has to describe how to undo itself."
+  "The forward optimistic patch over one cached entry's `:data`, for any read
+   showing this article. It copes with both stored shapes: the detail's
+   `{:article …}` envelope and a list's `{:articles […]}` envelope, editing the
+   matching article in place by slug and leaving everything else alone.
+   `favorited?` is the desired post-click state. Note there's no undo logic here —
+   the runtime records the inverse, so this fn never has to explain how to take
+   itself back."
   [favorited? slug data]
   (cond-> data
     (contains? data :article)
@@ -118,11 +124,11 @@
                     articles)))))
 
 (defn- optimistic-fav-tags
-  "The `:optimistic-tags` plan shared by favorite (`favorited? true`) and
-   unfavorite (`favorited? false`): patch every entry tagged `[:article slug]`
-   in the global scope (detail + lists) AND in the session scope (the feed),
-   the same two scopes `:invalidates` covers. The session target is fail-closed
-   — dropped when logged out."
+  "The `:optimistic-tags` plan, shared by favorite (`favorited? true`) and
+   unfavorite (`favorited? false`): patch every entry tagged `[:article slug]` in
+   the global scope (detail + lists) and in the session scope (the feed) — the
+   same two scopes `:invalidates` covers. The session target is fail-closed, so
+   it's simply dropped when logged out."
   [favorited? slug]
   [{:scope :rf.scope/global
     :tags  #{[:article slug]}
@@ -135,26 +141,25 @@
   {:doc             "Favorite an article (optimistic). POST /articles/:slug/favorite."
    :params-schema   [:map [:slug :string]]
    :scope           :rf.scope/global
-   ;; FORWARD: flip the heart on + bump the count across the detail, every list,
-   ;; and the session feed, immediately on click, before the request is sent.
+   ;; Forward: flip the heart on and bump the count across the detail, every list,
+   ;; and the session feed — immediately on click, before the request goes out.
    :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags true slug))
-   ;; COMMIT: the reply is the full updated Article; seed the detail with it so
-   ;; the authoritative value (the server's exact count) overwrites the
-   ;; optimistic guess. Same `{:article …}` envelope the resource stores, so the
-   ;; populated key reads identically to a fetched one — an authoritative load, so
-   ;; the populated detail key is exempt from this same mutation's `[:article
-   ;; slug]` refetch.
+   ;; Commit: the reply is the full updated Article, so seed the detail with it and
+   ;; let the server's exact count overwrite the optimistic guess. It's the same
+   ;; `{:article …}` envelope the resource stores, so the populated key reads just
+   ;; like a fetched one — and because it's authoritative, it's exempt from this
+   ;; same mutation's `[:article slug]` refetch.
    :populates       (fn [{:keys [slug]} result]
                       {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   ;; RECONCILE: refetch the lists (global) and the feed (session) to truth.
+   ;; Reconcile: refetch the lists (global) and the feed (session) to truth.
    :invalidates     (fn [{:keys [slug]} _result]
                       [{:scope :rf.scope/global
                         :tags  #{[:article slug] [:article-list]}}
                        {:scope {:from-db :realworld/session}
                         :tags  #{[:feed]}}])
-   ;; ROLLBACK conflict policy (the default, named here to show it): on a failure
-   ;; rollback where a competing write moved a touched entry, refetch it rather
-   ;; than restoring a stale inverse.
+   ;; The conflict policy. It's the default, spelled out here so it's visible: if a
+   ;; failure rollback finds that a competing write already moved a touched entry,
+   ;; refetch it rather than restoring an inverse that's now stale.
    :on-conflict     :invalidate}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
@@ -181,16 +186,17 @@
 ;; FOLLOW / UNFOLLOW
 ;; ============================================================================
 ;;
-;; Following changes a profile's `:following` flag, so it invalidates that
-;; profile read; the reply is a full Profile so `:populates` seeds the banner
-;; immediately.
+;; Following flips a profile's `:following` flag, so it invalidates that profile
+;; read. The reply comes back as a full Profile, so `:populates` can seed the
+;; banner right away rather than waiting for the refetch.
 
 (rf/reg-mutation :realworld/follow
   {:doc           "Follow a user. POST /profiles/:username/follow."
    :params-schema [:map [:username :string]]
    :scope         :rf.scope/global
-   ;; Seed the banner from the reply (the whole `{:profile …}` envelope, the
-   ;; `:realworld/profile` resource's stored shape) so it flips immediately.
+   ;; Seed the banner straight from the reply — the whole `{:profile …}` envelope,
+   ;; which is exactly the `:realworld/profile` resource's stored shape — so it
+   ;; flips immediately.
    :populates     (fn [{:keys [username]} result]
                     {{:resource :realworld/profile :params {:username username} :scope :rf.scope/global} result})
    :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
@@ -213,11 +219,12 @@
 ;; POST / DELETE COMMENT
 ;; ============================================================================
 ;;
-;; Posting or deleting a comment changes the article's comment collection, so
-;; both invalidate `[:comments slug]`. The mounted article page owns the
-;; comments read, so the list refetches automatically. (No `:populates` — the
+;; Posting or deleting a comment changes the article's comment collection, so both
+;; invalidate `[:comments slug]`. The mounted article page owns the comments read,
+;; so the list refetches on its own. No `:populates` here, on purpose: the
 ;; comments collection is a list the refetch re-reads authoritatively, and the
-;; post reply is a single Comment, not the whole list.)
+;; post reply is a single Comment, not the whole list — so seeding from it would
+;; only give a partial picture.
 
 (rf/reg-mutation :realworld/post-comment
   {:doc           "Post a comment. POST /articles/:slug/comments."
@@ -244,11 +251,12 @@
 ;; SETTINGS UPDATE
 ;; ============================================================================
 ;;
-;; Updating settings PUTs the User and returns the saved User. The example
-;; reads the saved user out of the mutation INSTANCE result (`:rf.mutation/
-;; result`) and pushes it into the auth slice; there is no profile resource
-;; keyed by the current user to populate, so `:invalidates` clears the public
-;; `[:profile username]` read so a later profile visit re-reads the new bio.
+;; Updating settings PUTs the User and gets the saved User back. The continuation
+;; reads that out of the mutation instance result (`:rf.mutation/result`) and
+;; pushes it into the auth slice. There's no profile resource keyed by the current
+;; user to populate, so instead `:invalidates` clears the public
+;; `[:profile username]` read — that way a later visit to your own profile
+;; re-reads the new bio.
 
 (rf/reg-mutation :realworld/update-settings
   {:doc           "Update the current user's settings. PUT /user."

@@ -1,17 +1,19 @@
 (ns todomvc.subs
-  "The derivation graph the views read.
+  "The derivation graph the views read from.
 
-  Demonstrates: `reg-sub` composed in layers. Some subs read app-db directly
-  (`:todo/sorted-todos`); others combine subs into a derivation graph
+  This is `reg-sub` composed in layers. The bottom layer reads app-db directly
+  (`:todo/sorted-todos`); the layers above stack on top of it
   (`:todo/visible-todos` filters the list against `:todo/showing`,
-  `:todo/footer-counts` folds the tallies). `:todo/showing` derives the active
-  filter from the route id — the filter that app-db deliberately never stores.
-  Pure functions all the way down, recomputed only when an input actually moves.
+  `:todo/footer-counts` adds up the tallies). `:todo/showing` is the neat one —
+  it derives the active filter from the route id, the very filter app-db makes a
+  point of never storing. It's pure functions all the way down, and each one
+  recomputes only when an input it actually depends on moves.
   See docs/guide/glossary.md (subscription)."
   (:require [re-frame.core :as rf]))
 
-;; :todo/showing derives the active filter from the route id. :rf.route/not-found
-;; and an unset route both fall through to :all so the UI defaults sensibly.
+;; :todo/showing turns the route id into the active filter. Both
+;; :rf.route/not-found and an unset route quietly fall through to :all, so the UI
+;; always has a sensible default to show.
 (rf/reg-sub :todo/showing
   :<- [:rf.route/id]
   (fn [route-id _]
@@ -57,9 +59,10 @@
 
 ;; ---- UI / form state projections (the `:ui` slice) ------------------------
 ;;
-;; Views read these instead of holding view-local atoms: `:value` reads a draft
-;; sub, and `:todo.ui/editing?` answers "is THIS row the one being edited?" so a
-;; row renders its controlled edit input only when it owns the editing id.
+;; These are what the views read instead of stashing state in view-local atoms.
+;; `:value` comes from a draft sub, and `:todo.ui/editing?` answers one small
+;; question per row — "am I the one being edited?" — so a row only bothers to
+;; render its controlled edit input when it actually owns the editing id.
 
 (rf/reg-sub :todo.ui/editing-id
   (fn [db _]
@@ -71,6 +74,6 @@
     (= editing-id id)))
 
 (rf/reg-sub :todo.ui/draft
-  {:doc "The live value of a controlled input. `which` is `:new` or `:edit`."}
+  {:doc "The live text inside a controlled input. `which` is `:new` or `:edit`."}
   (fn [db [_ which]]
     (get-in db [:ui :drafts which])))

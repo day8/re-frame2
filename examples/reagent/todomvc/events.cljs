@@ -1,32 +1,37 @@
 (ns todomvc.events
-  "The only writers of app-db, plus the routes and the persistence effect.
+  "The only place app-db ever gets written — plus the routes and the one effect
+  that touches the outside world.
 
-  Demonstrates: `reg-event` (one pure handler per state change — add, toggle,
-  save, delete, clear-completed, toggle-all; each `(coeffects, event-vector) →
-  effect map`), `reg-fx` (the `:todo.storage/save` effect handler that performs
-  the localStorage write the handlers only *describe* as data), and `reg-route`
-  (the URL as an input — `/`, `/active`, `/completed`, plus the not-found
-  fallback). See docs/guide/glossary.md (event)."
+  Three things to see here. `reg-event`: one pure handler per state change —
+  add, toggle, save, delete, clear-completed, toggle-all — each a plain
+  `(coeffects, event-vector) → effect map`. `reg-fx`: the `:todo.storage/save`
+  handler that actually performs the localStorage write the event handlers only
+  *describe* as data. And `reg-route`: the URL treated as an input — `/`,
+  `/active`, `/completed`, plus the not-found fallback.
+  See docs/guide/glossary.md (event)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; Requiring re-frame.routing registers the routing subscriptions and
-            ;; install hook. Without it the `rf/reg-route` calls below throw
-            ;; :rf.error/routing-artefact-missing.
+            ;; Pulling in re-frame.routing registers the routing subscriptions
+            ;; and install hook. Skip it and the `rf/reg-route` calls below throw
+            ;; :rf.error/routing-artefact-missing — a polite reminder you forgot
+            ;; to bring routing along.
             [re-frame.routing]
             [todomvc.db :as db]))
 
 ;; ---- routes ---------------------------------------------------------------
-;; Each route pairs an id with a path the router matches. TodoMVC's URLs are
-;; hash-based (#/, #/active, #/completed); the adapter in core.cljs strips the
-;; leading '#' so these path patterns match.
+;; A route is just an id paired with a path the router knows how to match.
+;; TodoMVC's URLs are hash-based (#/, #/active, #/completed); the adapter in
+;; core.cljs has already stripped the leading '#' by the time we get here, so
+;; these plain path patterns line up.
 ;; See docs/routing/concepts.md#move-2-navigation-is-an-event.
 
 (rf/reg-route :todo/all       {:doc "Show all todos."} "/")
 (rf/reg-route :todo/active    {:doc "Show active todos."} "/active")
 (rf/reg-route :todo/completed {:doc "Show completed todos."} "/completed")
 
-;; The not-found route is required. Unmatched URLs land here; this app treats
-;; them as "show all" so a stray hash never breaks the app.
+;; You must register a not-found route — it's not optional. Any URL that matches
+;; nothing else lands here, and this app just sends it to "show all", so a typo'd
+;; hash is a harmless shrug rather than a broken screen.
 ;; See docs/routing/concepts.md#not-found-is-a-route-you-register.
 (rf/reg-route :rf.route/not-found {:doc "Fallback."} "/_404")
 
@@ -38,7 +43,8 @@
    :fx [[:todo.storage/save (:todos next-db)]]})
 
 (rf/reg-fx :todo.storage/save
-  {:doc       "Persist the TodoMVC items to localStorage."
+  {:doc       "Write the TodoMVC items out to localStorage. This is the one spot
+               that actually touches storage; the handlers just ask for it."
    :platforms #{:client}}
   (fn fx-todo-storage-save [_ todos]
     (when-let [ls (.-localStorage js/globalThis)]
@@ -104,25 +110,29 @@
 
 ;; ---- UI / form state (the `:ui` slice) ------------------------------------
 ;;
-;; These events own the form/UI state. The inputs are CONTROLLED: a view's
-;; `:value` reads a draft sub and its `:on-change` dispatches
-;; `:todo.ui/edit-field` — it never sets view-local state. "Which row is being
-;; edited" is application state, so it lives at `[:ui :editing-id]`, toggled by
-;; `:todo.ui/start-edit` / `:todo.ui/stop-edit`.
+;; These events look after the form/UI state. The inputs are CONTROLLED: a
+;; view's `:value` reads a draft sub, and its `:on-change` dispatches
+;; `:todo.ui/edit-field`. The view never keeps a copy of the text itself.
+;; Likewise, "which row is being edited" is real application state, so it lives
+;; at `[:ui :editing-id]`, flipped on and off by `:todo.ui/start-edit` /
+;; `:todo.ui/stop-edit`.
 ;;
-;; Drafts and editing-id are pure UI. They are NOT persisted, so these handlers
-;; return a plain `{:db ...}` rather than going through `persist-db`. Only the
-;; todo facts themselves (`:todos`) are durable.
+;; Drafts and editing-id are pure UI froth — here one moment, gone the next — so
+;; we don't persist them. That's why these handlers return a plain `{:db ...}`
+;; and skip `persist-db` entirely. Only the todo facts (`:todos`) are worth
+;; saving to disk.
 
 (rf/reg-event :todo.ui/edit-field
-  {:doc "User typed into a controlled input. `which` is `:new` (header input)
-         or `:edit` (the edit-in-place input for the row in `:editing-id`)."}
+  {:doc "The user typed into a controlled input. `which` is `:new` (the header
+         input) or `:edit` (the edit-in-place input for the row in
+         `:editing-id`)."}
   (fn [{:keys [db]} [_ which value]]
     {:db (assoc-in db [:ui :drafts which] value)}))
 
 (rf/reg-event :todo.ui/start-edit
-  {:doc "Enter edit-in-place on a row: record which id is editing and seed the
-         edit draft from that todo's current title."}
+  {:doc "Drop a row into edit-in-place: remember which id is editing, and seed
+         the edit draft with that todo's current title so the box opens
+         pre-filled."}
   (fn [{:keys [db]} [_ id]]
     (let [title (get-in db [:todos id :title] "")]
       {:db (-> db
@@ -130,24 +140,26 @@
                (assoc-in [:ui :drafts :edit] title))})))
 
 (rf/reg-event :todo.ui/stop-edit
-  {:doc "Leave edit-in-place without saving (Escape, or after a save): clear
-         the editing id and the edit draft."}
+  {:doc "Back out of edit-in-place without saving (Escape, or just after a
+         save): forget the editing id and wipe the edit draft."}
   (fn [{:keys [db]} _]
     {:db (-> db
              (assoc-in [:ui :editing-id] nil)
              (assoc-in [:ui :drafts :edit] ""))}))
 
 (rf/reg-event :todo.ui/commit-new
-  {:doc "Save the header input: read the `:new` draft, add the todo (which
-         trims + ignores blanks), then clear the draft for the next entry."}
+  {:doc "Commit the header input: read the `:new` draft, add the todo (the add
+         handler does the trimming and blank-skipping), then clear the draft so
+         it's empty for the next one."}
   (fn [{:keys [db]} _]
     (let [title (get-in db [:ui :drafts :new])]
       {:db (assoc-in db [:ui :drafts :new] "")
        :fx [[:dispatch [:todo/add title]]]})))
 
 (rf/reg-event :todo.ui/commit-edit
-  {:doc "Save the edit-in-place input: read the `:edit` draft, save it onto the
-         editing row (a blank title deletes the todo), then leave edit mode."}
+  {:doc "Commit the edit-in-place input: read the `:edit` draft, save it onto
+         the row being edited (a blank title deletes the todo), then leave edit
+         mode."}
   (fn [{:keys [db]} _]
     (let [id    (get-in db [:ui :editing-id])
           title (get-in db [:ui :drafts :edit])]

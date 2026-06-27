@@ -1,71 +1,77 @@
 (ns boot.boot
-  "Boot the app with one state machine that owns the whole startup graph.
+  "One state machine that owns the whole startup graph.
 
-   See the machines guide for the model — `:spawn` / `:spawn-all`
-   (docs/machines/glossary.md#spawn), states and transitions
-   (docs/machines/glossary.md#state), and the machine snapshot
-   (docs/machines/glossary.md#snapshot).
+   Booting an app is a lifecycle: fetch some config, load the few things
+   the first screen needs, then hand over. That's exactly what a machine
+   is good at, so the whole sequence lives in one place — `:app/boot` —
+   instead of scattered across mount hooks and callback chains. New to
+   the model? The machines guide covers `:spawn` / `:spawn-all`
+   (docs/machines/glossary.md#spawn), states (docs/machines/glossary.md#state),
+   and the snapshot (docs/machines/glossary.md#snapshot).
 
-   The boot machine is `:app/boot`. It runs through four states:
+   Read the four states as a story:
 
-     :configuring   → fetch /config via a single `:spawn`d child loader.
-     :loading-deps  → fan out THREE parallel child loads (routes,
-                      feature flags, initial user) via `:spawn-all`.
-                      The parent advances only when every child is done.
-     :hydrating     → write the loaded payloads into top-level app-db
-                      slices (`:config`, `:flags`, `:user`, `:routes`),
-                      then self-transition to `:ready`.
+     :configuring   → fetch /config first, because everything else needs
+                      it. One `:spawn`d child loader does the GET.
+     :loading-deps  → the parallel step. Three loads (routes, feature
+                      flags, user) don't depend on each other, so
+                      `:spawn-all` runs them at once. The parent waits
+                      for every child to finish.
+     :hydrating     → the loads are done but parked in a staging area.
+                      Copy them into the real top-level app-db slices
+                      (`:config`, `:flags`, `:user`, `:routes`), then
+                      move to `:ready`.
      :ready         → terminal. The main view watches the boot state and
-                      unblocks once it reads `:ready`.
+                      unblocks the moment it reads `:ready`.
 
-   Any child failure transitions the machine to `:failed` (terminal),
-   with the failure recorded in `:data :error`.
+   If any child fails, the machine jumps to `:failed` (terminal) and
+   records the reason in `:data :error`.
 
-   The child loader is the reusable `:boot/loader` machine — one spec,
-   four instances. Each instance carries its own identity (parent-id,
-   child-id, staging-key, URL) in `:data`, planted by the parent's
-   per-child `:data` fn. A `:data` fn receives the parent's snapshot, so
-   a child's URL can depend on values the parent has already loaded.
+   The child loader is its own machine, `:boot/loader` — one spec, four
+   instances, told apart only by the `:data` each was spawned with
+   (parent-id, child-id, staging-key, URL). The parent plants that
+   identity through a per-child `:data` fn, and since a `:data` fn gets
+   handed the parent's snapshot, a child's URL can depend on something
+   the parent already loaded.
 
-   That is how config flows downstream. The `:configuring` config load
-   returns an `:api-base`; the `:promote-staged` action records it into
-   the boot machine's `:data`; the three `:loading-deps` children then
-   read that `:api-base` off the parent's snapshot and build their URLs
-   from it. The boot machine is the only place that reads host config —
-   everything downstream threads it through a snapshot `:data` fn,
-   never reaching into a host global from an action body.
+   That's how config flows downstream without a global. The `:configuring`
+   load returns an `:api-base`; `:promote-staged` records it into the
+   boot machine's own `:data`; the three `:loading-deps` children then
+   read it back off the parent's snapshot and build their URLs from it.
+   The boot machine is the only place that ever reads host config —
+   everything below gets it as plain data, never by reaching into a host
+   global from an action body.
 
    Each child fetches via managed HTTP
-   (docs/resources/glossary.md#managed-http). On success it writes its
-   payload into the boot machine's staging slot at
-   `[:boot/staging <staging-key>]`, then dispatches its completion
-   event back to the parent.
+   (docs/resources/glossary.md#managed-http), then hands its payload back
+   to the parent. How it hands it back depends on the spawn shape, and
+   this is the one genuinely subtle bit:
 
-   Why stage into app-db rather than carry payloads on the join event:
-   the runtime intercepts a `:spawn-all`'s `:on-child-done` /
-   `:on-child-error` events for join bookkeeping only — they are NOT
-   fed into the parent's `:on` lookup, and the synthesised
-   join-resolution event (`:on-all-complete [:boot/deps-ready]`)
-   carries no per-child payload. So each child writes its result into a
-   known app-db slice and the parent reads that slice once the join
-   resolves. The loaded data lives in app-db throughout — inspectable
-   in tools and snapshottable for SSR hydration.
+   - A `:spawn-all` child writes its payload into a staging slot at
+     `[:boot/staging <staging-key>]`, then signals done. The runtime
+     reads a `:spawn-all`'s `:on-child-done` / `:on-child-error` events
+     only to track the join — they never reach the parent's `:on` table,
+     and the join-resolution event carries no per-child data. So the
+     payload can't ride the event; it goes through the staging slot, and
+     the parent reads the whole slot once the join resolves.
+   - The single `:spawn` in `:configuring` is the exception: its
+     completion event *does* reach the parent's `:on` table (only join
+     events get intercepted). So the config child carries its payload on
+     the event, and `:promote-staged` reads it straight off.
 
-   The single `:spawn` in `:configuring` is different: its completion
-   event IS fed into the parent's `:on` lookup (only `:spawn-all` join
-   events are intercepted). So the config child carries its payload on
-   the completion event, and `:promote-staged` reads it from there.
+   Staging through app-db has a nice side benefit: the loaded data sits
+   in app-db the whole time — visible in the pair tools and snapshottable
+   for SSR hydration.
 
-   Start the boot once at app start via `[:app/boot [:rf.machine/start]]`.
+   Kick the boot once at startup with `[:app/boot [:rf.machine/start]]`.
    That creation marker runs the initial-entry cascade and seeds the
-   machine snapshot in runtime-db (docs/guide/glossary.md#runtime-db)."
+   snapshot in runtime-db (docs/guide/glossary.md#runtime-db)."
   (:require [re-frame.core :as rf]
-            ;; State machines ship in a separate artefact. The require
-            ;; registers `rf/reg-machine` and friends.
+            ;; State machines and managed HTTP each ship as their own
+            ;; artefact. These two requires register what the boot needs:
+            ;; `rf/reg-machine` and friends, and the managed-HTTP fx the
+            ;; child loaders fetch through.
             [re-frame.machines]
-            ;; Managed HTTP ships in a separate artefact. The require
-            ;; registers the fx; without it the child loaders can't
-            ;; issue requests.
             [re-frame.http.managed]
             [boot.schema :as schema]))
 
@@ -73,18 +79,16 @@
 ;; STAGING-SLOT WRITER
 ;; ============================================================================
 ;;
-;; A :spawn-all child hands its payload back to the parent through a staging
-;; slot in app-db, not on the completion event (the runtime intercepts
-;; :spawn-all join events and never feeds them into the parent's :on lookup —
-;; see the ns docstring). Each child writes into `[:boot/staging <staging-key>]`
-;; just before signalling completion; the parent reads the whole slot once on
-;; the :hydrating transition. The loaded data sits in app-db the whole time,
-;; inspectable in tools and snapshottable for SSR.
+;; The hand-off slot for :spawn-all children. Each one drops its payload into
+;; `[:boot/staging <staging-key>]` just before signalling done, and the parent
+;; scoops up the whole slot on the way into :hydrating. (Why a slot and not the
+;; event? The ns docstring has the long answer; the short one is that join
+;; events never reach the parent's :on table.)
 
 (rf/reg-event :boot/stage-payload
-  {:doc "Write a child-loaded payload into the boot machine's
-         staging slot. Dispatched by the :boot/loader child's
-         :dispatch-done action just before the completion event."}
+  {:doc "Stash one child-loaded payload in the boot machine's staging
+         slot. The :boot/loader child fires this from its :dispatch-done
+         action, right before the completion event."}
   (fn handler-boot-stage-payload [{:keys [db]} [_ staging-key payload]]
     {:db (assoc-in db [:boot/staging staging-key] payload)}))
 
@@ -92,20 +96,22 @@
 ;; CHILD LOADER MACHINE — :boot/loader
 ;; ============================================================================
 ;;
-;; The reusable child machine. One spec, four instances. Each instance
-;; carries its own `:data` map (`:parent-id`, `:child-id`, `:staging-key`,
-;; `:url`) planted by the parent's per-child `:data` fn. The child spawns in
-;; `:idle`; the runtime synthesises a `:rf.machine.spawn/spawned` event that
-;; moves it to `:loading`, which fires the `:begin-fetch` entry action.
+;; The reusable child: GET a URL, branch on the reply, report back. One spec,
+;; four instances — config, routes, flags, user — distinguished only by the
+;; `:data` (`:parent-id`, `:child-id`, `:staging-key`, `:url`) the parent
+;; plants at spawn. Each instance is born in `:idle`; the runtime drops a
+;; `:rf.machine.spawn/spawned` event into it, which moves it to `:loading` and
+;; fires the `:begin-fetch` entry action. Write the fetch logic once, run it
+;; four times.
 
 (rf/reg-machine :boot/loader
   {:initial :idle
-   ;; Validate each spawned loader's `:data` at spawn time. The loader is
-   ;; only ever spawned (one instance per asset, with a generated id like
-   ;; `:boot/loader#0`), so its snapshot sits at a per-instance path no
-   ;; fixed app-schema can reach. The machine `[:schemas :data]` slot
-   ;; checks `:data` instead. The per-child `:data` fn (see :app/boot below)
-   ;; replaces this base map with the planted identity at spawn.
+   ;; Validate each spawned loader's `:data` at spawn time. A loader is only
+   ;; ever spawned — one instance per asset, with a generated id like
+   ;; `:boot/loader#0` — so its snapshot lands at a per-instance path no fixed
+   ;; app-schema could ever name. The machine's own `[:schemas :data]` slot is
+   ;; the right surface: it checks `:data` directly. (The per-child `:data` fn
+   ;; in :app/boot below swaps this base map for the planted identity.)
    :schemas {:data schema/LoaderData}
    :data    {:parent-id   nil
              :child-id    nil
@@ -116,10 +122,10 @@
 
    :actions
    {:begin-fetch
-    ;; Issue the GET. The reply routes back to THIS child via
-    ;; :rf/self-id, which the spawn fx stamps into :data. The reply lands
-    ;; at the machine's `:asset/replied` event, so the machine branches on
-    ;; success vs failure before forwarding to the parent.
+    ;; Fire the GET. The reply is addressed back to THIS child via
+    ;; :rf/self-id (the spawn fx stamps it into :data), landing as the
+    ;; `:asset/replied` event — so the loader sorts success from failure
+    ;; itself before it ever bothers the parent.
     (fn [{data :data}]
       (let [self-id (:rf/self-id data)]
         {:fx [[:rf.http/managed
@@ -129,47 +135,47 @@
                 :on-failure [self-id [:asset/replied :failure]]}]]}))
 
     :dispatch-done
-    ;; Terminal-state entry. First write the loaded payload into
-    ;; [:boot/staging <staging-key>], then dispatch the completion event
-    ;; back to the parent. The completion event carries both the child-id
-    ;; and the payload:
-    ;;   - In :configuring (a single :spawn), this event lands in the
-    ;;     parent's :on lookup, where :promote-staged reads the payload
-    ;;     off the event to thread `:api-base` into the next phase.
-    ;;   - In :loading-deps (a :spawn-all), the runtime intercepts this
-    ;;     event for join bookkeeping only — it is NOT fed into the
-    ;;     parent's :on lookup. Those payloads reach the parent via the
-    ;;     staging slot read in :enter-hydrating. The event payload is
-    ;;     harmless there.
+    ;; Runs on entering :done. Two steps: stash the payload in the staging
+    ;; slot, then tell the parent we're finished. The done event carries
+    ;; the child-id and payload, but who actually reads that payload depends
+    ;; on the spawn shape:
+    ;;   - Under a single :spawn (config), the event reaches the parent's
+    ;;     :on table, and :promote-staged plucks the payload off it to
+    ;;     thread `:api-base` into the next phase.
+    ;;   - Under a :spawn-all (the deps), the runtime keeps this event for
+    ;;     join bookkeeping and never shows it to the parent's :on table.
+    ;;     Those payloads travel through the staging slot instead, read in
+    ;;     :enter-hydrating. Carrying it on the event too is harmless.
     (fn [{data :data}]
       {:fx [[:dispatch [:boot/stage-payload (:staging-key data) (:payload data)]]
             [:dispatch [(:parent-id data)
                         [:boot/asset-loaded (:child-id data) (:payload data)]]]]})
 
     :dispatch-error
-    ;; Terminal failure-state entry. Forwards the failure to the parent's
-    ;; :on-child-error slot; the parent's :on-any-failed routes it to
-    ;; `:failed`.
+    ;; Runs on entering :failed. Hands the failure up to the parent's
+    ;; :on-child-error slot, where :on-any-failed routes the whole boot to
+    ;; `:failed`. One bad child sinks the boot.
     (fn [{data :data}]
       {:fx [[:dispatch [(:parent-id data)
                         [:boot/asset-failed (:child-id data) (:error data)]]]]})}
 
    :states
-   {;; :idle is the :initial state. The spawn fx synthesises a
-    ;; [:rf.machine.spawn/spawned] event into the new child; :idle's
-    ;; transition picks it up and moves to :loading, which fires the
-    ;; :begin-fetch entry action.
+   {;; :idle is where every loader starts. The runtime drops a
+    ;; [:rf.machine.spawn/spawned] event into the fresh child; this
+    ;; transition catches it and moves to :loading, which kicks off the
+    ;; :begin-fetch entry action. Blink and you'll miss :idle.
     :idle
     {:on {:rf.machine.spawn/spawned :loading}}
 
     :loading
     {:entry :begin-fetch
      :on    {:asset/replied
-             ;; Guarded fork on the reply kind: the first branch whose
-             ;; `:guard` passes wins. The runtime appends the reply payload
-             ;; as the last element of the event vector, so the event arrives
-             ;; as [:asset/replied :success {:kind :success :value ...}]
-             ;; — pick the value out of the 3rd-position arg.
+             ;; A guarded fork on the reply kind — first branch whose
+             ;; `:guard` passes wins, success before failure. The runtime
+             ;; tacks the reply payload onto the end of the event vector,
+             ;; so it arrives as
+             ;; [:asset/replied :success {:kind :success :value ...}]
+             ;; and we read the value out of the 3rd slot.
              [{:guard (fn [{ev :event}] (= :success (nth ev 1 nil)))
                :target :done
                :action (fn [{data :data [_ _ reply] :event}]
@@ -187,10 +193,10 @@
 
 (rf/reg-machine :app/boot
   {:initial :configuring
-   ;; Validate the `:app/boot` snapshot's `:data` slot. `BootData`
-   ;; describes `:data` only. The snapshot lives in runtime-db, so its
-   ;; `[:schemas :data]` slot is the validation surface (not an
-   ;; app-schema), same as the `:boot/loader` child above.
+   ;; Validate the `:app/boot` snapshot's `:data`. Like the loader above,
+   ;; the snapshot lives in runtime-db, so the machine's own
+   ;; `[:schemas :data]` slot is the validation surface — an app-schema
+   ;; can't reach it. `BootData` describes `:data` only.
    :schemas {:data schema/BootData}
    :data    {:phase  :configuring
              :config nil
@@ -205,42 +211,40 @@
       {:data (assoc data :error failure)})
 
     :promote-staged
-    ;; Runs on the :configuring → :loading-deps transition. The config
-    ;; child carried its payload on the `:boot/asset-loaded` completion
-    ;; event (a single :spawn's completion event IS fed into the parent's
-    ;; :on lookup), so this action reads the config off the event and
-    ;; records it into the boot machine's :data. The next phase's `:data`
-    ;; fns then read the loaded `:api-base` and build each child's URL
-    ;; from it. The transition's `:action` runs before the child `:data`
-    ;; fns, so they see the value in the parent's snapshot.
+    ;; Runs on the :configuring → :loading-deps transition, and it's the
+    ;; hinge of the whole config-flows-downstream story. The config child's
+    ;; done event reached us (a single :spawn's event does land in the :on
+    ;; table), so we pull the config off it and stash it in the boot
+    ;; machine's own :data. A transition's `:action` runs before the next
+    ;; state's child `:data` fns, so by the time those three loaders ask for
+    ;; the `:api-base`, it's already sitting in the parent's snapshot.
     (fn [{data :data [_ _child-id config] :event}]
       {:data (assoc data :config config)})
 
     :enter-hydrating
-    ;; Read the staged payloads out of [:boot/staging ...] and write them
-    ;; into the top-level slices the running app's subs read. Self-
-    ;; transitions to `:ready` once the hydration write lands.
+    ;; Scoop the staged payloads out of [:boot/staging ...] and promote them
+    ;; into the top-level slices the live app's subs actually read. Then
+    ;; self-transition to `:ready` once the write lands.
     (fn [{data :data}]
       {:data (assoc data :phase :hydrating)
        :fx   [[:dispatch [:boot/apply-hydration]]]})}
 
    :states
    {;; ---- :configuring — the :initial state; a single :spawn fetches /config
-    ;; The boot machine is born directly into its first work state. The
-    ;; kick `[:app/boot [:rf.machine/start]]` is a creation marker: it runs
-    ;; the initial-entry cascade — here `:configuring`'s `:spawn` — and
-    ;; stops. It is never fed into an `:on` map as a trigger, so there is no
-    ;; `:idle` parking spot: the machine starts working the moment it is
-    ;; kicked.
+    ;; Unlike the loader, the boot machine is born straight into real work.
+    ;; The kick `[:app/boot [:rf.machine/start]]` is a creation marker: it
+    ;; runs the initial-entry cascade — here, :configuring's `:spawn` — and
+    ;; then it's spent. It never acts as an `:on` trigger, so there's no
+    ;; `:idle` waiting room; the machine is working the instant it's kicked.
     :configuring
     {:spawn {:machine-id :boot/loader
-              ;; `:data` admits a function form
-              ;; `(fn [{:keys [snapshot event]}] data)`, so the child's
-              ;; initial :data can depend on the parent's snapshot at the
-              ;; moment of entry. Plant the identity (parent / child /
-              ;; staging-key / URL) here. This first URL is the fixed config
-              ;; endpoint — the source the rest of the boot threads from —
-              ;; so it is a literal, not derived.
+              ;; `:data` accepts a function — `(fn [{:keys [snapshot event]}]
+              ;; data)` — so a child's starting :data can lean on the
+              ;; parent's snapshot at entry. Here we just plant the identity
+              ;; (parent / child / staging-key / URL). This first URL is the
+              ;; fixed config endpoint that the rest of the boot threads
+              ;; from, so it's a literal — there's nothing to derive it from
+              ;; yet.
               :data       (fn boot-config-data [_]
                             {:parent-id   :app/boot
                              :child-id    :config
@@ -255,17 +259,16 @@
     :loading-deps
     {:spawn-all
      {:children
-      ;; Each child is the same :boot/loader machine, distinguished only
-      ;; by its :data slot. Each :data fn reads the parent's `:api-base`
-      ;; (recorded by :promote-staged on the way into this state) and
-      ;; builds the child's URL from it.
+      ;; Three children, all the same :boot/loader, differing only in their
+      ;; :data. Each :data fn reads the `:api-base` that :promote-staged
+      ;; recorded on the way in and builds its child's URL from it.
       [{:id         :routes
         :machine-id :boot/loader
         :data       (fn boot-routes-data [{snap :snapshot}]
-                      ;; The :data fn receives `{:snapshot :event}`. The
-                      ;; snapshot is the parent's value, not app-db.
-                      ;; :promote-staged already ran, so the loaded
-                      ;; `:api-base` is visible here.
+                      ;; A :data fn is handed `{:snapshot :event}`. That
+                      ;; snapshot is the parent's value (not app-db), and
+                      ;; since :promote-staged already ran, the loaded
+                      ;; `:api-base` is right there for the taking.
                       {:parent-id   :app/boot
                        :child-id    :routes
                        :staging-key :routes
@@ -293,21 +296,22 @@
              :boot/deps-failed {:target :failed
                                 :action :record-failure}}}
 
-    ;; ---- :hydrating — applies the loaded payloads into app-db ----------
+    ;; ---- :hydrating — promotes the loaded payloads into app-db ---------
     :hydrating
     {:entry :enter-hydrating
      :on    {:boot/hydrated {:target :ready}}}
 
     ;; ---- :ready / :failed — terminal -------------------------------------
     :ready  {:meta {:terminal? true}}
-    :failed {;; :failed is re-entrant: dispatching `[:app/boot [:boot/restart]]`
-             ;; from the failure screen re-runs the boot from :configuring.
-             ;; Re-boot uses a real event, not the `:rf.machine/start`
-             ;; creation marker — the marker is never fed into an `:on` map,
-             ;; so once the machine exists it is inert. The terminal? meta
-             ;; stays true so visualisers and conformance harnesses see
-             ;; :failed as a terminal state; the re-entry transition is the
-             ;; explicit re-boot, not the default end of the flow.
+    :failed {;; Terminal, but not a dead end. The failure screen's retry
+             ;; button dispatches `[:app/boot [:boot/restart]]`, which runs
+             ;; the boot again from :configuring. Note it's a real event,
+             ;; *not* the `:rf.machine/start` creation marker — that marker
+             ;; only ever kicks a machine to life once, so on an existing
+             ;; machine it's inert; re-boot has to be an ordinary transition.
+             ;; We keep `terminal? true` so visualisers and conformance
+             ;; harnesses still read :failed as terminal; the retry is the
+             ;; explicit way out, not the flow's natural end.
              :meta {:terminal? true}
              :on   {:boot/restart {:target :configuring
                                    :action (fn [{data :data}]
@@ -317,27 +321,27 @@
 ;; HYDRATION PROMOTION
 ;; ============================================================================
 ;;
-;; A plain reg-event does the cross-slice writes the boot machine's
-;; :hydrating action dispatches. Keeping these reads and writes in an
-;; explicit handler (not in the machine's action body) makes the boot trace
-;; one step at a time: `:enter-hydrating` is one trace, this handler another.
+;; The :hydrating action could do these cross-slice writes itself, but it
+;; hands them to a plain reg-event instead — on purpose. Splitting them out
+;; keeps the boot trace readable one step at a time: `:enter-hydrating` is one
+;; entry in the trace, this handler the next, rather than a single opaque blob.
 
 (rf/reg-event :boot/apply-hydration
-  {:doc "Promote every staged child payload at [:boot/staging ...]
-         into the top-level app-db slices the running app reads. Fires
-         :boot/hydrated back at :app/boot to transition from :hydrating
-         to :ready."}
-  ;; The app slices land in app-db (`:db`); the boot machine's snapshot is
-  ;; runtime-db state, so the snapshot mirror below is a `:rf.db/runtime`
-  ;; effect (docs/guide/glossary.md#runtime-db).
+  {:doc "Promote every staged payload at [:boot/staging ...] into the
+         top-level app-db slices the running app reads, then fire
+         :boot/hydrated back at :app/boot so it can finish the trip from
+         :hydrating to :ready."}
+  ;; The app slices go to app-db (`:db`). The snapshot mirror below is a
+  ;; separate `:rf.db/runtime` effect, because a machine snapshot lives in
+  ;; runtime-db, not app-db (docs/guide/glossary.md#runtime-db).
   ;;
-  ;; ADVANCED — runtime-db writes are NOT an everyday-app pattern. This is the
-  ;; only handler in the examples tree that returns a `:rf.db/runtime` effect,
-  ;; deliberately: it teaches the hydration reference shape (mirroring loaded
-  ;; values into a machine snapshot so the snapshot is self-describing for
-  ;; SSR and tools). Ordinary app handlers write app-db via `:db` only and let
-  ;; the machine runtime own its snapshot; reach for `:rf.db/runtime` only
-  ;; when you are intentionally authoring boot/hydration glue.
+  ;; ADVANCED — and genuinely rare. This is the *only* handler in the whole
+  ;; examples tree that writes a `:rf.db/runtime` effect, and it's here to
+  ;; teach one specific shape: mirroring loaded values into a machine snapshot
+  ;; so the snapshot is self-describing for SSR and tools. Everyday handlers
+  ;; write app-db through `:db` and leave the machine runtime to mind its own
+  ;; snapshot. Reach for `:rf.db/runtime` only when you're deliberately writing
+  ;; boot/hydration glue like this.
   (fn handler-boot-apply-hydration [{:keys [db] rt :rf.db/runtime} _]
     (let [staging (:boot/staging db)]
       {:db (-> db
@@ -345,8 +349,8 @@
                (assoc :flags  (:flags staging))
                (assoc :user   (:user staging))
                (assoc :routes (:routes staging)))
-       ;; Mirror the loaded values into the boot machine's :data slice so the
-       ;; snapshot is self-describing for SSR and tools.
+       ;; Mirror the same values into the boot machine's :data so the snapshot
+       ;; stands on its own for SSR and tools.
        :rf.db/runtime (update-in (or rt {})
                                  [:rf.runtime/machines :snapshots :app/boot :data] assoc
                                  :config (:config staging)
@@ -360,12 +364,11 @@
 ;; ============================================================================
 
 (rf/reg-event :boot/initialise
-  {:doc "Top-level app boot. Fires the :app/boot machine's
-         `:rf.machine/start` creation marker to kick the boot off — the
-         machine is born directly into `:configuring` and runs its
-         `:spawn` entry cascade. The app seeds this event via the
-         frame-provider's `:initial-events` (see core.cljs), which runs
-         it once on first mount."}
+  {:doc "The one button that starts everything. It fires the :app/boot
+         machine's `:rf.machine/start` creation marker, which births the
+         machine into `:configuring` and runs its `:spawn` cascade. The
+         frame-provider seeds this via `:initial-events` (see core.cljs),
+         so it runs exactly once, on first mount."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 
@@ -373,8 +376,9 @@
 ;; SUBS — boot-state slots the views read
 ;; ============================================================================
 
-;; Machine snapshots are runtime-db state — read them through the
-;; framework `:rf/machine` sub (docs/machines/glossary.md#snapshot).
+;; A machine snapshot lives in runtime-db, so you reach it through the
+;; framework's `:rf/machine` sub (docs/machines/glossary.md#snapshot). The
+;; small subs below are just convenient slices off that one snapshot.
 (rf/reg-sub :app.boot/snapshot
   :<- [:rf/machine :app/boot]
   (fn [snapshot _] snapshot))

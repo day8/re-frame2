@@ -1,35 +1,35 @@
 (ns realworld-resources.settings
   "User-settings page for the RealWorld-on-resources example.
 
-   Settings update is a WRITE, so it is a MUTATION (`:realworld/update-settings`
-   in realworld-resources.mutations): the form fires `:rf.mutation/execute` and
-   watches the instance through `[:rf.mutation/state {:instance …}]` (`:pending?`
-   / `:success?` / `:error?`), with NO app-db submission-status slice to maintain.
-   On success the saved User comes back as the reply value; the continuation
-   pushes it into the auth slice and navigates to the profile, and the mutation's
-   `:invalidates` clears the public profile read so a later visit re-reads the new
-   bio.
+   Updating settings is a write, so it's a mutation (`:realworld/update-settings`
+   over in realworld-resources.mutations). The form fires `:rf.mutation/execute`
+   and watches the instance through `[:rf.mutation/state {:instance …}]`
+   (`:pending?` / `:success?` / `:error?`), with no app-db submission-status slice
+   to keep in sync. On success the saved User comes back as the reply value; the
+   continuation pushes it into the auth slice and navigates to the profile, and
+   the mutation's `:invalidates` clears the public profile read so a later visit
+   re-reads the new bio.
 
-   What stays in app-db is only the editable DRAFT (the live field values) — the
+   The only thing app-db holds is the editable draft — the live field values. The
    lifecycle (`:idle` / `:pending` / `:success` / `:error`) is the mutation
-   instance, not a `:status` field.
+   instance, not a `:status` field you maintain.
 
-   SUCCESS CONTINUATION — a call-site `:reply-to`. The submit passes
-   `:reply-to [:settings/replied]` to `:rf.mutation/execute`; when the runtime
-   ACCEPTS the reply as current (frame + instance + work-id + generation matched),
-   it dispatches `[:settings/replied reply]` exactly once, with the canonical
-   reply map appended — AFTER cache consequences and instance settlement have
-   applied. The continuation reads `(:status reply)` to fold the saved User on
-   `:ok` and surface the error on `:error`. A stale / superseded reply never fires
-   it.
+   The success continuation is a call-site `:reply-to`, and it's worth a beat. The
+   submit passes `:reply-to [:settings/replied]` to `:rf.mutation/execute`; when
+   the runtime accepts the reply as current — frame, instance, work-id, and
+   generation all matched — it dispatches `[:settings/replied reply]` exactly
+   once, with the canonical reply map appended, AFTER the cache consequences and
+   instance settlement have landed. The continuation reads `(:status reply)` to
+   fold in the saved User on `:ok` and surface the error on `:error`. A stale or
+   superseded reply never fires it.
 
-   `:reply-to` is the mutation's reply-side continuation — a CAUSAL EVENT TARGET
-   (an ordinary event through the tape / interceptors / replay), not a callback.
-   It keeps the view a plain Form-1: a pure function of subs that never dispatches
-   out of band. The alternative — an off-render Form-3 `reagent.ratom/run!`
-   reaction watching `[:rf.mutation/state …]` for settlement — pulls a
-   side-effecting reaction into the view; `:reply-to` gives the same settle hook
-   as a declarative, replayable event target. See the reply map:
+   The why behind `:reply-to`: it's a causal event target — an ordinary event,
+   flowing through the tape / interceptors / replay — not a callback. That's what
+   lets the view stay a plain Form-1, a pure function of subs that never dispatches
+   out of band. The alternative would be an off-render Form-3 `reagent.ratom/run!`
+   reaction watching `[:rf.mutation/state …]` for settlement, which drags a
+   side-effecting reaction into the view. `:reply-to` gives you the same settle
+   hook as a declarative, replayable event instead. See the reply map:
    ../../../docs/resources/glossary.md#reply-map."
   (:require [re-frame.core :as rf]
             [re-frame.resources]
@@ -37,8 +37,8 @@
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (def settings-instance
-  "A single, stable instance id for the settings submission — the form watches
-   exactly this instance."
+  "One stable instance id for the settings submission — the form watches exactly
+   this instance, nothing else."
   :settings/save)
 
 (defn- draft-from-user [user]
@@ -53,11 +53,12 @@
 ;; ============================================================================
 
 (rf/reg-event :settings/load
-  {:doc "Seed the settings draft from the authenticated user. Dispatched ONCE on
-         route entry via the settings route's `:on-match` (the page is
-         auth-guarded, so a user is always present here). Seeding on route entry
-         — not from the view's render — is what keeps the form a pure Form-1: a
-         re-render never re-runs the load, so in-progress field edits survive."}
+  {:doc "Seed the settings draft from the authenticated user. Dispatched once, on
+         route entry, via the settings route's `:on-match` — the page is
+         auth-guarded, so there's always a user here. Doing the seed on route
+         entry rather than in the view's render is exactly what keeps the form a
+         pure Form-1: a re-render never re-runs the load, so edits you've got in
+         flight survive."}
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:settings-form :draft] (draft-from-user (get-in db [:auth :user])))}))
 
@@ -70,9 +71,9 @@
 
 (rf/reg-event :settings/submit
   {:doc "Fire the update-settings mutation with the current draft. The form
-         watches the `:settings/save` instance for pending / error; the success
-         continuation is the call-site `:reply-to [:settings/replied]` target,
-         dispatched once when the reply is accepted."}
+         watches the `:settings/save` instance for pending / error, and the
+         success continuation is the call-site `:reply-to [:settings/replied]`
+         target, dispatched once when the reply is accepted."}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:settings-form :draft])]
       {:fx [[:dispatch [:rf.mutation/execute
@@ -83,14 +84,14 @@
                          :cause    [:submit :settings/save]}]]]})))
 
 (rf/reg-event :settings/replied
-  {:doc "The update-settings mutation completion continuation (the `:reply-to`
-         target). Receives the canonical reply map appended as the final arg —
-         observed AFTER the mutation's `:invalidates` cleared the public profile
-         read and the instance settled. On `:ok` push the saved User (the reply
-         `:value`) into the auth slice, clear the instance, and navigate to the
-         user's profile. On `:error` the form already shows the error off the
-         instance state — nothing more to do here. Clearing the instance also
-         makes the dispatch idempotent."}
+  {:doc "The update-settings completion continuation (the `:reply-to` target). It
+         receives the canonical reply map as its final arg, observed AFTER the
+         mutation's `:invalidates` cleared the public profile read and the instance
+         settled. On `:ok`, push the saved User (the reply `:value`) into the auth
+         slice, clear the instance, and navigate to the user's profile. On
+         `:error` there's nothing to do here — the form already shows it off the
+         instance state. Clearing the instance also keeps the dispatch
+         idempotent."}
   (fn [_ [_ {:keys [status value]}]]
     (if (= :ok status)
       (let [user (:user value)]
@@ -105,13 +106,13 @@
 ;; VIEW  (pure Form-1 render — never dispatches out of band)
 ;; ============================================================================
 ;;
-;; The render is a normal registered `reg-view` (Form-1): a pure function of subs
-;; that NEVER dispatches. The success continuation is the mutation's `:reply-to`
-;; target, not an off-render reaction — so the view holds no lifecycle hooks at
-;; all.
+;; The render is an ordinary registered `reg-view` (Form-1): a pure function of
+;; subs that never dispatches. Because the success continuation is the mutation's
+;; `:reply-to` target rather than an off-render reaction, the view ends up with no
+;; lifecycle hooks at all — which is rather the point.
 
 (reg-view ^{:doc "The settings form — a pure function of subs. Submit fires the
-                   update-settings mutation; the success continuation is the
+                   update-settings mutation, and the success continuation is the
                    mutation's `:reply-to` target, so this view never dispatches
                    out of band."}
           settings-page []

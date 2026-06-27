@@ -1,67 +1,67 @@
 (ns login.stories-host
-  "Showcase entry point for the login example — the host that wires the
-   live app, the Story shell, and Xray into one page.
+  "The showcase's front door — one page that wires together three things:
+   the live login app, the Story shell, and Xray.
 
-   URL-hash-routed between two surfaces:
+   It's hash-routed between two surfaces, so a single build serves both:
 
    - `#/`        → the live login app (the example's `root-view`).
-   - `#/stories` → the Story shell mounted via
-                   `re-frame.story/mount-shell!`. The reachable
-                   form-state variants + two workspaces show up in the
-                   sidebar; each variant renders in its own isolated
-                   frame.
+   - `#/stories` → the Story shell, mounted via
+                   `re-frame.story/mount-shell!`. The form-state variants
+                   and the two workspaces line the sidebar, and each
+                   variant renders in its own isolated frame.
 
    ## Xray
 
-   The build wires Xray via shadow-cljs's `:devtools {:preloads
-   [day8.re-frame2-xray.preload]}` (see the `:examples/login-with-
-   stories` build in `implementation/shadow-cljs.edn`). Loading the
-   preload attaches the Ctrl+Shift+C keybinding and the trace / epoch
-   collectors. We DISABLE auto-open here (`:rf.xray/auto-open? false`)
-   so the page lands on the live app or the Story shell first; the
-   reader presses Ctrl+Shift+C to open Xray over either surface and
-   drive a submit to watch the `:auth.login/submit` →
-   `:rf.http/managed` → reply cascade light up the Epoch / Trace / Side
-   Effects panels (and the schema-rejection / failure paths light the
-   Issues ribbon).
+   Xray rides in on a shadow-cljs preload (`:devtools {:preloads
+   [day8.re-frame2-xray.preload]}` — see the `:examples/login-with-stories`
+   build in `implementation/shadow-cljs.edn`). The preload quietly bolts on
+   the Ctrl+Shift+C keybinding and the trace / epoch collectors. We turn
+   *off* auto-open here (`:rf.xray/auto-open? false`) on purpose: the page
+   should greet you with the actual app or the shell, not a debugger. When
+   you're curious, Ctrl+Shift+C opens Xray over whichever surface you're on,
+   and a submit lets you watch the `:auth.login/submit` → `:rf.http/managed`
+   → reply cascade roll across the Epoch / Trace / Side Effects panels — or,
+   on the bad-input and failure paths, light up the Issues ribbon.
 
-   ## One adapter
+   ## One adapter for everything
 
-   The host installs the FULL Reagent adapter (`re-frame.adapter.
-   reagent`) — the substrate the Story shell itself renders on. The
-   example's own `core.cljs` already runs on stock Reagent (it is the
-   cross-substrate reference base), so the live app + shell + variant
-   canvases all render on one adapter. `login.core/root-view` is a
-   substrate-agnostic `reg-view`.
+   The host installs the full Reagent adapter (`re-frame.adapter.reagent`) —
+   the substrate the Story shell itself is built on. Happily, the example's
+   `core.cljs` already runs on stock Reagent (it's the cross-substrate
+   reference base), so the live app, the shell, and every variant canvas all
+   share one adapter. `login.core/root-view` is a substrate-agnostic
+   `reg-view`, so it doesn't mind which one.
 
-   ## Elision
+   ## Elision — none of this reaches production
 
-   Compiled under `:advanced` with `:closure-defines
-   {re-frame.story.config/enabled? false}`, every `reg-*` in
-   `login.stories` elides to nil and `mount-shell!` short-circuits —
-   the Story body carries no code into a production bundle. The
-   bundle-isolation gate verifies the Story / Xray sentinel sets stay
-   out of the plain `:examples/login` build."
+   Compile under `:advanced` with `:closure-defines
+   {re-frame.story.config/enabled? false}` and the whole Story layer simply
+   evaporates: every `reg-*` in `login.stories` compiles to nil and
+   `mount-shell!` short-circuits, so not a byte of showcase code rides into a
+   production bundle. That's not a promise on trust, either — the
+   bundle-isolation gate fails the build if any Story or Xray sentinel sneaks
+   into the plain `:examples/login` output."
   (:require [re-frame.core  :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-xray.config :as xray-config]
-            ;; Source the example's registrations (machine / schemas /
-            ;; demo fx / subs / views) and the Story artefacts. Requiring
-            ;; `login.stories` transitively requires `login.core`.
+            ;; Pull in the example's registrations (machine / schemas / demo
+            ;; fx / subs / views) and its Story artefacts. We get `login.core`
+            ;; for free — `login.stories` already requires it.
             [login.core :as core]
             [login.stories]
-            ;; Shared Story-host helper: owns the
-            ;; live-app↔Story-shell hash router + React-root handle.
+            ;; The shared Story-host helper, which owns the fiddly bits: the
+            ;; live-app↔Story-shell hash router and the React-root handle.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- The live-app frame ----------------------------------------------------
 ;;
-;; The live `#/` surface needs the example's demo HTTP override on its
-;; frame so `:rf.http/managed` routes to the in-process
-;; `:auth.login.demo/managed-stub` (no backend). The host owns the full
-;; boot, so it registers the override here rather than calling
-;; `login.core/run` (which runs its own mount lifecycle).
+;; The live `#/` surface needs the same demo-HTTP override the standalone
+;; example uses, so `:rf.http/managed` lands on the in-process
+;; `:auth.login.demo/managed-stub` and not on a backend that isn't there.
+;; Since the host is running its own boot from top to bottom, it sets the
+;; override up itself here rather than calling `login.core/run` (which would
+;; insist on running its own mount lifecycle).
 
 (defn- install-live-frame! []
   (rf/reg-frame :rf/default
@@ -79,37 +79,38 @@
     " on either surface to open Xray and inspect the auth-submit cascade."]
    [core/root-view]])
 
-;; The runtime never invents a frame, so the live-app `#/` surface must
-;; render under an explicit frame scope (docs/guide/concepts/frames.md).
-;; The Story shell side (`#/stories`) allocates its own per-variant
-;; frames; this wrapper scopes only the live-app surface to the
-;; showcase's `:rf/default` frame so `login-app`'s injected
-;; dispatch/subscribe (and `core/root-view`'s subs) resolve.
+;; re-frame2 never conjures a frame for you, so the live `#/` surface has to
+;; be wrapped in one explicitly (docs/guide/concepts/frames.md). The Story
+;; side (`#/stories`) hands out its own per-variant frames and needs no help;
+;; this little wrapper exists only to scope the live surface to the
+;; showcase's `:rf/default` frame, so `login-app`'s injected
+;; dispatch/subscribe (and `core/root-view`'s subs) have a frame to bind to.
 (defn live-app-root []
   [rf/frame-provider {:frame :rf/default} [login-app]])
 
 ;; -- Routing between the live app and the Story shell ----------------------
 ;;
-;; The live-app↔Story-shell hash router and React-root host handle live in
-;; the shared `re-frame.testbed.story-host` helper; `run` hands it
-;; `login-app` as the live-app surface.
+;; We don't hand-roll the router. The live-app↔Story-shell hash routing and
+;; the React-root handle both live in the shared
+;; `re-frame.testbed.story-host` helper; `run` just hands it `login-app` as
+;; the live surface and lets it do the wiring.
 
 (defn ^:export run []
-  ;; Keep Xray's collectors + keybinding installed but do not auto-open
-  ;; the panel — the page lands on the live app / shell first; the
-  ;; reader opens Xray with Ctrl+Shift+C.
+  ;; Leave Xray's collectors and keybinding in place, but don't fling the
+  ;; panel open — the page should land on the app or the shell first, and the
+  ;; reader pops Xray with Ctrl+Shift+C when they want it.
   (xray-config/configure! {:rf.xray/auto-open? false})
   (rf/init! reagent-adapter/adapter)
-  ;; No explicit `(story/install-canonical-vocabulary!)` — the first
-  ;; `reg-*` in `login.stories` (loaded via the require above)
-  ;; auto-installs the canonical Story vocabulary.
+  ;; No `(story/install-canonical-vocabulary!)` call needed: the first
+  ;; `reg-*` over in `login.stories` (loaded via the require above) installs
+  ;; the canonical Story vocabulary for us.
   (install-live-frame!)
-  ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
-  ;; `#/stories` lands on the shell without a manual click-through. The
-  ;; `:source-subdir` opt tells the host this showcase's Story source lives
-  ;; under `examples/reagent`, so the host can resolve the on-disk project
-  ;; root and wire it into Story and Xray. Without it the Story 'open in
-  ;; editor' chips would resolve `login/stories.cljs` against a nil root.
-  ;; The live-app root is frame-scoped via `live-app-root` so the bare `#/`
-  ;; surface mounts under the app frame.
+  ;; Hand off to the shared router so that reloading on `#/stories` lands you
+  ;; back on the shell instead of bouncing to the app. The `:source-subdir`
+  ;; opt is the one thing the helper can't guess: it says this showcase's
+  ;; Story source lives under `examples/reagent`, which lets the host find the
+  ;; on-disk project root and pass it to Story and Xray. Leave it out and the
+  ;; 'open in editor' chips try to resolve `login/stories.cljs` against a nil
+  ;; root — and miss. We pass `live-app-root` (not the bare `login-app`) so
+  ;; the `#/` surface arrives already wrapped in its frame.
   (story-host/mount-with-hash-routing! live-app-root {:source-subdir "examples/reagent"}))

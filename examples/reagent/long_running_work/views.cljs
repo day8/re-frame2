@@ -1,22 +1,22 @@
 (ns long-running-work.views
-  "Views for the long-running-work example.
+  "The UI for the long-running-work example.
 
-   Three pieces:
+   Three pieces on screen:
 
-   - The control panel: Start / Cancel / Reset / Hide buttons.
-   - The progress bar: aggregate fraction of items done across all
-     shards.
-   - The per-shard breakdown: a small bar per worker, so you can see
-     the three parallel children making independent progress.
+   - A control panel — Start / Cancel / Reset, plus a Hide button.
+   - A progress bar — the overall fraction of items done across every
+     shard.
+   - A per-shard breakdown — one little bar per worker, so you can
+     watch the three children racing along independently.
 
-   The 'Hide' button toggles a wrapper component that mounts and
-   unmounts the work-bench. When the wrapper unmounts, its
-   `r/with-let` cleanup dispatches a `:cancel` event into `:work/flow`.
-   That is how you wire cooperative cancellation to a component
-   lifecycle: a normal dispatch the parent's `:working` state handles
-   by transitioning out, which tears down every spawned child. The
-   worker machines know nothing about React; this one dispatch is the
-   only place the React lifecycle touches them."
+   The interesting one is Hide. It toggles a wrapper that mounts and
+   unmounts the work-bench, and when that wrapper unmounts, its
+   `r/with-let` cleanup dispatches `:cancel` into `:work/flow`. That's
+   the whole recipe for tying cancellation to a component's lifecycle:
+   one ordinary dispatch. The parent's `:working` state handles it by
+   transitioning out, which tears down every child it spawned. The
+   workers, meanwhile, have never heard of React — this single
+   dispatch is the only seam where React's lifecycle reaches them."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [long-running-work.worker])
@@ -26,8 +26,9 @@
 ;; SUB-COMPONENTS
 ;; ============================================================================
 
-(reg-view ^{:doc "Aggregate progress bar. Reads the :work/progress-fraction
-                  sub (0.0 .. 1.0) and draws a div whose width scales."}
+(reg-view ^{:doc "The overall progress bar. Reads :work/progress-fraction
+                  (a number from 0.0 to 1.0) and grows a div's width to
+                  match."}
           progress-bar []
   (let [frac     @(subscribe [:work/progress-fraction])
         done     @(subscribe [:work/items-done])
@@ -54,9 +55,9 @@
                                    "#9e9e9e")
                      :transition "width 60ms linear"}}]]]))
 
-(reg-view ^{:doc "Per-shard breakdown. Three little bars, one per
-                  worker, so the reader can see the parallel children
-                  making independent progress."}
+(reg-view ^{:doc "The per-shard breakdown. One little bar per worker, so
+                  you can watch the parallel children making their own
+                  independent progress."}
           shard-breakdown []
   (let [progress @(subscribe [:work/progress-map])
         total    (-> @(subscribe [:work/flow-data]) :total)]
@@ -81,8 +82,9 @@
                 :data-testid (str "shard-counter-" (name shard-id))}
          (str processed " / " total)]])]))
 
-(reg-view ^{:doc "Status line — shows the parent machine's :state and
-                  the recorded :outcome (the terminal-state badge)."}
+(reg-view ^{:doc "The status line — the parent machine's current :state,
+                  plus its recorded :outcome once it lands in a terminal
+                  state (the little badge at the end)."}
           status-line []
   (let [state   @(subscribe [:work/flow-state])
         outcome @(subscribe [:work/outcome])]
@@ -94,18 +96,19 @@
         [:strong "Outcome: "]
         [:span {:data-testid "outcome-value"} (name outcome)]])]))
 
-(reg-view ^{:doc "Control panel. Start / Cancel / Reset.
+(reg-view ^{:doc "The control panel. Three buttons, three events into
+                  the parent machine:
 
-                  - Start: dispatches [:work/flow [:start]] — parent
-                           transitions :idle → :working, spawns 3
-                           children via :spawn-all.
-                  - Cancel: dispatches [:work/flow [:cancel]] — parent
-                           transitions :working → :cancelled, the
-                           exit cascade emits :rf.machine/destroy for
-                           every surviving child (per the
-                           :spawn-all desugared :exit).
-                  - Reset: dispatches [:work/flow [:reset]] — returns
-                           the parent to :idle with cleared :progress."}
+                  - Start  → [:work/flow [:start]]. The parent goes
+                             :idle → :working and spawns 3 children
+                             via :spawn-all.
+                  - Cancel → [:work/flow [:cancel]]. The parent goes
+                             :working → :cancelled, and leaving :working
+                             fires :rf.machine/destroy at every child
+                             still standing (that's the :spawn-all
+                             :exit cascade at work).
+                  - Reset  → [:work/flow [:reset]]. Back to :idle with
+                             :progress wiped clean."}
           controls []
   (let [running? @(subscribe [:work/running?])
         state    @(subscribe [:work/flow-state])
@@ -126,18 +129,17 @@
       "Reset"]]))
 
 ;; ============================================================================
-;; WORK-BENCH WRAPPER — demonstrates the unmount cascade
+;; WORK-BENCH WRAPPER — where unmount becomes cancellation
 ;; ============================================================================
 
-(reg-view ^{:doc "The work-bench — the demo widget. This is the view
-                  that gets unmounted when the user clicks 'Hide'. Its
-                  `r/with-let` cleanup drives the unmount cascade: on
-                  unmount it dispatches [:work/flow [:cancel]] into the
-                  parent. The parent's :working state's :cancel
-                  transition exits :working, which fires
-                  :rf.machine/destroy for every surviving child, and the
-                  work goes away cleanly. This one dispatch is the only
-                  place the React lifecycle touches the machines."}
+(reg-view ^{:doc "The work-bench — the widget that holds the whole demo,
+                  and the one that vanishes when you click 'Hide'. Watch
+                  its `r/with-let` cleanup: on unmount it dispatches
+                  [:work/flow [:cancel]] into the parent. The parent's
+                  :cancel transition leaves :working, that exit fires
+                  :rf.machine/destroy at every surviving child, and the
+                  work tidies itself away. One dispatch — the single
+                  point where React's lifecycle reaches the machines."}
           work-bench []
   (r/with-let [_ nil]
     [:div.work-bench
@@ -150,9 +152,9 @@
      [controls]
      [progress-bar]
      [shard-breakdown]]
-    ;; Reagent's with-let cleanup runs on component unmount. All it
-    ;; does is dispatch :cancel into the parent machine; the :working
-    ;; :cancel transition takes care of the rest.
+    ;; Reagent runs this finally-clause when the component unmounts.
+    ;; It does one thing — dispatch :cancel at the parent — and the
+    ;; :working state's :cancel transition handles all the rest.
     (finally
       (dispatch [:work/flow [:cancel]]))))
 
@@ -160,12 +162,12 @@
 ;; ROOT VIEW — Show/Hide toggle around the work-bench
 ;; ============================================================================
 ;;
-;; The Show/Hide toggle is an app-db boolean, not part of the
-;; :work/flow machine — the machine has nothing to do with the
-;; component's visibility. The view either renders work-bench or it
-;; doesn't. Click Hide while work is running and the chain is:
+;; Note where the Show/Hide flag lives: a plain boolean in app-db, kept
+;; well away from the :work/flow machine. Visibility is the view's
+;; business, not the machine's — the view simply renders the work-bench
+;; or it doesn't. Hit Hide while a job is running and the dominoes fall:
 ;; component unmounts -> with-let's finally -> dispatch :cancel ->
-;; parent exits :working -> cascade tears every child down.
+;; parent leaves :working -> cascade tears every child down.
 
 (rf/reg-event :ui/initialise
   (fn [{:keys [db]} _]
@@ -178,10 +180,10 @@
 (rf/reg-sub :ui/show-bench?
   (fn [db _] (get-in db [:ui :show-bench?] true)))
 
-(reg-view ^{:doc "Top-level root. A Show/Hide button and the
-                  conditionally-rendered work-bench. Unmounting the
-                  bench is what triggers the cascade — see work-bench
-                  above."}
+(reg-view ^{:doc "The top-level root: a Show/Hide button and the
+                  work-bench, rendered only when shown. Hiding the bench
+                  unmounts it, and that's what kicks off the cascade —
+                  see work-bench above."}
           root-view []
   (let [show? @(subscribe [:ui/show-bench?])]
     [:div.app

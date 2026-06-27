@@ -1,63 +1,63 @@
 (ns long-running-work.core
-  "Entry point for the long-running-work example.
+  "Run a big job by splitting it across several workers at once.
 
-   The work decomposes into parallel sub-tasks, so it uses the
-   `:spawn-all` shape: one parent coordinator spawns N parallel
-   workers rather than chunking everything through a single machine.
-   See the machines guide's `:spawn` (docs/machines/glossary.md#spawn).
+   The job here is embarrassingly parallel: three independent shards,
+   each chewed through on its own. So instead of one machine grinding
+   the whole thing in sequence, we use the `:spawn-all` shape — a
+   parent coordinator spawns N children, one per shard, and waits for
+   them all. See the machines guide's `:spawn`
+   (docs/machines/glossary.md#spawn).
 
-   What this example demonstrates:
+   What you'll see here:
 
-   - **Declarative spawn-and-join** — one parent coordinator spawns N
-     parallel workers via `:spawn-all` and joins on `:all`. The
-     parent's `:data` holds no per-child bookkeeping; the runtime owns
-     the join state.
-   - **Cooperative cancellation cascade** — leaving the `:working`
-     state (by user `:cancel`, by completion, by frame destroy, by a
-     timeout) fires one `:rf.machine/destroy` fx that tears down every
-     surviving child. Each torn-down child's in-flight timers and HTTP
-     requests go with it.
-   - **Progress reporting** — each child dispatches a `:progress`
-     event back to the parent on every chunk. The parent records it
-     in `:data :progress`, the `:work/progress-fraction` sub
-     recomputes, and the bar updates.
-   - **Parent-unmount cascade** — the component wrapping the
-     work-bench dispatches `[:work/flow [:cancel]]` in its
-     `r/with-let` cleanup. That dispatch is the only point where the
-     UI lifecycle touches the machine; the cascade does the rest.
+   - **Spawn, then join** — the parent spawns N children with one
+     `:spawn-all` declaration and joins on `:all`. It keeps no tally
+     of who's finished; the runtime owns the join state, so the
+     parent's `:data` stays clean.
+   - **Cancellation that always lands** — whenever the parent leaves
+     `:working` (you hit Cancel, the job finishes, the frame is
+     destroyed, a timeout fires), one `:rf.machine/destroy` fx tears
+     down every child still standing. Their in-flight timers go down
+     with them, so nothing keeps ticking after the curtain falls.
+   - **Live progress** — each child fires a `:progress` event at the
+     parent after every chunk. The parent stashes it in
+     `:data :progress`, the `:work/progress-fraction` sub recomputes,
+     and the bar inches forward.
+   - **Unmount = cancel** — the component wrapping the work-bench
+     dispatches `[:work/flow [:cancel]]` from its `r/with-let`
+     cleanup. That single dispatch is the *only* place the UI touches
+     the machine; the cascade handles everything downstream.
 
-   Files:
+   The files, and what each owns:
 
-     core.cljs    mount + boot (this file)
-     worker.cljs  the :work/processor child machine and the
-                  :work/flow parent coordinator (the :spawn-all
-                  declaration is here)
-     views.cljs   UI components — controls, progress bar, shard
-                  breakdown, root, plus the work-bench wrapper whose
-                  with-let cleanup triggers the unmount cascade
-     schema.cljs  malli schemas for the parent + child snapshots
+     core.cljs    mount + boot (you are here)
+     worker.cljs  the two machines — the :work/processor child and the
+                  :work/flow parent coordinator, where the :spawn-all
+                  declaration lives
+     views.cljs   the UI — controls, progress bar, shard breakdown,
+                  root, and the work-bench wrapper whose with-let
+                  cleanup fires the unmount cascade
+     schema.cljs  malli schemas for the parent and child snapshots
 
-   Run from `implementation/`:
+   Run it live, from `implementation/`:
 
      shadow-cljs watch examples/long-running-work
-                                  (iterate against a live browser)
 
-   Headless tests:
+   Run it headless:
 
-     npm run test:browser        (runs every example's cljs-test)"
-  ;; Substrate: stock Reagent (`reagent.dom.client` +
-  ;; `re-frame.adapter.reagent`). The load-bearing teaching point is the
-  ;; `r/with-let` finally-cleanup in views.cljs that fires the `:cancel`
-  ;; cascade on view unmount, built on stock Reagent's
-  ;; `reagent.core/with-let`.
+     npm run test:browser        (covers every example's cljs-test)"
+  ;; Plain Reagent here (`reagent.dom.client` + `re-frame.adapter.reagent`).
+  ;; The trick worth watching is in views.cljs: a `r/with-let`
+  ;; finally-clause that fires the `:cancel` cascade when the view
+  ;; unmounts, riding on Reagent's own `reagent.core/with-let`.
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; Loading re-frame.machines registers the :spawn-all init /
-            ;; spawn / destroy fx handlers and the `:rf/machine` sub.
-            ;; worker.cljs and views.cljs both require this transitively;
-            ;; it's declared explicitly here too so the ns loads cleanly
-            ;; on its own.
+            ;; Requiring re-frame.machines is what installs the machine
+            ;; runtime: the :spawn-all init / spawn / destroy fx handlers
+            ;; and the `:rf/machine` sub. worker.cljs and views.cljs pull
+            ;; it in transitively, but we name it here too so this ns
+            ;; stands up on its own.
             [re-frame.machines]
             [long-running-work.schema]
             [long-running-work.worker]
@@ -67,12 +67,13 @@
 ;; INITIALISATION
 ;; ============================================================================
 ;;
-;; The :app/initialise boot event fans out to the per-feature initialisers.
-;; `:work/initialise` resets the parent flow machine to :idle;
-;; `:ui/initialise` seeds the Show/Hide toggle to true.
+;; One boot event, two jobs to hand out. `:app/initialise` just fans out
+;; to the feature initialisers: `:work/initialise` parks the parent
+;; machine in :idle, and `:ui/initialise` flips the Show/Hide toggle on.
 
 (rf/reg-event :app/initialise
-  {:doc "App boot. Fans out to per-feature initialisers."}
+  {:doc "The boot event. Doesn't do much itself — just hands off to
+         each feature's own initialiser."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:work/initialise]]
           [:dispatch [:ui/initialise]]]}))
@@ -81,28 +82,28 @@
 ;; MOUNT  (client-only)
 ;; ============================================================================
 ;;
-;; The React root is named `react-root` to avoid colliding with
-;; `root-view`. It's held in an atom and created lazily inside `run`,
-;; not at ns-load, so requiring this ns has no DOM side effect. That
-;; lets the headless fixtures require it without a browser, and keeps
-;; co-loaded example namespaces from racing multiple roots onto the
-;; shared `#app` element.
+;; We call the React root `react-root` so it doesn't get confused with
+;; `root-view`. It lives in an atom and is created lazily inside `run`,
+;; never at ns-load — so merely requiring this ns touches no DOM. That
+;; buys two things: the headless fixtures can require it without a
+;; browser, and two co-loaded examples won't race to plant rival roots
+;; on the shared `#app` element.
 
 (defonce react-root (atom nil))
 
-;; The frame is established by the `frame-provider {:id app-frame …}` at
-;; the render root below. On first mount it creates the app frame,
-;; applies its config, and runs `:initial-events` (the `[:app/initialise]`
-;; boot dispatch) once; on hot reload it reuses the same frame and skips
-;; re-seeding. Every in-tree `dispatch`/`subscribe` resolves to that
-;; frame — including the work-bench wrapper's `r/with-let` cleanup
-;; (views.cljs), which dispatches `[:work/flow [:cancel]]` from render
+;; The frame comes from the `frame-provider {:id app-frame …}` at the
+;; render root below. First mount creates the frame, applies its config,
+;; and runs `:initial-events` (our `[:app/initialise]` boot dispatch)
+;; exactly once; a hot reload reuses the same frame and skips the
+;; re-seed. Every `dispatch`/`subscribe` inside the tree finds that
+;; frame — including the work-bench wrapper's `r/with-let` cleanup over
+;; in views.cljs, which dispatches `[:work/flow [:cancel]]` from render
 ;; scope. See the frame glossary (docs/guide/glossary.md#frame).
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Install the Reagent adapter, then mount the provider that
-  ;; establishes the frame (see above).
+  ;; Install the Reagent adapter, then mount the provider that stands
+  ;; the frame up (see above).
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

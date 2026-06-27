@@ -1,37 +1,39 @@
 (ns counter-slim-and-fast.core
-  "A minimal counter on the reagent-slim substrate.
+  "The counter, again — this time on the reagent-slim substrate.
 
    This is the teaching file: plain, idiomatic re-frame2. The dataflow is
-   the same counter as `examples/reagent/counter` — the same `:counter/*`
-   events and subs. The one difference is the substrate beneath it: the
-   view imports point at `reagent2.*`, and `rf/init!` is given the slim
-   adapter. Picking a substrate is one line; see
-   docs/guide/how-to/use-uix-helix-or-slim.md.
+   exactly the counter from `examples/reagent/counter` — same `:counter/*`
+   events, same sub. What changes is the substrate underneath: the view
+   imports point at `reagent2.*`, and `rf/init!` gets the slim adapter.
+   That's it. Picking a substrate is a one-line decision, and you can read
+   the whole menu in docs/guide/how-to/use-uix-helix-or-slim.md.
 
-   The require below names `re-frame.adapter.reagent-slim` because this
-   monorepo build shares a classpath with the stock adapter and must avoid
-   a namespace clash. A real app picks slim by its `deps.edn` coordinate
-   (`day8/reagent-slim`), not by this import line — see the guide page's
-   coordinate table.
+   One wrinkle in the require below, and it's a monorepo wrinkle, not a
+   re-frame2 one: we name `re-frame.adapter.reagent-slim` directly because
+   this repo shares a classpath with the stock adapter and the two would
+   otherwise collide. Your app won't have that problem — you pick slim by
+   its `deps.edn` coordinate (`day8/reagent-slim`) and require the ordinary
+   adapter namespace. The guide page has the coordinate table.
 
-   The slim adapter's bundle-isolation proof runs from a separate
-   gate-owned entrypoint, `counter-slim-and-fast.bundle-isolation-entry`,
-   so this file carries no fixture plumbing. That entry boots the same app
-   through the shared `boot!` helper below, passing a hook that exercises
-   the pure-CLJS SSR path the gate inspects."
+   You'll also spot two sibling files here that have nothing to teach you:
+   `bundle-isolation-entry` and `bundle-isolation-fixture`. They exist to
+   prove a CI gate, live entirely off to the side, and boot the same app
+   through the shared `boot!` helper below. Read past them."
   (:require [reagent2.dom.client                :as rdc]
             [re-frame.core                      :as rf]
             [re-frame.views]
-            ;; Monorepo-only namespace (see ns docstring): a real app picks
-            ;; slim by its deps coordinate, not by this import.
+            ;; Monorepo-only spelling (see the ns docstring). Your app picks
+            ;; slim by its deps coordinate, not by naming this namespace.
             [re-frame.adapter.reagent-slim      :as reagent-slim-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-;; -- Events / subs (handler registry is app-global) --------------------------
+;; -- Events / subs (the handler registry is app-global) ----------------------
 ;;
-;; These four forms are the substrate-agnostic core: pure handlers and a pure
-;; subscription over plain data. The substrate swap does not touch them — only
-;; the boot below changes. That invariance is the point of this example.
+;; Here's the quietly remarkable part. These four forms — three pure handlers
+;; and one pure subscription, all over plain data — are byte-for-byte the same
+;; whether you render through Reagent, slim, UIx, or Helix. Swapping the
+;; substrate doesn't touch a single character of them; only the boot changes.
+;; That's the whole pitch of this example, hiding in plain sight.
 ;; See docs/guide/glossary.md for event and subscription.
 
 (rf/reg-event :counter/initialise
@@ -48,9 +50,9 @@
 
 ;; -- Views -------------------------------------------------------------------
 ;;
-;; reg-view is substrate-agnostic. The same view form renders on whichever
-;; substrate was installed at boot, because it reads through the active
-;; adapter at render time. Here that adapter is slim (see `boot!` below).
+;; reg-view doesn't care about the substrate either. The same view form renders
+;; on whichever adapter was installed at boot, because it looks up that adapter
+;; at render time rather than baking one in. Here it finds slim (see `boot!`).
 ;; See docs/guide/concepts/views.md.
 
 (reg-view counter-buttons []
@@ -64,47 +66,50 @@
 
 ;; -- Mount -------------------------------------------------------------------
 ;;
-;; The React root is held in an atom and created lazily inside `boot!`, not
-;; at ns-load. Loading the namespace must produce no DOM side effects, so
-;; that co-required example namespaces don't race `create-root` onto the
-;; shared `#app`. This is the same mount shape as `examples/reagent/counter`.
+;; The React root lives in an atom and is created lazily inside `boot!`, never
+;; at ns-load. The rule is simple: loading this namespace must touch no DOM.
+;; That keeps co-loaded example namespaces from racing each other to call
+;; `create-root` on the shared `#app`. Same mount shape as
+;; `examples/reagent/counter`.
 
 (defonce react-root (atom nil))
 
-;; The app frame is established in one spot: the `frame-provider {:id
+;; The app frame is born in exactly one place: the `frame-provider {:id
 ;; app-frame …}` at the render root below. On first mount the provider
-;; creates the frame, applies its config, and runs `:initial-events` once
-;; to seed it (the `[:counter/initialise]` dispatch). After that every
-;; `dispatch`/`subscribe` resolves to that frame. On hot reload the
-;; provider reuses the existing frame and skips re-seeding.
+;; creates the frame, applies its config, and fires `:initial-events` once
+;; to seed it — that's the `[:counter/initialise]` dispatch. From then on
+;; every `dispatch`/`subscribe` resolves to that frame. Hot reload reuses
+;; the frame already there and skips the re-seed, so your count survives.
 ;;
-;; `:rf/default` is an ordinary frame id with no special privilege — you
-;; establish it like any other; the runtime won't infer it for you.
+;; And `:rf/default` is just a frame id — no magic, no privilege. You
+;; establish it like any other; the runtime will never conjure it for you.
 ;; See docs/guide/concepts/frames.md.
 (def app-frame :rf/default)
 
 (defn boot!
-  "Boots the example: install the slim adapter, then lazily mount
-   `counter-app` into `#app` under a `frame-provider {:id app-frame …}`.
-   The provider creates and seeds the app frame (see the comment above).
+  "Stand the example up. Two steps: install the slim adapter, then lazily
+   mount `counter-app` into `#app` under a `frame-provider {:id app-frame …}`.
+   The provider does the frame work — creates it, seeds it (see the comment
+   just above).
 
-   Both the teaching path (`run` below) and the gate-owned path
-   (`counter-slim-and-fast.bundle-isolation-entry/run`) call this one
-   helper, so the boot is defined in a single place.
+   There's one `boot!` and everyone goes through it. The teaching path
+   (`run`, below) and the gate-owned path
+   (`counter-slim-and-fast.bundle-isolation-entry/run`) both land here, so
+   the boot lives in a single place and can't drift between them.
 
-   `on-frame` is an optional thunk the bundle-isolation entry uses; the
-   teaching `run` passes nothing. When given, it runs once before the
-   client mount inside its own short-lived frame (`with-new-frame`,
-   destroyed on exit), so the fixture's pre-mount SSR exercise stays clear
-   of the app frame the provider creates at mount."
+   `on-frame` is an optional thunk, and you can cheerfully ignore it — only
+   the bundle-isolation entry passes one; `run` does not. When supplied, it
+   runs once just before the client mount, inside its own throwaway frame
+   (`with-new-frame`, torn down on exit). That keeps the fixture's pre-mount
+   SSR poking well away from the real app frame the provider sets up."
   ([] (boot! nil))
   ([on-frame]
-   ;; Slim adapter — this is the difference from `examples/reagent/counter`.
-   ;; Same `rf/init!` signature; different adapter.
+   ;; The slim adapter — this single line is the whole difference from
+   ;; `examples/reagent/counter`. Same `rf/init!`, different adapter.
    (rf/init! reagent-slim-adapter/adapter)
    (when on-frame
-     ;; Fixture-only seam: run the hook in a throwaway frame (destroyed on
-     ;; exit) so it stays clear of the app frame the provider creates below.
+     ;; Fixture-only seam. Run the hook in a throwaway frame (gone on exit)
+     ;; so it never touches the app frame the provider creates below.
      (rf/with-new-frame [_ (rf/make-frame {})]
        (on-frame)))
    (when (exists? js/document)

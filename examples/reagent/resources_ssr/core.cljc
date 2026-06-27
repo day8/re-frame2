@@ -1,60 +1,69 @@
 (ns resources-ssr.core
-  "Worked example: SSR over a re-frame2 RESOURCE. A server+client app whose
-   page server-state is a resource. The server renders an article list with
-   the resource preloaded; the client hydrates the resource cache and skips a
-   duplicate fetch for entries that are still fresh.
+  "Server-side rendering over a re-frame2 RESOURCE.
 
-   This is .cljc so the same code runs server-side (JVM, `:clj` branches)
-   and client-side (browser, `:cljs` branches).
+   The page's state is a resource — a live cache the framework owns. The
+   server renders the article list with that resource preloaded, then ships
+   the cache to the client. The client hydrates it and, for anything still
+   fresh, renders on the first paint without re-fetching. That last part is
+   the whole point of preloading: don't make the browser ask for what the
+   server just handed it.
 
-   What the resource SSR contract gives you here:
+   This is `.cljc`, so one file is both halves of the app. The `:clj`
+   branches run on the server (a JVM), the `:cljs` branches run in the
+   browser, and the reader picks the side. Read it top to bottom as one
+   request and its client pickup.
 
-   - The server renders each request in its own frame. A process-global
-     resource cache would leak one user's data into another's.
-   - The page's resource is ensured under an `[:ssr request-id nav-token]`
-     owner with cause `:ssr-preload`. The ensure blocks the render until the
-     read settles.
+   The four things the resource-SSR contract buys you:
+
+   - Each request renders in its own frame. The cache is shared state, so a
+     process-global one would leak one user's articles into another's render.
+     A frame per request keeps every cache private.
+   - The page resource is ensured under an `[:ssr request-id nav-token]`
+     owner with cause `:ssr-preload`, and the ensure blocks the render until
+     the read settles — no half-loaded page goes out the door.
    - Only the allowed resource entries ride the hydration payload (under
-     `:rf/runtime-db`). Host handles and the tag/owner indexes are never
-     serialized; the indexes recompute from `:entries` on install.
-   - On the client the framework `:rf/hydrate` event installs those entries
-     into the target frame's `:rf.runtime/resources` slice. A fresh hydrated
-     entry renders on first paint and serves from the cache. Stale, redacted,
-     or omitted entries refetch.
+     `:rf/runtime-db`). Fetch handles and the tag/owner indexes stay home;
+     the indexes recompute from `:entries` the moment the client installs them.
+   - On the client the framework's `:rf/hydrate` event drops those entries
+     into the frame's `:rf.runtime/resources` slice. A fresh entry renders
+     immediately and serves from cache. Stale, redacted, or omitted entries
+     refetch — because for those the client has nothing usable in hand.
 
-   This example drives the real server path. It drains the blocking page
-   resource before render (`ssr/drain-blocking-resources!`) and serializes
+   This drives the real server path, not a stand-in. It drains the blocking
+   page resource before rendering (`ssr/drain-blocking-resources!`) and ships
    only the allowed runtime-db projection (`payload-policy/project-runtime-db`)
-   into `:rf/runtime-db` — never the full runtime-db. The `:rf/app-db` slice
-   goes through the same fail-closed allowlist (`apply-policy`) the production
-   Ring host uses. The static `index.html` next to this file carries a
-   pre-baked payload so the browser-side `run` works without a Clojure server.
+   under `:rf/runtime-db` — never the full cache. The app-db slice goes through
+   the same fail-closed allowlist (`apply-policy`) the production Ring host
+   uses. The static `index.html` next to this file carries a pre-baked payload
+   so the browser side runs without a Clojure server in the box.
 
    For the full picture see [Resources: SSR and hydration](../../../docs/resources/concepts.md#ssr-and-hydration)
    and [Server-side rendering](../../../docs/ssr/concepts.md).
 
-   Compare with `examples/reagent/ssr/` (plain SSR with a managed-HTTP fetch
-   written into app-db): here the same data is a runtime-managed resource, so
-   identity, scope, staleness, and hydration are the framework's job, and the
-   cache lives in the runtime partition rather than app-db."
+   The sibling `examples/reagent/ssr/` is the simpler cousin: it bakes a
+   fetched list into app-db and hands that frozen value across. Here the data
+   is a runtime-managed resource, so identity, scope, staleness, and hydration
+   are the framework's job, and the cache lives in the runtime partition rather
+   than in app-db."
   (:require [re-frame.core :as rf]
-            ;; Managed HTTP — the resource transport.
+            ;; Managed HTTP — how the resource actually fetches.
             [re-frame.http.managed]
-            ;; Resources artefact: boots the registrations and the SSR
-            ;; projection hook the ssr artefact consults.
+            ;; The resources artefact. Loading it boots the registrations and
+            ;; the SSR projection hook the ssr artefact reaches for.
             [re-frame.resources]
             ;; SSR: render-to-string, the `:rf/hydrate` event, and the
             ;; per-request server effects.
             [re-frame.ssr :as ssr]
-            ;; The hydration-payload assembly the production Ring host uses:
+            ;; The payload assembly the production Ring host uses, so this
+            ;; example builds the wire payload the same way the real thing does:
             ;; the fail-closed app-db allowlist (`apply-policy`) and the
-            ;; runtime-db projection (`project-runtime-db`) that rides only the
-            ;; allowed resource `:entries` onto `:rf/runtime-db` (sensitive
-            ;; data redacted; indexes recompute on install). Server-side only.
+            ;; runtime-db projection (`project-runtime-db`) that ships only the
+            ;; allowed resource `:entries` under `:rf/runtime-db` (sensitive
+            ;; data redacted; indexes rebuilt on install). Server-side only.
             #?(:clj [re-frame.ssr.payload-policy :as payload-policy])
-            ;; The EDN-aware escaper for the payload `<script>` body. A
-            ;; server-provided string carrying `</script>` would otherwise
-            ;; close the envelope, so escape it. Server-side only.
+            ;; The EDN-aware escaper for the payload `<script>` body. A server
+            ;; string that happens to contain `</script>` would otherwise close
+            ;; the envelope early — so we escape it. Server-side only.
             #?(:clj [re-frame.ssr.html-helpers :as html])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
@@ -63,16 +72,18 @@
 ;; RESOURCE
 ;; ============================================================================
 ;;
-;; The page's server-state, declared once. You describe what the read is and
-;; how to fetch it; the runtime owns the cache, dedupe, and staleness.
+;; The page's server-state, declared once. You say what the read is and how to
+;; fetch it; the runtime takes it from there — caching, deduping, and tracking
+;; staleness so you don't have to.
 ;;
-;; `:scope :rf.scope/global` declares that this article list is the same for
-;; every user. Scope is part of the read's cache identity, so one user's data
-;; can never surface in another's cache. It also matters for hydration: the
-;; serialized scope and the client's scope must agree before the client treats
-;; hydrated data as usable, and hydration never crosses scopes. A user-scoped
-;; page would carry a scope resolver instead. See
-;; docs/resources/glossary.md#scope.
+;; `:scope :rf.scope/global` is a claim: this article list is identical for
+;; every user. Scope is part of a read's cache identity, which is what stops
+;; one user's data from ever surfacing in another's cache. It carries through
+;; to hydration too — the serialized scope and the client's scope must agree
+;; before the client trusts hydrated data, and hydration never crosses a scope
+;; boundary. A per-user page would supply a scope resolver here instead; the
+;; global claim is the explicit, checkable statement that this handoff is safe.
+;; See docs/resources/glossary.md#scope.
 
 (rf/reg-resource :articles/list
   {:doc            "Recent articles (public, SSR-preloaded)."
@@ -88,15 +99,16 @@
 ;; SERVER-SIDE PRELOAD EVENT
 ;; ============================================================================
 ;;
-;; `:rf/server-init` runs at per-request frame creation. It ensures the page
-;; resource — fetching it if the cache is cold — so the render finds it warm.
-;; The renderer then waits for it to settle before rendering.
+;; `:rf/server-init` runs when the per-request frame is born. Its one job is to
+;; ensure the page resource — fetch it if the cache is cold — so that by render
+;; time the data is already warm. The renderer then waits for it to settle
+;; before walking the tree.
 ;;
-;; Two facts ride the ensure. The owner `[:ssr request-id nav-token]` is a
-;; lease: it keeps the entry alive for the duration of this server render and
-;; no longer. The cause `:ssr-preload` is provenance — why the fetch happened,
-;; recorded for the trace. Owner = lifetime; cause = explanation. See
-;; docs/resources/glossary.md#owner--cause.
+;; Two things ride along with the ensure, and they answer two different
+;; questions. The owner `[:ssr request-id nav-token]` is a lease — it keeps the
+;; entry alive for exactly this server render and not a moment longer. The
+;; cause `:ssr-preload` is the story for the trace: why this fetch happened.
+;; Owner = how long; cause = why. See docs/resources/glossary.md#owner--cause.
 
 (rf/reg-event :rf/server-init
   {:doc       "Per-request server init — preload the page resource."
@@ -106,8 +118,9 @@
      :fx [[:dispatch [:rf.resource/ensure
                       {:resource :articles/list
                        :params   {}
-                       ;; request-id + nav-token are illustrative here; a
-                       ;; real server threads them from the request frame.
+                       ;; The request-id and nav-token are hard-coded for the
+                       ;; demo; a real server would thread them off the actual
+                       ;; request so each render's lease is genuinely unique.
                        :owner    [:ssr :ssr/req-1 :ssr/nav-1]
                        :cause    :ssr-preload}]]]}))
 
@@ -115,14 +128,14 @@
 ;; VIEWS — passive reads, server and client alike
 ;; ============================================================================
 ;;
-;; The view is a passive reader: it pulls the resource through a subscription
-;; and renders whatever it finds, the same on server and client. Reading does
-;; not trigger a fetch — the preload and hydration already warmed the cache.
-;; `:rf.resource/state` is the runtime-supplied subscription that turns the
-;; cache entry into a view-model (a status flag plus the data). On the server
-;; the resource was preloaded; on the client the hydrated entry is already
-;; present, so the first render shows data straight away. Same view code on
-;; both sides — the "one app, runs twice" promise, now over a managed resource.
+;; The view does the simplest possible thing: it reads the resource through a
+;; subscription and renders whatever's there. Reading never kicks off a fetch —
+;; the preload (server) and the hydration (client) already warmed the cache, so
+;; the data is just sitting there waiting. `:rf.resource/state` is the
+;; runtime's own subscription; it turns a cache entry into a tidy view-model —
+;; a status flag and the data. Either side, the data is present by first render,
+;; so there's no skeleton to flash. The same view code runs on both — the "one
+;; app, runs twice" promise, now over a managed resource.
 ;; See docs/ssr/glossary.md#render-to-string.
 
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
@@ -152,24 +165,28 @@
 ;; SERVER ENTRY POINT
 ;; ============================================================================
 ;;
-;; A per-request frame whose `:initial-events` dispatch `:rf/server-init`, a
-;; drain to settle the blocking page resource, a render to string, and a
-;; hydration payload carrying the allowed resource projection in
-;; `:rf/runtime-db`. The per-request frame is torn down in a `finally` on
-;; every exit path, so a request never leaks a frame.
+;; This is one request, start to finish: mint a per-request frame whose
+;; `:initial-events` fire `:rf/server-init`, drain the blocking page resource,
+;; render to a string, and build a hydration payload carrying the allowed
+;; resource projection under `:rf/runtime-db`. The frame is torn down in a
+;; `finally` on every exit path — success or throw — so a request can never
+;; leak a frame and slowly drown the JVM.
 ;;
-;; Two steps make this the real server path:
+;; Two steps are what make this the real server path rather than a toy:
 ;;
-;;   1. `ssr/drain-blocking-resources!` settles the `[:ssr …]`-owned blocking
-;;      ensure (or times it out into a structured first-load failure) before
-;;      the render walk, so the render never sees a hung `:loading` skeleton.
-;;   2. `payload-policy/project-runtime-db` projects the runtime-db down to the
-;;      serializable allowlist — only the durable `:rf.runtime/resources`
-;;      `:entries`, per-entry redacted (`:sensitive?`) or omitted (`:large?`),
-;;      with the reverse indexes dropped (they recompute on install). Ship the
-;;      projection, never the full runtime-db. The app-db slice rides the
-;;      fail-closed allowlist via `apply-policy` (here empty — the page state
-;;      is the resource, so app-db holds nothing of its own).
+;;   1. `ssr/drain-blocking-resources!` waits for the `[:ssr …]`-owned ensure to
+;;      settle — reach `:loaded`, or time out into a structured first-load
+;;      failure — before we walk the tree. So the render never catches the page
+;;      mid-fetch with a `:loading` skeleton frozen into the HTML.
+;;   2. `payload-policy/project-runtime-db` boils the runtime-db down to just
+;;      what's safe to serialize: the durable `:rf.runtime/resources`
+;;      `:entries`, with `:sensitive?` values redacted, `:large?` values
+;;      omitted, and the reverse indexes dropped (the client rebuilds those
+;;      from `:entries`, so shipping them would be sending data we're about to
+;;      throw away). Ship the projection, never the whole cache. The app-db
+;;      slice rides the fail-closed allowlist via `apply-policy` — empty here,
+;;      because on this page the resource *is* the state and app-db holds
+;;      nothing of its own.
 
 #?(:clj
    (defn handle-request [request]
@@ -181,28 +198,31 @@
                   :initial-events [[:rf/server-init]]})]
        (try
          (rf/with-frame f
-           ;; (1) Settle the blocking page resource before rendering. The
-           ;; `[:ssr …]`-owned ensure dispatched by `:rf/server-init` must reach
-           ;; a terminal status (:loaded / :error) or time out into a settled
-           ;; first-load failure, so the render walk sees real data.
+           ;; (1) Settle the blocking page resource before we render a thing.
+           ;; The `[:ssr …]`-owned ensure that `:rf/server-init` kicked off has
+           ;; to land on a terminal status (:loaded / :error), or time out into
+           ;; a settled first-load failure, so the render walk works with real
+           ;; data instead of an in-flight guess.
            (ssr/drain-blocking-resources! f)
            (let [final-db      (rf/app-db-value f)
-                 final-runtime (rf/runtime-db-value f)   ;; carries :rf.runtime/resources
+                 final-runtime (rf/runtime-db-value f)   ;; this is where :rf.runtime/resources lives
                  hiccup        ((rf/view :app/root))
                  html          (rf/render-to-string hiccup {:doctype? true :emit-hash? true})
                  render-hash   (rf/render-tree-hash hiccup)
-                 ;; (2) Build the payload the way the Ring host does: the
-                 ;; app-db slice through the fail-closed allowlist, and the
-                 ;; runtime-db through the SSR projection (only the allowed
-                 ;; resource `:entries`).
+                 ;; (2) Build the payload exactly the way the Ring host does:
+                 ;; the app-db slice through the fail-closed allowlist, and the
+                 ;; runtime-db through the SSR projection (the allowed resource
+                 ;; `:entries`, and nothing more).
                  ;;
-                 ;; The page state is the resource (it rides `:rf/runtime-db`),
-                 ;; so app-db carries nothing of its own. `:payload` is
-                 ;; fail-closed, so name the intent explicitly: the
-                 ;; `:rf.ssr.payload/whole-app-db` opt-in projects the (empty)
-                 ;; app-db to `{}` cleanly. A bare empty `[]` allowlist instead
-                 ;; reads as a missing policy and throws
-                 ;; `:rf.error/ssr-missing-payload-policy`, not "ship nothing".
+                 ;; The page state is the resource — it rides `:rf/runtime-db` —
+                 ;; so app-db has nothing of its own to send. But the payload
+                 ;; policy is fail-closed by design, so "send nothing" still has
+                 ;; to be said out loud. The `:rf.ssr.payload/whole-app-db`
+                 ;; opt-in projects the empty app-db to `{}` cleanly. A bare `[]`
+                 ;; allowlist would *not* mean "ship nothing" — it reads as a
+                 ;; missing policy and throws
+                 ;; `:rf.error/ssr-missing-payload-policy`. Silence is the one
+                 ;; thing fail-closed won't let you get away with.
                  ;; See docs/ssr/concepts.md#payload--the-fail-closed-allowlist.
                  policy-opts   {:payload :rf.ssr.payload/whole-app-db}
                  payload       (payload-policy/build-payload
@@ -212,17 +232,18 @@
                                  (assoc policy-opts
                                         :runtime-db (payload-policy/project-runtime-db
                                                       final-runtime)))
-                 ;; Drop the payload's `:rf/frame-id`. `build-payload` stamps
-                 ;; it with this per-request gensym frame (`f`), but the client
-                 ;; hydrates a fixed app-frame (`:rf/default`, below).
-                 ;; `ssr/hydrate!` checks any present `:rf/frame-id` against the
-                 ;; client's `:frame` and raises
-                 ;; `:rf.error/hydration-frame-id-mismatch` when they differ —
-                 ;; the frame-id is validation evidence, not a hydration target.
-                 ;; A per-request gensym can never equal the client's fixed id,
-                 ;; so drop it; an absent frame-id is no conflict. A deployment
-                 ;; that wants a frame-id on the wire stamps a stable id both
-                 ;; sides agree on.
+                 ;; Drop the payload's `:rf/frame-id`. `build-payload` stamps it
+                 ;; with this per-request gensym frame (`f`), but the client
+                 ;; hydrates a fixed app-frame (`:rf/default`, below). When a
+                 ;; `:rf/frame-id` *is* present, `ssr/hydrate!` checks it against
+                 ;; the client's `:frame` and raises
+                 ;; `:rf.error/hydration-frame-id-mismatch` if they disagree — so
+                 ;; the frame-id is a sanity check, not a hydration target. Our
+                 ;; gensym could never match the client's fixed id, so leaving it
+                 ;; in would guarantee a false mismatch; dropping it sidesteps
+                 ;; the check entirely (an absent id is no conflict). A
+                 ;; deployment that wants a frame-id on the wire would stamp one
+                 ;; both sides agree on up front.
                  payload       (dissoc payload :rf/frame-id)]
              {:status  200
               :headers {"Content-Type" "text/html"}
@@ -230,10 +251,10 @@
               (str "<!DOCTYPE html><html><head><meta charset='utf-8'/>"
                    "<title>Resources SSR demo</title></head><body>"
                    "<div id='app'>" html "</div>"
-                   ;; Emit the payload `<script>` through the EDN-aware
-                   ;; escaper the production Ring host uses, so a server-
-                   ;; provided string carrying `</script>` can't close the
-                   ;; envelope.
+                   ;; Run the payload `<script>` body through the same EDN-aware
+                   ;; escaper the production Ring host uses, so a server string
+                   ;; that happens to contain `</script>` can't slam the
+                   ;; envelope shut from the inside.
                    "<script id='__rf_payload' type='application/edn'>"
                    (html/escape-edn-script-body (pr-str payload))
                    "</script><script src='/main.js'></script>"
@@ -245,22 +266,24 @@
 ;; CLIENT ENTRY POINT
 ;; ============================================================================
 ;;
-;; `ssr/hydrate!` reads the payload, dispatch-syncs `[:rf/hydrate payload]`
-;; (which installs the resource projection into the carried frame's
-;; `:rf.runtime/resources` slice), and verifies the render hash. A fresh
-;; hydrated entry renders its data on first paint and serves it straight from
-;; the cache — no duplicate fetch, which is the whole point of preloading. A
-;; stale entry would background-refetch by policy. See
-;; docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
+;; The browser's side of the handoff. `ssr/hydrate!` reads the payload,
+;; dispatch-syncs `[:rf/hydrate payload]` to install the resource projection
+;; into the frame's `:rf.runtime/resources` slice, then verifies the render
+;; hash to confirm client and server agree on what the page should look like.
+;; A fresh hydrated entry renders its data on the first paint and serves it
+;; straight from cache — no second fetch, which is exactly what preloading was
+;; for. A stale entry quietly refetches in the background, per its policy.
+;; See docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
 
 #?(:cljs (defonce react-root (atom nil)))
 
-;; The fixed client app-frame. The app names its hydration target explicitly
-;; and threads the same id through both `ssr/hydrate!` (where the server state
-;; lands) and the root `frame-provider` (where in-tree dispatch/subscribe
-;; resolve). It must be a `:client`-platform frame so the `:rf.ssr/check-*`
-;; compatibility-check effects the `:rf/hydrate` handler dispatches actually
-;; fire. See docs/ssr/concepts.md#deploy-drift-checks-come-along-for-free.
+;; The client's one app-frame. The app names its hydration target out loud and
+;; threads the same id through two places: `ssr/hydrate!` (where the server
+;; state lands) and the root `frame-provider` (where in-tree dispatch/subscribe
+;; go looking for their frame). One id, both ends — that's what makes them meet.
+;; It has to be a `:client`-platform frame, or the `:rf.ssr/check-*`
+;; compatibility checks that `:rf/hydrate` fires would simply sit there inert.
+;; See docs/ssr/concepts.md#deploy-drift-checks-come-along-for-free.
 (def app-frame :rf/default)
 
 #?(:cljs

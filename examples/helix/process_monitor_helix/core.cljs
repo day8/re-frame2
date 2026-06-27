@@ -1,21 +1,24 @@
 (ns process-monitor-helix.core
-  "Helix example — 'Process Monitor'. A terminal-style two-pane layout: a
-   filterable process list on the left, a live log feed on the right, and
-   status tiles across the top.
+  "A terminal-style process monitor, built on Helix. Two panes — a
+   filterable process list on the left, a live log feed on the right — with
+   status tiles across the top. The log pane gains a fresh line every couple
+   of seconds with nobody touching it, which is the fun part: it proves this
+   is a real reactive loop, not a screenshot.
 
-   What it shows:
+   Four things worth watching:
 
-     - Helix components (`defnc`) reading subscriptions via `use-subscribe`
-     - a derivation graph: two UI inputs (the level-filter chips, the
-       selected process) fold into one derived subscription — the visible
-       log slice. It recomputes only when an input changes.
-     - a recurring `:dispatch-later` tick that appends synthetic log lines
-       (`:process-monitor/tick`), driven by the component lifecycle and kept
-       to exactly one live chain by a generation guard
-     - per-row dispatch from inside a `defnc` row component
+     - Helix views (`defnc`) read their slice of state through the
+       `use-subscribe` hook — the React-hooks idiom, no `reg-view` in sight.
+     - A derivation graph at work. Two UI inputs — the level-filter chips and
+       the selected process — fold into one derived subscription, the visible
+       log slice. It recomputes only when an input actually changes.
+     - A self-advancing tick that appends synthetic log lines
+       (`:process-monitor/tick`), driven by the component lifecycle. The
+       trick is keeping it to exactly one live chain; see the EVENTS block.
+     - Per-row dispatch from inside a `defnc` row component.
 
-   The 'Editorial Warm' visual identity comes from
-   examples/_shared/css/style.css, shared across all three substrates."
+   The visual identity is shared across all three design-led examples; it
+   lives in examples/_shared/css/style.css."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
@@ -54,19 +57,24 @@
 ;; EVENTS
 ;; ============================================================================
 ;;
-;; The tick chain is a self-rescheduling `:dispatch-later`. That effect has no
-;; cancel API, so a "generation" counter (`:process-monitor/tick-gen`) keeps the
-;; chain to exactly one live loop:
+;; The tick is a `:dispatch-later` that reschedules itself — a loop with no
+;; off switch, because that effect has no cancel API. Left alone, a hot reload
+;; or a re-mount would just spawn a second chain alongside the first, and now
+;; two loops append lines forever. Not ideal.
 ;;
-;;   - Each scheduled tick carries the generation it was armed under.
-;;   - `:process-monitor/initialise` and `:process-monitor/stop` bump the generation.
-;;   - A tick whose generation no longer matches `db` no-ops: no append, no
-;;     reschedule. So any chain from a previous arm dies on its next fire.
+;; The fix is a generation guard, and it's pleasingly small. A counter,
+;; `:process-monitor/tick-gen`, records which "arming" each chain belongs to:
 ;;
-;; The loop is tied to the `monitor` component lifecycle (see its `use-effect`
-;; below): mount arms it via `:process-monitor/initialise`, unmount stops it via
-;; `:process-monitor/stop`. A re-mount re-arms cleanly; an unmount leaves no chain
-;; dispatching into a frame nobody is rendering.
+;;   - Every scheduled tick carries the generation it was armed under.
+;;   - `:process-monitor/initialise` and `:process-monitor/stop` bump the counter.
+;;   - A tick whose generation no longer matches `db` just declines to act —
+;;     no append, no reschedule. So a chain from an earlier arming quietly
+;;     dies the next time it fires. No cancellation required.
+;;
+;; The loop hangs off the `monitor` component's lifecycle (see its `use-effect`
+;; below): mount arms it via `:process-monitor/initialise`, unmount retires it
+;; via `:process-monitor/stop`. Re-mount and it re-arms cleanly. Unmount and no
+;; chain is left dispatching into a frame nobody is looking at.
 
 (rf/reg-event :process-monitor/initialise
   (fn [{:keys [db]} _event]
@@ -77,20 +85,23 @@
             :process-monitor/level-filter #{:info :warn :error}
             :process-monitor/selected   nil
             :process-monitor/tick-gen   next-gen}
-       ;; Arm the loop by describing the first tick as data — the handler
-       ;; never touches setTimeout, the :dispatch-later effect does. The tick
-       ;; carries `next-gen` so a later arm can retire it.
+       ;; Arm the loop by *describing* the first tick as data. The handler
+       ;; stays pure — it never calls setTimeout; the :dispatch-later effect
+       ;; does the scheduling. The tick carries `next-gen` so a later arming
+       ;; can retire this one.
        :fx [[:dispatch-later {:ms 1800 :event [:process-monitor/tick next-gen]}]]})))
 
 (rf/reg-event :process-monitor/tick
   (fn [{:keys [db]} [_ gen]]
     (if (not= gen (:process-monitor/tick-gen db))
-      ;; Generation no longer matches: this tick belongs to a retired chain.
-      ;; Drop it — no log append, no clock bump, no reschedule.
+      ;; This tick belongs to a retired generation — a chain a newer arming
+      ;; has already superseded. Drop it: no append, no clock bump, no
+      ;; reschedule. Declining to act is how the old chain dies.
       {}
       (let [tick      (:process-monitor/clock db)
             processes (:process-monitor/processes db)
-            ;; Pick a process round-robin for the synthetic log line.
+            ;; Round-robin through the processes so the synthetic feed looks
+            ;; like every service is chattering, not just one.
             process   (nth processes (mod tick (count processes)))
             level     (cond
                         (= :down (:status process))     :error
@@ -108,13 +119,13 @@
                  (update :process-monitor/logs (fn [logs]
                                          (vec (take-last 60 (conj logs new-entry)))))
                  (update :process-monitor/clock inc))
-         ;; Reschedule under the same generation, so the chain continues until
-         ;; a fresher arm retires it.
+         ;; Reschedule under the *same* generation, so this chain keeps going
+         ;; until a fresher arming comes along and retires it.
          :fx [[:dispatch-later {:ms 1800 :event [:process-monitor/tick gen]}]]}))))
 
-;; Stops the loop. Bumps the generation but arms no new tick, so the live
-;; chain's next fire no-ops. Dispatched from the `monitor` component's
-;; `use-effect` cleanup on unmount.
+;; Stops the loop. Bumps the generation but arms nothing new, so the live
+;; chain finds itself stale on its next fire and quietly steps off. The
+;; `monitor` component dispatches this from its `use-effect` cleanup on unmount.
 (rf/reg-event :process-monitor/stop
   (fn [{:keys [db]} _event]
     {:db (update db :process-monitor/tick-gen (fnil inc 0))}))
@@ -147,10 +158,11 @@
 (rf/reg-sub :process-monitor/selected
   (fn [db _] (:process-monitor/selected db)))
 
-;; A derived subscription built on the base subs above. `:<-` names its
-;; inputs; the runtime recomputes it only when an input changes by `=`, so the
-;; tiles don't re-render when an unrelated key moves. See the glossary on the
-;; derivation graph: docs/guide/glossary.md#the-derivation-graph
+;; A derived subscription: it reads other subs rather than app-db directly.
+;; `:<-` names its inputs, and the runtime only recomputes when one of them
+;; changes by `=`. So the tiles sit still while unrelated keys move underneath
+;; — caching you get for free by saying what you depend on. The glossary has
+;; the full picture: docs/guide/glossary.md#the-derivation-graph
 (rf/reg-sub :process-monitor/totals
   :<- [:process-monitor/processes]
   (fn [processes _]
@@ -160,9 +172,11 @@
      :cpu     (reduce + 0 (map :cpu processes))
      :mem     (reduce + 0 (map :mem processes))}))
 
-;; Four inputs (the level filter, the selected process, the raw logs, the
-;; processes) fold into the slice the log pane shows. The view does no
-;; filtering itself — it reads this.
+;; The star of the show. Four inputs fold into the exact slice the log pane
+;; renders: the raw logs, the active levels, the selected process, and the
+;; processes (to map a selection to its pid). Click a chip or a row and this
+;; re-derives; the view never filters anything itself, it just reads the
+;; answer. This is the derivation graph earning its keep.
 (rf/reg-sub :process-monitor/visible-logs
   :<- [:process-monitor/logs]
   :<- [:process-monitor/level-filter]
@@ -181,11 +195,12 @@
 ;; ──────────────────────────  SUBSTRATE BOUNDARY  ──────────────────────────
 ;; ============================================================================
 ;;
-;; Everything above is substrate-agnostic: seed data, events (the tick loop),
-;; and the subs. None of it mentions Helix. Below this divider is the only
-;; substrate-specific code: the `defnc` views and the mount. That is the
-;; boundary the example teaches — app-db + events + subs sit above, the
-;; substrate's view idiom sits below.
+;; Everything above this line is substrate-agnostic: seed data, events (tick
+;; loop and all), and subs. Scan it and you won't find the word Helix once —
+;; it would run unchanged on Reagent or UIx. Below the line is the only
+;; Helix-specific code: the `defnc` views and the mount. That split is the
+;; lesson. The interesting machinery lives in the portable core; the substrate
+;; is just the thin rendering choice you make at the edge.
 
 ;; ============================================================================
 ;; VIEWS (Helix — defnc)
@@ -196,9 +211,9 @@
     (d/div {:class "pm-tile-label"} label)
     (d/div {:class "pm-tile-value"} value)))
 
-;; `use-subscribe` is the Helix hook form of `subscribe`: it returns a plain
-;; value (not a reaction) and re-renders this component when that value
-;; changes. Call it at the top of the body.
+;; `use-subscribe` is `subscribe` in hook clothing. It hands back a plain value
+;; — not a reaction to deref — and re-renders this component whenever that
+;; value changes. Like any React hook, call it at the top of the body.
 (defnc tiles []
   (let [totals (helix-adapter/use-subscribe [:process-monitor/totals])]
     (d/div {:class "pm-tiles"}
@@ -208,9 +223,10 @@
       ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu totals) 1) "%")})
       ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
-;; To dispatch, grab `dispatch` off a frame-handle: `(rf/frame-handle)`
-;; captures the current frame as a value, so the click handler dispatches into
-;; this app's frame. See docs/guide/glossary.md#frame-handle
+;; To dispatch from a view, grab `dispatch` off a frame-handle.
+;; `(rf/frame-handle)` captures the current frame as a value, so the click
+;; handler we close over below still lands in this app's frame when it fires.
+;; See docs/guide/glossary.md#frame-handle
 (defnc level-chips []
   (let [active   (helix-adapter/use-subscribe [:process-monitor/level-filter])
         dispatch (:dispatch (rf/frame-handle))]
@@ -276,18 +292,22 @@
                       :entry entry}))))))
 
 (defnc monitor []
-  ;; This component drives the tick loop: mount arms it, unmount stops it.
-  ;; Capture `(:dispatch (rf/frame-handle))` at render-time so it carries the
-  ;; surrounding frame into the post-commit effect body and cleanup. See the
-  ;; Helix adapter README §use-effect for why the capture goes here.
+  ;; This component owns the tick loop's lifecycle: mount arms it, unmount
+  ;; retires it. We capture `(:dispatch (rf/frame-handle))` here in the `let`,
+  ;; at render-time, while the frame is still in scope. By the time the effect
+  ;; and its cleanup actually run — after commit — that scope is gone, so a
+  ;; dispatch fetched in there would have no frame to land in. Grab it now,
+  ;; close over it, and you're safe. The Helix adapter README §use-effect has
+  ;; the long version.
   (let [dispatch (:dispatch (rf/frame-handle))]
     (helix-hooks/use-effect
       ;; Empty deps ⇒ run once on mount, clean up once on unmount.
       []
-      ;; Mount: arm the loop. The generation guard retires any chain already in
+      ;; Mount: arm the loop. The generation guard retires anything already in
       ;; flight, so a re-mount re-arms cleanly and only one chain stays live.
       (dispatch [:process-monitor/initialise])
-      ;; Unmount: stop the chain so it never dispatches into an unrendered frame.
+      ;; Unmount: stop the chain so it never dispatches into a frame that's no
+      ;; longer on screen.
       (fn cleanup []
         (dispatch [:process-monitor/stop]))))
   (d/div {:class "pm-shell"}
@@ -305,28 +325,31 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and created lazily inside `run`, not at
-;; ns-load. Per examples/TESTING.md §Example mount-isolation, ns-load must
-;; produce no DOM side effects so co-required example namespaces don't race
-;; `createRoot` onto the shared `#app`.
+;; The React root lives in an atom and is created lazily inside `run`, never at
+;; ns-load. The rule (examples/TESTING.md §Example mount-isolation): loading a
+;; namespace must touch no DOM, so that when several examples are required side
+;; by side they don't all race to call `createRoot` on the shared `#app`.
 (defonce react-root (atom nil))
 
-;; The frame id this app runs under. The `frame-provider` in `run` below is the
-;; one spot the frame is set up: it creates the frame, seeds app-db, and scopes
-;; the frame into React context. `use-subscribe` and the `(rf/frame-handle)`
-;; capture in `monitor` resolve to this frame through that context.
+;; The frame this app runs under. The `frame-provider` in `run` is the single
+;; place it's set up — it creates the frame, seeds app-db, and threads the
+;; frame into React context. Everything downstream (`use-subscribe`, the
+;; `(rf/frame-handle)` capture in `monitor`) finds this frame through that
+;; context.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; `init!` installs the Helix adapter so re-frame2 knows how to render.
+  ;; `init!` tells re-frame2 which substrate to render through — here, Helix.
+  ;; It installs the adapter and nothing more; it does not create a frame.
   (rf/init! helix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
     ;; `frame-provider` creates the app frame on first mount and runs
-    ;; `:initial-events` once to seed app-db; a hot reload reuses the frame
-    ;; without re-seeding, so the running clock and logs stay intact. From there
-    ;; the `monitor` component owns the loop (see its `use-effect`).
+    ;; `:initial-events` once to seed app-db. A hot reload reuses the existing
+    ;; frame and skips the re-seed, so your running clock and accumulated logs
+    ;; survive the reload — a small mercy while iterating. From here on the
+    ;; `monitor` component owns the loop (see its `use-effect`).
     (.render @react-root
              ($ helix-adapter/frame-provider {:id app-frame
                                               :initial-events [[:process-monitor/initialise]]}

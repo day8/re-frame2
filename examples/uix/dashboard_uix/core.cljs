@@ -1,26 +1,28 @@
 (ns dashboard-uix.core
-  "UIx design-led example — an analytics dashboard: a grid of metric
-   cards with sparklines and filter chips.
+  "A UIx analytics dashboard — a grid of metric cards with sparklines,
+   filter chips, and a time-range picker. Looks busy; it isn't.
 
-   The one idea: two independent controls each set a single value in
-   app-db, and one `reg-sub` reads both and computes the visible card
-   set as a pure function of them. The whole UI renders that one
-   projection — there is exactly one place where 'what's on screen' is
-   decided.
+   The whole app turns on one idea. Two controls each write a single
+   value into app-db, and one `reg-sub` reads both and computes the
+   visible card set as a pure function of them. So there's exactly one
+   place where 'what's on screen' gets decided, and everything you see
+   is just that one answer, rendered.
 
-   Demonstrates:
+   What to look at:
 
-     - `reg-sub` composing inputs: `:dashboard/visible-metrics` derives
-       from three input subscriptions, re-running when either control moves
+     - `:dashboard/visible-metrics` — one derived sub fed by three
+       inputs, re-running whenever a control moves
      - the derivation graph — base subs read app-db, derived subs read
-       other subs (the `:<-` syntax), views at the leaves
-     - UIx views (`defui`) reading subscriptions via `use-subscribe`
-     - inline SVG sparklines computed in pure CLJS — no chart library
-     - two re-deriving controls: filter chips (which cards show) and a
-       time-range picker (how many trailing points each sparkline draws,
-       plus the header label)
+       other subs (that's the `:<-` syntax), views sit at the leaves
+     - UIx views (`defui`) pulling subscriptions in through `use-subscribe`
+     - sparklines drawn as inline SVG from plain CLJS arithmetic — no
+       chart library
+     - two controls that re-derive the view: the filter chips (which
+       cards show) and the range picker (how many points each sparkline
+       draws, plus the header label)
 
-   The derivation graph is the core concept here; see the guide glossary
+   The derivation graph is the concept worth slowing down for; the
+   guide glossary has the full picture
    (../../../docs/guide/glossary.md#the-derivation-graph).
 
    The shared visual identity comes from examples/_shared/css/style.css."
@@ -34,11 +36,11 @@
 ;; ============================================================================
 
 (def initial-metrics
-  ;; Each metric carries a 14-point sparkline series. Numbers are
-  ;; hand-tuned for visual variety, not computed from real data.
+  ;; Six metrics, each carrying a 14-point sparkline series. The numbers
+  ;; are hand-tuned to look interesting, not pulled from anything real.
   ;;
-  ;; Values are bare integers: CLJS has no underscore-grouping (1_000)
-  ;; literal syntax.
+  ;; They're written as bare integers because CLJS has no
+  ;; underscore-grouping (1_000) literal — you read 142375 the hard way.
   [{:id :revenue   :label "Revenue"       :value 142375 :unit "$" :delta  0.084 :tag :money
     :series [108 112 117 121 119 124 128 132 130 135 138 140 142 142]}
    {:id :signups   :label "New signups"   :value 1286   :unit ""  :delta  0.121 :tag :money
@@ -58,10 +60,10 @@
    {:id :usage :label "Usage"}])
 
 (def ranges
-  ;; Time-range options. `:points` is how many of each metric's 14-point
-  ;; series the range windows in to (the last N) — so picking a range
-  ;; re-derives both the header label and every sparkline. Capped at the
-  ;; 14 points the seed data carries.
+  ;; The two time-range options. `:points` is the window: how many of the
+  ;; 14 points each sparkline keeps (the last N). Pick a range and you
+  ;; re-derive both the header label and every sparkline at once. Capped
+  ;; at 14, since that's all the seed data carries.
   [{:id :w7  :label "7 days"  :points 7}
    {:id :w14 :label "14 days" :points 14}])
 
@@ -69,12 +71,14 @@
 ;; EVENTS
 ;; ============================================================================
 
-;; Each handler is pure: (coeffects, event-vector) -> effect map. Each moves
-;; ONE value in app-db and stops. Turning "this tag is now off" into "these
-;; cards disappear" is the subscription's job, not the handler's.
+;; Three handlers, all pure: (coeffects, event-vector) -> effect map. Each
+;; one moves a SINGLE value in app-db and then stops. Notice what they don't
+;; do: turning "this tag is now off" into "these cards disappear" is the
+;; subscription's job, not the handler's. The handler just records the fact.
 
-;; Seed the whole dashboard in one write: the metrics plus the two control
-;; values (`:active-tags` a set — chips are multi-select; `:range` one id).
+;; Seed the whole dashboard in one write — the metrics, plus the two control
+;; values: `:active-tags` is a set (chips are multi-select) and `:range` is a
+;; single id.
 (rf/reg-event :dashboard/initialise
   (fn [{:keys [db]} _event]
     {:db {:dashboard/metrics      initial-metrics
@@ -103,19 +107,22 @@
 (rf/reg-sub :dashboard/range
   (fn [db _] (:dashboard/range db)))
 
-;; First derived sub: `:<-` declares this sub's input as ANOTHER sub, not
-;; app-db. Here we turn the stored range id into its full record (label,
-;; point count). Base subs above read app-db; these read other subs.
+;; Our first derived sub, and the place to meet `:<-`. It declares this
+;; sub's input as ANOTHER sub rather than app-db. The base subs above read
+;; app-db directly; from here on, subs read other subs. This one's job is
+;; small: take the stored range id and look up its full record (label,
+;; point count).
 (rf/reg-sub :dashboard/selected-range
   :<- [:dashboard/range]
   (fn [range-id _]
     (some #(when (= range-id (:id %)) %) ranges)))
 
-;; The heart of the example. One projection of two independent inputs: the
-;; active tag chips decide membership (`filter`); the selected range decides
-;; each sparkline's length (`take-last points`). Changing either input
-;; re-runs this — and ONLY this, plus anything downstream that moved — so the
-;; UI reads "what's on screen" from a single pure function.
+;; This is the heart of the example — the one function the whole UI reads to
+;; learn what's on screen. It folds two unrelated inputs into one answer: the
+;; active chips decide which cards belong (`filter`), and the selected range
+;; decides how long each sparkline is (`take-last points`). Move either
+;; control and the framework re-runs this — and only this, plus whatever
+;; downstream actually changed. One pure function, one source of truth.
 (rf/reg-sub :dashboard/visible-metrics
   :<- [:dashboard/metrics]
   :<- [:dashboard/active-tags]
@@ -130,12 +137,12 @@
 ;; ============================================================================
 
 (defn- sparkline-path
-  "Return an SVG <path> `d` string for the series, normalised into a
-   100×30 viewBox. Pure — used by `sparkline` below.
+  "Turn a series of numbers into an SVG <path> `d` string, scaled to fit a
+   100×30 viewBox. Pure in, pure out; `sparkline` below draws it.
 
-   Why polyline-via-path: a single <path d=\"M…L…L…\"> renders crisper
-   than <polyline> when the viewBox is small and the stroke is hair-thin
-   (the renderer doesn't anti-alias every vertex twice)."
+   Why a <path> and not a <polyline>: at this tiny size with a hair-thin
+   stroke, one `M…L…L…` path renders noticeably crisper. The renderer
+   isn't anti-aliasing every vertex twice, and your eye can tell."
   [series]
   (let [n     (count series)
         lo    (apply min series)
@@ -154,11 +161,11 @@
 ;; ============================================================================
 
 (defui sparkline [{:keys [series id]}]
-  ;; The card's <header> eyebrow, value, and label already carry the
-  ;; metric's name and value as text, so the sparkline only restates that
-  ;; visually. Mark it `aria-hidden="true"` so a screen reader skips it
-  ;; rather than announcing a nameless graphic on every card; the
-  ;; accessible name lives on the surrounding text.
+  ;; This graphic is decorative, so we hide it from assistive tech with
+  ;; `aria-hidden="true"`. The card's eyebrow, value, and label already say
+  ;; the metric's name and number in text; the sparkline only restates that
+  ;; visually. Left visible, a screen reader would announce a nameless
+  ;; graphic on every card — noise. The accessible name lives in the text.
   ($ :svg.dash-sparkline
      {:viewBox "0 0 100 30"
       :preserveAspectRatio "none"
@@ -173,19 +180,20 @@
                :vector-effect "non-scaling-stroke"})))
 
 (defui delta-badge [{:keys [delta good-when-positive?]}]
-  ;; The arrow follows the *good/bad* reading, not the raw sign, so a
-  ;; green badge never shows a downward arrow (and vice versa). For a
-  ;; down-is-good metric (latency, errors) a fall reads as ▲ green.
+  ;; The arrow points the way the news points, not the way the number does.
+  ;; So a green badge never shows a downward arrow, and vice versa. For a
+  ;; metric where down is good (latency, errors), a drop reads as ▲ green —
+  ;; which is exactly how a human would want to read it.
   (let [good? (if good-when-positive? (pos? delta) (neg? delta))
         pct   (-> delta (* 100) Math/abs (.toFixed 1))]
     ($ :span {:class (str "dash-delta " (if good? "is-good" "is-bad"))}
        (if good? "▲ " "▼ ") pct "%")))
 
 (defn- format-value
-  "Render a metric value for display. Integers are grouped with thousands
-   separators (`142375` → `142,375`); fractional values get two decimals
-   (`3.8` → `3.80`). `.toLocaleString` / `.toFixed` are zero-dependency
-   JS interop — no number-formatting library."
+  "Make a metric value presentable. Whole numbers get thousands separators
+   (`142375` → `142,375`); fractional ones get two decimals (`3.8` →
+   `3.80`). Both come free from JS interop — `.toLocaleString` and
+   `.toFixed` — so there's no number-formatting library to pull in."
   [value]
   (if (integer? value)
     (.toLocaleString value "en-US")
@@ -193,8 +201,8 @@
 
 (defui metric-card [{:keys [metric]}]
   (let [{:keys [id label value unit delta tag series]} metric
-        ;; `$` renders before the value (a prefix unit); `ms` / `%` render
-        ;; after. The flag names the placement, decoupled from the tag.
+        ;; Currency sits before the number ($142,375); everything else sits
+        ;; after (24 ms, 0.42 %). The flag just names where the unit goes.
         prefix-unit? (= "$" unit)
         perf?        (= :perf tag)]
     ($ :article.dash-card
@@ -214,12 +222,12 @@
        ($ sparkline {:series series :id id}))))
 
 (defui filter-chips []
-  ;; MULTI-select toggles: any subset of tags can be on at once. Each chip
-  ;; is a real <button> carrying `aria-pressed` — the value assistive tech
-  ;; reads as the on/off state (the `is-on` CSS class is presentation only).
-  ;; The chips share a `role="group"` with an `aria-label` so a screen
-  ;; reader announces them as one labelled set of toggles, not three loose
-  ;; buttons.
+  ;; These are MULTI-select toggles — any subset of tags can be on at once.
+  ;; Each chip is a real <button> carrying `aria-pressed`, which is the
+  ;; state assistive tech actually reads; the `is-on` CSS class is just
+  ;; paint. Wrapping the row in a `role="group"` with an `aria-label` lets a
+  ;; screen reader announce one labelled set of toggles instead of three
+  ;; loose buttons.
   (let [active-tags (uix-adapter/use-subscribe [:dashboard/active-tags])
         dispatch    (:dispatch (rf/frame-handle))]
     ($ :div.dash-chips {:role "group" :aria-label "Filter metrics by category"}
@@ -235,10 +243,10 @@
               label))))))
 
 (defn- radio-key->step
-  "Map a keydown event's key to the radio-group navigation step, or nil
-   when the key is not a navigation key. The WAI-ARIA radio-group pattern
-   moves selection on the four arrow keys: Right/Down advance, Left/Up
-   retreat (both axes, because the group can wrap either way)."
+  "Read a keydown into a navigation step (+1, -1) for the radio group, or
+   nil if the key isn't one we steer with. The WAI-ARIA radio-group pattern
+   moves selection on all four arrows: Right/Down go forward, Left/Up go
+   back. Both axes, because the group wraps either way."
   [k]
   (case k
     ("ArrowRight" "ArrowDown") 1
@@ -246,22 +254,23 @@
     nil))
 
 (defui range-picker []
-  ;; SINGLE-select mode control: exactly one range is active. This is the
-  ;; real WAI-ARIA radio-group idiom — not just the roles, but the
-  ;; keyboard contract a radio group promises:
+  ;; Where the chips were multi-select, this is SINGLE-select: exactly one
+  ;; range is active. So it's a radio group — and we do the real WAI-ARIA
+  ;; idiom, not just the roles but the keyboard contract a radio group
+  ;; quietly promises:
   ;;
-  ;;   - `role="radiogroup"` on the row, `role="radio"` + `aria-checked`
-  ;;     on each chip, so it announces as a one-of-N choice.
-  ;;   - ROVING TABINDEX: exactly the checked radio is in the tab order
-  ;;     (`tabIndex 0`); the rest are `tabIndex -1`. Tab lands on the
-  ;;     selection, not on each chip in turn.
-  ;;   - ARROW-KEY NAVIGATION: Left/Up and Right/Down move the selection
-  ;;     (with wrap). Per the pattern, selection FOLLOWS focus in a radio
-  ;;     group, so an arrow both dispatches the range change and moves
-  ;;     DOM focus to the newly-selected chip.
+  ;;   - `role="radiogroup"` on the row, plus `role="radio"` + `aria-checked`
+  ;;     on each chip, so the whole thing announces as a one-of-N choice.
+  ;;   - ROVING TABINDEX: only the checked radio is in the tab order
+  ;;     (`tabIndex 0`), the rest are `tabIndex -1`. Tab lands on the current
+  ;;     selection, not on every chip in turn.
+  ;;   - ARROW-KEY NAVIGATION: Left/Up and Right/Down move the selection,
+  ;;     with wrap. The catch is that in a radio group selection FOLLOWS
+  ;;     focus, so an arrow has to do two things at once — dispatch the range
+  ;;     change AND move DOM focus to the chip it just picked.
   ;;
-  ;; The `is-on` class stays presentation-only — `aria-checked` is the
-  ;; state assistive tech reads.
+  ;; As with the chips, `is-on` is paint only; `aria-checked` is the state
+  ;; assistive tech reads.
   (let [active-range-id (uix-adapter/use-subscribe [:dashboard/range])
         dispatch        (:dispatch (rf/frame-handle))
         n               (count ranges)
@@ -273,9 +282,9 @@
                           (let [idx (mod idx n)
                                 {:keys [id]} (nth ranges idx)]
                             (dispatch [:dashboard/set-range id])
-                            ;; Selection follows focus: move DOM focus to
-                            ;; the chip we just selected so the visible
-                            ;; focus ring tracks the radio state.
+                            ;; Selection follows focus, so move the DOM focus
+                            ;; onto the chip we just picked — that keeps the
+                            ;; visible focus ring sitting on the live radio.
                             (when (exists? js/document)
                               (some-> (js/document.querySelector
                                         (str "[data-testid=\"dashboard-range-"
@@ -288,8 +297,8 @@
              ($ :button {:key id
                          :type "button"
                          :role "radio"
-                         ;; Roving tabindex: only the checked radio is
-                         ;; tabbable; arrows move within the group.
+                         ;; Roving tabindex in one line: only the checked
+                         ;; radio is tabbable; arrows do the rest.
                          :tabIndex (if (= idx active-idx) 0 -1)
                          :class (str "dash-chip " (when on? "is-on"))
                          :aria-checked (if on? "true" "false")
@@ -327,27 +336,29 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and materialised lazily inside `run`,
-;; not at ns-load. ns-load must produce no DOM side effects so co-required
-;; example namespaces don't race `create-root` onto the shared `#app`
-;; (examples/TESTING.md, Example mount-isolation convention).
+;; We stash the React root in an atom and create it lazily inside `run`,
+;; never at ns-load. The rule: loading this namespace must touch no DOM, so
+;; that other example namespaces loaded alongside it don't race each other
+;; to `create-root` onto the shared `#app` node (examples/TESTING.md,
+;; Example mount-isolation convention).
 (defonce react-root (atom nil))
 
-;; The frame id this app runs under. The `frame-provider` in `run` creates
-;; this frame, seeds its app-db, and scopes it into React context so
-;; `use-subscribe` and `(rf/frame-handle)` resolve to it. See the guide
-;; glossary (../../../docs/guide/glossary.md#frame-provider).
+;; The id of the frame this app lives in. The `frame-provider` down in `run`
+;; creates it, seeds its app-db, and scopes it into React context — which is
+;; how `use-subscribe` and `(rf/frame-handle)` find it. The guide glossary
+;; covers frame-provider (../../../docs/guide/glossary.md#frame-provider).
 (def app-frame :rf/default)
 
 (defn run []
-  ;; `init!` installs the UIx adapter so re-frame2 knows how to render.
+  ;; `init!` installs the UIx adapter — this is how re-frame2 learns which
+  ;; substrate to render through.
   (rf/init! uix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
-    ;; `{:id …}` creates the app frame on first mount and runs
-    ;; `:initial-events` once to seed app-db. A hot reload reuses the same
-    ;; frame without re-seeding.
+    ;; Passing `{:id …}` creates the app frame on the first mount and fires
+    ;; `:initial-events` once to seed app-db. Save and hot-reload, and it
+    ;; reuses the same frame untouched — no re-seeding, so your state sticks.
     (uix-dom/render-root
       ($ uix-adapter/frame-provider {:id app-frame
                                      :initial-events [[:dashboard/initialise]]}

@@ -1,14 +1,16 @@
 (ns state-machine-walkthrough.views
-  "Browser entry-point for the state-machines walkthrough.
+  "The browser entry-point for the walkthrough — the part you can actually click.
 
-  The pure machine, fxs and subs live in `core.cljc`. This namespace is the
-  CLJS-only browser layer: views + Reagent mount + a `run` fn that redirects
-  `:rf.http/managed` to the canned-failure stub via per-frame :fx-overrides.
+  All the interesting, portable stuff (the pure machine, the fxs, the subs)
+  lives in `core.cljc`. This namespace is purely the CLJS browser skin on top:
+  the views, the Reagent mount, and a `run` fn that points `:rf.http/managed` at
+  the canned-failure stub through per-frame :fx-overrides.
 
-  The demo runs the lockout scenario: three failed attempts cycle
-  :submitting -> :error-shown -> :idle, then a fourth submit fails the
-  `:under-retry-limit` guard and lands at :locked-out. So the stub fails
-  every request."
+  The demo tells one story — the lockout. Three failed attempts walk the machine
+  round the loop :submitting -> :error-shown -> :idle, and then a fourth submit
+  trips the `:under-retry-limit` guard and the machine settles into :locked-out.
+  For that to play out, every request has to fail, which is exactly why we wire
+  in the canned-FAILURE stub here."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -19,20 +21,24 @@
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view ^{:doc "The login form view. The email + password DRAFT is application
-                  state, so it lives in app-db (the `:auth.login/draft` slice):
-                  read via the `:auth.login/draft` sub, written via the
-                  `:auth.login/edit-field` event. The inputs are CONTROLLED —
-                  `:value` reads from the draft sub, `:on-change` dispatches an
-                  edit-field event. Submit reads the draft back out of the sub
-                  and hands it to the machine via :auth.login/flow →
-                  :auth.login/submit.
+(reg-view ^{:doc "The login form. Two threads of state run through it, and the
+                  whole view is easier to read once you separate them.
 
-                  The machine owns submit/auth STATUS; the slice owns the DRAFT
-                  (docs/guide/how-to/build-a-form.md). To branch on status the
-                  view asks the machine for a tag via `rf/machine-has-tag?`,
-                  reading its `:tags` set rather than the current state keyword —
-                  so adding a new busy state changes no view
+                  Thread one is the DRAFT — the email and password being typed.
+                  That's application state, so it lives in app-db under the
+                  `:auth.login/draft` slice: read through the `:auth.login/draft`
+                  sub, written through the `:auth.login/edit-field` event. The
+                  inputs are CONTROLLED off it — `:value` comes from the sub,
+                  `:on-change` dispatches an edit-field event — and on submit we
+                  read the draft back out of the sub and hand it to the machine
+                  via :auth.login/flow → :auth.login/submit.
+
+                  Thread two is STATUS — busy? locked? — and that belongs to the
+                  machine, not the slice (docs/guide/how-to/build-a-form.md). The
+                  view never asks 'which state are we in?'; it asks 'is this tag
+                  set?' via `rf/machine-has-tag?`. Branch on the `:tags` set, not
+                  on state keywords, and adding a brand-new busy state down the
+                  line touches exactly zero views
                   (docs/machines/glossary.md#state-tag)."}
           login-form []
   (let [busy?   @(rf/machine-has-tag? :auth.login/flow :auth/busy)
@@ -71,9 +77,11 @@
                                          [:auth.login/dismiss]])}
          "Dismiss"]])]))
 
-(reg-view ^{:doc "Top banner reflecting the machine's current state. The
-                  `data-state` attribute surfaces the state keyword so a
-                  test can assert the lockout transition."}
+(reg-view ^{:doc "A little banner up top that names the machine's current state —
+                  handy for watching the transitions happen live. The
+                  `data-state` attribute mirrors the state keyword into the DOM
+                  so a test can assert the lockout transition without squinting
+                  at pixels."}
           status-banner []
   (let [state @(subscribe [:auth.login/state])]
     [:div.banner
@@ -82,7 +90,7 @@
                      :data-state (when state (name state))}
       (if state (name state) "(uninitialised)")]]))
 
-(reg-view ^{:doc "Locked-out terminal panel."}
+(reg-view ^{:doc "The end of the road: what you see once the account locks out."}
           locked-panel []
   [:div.locked {:data-testid "locked-panel"}
    [:h2 "Account locked"]
@@ -101,29 +109,35 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is held in an atom and created lazily inside `run`, never at
-;; ns-load. ns-load must produce no DOM side effects, so co-required examples
-;; don't race `create-root` onto the shared `#app`. See examples/TESTING.md
-;; "Convention: defer DOM mount to `run`".
+;; We stash the React root in an atom and create it lazily inside `run` — never
+;; at ns-load. The rule: loading a namespace must touch no DOM. Otherwise two
+;; examples co-required into one page would both race to `create-root` onto the
+;; shared `#app`, and exactly one would win. See examples/TESTING.md, "Convention:
+;; defer DOM mount to `run`".
 (defonce react-root (atom nil))
 
 (defn run []
-  ;; Install the Reagent adapter — pass its spec map straight to init!.
+  ;; Tell re-frame2 which substrate to render through by handing init! the
+  ;; Reagent adapter's spec map. One call, done.
   (rf/init! reagent-adapter/adapter)
-  ;; `frame-provider {:id …}` creates, configures and seeds the app frame. On
-  ;; first mount it creates the `:rf/default` frame, applies the config, and
-  ;; runs `:initial-events` once. On hot reload it reuses that frame and skips
-  ;; re-seeding, so your typed-in draft survives. The `dispatch`/`subscribe`
-  ;; that `reg-view` injects resolve to this frame.
+  ;; `frame-provider {:id …}` is the do-everything entry point for the frame:
+  ;; it creates it, configures it, and seeds it. First mount creates the
+  ;; `:rf/default` frame, applies the config, and runs `:initial-events` once.
+  ;; A hot reload reuses that same frame and skips the re-seed — which is the
+  ;; small kindness that keeps the draft you'd just typed from vanishing on
+  ;; save. The `dispatch`/`subscribe` that `reg-view` quietly injects into the
+  ;; views all resolve to this frame.
   ;;
-  ;; `:fx-overrides` swaps `:rf.http/managed` for the canned-failure stub, so
-  ;; every login request fails — the lockout scenario needs three failures.
+  ;; `:fx-overrides` redirects `:rf.http/managed` to the canned-FAILURE stub, so
+  ;; every login attempt fails on purpose — the lockout demo can't lock anyone
+  ;; out without three failures to work with.
   ;;
-  ;; The login machine spawns itself on its first event. The form DRAFT slice
-  ;; does not, so `:initial-events` seeds it before first render: the controlled
-  ;; inputs read `:value` off `[:auth :login-form :draft]`, and that slot must
-  ;; already hold empty strings (a nil there makes React treat the inputs as
-  ;; uncontrolled).
+  ;; One subtlety worth pausing on: the machine seeds itself on its first event,
+  ;; but the DRAFT slice does not. So `:initial-events` seeds the draft before
+  ;; the first render. The controlled inputs read `:value` off
+  ;; `[:auth :login-form :draft]`, and that slot has to already hold empty
+  ;; strings — leave a nil there and React decides the inputs are uncontrolled,
+  ;; which is a confusing afternoon you can skip by seeding up front.
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

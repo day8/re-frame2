@@ -1,35 +1,33 @@
 (ns boot.schema
-  "Malli schemas for the boot example. See schemas in the guide
-   (docs/guide/glossary.md#schema).
+  "Malli schemas for the boot example. New to schemas? The guide has the
+   tour (docs/guide/glossary.md#schema).
 
-   The schemas describe three things: the wire shape each mocked
-   endpoint returns, the boot-machine snapshot's `:data`, and the child
-   loader's `:data`.
+   These schemas cover three things: the wire shape each mocked endpoint
+   returns, the boot machine's snapshot `:data`, and the child loader's
+   `:data`.
 
-   Two kinds of schema surface appear, picked by what each one validates:
+   They attach in two different ways, and the difference is just *where
+   the thing being validated lives*:
 
-   - **App-db slices** — the `[:boot/staging]` slot and the four
-     top-level slices (`[:config]`, `[:flags]`, `[:user]`, `[:routes]`)
-     live at fixed app-db paths, so they attach with `rf/reg-app-schema`
-     on those paths. App schemas validate the app-db partition only.
-   - **Machine `:data`** — both the `:app/boot` machine and the spawned
-     `:boot/loader` child declare a `[:schemas :data]` slot on
-     `reg-machine` (see `boot.cljs`) that validates the snapshot's `:data`.
-     `BootData` describes the `:app/boot` machine's `:data`; `LoaderData`
-     describes each spawned loader's `:data`, validated at spawn time. A
-     spawned loader gets a generated id like `:boot/loader#0`, so its
-     snapshot sits at a per-instance path no fixed `reg-app-schema` could
-     reach. Machine snapshots live in runtime-db, not app-db, so
-     `reg-app-schema` is not the surface for them
-     (docs/guide/glossary.md#runtime-db)."
+   - **App-db slices** sit at fixed app-db paths — `[:boot/staging]` plus
+     the four top-level slices (`[:config]`, `[:flags]`, `[:user]`,
+     `[:routes]`). Those attach with `rf/reg-app-schema` on the path.
+   - **Machine `:data`** can't go through `reg-app-schema`, because a
+     snapshot lives in runtime-db, not app-db (docs/guide/glossary.md#runtime-db).
+     Instead, each machine carries its own `[:schemas :data]` slot on
+     `reg-machine` (see `boot.cljs`). `BootData` validates the `:app/boot`
+     machine's `:data`; `LoaderData` validates each spawned loader's
+     `:data` at spawn time. (A spawned loader gets a generated id like
+     `:boot/loader#0`, so its snapshot lands at a per-instance path no
+     fixed `reg-app-schema` could ever name.)"
   (:require [re-frame.core :as rf]
-            ;; Schemas ship in a separate artefact. The require registers
+            ;; Schemas ship in their own artefact; this require registers
             ;; `rf/reg-app-schema`.
             [re-frame.schemas]
-            ;; The Malli adapter ns publishes the default validator. The
-            ;; require is the CLJS opt-in for Malli validation — without it
-            ;; the default validator soft-passes and no failure trace fires
-            ;; for malformed app-db slices.
+            ;; This one turns Malli validation on. The Malli adapter ns
+            ;; publishes the default validator, and requiring it is the CLJS
+            ;; opt-in — skip it and the validator soft-passes, so a malformed
+            ;; slice slides through with no failure trace.
             [re-frame.schemas.malli])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
@@ -38,8 +36,8 @@
 ;; ============================================================================
 
 (def Config
-  "Static app configuration. In a real app this would arrive from a
-   build-time /config endpoint; here the demo stub synthesises a
+  "Static app configuration. In a real app this rides in from a
+   build-time /config endpoint; here the demo stub makes up a
    plausible payload."
   [:map
    [:api-base    :string]
@@ -48,26 +46,26 @@
    [:title       :string]])
 
 (def Flags
-  "Feature flags. The map is open — apps add their own keys; the
-   schema only fixes the well-known ones."
+  "Feature flags. The map is open on purpose — apps bring their own
+   keys; the schema only pins down the well-known ones."
   [:map
    [:dark-mode?       :boolean]
    [:beta-channel?    :boolean]
    [:onboarding-skip? :boolean]])
 
 (def User
-  "Initial user record. In a real app this would arrive from /user
-   after the session token is restored. Here the demo stub returns
-   a static demo user."
+  "The initial user record. In a real app this arrives from /user once
+   the session token is restored; here the demo stub just returns a
+   fixed demo user."
   [:map
    [:id       :string]
    [:username :string]
    [:email    :string]])
 
 (def Routes
-  "Application route table. In a real app this might be hard-coded;
-   here we fetch it so the boot graph has four parallel dependencies
-   to demonstrate `:spawn-all`."
+  "The app's route table. A real app might hard-code this — we fetch it
+   instead, purely so the boot graph has a fourth dependency and the
+   parallel `:spawn-all` step has something to fan out over."
   [:vector
    [:map
     [:id   :keyword]
@@ -77,16 +75,15 @@
 ;; BOOT-MACHINE :data SHAPE — :app/boot
 ;; ============================================================================
 ;;
-;; The boot machine's snapshot lives in runtime-db. Its `:state` cycles
-;; `:configuring → :loading-deps → :hydrating → :ready` (terminal), with
-;; `:failed` (terminal) reached if any child errors. `:data` carries the
-;; per-phase progress slot and the loaded payloads.
+;; The boot machine's snapshot lives in runtime-db. Its `:state` walks
+;; `:configuring → :loading-deps → :hydrating → :ready` (terminal), branching
+;; to `:failed` (terminal) if any child errors. `:data` carries the current
+;; phase and the loaded payloads.
 ;;
-;; `BootData` describes the `:data` slot only, not the whole
-;; `{:state … :data …}` snapshot. It attaches via the `:app/boot` machine's
+;; `BootData` describes the `:data` slot only — not the whole
+;; `{:state … :data …}` snapshot — and attaches through the machine's
 ;; `[:schemas :data]` slot on `reg-machine` (see `boot.cljs`). Every payload
-;; slot is `:maybe` because they are nil through the staging/loading phases
-;; and only fill on entering `:hydrating`.
+;; slot is `:maybe`, because it's nil right up until `:hydrating` fills it in.
 
 (def BootData
   [:map
@@ -101,42 +98,41 @@
 ;; CHILD LOADER :data SHAPE — :boot/loader (one instance per asset)
 ;; ============================================================================
 ;;
-;; The `:data` slot of the `:boot/loader` child machine. Each loader holds
-;; the parent-id + child-id + staging-key + URL it was spawned with, fetches
-;; once, and dispatches `:boot/asset-loaded` (or `:boot/asset-failed`) back
-;; to its parent on transition into `:done` (or `:failed`). Attached via the
-;; child machine's `[:schemas :data]` slot on `(reg-machine :boot/loader ...)`
-;; in `boot.cljs`; it describes `:data` only and validates each spawned
-;; instance's initial `:data` at spawn time. The per-child `:data` fn (see
-;; :app/boot) plants identity only, so the fetch-result fields below are
-;; optional — they appear later, as the loader moves through `:loading` into
-;; `:done` / `:failed`.
+;; The `:data` of a `:boot/loader` child. Each loader knows the parent-id,
+;; child-id, staging-key, and URL it was spawned with, fetches once, and on
+;; reaching `:done` (or `:failed`) reports `:boot/asset-loaded` (or
+;; `:boot/asset-failed`) back to its parent. It attaches through the child's
+;; `[:schemas :data]` slot on `(reg-machine :boot/loader ...)` in `boot.cljs`,
+;; describing `:data` only and checking each spawned instance at spawn time.
+;; At spawn the parent plants identity and nothing else, so the result fields
+;; below are optional — they show up later, as the loader works through
+;; `:loading` into `:done` / `:failed`.
 
 (def LoaderData
   [:map
-   ;; Identity, planted by the parent's per-child `:data` fn — present from
-   ;; spawn (see :app/boot in boot.cljs).
+   ;; The identity the parent's `:data` fn plants — there from spawn (see
+   ;; :app/boot in boot.cljs).
    [:parent-id   :keyword]
    [:child-id    :keyword]
    [:staging-key :keyword]
    [:url         :string]
-   ;; Filled in only once the fetch replies (the `:asset/replied` action
-   ;; writes :payload or :error). Absent at spawn, so both are optional.
+   ;; Written only once the fetch replies — the `:asset/replied` action sets
+   ;; one of :payload / :error. Nothing at spawn, hence optional.
    [:payload     {:optional true} :any]
    [:error       {:optional true} [:maybe :any]]
-   ;; Address keys the spawn fx stamps into the spawned child's initial
-   ;; :data. Declared optional so the schema documents them; a Malli :map is
-   ;; open, so they'd pass undeclared too.
+   ;; Address keys the spawn fx stamps into the child's initial :data. A Malli
+   ;; :map is open, so they'd pass undeclared anyway — we list them just so
+   ;; the schema names them out loud.
    [:rf/self-id   {:optional true} :any]
    [:rf/parent-id {:optional true} :any]
    [:rf/invoke-id {:optional true} :any]])
 
 (def BootStagingSlice
-  "Shape of `[:boot/staging]` — the per-child hand-off slot the
-   `:spawn-all` children write into and the parent's
-   `:enter-hydrating` action reads from. Each key is optional because
-   the slot is filled incrementally as children complete; once the
-   join resolves all four keys carry their per-child payloads."
+  "Shape of `[:boot/staging]` — the hand-off slot the `:spawn-all`
+   children write into and the parent's `:enter-hydrating` action reads
+   back. Every key is optional because the slot fills in piecemeal, one
+   child at a time; by the moment the join resolves, all four are
+   present and carrying their payloads."
   [:map
    [:config {:optional true} [:maybe Config]]
    [:flags  {:optional true} [:maybe Flags]]
@@ -147,32 +143,27 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 
-;; The runtime rolls back post-commit on a failing app-db schema. The slots
-;; below are nil before the boot machine writes them, so every registration
-;; is wrapped in :maybe to pass during the staging/loading phases.
+;; A failing app-db schema makes the runtime roll the commit back. Each slot
+;; below starts out nil — the boot machine fills it in later — so every
+;; registration wears a `:maybe` to stay valid through the loading phases.
+;; (No machine snapshots here: those validate via the machine's own
+;; `:schemas {:data ...}` in boot.cljs. A `reg-app-schema` on a snapshot path
+;; would guard nothing, since snapshots live in runtime-db, not app-db.)
 
-;; Machine snapshots are runtime-db state, not app-db, so a `reg-app-schema`
-;; on a machine-snapshot path would validate nothing. The `:app/boot`
-;; machine's own `:schemas {:data schema/BootData}` (on `reg-machine` in
-;; boot.cljs) is its snapshot-`:data` surface. The `reg-app-schema` calls
-;; below validate only the app-db slices.
-
-;; `reg-app-schema` is frame-local: a bare ns-load call under no scope
-;; raises `:rf.error/no-frame-context`. This example's app runs in the
-;; `:rf/default` frame (see `core/run`), so name the frame explicitly here
-;; via `with-frame` — the registrations carry a frame stamp even though they
-;; land at module-load before `init!`.
+;; One wrinkle worth knowing: `reg-app-schema` is frame-local, so a bare
+;; ns-load call with no frame in scope raises `:rf.error/no-frame-context`.
+;; This app lives in the `:rf/default` frame (see `core/run`), so we name that
+;; frame explicitly with `with-frame`. The registrations then carry a frame
+;; stamp even though they run at module-load, before `init!`.
 (with-frame :rf/default
-  ;; The :spawn-all children stage their payloads into [:boot/staging]
-  ;; before signalling completion. The :enter-hydrating action reads the
-  ;; staging slot and promotes each payload into the top-level slot below.
-  ;; Registered here so the staging writes are schema-validated like every
-  ;; other slice.
+  ;; The :spawn-all children stage their payloads into [:boot/staging] before
+  ;; signalling done, and :enter-hydrating reads them back out. We register
+  ;; the slot so those staging writes get schema-checked like everything else.
   (rf/reg-app-schema [:boot/staging] {:schema [:maybe BootStagingSlice]})
 
-  ;; The boot machine writes its final payloads into top-level app-db slices
-  ;; on entering `:hydrating`. These are the slices the main app reads via
-  ;; subs once the boot reaches `:ready`.
+  ;; The boot machine promotes its final payloads into these top-level slices
+  ;; on entering `:hydrating` — the very slices the main app reads through subs
+  ;; once the boot hits `:ready`.
   (rf/reg-app-schema [:config] {:schema [:maybe Config]})
   (rf/reg-app-schema [:flags]  {:schema [:maybe Flags]})
   (rf/reg-app-schema [:user]   {:schema [:maybe User]})

@@ -1,19 +1,21 @@
 (ns login.stories
-  "Story showcase for the login worked example.
+  "A Story showcase for the login example.
 
-   The login form's view-states make a natural Story variant set —
-   Story's strength is enumerating one view's states side by side. This
-   file registers one `reg-variant` per reachable state of the example's
-   `:auth.login/flow` machine, so the controls panel flips the page
-   through every state without the reader hand-driving the form. See the
-   Story guide (docs/story/index.md).
+   Story does one thing beautifully: it lines up every state of a single
+   view, side by side, so you can see them all at once instead of clicking
+   your way there one at a time. A login form is a perfect fit, because its
+   states are exactly the machine's states. So this file registers one
+   `reg-variant` per reachable state of `:auth.login/flow`, and the controls
+   panel becomes a remote control that flips the page through the whole flow
+   — no typing into the form required. See the Story guide
+   (docs/story/index.md).
 
    The machine has five states:
 
        :idle → :submitting → {:error-shown | :authed | :locked-out}
 
-   The variants map onto the states a reader actually reaches, each
-   driven through real events:
+   And here are the variants, each one a real, reachable state driven by
+   real events (no faking the snapshot):
 
      :story.login/empty               — fresh `:idle` form.
      :story.login/filled              — a draft typed into the app-db
@@ -29,11 +31,12 @@
      :story.login/success             — `:authed` welcome banner; the
                                         canonical screenshot.
 
-   The auth-submit cascade in Xray
+   Watching the auth-submit cascade in Xray
 
-   Each variant runs in its own frame under `:preset :story`, which
-   redirects `:rf.http/managed` to the framework's canned-success stub.
-   So a real submit runs the full auth cascade end to end:
+   Here's the part that's genuinely fun. Each variant runs in its own frame
+   under `:preset :story`, which quietly redirects `:rf.http/managed` to the
+   framework's canned-success stub. So a submit isn't a mock — it's the real
+   cascade, running end to end:
 
        [:auth.login/flow [:auth.login/submit creds]]   (→ :submitting)
          → machine `:issue-request` action
@@ -42,25 +45,25 @@
                  → [:auth.login/flow [:auth.login/success …]]
                      → :authed
 
-   The whole chain lands on the Epoch tape and the Trace stream, and the
-   `:rf.http/managed` fx shows in the Side Effects panel — pick the
-   `:success` variant, press Ctrl+Shift+C, and watch it light up.
+   Every hop lands on the Epoch tape and the Trace stream, and the
+   `:rf.http/managed` fx surfaces in the Side Effects panel. Pick the
+   `:success` variant, press Ctrl+Shift+C, and watch the whole thing light
+   up like a pinball table.
 
-   Two variants light Xray's Issues ribbon:
-     - `:invalid-credentials` — the malformed `:submit` is rejected by
-       the `Credentials` schema at the event boundary; the handler never
-       runs and an Issue is raised.
+   Two variants deliberately set off Xray's Issues ribbon — because seeing
+   the framework *catch* a mistake is half the lesson:
+     - `:invalid-credentials` — the malformed `:submit` bounces off the
+       `Credentials` schema at the boundary; the handler never runs, and an
+       Issue is raised.
      - `:auth-error` / `:locked-out` — a 401 failure cascade; the
        `:rf.http/managed` request fires (Side Effects) and the
        `:auth.login/failure` follow-on records the error.
 
-   Every variant body is plain data — no fn-slots. The view at the
-   centre of each is the example's own `login.core/root-view`,
-   referenced by id. The canonical Story tags auto-install on the first
-   `reg-*` call, so no explicit boot step is needed.
-
-   Examples are test-free: these stories carry no `:script` /
-   `:rf.assert/*` — they are a showcase, not a test surface."
+   One more thing worth noticing: every variant body below is plain data —
+   no function slots anywhere. The view at the heart of each is the
+   example's own `login.core/root-view`, named by id. And the canonical
+   Story vocabulary installs itself on the first `reg-*` call, so there's no
+   boot step to remember."
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
             ;; Source the example's registrations (the machine, schemas,
@@ -70,22 +73,22 @@
             [login.core]))
 
 ;; ---------------------------------------------------------------------------
-;; Story-side submit event — the Xray-rich auth-submit cascade.
+;; The story-side submit — our way of triggering the full, Xray-rich cascade.
 ;;
-;; The machine's `:issue-request` action issues a real `:rf.http/managed`
-;; request and routes the reply back through `:auth.login/success` /
-;; `:auth.login/failure`. Each variant frame runs under `:preset :story`,
-;; which redirects `:rf.http/managed` to the framework's canned-success
-;; stub (that stub echoes the request's `:value` slot back as the success
-;; payload).
+;; Recall what the machine does on submit: its `:issue-request` action fires
+;; a real `:rf.http/managed` request and pipes the reply back through
+;; `:auth.login/success` / `:auth.login/failure`. And recall the `:preset
+;; :story` frame redirects `:rf.http/managed` to the framework's
+;; canned-success stub (which just echoes the request's `:value` slot back
+;; as the payload).
 ;;
-;; So this event simply dispatches the real `:auth.login/submit`
-;; sub-event: the same machine action fires the same real
-;; `:rf.http/managed` fx (visible in Xray's Side Effects panel), and the
-;; canned-success stub resolves it — no app-side fx-override needed. The
-;; reply `:value` is nil (the request carries none), but the welcome
-;; banner keys off the `:auth/authenticated` tag, so the cascade lands
-;; cleanly at `:authed`.
+;; Put those together and this event has almost nothing to do: it just
+;; dispatches the real `:auth.login/submit`. Same machine action, same real
+;; fx (right there in Xray's Side Effects panel), and the canned stub
+;; answers it — no app-side override needed. The reply `:value` happens to
+;; be nil (we sent none), but that's fine: the welcome banner keys off the
+;; `:auth/authenticated` tag, not the payload, so the flow still settles
+;; happily at `:authed`.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event :login.story/submit
@@ -102,25 +105,27 @@
 ;; ---------------------------------------------------------------------------
 ;; register-all!
 ;;
-;; Every registration lives in one top-level fn so a hot-reload can
-;; re-fire the lot. The fn runs once at namespace load via the trailing
-;; call, so requiring this ns populates the Story registry.
+;; We gather every registration into one top-level fn for a practical
+;; reason: hot-reload can then re-fire the whole set in one go. The trailing
+;; call at the bottom runs it once on load, so merely requiring this ns is
+;; enough to populate the Story registry.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private good-creds
-  "Credentials the demo accepts (mirrors `login.core/good-password`).
-   Only used to shape the submit payload past the `Credentials`
-   boundary schema; the canned-success stub ignores them."
+  "Credentials the demo would accept (they mirror `login.core/good-password`).
+   We only need them to get a submit payload past the `Credentials` boundary
+   schema — once it's through, the canned-success stub doesn't even look at
+   them."
   {:email "ada@example.com" :password "correct-horse"})
 
 (defn register-all!
-  "Register the login example's Story artefacts. Idempotent.
-   The canonical vocabulary auto-installs on the first `reg-*` call
-   — no explicit boot step required."
+  "Register all of the login example's Story artefacts. Safe to call twice —
+   it's idempotent, and the canonical vocabulary installs itself on the first
+   `reg-*` call, so there's no separate boot step to remember."
   []
 
   ;; -------------------------------------------------------------------------
-  ;; reg-tag — a project tag marking the canonical screenshot variant.
+  ;; reg-tag — one project tag, marking which variant is the "hero" shot.
   ;; -------------------------------------------------------------------------
 
   (story/reg-tag :login/canonical
@@ -128,9 +133,9 @@
           screenshot — the `:success` welcome-banner state."})
 
   ;; -------------------------------------------------------------------------
-  ;; reg-story — the parent story. Its `:component` (the example's
-  ;; `root-view`) and `:tags` inherit down to every variant below; the
-  ;; per-state setup lives on the variants.
+  ;; reg-story — the parent. Think of it as the shared backdrop: its
+  ;; `:component` (the example's `root-view`) and `:tags` flow down to every
+  ;; variant, so each variant only has to describe what makes it different.
   ;; -------------------------------------------------------------------------
 
   (story/reg-story :story.login
@@ -141,14 +146,17 @@
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
-  ;; reg-variant — the reachable states, each driven through real events;
-  ;; no `:db-seed` / `:sub-overrides`.
+  ;; reg-variant — the reachable states, one per variant. The house style
+  ;; here: drive each into place with real events, never by hand-poking the
+  ;; db (`:db-seed`) or faking subs (`:sub-overrides`). What you see is what
+  ;; the real flow produces.
   ;; -------------------------------------------------------------------------
 
-  ;; Empty — the entry state. The variant fires a no-op
-  ;; `:auth.login/dismiss` so the machine's `:initial` cascade seeds the
-  ;; snapshot; without it the `[:rf.runtime/machines :snapshots
-  ;; :auth.login/flow]` runtime-db slot is nil until the first real event.
+  ;; Empty — the state a user first lands on. The one bit of stage-setting:
+  ;; we fire a harmless `:auth.login/dismiss` to nudge the machine's
+  ;; `:initial` cascade into seeding the snapshot. Without that nudge the
+  ;; `[:rf.runtime/machines :snapshots :auth.login/flow]` slot sits nil until
+  ;; the first real event, and there'd be nothing to render.
   (story/reg-variant :story.login/empty
     {:doc        "Fresh form, nothing typed, no submit clicked — the
                  `:idle` entry state a user lands on. Email + password
@@ -157,11 +165,11 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Filled — the user has typed into both fields but not yet submitted.
-  ;; The draft is seeded by dispatching the same `:auth.login/edit-field`
-  ;; events the controlled inputs fire on keystroke, writing into the
-  ;; app-db login-form slice. The machine stays `:idle` (no submit yet);
-  ;; the inputs render the seeded draft as their `:value`.
+  ;; Filled — both fields typed, nothing submitted. We get there honestly:
+  ;; by dispatching the very same `:auth.login/edit-field` events a real
+  ;; keystroke fires, which write into the app-db slice. The machine stays
+  ;; `:idle`, and the inputs show the seeded draft as their `:value`. No
+  ;; shortcuts.
   (story/reg-variant :story.login/filled
     {:doc        "Both fields filled in, nothing submitted yet — the form
                  mid-edit. The draft was typed into the app-db login-form
@@ -173,12 +181,13 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Submitting — a submit is in flight. `force-fx-stub` intercepts the
-  ;; `:rf.http/managed` fx the `:issue-request` action emits: the stub
-  ;; records the call (visible in Side Effects) but resolves NOTHING, so
-  ;; no `:success` / `:failure` follow-on fires and the canvas locks at
-  ;; `:submitting` (`:auth/busy`) — inputs disabled, button reads
-  ;; "Signing in…".
+  ;; Submitting — frozen mid-request, on purpose. The trick is
+  ;; `force-fx-stub`: it catches the `:rf.http/managed` fx that
+  ;; `:issue-request` emits, records it (you'll see it in Side Effects), and
+  ;; then deliberately answers nothing. With no reply, no `:success` /
+  ;; `:failure` ever fires, so the canvas is stuck in `:submitting`
+  ;; (`:auth/busy`) — inputs disabled, button reading "Signing in…". A
+  ;; freeze-frame of the in-flight moment.
   (story/reg-variant :story.login/submitting
     {:doc        "First submit; the HTTP request is in flight. Inputs
                  are disabled and the button reads 'Signing in…'. The
@@ -189,10 +198,10 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Invalid credentials — a malformed `:submit` (short password, bad
-  ;; email) is rejected by the `Credentials` boundary schema before the
-  ;; handler runs. The machine never transitions out of `:idle`; the
-  ;; rejection raises an Issue that lights Xray's Issues ribbon.
+  ;; Invalid credentials — the schema doing its job. We submit a deliberately
+  ;; bad payload (short password), and the `Credentials` boundary schema
+  ;; turns it away before the handler runs. The machine never leaves `:idle`,
+  ;; and the rejection raises an Issue you can watch light up Xray's ribbon.
   (story/reg-variant :story.login/invalid-credentials
     {:doc        "A malformed submit (too-short password) is rejected at
                  the event-schema boundary — the `:auth.login/flow`
@@ -204,12 +213,12 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Auth error — the server rejected the credentials. The fx-stub
-  ;; intercepts the real request (recorded in Side Effects), then the
-  ;; variant manually drives the `:auth.login/failure` sub-event the
-  ;; stubbed-out request would otherwise have triggered — the canonical
-  ;; Story shape for pinning a specific terminal state regardless of
-  ;; timing. The machine lands at `:error-shown` with the error surfaced.
+  ;; Auth error — the 401. We stub out the real request (still recorded in
+  ;; Side Effects), then drive the `:auth.login/failure` ourselves — the one
+  ;; the request would have triggered had we let it answer. Driving the
+  ;; outcome by hand is the standard Story move for pinning a precise terminal
+  ;; state without being at the mercy of timing. The flow settles at
+  ;; `:error-shown`, error message and all.
   (story/reg-variant :story.login/auth-error
     {:doc        "Server rejected the credentials. The form is
                  re-enabled and the error message surfaces under the
@@ -225,11 +234,11 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Locked out — the fourth terminal state. Once the flow has had three
-  ;; prior failed attempts the `:under-retry-limit` guard fails, so the
-  ;; next failure routes to `:locked-out` (and the `:lock-account` action
-  ;; fires a real `:rf.http/managed` lock request). The variant sequences
-  ;; submit → failure four times to exhaust the limit.
+  ;; Locked out — the dead end. After three failures the `:under-retry-limit`
+  ;; guard gives out, so the fourth failure routes to `:locked-out` and fires
+  ;; the `:lock-account` request (a real `:rf.http/managed` call). There's no
+  ;; shortcut to "three strikes already used", so this variant simply walks
+  ;; the path: submit → failure, four times over, until the limit is spent.
   (story/reg-variant :story.login/locked-out
     {:doc        "Too many failed attempts — the `:under-retry-limit`
                  guard fails on the fourth failure and the flow reaches
@@ -253,12 +262,12 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Success — the canonical screenshot. The full real auth cascade runs
-  ;; through `:login.story/submit`: real submit → `:issue-request` →
-  ;; real `:rf.http/managed` fx → canned-success reply →
-  ;; `:auth.login/success` → `:authed`. Pick this variant + Ctrl+Shift+C
-  ;; to watch the whole cascade light up Xray's Epoch / Trace / Side
-  ;; Effects panels.
+  ;; Success — the hero shot, and the most satisfying one to inspect. The
+  ;; whole real cascade runs through `:login.story/submit`: submit →
+  ;; `:issue-request` → real `:rf.http/managed` fx → canned reply →
+  ;; `:auth.login/success` → `:authed`. Open this one, hit Ctrl+Shift+C, and
+  ;; watch the full chain march across Xray's Epoch / Trace / Side Effects
+  ;; panels.
   (story/reg-variant :story.login/success
     {:doc        "Server accepted the credentials. The form is replaced
                  by the 'Welcome!' banner (`:authed`). The full
@@ -270,11 +279,13 @@
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
-  ;; reg-workspace — two layouts over the variant set.
+  ;; reg-workspace — two ways to look at the same set of variants.
   ;;
-  ;; `:grid` pins the states in narrative order for the README
-  ;; screenshot; `:variants-grid` auto-enumerates every variant of the
-  ;; parent story (new variants appear without touching the workspace).
+  ;; The `:grid` one is hand-curated: it pins the states in narrative order
+  ;; for the README screenshot. The `:variants-grid` one is the lazy
+  ;; (read: maintainable) twin — it auto-enumerates every variant of the
+  ;; parent story, so a new variant shows up here on its own without anyone
+  ;; editing this workspace.
   ;; -------------------------------------------------------------------------
 
   (story/reg-workspace :Workspace.login/all-states
@@ -301,5 +312,5 @@
      :columns 3
      :tags    #{:docs}}))
 
-;; Fire the registrations once at namespace load.
+;; And go: register everything, once, the moment this ns loads.
 (register-all!)
