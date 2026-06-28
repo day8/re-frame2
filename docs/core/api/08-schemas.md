@@ -4,7 +4,7 @@ Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You registe
 
 Schemas describe **shape and validation**. Durable `app-db` data classification is *not* a schema concern (see [EP-0025](../../EP/EP-0025-data-classification.md)): a schema must not be a second route to classify an `app-db` path the **event** already owns (the event is `app-db`'s definition site — see below). Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (commit-plane classification effects for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../how-to/keep-secrets-out-of-traces.md).
 
-This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the canonical contracts, see [010-Schemas.md](../../../spec/010-Schemas.md), [015-Data-Classification.md](../../../spec/015-Data-Classification.md), and [Privacy.md](../../../spec/Privacy.md).
+This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the working guides, see [Validate with schemas](../how-to/validate-with-schemas.md) and [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
 
 This chapter spans `re-frame.core` (the `reg-app-schema` / `reg-app-schemas` macros) and `re-frame.schemas` (schema introspection):
 
@@ -42,6 +42,7 @@ This chapter spans `re-frame.core` (the `reg-app-schema` / `reg-app-schemas` mac
 - **Example**:
   ```clojure
   (rf/reg-app-schemas
+    ;; AuthState and ArticlesState are Malli schemas you define elsewhere
     {[:auth]     AuthState
      [:articles] ArticlesState})
   ```
@@ -49,7 +50,7 @@ This chapter spans `re-frame.core` (the `reg-app-schema` / `reg-app-schemas` mac
 
 The path-keyed-not-id-keyed asymmetry is principled. Paths are first-class in `get-in` / `assoc-in` / `update-in`; schemas-at-paths matches the dataflow grain; the lookup site (`app-schema-at [:user]`) reads the same way the write site (`(assoc-in db [:user] ...)`) reads. Spelling it as `(reg-app-schema :user/schema {:schema schema})` would have shifted the registration's id away from the dataflow grain.
 
-See [Conventions §`reg-*` return-value rule](../../../spec/Conventions.md#reg--return-value-convention) for the wider convention this row participates in.
+See [01 — Core › Registration](01-core.md#registration) for the `reg-*` return-value convention this row participates in.
 
 ## Introspection
 
@@ -165,11 +166,12 @@ Durable `app-db` data classification is **event-owned** — a `reg-event` handle
 - `:clear-sensitive` — un-classify the listed paths' sensitive marking when their ownership ends.
 - `:clear-large` — un-classify the listed paths' large marking when their ownership ends.
 
-Composition: sensitive-drop wins; full teaching in [Guide ch.23](../how-to/keep-secrets-out-of-traces.md), normative in spec 009/015.
+Composition: sensitive-drop wins; full teaching in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
 
 ## See also
 
 - [01 — Core](01-core.md) — `reg-app-schema` / `reg-app-schemas` rowed in registration.
 - [03 — Effects and interceptors](03-effects.md) — `validate-at-boundary-interceptor` rowed in the interceptor table.
 - [11 — Instrumentation](11-instrumentation.md) — `project-egress` / `elide-wire-value` and the trace-surface privacy posture.
-- [Spec 010 — Schemas](../../../spec/010-Schemas.md), [015-Data-Classification.md](../../../spec/015-Data-Classification.md), [Privacy.md](../../../spec/Privacy.md), [Security.md](../../../spec/Security.md).
+- [Validate with schemas](../how-to/validate-with-schemas.md) — the working guide to schemas at `app-db` paths.
+- [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) — data classification, sensitivity, and large values.

@@ -2,7 +2,7 @@
 
 A resource is a named, cached read of remote state — re-frame2's answer to TanStack Query / RTK Query / SWR / `re-frame-query`, re-expressed in the model: **views read server state passively through subscriptions; route entry, events, and machines *cause* it to fetch; the cache lives in the framework-owned runtime partition, not `app-db`.** You register a resource once with a scope policy, a params schema, and a request; after that the runtime owns identity, cache scope, staleness, dedupe, invalidation, GC, in-flight ownership, SSR hydration, and the metadata Xray reads.
 
-Resources are an **optional, post-v1 capability** — they ship in `day8/re-frame2-resources` (`re-frame.resources`), require `day8/re-frame2-http` for the transport, and are wired by one `(:require [re-frame.resources])` at app boot. An app that omits the artefact sees the `reg-resource` wrapper throw a clean `:rf.error/resources-artefact-missing`. This chapter covers the registration shape, the events, the subs, and introspection. The tutorial is [Guide ch.27 — Server-state and resources](concepts.md); the normative source is [016-Resources.md](../../spec/016-Resources.md).
+Resources are an **optional, post-v1 capability** — they ship in `day8/re-frame2-resources` (`re-frame.resources`), require `day8/re-frame2-http` for the transport, and are wired by one `(:require [re-frame.resources])` at app boot. An app that omits the artefact sees the `reg-resource` wrapper throw a clean `:rf.error/resources-artefact-missing`. This chapter covers the registration shape, the events, the subs, and introspection. The tutorial is [Guide ch.27 — Server-state and resources](concepts.md).
 
 > **Scope is HTTP-only.** The first public-beta surface is **landed and complete**: the read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)), **focus/reconnect active-stale revalidation** (`:rf.resource/window-focused` / `:rf.resource/network-reconnected` + the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns — see [Revalidation](#focusreconnect-revalidation)), and **active-owner polling** (`:poll-interval-ms` — see [Polling](#polling)). **GraphQL is deferred** to a later slice. See [Guide ch.27 §What's deferred](concepts.md).
 
@@ -21,7 +21,7 @@ The resource surfaces are on the `re-frame.core` facade (`reg-resource` / `reg-m
   ```clojure
   (reg-resource resource-id metadata request-fn)
   ```
-- **Description**: Register a resource as data. The `metadata` is the MIDDLE registration-metadata map (the **required, fail-closed `:scope` policy**, `:params-schema`, `:doc`, …); the `request-fn` (which returns the [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args map) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/invalid-resource-spec`. Validates the reconstructed spec — the **required, fail-closed `:scope` policy** first, then `:params-schema` — and writes a `:resource`-kind registrar entry. Returns `resource-id`. (The stored introspection spec from `resource-meta` reconstructs `:request` onto the metadata map.)
+- **Description**: Register a resource as data. The `metadata` is the MIDDLE registration-metadata map (the **required, fail-closed `:scope` policy**, `:params-schema`, `:doc`, …); the `request-fn` (which returns the [managed-HTTP args map](http-api.md)) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/invalid-resource-spec`. Validates the reconstructed spec — the **required, fail-closed `:scope` policy** first, then `:params-schema` — and writes a `:resource`-kind registrar entry. Returns `resource-id`. (The stored introspection spec from `resource-meta` reconstructs `:request` onto the metadata map.)
 - **In the wild**: see the [examples](#examples-and-cross-references) below.
 
 ### The resource spec
@@ -41,7 +41,7 @@ The resource surfaces are on the `re-frame.core` facade (`reg-resource` / `reg-m
    :tags           (fn [{:keys [slug]} _data] #{[:article slug]})
    :sensitive?     false}
 
-  ;; REQUIRED request fn (third positional arg) — returns a Spec 014 managed-HTTP args map
+  ;; REQUIRED request fn (third positional arg) — returns a managed-HTTP args map
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get :url (str "/api/articles/" slug)}
      :decode  :app/article}))
@@ -53,9 +53,9 @@ The resource surfaces are on the `re-frame.core` facade (`reg-resource` / `reg-m
 |---|---|
 | `:params-schema` | Validates and canonicalizes params (the resource's identity). |
 | `:scope` | The scope **policy** — `:rf.scope/global`, a resolver, or `:rf.scope/from-caller`. **Required, fail-closed** — no policy is a loud `:rf.error/resource-missing-scope-policy`. There is no implicit default; a user-scoped read must say so. |
-| request fn (3rd positional arg) | For `:transport :rf.http/managed`, returns a [Spec 014](../../spec/014-HTTPRequests.md) args map. MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (rejected if present). |
+| request fn (3rd positional arg) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](http-api.md). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (rejected if present). |
 
-These three (`:params-schema`, `:scope`, request fn) are the registration gate — a `reg-resource` missing any of them throws. `:data-schema` is **not** part of the gate; per [Spec 016 §Resource registration spec](../../spec/016-Resources.md) it is optional (it validates successful data when present, but the registration gate does not enforce it).
+These three (`:params-schema`, `:scope`, request fn) are the registration gate — a `reg-resource` missing any of them throws. `:data-schema` is **not** part of the gate; it is optional — it validates successful data when present, but the registration gate does not enforce it.
 
 **Optional keys**: `:doc`, `:data-schema` (validates successful data when present / transport decode supports it — not enforced by the registration gate), `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:infinite` + the infinite-only keys (`:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, `:page-data-schema`, `:refetch` — see [Infinite resources](#infinite-resources)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
 
@@ -171,7 +171,7 @@ A resource may declare an optional **`:poll-interval-ms`** policy: while an entr
   (fn [_ _ctx] {:request {:method :get :url "/notifications/unread"} :decode :json}))
 ```
 
-Semantics (per [016 §Polling](../../spec/016-Resources.md#polling)):
+Semantics (per [Guide ch.27 §Polling](concepts.md#polling-keep-this-fresh-every-n-ms)):
 
 - **Positive integer ms; non-positive / absent = no polling.** The poll timer is the third member of the freshness-timer family (beside `:stale-after-ms` / `:gc-after-ms`).
 - **Unconditional active-owner tick.** A tick refetches **by the interval**, not gated on `:stale?` — the consumer asked for "re-read every N ms". `:stale-after-ms` stays the orthogonal focus/route-entry knob. (Structural sharing keeps views quiet when an unchanged response comes back.)
@@ -184,7 +184,7 @@ A "just polling" view with no natural route/machine owner needs an app-minted `[
 
 ### Infinite resources
 
-An **infinite resource** is the load-more / infinite-scroll feed counterpart of TanStack Query's `useInfiniteQuery` / SWR's `useSWRInfinite` (see [EP-0021](../EP/EP-0021-infinite-resources.md); normative source [016 §Infinite resources and load-more feeds](../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)). It is a resource registered with `:infinite true` plus a pure `:next-page-param`; the user accumulates pages (1, then 1+2, then 1+2+3) rendered as one growing list, with the *next* page param derived from the last page's data. Numbered / cursor pagination (`:keep-previous?` + per-page entries) is untouched and orthogonal — an app picks per feed.
+An **infinite resource** is the load-more / infinite-scroll feed counterpart of TanStack Query's `useInfiniteQuery` / SWR's `useSWRInfinite` (see [EP-0021](../EP/EP-0021-infinite-resources.md); tutorial in [Guide ch.27 §Infinite feeds](concepts.md#infinite-feeds-accumulate-pages-with-infinite)). It is a resource registered with `:infinite true` plus a pure `:next-page-param`; the user accumulates pages (1, then 1+2, then 1+2+3) rendered as one growing list, with the *next* page param derived from the last page's data. Numbered / cursor pagination (`:keep-previous?` + per-page entries) is untouched and orthogonal — an app picks per feed.
 
 ```clojure
 (rf/reg-resource :feed/timeline
@@ -256,7 +256,7 @@ Status invariants: `:loading` = first load, no usable data; `:fetching` = refres
 
 ## Mutations
 
-A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](concepts.md); the normative source is [016-Resources.md §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate).
+A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](concepts.md).
 
 ### `reg-mutation`
 
@@ -265,18 +265,24 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
   ```clojure
   (reg-mutation mutation-id metadata request-fn)
   ```
-- **Description**: Register a mutation as data under `mutation-id`. The `metadata` is the MIDDLE registration-metadata map (`:params-schema`, `:invalidates`, `:patches`, `:doc`, …); the `request-fn` (the [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP write) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/invalid-mutation-spec`. Validates the reconstructed spec and writes a `:mutation`-kind registrar entry (the causal-write counterpart of `:resource`). Returns `mutation-id`. An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`. (The stored introspection spec from `mutation-meta` reconstructs `:request` onto the metadata map.)
+- **Description**: Register a mutation as data under `mutation-id`. The `metadata` is the MIDDLE registration-metadata map (`:params-schema`, `:invalidates`, `:patches`, `:doc`, …); the `request-fn` (the [managed-HTTP write](http-api.md)) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/invalid-mutation-spec`. Validates the reconstructed spec and writes a `:mutation`-kind registrar entry (the causal-write counterpart of `:resource`). Returns `mutation-id`. An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`. (The stored introspection spec from `mutation-meta` reconstructs `:request` onto the metadata map.)
 
 ```clojure
 (rf/reg-mutation :article/save
   {:params-schema :app/article          ;; REQUIRED — validates + canonicalizes params
    :invalidates  (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})
-   :patches      (fn [params result] {scoped-key (fn [old result] (merge old result))})
-   :populates    (fn [params result] {scoped-key result})
+   ;; :patches / :populates key a cached entry by its resource descriptor and
+   ;; apply on success BEFORE invalidation — patch transforms the entry's data,
+   ;; populate seeds it straight from the reply.
+   :patches      (fn [{:keys [slug]} result]
+                   {{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global}
+                    (fn [old] (merge old result))})
+   :populates    (fn [{:keys [slug]} result]
+                   {{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global} result})
    :scope        :rf.scope/global       ;; the cache scope invalidation/patch defaults to
    :invalidate-timing :after-success}   ;; | :before-request | :after-failure | :after-settle
 
-  ;; REQUIRED request fn (third positional arg) — a Spec 014 managed-HTTP write
+  ;; REQUIRED request fn (third positional arg) — a managed-HTTP write
   (fn [{:keys [slug] :as article} _ctx]
     {:request {:method :put :url (str "/api/articles/" slug) :body article}
      :decode  :app/article}))
@@ -287,15 +293,15 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
 | Key | Notes |
 |---|---|
 | `:params-schema` | Validates and canonicalizes the write's params. |
-| request fn (3rd positional arg) | Returns a [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args map (the write). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the instance + generation (rejected if present). **Write retries are OPT-IN** and live in this returned args map's own `:retry` (see the note below) — never a `reg-mutation` spec key. |
+| request fn (3rd positional arg) | Returns a [managed-HTTP args map](http-api.md) (the write). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the instance + generation (rejected if present). **Write retries are OPT-IN** and live in this returned args map's own `:retry` (see the note below) — never a `reg-mutation` spec key. |
 
 **Optional keys**: `:invalidates` (`(fn [params result] → #{tag …})` — the tags made stale on success, composed with `:rf.resource/invalidate-tags`, scoped), `:patches` / `:populates` (controlled resource-entry transforms / seeds applied on success **before** invalidation, keyed by scoped key, via the same durable entry shape + structural sharing the read path uses), `:scope` (the cache scope the invalidation / patch / populate targets), `:invalidate-timing` (`:after-success` (default) | `:before-request` | `:after-failure` | `:after-settle`), `:transport`, `:doc`.
 
-> **`:retry` is NOT a `reg-mutation` spec key.** Write retries are opt-in and ride the [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args your `:request` fn returns — put `:retry {…}` in *that* map. The runtime passes the `:request` args through to the transport unchanged and does **not** read or enforce a spec-level `:retry`; there is no `reg-mutation`-level retry to arm. (Reads inherit the same discipline — see [Guide ch.10 §Retry](http.md): re-issuing a non-idempotent write because a reply was merely slow is the double-write bug, so retry stays explicit and per-request.)
+> **`:retry` is NOT a `reg-mutation` spec key.** Write retries are opt-in and ride the [managed-HTTP args](http-api.md) your `:request` fn returns — put `:retry {…}` in *that* map. The runtime passes the `:request` args through to the transport unchanged and does **not** read or enforce a spec-level `:retry`; there is no `reg-mutation`-level retry to arm. (Reads inherit the same discipline — see [Guide ch.10 §Retry](http.md): re-issuing a non-idempotent write because a reply was merely slow is the double-write bug, so retry stays explicit and per-request.)
 
 > **Mutation `:scope` is not fail-closed.** Unlike a resource read — whose `:scope` is **required** and fails closed — a mutation's `:scope` is optional and resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it **MUST match the scope of the resources the write changes**: a write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead and silently misses the scoped entries (stale reads, no error). Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site; the `:rf.scope/from-caller` *policy* is a resource-read concept, not a mutation one.
 
-**Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [spec/016 §Optimistic mutations](../../spec/016-Resources.md#optimistic-mutations)): `:optimistic` is a registration-level forward plan (the twin of `:patches`) applied **before** the server confirms; `:optimistic-tags` is its tag-addressed twin for cross-view consistency; `:on-conflict` (`:invalidate` default | `:force`) decides the contested-rollback policy. The **inverse is runtime-recorded** — the author supplies no `:rollback` registration key; the runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol.
+**Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [Guide ch.27 §Optimistic writes](concepts.md#optimistic-writes-commit-roll-back-or-reconcile)): `:optimistic` is a registration-level forward plan (the twin of `:patches`) applied **before** the server confirms; `:optimistic-tags` is its tag-addressed twin for cross-view consistency; `:on-conflict` (`:invalidate` default | `:force`) decides the contested-rollback policy. The **inverse is runtime-recorded** — the author supplies no `:rollback` registration key; the runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol.
 
 ### `clear-mutation`
 
@@ -347,7 +353,7 @@ A failure settles `:error` — there is **no `:refresh-error` analogue** (a writ
 
 ## Introspection and projection (tool/test lane)
 
-These direct functions are the **tool/test projection lane** — not an app-read API. `resource-meta` / `mutation-meta` project the **registration** (the registered spec); `resource-state` / `resources` / `mutation-state` / `mutations` project **runtime state** (the live entries) as a one-shot, non-reactive snapshot at an explicit frame. They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. **App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#subscriptions-passive)**, never through these functions, which do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [Guide ch.27 §Three lanes](concepts.md#three-lanes--registering-causing-projecting) and the [Spec 016 lane table](../../spec/016-Resources.md#public-api).
+These direct functions are the **tool/test projection lane** — not an app-read API. `resource-meta` / `mutation-meta` project the **registration** (the registered spec); `resource-state` / `resources` / `mutation-state` / `mutations` project **runtime state** (the live entries) as a one-shot, non-reactive snapshot at an explicit frame. They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. **App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#subscriptions-passive)**, never through these functions, which do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [Guide ch.27 §Three lanes](concepts.md#three-lanes--registering-causing-projecting).
 
 `:frame` is an explicit, app-registered frame id ([EP-0002](../EP/EP-0002-frame-target-resolution.md) — no ambient `:rf/default` fallback; a frameless call with no resolvable context fails closed).
 
@@ -416,7 +422,7 @@ Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db p
 ## Examples and cross-references
 
 - [Guide ch.27 — Server-state and resources](concepts.md) — the tutorial.
-- [Spec 016 — Resources](../../spec/016-Resources.md) — the normative contract.
+- [Glossary](glossary.md) — the resources and server-state vocabulary in one place.
 - [EP-0003 — Resource Queries](../EP/EP-0003-resource-queries.md) — rationale and prior-art benchmark.
 - [Migration: re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md) — moving off `shipclojure/re-frame-query` or a hand-rolled Pattern-RemoteData cache.
 - [07 — HTTP](http-api.md) — the `:rf.http/managed` transport and the `:rf.http/*` failure taxonomy.

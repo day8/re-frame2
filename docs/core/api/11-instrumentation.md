@@ -28,6 +28,17 @@ Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:even
   ```
 - **Description**: Receive one event-record per processed event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
 
+```clojure
+;; Always-on: one record per processed event → a hosted metrics back-end.
+;; The public facade is `register-listener!` on the always-on `:events` stream.
+(rf/register-listener! :events :my-app.monitors/datadog
+  (fn [{:keys [event-id frame outcome elapsed-ms]}]
+    (datadog/timing "rf.event.elapsed_ms" elapsed-ms
+                    {:event   (str event-id)
+                     :frame   (str frame)
+                     :outcome (str outcome)})))
+```
+
 ### `unregister-event-listener!`
 
 - **Kind**: function
@@ -41,13 +52,13 @@ Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:even
 
 Sibling of the event-emit surface above. Runs through the always-on error-emit substrate. Survives `:advanced` + `goog.DEBUG=false`. Intended consumers are hosted error monitors (Sentry, Honeybadger, Rollbar).
 
-This corpus-wide listener delivers one record per **every catalogued production-reachable runtime `:rf.error/*`** — handler / interceptor / cofx exceptions, flow exceptions, fx / reserved-fx exceptions, reactive- and `compute-sub`-resolution exceptions, the invalid-operation categories `:rf.error/frame-destroyed`, `:rf.error/no-such-handler`, `:rf.error/no-such-sub`, the bounded `:rf.error/frame-teardown-failed` report, **and** the six promoted SSR non-event categories (the frameless-tolerant `dispatch-error-record!` path). (Registration-time / dev-only-validation categories stay dev-trace-only — see [009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).) It is the single error-observability surface; recovery is the framework's typed per-category default, not app-steerable — there is no per-frame `:on-error` recovery policy.
+This corpus-wide listener delivers one record per **every catalogued production-reachable runtime `:rf.error/*`** — handler / interceptor / cofx exceptions, flow exceptions, fx / reserved-fx exceptions, reactive- and `compute-sub`-resolution exceptions, the invalid-operation categories `:rf.error/frame-destroyed`, `:rf.error/no-such-handler`, `:rf.error/no-such-sub`, the bounded `:rf.error/frame-teardown-failed` report, **and** the six promoted SSR non-event categories (the frameless-tolerant `dispatch-error-record!` path). (Registration-time / dev-only-validation categories stay dev-trace-only.) It is the single error-observability surface; recovery is the framework's typed per-category default, not app-steerable — there is no per-frame `:on-error` recovery policy.
 
 The listener payload is a **union of three record shapes** — the per-event record, plus two non-event records that ride the general `dispatch-error-record!` helper (the non-event sibling of `dispatch-on-error!`):
 
 1. **Per-event error record** — `{:error :event :event-id :frame :time :exception :elapsed-ms}` (plus `:source-coord` when the failing handler was registered via the public macro path). One per production-reachable per-event `:rf.error/*` (handler / interceptor / cofx / sub / fx / flow failures). Fanned out by `dispatch-on-error!`. The `:event` slot is passed through `elide-wire-value` once before fan-out (same redaction posture as event-emit).
-2. **Frame-teardown report** — `{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`. One bounded record per frame destroy whose best-effort cleanup hooks threw (see [009 §Observability channels and the promotion criterion](../../../spec/009-Instrumentation.md#observability-channels-and-the-promotion-criterion)). It is frame-keyed and carries a `:hook-failures` vector **instead of** the per-event `:event` / `:event-id` / `:exception` / `:elapsed-ms` slots.
-3. **Promoted SSR non-event records** — the six SSR categories on the always-on axis: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload` (incl. the pre-frame **frameless** parse sub-path, which carries `:frame nil`), `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, and `:rf.error/ssr-ring-error-view-failed`. Each is a flat union record `{:error :frame :time …category keys…}` carrying its own slots (`:exception` / `:phase` / `:reason` / `:projector-id` / `:ex-class` / …) and either a server `:frame` or `:frame nil` (the frameless hydration-parse path). Production-reachable on a long-lived JVM SSR host where the dev trace is `-Dre-frame.debug=false`-elided. The recoverable-degradation and post-commit members are **non-projecting** — they affect what off-box shippers see, never the wire outcome. See [009 §What IS available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production) for the full enumeration and the projecting/non-projecting caveats.
+2. **Frame-teardown report** — `{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`. One bounded record per frame destroy whose best-effort cleanup hooks threw. It is frame-keyed and carries a `:hook-failures` vector **instead of** the per-event `:event` / `:event-id` / `:exception` / `:elapsed-ms` slots.
+3. **Promoted SSR non-event records** — the six SSR categories on the always-on axis: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload` (incl. the pre-frame **frameless** parse sub-path, which carries `:frame nil`), `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, and `:rf.error/ssr-ring-error-view-failed`. Each is a flat union record `{:error :frame :time …category keys…}` carrying its own slots (`:exception` / `:phase` / `:reason` / `:projector-id` / `:ex-class` / …) and either a server `:frame` or `:frame nil` (the frameless hydration-parse path). Production-reachable on a long-lived JVM SSR host where the dev trace is `-Dre-frame.debug=false`-elided. The recoverable-degradation and post-commit members are **non-projecting** — they affect what off-box shippers see, never the wire outcome.
 
 Listener bodies MUST branch on `(:error record)` (or otherwise tolerate a record with no top-level `:event` / `:event-id` / `:exception`) rather than assuming the per-event shape — a generic shipper that maps `(:error record)` to the alert name and forwards the rest handles every arm. Per-listener exceptions are isolated — a buggy listener cannot block siblings or the cascade.
 
@@ -60,6 +71,21 @@ Listener bodies MUST branch on `(:error record)` (or otherwise tolerate a record
   ```
 - **Description**: Receive one error-record per catalogued production-reachable runtime `:rf.error/*` event (the broad surface — including frame-destroyed / no-such-handler / no-such-sub / sub-exception, not just handler exceptions). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
 
+```clojure
+;; Always-on production error monitoring — survives :advanced + goog.DEBUG=false.
+;; The public facade is `register-listener!` on the always-on `:errors` stream.
+;; Register it only in a real production build (the substrate fires in dev too).
+(rf/register-listener! :errors :my-app.monitors/sentry
+  (fn [record]
+    ;; The payload is a union — branch on (:error record); never assume :exception.
+    (let [ctx (clj->js {:tags  {:category (str (:error record))
+                                :frame    (str (:frame record))}
+                        :extra {:event (pr-str (:event record))}})] ;; already wire-elided
+      (if-let [ex (:exception record)]
+        (Sentry/captureException ex ctx)
+        (Sentry/captureMessage (str (:error record)) ctx)))))
+```
+
 ### `unregister-error-listener!`
 
 - **Kind**: function
@@ -71,7 +97,7 @@ Listener bodies MUST branch on `(:error record)` (or otherwise tolerate a record
 
 ## Tracing (dev-only)
 
-The rich-detail trace surface. **Dev-only — elided in production via Closure DCE under `:advanced` + `goog.DEBUG=false`.** See [009 §Tracing](../../../spec/009-Instrumentation.md) for emit semantics and synchronous listener delivery.
+The rich-detail trace surface. **Dev-only — elided in production via Closure DCE under `:advanced` + `goog.DEBUG=false`.** See [Observability: one wire, every tool](../concepts/observability.md#one-wire-the-trace-stream) for emit semantics and synchronous listener delivery.
 
 ### `register-listener!`
 
@@ -164,7 +190,7 @@ Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. Wh
 |---|---|---|---|---|
 | `:rf.trace/no-emit?` | `reg-event` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. |
 
-Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned (per [Conventions §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned)).
+Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned.
 
 ## Epoch history (Tool-Pair)
 
@@ -265,7 +291,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (project-egress record-or-value opts)
   ```
-- **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**. Dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a per-kind projector, falling back to walking a kindless input as a tree-shaped value (the direct-read path); each tree-shaped slot is delegated to `elide-wire-value` against the frame's classification. `opts` carries `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and the advanced `:rf.size/*` overrides (which compose on top of the profile — the override wins). An unknown profile throws `:rf.error/unknown-egress-profile`. **Fail-closed**: a tree slot projects only when the frame is known — there is no `:rf/default` synthesis. To project a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body), wrap it in a `:rf.observe/derived-tree` record; `project-egress` path-walks each slot (a re-keyed value ships raw — the fail-open default). Per Spec 015 §Projection.
+- **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**. Dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a per-kind projector, falling back to walking a kindless input as a tree-shaped value (the direct-read path); each tree-shaped slot is delegated to `elide-wire-value` against the frame's classification. `opts` carries `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and the advanced `:rf.size/*` overrides (which compose on top of the profile — the override wins). An unknown profile throws `:rf.error/unknown-egress-profile`. **Fail-closed**: a tree slot projects only when the frame is known — there is no `:rf/default` synthesis. To project a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body), wrap it in a `:rf.observe/derived-tree` record; `project-egress` path-walks each slot (a re-keyed value ships raw — the fail-open default).
 
 ```clojure
 ;; Verify what an off-box sink will receive before wiring it.
@@ -281,7 +307,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 
 ## Frame-owned observability sinks
 
-The normal production observability story (Spec 015 §Frame-owned observability sink policy). An app declares a sink under a frame's `:observability` config and registers the concrete sink fn against that sink id here. The runtime routes one handled-event record per processed event, and one error record per `:rf.error/*` site, through `project-egress` (under the frame's classification + the sink's egress profile) to the declared sinks. **Sinks consume already-projected records — there is no sink-local redaction.** The framework ships no Datadog / Sentry client (that is an app / integration-library concern); these two verbs are the registration seam.
+The normal production observability story. An app declares a sink under a frame's `:observability` config and registers the concrete sink fn against that sink id here. The runtime routes one handled-event record per processed event, and one error record per `:rf.error/*` site, through `project-egress` (under the frame's classification + the sink's egress profile) to the declared sinks. **Sinks consume already-projected records — there is no sink-local redaction.** The framework ships no Datadog / Sentry client (that is an app / integration-library concern); these two verbs are the registration seam.
 
 This is parallel to (and the production-normal home of) the advanced corpus-wide `register-listener!` / `register-event-listener!` / `register-error-listener!` surfaces above: the sink routing is frame-scoped and profile-projected, where the corpus-wide listeners are cross-frame and raw.
 
@@ -335,13 +361,14 @@ The DOM `data-rf2-source-coord` injection contract is documented in [02 — View
 
 ## The error contract
 
-Errors are emitted as structured trace events with `:op-type :error` (or `:warning` / `:info` / `:fx` / `:flow` / `:frame`) and a per-category `:operation` keyword. The complete normative catalogue — every `:rf.error/*`, `:rf.warning/*`, `:rf.fx/*`, `:rf.cofx/*`, `:rf.ssr/*`, `:rf.epoch/*`, `:rf.flow/*`, `:rf.http/*`, `:rf.http.interceptor/*`, `:rf.frame/*`, and `:rf.route.nav-token/*` event the runtime emits — lives at [009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) (single source of truth for category names, `:op-type` discriminator, trigger conditions, default `:recovery`, and `:tags` payload keys).
+Errors are emitted as structured trace events with `:op-type :error` (or `:warning` / `:info` / `:fx` / `:flow` / `:frame`) and a per-category `:operation` keyword. The complete normative catalogue — every `:rf.error/*`, `:rf.warning/*`, `:rf.fx/*`, `:rf.cofx/*`, `:rf.ssr/*`, `:rf.epoch/*`, `:rf.flow/*`, `:rf.http/*`, `:rf.http.interceptor/*`, `:rf.frame/*`, and `:rf.route.nav-token/*` event the runtime emits — is the single source of truth for category names, `:op-type` discriminator, trigger conditions, default `:recovery`, and `:tags` payload keys.
 
-Per-category Malli `:tags` schemas are canonicalised at [Spec-Schemas §Per-category `:tags` schemas](../../../spec/Spec-Schemas.md#per-category-tags-schemas) — one schema per catalogue row.
+Per-category Malli `:tags` schemas are canonical — one schema per catalogue row.
 
 ## See also
 
 - [01 — Core](01-core.md) — the `:trace-buffer`, `:epoch-history`, `:elision` configure keys.
 - [08 — Schemas](08-schemas.md) — the registration side of the elision posture.
-- [Spec 009 — Instrumentation](../../../spec/009-Instrumentation.md) — the normative source.
-- [Tool-Pair](../../../spec/Tool-Pair.md) — how the epoch buffer, trace bus, and source-coord annotations compose into the pair-shaped tools.
+- [Observability: one wire, every tool](../concepts/observability.md) — the concept guide: trace stream, buffer, epoch history, and production telemetry.
+- [Errors: dossiers, not log lines](../concepts/errors.md) — the error-contract concept guide.
+- [Debug with Xray](../how-to/debug-with-xray.md) — how the epoch buffer, trace bus, and source-coord annotations power the pair-shaped tools.

@@ -2,7 +2,7 @@
 
 This is the human-facing API reference for the ClojureScript implementation of re-frame2. It's organised by **what you're trying to do** rather than by alphabetical surface listing. Each chapter opens with a paragraph on what the surface is *for* — the problem it solves, the shape of the contract — and only then drops into the function tables.
 
-If you want the dense, single-page contract — every signature, every status, every cross-reference — the [normative reference](../../../spec/API.md) is still where that lives. This guide is the same surface, walked through by topic, with intuition notes attached.
+Every row here is the real, callable surface — every signature, every status, every cross-reference, with an intuition note attached. The reference is split into self-contained chapters, so you can land on any one from a search result and get the call shape without reading the rest.
 
 ## What's a "canonical" API?
 
@@ -41,7 +41,7 @@ The dependency direction is one-way: adapters and feature artefacts depend on co
 
 ## The chapters
 
-The reference is divided into sixteen chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
+The reference is divided into fifteen chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
 
 The first three are foundational — **Core** (registration, dispatch, subscribe), **Views** (the view registry and the substrate-agnostic ergonomic surface), **Effects and interceptors** (the effect map, the standard interceptors, the context plumbing).
 
@@ -49,12 +49,12 @@ The next six cover feature domains: **State machines**, **Flows**, **Routing**, 
 
 The next four cover the operational surfaces: **Testing**, **Instrumentation** (listeners, tracing, epoch, performance), **Registrar** (the query API tools build against), **Lifecycle** (adapter install / dispose, `configure`).
 
-Then **Adapters** (the per-substrate surfaces — Reagent, UIx, Helix), a **Removed / not shipped** chapter that says what's gone and what to use instead, and a closing **Resources** chapter (the optional, post-v1 declarative server-state surface).
+Then **Adapters** (the per-substrate surfaces — Reagent, UIx, Helix), and a closing **Resources** chapter (the optional, post-v1 declarative server-state surface).
 
 Story (variants, workspaces, snapshot identity) is a separate shipped tool with its own top-level [Story API](../../story/api/index.md) section — it is not a chapter in this framework reference.
 
-## When to reach for the spec instead
+## When to reach for the concept guides
 
-The chapters here are organised for readers; the [normative API reference](../../../spec/API.md) is organised for completeness. If you're looking for *every* row at once — a `Ctrl-F` target across the full surface — that's where you want to be. If you're writing a new app and want to know which surfaces *exist* in a given domain, you want a chapter here.
+The chapters here are organised around the *surface* — the signatures, the statuses, the call shapes you reach for while writing code. They answer "what exists, and how do I call it?"
 
-The normative spec docs (`002-Frames.md`, `005-StateMachines.md`, etc.) own the *why* — the design rationale, the alternatives considered, the dispositions. The chapters here cite those when they matter, and stay quiet otherwise.
+The [concept guides](../concepts/index.md) own the *why* — the design rationale, the mental models, the alternatives considered. When a chapter's intuition note isn't enough and you want to understand why a surface is shaped the way it is, that's where to go. The chapters here cite the relevant guide when it matters, and stay quiet otherwise.

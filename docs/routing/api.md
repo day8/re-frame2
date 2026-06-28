@@ -4,7 +4,7 @@ Routes in re-frame2 are *data*. You register a route with a path and metadata �
 
 The point isn't novelty — every SPA framework has a router. The point is that **routing-as-state** means the router is debuggable with the same tools that debug everything else. Time-travel works. The trace bus sees navigation. Tests dispatch `:rf.route/navigate` like any other event. There's no special "router debug mode" because the router doesn't have its own mode.
 
-This chapter covers the registration shape, the dispatch / sub / fx surface, and the helpers that map URLs to/from route ids. For nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing, see [Guide ch.19 — Routing reference](concepts.md). The normative source is [012-Routing.md](../../spec/012-Routing.md).
+This chapter covers the registration shape, the dispatch / sub / fx surface, and the helpers that map URLs to/from route ids. For nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing, see [Guide ch.19 — Routing reference](concepts.md).
 
 The `reg-route` macro is on the `re-frame.core` facade; the rest of the routing surface lives in `re-frame.routing`:
 
@@ -40,7 +40,7 @@ The third positional arg is the URL shape — colon-prefixed segments capture in
 | Key | Notes |
 |---|---|
 | `:doc` | Free-form description; pair tools read this. |
-| `:params` | Schemas for path segments (per [Spec-Schemas](../../spec/Spec-Schemas.md)). |
+| `:params` | Schemas for path segments. |
 | `:query` | Schemas for query-string keys. |
 | `:query-defaults` | Default values for query keys absent from the URL. |
 | `:query-retain` | Keys to preserve across navigations to other routes. |
@@ -51,7 +51,7 @@ The third positional arg is the URL shape — colon-prefixed segments capture in
 | `:can-leave` | Guard sub-query run before leaving the route. **Closed boolean contract**: `true` allows the navigation, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-leave-non-boolean`. The sub name reads positively (`:can-leave`), so `false` means "can NOT leave". See [Guide ch.19 — Navigation blocking](concepts.md). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
 
-Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata schema is [Spec-Schemas §`:rf/route-metadata`](../../spec/Spec-Schemas.md#rfroute-metadata).
+Canonical detail in [The metadata map, in full](concepts.md#the-metadata-map-in-full) in the routing concept guide.
 
 ## URL helpers
 
@@ -104,37 +104,37 @@ Modifier-key clicks (cmd / ctrl / shift / alt) and middle-button clicks defer to
 
 Anchors carrying **native-handling attributes** are never intercepted — even on a plain left-click — because their DOM semantics must win: a `:target` other than `_self` (`_blank` / `_parent` / `_top` / a named frame) opens the href outside the current document, and `:download` instructs the browser to save the resource. A `route-link` rendered as `{:target "_blank"}` or `{:download "report.pdf"}` therefore behaves as the equivalent plain `<a>` would. To get SPA interception, omit those attributes (or use `:target "_self"`).
 
-Detailed semantics in [012-Routing.md §Linking from views](../../spec/012-Routing.md#linking-from-views--plain-anchor-semantics).
+Detailed semantics in [Linking from views](concepts.md#linking-from-views) in the routing concept guide.
 
 ## Events
 
 These are the standard events the runtime dispatches (or you dispatch) around routing.
 
-| Event | Notes | Spec |
-|---|---|---|
-| `:rf.route/navigate` | Navigate to a registered route. Args: `{:to :route-id :params {...} :query {...}}`. | 012 |
-| `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned` — same slice-rewrite logic, not a delegate. Override for custom URL-change handling. | 012 |
-| `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. | 012 |
-| `:rf/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. | 012 |
-| `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending nav slot in `app-db` carries the rejected navigation. | 012 |
-| `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." | 012 |
-| `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation — "stay here, drop the pending nav." | 012 |
+| Event | Notes |
+|---|---|
+| `:rf.route/navigate` | Navigate to a registered route. Args: `{:to :route-id :params {...} :query {...}}`. |
+| `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned` — same slice-rewrite logic, not a delegate. Override for custom URL-change handling. |
+| `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
+| `:rf/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
+| `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending nav slot in `app-db` carries the rejected navigation. |
+| `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." |
+| `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation — "stay here, drop the pending nav." |
 
 ## Subscriptions
 
 The full `:rf/route` slice is `{:id :params :query :transition :error}`. The standard subs are projections of that slice plus a couple of conveniences.
 
-| Sub | Returns | Spec |
-|---|---|---|
-| `:rf/route` | The full `:rf/route` slice `{:id :params :query :transition :error}` | 012 |
-| `:rf.route/id` | Current route id | 012 |
-| `:rf.route/params` | Current path params | 012 |
-| `:rf.route/query` | Current query params | 012 |
-| `:rf.route/transition` | `:idle` / `:loading` / `:error` | 012 |
-| `:rf.route/error` | Current error map (when `:transition = :error`) | 012 |
-| `:rf.route/fragment` | Current URL fragment (string or `nil`) | 012 |
-| `:rf.route/chain` | Vector of route ids from parent-most to current (per `:parent` links) | 012 |
-| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise | 012 |
+| Sub | Returns |
+|---|---|
+| `:rf/route` | The full `:rf/route` slice `{:id :params :query :transition :error}` |
+| `:rf.route/id` | Current route id |
+| `:rf.route/params` | Current path params |
+| `:rf.route/query` | Current query params |
+| `:rf.route/transition` | `:idle` / `:loading` / `:error` |
+| `:rf.route/error` | Current error map (when `:transition = :error`) |
+| `:rf.route/fragment` | Current URL fragment (string or `nil`) |
+| `:rf.route/chain` | Vector of route ids from parent-most to current (per `:parent` links) |
+| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise |
 
 ## Fx
 
@@ -152,4 +152,5 @@ The nav-token wrapper is what makes "user navigates away mid-load" safe: the old
 - [01 — Core](../core/api/01-core.md) — `reg-route` rowed in registration.
 - [SSR API](../ssr/api.md) — routes participate in SSR; the active route's `:head` registration is what `render-head` looks up.
 - [Guide ch.18 — Routing](concepts.md) and [Guide ch.19 — Routing reference](concepts.md) — narrative coverage including nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing.
-- [Spec 012 — Routing](../../spec/012-Routing.md) — the normative source.
+- [Routing glossary](glossary.md) — the surface vocabulary (navigate, route, loader, route guard, not-found, url-bound?).
+- [Coming from React Router](coming-from-react-router.md) — the mapping, and where re-frame2 routing diverges.

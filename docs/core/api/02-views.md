@@ -9,7 +9,7 @@ There are **two registration lanes**, and you almost certainly want only one of 
 
 If you're not sure, you're an application author: use the app-facing lane and skip the tooling lane entirely.
 
-This chapter also covers the substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
+This chapter also covers the substrate-agnostic ergonomic surface (`capture-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
 
 The view-authoring surfaces in this chapter live in `re-frame.core`:
 
@@ -58,12 +58,16 @@ The macro accepts three shapes for the same registration. They produce the same 
 (rf/reg-view cart-line
   "One row in the cart table; receives a normalised item map."
   [item]
-  [:tr ...])
+  [:tr
+    [:td (:name item)]
+    [:td (:qty item)]])
 
 ;; With explicit id via metadata — useful when the symbol shouldn't drive the id
 ;; (e.g. you want a stable id across rename, or you're matching an external contract).
 (rf/reg-view ^{:rf/id :cart/line} cart-line [item]
-  [:tr ...])
+  [:tr
+    [:td (:name item)]
+    [:td (:qty item)]])
 ```
 
 In all three cases the symbol `cart-line` is `def`-ed so you can write `[cart-line item]` from sibling code. The macro also injects `dispatch` and `subscribe` as lexical bindings so you can call them without the `rf/` prefix inside the body; the `rf/` prefix is conventional.
@@ -118,7 +122,7 @@ A tool's own chrome — Story's panel grid, Xray's inspector views — is regist
 
 ## The substrate-agnostic ergonomic surface
 
-These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope or ensure a frame** (`frame-provider`, `with-frame`, `with-new-frame`), **hold** (`capture-frame` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
+These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope or ensure a frame** (`frame-provider`), **hold** (`capture-frame` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The lexical (non-React) frame-scoping macros `with-frame` / `with-new-frame` are rowed in [01 — Core §Frames](01-core.md#frames-the-scoping-primitive), not here — they scope tests and SSR, not view authoring. The full design lives in the [Frames concept guide](../concepts/frames.md#when-you-want-more-than-one).
 
 ### `frame-provider`
 
@@ -131,16 +135,22 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
 - **Description**: One component, two config shapes chosen by the prop map.
   - **`{:frame existing-id}` — SCOPE.** "Children inside this provider see `:todo` as their current frame." Scopes a React subtree to a frame that **already exists** (created by `make-frame` / `reg-frame`, a tool runtime, or an enclosing `frame-provider`); creates / refreshes / destroys nothing. **Fails loud** (`:rf.error/frame-provider-frame-absent`) when the named frame is absent. `:frame` must be a keyword — a `nil` `:frame` is `:rf.error/no-frame-context`, a non-keyword `:frame` is `:rf.error/bad-frame-provider-arg`. The scope-into-React counterpart to `with-frame` (which a dynamic var cannot serve across React's render boundary).
   - **`{:id the-id …}` — ENSURE.** Creates the frame if absent (via `make-frame`, taking the same constructor opts: `:id` / `:images` / record-config incl. `:initial-events`), **reuses it without re-seeding** if present (an idempotent re-mount preserves durable state and does not replay `:initial-events`), and provides its id to descendants. There is **no destroy-on-unmount**. Reach for it when a view should bring its own frame into being for as long as it is mounted (comparison pages, Story canvases, embedded widgets). `:id` is required and must be a keyword (`:rf.error/ensure-frame-provider-missing-id` otherwise). True ownership — tearing the frame down when the component unmounts — stays explicit: `make-frame` + `destroy-frame!` inside a `create-class`.
-
-### `with-frame` / `with-new-frame`
-
-- **Kind**: macros (sibling pair)
-- **Signatures**:
+- **Example**:
   ```clojure
-  (with-frame :keyword body)        ;; pin to an existing frame-id
-  (with-new-frame [sym expr] body)  ;; eval, bind, run, destroy on exit
+  ;; SCOPE — :todo already exists (reg-frame / make-frame / a tool runtime, or an
+  ;; enclosing provider). This subtree just renders against it; nothing is created
+  ;; or destroyed, and an absent :todo fails loud.
+  (rf/reg-view todo-page []
+    [rf/frame-provider {:frame :todo}
+     [todo-list]])
+
+  ;; ENSURE — bring the :todo frame into being for as long as this subtree is
+  ;; mounted: created on first mount from the listed images, reused without
+  ;; re-seeding on remount, never torn down on unmount.
+  (rf/reg-view todo-widget []
+    [rf/frame-provider {:id :todo :images [todo-image]}
+     [todo-list]])
   ```
-- **Description**: `with-frame` pins `*current-frame*` to an existing frame-id; the frame is not created or destroyed. `with-new-frame` evals `expr`, binds the resulting id to `sym`, runs body in that frame's dynamic context, and destroys the frame on exit. Each rejects the other's argument shape at compile time. Documented in [002 §with-frame and with-new-frame](../../../spec/002-Frames.md#with-frame-and-with-new-frame).
 
 ### `capture-frame`
 
@@ -165,7 +175,7 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
 
 ### When to reach for `capture-frame`
 
-The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` — the runtime never synthesises `:rf/default` from absence; frame identity is *carried*, not *found* (see [EP-0002](../../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)).
+The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` — the runtime never synthesises `:rf/default` from absence; frame identity is *carried*, not *found* (see [Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
 
 The fix is to capture the frame *at the point you have it* and carry it as a value with **`capture-frame`**: build the operation bundle inside a render body or under `with-frame`, store it, and invoke its `:dispatch` / `:subscribe` ops from any later async context.
 
@@ -176,27 +186,7 @@ The fix is to capture the frame *at the point you have it* and carry it as a val
     (js/setTimeout #(dispatch [::tick]) 1000)))  ;; fires :tool even after with-frame unwinds
 ```
 
-Full async-boundary contract (the four routing patterns and the React click-handler case): [Spec 002 §React click-handler routing](../../../spec/002-Frames.md#react-click-handler-routing--the-canonical-pattern).
-
-### `with-frame` and `with-new-frame` — the sibling pair
-
-```clojure
-;; Pin form — most common: bind *current-frame* to an existing id
-(rf/with-frame :todo
-  (rf/dispatch [::add-item ...]))
-
-;; Pin to a computed id — pass the keyword directly, no extra binding
-(let [chosen (compute-frame-id ...)]
-  (rf/with-frame chosen
-    (rf/dispatch [::action chosen])))
-
-;; Eval-bind-run-destroy form — create a throwaway frame for the body
-(rf/with-new-frame [f (rf/make-frame {:images [test-image]})]
-  (rf/dispatch-sync [:test/initialise])   ;; seed via a setup dispatch
-  (rf/dispatch [::action f]))   ;; frame destroyed on exit
-```
-
-Full semantics in [002 §with-frame and with-new-frame](../../../spec/002-Frames.md#with-frame-and-with-new-frame).
+Full async-boundary contract (the four routing patterns and the React click-handler case): [Frames — the async boundary](../concepts/frames.md#the-async-boundary-capture-the-frame).
 
 ## Reagent: the default substrate
 
@@ -218,7 +208,7 @@ Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`
 
 The JVM SSR emitter mirrors the same contract so server-rendered HTML can be clicked back to the source position before any hydration happens.
 
-Full contract: [Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory) and [Spec 011 §Source-coord annotation under SSR](../../../spec/011-SSR.md#source-coord-annotation-under-ssr).
+Full contract: the [Observability concept guide](../concepts/observability.md) covers how source-coord annotations power click-to-source in Xray, and the [SSR API chapter](../../ssr/api.md) covers the server-rendered counterpart that survives until hydration.
 
 ## See also
 
