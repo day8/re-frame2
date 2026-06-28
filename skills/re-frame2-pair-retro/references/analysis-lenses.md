@@ -43,11 +43,11 @@ These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watc
 
 ## Error-observability lens
 
-Use when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected. There is **no app-steering recovery policy** (the per-frame `:on-error` policy was removed): recovery is framework-owned (the typed per-category default), and observability is the always-on `register-error-listener!` surface. This lens feeds error-observability friction back into re-frame2-pair improvements.
+Use when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected. There is **no app-steering recovery policy** (the per-frame `:on-error` policy was removed): recovery is framework-owned (the typed per-category default), and observability is the always-on `rf/register-listener!` `:errors` stream. This lens feeds error-observability friction back into re-frame2-pair improvements.
 
 Friction signals specific to errors:
 
-- the agent (or the user) expected an app-level error policy to swallow or substitute a result and was confused that the framework applied its typed default instead. Surface the model: recovery is not app-steerable; genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback), and observability is `register-error-listener!`.
+- the agent (or the user) expected an app-level error policy to swallow or substitute a result and was confused that the framework applied its typed default instead. Surface the model: recovery is not app-steerable; genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback), and observability is the always-on `rf/register-listener!` `:errors` stream.
 - the session looked for a per-frame `:on-error` slot (an old idiom from drafts) — it no longer exists; point the user at the always-on error listener for observability.
 - the agent assumed the error-emit listener elides in a CLJS production build and so dismissed a production error report. Surface the real dev/prod split:
     - **The error-emit listener is always-on.** It rides the always-on error-emit substrate, is NOT gated by `re-frame.interop/debug-enabled?`, and survives `:advanced` + `goog.DEBUG=false` for every catalogued production-reachable `:rf.error/*` (per `spec/009-Instrumentation.md` §Production elision and the posture matrix). Registered listeners DO fire in prod.
