@@ -4,7 +4,7 @@ The complete symbol table for Story's public surface, organised by namespace and
 
 Surfaces fall into the facade plus seven sub-namespaces. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset, not from authored story bodies.
 
-For the topical walk-through with intuition notes and use-when prose, see [Registration](registration.md), [Scripts](script.md), [Runtime](runtime.md), and [MCP surface](mcp-surface.md). For the index of *what* this reference covers (and what it deliberately omits — Story-internal chrome composers, the URL-state hydration helpers, the theme-token maps consumed only by chrome), see [the index](index.md#what-canonical-means-here).
+For the topical walk-through with intuition notes and use-when prose, see [Registration](registration.md), [Scripts](script.md), [Runtime](runtime.md), and [MCP surface](mcp-surface.md). For the index of *what* this reference covers (and what it omits — Story-internal chrome composers, the URL-state hydration helpers, the theme-token maps consumed only by chrome), see [the index](index.md#what-canonical-means-here).
 
 ## `re-frame.story`
 
@@ -123,14 +123,14 @@ The canonical facade. Every user-callable surface lives here.
 
 ### Privacy — variant-body classification
 
-Durable app-db classification is declared on the variant body and lowered into the frame's elision registry as commit-plane classification effects, not via a post-creation mutation surface (EP-0025). A variant declares its sensitive / large paths on its body:
+Durable app-db classification is declared on the variant body and lowered into the frame's elision registry as commit-plane classification effects, not via a post-creation mutation surface. A variant declares its sensitive / large paths on its body:
 
 | Variant slot | Shape | Intuition |
 | --- | --- | --- |
 | `:sensitive` | `{:app-db [[path...] ...]}` | Sensitive app-db paths — lowered as commit-plane `:sensitive` effects right after frame creation; redact to `:rf/redacted` at every Story observation surface. |
 | `:large` | `{:app-db [[path...] ...]}` | Large app-db paths — lowered as commit-plane `:large` effects; elide to `:rf/large {…}`. |
 
-> Story does **not** publish `add-marks` / `set-marks` — EP-0025 lowers classification through commit-plane effects and superseded that public post-creation path-mark mutation surface.
+> Story does **not** publish `add-marks` / `set-marks` — classification is declared on the variant body and lowered through commit-plane effects.
 
 ### Substrate registration
 
@@ -243,7 +243,7 @@ The seven `:rf.assert/*` events the auto-install registers at first `reg-*`.
 
 ## What this reference deliberately omits
 
-Several surfaces are **publicly visible** in the CLJS source but explicitly *not part of the contract*. They're documented in the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) for Story's maintainers; this reference omits them on purpose.
+Several surfaces are **publicly visible** in the CLJS source but explicitly *not part of the contract*. They're documented in the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) for Story's maintainers; this reference omits them.
 
 - **`re-frame.story.ui.url-state` engine.** `url-from-state`, `params-from-state`, `embed-flag-from-current-url`, `hydrate-embed-flag!` — chrome-internal URL surfaces. The facade exposes `variant-share-url`; the other two URL surfaces (address-bar URL, embed flag) live in this sub-ns and are consumed by the shell's bootstrap.
 - **Story's late-bind shims.** `re-frame.story.late-bind` — the indirection that breaks circular requires between the registrar (consumer) and the canonical installer (producer).

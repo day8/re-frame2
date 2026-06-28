@@ -6,7 +6,7 @@ Type: standards-track
 > This EP defines one public model for sensitive/large classification,
 > trust-boundary projection, and observability sink policy.
 >
-> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-9ghh7u`).**
+> **Ruling recorded 2026-06-11 (Mike, in-session).**
 > Accepted. All twelve open issues are dispositioned in
 > [§Open Issues](#open-issues) — nine as recommended (with sharpenings from the
 > three-analysis convergence), and three previously-open calls resolved:
@@ -32,11 +32,11 @@ Type: standards-track
 > **Graduated `accepted → final` 2026-06-12 (Mike, in-session).** The decisions
 > are settled and the normative homes above govern (where this EP and the spec
 > differ, the spec governs). The wave-end completeness+correctness review
-> (`rf2-cuc6es`) returned graduation-ready — prior review tails clean, no new
+> returned graduation-ready — prior review tails clean, no new
 > non-test bug. Remaining work is build-not-decision and is tracked in the
 > implementation-errata ledger: the `:rf.egress/local-redacted` Xray-local-render
-> adoption (`rf2-t55hxg.12`) and the schema-prop `:large?` / `:params-schema`
-> classification coverage (`rf2-t55hxg.5`).
+> adoption and the schema-prop `:large?` / `:params-schema`
+> classification coverage.
 
 ## Abstract
 
@@ -921,8 +921,8 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
 
 ## Open Issues
 
-**All twelve issues were ruled 2026-06-11 (Mike, in-session; bead
-`rf2-9ghh7u`).** Original recommendations are kept verbatim as the record of
+**All twelve issues were ruled 2026-06-11 (Mike, in-session).** Original
+recommendations are kept verbatim as the record of
 what was ruled; dispositions and riders are inline.
 
 1. **Exact frame config shape.** Should the keys be `:sensitive` / `:large`, or
@@ -1038,7 +1038,7 @@ what was ruled; dispositions and riders are inline.
     EP-0015 acceptance, because the proposal intentionally crosses a final EP.
     **Disposition: NO supersession — EP-0005's schema-first machine surface
     stands.** Grounds: (a) the surface is final, implementation-complete, and
-    was ruled twice (the five 2026-06-08 calls; `rf2-0k5ubx` on 2026-06-09
+    was ruled twice (the five 2026-06-08 calls; the follow-up on 2026-06-09
     explicitly rejecting top-level machine `:sensitive`/`:large` keys) with no
     defect identified since; (b) the "schema-based exception" premise
     dissolves — per-slot props on a declared schema *are* owner-declares-policy

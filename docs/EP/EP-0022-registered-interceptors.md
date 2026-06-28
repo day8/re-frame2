@@ -15,8 +15,8 @@ Type: standards-track
 > home is `spec/001-Registration.md`, `spec/002-Frames.md`,
 > `spec/Conventions.md`, `API.md`, and the v1 migration guide.
 >
-> **Graduated `accepted → final` 2026-06-15 (Mike, operator graduation; epic
-> `rf2-0adhqs`).** The five open-issue decisions are ruled (see
+> **Graduated `accepted → final` 2026-06-15 (Mike, operator graduation).** The
+> five open-issue decisions are ruled (see
 > [§Open Issues](#open-issues)): **(1)** the standard set is path-only; **(2)**
 > additive dispatch-opts `:interceptors` is removed; **(3)** inline interceptor
 > values are rejected even for tiny local cases; **(4)** `->interceptor` is no
@@ -144,7 +144,7 @@ contract because it knows both facts:
 
 If the handler emits a `:db` effect whose focused slice is `identical?` to the
 original focused slice, the interceptor widens to the original full app-db
-object, not to an `assoc-in` allocation. That keeps the EP-0018 / rf2-ekq28v
+object, not to an `assoc-in` allocation. That keeps the EP-0018
 no-op semantics intact for the most common focused-handler pattern.
 
 This is the strongest reason `path` belongs in the framework: app-vendored
@@ -914,7 +914,7 @@ rewrite:
 - The "What stays the same" list calls out this carve-out alongside EP-0018's
   event-registration collapse.
 
-## Bead Plan / Reference Implementation (shipped under epic `rf2-0adhqs`)
+## Bead Plan / Reference Implementation
 
 The reference implementation shipped as the action wave below. The slices are
 retained as the implementation record.

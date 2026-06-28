@@ -23,7 +23,7 @@ Status: final
 > ledger below tracked that separately to its close. Historical proposal
 > sections below still preserve superseded alternatives such as the
 > multi-container representations; the Resolved Decisions — including the
-> 2026-06-11 `rf2-cg7llv` errata on Decision 2, which blessed `:db-before` /
+> 2026-06-11 errata on Decision 2, which blessed `:db-before` /
 > `:db-after` as the canonical projection slot names — and the graduated specs
 > are authoritative where they conflict with earlier proposal voice.
 
@@ -40,14 +40,14 @@ decisions. The EP is implementation-complete.
 The two build-gaps-against-settled-rulings below are **fixed**; they are kept here
 as a closed record and no longer reopen any ruling:
 
-- **`rf2-3939ig`** *(fixed — PR #3707)* — framework-authority minting was wired
+- **Fixed (PR #3707)** — framework-authority minting was wired
   only off `:rf/machine?`, so routing/SSR framework-authority handlers (which
   legitimately write runtime-db) tripped the `:rf.warning/app-handler-runtime-effect`
   ownership diagnostic on every navigation. The fix generalized minting to a
   reserved `:rf/framework-authority?` registration-meta key that the routing and
   SSR facades stamp, honouring Resolved Decision 4's convention-plus-diagnostics
   stance (the diagnostic now fires only on genuine app-handler runtime writes).
-- **`rf2-1m6rf1`** *(fixed — PR #3714)* — the EP-0002 R3 frame-stamp rename folded
+- **Fixed (PR #3714)** — the EP-0002 R3 frame-stamp rename folded
   into this partition (`:frame` → `:rf.frame/id` for runtime context) had landed
   additively: `assemble-initial-ctx` injected the bare `:frame` coeffect alongside
   `:rf.frame/id`, and internal consumers still read the retired spelling. The fix
@@ -502,7 +502,7 @@ re-frame2 should strengthen that rule with diagnostics:
 - warn or fail when a non-framework handler returns `:rf.db/runtime`;
 - warn or fail when ordinary app code registers effects under
   `:rf.db/runtime`;
-- **hard-reject** when app schemas try to describe runtime-db paths — `reg-app-schema` / `reg-app-schemas` throw `:rf.error/app-schema-runtime-path` at registration when a path's first segment is a `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the legacy `:rf/runtime` root (rf2-k0ew8n). This is a **category error**, not a warnable misuse: app schemas validate only app-db, so a runtime path either detonates every dev commit or silently installs a validator over the wrong partition — there is no behaviour to soft-land and no legitimate caller, so it fails closed. (Runtime-db validation is **framework-owned and non-public** — the framework registers a `:rf/runtime-db` validator over the partition at boot; there is no `rf/reg-runtime-schema` export to redirect the user to. The honest remedy is to drop the runtime path: declare app data under app-db schemas, and for runtime-subsystem data use the owning subsystem's public surface where one exists, e.g. machine `:data-schema`.) The earlier "warn" framing here predates the fail-closed hardening campaign and is superseded;
+- **hard-reject** when app schemas try to describe runtime-db paths — `reg-app-schema` / `reg-app-schemas` throw `:rf.error/app-schema-runtime-path` at registration when a path's first segment is a `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the legacy `:rf/runtime` root. This is a **category error**, not a warnable misuse: app schemas validate only app-db, so a runtime path either detonates every dev commit or silently installs a validator over the wrong partition — there is no behaviour to soft-land and no legitimate caller, so it fails closed. (Runtime-db validation is **framework-owned and non-public** — the framework registers a `:rf/runtime-db` validator over the partition at boot; there is no `rf/reg-runtime-schema` export to redirect the user to. The honest remedy is to drop the runtime path: declare app data under app-db schemas, and for runtime-subsystem data use the owning subsystem's public surface where one exists, e.g. machine `:data-schema`.) The earlier "warn" framing here predates the fail-closed hardening campaign and is superseded;
 - warn when examples or skills teach raw runtime path access;
 - provide explicit extension APIs for code that intentionally participates in
   runtime behavior.
@@ -1180,8 +1180,8 @@ than app-db/runtime-db.
 
 ## Resolved Decisions
 
-The fourteen calls this EP left open were ruled by Mike on 2026-06-08 (also
-recorded in bead `rf2-h0d6s6`). All fourteen are now final and authoritative; the
+The fourteen calls this EP left open were ruled by Mike on 2026-06-08. All
+fourteen are now final and authoritative; the
 rulings below settle the design so the partition can be locked. Where a ruling
 fixes vocabulary or shape that earlier sections describe as illustrative, the
 ruling here is the binding form.
@@ -1198,7 +1198,7 @@ ruling here is the binding form.
    `:db-before` / `:db-after` (see the 2026-06-11 errata note below). The
    canonical-plus-optional-projection shape from §6 is the one adopted.
 
-   > **Errata — 2026-06-11 (Mike, bead `rf2-cg7llv`).** This decision's original
+   > **Errata — 2026-06-11 (Mike).** This decision's original
    > text named the optional app-db projection slots `:app-db-before` /
    > `:app-db-after` and stated "There is no `:db-before` / `:db-after`." That
    > naming did not land: the reference implementation, the conformance fixtures,

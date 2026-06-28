@@ -43,7 +43,7 @@ handlers remain your real handlers. Story supplies the workshop around them.
 
 ## What makes Story different
 
-Story is familiar on purpose: sidebar, canvas, controls, docs, tests, sharing.
+Story is familiar: sidebar, canvas, controls, docs, tests, sharing.
 If you know Storybook, you should not need a ceremonial robe and a map of the
 catacombs to get started. The interesting parts are where re-frame2's substrate
 lets Story do more.
@@ -69,8 +69,8 @@ embeds Xray instead of growing a second debugger.
 
 ## The running example
 
-This tutorial uses the shipped `login_form` Story testbed. It is deliberately
-small: a login form with five states.
+This tutorial uses the shipped `login_form` Story testbed. It is small: a login
+form with five states.
 
 - idle;
 - submitting;

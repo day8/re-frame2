@@ -3,14 +3,14 @@
 Status: active
 Type: process
 
-> **Ruling recorded 2026-06-11 (rf2-q30c19).** This is a process EP; its
+> **Ruling recorded 2026-06-11.** This is a process EP; its
 > normative home — [`spec/Conventions.md` §Reserved namespaces → The naming
 > rules (one name per fact)](../../spec/Conventions.md#the-naming-rules-one-name-per-fact) —
 > exists and carries the authoritative rule text, so the EP graduates to
-> `active` (the EP-0009 / rf2-rjh00f precedent: a process EP whose named home
+> `active` (the EP-0009 precedent: a process EP whose named home
 > exists goes `active`, even with sweep items still in flight). The two
 > documentation sweep items remaining at acceptance (rows 5 and 6 of §The
-> sweep) are completed by the same bead: the `reg-*`/`register-*` audit found
+> sweep) are completed in the same pass: the `reg-*`/`register-*` audit found
 > no stragglers, and the `:schema`-family vocabulary table is now recorded in
 > Conventions §The naming rules.
 
@@ -36,7 +36,7 @@ as both `:frame` and `:rf.frame/id`; the runtime partition is
 `:rf.db/runtime` while its children are `:rf.runtime/*`; the work-ledger draft
 carried `:work/id` and `:stale-key` as near-duplicate composite identities;
 the SSR redirect target accepted `:location` / `:url` / `:to` before
-`rf2-vngir` pruned the retired spellings; the registration API splits into
+the retired spellings were pruned; the registration API splits into
 `reg-*` and `register-*` families; and "schema" names four different
 validators across the `reg-*` surface. Each instance is small. The class is
 permanent, because the project has naming *conventions*
@@ -56,12 +56,12 @@ This EP states the rule once:
 
 Three of this review cycle's findings were instances of one defect:
 
-1. **The frame stamp (rf2-1m6rf1, verified).** Spec 002's normative event
+1. **The frame stamp (verified).** Spec 002's normative event
    context carries `:rf.frame/id` only; the implementation injects `:frame`
    beside it on every event, and ~40 internal sites consume the retired
    spelling. The rename was additive, not a rename — and EP-0002 R3's "one
    carrier, one name" is contradicted on the hot path it was written for.
-2. **The redirect synonyms (rf2-vngir, now pruned).** Three accepted keys for
+2. **The redirect synonyms (now pruned).** Three accepted keys for
    one value were deliberately widened and then had to be removed by a
    targeted follow-up once this rule named the defect class.
 3. **The work-ledger near-duplicates (PR #3703 review).** `:work/id` and
@@ -86,8 +86,8 @@ class that dominated this review cycle.
 
 ## Non-Goals
 
-- Not the registration-arity/metadata-uniformity question (deferred under
-  rf2-iczn3); this EP is vocabulary only.
+- Not the registration-arity/metadata-uniformity question (deferred
+  separately); this EP is vocabulary only.
 - Not a rename-everything pass: inherited re-frame vocabulary (`:db`, `:event`,
   `:fx`, the public `:frame` opt) is explicitly sanctioned and untouched.
 - Not blocking other work: each sweep item is independently landable.
@@ -150,12 +150,12 @@ class that dominated this review cycle.
 
 | # | Instance | Resolution |
 |---|---|---|
-| 1 | `:frame` coeffect beside `:rf.frame/id` | **Done** — `rf2-1m6rf1` merged 2026-06-10 (the `:frame` coeffect dropped, internal consumers migrated); retained here as the sweep's precedent row |
+| 1 | `:frame` coeffect beside `:rf.frame/id` | **Done** — merged 2026-06-10 (the `:frame` coeffect dropped, internal consumers migrated); retained here as the sweep's precedent row |
 | 2 | `:rf.db/runtime` parent vs `:rf.runtime/*` children | **Keep, as a recorded rule**: `:rf.db/*` names partition *slots* of frame-state (`:rf.db/app`, `:rf.db/runtime`); `:rf.runtime/*` names *subsystem children* inside the runtime partition — globally greppable when detached from context. EP-0001 Appendix A asked for the split to be justified or aligned; this justifies it as a layer rule (rule 3) |
 | 3 | Work-ledger `:work/id` vs `:stale-key` | **Done** — EP-0003 acceptance / Spec 016 resolved one identity: stale suppression keys on `:work/id`; the separate `:stale-key` synonym is dropped, and denormalized fields are projections (rule 4) |
-| 4 | Redirect `:location`/`:url`/`:to` | **Done** — `rf2-vngir` merged 2026-06-10. Canonical key is `:location` per rule 3's vocabulary rule; `:url` / `:to` are retired spellings rejected with `:rf.error/redirect-retired-target-key`, not compatibility aliases |
-| 5 | `reg-*` vs `register-*` families | **Done** — no stragglers; rule recorded in [Conventions §Naming: when does a surface carry `!`?](../../spec/Conventions.md#naming-when-does-a-surface-carry-) (bucket 1 `reg-*` registrars vs bucket 2 `register-*!` listeners) + the lifecycle-verb law roster. The `rf2-q30c19` verify swept the API surface (`spec/API.md` + the `re-frame.core` facade exports): every `reg-*` is a registrar entry and every `register-*!` a listener/side-table attachment (`register-event-listener!`, `register-error-listener!`, `register-listener!`, `register-epoch-listener!`, `register-marks!`). Route removal was the lone inverse verb `unregister-route!`; rf2-sd6amv renamed it to **`clear-route`** so declarative-registration removal uses `clear-*` (like `clear-event` / `clear-sub` / `clear-flow`) and `unregister-*` is reserved for listener/sink callbacks — closing the last `reg`/`clear` vs `register`/`unregister` mismatch |
-| 6 | The `:schema` family | **Done** — schema-family table recorded in [Conventions §The naming rules](../../spec/Conventions.md#the-naming-rules-one-name-per-fact) (rf2-q30c19): `reg-event-*` `:schema` validates *event args*; machine `:data-schema` validates machine `:data` (the EP-0005 qualify-where-a-sibling-makes-`:schema`-ambiguous precedent); `reg-app-schema` validates app-db paths; runtime-db schemas are framework-owned. No renames beyond EP-0005's |
+| 4 | Redirect `:location`/`:url`/`:to` | **Done** — merged 2026-06-10. Canonical key is `:location` per rule 3's vocabulary rule; `:url` / `:to` are retired spellings rejected with `:rf.error/redirect-retired-target-key`, not compatibility aliases |
+| 5 | `reg-*` vs `register-*` families | **Done** — no stragglers; rule recorded in [Conventions §Naming: when does a surface carry `!`?](../../spec/Conventions.md#naming-when-does-a-surface-carry-) (bucket 1 `reg-*` registrars vs bucket 2 `register-*!` listeners) + the lifecycle-verb law roster. A verification pass swept the API surface (`spec/API.md` + the `re-frame.core` facade exports): every `reg-*` is a registrar entry and every `register-*!` a listener/side-table attachment (`register-event-listener!`, `register-error-listener!`, `register-listener!`, `register-epoch-listener!`, `register-marks!`). Route removal was the lone inverse verb `unregister-route!`; it was renamed to **`clear-route`** so declarative-registration removal uses `clear-*` (like `clear-event` / `clear-sub` / `clear-flow`) and `unregister-*` is reserved for listener/sink callbacks — closing the last `reg`/`clear` vs `register`/`unregister` mismatch |
+| 6 | The `:schema` family | **Done** — schema-family table recorded in [Conventions §The naming rules](../../spec/Conventions.md#the-naming-rules-one-name-per-fact): `reg-event-*` `:schema` validates *event args*; machine `:data-schema` validates machine `:data` (the EP-0005 qualify-where-a-sibling-makes-`:schema`-ambiguous precedent); `reg-app-schema` validates app-db paths; runtime-db schemas are framework-owned. No renames beyond EP-0005's |
 
 ### Enforcement
 
@@ -176,12 +176,12 @@ pruned the redirect aliases immediately, with no compatibility window. Items
 
 1. Conventions bead: add the rules + the vocabulary tables (hot-zone;
    sequential). This is the graduation bead.
-2. ~~`rf2-1m6rf1`: the frame-stamp completion~~ — **merged** (item 1 done).
-3. ~~`rf2-vngir`: the redirect narrowing~~ — **merged** (item 4 done; retired
+2. ~~The frame-stamp completion~~ — **merged** (item 1 done).
+3. ~~The redirect narrowing~~ — **merged** (item 4 done; retired
    spellings fail loudly and name `:location`).
 4. `reg-`/`register-` audit bead (doc-only unless stragglers found).
-5. ~~Lint bead: retired-spelling checks for items 1 and 4~~ — **done**
-   (`rf2-ziak6w`). `scripts/check_retired_spellings.py` fails on the retired
+5. ~~Lint bead: retired-spelling checks for items 1 and 4~~ — **done**.
+   `scripts/check_retired_spellings.py` fails on the retired
    bare `:frame` event-context coeffect read (item 1) and the `:url` / `:to`
    redirect-target key on an SSR redirect fx (item 4), scoped to the retired
    *shapes* so the sanctioned public `:frame` opt / trace tag / fx-handler ctx

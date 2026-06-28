@@ -2,13 +2,13 @@
 
 Status: final
 
-> **`:data-schema` key RETIRED by [EP-0029](EP-0029-xstate-v6-machine-parity.md) (accepted 2026-06-23) — landed by rf2-f9nvu9.** EP-0005 established the machine-level `:data-schema` key and recorded its XState **v5** typed-context parity. EP-0029 retargets machine parity from XState v5 to the **v6** design direction, which replaces v5's `types: {} as …` with a broader `schemas` section. Accordingly: (1) the **v5 typed-context parity framing** in this EP is **superseded** — the parity reference is now the XState v6 `schemas` direction (v5 is historical context); and (2) the **`:data-schema` key has been retired** by a clean pre-alpha break — the machine data-context schema now lives at **`[:schemas :data]`** under the machine-level `:schemas` map (no `:data-schema` shorthand; EP-0029 A3). The **validation semantics survive** the rename (the `:where :machine-data` boundary is unchanged) — only the spelling and the home moved. This landed in the EP-0029 schema wave (**rf2-f9nvu9**); the live key is now `[:schemas :data]`. The prose below retains the original `:data-schema` spelling for the historical record — read every machine `:data-schema` reference below as the data-context schema now declared at `[:schemas :data]`.
+> **`:data-schema` key RETIRED by [EP-0029](EP-0029-xstate-v6-machine-parity.md) (accepted 2026-06-23).** EP-0005 established the machine-level `:data-schema` key and recorded its XState **v5** typed-context parity. EP-0029 retargets machine parity from XState v5 to the **v6** design direction, which replaces v5's `types: {} as …` with a broader `schemas` section. Accordingly: (1) the **v5 typed-context parity framing** in this EP is **superseded** — the parity reference is now the XState v6 `schemas` direction (v5 is historical context); and (2) the **`:data-schema` key has been retired** by a clean pre-alpha break — the machine data-context schema now lives at **`[:schemas :data]`** under the machine-level `:schemas` map (no `:data-schema` shorthand; EP-0029 A3). The **validation semantics survive** the rename (the `:where :machine-data` boundary is unchanged) — only the spelling and the home moved. This landed in the EP-0029 schema wave; the live key is now `[:schemas :data]`. The prose below retains the original `:data-schema` spelling for the historical record — read every machine `:data-schema` reference below as the data-context schema now declared at `[:schemas :data]`.
 
-> **Redaction-bridge half SUPERSEDED by [EP-0025](EP-0025-data-classification.md) (ruled 2026-06-20, rf2-398kql; refined 2026-06-21, rf2-h3d8tf).** The `:data-schema`→marks **redaction bridge** this EP introduced (the "Redaction marking" section — extracting `:sensitive?` / `:large?` per-slot props from a machine's `:data-schema` and feeding them into snapshot-egress redaction) is **reversed**. Durable machine `:data` classification is now declared on the **machine definition** itself, as projection-relative `:sensitive` / `:large` paths rooted at one actor snapshot's `:data` (e.g. `{:sensitive [[:data :payment :token]]}`); the runtime lowers each per actor instance at spawn / first-boot into the per-frame elision registry (`:source :machine`) and drops it on destroy. (The initial rf2-398kql disposition routed durable machine `:data` through the frame-owned `reg-frame` `:sensitive {:app-db …}` annotation; EP-0025 §subsystems then **retired that frame annotation entirely** and made the machine-declared, per-instance-lowered surface the sole mechanism — see [`spec/005-StateMachines.md` §Privacy — redacting machine `:data` at trace egress](../../spec/005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress).) **The rest of EP-0005 STANDS:** the `:schema`→`:data-schema` **rename**, the **validation** semantics (the `:where :machine-data` boundary), the machines-viz declared-over-inferred Context shape, and the XState-v5 parity all remain in force, and the `:data-schema`'s `:sensitive?` props still drive validation-FAILURE-trace redaction (a different axis from durable `:data` classification). The historical prose below is retained for the record; read "Redaction marking" as superseded.
+> **Redaction-bridge half SUPERSEDED by [EP-0025](EP-0025-data-classification.md) (ruled 2026-06-20; refined 2026-06-21).** The `:data-schema`→marks **redaction bridge** this EP introduced (the "Redaction marking" section — extracting `:sensitive?` / `:large?` per-slot props from a machine's `:data-schema` and feeding them into snapshot-egress redaction) is **reversed**. Durable machine `:data` classification is now declared on the **machine definition** itself, as projection-relative `:sensitive` / `:large` paths rooted at one actor snapshot's `:data` (e.g. `{:sensitive [[:data :payment :token]]}`); the runtime lowers each per actor instance at spawn / first-boot into the per-frame elision registry (`:source :machine`) and drops it on destroy. (The initial disposition routed durable machine `:data` through the frame-owned `reg-frame` `:sensitive {:app-db …}` annotation; EP-0025 §subsystems then **retired that frame annotation entirely** and made the machine-declared, per-instance-lowered surface the sole mechanism — see [`spec/005-StateMachines.md` §Privacy — redacting machine `:data` at trace egress](../../spec/005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress).) **The rest of EP-0005 STANDS:** the `:schema`→`:data-schema` **rename**, the **validation** semantics (the `:where :machine-data` boundary), the machines-viz declared-over-inferred Context shape, and the XState-v5 parity all remain in force, and the `:data-schema`'s `:sensitive?` props still drive validation-FAILURE-trace redaction (a different axis from durable `:data` classification). The historical prose below is retained for the record; read "Redaction marking" as superseded.
 
 > **`final` means the decisions are settled.** The five deferred calls were ruled
 > by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)); the later
-> 2026-06-09 `rf2-0k5ubx` errata ruling reaffirmed the same schema-first public
+> 2026-06-09 errata ruling reaffirmed the same schema-first public
 > surface for `:sensitive?` / `:large?`. The design is locked. The implementation
 > has now also shipped in full: every tracked implementation erratum is closed —
 > see [Implementation errata](#implementation-errata).
@@ -29,11 +29,11 @@ ruling. The EP is implementation-complete.
 The rename and skill/spec-reconciliation errata below are **fixed**; they are kept
 here as a closed record and no longer reopen any ruling:
 
-- **`rf2-pjv7pz`** *(fixed — PR #3538, 2026-06-08)* — the `:schema` → `:data-schema`
+- **Fixed (PR #3538, 2026-06-08)** — the `:schema` → `:data-schema`
   rename (decision 1) reached the core probe/integration surfaces that still carried
   the old `:schema` spelling (`late_bind/directory.cljc`, `elision_probe.cljs`). The
   rename is now complete across machines/spec/guide and core surfaces alike.
-- **`rf2-0k5ubx`** *(fixed — PR #3560, ruled by Mike 2026-06-09)* — Spec 015 §6 (SS-6)
+- **Fixed (PR #3560, ruled by Mike 2026-06-09)** — Spec 015 §6 (SS-6)
   plus three implementor-skill notes documented unimplemented top-level `:sensitive` /
   `:large` convenience keys on the machine spec. Mike ruled **option a** (reword,
   firming the schema-first surface): `reg-machine` stays `(machine-id machine-map)`;
@@ -45,45 +45,45 @@ here as a closed record and no longer reopen any ruling:
 The redaction-bridge errata below are **fixed** (the marks-cluster work) and kept
 here as a closed record; they no longer reopen any ruling:
 
-- **`rf2-20d6k2`** *(fixed)* — `project-machine-tags` now redacts machine `:data`
+- **Fixed** — `project-machine-tags` now redacts machine `:data`
   across EVERY trace slot that carries it: `:rf.machine/started`'s direct `:data`
   map, the `:input {:data …}` of `:rf.machine/guard-evaluated` /
   `:rf.machine/action-ran`, and the per-step `:data-delta`s of a
   `:rf.machine/transition`'s `:cascade` — re-rooting the snapshot-rooted `[:data …]`
   marks to each slot's shape — alongside the original `:before` / `:after` /
   `:snapshot` coverage.
-- **`rf2-qpibk0`** *(fixed)* — schema-sourced machine marks now live in a table
+- **Fixed** — schema-sourced machine marks now live in a table
   SEPARATE from the author-sourced `:event` marks entry; `marks-for :event <id>`
   unions the two at READ time, and `reg-event-fx` skips its bare-meta
   `register-marks!` clear for machine registrations. A `register-marks!` (or
   re-registration) can no longer drop schema-derived `[:data …]` marks, so the
   schema-vs-author union is order-independent regardless of whether the manual
   marks were registered before OR after `reg-machine` (decision 3).
-- **`rf2-1zqh1z`** *(fixed)* — `union-marks!` now preserves an explicit `false`
+- **Fixed** — `union-marks!` now preserves an explicit `false`
   whole-output override across a union that adds only path marks (monotone-OR via
   `union-whole-output-flag`: `true` on either side wins, an explicit `false` is
   preserved, only both-absent vanishes), honouring the OR semantics the mark-union
   contract (decision 3) documents both ways.
-- **`rf2-egvm4t`** *(fixed)* — a spawned actor's per-instance `:data-schema` marks
+- **Fixed** — a spawned actor's per-instance `:data-schema` marks
   are now lifecycle-managed: every destroy trigger (explicit destroy, final-state
   auto-destroy, frame teardown of spawned actors) CLEARS the per-instance entry, and
   the lazy actor-handler resolver REHYDRATES it from the restored snapshot's spec on
   the first dispatch after a `restore-epoch!` / replay — so the marks table tracks the
   revertible snapshot in lock-step and epoch restore stays safe.
 
-(The declared-over-inferred context-shape gap for empty/closed/wrapped map schemas,
-`rf2-2btfzr`, is **fixed** in PR #3523 and is no longer open.)
+(The declared-over-inferred context-shape gap for empty/closed/wrapped map schemas
+is **fixed** in PR #3523 and is no longer open.)
 
 ## Abstract
 
 A state machine's `:data` slot — its context, in XState terms — is the value the
-machine carries across transitions. The originating bead (`rf2-cdvybr`) proposed
+machine carries across transitions. This EP originally proposed
 adding an optional `:data-schema` key to `reg-machine` to validate that context,
 on the premise that machine `:data` is "the one re-frame2 state surface with no
 declared schema."
 
-That premise is no longer true. Machine `:data` validation already shipped, under
-`rf2-jbbp7`, as a top-level `:schema` key on the machine spec. It validates `:data`
+That premise is no longer true. Machine `:data` validation already shipped as a
+top-level `:schema` key on the machine spec. It validates `:data`
 at the macrostep-commit boundary, at bootstrap, and at spawn time; it emits
 `:rf.error/schema-validation-failure` with `:where :machine-data`; it rolls back
 the cascade on failure; and it is production-elidable. `spec/005-StateMachines.md`
@@ -150,22 +150,22 @@ are not connected:
   properties.
 
 The machine schema already routes its *own failure trace's* value slots through the
-schema-aware redactor (`data_validation.cljc`, under `rf2-o69h5`). But the *snapshot*
+schema-aware redactor (`data_validation.cljc`). But the *snapshot*
 slots — `:before` / `:after` / `:snapshot` on every `:rf.machine/transition` — are
 redacted only against the manually-registered marks, never against the schema. A
 developer who declares `[:auth-token {:sensitive? true} :string]` inside a machine
 schema gets validation, but the token still egresses raw in every transition trace
 and Xray snapshot, because nothing bridges the schema's `:sensitive?` into
-`machine-marks`. This is the bead's rationale made real, and it is the only genuine
+`machine-marks`. This is the EP's rationale made real, and it is the only genuine
 engineering in the EP.
 
 ### machines-viz infers what it could declare
 
 The static Context-shape panel (`topology_view.cljs`, `static-context-shape`)
-derives key→type from one sample of the definition's initial `:data` (`rf2-vcnvj`),
-badged "inferred from :data" (`rf2-5tz9p`) because a partial initial `:data` can
+derives key→type from one sample of the definition's initial `:data`,
+badged "inferred from :data" because a partial initial `:data` can
 mislead. A declared schema turns that one-sample inference into an authoritative
-declared key→type table — exactly the option-A upgrade the closed bead `rf2-wto1k`
+declared key→type table — exactly the option-A upgrade that was earlier
 deferred as "presupposing machines can declare a context schema." They can; the
 feeder just doesn't consult it.
 
@@ -180,14 +180,14 @@ validation + elision vs TypeScript compile-time-only types) is worth recording.
 
 ## Goals
 
-- Correct the bead's premise: machine `:data` validation already exists; this EP is
+- Correct the original premise: machine `:data` validation already exists; this EP is
   a rename plus three completions, not a from-scratch feature.
 - Settle the `:schema` vs `:data-schema` naming with a recommendation and the
   trade-off named explicitly.
 - Bridge schema `:sensitive?` / `:large?` markers into snapshot egress, so a
   sensitive `:data` slot is redacted in traces, not only at validation.
 - Make machines-viz render the declared Context shape (authoritative) when a schema
-  is present, and fall back to inferred (`rf2-5tz9p`) when absent.
+  is present, and fall back to inferred when absent.
 - Document the XState v5 typed-context parity and its one divergence.
 
 ## Non-Goals
@@ -211,14 +211,14 @@ This EP is largely independent but shares one path with another proposal.
   graduated by the [App/Runtime Partition EP](EP-0001-frame-partitions.md). The two
   decisions are otherwise independent, but EP-0005's implementation targets the
   partitioned path.
-- **Subsumes the deferred `rf2-wto1k` option A.** `rf2-wto1k` shipped the pragmatic
+- **Subsumes the deferred option A.** The earlier work shipped the pragmatic
   inference from initial `:data` (option B) and deferred the declared-context schema
   (option A) as a separate spec/005 feature. This EP is that feature.
-- **Extends, does not revert, `rf2-5tz9p`.** `rf2-5tz9p` added the "inferred from
+- **Extends, does not revert, the inferred-context behaviour.** The earlier work added the "inferred from
   :data" badge gated by `:machine-data-inferred?` (default true). This EP makes the
   badge conditional on schema-absence: declared → authoritative (badge off); absent →
   inferred (badge on, exactly today's behaviour). The `:machine-data-inferred?` prop
-  is the seam this EP toggles; nothing 5tz9p built is discarded.
+  is the seam this EP toggles; nothing the earlier work built is discarded.
 - **Catalogued by [EP-0007](EP-0007-one-name-per-fact.md) (One Name Per Fact).**
   This EP's `:schema` → `:data-schema` rename (the
   qualify-where-a-sibling-makes-`:schema`-ambiguous precedent) is recorded in
@@ -265,7 +265,7 @@ rename does not alter it:
 
 ### Redaction marking
 
-> **SUPERSEDED by [EP-0025](EP-0025-data-classification.md) (rf2-398kql; refined rf2-h3d8tf).** This section's schema→marks redaction bridge is REVERSED. Durable machine `:data` egress classification is now MACHINE-DECLARED — projection-relative `:sensitive` / `:large` paths on the `reg-machine` spec (rooted at one actor snapshot's `:data`), lowered per actor instance at spawn into the per-frame elision registry (`:source :machine`) and dropped on destroy. (EP-0025 §subsystems retired the intermediate frame-owned `reg-frame` `:sensitive {:app-db …}` annotation entirely; the machine declaration is the sole surface.) `:data-schema` `:sensitive?` props no longer feed snapshot egress (they still drive validation-failure-trace redaction, a different axis). The prose below is retained for the historical record.
+> **SUPERSEDED by [EP-0025](EP-0025-data-classification.md).** This section's schema→marks redaction bridge is REVERSED. Durable machine `:data` egress classification is now MACHINE-DECLARED — projection-relative `:sensitive` / `:large` paths on the `reg-machine` spec (rooted at one actor snapshot's `:data`), lowered per actor instance at spawn into the per-frame elision registry (`:source :machine`) and dropped on destroy. (EP-0025 §subsystems retired the intermediate frame-owned `reg-frame` `:sensitive {:app-db …}` annotation entirely; the machine declaration is the sole surface.) `:data-schema` `:sensitive?` props no longer feed snapshot egress (they still drive validation-failure-trace redaction, a different axis). The prose below is retained for the historical record.
 
 A `:sensitive?` / `:large?` property anywhere in a `:data-schema` MUST be honoured in
 snapshot egress — Xray, pair-MCP, and the epoch wire — not only in the validation-
@@ -288,7 +288,7 @@ already define for app-db.
 1. **Declared.** If the definition carries a `:data-schema`, derive `{key → type}`
    from the schema's `[:map [k type] …]` entries and render it as authoritative —
    the "inferred" badge is dropped for that machine.
-2. **Inferred.** If there is no `:data-schema`, keep `rf2-5tz9p`'s behaviour: derive
+2. **Inferred.** If there is no `:data-schema`, keep the existing inferred behaviour: derive
    `{key → type}` from one sample of initial `:data`, badged "inferred from :data".
 
 Per the standing Xray-specs-kept-current rule, the PR that touches `topology_view.cljs`
@@ -357,12 +357,12 @@ The bridge is per-slot rather than a conservative whole-`:data` scrub because th
 snapshot `:data` is schema-shaped: the marked paths map cleanly onto the snapshot under
 `[:data …]`, so precise per-slot redaction (matching app-db) works and preserves the
 legible non-sensitive context Xray wants to show. The conservative whole-slot scrub
-remains correct only for the non-snapshot-shaped `:exception-data` path (`rf2-zsm03`),
+remains correct only for the non-snapshot-shaped `:exception-data` path,
 where per-slot paths cannot map, and stays there unchanged.
 
 ### Why the viz and parity completions
 
-The viz switch unblocks the option-A upgrade `rf2-wto1k` deferred and turns a
+The viz switch unblocks the option-A upgrade that was earlier deferred and turns a
 sometimes-misleading inference into an authoritative table when the author has done
 the work of declaring a schema. The parity prose records that re-frame2 *exceeds* its
 XState v5 benchmark — runtime validation and elision vs TypeScript's compile-time-only,
@@ -398,7 +398,7 @@ marker that validates but does not redact is a trap: the developer believes the 
 is protected, and it egresses raw in every transition trace and Xray snapshot. The
 bridge makes the marker honoured and fail-precise for snapshot-shaped `:data` (the
 per-slot path), while the conservative whole-slot scrub stays correct for the
-non-snapshot-shaped `:exception-data` path (`rf2-zsm03`). All of it lives behind
+non-snapshot-shaped `:exception-data` path. All of it lives behind
 `interop/debug-enabled?` and is moot in production builds, where the trace surface is
 elided entirely. Note that *production-elidable is not elided-by-default on the JVM*:
 the CLJS `:advanced` build DCEs the surface via `goog.DEBUG=false`, but on the JVM
@@ -413,14 +413,14 @@ bridge, but the trace surface itself is live and must be disabled explicitly.
 
 Leave the key spelled `:schema`, ship no redaction bridge, no viz change, no parity
 prose. Zero churn, but the privacy capability stays an unkept promise (a documented
-feature that does not function), the `wto1k` viz upgrade stays blocked, and the parity
+feature that does not function), the viz upgrade stays blocked, and the parity
 stays implicit. A half-wired privacy feature is worse than none; this fails the
 masterpiece bar.
 
 ### Conservative whole-`:data` redaction scrub
 
 When the schema marks any slot `:sensitive?`, scrub the whole `:data` slot in egress —
-mirroring the `rf2-zsm03` `:exception-data` scrub. Trivially fail-closed and needs no
+mirroring the `:exception-data` scrub. Trivially fail-closed and needs no
 per-slot path extraction, but coarse: it loses the legible non-sensitive context Xray
 wants to show even when only one slot is sensitive, and is inconsistent with app-db's
 precise per-slot redaction. The snapshot `:data` is schema-shaped, so per-slot paths
@@ -431,8 +431,8 @@ map; precision is achievable and preferred. (The whole-slot scrub stays correct 
 
 The five calls this EP deferred to the operator were ruled by Mike on
 2026-06-08. All were taken as recommended above; the rulings below are the
-final, implemented decisions. A follow-up implementation-errata ruling,
-`rf2-0k5ubx` on 2026-06-09, confirmed the same public surface for
+final, implemented decisions. A follow-up implementation-errata ruling on
+2026-06-09 confirmed the same public surface for
 sensitivity/large-data metadata: machine `:data` marks come only from per-slot
 `:data-schema` properties for v1, with no top-level `:sensitive` / `:large`
 keys.
@@ -448,7 +448,7 @@ keys.
    is schema-shaped, so the marked paths map cleanly under `[:data …]`; precision is
    achievable and preserves the legible non-sensitive context Xray shows. (The conservative
    whole-slot scrub stays where it is correct — the non-snapshot-shaped `:exception-data`
-   path, `rf2-zsm03`.)
+   path.)
 3. **Mark composition → union.** Schema-sourced and author-sourced marks **union** (the
    same schema-sourced-vs-author-sourced composition `reg-app-schema` + `add-marks` define
    for app-db), not last-write-wins, when a machine has both a `:data-schema` and a manual
@@ -467,10 +467,10 @@ Rename `reg-machine`'s existing `:schema` key to `:data-schema` for the machine'
 remaining gaps: bridge schema `:sensitive?` / `:large?` markers into snapshot egress so
 sensitive slots are redacted, not only validated; switch machines-viz to
 declared-over-inferred Context shape; and document the XState v5 parity. Validation
-itself already shipped under `rf2-jbbp7`, so this EP corrects the premise that machine
+itself already shipped, so this EP corrects the premise that machine
 `:data` is un-schema'd and finishes a documented-but-non-functional privacy capability.
 All five deferred calls were ruled by the operator on 2026-06-08, with the
-`rf2-0k5ubx` follow-up ruling recorded on 2026-06-09 (see
+follow-up ruling recorded on 2026-06-09 (see
 [Resolved Decisions](#resolved-decisions)), and the design is settled, so this EP is
 **final** — final in its *decisions*. The work has now shipped in full; every
 [implementation erratum](#implementation-errata) is closed, so the EP is

@@ -73,18 +73,16 @@ For a login failure, Xray can show:
 
 ## Evidence is not a fourth top-level mode
 
-The Story shell has Canvas, Docs, and Tests. It deliberately does not have a
-fourth "Evidence" tab.
+The Story shell has Canvas, Docs, and Tests. It does not have a fourth
+"Evidence" tab.
 
-That is not because evidence is unimportant. It is because the default workshop
-should stay focused on states, examples, and tests. Evidence becomes primary
-when a run needs it: a failed assertion, an Inspect gesture, or a selected Xray
-panel brings it forward.
+The default workshop stays focused on states, examples, and tests. Evidence
+becomes primary when a run needs it: a failed assertion, an Inspect gesture, or
+a selected Xray panel brings it forward.
 
-The product test is simple. If a user debugging a red variant has to hunt for
-evidence, the design failed. If evidence is always shouting over ordinary state
-review, the design also failed. Story should be calm until the moment it must be
-specific.
+Story stays calm until the moment it must be specific. Debugging a red variant
+surfaces evidence without a hunt, and ordinary state review is never drowned out
+by evidence shouting over it.
 
 ## Schema failures
 

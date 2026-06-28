@@ -4,7 +4,7 @@ The complete symbol table for Xray's public surface, organised by namespace for 
 
 Surfaces fall into six namespaces and one browser global. The split is principled — each namespace answers a distinct question — but the row count varies wildly. `core` carries the common host-facing facade; `runtime` carries the tool read-and-mutate seam; `keybinding` carries the embed-host lifecycle pair. If you're scanning for a single function and don't remember which namespace owns it, the right move is `Ctrl-F` on this page.
 
-For the topical walk-through with intuition notes and use-when prose, see [Mount control](mount-control.md), [Configuration keys](config-keys.md), and [Runtime seam](runtime-seam.md). For the index of *what* this reference covers (and what it deliberately omits — the Xray-internal panel composers, the static-mode catalogues, the atom handles that mirror state the setters write to), see [the index](index.md#what-canonical-means-here).
+For the topical walk-through with intuition notes and use-when prose, see [Mount control](mount-control.md), [Configuration keys](config-keys.md), and [Runtime seam](runtime-seam.md). For the index of *what* this reference covers (and what it omits — the Xray-internal panel composers, the static-mode catalogues, the atom handles that mirror state the setters write to), see [the index](index.md#what-canonical-means-here).
 
 ## `day8.re-frame2-xray.core`
 

@@ -3,18 +3,18 @@
 Status: final
 
 > **`final` means the decisions are settled.** The HTTP-only scope graduated
-> `accepted`→`final` on 2026-06-11 (Mike ruled option (a) on `rf2-9l9xs2`), once
+> `accepted`→`final` on 2026-06-11 (Mike ruled option (a)), once
 > all P1 resources bugs had merged. The accepted HTTP-only scope has its
 > normative home in [`spec/016-Resources.md`](../../spec/016-Resources.md);
 > where this EP and the spec differ, the **spec governs**, and this EP remains
 > the design record (rationale, prior-art benchmark, slice plan) and the home of
-> the deferred GraphQL phase. The fresh-skip/cache-hit hold (`rf2-hsa0sv`) is
+> the deferred GraphQL phase. The fresh-skip/cache-hit hold is
 > resolved: the reference implementation short-circuits fresh ensures and emits
 > `:rf.resource/cache-hit` exactly as Spec 016's FSM, §Restore, and §Xray prose
 > describe (PR #3791). All twelve core slices (artefact skeleton, work-ledger
 > substrate, runtime, managed-HTTP, invalidation/GC, route, SSR, Xray,
 > focus/reconnect, mutation, docs) are complete on `main`, and both mandatory
-> wave-end reviews (correctness `rf2-2wzk6g`, docs `rf2-lqpwki`) passed clean —
+> wave-end reviews (correctness and docs) passed clean —
 > every acceptance criterion and every §9 conformance fixture PASS, including the
 > first-public-beta gate (mutations + focus/reconnect revalidation). Finalizing
 > the *decisions* does not, on its own, assert the *implementation* was gap-free;
@@ -35,12 +35,12 @@ any ruling. Finalizing the *decisions* did not, on its own, assert the
 
 ### Resolved errata — review-wave findings fixed in-wave
 
-The wave-end correctness review (`rf2-2wzk6g`) and the design-fork/lifecycle
+The wave-end correctness review and the design-fork/lifecycle
 work surfaced the findings below. **All were fixed and merged before
 graduation** — they are kept here as a closed record and no longer reopen any
 ruling:
 
-- **`rf2-hsa0sv`** *(fixed — PR #3791)* — fresh-skip ensure semantics +
+- **Fixed (PR #3791)** — fresh-skip ensure semantics +
   `:rf.resource/cache-hit` emit. The reference `ensure-load` did not short-circuit
   a fresh `:loaded` ensure, so an ensure of an already-loaded, still-fresh entry
   re-fetched unconditionally — diverging from the FSM (a fresh `ensure` has no
@@ -53,25 +53,24 @@ ruling:
   reserved/forward-looking to **implemented**; the FSM, trace family, and Xray
   panel were updated. A stale `:loaded` entry still refetches (fresh-skip never
   swallows a stale refresh).
-- **`rf2-er7qx2` / `rf2-fopuj9` / `rf2-o3d1uf`** *(fixed — PR #3794, ssr-restore
-  cluster)* — three P1 SSR/restore correctness gaps:
-  - **`er7qx2`** — the SSR blocking-resource drain/timeout loop was helper-only
+- **Fixed (PR #3794, ssr-restore cluster)** — three P1 SSR/restore correctness gaps:
+  - **SSR blocking-resource drain** — the SSR blocking-resource drain/timeout loop was helper-only
     and not wired into the Ring and streaming render paths; a never-settling
     blocking resource could render against an unchecked loading/skeleton state.
     The drain/timeout policy is now integrated into both SSR render paths so
     current-navigation blocking resources settle before render or install a
     settled timeout error entry.
-  - **`fopuj9`** — the hydration refetch planner only invoked reconciliation, and
+  - **Hydration refetch planner** — the hydration refetch planner only invoked reconciliation, and
     redacted projected data could be misclassified as usable data. Hydration now
     refetches stale/omitted/redacted entries needed by the live route while fresh
     serialized entries do not double-fetch, and the redacted sentinel is treated as
     metadata-only, not usable data.
-  - **`o3d1uf`** — epoch restore reconciled dangling work-ledger rows and settled
+  - **Epoch restore** — epoch restore reconciled dangling work-ledger rows and settled
     resource entries but left pending mutation instances holding current-work and
     generation, so a late pre-restore mutation reply could still patch/populate/
     invalidate post-restore state. Restore now terminally settles restored pending
     mutation instances, so stale pre-restore mutation replies are suppressed.
-- **`rf2-tgm1xu`** *(fixed — PR #3795, xray-resources cluster)* — resource
+- **Fixed (PR #3795, xray-resources cluster)** — resource
   accessors redacted live entries *before* projection, so default
   `list-resource-instances` / `get-resource-state` could lose status, owners,
   tags, and request ids without `include-runtime-db`, contradicting the EP-0003
@@ -81,8 +80,7 @@ ruling:
   `:has-data?`, and report `:missing-key` for an incomplete scoped key.
 
 Earlier slice-era build-gaps against settled rulings (the EP-0001-style
-authority/error-catalogue/reset-hook reconciliations — `rf2-7r5mc2`,
-`rf2-y7lcqy`, `rf2-4hboqi`, `rf2-gzsyw3`, `rf2-yuc8o0`, `rf2-i1w1pe`) were also
+authority/error-catalogue/reset-hook reconciliations) were also
 fixed and merged in-wave (PRs #3768–#3776) and carry no open EP-0003 erratum.
 
 ### Cross-cutting known-issues (post-final errata, not contract gaps)
@@ -96,8 +94,7 @@ the surrounding work still in flight:
   hardening across the mutations, routing, events-core, scope-registry, and SSR
   lanes (all in `implementation/resources/`). These deepen the implementation's
   robustness; none reopens or changes the locked Spec 016 contract.
-- **Spec-coherence follow-ups (`rf2-cnp8pr`, `rf2-hhn4b6`, `rf2-uqwbhr`,
-  `rf2-ba5acq`, `rf2-c4focn`)** — docs/spec coherence reconciliation after the
+- **Spec-coherence follow-ups** — docs/spec coherence reconciliation after the
   resources + mutations slices landed: aligning the runtime-subsystem graduation
   rows' canonical home (Spec 016 vs `Runtime-Subsystems.md`), refreshing the API
   reference's landed public-beta surface, aligning the resource trace family
@@ -596,7 +593,7 @@ ordinary app authority is not enough. The resource event handlers that return a
 runtime partition.
 
 The resources artifact therefore mints write authority through the
-**generalized event-handler authority mechanism shipped under rf2-3939ig**: every
+**generalized event-handler authority mechanism**: every
 resource `reg-event-fx` registration site stamps the reserved registration-meta
 key `:rf/framework-authority? true` (per
 [`spec/002-Frames.md` §Minting framework-write authority](../../spec/002-Frames.md#minting-framework-write-authority)
@@ -817,8 +814,8 @@ necessarily a concrete value, drawn from a closed reserved-keyword enum:
   user-scoped" is unrepresentable at registration rather than an Xray heuristic
   about `/me`-looking URLs.
 
-This is the per-resource scope policy ruled fail-closed for EP-0003
-(`rf2-6rrz53`). It composes with the cache-scope-shape rule (scope is explicit
+This is the per-resource scope policy ruled fail-closed for EP-0003. It composes
+with the cache-scope-shape rule (scope is explicit
 canonical EDN, the first element of the key): scope is **explicit-in-key** *and*
 its presence is **mandatory-by-policy**.
 
@@ -1539,7 +1536,7 @@ resource's data. `:after` must target route-local ids rather than resource ids
 because the same resource can appear more than once with different params. Xray
 should show the dependency and any waterfall.
 
-> **Landed (rf2-xeb4l1; the spec governs, [Spec 016 §Route integration](../../spec/016-Resources.md#route-integration)):** `:after` shipped as **dispatch-order only**, narrower than this proposal's "when its params depend on the first resource's data" — the pure synchronous route planner cannot feed an earlier resource's loaded *data* into a later entry's params (a true data-waterfall is a deferred slice). `:after` guarantees ensure-dispatch order, and a missing or cyclic target is a fail-closed planning error (`:fix-after`), not silent declaration-order degradation.
+> **Landed (the spec governs, [Spec 016 §Route integration](../../spec/016-Resources.md#route-integration)):** `:after` shipped as **dispatch-order only**, narrower than this proposal's "when its params depend on the first resource's data" — the pure synchronous route planner cannot feed an earlier resource's loaded *data* into a later entry's params (a true data-waterfall is a deferred slice). `:after` guarantees ensure-dispatch order, and a missing or cyclic target is a fail-closed planning error (`:fix-after`), not silent declaration-order degradation.
 
 Routes are not required. An app can use resources entirely from events and
 machines:
@@ -1683,7 +1680,7 @@ and network replies already on the wire that the runtime cannot recall).
 
 This section answers, per the runtime-subsystem contract's clause 5, "what does
 epoch restore do to every value in this sub-tree?" The governing principle is the
-**anti-recycling rule** carried from the `rf2-oosjmh` routing ruling and
+**anti-recycling rule** carried from the routing ruling and
 generalized into [`spec/Runtime-Subsystems.md` §Derived rule 1 — the restore
 question is mandatory; allocators never rewind](../../spec/Runtime-Subsystems.md#derived-rule-1--the-restore-question-is-mandatory-allocators-never-rewind)
 (allocator counters "must never rewind"):
@@ -1711,7 +1708,7 @@ write an entry only if its work-id and generation still match the live entry. If
 epoch restore rewound the generation along with the rest of the entry, a
 pre-restore in-flight reply — already on the wire, uncancellable — could return
 carrying a generation the post-restore timeline has re-allocated, and be silently
-accepted as live. That is exactly the recycle the `rf2-oosjmh` ruling forbids.
+accepted as live. That is exactly the recycle the routing ruling forbids.
 
 Therefore the **generation allocator is a per-frame, host-side monotonic
 high-water mark**, not a value rewound by restore. It follows the routing
@@ -1843,8 +1840,8 @@ entries' durable timestamps the next time the runtime touches each entry, exactl
 as [§Stale And GC Scheduling](#stale-and-gc-scheduling) already requires timers
 to be advisory and re-checked against durable facts. This mirrors EP-0001
 decision 12 (flow dirty-check caches are recomputed/cleared on restore) and the
-`rf2-egvm4t` precedent (spawned-actor marks are rehydrated from the restored
-snapshot on first dispatch rather than carried as a separate durable fact).
+precedent that spawned-actor marks are rehydrated from the restored snapshot on
+first dispatch rather than carried as a separate durable fact.
 
 **Indexes are recomputed from entries, never trusted from the snapshot.** The
 `:tag-index` and `:owner-index` are derived projections of the entries' `:tags`
@@ -3252,7 +3249,7 @@ re-frame2 runtime process.
    protocol. See [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase).
 9. What is the cache scope shape?
    Recommendation: make scope explicit EDN and the first element of the resource
-   key. **Resolved (`rf2-6rrz53`, fail-closed):** there is no silent default —
+   key. **Resolved (fail-closed):** there is no silent default —
    every resource declares an explicit scope **policy** at registration
    (`:rf.scope/global` | resolver | `:rf.scope/from-caller`); no policy is a loud
    registration error, and `:rf.scope/global` is an explicit, auditable claim
@@ -3300,7 +3297,7 @@ deferred follow-on phase (see
 
 1. EP/spec bead: landed for the HTTP-only scope; Spec 016 is the normative
    home for that scope, and this EP graduated to `final` on the
-   accepted→final ruling (`rf2-9l9xs2`), retaining its role as the design
+   accepted→final ruling, retaining its role as the design
    record and the home of the deferred GraphQL phase.
 2. Artifact skeleton bead: create `day8/re-frame2-resources`, facade wrappers,
    feature probes, and `:resource` registrar metadata.
@@ -3337,21 +3334,21 @@ deferred follow-on phase (see
 **Upstream sequencing (both now satisfied).** Two framework prerequisites gate
 the runtime beads above, and both have **landed on main**:
 
-- **rf2-3939ig — generalized framework-write authority (✅ satisfied).** The
+- **Generalized framework-write authority (✅ satisfied).** The
   work-ledger bead (3) and resource runtime bead (4) write the `:rf.db/runtime`
   effect, so they depend on the generalized `:rf/framework-authority? true`
   registration-meta mechanism that lets a non-machine subsystem mint
-  event-handler authority. That mechanism shipped under rf2-3939ig (it had to,
+  event-handler authority. That mechanism shipped (it had to,
   because routing was already tripping `:rf.warning/app-handler-runtime-effect`
   on every navigation). The resource registration sites stamp the key per the
   [Write Authority](#write-authority) section; **no rework is required** — the
   beads build on a landed mechanism.
-- **rf2-6nn8bi — runtime-subsystem contract (✅ satisfied).** The graduation of
+- **Runtime-subsystem contract (✅ satisfied).** The graduation of
   `:rf.runtime/resources` and `:rf.runtime/work-ledger` (the
   [Runtime-Subsystem Graduation](#runtime-subsystem-graduation) tables) grades
   against the five-clause contract that landed normatively at
-  [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md) under
-  rf2-6nn8bi. Acceptance review of the runtime beads should treat both clause
+  [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md). Acceptance
+  review of the runtime beads should treat both clause
   conformance and the still-open clause-2 multi-writer authority question for
   `:rf.runtime/work-ledger` as gated by that contract.
 

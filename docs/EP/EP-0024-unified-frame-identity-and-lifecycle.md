@@ -3,8 +3,8 @@
 Status: final
 Type: standards-track
 
-> Accepted 2026-06-18: this EP records the operator's rulings on `rf2-kz2vfp`,
-> `rf2-uc6ebw`, and `rf2-um1jcq`; all open issues below are now resolved.
+> Accepted 2026-06-18: this EP records the operator's rulings; all open issues
+> below are now resolved.
 > The EP defines the post-EP-0023 frame cleanup: one live frame value backed by
 > one registry, one public operation-target grammar, and one explicit UI-owned
 > lifecycle boundary (`rf/frame-provider`). Normative homes are `spec/002-Frames.md`,
@@ -139,19 +139,19 @@ Non-goals:
     empirical 0-caller backbone (`frame-first` `(dispatch f ev)`,
     `frame-bound-fn`/`frame-bound-fn*`, `subscribe*` have zero real call sites in
     examples and tools) that grounds the helper-removal slices below.
-- **Related beads already filed**:
-  - `rf2-ts3fuk` fixes unsubscribe target normalization symmetry.
-  - `rf2-az1ct6` factors an internal frame-record resolver if not absorbed by
+- **Related work already identified**:
+  - Unsubscribe target normalization symmetry is fixed separately.
+  - An internal frame-record resolver is factored separately if not absorbed by
     this EP.
-  - `rf2-ntwwyt` moves HTTP test-support helpers out of the core facade.
-  - `rf2-10nggz` is the **home** for the registrar query/read address grammar
-    after EP-0023 (ruled: drop `:realm`, keep `:frame`). EP-0024 references it as
-    the home and does not re-decide it (see §Registrar and generation reads).
-  - `rf2-kgdk03` recorded the `spec/002-Frames.md` ↔ `spec/API.md` `make-frame`
+  - HTTP test-support helpers are moved out of the core facade separately.
+  - The registrar query/read address grammar after EP-0023 has its own **home**
+    (ruled: drop `:realm`, keep `:frame`). EP-0024 references that home and does
+    not re-decide it (see §Registrar and generation reads).
+  - A separate item recorded the `spec/002-Frames.md` ↔ `spec/API.md` `make-frame`
     contradiction (002-Frames still documented the pre-EP-0023 keyword-returning
     `make-frame`). This EP's §One constructor partially resolves it by unifying
     `make-frame`; the spec-graduation wave for `spec/002-Frames.md` subsumes or
-    hands off to the kgdk03 fix.
+    hands off to that fix.
 
 ## Specification
 
@@ -213,7 +213,7 @@ This unified single constructor **adopts the previously-deferred option-(a)** �
 extend the object constructor so it honours record-config keys
 (`:fx-overrides`, `:on-create`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`)
 alongside the image-selection keys (`:images`, `:id`, `:initial-db`,
-`:capabilities`, `:adapter`) — and thereby **reverses the `rf2-32siq3.45`
+`:capabilities`, `:adapter`) — and thereby **reverses the earlier
 option-(b) disposition** that currently ships: the fail-loud redirect
 (`:rf.error/make-frame-record-only-key`) that rejects record-config keys on the
 object constructor and points callers at the advanced `re-frame.frame/make-frame`.
@@ -376,11 +376,11 @@ namespace if implementation code still needs them.
 ### Registrar and generation reads
 
 The registrar read grammar (the source-store reads and any frame-generation
-reads) is **owned and settled by `rf2-10nggz`**, not by this EP. That decision is
-ruled — the read address keeps `:frame` and drops `:realm`. EP-0024 references
-`rf2-10nggz` as the home and does not re-decide it; there is **no
-fold-in-before-acceptance dependency**. This scoping keeps EP-0024 to one
-decision surface (frame identity and lifecycle).
+reads) is **owned and settled by a separate registrar-query-grammar decision**,
+not by this EP. That decision is ruled — the read address keeps `:frame` and
+drops `:realm`. EP-0024 references that decision as the home and does not
+re-decide it; there is **no fold-in-before-acceptance dependency**. This scoping
+keeps EP-0024 to one decision surface (frame identity and lifecycle).
 
 The source-store reads remain source-store reads, illustrative only:
 
@@ -392,8 +392,8 @@ The source-store reads remain source-store reads, illustrative only:
 
 The standing rule EP-0024 still relies on — argument shape must not smuggle
 "which data source am I reading?" through a retired composition map — is the
-substance `rf2-10nggz` settles. (Open Issue #7 is resolved by scoping this out to
-`rf2-10nggz`.)
+substance that decision settles. (Open Issue #7 is resolved by scoping this out
+to it.)
 
 ### Teardown
 
@@ -447,8 +447,8 @@ off-pattern public spellings. The migration is source-level:
 - replace scope-only uses of the old `frame-provider` with `rf/with-frame`;
 - replace `frame-bound-fn` use with `capture-frame`;
 - replace any create-twice frame setup with one `make-frame` call;
-- migrate registrar target-map reads per `rf2-10nggz` (the home for the read
-  grammar).
+- migrate registrar target-map reads per the separate registrar-query-grammar
+  decision (the home for the read grammar).
 
 One behaviour change is intentional: `make-frame` moves from fail-loud on a
 duplicate live id to idempotent replacement that preserves durable state on
@@ -461,7 +461,7 @@ and API manifests move to the accepted vocabulary.
 
 ### Draft and decision
 
-- **`rf2-t0y79n`** drafts this EP and indexes it.
+- The drafting task authors this EP and indexes it.
 - Operator ruling resolves the open issues below.
 - If accepted, file the implementation wave as child beads or an epic under this
   EP. Do not start the structural implementation before acceptance.
@@ -471,7 +471,7 @@ and API manifests move to the accepted vocabulary.
 Update:
 
 - `spec/002-Frames.md` for unified frame identity, the single `make-frame`
-  constructor (subsuming or handing off the `rf2-kgdk03` make-frame
+  constructor (subsuming or handing off the make-frame
   contradiction fix), the `with-frame` scope vs `frame-provider` owned-lifecycle
   split, the carry primitive, and teardown;
 - `spec/API.md` for the public facade rows and removed/retiered spellings
@@ -482,7 +482,8 @@ Update:
 - `spec/Conventions.md` for the vocabulary distinctions if needed.
 
 The registrar read grammar is NOT graduated by this wave — it is owned by
-`rf2-10nggz` (which updates `spec/001-Registration.md` as needed).
+the separate registrar-query-grammar decision (which updates
+`spec/001-Registration.md` as needed).
 
 ### Implementation wave
 
@@ -492,8 +493,8 @@ Expected slices:
    reads through one registry.
 2. Collapse `make-frame` to one constructor over image options plus frame
    configuration options — adopting option-(a) and removing the
-   `rf2-32siq3.45` option-(b) fail-loud redirect; folds into `rf2-tu2vr7` (the
-   make-frame backing collapse, which already owns `re-frame.live-frame`). The
+   earlier option-(b) fail-loud redirect; folds into the
+   make-frame backing collapse, which already owns `re-frame.live-frame`. The
    advanced `re-frame.frame/make-frame` becomes internal or disappears.
 3. Migrate Story, tests, SSR, and examples off create-twice setup.
 4. Implement the idempotent-replacement duplicate-id/hot-reload policy (behaviour
@@ -511,23 +512,22 @@ Expected slices:
    per the EP wave-end standing rule.
 
 The registrar frame-generation reads are out of scope for this wave — they are
-owned by `rf2-10nggz`.
+owned by the separate registrar-query-grammar decision.
 
-Existing beads that can land independently or be absorbed:
+Existing work items that can land independently or be absorbed:
 
-- `rf2-ts3fuk` can fix unsubscribe target normalization before this EP lands.
-- `rf2-ntwwyt` can move HTTP test-support facade helpers independently.
-- `rf2-az1ct6` should be absorbed if the unified frame value lands first.
+- Unsubscribe target normalization can be fixed before this EP lands.
+- HTTP test-support facade helpers can be moved independently.
+- The internal frame-record resolver should be absorbed if the unified frame value lands first.
 
 ## Open Issues
 
-All open issues are resolved as of the 2026-06-18 acceptance (operator rulings on
-`rf2-kz2vfp`, `rf2-uc6ebw`, `rf2-um1jcq`).
+All open issues are resolved as of the 2026-06-18 acceptance (operator rulings).
 
 1. **Was the two-layer implementation deliberately transitional?**
    **Resolved:** treat it as unrealized collapse debt and converge now. The
    single unified `make-frame` adopts the deferred option-(a) and reverses the
-   `rf2-32siq3.45` option-(b) fail-loud redirect (see §One constructor).
+   earlier option-(b) fail-loud redirect (see §One constructor).
 
 2. **What is the exact public accessor from frame value to frame id?**
    **Resolved:** provide one accessor frame-value → id; do not expose the
@@ -560,7 +560,8 @@ All open issues are resolved as of the 2026-06-18 acceptance (operator rulings o
 7. **Should frame-generation registrar reads be public, and what are their
    names?**
    **Resolved by scoping out:** the read grammar is owned and settled by
-   `rf2-10nggz` (drop `:realm`, keep `:frame`). EP-0024 references it as the home
+   a separate registrar-query-grammar decision (drop `:realm`, keep `:frame`).
+   EP-0024 references that decision as the home
    and does not re-decide it; the prior fold-in-before-acceptance dependency is
    removed (see §Registrar and generation reads).
 

@@ -12,8 +12,8 @@ Type: standards-track
 > [`spec/016-Resources.md`](../../spec/016-Resources.md); this document is the
 > rationale record behind that amendment.
 >
-> **Graduated `proposal → final` 2026-06-17 (Mike, operator graduation; bead
-> `rf2-pyahbf`).** The seven open issues are ruled (see [§Open Issues](#open-issues)
+> **Graduated `proposal → final` 2026-06-17 (Mike, operator graduation).** The
+> seven open issues are ruled (see [§Open Issues](#open-issues)
 > and the [§Recommendation](#recommendation)) and the recommended cut shipped: a
 > registration-level **`:optimistic`** forward plan with a runtime-recorded
 > snapshot inverse + per-entry revision token, the deterministic
@@ -24,7 +24,7 @@ Type: standards-track
 > implementation landed and was dogfooded across
 > `implementation/resources/{mutation_events,mutation_registry,mutation_runtime,ssr,state}.cljc`
 > (revision token, optimistic apply, settle/rollback/reconcile, Xray view,
-> realworld driver). A Linearlite-class dogfood driver (`rf2-tideyl`) is a
+> realworld driver). A Linearlite-class dogfood driver is a
 > post-graduation enhancement, **not** a graduation blocker. `final` asserts the
 > **decisions are settled** and the normative home governs — where this EP and the
 > spec differ, the spec governs.
@@ -293,7 +293,7 @@ entry that existed, including its freshness, never a reconstructed approximation
 `:revision` counter (a small fact on the entry, EP-0012-canonical), bumped on
 **every authoritative durable entry write** a rollback could clobber — load
 success, populate, patch, optimistic apply, invalidation-driven refetch success
-— and **never gated on `(= old new)` of `:data`** (byl7bk ruling; see Open Issue
+— and **never gated on `(= old new)` of `:data`** (see Open Issue
 5). The bump is unconditional precisely because `entry-succeeded` re-stamps
 `:loaded-at` / `:stale-at` / `:tags` even when `:data` is `=`-shared
 (`state.cljc` 684, 690–691, 697): a value-changing-only token would miss that
@@ -656,7 +656,7 @@ Proposed sequence (not a one-PR requirement):
 
 > These were the genuine design decisions the operator ruled at graduation
 > (`proposal → final`, 2026-06-17). The recommendations below were adopted as the
-> shipped cut (Open Issue 5 carries its own load-bearing inline ruling, `byl7bk`,
+> shipped cut (Open Issue 5 carries its own load-bearing inline ruling,
 > 2026-06-15); they are kept verbatim as the record of what was ruled.
 
 1. **Author-written inverse vs runtime snapshot inverse.** This EP recommends
@@ -697,7 +697,7 @@ Proposed sequence (not a one-PR requirement):
    sufficient as the conflict token, or does it move for reasons orthogonal to
    "the cached value changed" (e.g. a refetch that returns `=` data)?
 
-   **Ruling (byl7bk, 2026-06-15) — load-bearing amendment, gates the
+   **Ruling (2026-06-15) — load-bearing amendment, gates the
    settle-protocol slice.** Use a **distinct `:revision` fact** (NOT a reuse of
    `:generation`), bumped on **every authoritative durable entry write a rollback
    could clobber** — *not* "value-changing only." This corrects the EP's earlier
@@ -747,9 +747,9 @@ Proposed sequence (not a one-PR requirement):
 
 ## Resolved Decisions
 
-Ruled by Mike at graduation (`proposal → final`, 2026-06-17; bead `rf2-pyahbf`),
+Ruled by Mike at graduation (`proposal → final`, 2026-06-17),
 adopting the recommended cut. One row per Open Issue (Open Issue 5 carries its own
-load-bearing inline ruling, `byl7bk`, 2026-06-15). These rows are normative; the
+load-bearing inline ruling, 2026-06-15). These rows are normative; the
 [§Open Issues](#open-issues) above carry the full rationale, and the §Specification
 body has been reconciled to them.
 
@@ -759,7 +759,7 @@ body has been reconciled to them.
 | **R2** | `:on-conflict` default — `:invalidate` vs `:force`? (Open Issue 2) | **`:invalidate` (default):** defer a contested rollback to the read path; never resurrect a stale value. **`:force`** ships as an opt-in (single-writer entries) with a tooling warning. This is the load-bearing correctness divergence from TanStack/SWR's unconditional context restore. |
 | **R3** | Optimistic apply on epoch-restore dangle? (Open Issue 3) | **Yes — a dangle rolls back the optimistic apply.** A `:pending`-on-restore dangle is an accepted-error-shaped terminal, so it triggers the same conflict-aware rollback as an `:error` reply. |
 | **R4** | Per-call optimistic opt-out shape? (Open Issue 4) | Reserve **`{:optimistic? false}`** on `:rf.mutation/execute` as the only per-call override — a boolean disable, not a per-call plan (a per-call forward plan would re-introduce call-site cache logic the EP-0016 doctrine pushes onto the registration). |
-| **R5** | Revision token scope — per-entry vs reuse `:generation`? (Open Issue 5) | **`byl7bk` ruling (load-bearing):** a **distinct `:revision` fact** (NOT a reuse of `:generation`), bumped on **every authoritative durable entry write a rollback could clobber** — unconditionally, never gated on `(= old new)` of `:data`. `:generation` bumps at load *start* and would false-conflict on every in-flight refetch. Bias to over-bump (a false conflict costs one refetch; a missed conflict is silent corruption). |
+| **R5** | Revision token scope — per-entry vs reuse `:generation`? (Open Issue 5) | **Ruling (load-bearing):** a **distinct `:revision` fact** (NOT a reuse of `:generation`), bumped on **every authoritative durable entry write a rollback could clobber** — unconditionally, never gated on `(= old new)` of `:data`. `:generation` bumps at load *start* and would false-conflict on every in-flight refetch. Bias to over-bump (a false conflict costs one refetch; a missed conflict is silent corruption). |
 | **R6** | Optimistic `:removes` and `:populates`-of-absent? (Open Issue 6) | **Yes — both ship in Decision 1's grammar.** Optimistic remove (vanish on apply, restore on failure) and optimistic seed of an absent entry both fall out of the snapshot inverse (`:absent` sentinel) at no extra mechanism. |
 | **R7** | Naming: `:optimistic` vs `:optimistic-patches`? (Open Issue 7) | **`:optimistic`** (forward exact) + **`:optimistic-tags`** (forward tag-addressed), per EP-0007 one-name-per-fact; reads better at the call site and matches SWR's `optimisticData`. |
 

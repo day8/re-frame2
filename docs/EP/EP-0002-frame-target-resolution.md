@@ -8,7 +8,7 @@ Status: final
 > positive *carried-invariant* formulation, not the subtractive as-written body. The
 > normative core of the reframed contract lives in
 > [`spec/002-Frames.md` §Frame target resolution](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant).
-> This bead (`rf2-u5o1bo`) lands the **foundation** — decision + normative spec core +
+> This EP lands the **foundation** — decision + normative spec core +
 > chain decomposition; the downstream migration was tracked through the
 > implementation ledger below.
 
@@ -24,12 +24,11 @@ None known.
 
 ### Resolved build records
 
-- **`rf2-u5o1bo`** *(closed — PR #3662, merge commit `b1aa6808d`)* — accepted
+- **Closed (PR #3662, merge commit `b1aa6808d`)** — accepted
   Option C via the appendix reframing, authored the normative Spec 002 carried
   invariant, decomposed and executed the downstream serial chain, completed the
-  docs tail (`rf2-mi9ier`), completed the final correctness/completeness review
-  (`rf2-rimcm3`), and closed after the 11/11 chain plus greenup rounds landed
-  fully green.
+  docs tail, completed the final correctness/completeness review, and closed
+  after the 11/11 chain plus greenup rounds landed fully green.
 
 ### Deliberate divergences from the EP body
 
@@ -1162,8 +1161,8 @@ tooling, resource management, managed effects, and the runtime partition.
 
 ## Resolved Decisions
 
-Recorded 2026-06-09 under Mike's "action all EPs / keep going" (bead
-`rf2-u5o1bo`). Two things are settled here: (1) the seven Open Issues are resolved
+Recorded 2026-06-09 under Mike's "action all EPs / keep going". Two things are
+settled here: (1) the seven Open Issues are resolved
 against their Recommendations, and (2) the EP is implemented **via the Appendix
 reframing**, not its subtractive as-written body. Where the body and the appendix
 describe the same rule differently, the **appendix formulation is the binding

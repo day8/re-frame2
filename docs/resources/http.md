@@ -284,7 +284,7 @@ If the cancel signal you want to honour already lives outside re-frame — a par
 
 ### Silencing a reply
 
-Set `:on-success` or `:on-failure` to `nil` and that reply is dropped — fire-and-forget, useful for a telemetry beacon you genuinely don't care to handle. But the framework won't let you *accidentally* swallow an error: the first time a non-aborted failure is dropped by `:on-failure nil`, a one-shot `:rf.warning/failure-swallowed` trace fires (dev-only) so the silence is observable rather than invisible. Aborted requests are excluded — a cancelled request that no longer wants its reply is correct-by-design silence, not a bug.
+Set `:on-success` or `:on-failure` to `nil` and that reply is dropped — fire-and-forget, useful for a telemetry beacon you genuinely don't care to handle. But the framework won't let you *accidentally* swallow an error: the first time a non-aborted failure is dropped by `:on-failure nil`, a one-shot `:rf.warning/failure-swallowed` trace fires (dev-only) so the silence is observable rather than invisible. Aborted requests are excluded — a cancelled request that no longer wants its reply is correct silence, not a bug.
 
 ## Keeping secrets out of the trace
 

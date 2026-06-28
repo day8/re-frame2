@@ -2,7 +2,7 @@
 
 This is the human-facing API reference for Story — the per-frame Storybook for re-frame2 that turns *registered variants* into a navigable, queryable, snapshot-identified surface for design review, visual regression, recording, and pair-programming. The tutorial chapters one folder up walk a developer through the surface from a sitting position; this folder walks it from a standing one, organised by **what part of the contract you're touching** rather than by user journey. Each chapter opens with a paragraph on what the surface is *for* — the problem it solves, the shape of the contract — and only then drops into the function tables.
 
-If you want the dense, single-page contract — every signature, every status keyword, every cross-reference — the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) is still where that lives. This guide is the consumer extract: the surfaces a *story author*, a *host application*, or a *tool integrator* may legitimately reach for, with intuition notes attached. Chrome internals (the panel-host composer, the shell's URL-state engine, the keybinding installer pair, the theme-token namespaces consumed by chrome) are deliberately absent — those are documented for Story's maintainers, not for authors.
+If you want the dense, single-page contract — every signature, every status keyword, every cross-reference — the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) is still where that lives. This guide is the consumer extract: the surfaces a *story author*, a *host application*, or a *tool integrator* may legitimately reach for, with intuition notes attached. Chrome internals (the panel-host composer, the shell's URL-state engine, the keybinding installer pair, the theme-token namespaces consumed by chrome) are absent — those are documented for Story's maintainers, not for authors.
 
 ## What "canonical" means here
 
@@ -19,7 +19,7 @@ Every row carries:
 - a **status** — `v1` (stable), `v1 (dev-only)` (elided in `:advanced` + `re-frame.story.config/enabled?=false`)
 - an **intuition** — the one-line answer to "what's this for and when do I reach for it?"
 
-Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention as `re-frame.core`'s own pair (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is declared via the `:sensitive` / `:large` slots on a variant body and lowered into the frame's elision registry as commit-plane classification effects — not a re-exported mutation surface (EP-0025; see [Registration §Privacy](registration.md#privacy--variant-body-classification)).
+Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention as `re-frame.core`'s own pair (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is declared via the `:sensitive` / `:large` slots on a variant body and lowered into the frame's elision registry as commit-plane classification effects — not a re-exported mutation surface (see [Registration §Privacy](registration.md#privacy--variant-body-classification)).
 
 ## Where surfaces live
 
@@ -27,7 +27,7 @@ Story's user-facing surface splits across the facade plus a small set of sub-nam
 
 | Namespace | Use when |
 |---|---|
-| `re-frame.story` | The canonical require. Every registration macro + its `*`-fn partner, the run / reset / watch / destroy lifecycle, the registry query family, the assertion + recorder facades, the canonical vocabulary tables, `configure!`, the `*-id` Vars for built-in decorators, the shell-mount surface (CLJS-only), and `variant-share-url`. (Durable app-db classification is declared on variant bodies via `:sensitive` / `:large` and lowered through commit-plane effects, not a published mutation fn — EP-0025.) |
+| `re-frame.story` | The canonical require. Every registration macro + its `*`-fn partner, the run / reset / watch / destroy lifecycle, the registry query family, the assertion + recorder facades, the canonical vocabulary tables, `configure!`, the `*-id` Vars for built-in decorators, the shell-mount surface (CLJS-only), and `variant-share-url`. (Durable app-db classification is declared on variant bodies via `:sensitive` / `:large` and lowered through commit-plane effects, not a published mutation fn.) |
 | `re-frame.story.recorder.play-export` | The rich DOM-capture-aware recorder translator (`recording->script-body`, `render-script-body` — both produce the public `:script` body the runner executes). `recording->script-body` is re-exported on the facade for the MCP write-back path; the render-to-EDN fns stay sub-namespace-only alongside the simpler `gen-play-snippet` projection. |
 | `re-frame.story.ui.xray-embed` | The Xray-RHS embed component (`xray-embed-panel`), `mount-fn-for` dispatch, `popout-full-shell!`. Called by the shell or the embed component, rarely by app code. |
 | `re-frame.story.xray-preset` | The chrome / Xray bridge — `wire-cross-host!`, `xray-available?`, `propagate-project-root!`. |
@@ -47,7 +47,7 @@ The closing chapter is **[Reference](reference.md)** — the complete symbol tab
 
 ## When to reach for the spec instead
 
-The chapters here are organised for readers; the [normative spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) is organised for completeness. If you're looking for *every* row at once — including the chrome-internal surfaces, the resolved-decisions log, the migration notes for surfaces that were renamed mid-alpha — that's where you want to be. If you're writing a story body or wiring Story into a host build and want to know which surfaces *exist* in a given domain, you want a chapter here.
+The chapters here are organised for readers; the [normative spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) is organised for completeness. If you're looking for *every* row at once — including the chrome-internal surfaces and the resolved-decisions log — that's where you want to be. If you're writing a story body or wiring Story into a host build and want to know which surfaces *exist* in a given domain, you want a chapter here.
 
 The normative spec docs (`001-Authoring.md`, `002-Runtime.md`, `004-Assertions.md`, `006-MCP-Surface.md`, etc. under [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec)) own the *why* — the design rationale, the alternatives considered, the dispositions. The chapters here cite those when they matter and stay quiet otherwise.
 

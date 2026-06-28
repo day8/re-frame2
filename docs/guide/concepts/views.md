@@ -264,7 +264,7 @@ Rule of thumb: if a synthetic prop exists for what you need, use it. If one does
 
     Inside a `reg-view` body the injected `dispatch` happens to survive, because it captured its frame at render time. But the imperative attach is wrong there too: render bodies re-run, each run adds another listener, and nothing ever removes them. Attach through the attrs map either way.
 
-> **Going deeper.** Why the runtime fails fast rather than synthesising a default frame — and the carried-frame mechanism (a [capture-frame](../glossary.md#capture-frame) closing over the right world) that lets a registered effect's closure dispatch back into it — is the EP-0002 *carried invariant*. The full account is in [Frames: isolated worlds](frames.md) and [spec 004](../../../spec/004-Views.md).
+> **Going deeper.** The runtime fails fast rather than synthesising a default frame, and the carried-frame mechanism (a [capture-frame](../glossary.md#capture-frame) closing over the right world) lets a registered effect's closure dispatch back into it — the *carried invariant*. The full account is in [Frames: isolated worlds](frames.md) and [spec 004](../../../spec/004-Views.md).
 
 ## Targeting a different frame, deliberately
 

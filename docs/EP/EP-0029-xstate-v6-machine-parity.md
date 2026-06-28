@@ -224,7 +224,7 @@ Spelling (ruled):
 
 `:data-schema` is retired by a clean pre-alpha break; the machine data-context
 schema is declared at `[:schemas :data]`. There is no `:data-schema` shorthand.
-See Resolved Decisions and the surgical retirement plan (rf2-f9nvu9).
+See Resolved Decisions and the surgical retirement plan.
 
 ### A4. Explicit state and spawn timeouts
 
@@ -911,7 +911,7 @@ compatibility shims.
 
 Potential breaking or clarifying changes:
 
-- `:data-schema` is retired; the machine data schema is declared at `[:schemas :data]` (clean break, no shorthand) — see Retirement And Removal (rf2-f9nvu9);
+- `:data-schema` is retired; the machine data schema is declared at `[:schemas :data]` (clean break, no shorthand) — see Retirement And Removal;
 - invalid `:timeout` without `:on-timeout` should fail loudly;
 - invalid choice-state declarations should fail loudly;
 - `:internal-events` should reject external dispatch of private events;
@@ -935,25 +935,24 @@ implementation, and each is tracked by a bead.
    classification / SSR); retire ONLY the `reg-machine` key, not those. Surfaces:
    `implementation/machines` (registration, classification, tooling), the machine
    schema tests, `spec/005-StateMachines.md`, machines-viz, the `reg-machine`
-   skill, examples, and the EP-0005 cross-reference. Tracked: **rf2-f9nvu9**.
+   skill, examples, and the EP-0005 cross-reference.
 
 2. **Retire XState v5 parity terminology.** Remove "v5 is the live parity target"
    wording and v5 helper-creator terminology, and reframe the machine docs to the
    v6 direction with explicit divergences (A1). Surfaces:
    `spec/005-StateMachines.md`, `docs/guide/concepts/machines.md`, the
    `reg-machine` skill, the Xray Machine-Inspector spec, machines-viz, and the
-   EP-0005 framing note. Tracked: **rf2-ntg9z1**.
+   EP-0005 framing note.
 
 3. **Decouple mandatory Malli.** Machine core must not require Malli or JavaScript
    Standard Schema (Non-Goals). Machine source references Malli today; audit
    whether machine-data validation hard-requires it and, if so, separate the
-   `:schemas` declaration grammar from an optional validator adapter. Tracked:
-   **rf2-49zxkc**.
+   `:schemas` declaration grammar from an optional validator adapter.
 
 **Vocabulary landmine (do not trip).** `:actor/spawn` is a *retired* conformance
 capability id and must not be revived; any spawn/invoke capability-id work targets
 `:actor/declarative-spawn`, never `:actor/spawn`. (The separate `:actor/invoke` →
-declarative-spawn capability rename is an EP-0007 nit tracked as rf2-9z4mle.) C14
+declarative-spawn capability rename is an EP-0007 nit.) C14
 already keeps `:spawn` as the sole public spelling, so this EP adds no alias — but
 the retirement sweep must not re-open the retired id.
 
@@ -964,7 +963,7 @@ waves plus two standing review beads. Each wave is gated on EP-0029 acceptance a
 should land as focused PRs (run the touched-artefact slice gates locally; let CI
 run the full matrix).
 
-### Wave 1 — Docs alignment (rf2-ntg9z1)
+### Wave 1 — Docs alignment
 
 - Rewrite `docs/guide/concepts/machines.md` so the XState comparison tracks the
   v6-alpha direction, not v5; keep a short, explicit "where re-frame2 diverges"
@@ -977,7 +976,7 @@ run the full matrix).
   direction (EP-0005's `:data` validation idea survives; its v5 framing does not).
 - No machine behaviour changes in this wave — it is wording + divergence records.
 
-### Wave 2 — Schema grammar + `:data-schema` retirement (rf2-f9nvu9)
+### Wave 2 — Schema grammar + `:data-schema` retirement
 
 - Add the machine-level `:schemas` map (`:data`, `:events`, `:output`, `:tags`,
   `:meta`) as a *declaration* surface; `<schema>` values stay abstract.
@@ -986,7 +985,7 @@ run the full matrix).
   registration parser, machine classification, machines-viz, tests, spec, the
   `reg-machine` skill, and examples; leave the unrelated resources / classification
   / SSR `:data-schema` spellings untouched.
-- Decouple the optional validator (rf2-49zxkc): separate the `:schemas` declaration
+- Decouple the optional validator: separate the `:schemas` declaration
   from any validator adapter so machine core requires neither Malli nor JS Standard
   Schema. A Malli adapter may interpret Malli values; absence of an adapter is
   legal.
@@ -1037,10 +1036,10 @@ Every PR associated with EP-0029 gets two independent review passes before it is
 considered done:
 
 - **Correctness** — semantics match the ruled grammar, no regressions, fail-loud
-  where specified. Tracked: **rf2-e2c04t**.
+  where specified.
 - **Completeness** — all in-scope Group A items and ruled retirements are covered;
   spec + guide + skills + conformance + machines-viz/Xray are updated together; no
-  half-implemented surfaces; divergence notes present. Tracked: **rf2-wz4pmv**.
+  half-implemented surfaces; divergence notes present.
 
 Guide-impact assessment:
 
@@ -1071,7 +1070,7 @@ Guide-impact assessment:
   `[:schemas :data]`; there is no `:data-schema` shorthand. The retirement is
   **surgical**: the `:data-schema` spelling is reused by unrelated subsystems
   (resources / classification / SSR), and those MUST NOT be touched. See Retirement
-  And Removal. Tracked: **rf2-f9nvu9**.
+  And Removal.
 
 ## Recommendation
 

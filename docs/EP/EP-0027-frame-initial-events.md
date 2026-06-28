@@ -158,7 +158,7 @@ machinery.
 
 ### Failure
 
-**Construction-time `:initial-events` is STRICT** (Mike-ruled (a), 2026-06-23, rf2-vw5h1r):
+**Construction-time `:initial-events` is STRICT** (Mike-ruled (a), 2026-06-23):
 **any** setup-step failure tears the partially created frame down (no half-created frame is
 left live) and raises `:rf.error/initial-events-step-failed`. The runtime's traced-and-recover
 leniency is a **runtime** concern and does **not** apply during construction. Setup failures

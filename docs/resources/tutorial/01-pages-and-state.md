@@ -4,7 +4,7 @@ You left [the setup page](index.md) with an empty Conduit shell. By the end of t
 
 That trio — events write, subs read, views render — is the loop everything else in re-frame2 builds on. Get comfortable with it here and the rest of the guide is variations on a theme.
 
-Real server data arrives in [Part 2](02-server-data.md). This part is deliberately offline: nothing fetches, nothing ticks, so you can watch the state loop run on its own with nothing else moving around it.
+Real server data arrives in [Part 2](02-server-data.md). This part is offline: nothing fetches, nothing ticks, so you can watch the state loop run on its own with nothing else moving around it.
 
 **The takeaway: the URL is a sub, and a page is just a view of it.**
 

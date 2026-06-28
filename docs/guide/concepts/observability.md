@@ -231,7 +231,7 @@ You consume both streams by declaring a sink in your frame's `:observability` co
 
 The `:rf.egress/profile` says *how far the data is allowed to travel* — `:rf.egress/off-box-observability` is the profile for a hosted back-end, and it governs how aggressively the runtime projects the record before your sink sees it. The runtime hands your sink records *already projected* through the frame's privacy classification, so a sensitive field arrives redacted before your code sees it — that's the difference from a `:trace` listener, which hands you everything in the clear and trusts you to gate.
 
-Which app-db paths count as sensitive isn't guessed — a handler classifies them as it writes, returning a `:sensitive` effect alongside its `:db` (the [data classification](../glossary.md#data-classification) model, EP-0025):
+Which app-db paths count as sensitive isn't guessed — a handler classifies them as it writes, returning a `:sensitive` effect alongside its `:db` (the [data classification](../glossary.md#data-classification) model):
 
 ```clojure
 (rf/reg-event :app/login-succeeded

@@ -20,8 +20,8 @@ Type: standards-track
 > `spec/015-*` (event classification), the API manifest, guide, skills, and
 > examples swept.
 >
-> **Graduated `accepted → final` 2026-06-15 (Mike, operator graduation; bead
-> `rf2-xhfxcs` closed).** The seven design decisions are ruled (see
+> **Graduated `accepted → final` 2026-06-15 (Mike, operator graduation).** The
+> seven design decisions are ruled (see
 > [§Resolved Decisions](#resolved-decisions)): **D1** accept the
 > verbosity/pedagogy trade; **D2** demote `reg-event-ctx` to internal; **D3**
 > the bare name `reg-event`; **D4** two-arg `(fn [cofx event])` handler only;
@@ -137,7 +137,7 @@ stubbing by re-registration.
   would re-create the fork this EP removes.
 - **Not** changing `:db`-commit semantics — the no-op/`identical?`/nil-coercion
   rules below are *documented* here but *implemented* by a separate, EP-independent
-  bead (`rf2-ekq28v`).
+  change.
 
 ## Relationships
 
@@ -167,8 +167,8 @@ stubbing by re-registration.
   `:event/kind`.
 - **[Principles](../../spec/Principles.md)** — "one explicit primitive over many implicit
   conveniences."
-- **`rf2-ekq28v`** — the EP-independent commit-semantics bead (`identical?`
-  no-op short-circuit + `{:db nil}` → `{:db {}}` coercion + trace/Xray), which
+- **The commit-semantics change (EP-independent)** — `identical?`
+  no-op short-circuit + `{:db nil}` → `{:db {}}` coercion + trace/Xray, which
   this EP references but does not own.
 
 ## Specification
@@ -256,7 +256,7 @@ The unchanged-`:db` no-op is observably true today (`frame.cljc:605–657`:
 signal, and downstream projections `=`-memoize). The commit-level `identical?`
 short-circuit, the `{:db nil}` → `{:db {}}` coercion, and recording both on the
 trace bus / Xray are **out of EP scope** — they are independent of the collapse
-(applying to every event form) and are tracked by **`rf2-ekq28v`**. This EP only
+(applying to every event form) and are tracked separately. This EP only
 *documents* the family, because the no-change branch being a true no-op is what
 keeps the collapse's verbosity cheap: `(if cond (assoc db …) db)` migrates to
 `{:db (if cond (assoc db …) db)}` and the `else` arm costs nothing.
@@ -395,7 +395,7 @@ today `reg-event-db` returning `nil` writes nil to app-db (a known footgun);
 the `{:db BODY}` wrap faithfully preserves that, but for any handler whose
 `BODY` can evaluate to nil the codemod emits a warning, because under the new
 model a bare `nil` return is a clean no-op and the author may now prefer that
-(and `{:db nil}` is coerced to `{:db {}}` per `rf2-ekq28v`). The collapse thus
+(and `{:db nil}` is coerced to `{:db {}}`). The collapse thus
 *removes the footgun for newly-written handlers* while preserving existing
 semantics under migration.
 
@@ -487,7 +487,7 @@ The conformance suite asserts:
   raise their naming hard errors.
 
 (The `{:db <identical>}` no-op and `{:db nil}` → `{:db {}}` assertions belong to
-`rf2-ekq28v`, not this EP.)
+the separate commit-semantics work, not this EP.)
 
 ## Resolved Decisions
 

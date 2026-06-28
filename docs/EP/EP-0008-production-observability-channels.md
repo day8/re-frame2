@@ -31,36 +31,36 @@ followed the freeze; none of it reopens any ruling.
 The impl / audit / conformance / guide / review errata below are **fixed**; they
 are kept here as a closed record and no longer reopen any ruling:
 
-- **`rf2-ini4wr`** *(fixed — PR #3860, impl)* — the frame-teardown report: a single
+- **Fixed (PR #3860, impl)** — the frame-teardown report: a single
   always-on `:rf.error/frame-teardown-failed` record carrying a `:hook-failures`
   vector, emitted from `destroy-frame!` through a **finally-shaped** boundary so a
   partial teardown (abort after hook 3 of 7) still flushes the collected entries.
   The dev-only per-hook diagnostic (`:rf.warning/teardown-hook-exception`) stays
   at its causal positions inside `safe-call-hook!` and DCE-elides in production.
-- **`rf2-iq51qu`** *(fixed — audit)* — graded the full `:rf.error/*` /
+- **Fixed (audit)** — graded the full `:rf.error/*` /
   `:rf.warning/*` catalogue against the promotion criterion and filed promotion-fix
   beads for the gaps the sweep found. Teardown was the known first row (resolved by
   the report shape, above); the audit covered the rest and spun off the follow-ups
   noted below.
-- **`rf2-sgz1zq`** *(fixed — PR #3872, conformance)* — the catalogue/channel pin:
+- **Fixed (PR #3872, conformance)** — the catalogue/channel pin:
   every emitted category appears in the Spec 009 catalogue with a channel, and every
   always-on category is exercised through the error-emit listener in at least one
   test (so promotion is real, not documentary).
-- **`rf2-6jpqkq`** *(fixed — PR #3857, docs/guide)* — extended the
+- **Fixed (PR #3857, docs/guide)** — extended the
   production-observability guide material with the three-channel model, the JVM
   `re-frame.debug` default-on caveat, the promotion criterion, and the
   teardown-report example.
-- **`rf2-8k9vk2`** *(fixed — review)* — correctness + completeness review of the
+- **Fixed (review)** — correctness + completeness review of the
   whole EP-0008 wave against this EP and Mike's ruling; follow-ups filed.
 
 ### Resolved follow-ups
 
-The `rf2-iq51qu` audit promoted GAP-1 (`rf2-500ech`, `write-after-destroy`) and
-GAP-3 (`rf2-7b9r4l`, `on-destroy-handler-exception`) onto the always-on axis —
+The audit promoted GAP-1 (`write-after-destroy`) and
+GAP-3 (`on-destroy-handler-exception`) onto the always-on axis —
 both **fixed** and closed. The two items the audit had left for a later call are
 now **also closed**; neither reopens any ruling:
 
-- **`rf2-hhutya`** *(fixed — PR #3986, impl/spec)* — the SSR-specific recoverable
+- **Fixed (PR #3986, impl/spec)** — the SSR-specific recoverable
   degradation members rode only the DCE'd / JVM-gated `trace/emit-error!`. Mike's
   call was to surface the degraded-200 path off-box: the build promoted **seven**
   SSR error categories (`ssr-render-failed`, `ssr-streaming-writer-failed`,
@@ -72,7 +72,7 @@ now **also closed**; neither reopens any ruling:
   with a named-home note (their failure is recorded in observable resource/route
   state, failing the promotion criterion's leg 2). Spec 009 / 011 updated in the
   same PR.
-- **`rf2-r8oiw7`** *(fixed — PR #4022, catalogue, P4)* — the co-edit-invariant
+- **Fixed (PR #4022, catalogue, P4)** — the co-edit-invariant
   gap: every emitted-but-uncatalogued `:rf.*` category was catalogued as a
   **diagnostic** Spec 009 row (each cited emit-site verified), the conformance
   scan's `out-of-catalogue-allow-list` was drained to empty, and two categories
@@ -80,7 +80,7 @@ now **also closed**; neither reopens any ruling:
   (`:rf.route/navigation-blocked`, the retired
   `:rf.warning/plain-fn-under-non-default-frame-once`). The catalogued rows all
   fail the promotion criterion and correctly stay diagnostic. The source-side
-  retirement of the dead `plain-fn` emit followed as `rf2-7yqn39` (closed).
+  retirement of the dead `plain-fn` emit followed and is closed.
 
 ## Abstract
 
@@ -143,8 +143,8 @@ hand-waving "moot in production."
 ## Non-Goals
 
 - No new channel, no new mechanism: the always-on axis exists and is proven.
-- No change to the diagnostic channel's inline-emit contract (the rf2-lq1q21
-  ruling: the diagnostic channel is ambient by design, framework-wide).
+- No change to the diagnostic channel's inline-emit contract (the diagnostic
+  channel is ambient by design, framework-wide).
 - Not production *telemetry* (the 06-06 reviews' north-star) — that remains
   gated on its own privacy work; this EP only governs the error axis that
   already ships.
@@ -239,7 +239,7 @@ the *always-on* emission is a single report.
 | `:rf.error/sub-input-fn-exception` / `-bad-return` | always-on | Correct as-is (the precedent rows) |
 | `:rf.error/no-frame-context` | always-on | Correct (frameless errors need the frameless axis — EP-0002 R6) |
 | `:rf.warning/app-handler-runtime-effect` | diagnostic | Correct — dev-time teaching diagnostic; leg 2 fails (the write applies; nothing leaks) |
-| remaining `:rf.error/*` / `:rf.warning/*` catalogue | mixed | The audit bead (`rf2-iq51qu`) grades every row; gaps become fixes |
+| remaining `:rf.error/*` / `:rf.warning/*` catalogue | mixed | The audit grades every row; gaps become fixes |
 
 ### Conformance
 
@@ -261,23 +261,23 @@ release-notes material.
 
 ## Bead Plan
 
-1. Spec bead (`rf2-smovax`, this graduation): the channel section + criterion +
+1. Spec bead (this graduation): the channel section + criterion +
    catalogue channel column + the `:rf.error/frame-teardown-failed` report row
    (hot-zone Spec 009; sequential). Records the Open Issue 1 ruling and flips this
    EP `final`. **Done** — Spec 009 is authoritative.
-2. Teardown bead (`rf2-ini4wr`): emit a **single** always-on
+2. Teardown bead: emit a **single** always-on
    `:rf.error/frame-teardown-failed` record carrying a `:hook-failures` vector
    from `destroy-frame!`, through a **finally-shaped** boundary so a partial
    teardown still flushes the collected entries (R1). Keep the per-hook
    `:rf.warning/teardown-hook-exception` dev diagnostic at its causal positions
    inside `safe-call-hook!` (R2 — diagnostic channel, DCE'd in production). Plus a
    teardown-report test.
-3. Audit bead (`rf2-iq51qu`): grade the full catalogue; file promotion fixes found.
-4. Conformance bead (`rf2-sgz1zq`): the catalogue/channel pin test.
-5. Guide/docs bead (`rf2-6jpqkq`): extend the production observability material
+3. Audit bead: grade the full catalogue; file promotion fixes found.
+4. Conformance bead: the catalogue/channel pin test.
+5. Guide/docs bead: extend the production observability material
    with the three-channel model, the JVM debug gate note, the always-on promotion
    criterion, and the teardown-report example.
-6. Review bead (`rf2-8k9vk2`): correctness + completeness review of the whole
+6. Review bead: correctness + completeness review of the whole
    wave vs this EP and the ruling.
 
 ## Guide Impact

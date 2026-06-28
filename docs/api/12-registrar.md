@@ -36,7 +36,7 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
   ```
 - **Description**: "What did `reg-*` stamp at this id?" View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta`; pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup.
 
-`kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:flow`, `:route`, `:head`, `:error-projector`. App-db schemas are **not** a registrar kind (rf2-cq1ak); look them up via `(app-schema-meta-at path)` instead. The full list lives in [001-Vision §Registry model](../../spec/000-Vision.md).
+`kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:flow`, `:route`, `:head`, `:error-projector`. App-db schemas are **not** a registrar kind; look them up via `(app-schema-meta-at path)` instead. The full list lives in [001-Vision §Registry model](../../spec/000-Vision.md).
 
 ## Machines
 

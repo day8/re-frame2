@@ -39,7 +39,7 @@ This is the heart of Xray: one historical selection drives every lens.
 
 Inspecting a past epoch is read-only. It changes Xray's focus, not your app.
 
-Rewinding the app is a stronger operation. The runtime can restore an epoch's canonical frame-state (`:frame-state-after`) into the target frame — app-db and runtime-db reinstalled together as one atomic frame-state, so machine snapshots and the route slice rewind alongside application state, not just the app-db partition. (The epoch record's `:db-before` / `:db-after` are optional app-db projections of that frame-state, not the restore target.) Xray treats restore as an explicit act because it changes the observed app. In day-to-day debugging, you usually inspect first. Restore only when you deliberately want to put the app back into that state.
+Rewinding the app is a stronger operation. The runtime can restore an epoch's canonical frame-state (`:frame-state-after`) into the target frame — app-db and runtime-db reinstalled together as one atomic frame-state, so machine snapshots and the route slice rewind alongside application state, not just the app-db partition. (The epoch record's `:db-before` / `:db-after` are optional app-db projections of that frame-state, not the restore target.) Restore is an explicit act — it changes the observed app. In day-to-day debugging, you usually inspect first. Restore only when you deliberately want to put the app back into that state.
 
 The restore operation is a runtime primitive, not an Xray trick. Xray gives you the context; re-frame2 owns the state transition.
 

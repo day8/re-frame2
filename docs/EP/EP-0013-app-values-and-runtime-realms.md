@@ -7,7 +7,7 @@ Type: standards-track
 > and runtime environment are explicit values. Existing process-global
 > registration remains as compatibility sugar over a default runtime realm.
 >
-> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-1vj3b6`).**
+> **Ruling recorded 2026-06-11 (Mike, in-session).**
 > Accepted, with the severable matrix the EP requires: **D1 (realm container)
 > — adopt. D2 (app value) — adopt, sequenced behind D1. D3 (module manifests)
 > — adopt the shape; the public surface stages last.** All thirteen open
@@ -29,7 +29,7 @@ Type: standards-track
 >
 > **Graduated `accepted → final` 2026-06-12 (Mike, in-session).** The decisions
 > are settled and the normative homes above govern (where this EP and the spec
-> differ, the spec governs). The wave + final-review (`rf2-g41gz6`) returned
+> differ, the spec governs). The wave + final-review returned
 > clean — the wave is correct and complete against the dispositions, the prior
 > review tails (correctness ×2, testing-coverage, code-comments) ran clean, and
 > the one completeness gap found (the eight thrown `:rf.error/*` categories
@@ -37,13 +37,12 @@ Type: standards-track
 > `final` asserts the **decisions are settled**, not that the whole D1/D2/D3
 > build is complete: what shipped and what remains build-not-decision is recorded
 > in the [§Implementation errata](#implementation-errata) ledger below. Realm-aware
-> **live-dispatch routing** (`rf2-a15n62`) has since **shipped** — a constructed
+> **live-dispatch routing** has since **shipped** — a constructed
 > realm owns the registrar that event / sub / fx / cofx resolution routes against,
 > the runtime resolves a frame's handlers from the owning frame's realm registrar,
 > and `:rf.realm/id` is carried beside `:rf.frame/id` on the dispatch envelope.
 >
-> **Partially superseded by EP-0023 (Mike-ruled via the `rf2-32siq3.32`
-> decision, 2026-06-16).** EP-0023 establishes `image -> frame -> event stream`
+> **Partially superseded by EP-0023 (Mike-ruled 2026-06-16).** EP-0023 establishes `image -> frame -> event stream`
 > as the public model, so EP-0013's status is `superseded-by EP-0023`. The
 > supersession is partial — it is a public-surface replacement, not a teardown:
 >
@@ -51,7 +50,7 @@ Type: standards-track
 >   runtime-realm machinery as the internal installation/ownership substrate —
 >   registrar container, adapter/capability owner, frame registry, host-transient
 >   owner, disposal boundary, and the default-registration path. The realm-aware
->   live-resolution invariant (`rf2-a15n62`) carries forward, restated at the
+>   live-resolution invariant carries forward, restated at the
 >   frame boundary: the targeted frame's resolved image generation determines the
 >   registration universe.
 > - **Replaced (public surface):** the beginner-facing app/realm teaching surface
@@ -64,15 +63,15 @@ Type: standards-track
 
 The EP decisions are final. The EP-0013 wave shipped **D1 (the realm container)**
 end-to-end and the **D2 (app-value)** projection/construction/install surface, and
-realm-aware **live-dispatch routing** has since shipped on top (`rf2-a15n62`); the
+realm-aware **live-dispatch routing** has since shipped on top; the
 remaining build-not-decision work is the **D3 module-manifest** public surface, and
 `final` does not claim it shipped. This ledger records what shipped against the
 dispositions and what stays build-not-decision — the EP-0010 precedent, where a
 settled decision's later slice is recorded as deferred, not as an open question.
 Verified 2026-06-12 against the merged implementation, the realm/app-value test
-suites, the spec graduation, and the final-review verdict (`rf2-g41gz6`); the
+suites, the spec graduation, and the final-review verdict; the
 live-dispatch-routing entry re-verified 2026-06-15 against the merged
-`rf2-a15n62` implementation and the `/spec` correction (#4272).
+implementation and the `/spec` correction (#4272).
 
 ### Shipped
 
@@ -98,10 +97,10 @@ live-dispatch-routing entry re-verified 2026-06-15 against the merged
   refuse-loudly at the **kind boundary in both directions** (issue 12 errata): the
   step-8-deferred kinds throw `:rf.error/unsupported-descriptor-kind` on the
   add/changed path (`install-descriptor!`) **and** the removal path
-  (`refuse-unsupported-removal!`, `rf2-cquy9u`), and a `:removed` `:frame` whose
+  (`refuse-unsupported-removal!`), and a `:removed` `:frame` whose
   live container still exists is refused loudly
-  (`:rf.error/live-frame-removal-unsupported`, enumerating the blocking frame-ids,
-  `rf2-7zn9kg`) rather than silently orphaned.
+  (`:rf.error/live-frame-removal-unsupported`, enumerating the blocking frame-ids)
+  rather than silently orphaned.
 - **The public realm API — SHIPPED.** `rf/realm` (the reserved-vocabulary
   constructor — ruled `rf/realm`, **never** `rf/runtime`, issue 1) constructs +
   registers a hermetic realm; a duplicate id throws `:rf.error/realm-id-conflict`.
@@ -110,7 +109,7 @@ live-dispatch-routing entry re-verified 2026-06-15 against the merged
   half of the `(realm, frame)` addressing model (issue 3); `rf/installed-app`
   reads a realm's installed app value as the LIVE registrar projection enriched
   with any seated app's module provenance — so coexisting `reg-*` sugar stays
-  visible and the public read never desyncs from the registrar (`rf2-77ewnm`);
+  visible and the public read never desyncs from the registrar;
   and the realm-targeted registrar queries
   take the map-shaped `{:realm … :kind …}` form (issue 11). Eight thrown EP-0013
   `:rf.error/*` categories carry Spec 009 Error-event catalogue rows (the
@@ -120,7 +119,7 @@ live-dispatch-routing entry re-verified 2026-06-15 against the merged
 
 - **The module form's `:owns` / `:requires` keys are owner-qualified to
   `:rf.module/owns` / `:rf.module/requires`; the app value's union key is
-  `:rf.app/requires` (rf2-yk6u2x, 2026-06-14).** The exploratory examples in
+  `:rf.app/requires` (2026-06-14).** The exploratory examples in
   this EP below (§The Shape At A Glance, §App Values, §Module Values And Feature
   Ownership, and the worked snippets) spell the module ownership and capability
   facts with the BARE keys `:owns` / `:requires` and the app union as `:requires`.
@@ -148,7 +147,7 @@ live-dispatch-routing entry re-verified 2026-06-15 against the merged
 ### Shipped — realm-aware live-dispatch routing
 
 - **Realm-routed LIVE dispatch / subscribe / fx / cofx — SHIPPED
-  (`rf2-a15n62`, staging step 4).** A constructed realm now owns the registrar
+  (staging step 4).** A constructed realm now owns the registrar
   that **event / subscription / fx / cofx resolution routes against**: the runtime
   resolves a frame's handlers from the **owning frame's realm registrar**, with
   `:rf.realm/id` carried beside `:rf.frame/id` on the dispatch envelope and
@@ -1128,7 +1127,7 @@ diff. The per-kind live-instance **blocker / continue / migrate** rule binds
 **when each deferred kind becomes installable** — it is not a single global
 query over a universal work ledger.
 
-> **Errata (bead `rf2-cquy9u`).** As originally written this disposition claimed
+> **Errata.** As originally written this disposition claimed
 > the deferred kinds were "structurally unreachable through the descriptor diff"
 > full stop. That held only on the **register** (add/changed) path, where the
 > kind throw lived in `install-descriptor!`. The **removal** path called
@@ -1155,7 +1154,7 @@ live-frame view), not cross-subsystem machinery. (Removed `:event` / `:fx` /
 above; a removed `:sub`'s disposal/loud-read is pre-existing per-kind hot-reload
 behaviour.)
 
-> **Step-8 installability obligation (binding, bead `rf2-7zn9kg`).** EVERY
+> **Step-8 installability obligation (binding).** EVERY
 > step-8 kind, when it is made installable through the app-value path, MUST ship
 > its own live-instance **blocker / continue / migrate** rule **and** a per-class
 > refusal test BEFORE its `:rf.error/unsupported-descriptor-kind` throw is
@@ -1777,8 +1776,8 @@ Conformance should be tested at three levels.
 
 ## Open Issues
 
-**All thirteen issues were ruled 2026-06-11 (Mike, in-session; bead
-`rf2-1vj3b6`), merging three convergent analyses.** Original recommendations
+**All thirteen issues were ruled 2026-06-11 (Mike, in-session), merging three
+convergent analyses.** Original recommendations
 are kept verbatim as the record of what was ruled; dispositions and riders are
 inline.
 
@@ -1906,7 +1905,7 @@ inline.
     the EP-0011/0016 waves, every live instance class carries a ledger row),
     so the refusal check is a ledger query, not new machinery.
 
-    > **Errata — 2026-06-12 (Mike, bead `rf2-7zn9kg`).** This disposition is
+    > **Errata — 2026-06-12 (Mike).** This disposition is
     > PRECISED, not deleted, against what shipped. Two corrections:
     >
     > 1. **Where refuse-loudly binds in slice 1.** The shipped slice 1
@@ -1916,12 +1915,12 @@ inline.
     >    `:head` / `:error-projector`) throw
     >    `:rf.error/unsupported-descriptor-kind` on the **add/changed** path
     >    (`install-descriptor!`) **and** on the **removal** path
-    >    (`refuse-unsupported-removal!`, bead `rf2-cquy9u`), so the live-instance
+    >    (`refuse-unsupported-removal!`), so the live-instance
     >    classes this disposition worried about (machine actors, in-flight
     >    resources/mutations, route transitions) are neither seated nor silently
     >    orphaned through the descriptor diff — a generic blocker query would
     >    protect nothing reachable while inventing cross-subsystem machinery ahead
-    >    of those kinds having install semantics. (**Errata `rf2-cquy9u`:** as
+    >    of those kinds having install semantics. (**Errata:** as
     >    first shipped the throw lived ONLY in `install-descriptor!`, i.e. ONLY on
     >    the add/changed path; the removal path called `registrar/unregister!`
     >    unconditionally, so a step-8 kind registered through its OWN sugar — which
@@ -1957,7 +1956,7 @@ inline.
     **Disposition: as recommended** — one contract, one grading table. Riders:
     the mechanism is a `spec/Runtime-Subsystems.md` amendment adding the
     column (EP-0006 is final; its spec evolves); the conformance drift test
-    (`rf2-ba5acq`) grows the column when it lands so host-transient rows
+    grows the column when it lands so host-transient rows
     cannot silently go missing.
 
 ## Recommendation

@@ -14,7 +14,7 @@ re-frame2 ships no forms library and no auth plugin on purpose — you'll see wh
   (:require-macros [re-frame.core :refer [reg-view]]))
 ```
 
-> **For JavaScript developers.** This part covers two things React reaches for libraries to do: the forms (React Hook Form territory) and the token-plus-guard plumbing (Axios-interceptor territory). re-frame2 ships neither. The reasoning is worth a sentence: shared form components tend to drown in props chasing every project's slightly-different needs, so instead you get a convention you own outright — a few events and subscriptions, no library to fight.
+> **For JavaScript developers.** This part covers two things React reaches for libraries to do: the forms (React Hook Form territory) and the token-plus-guard plumbing (Axios-interceptor territory). re-frame2 ships neither — instead you get a convention you own outright: a few events and subscriptions, no library to fight.
 
 > **The condensed version.** This part walks the whole flow end to end as Conduit. If you want the recipe stripped of narrative — slice, guard, teardown, in numbered steps — [Add authentication](../../guide/how-to/add-auth.md) is the how-to sibling, and [Build a form](../../guide/how-to/build-a-form.md) is the form half on its own.
 
@@ -395,7 +395,7 @@ Wire it at boot with `reg-http-interceptor` (below). Because it reads `app-db-va
 
 The token now lives in two distinct places, and each has its own redaction surface. It's worth being precise about which protection covers which, because they're easy to conflate. Both are [data classification](../../guide/glossary.md#data-classification) — hygiene applied at the egress boundary, not security:
 
-1. **The durable app-db path `[:auth :token]`.** Covered by the `:sensitive` classification `:auth/initialise` returns beside `:db` (an EP-0025 commit-plane effect). That's what redacts the token in Xray's **App-db tab**, in epoch records, and in any SSR/off-box export of app-db state — anywhere the *stored* value would otherwise cross a boundary.
+1. **The durable app-db path `[:auth :token]`.** Covered by the `:sensitive` classification `:auth/initialise` returns beside `:db` (a commit-plane effect). That's what redacts the token in Xray's **App-db tab**, in epoch records, and in any SSR/off-box export of app-db state — anywhere the *stored* value would otherwise cross a boundary.
 2. **The outgoing request header `Authorization`.** This is a *transient* HTTP carrier, a separate surface from durable state — and the framework already protects it. `:rf.http/managed` ships an **immutable built-in carrier denylist** that redacts `Authorization`, `Cookie`, `X-API-Key`, and the other usual secret-bearing headers on every request trace, with **no app code at all**. So the bearer header `bearer-auth` injects is redacted in traces out of the box.
 
 The point is that classifying the app-db path does *not* by itself redact the request header — the header redaction comes from the carrier denylist — and the denylist does *not* redact the stored value. You want both, and here you get both for free (one line of classification, one built-in default).

@@ -14,13 +14,13 @@ Type: standards-track
 > **rationale record**; where it and the spec differ, the spec governs.
 >
 > **BUILD status (updated 2026-06-12):** complete. The deferred
-> derived-sensitivity propagation arm (`rf2-fi6tda.1`) shipped — the
+> derived-sensitivity propagation arm shipped — the
 > named-scope-resolver sensitivity inheritance landed via PR #3993 (merged
 > 2026-06-12) — so the gate the original ruling held open is now resolved. The
-> action epic (`rf2-fi6tda`) is ready to close: all implementation slices, both
-> wave-end review passes (`rf2-tho0f9` correctness / `rf2-8xq7kp` clean repeat),
-> and all four propagation beads (`/skills` `rf2-hdwp7h`, `/examples`
-> `rf2-3gl52p`, `/tools` `rf2-f8s9g6`, `/docs/guide` `rf2-40o3nm`) are closed and
+> action epic is ready to close: all implementation slices, both
+> wave-end review passes (correctness and a clean repeat),
+> and all four propagation beads (`/skills`, `/examples`,
+> `/tools`, `/docs/guide`) are closed and
 > merged. The items this EP lists as deferred — optimistic rollback,
 > tag-addressed patching, and the GraphQL transport — remain intentional
 > future-EP non-goals, not outstanding action-epic work (see [§Non-Goals](#non-goals)).
@@ -30,7 +30,7 @@ Type: standards-track
 > resource-scope resolvers, and the small semantic riders needed to make those
 > features coherent.
 >
-> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-6o6a62`).**
+> **Ruling recorded 2026-06-11 (Mike, in-session).**
 > Accepted. All nine open issues are dispositioned in
 > [§Open Issues](#open-issues) — six as recommended with riders, and three
 > sharpened in the ruling: issue 4 drops the migration window entirely
@@ -1244,8 +1244,8 @@ by RealWorld dogfooding.
 
 ## Open Issues
 
-**All nine issues were ruled 2026-06-11 (Mike, in-session; bead `rf2-6o6a62`),
-merging three convergent analyses.** Original recommendations are kept verbatim
+**All nine issues were ruled 2026-06-11 (Mike, in-session), merging three
+convergent analyses.** Original recommendations are kept verbatim
 as the record of what was ruled; dispositions and riders are inline.
 
 1. Should registration-level mutation `:reply-to` be added now?
@@ -1280,7 +1280,7 @@ as the record of what was ruled; dispositions and riders are inline.
    migration) targets scopes unenumerable at the call site but known to the
    cache — a genuinely different operation. Riders: cross-scope invalidations
    MUST carry `:cause` evidence; the full lattice is — bare invalidate-tags
-   with no scope = loud error (fail-closed, `rf2-pvdae1`), descriptors = the
+   with no scope = loud error (fail-closed), descriptors = the
    precise path, `:cross-scope? true` = the explicit audited escape; cross-scope
    invalidations are privacy-relevant trace events per EP-0015.
 
@@ -1294,9 +1294,9 @@ as the record of what was ruled; dispositions and riders are inline.
    the same change (pre-alpha; no external consumers). The tuple remains the
    documented **internal/storage** representation — this is an input-form vs
    storage-form distinction recorded per EP-0007 rule 3, not two spellings of
-   one fact. Grounds: the `rf2-cg7llv` and EP-0010 disposition-5 lessons —
+   one fact. Grounds: the epoch-naming and EP-0010 disposition-5 lessons —
    coexistence windows become permanent and the de-facto form wins. This also
-   eliminates the `rf2-vv87xz` spelling-ambiguity class at the API boundary.
+   eliminates the spelling-ambiguity class at the API boundary.
 
 5. How should route-derived tenant scope be represented?
    **Recommendation:** do not add a second mechanism in this EP. Either mirror
@@ -1307,7 +1307,7 @@ as the record of what was ruled; dispositions and riders are inline.
    :current]` is durable runtime-db — so the reserved input source is
    **`[:runtime path]`** (already in EP-0014's input vocabulary); no new
    mirroring, no anonymous route functions. Deferred until a consumer; the
-   named un-defer consumer is the tenant-switcher testbed (`rf2-s6rviz`).
+   named un-defer consumer is the tenant-switcher testbed.
    Selection rule: viewer identity that is app state → `[:db …]`; a pure
    route fact → the reserved `[:runtime …]`.
 
