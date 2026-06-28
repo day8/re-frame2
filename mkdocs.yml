@@ -199,7 +199,6 @@ nav:
     - "Explanation":
       - "Inside-out: why it's built this way": guide/explanation/inside-out.md
       - "Continuations are data": guide/explanation/continuations-are-data.md
-      - "Resources vs TanStack/RTK/SWR": guide/explanation/resources-vs-query-libraries.md
       - "One graph: derivations and algebra views": guide/derivations-and-algebra-views.md
       - "Where should this value live?": guide/where-state-lives.md
     - "From re-frame v1":
