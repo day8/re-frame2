@@ -158,7 +158,7 @@ Order of presentation within the batch (most-blocking first):
 1. **M-3** — run-to-completion impact: any animation timing, queue-peek tests, intermediate-render dependencies.
 2. **M-18** — `reg-sub-raw` rewrites: each call site needs the user's read on what the raw body is doing.
 3. **M-71** — the **v1 signal-function `reg-sub` form** → v2 `input-fn`: the agent must learn whether the signal fn's inputs are query-dependent (else prefer `:<-`) and which return shape it has (vector / map / single-signal) before picking the rewrite — a map return forces an explicit input-order choice; an `app-db`-reading signal fn must thread the param through the outer query vector.
-4. **M-11** — plain-Reagent fns under non-default frames: each component-frame pair.
+4. **M-11** — plain-Reagent fns under any frame (the default/single frame included): each component-frame pair.
 5. **M-17** — multi-frame `reg-global-interceptor`: each-frame vs trace-listener vs default-only.
 6. **M-21** — `on-changes` / `enrich` / `after`: flow / schema / registered-interceptor (`reg-interceptor` + ref by id) / fx routing.
 7. **M-10** — reserved-namespace collisions.
