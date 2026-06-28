@@ -227,7 +227,7 @@ This axis is the organizing insight behind the Phase 4 silent-failure checklist 
 
 | Trigger in v1 dev deps | Successor | Standing? | Where |
 |---|---|---|---|
-| `day8.re-frame/re-frame-10x` Maven coord; `day8.re-frame-10x.preload` `:preloads` entry | **Xray** (`day8/re-frame2-xray`) | **Standard** — done-state is the app *on Xray* | [`xray-replaces-10x.md`](xray-replaces-10x.md) |
+| `day8.re-frame/re-frame-10x` Maven coord; `day8.re-frame-10x.preload` `:preloads` entry | **Xray** (`day8/re-frame2-xray`) | **REQUIRED deliverable** (standard for a 10x app) — done-state is the app *on Xray* (both halves: M-0 drop + post-M-40 mount), inventory-detected | [`xray-replaces-10x.md`](xray-replaces-10x.md) |
 | No re-frame-10x in the project | Xray (offer) | **Optional** — don't force devtools the app never had | [`xray-replaces-10x.md`](xray-replaces-10x.md) |
 
 **Xray IS the v2 devtools replacement for re-frame-10x** — a from-scratch reimplementation against re-frame2's trace bus and epoch-history surfaces, not a port; **dev-only by construction**, eliding cleanly under `:advanced` + `goog.DEBUG=false`. **Rule: 10x present ⇒ swap to Xray (standard); no 10x ⇒ Xray optional.** For a 10x app the done-state is the app on Xray, not just the dead preload removed.

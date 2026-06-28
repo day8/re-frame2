@@ -11,6 +11,8 @@ The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-fra
 
 Stage 1 unblocks the compile gate; stage 2 is the point of the whole swap.
 
+> **Track the two stages as ONE deliverable, end to end.** For a 10x app this swap is a **REQUIRED deliverable** detected in the Phase-0a inventory ([`inventory-and-plan.md` §Step 1](inventory-and-plan.md#step-1--inventory-the-v1-add-on-libraries-on-the-classpath)) — it has no `M-N` id, so the M-rule sweep never reminds you of it, and the two halves sit on opposite sides of the sweep (M-0, then post-M-40). That split is exactly what makes it easy to do stage 1 and lose stage 2 — **dropping 10x without restoring Xray leaves the author worse off than they started.** The plan tracks both halves as a **single item** and the done-state is **the app ON Xray** (stage 2 landed), never "the dead preload removed" (stage 1 only). The SKILL.md main-flow checklist line and the Done checklist both carry this both-halves done-state.
+
 ## Contents
 
 - The swap (dep + preload)

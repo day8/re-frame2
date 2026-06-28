@@ -124,6 +124,8 @@ The `re-frame.core` namespace name and your `(:require [re-frame.core :as rf])` 
 
 ### Neutralize the re-frame-10x preload as part of M-0
 
+> **This is HALF ONE of a single mandatory swap — not a standalone step.** For a 10x app the 10x → Xray swap is a **REQUIRED deliverable** (detected in the Phase-0a inventory; done-state = the app *on Xray*). It is **one swap with two halves straddling the sweep**: (1) **here, at M-0** — neutralize the dead preload so the compile gate is reachable; (2) **post-M-40** — mount Xray once `init!` exists ([`xray-replaces-10x.md` §The swap](xray-replaces-10x.md#the-swap-dep--preload)). Landing half one without half two **leaves the author worse off than they started** (10x gone, no replacement). Track both halves as **one item** through to the app-on-Xray done-state; do not check this off as complete until half two has landed.
+
 If the project preloads `day8.re-frame-10x.preload` (or otherwise references re-frame-10x at build time — a `day8.re-frame/re-frame-10x` dev-dep coord, a `:preloads [day8.re-frame-10x.preload]` entry, or a `closure-defines` 10x flag), **neutralize that preload as part of M-0**. Excluding v1 `re-frame` (which M-0 forces, to stop the classpath collision) makes `day8.re-frame-10x.preload` uncompilable — it `:require`s v1 `re-frame` internals that no longer resolve. The dev build still references the preload, so the very first thing this skill asks you to do after M-0 — *"stop and compile, see what breaks"* — fails on the **dead preload**, not on your application code, before any real M-rule breakage can surface.
 
 So, in the same M-0 dep-file edit:
