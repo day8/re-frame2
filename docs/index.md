@@ -1,13 +1,39 @@
 # re-frame2
 
-## Status
+This is the user guide for the **ClojureScript reference implementation** of the [re-frame2 specification](https://github.com/day8/re-frame2/tree/main/spec).
 
-By part:
+The guide is organised into five sections.
 
-- The narrative is production grade.
-- **The spec is Beta.** It has been audited end-to-end endless times — security passes, precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
-- **The reference implementation and tooling are Beta-adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
+## Core
 
-We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
+The fundamentals every app is built from — the dataflow loop: app-db, events, subscriptions, flows, effects, and views. Start with the [Quickstart](guide/quickstart.md), then the [core concepts](guide/concepts/index.md).
 
-You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration.md) for you-know-what, then [re-frame2-pair](skills/re-frame2-pair.md) for coding. Finally, use [re-frame2-pair-retro](skills/re-frame2-pair-retro.md) to do a session retrospective and file an issue if you find friction.
+→ [Core guide](guide/README.md)
+
+## Capabilities
+
+Four optional subsystems you reach for when you need them — each with its own guide:
+
+- [**Machines**](machines/index.md) — state machines (statecharts) for modelling a feature's lifecycle.
+- [**Resources**](resources/index.md) — cached, declarative server state (the TanStack-Query-shaped capability).
+- [**Routing**](routing/index.md) — the URL as ordinary application state.
+- [**SSR**](ssr/index.md) — server-side rendering and hydration.
+
+## Examples
+
+Small, complete apps you can read top to bottom and run — from the counter to a full RealWorld app — organised by concept (core, capabilities, patterns, real-apps, substrates).
+
+→ [Browse the examples](https://github.com/day8/re-frame2/tree/main/examples)
+
+## Tools
+
+Dev and inspection tools built on the framework's introspection API:
+
+- [**Story**](story/index.md) — render your views in every state, in isolation (think Storybook).
+- [**Xray**](xray/index.md) — a live inspector for events, subscriptions, machines, and time-travel.
+
+## Skills
+
+Claude Code skills for building with re-frame2 — [re-frame-migration](skills/re-frame-migration.md) for porting from re-frame v1, and [re-frame2-pair](skills/re-frame2-pair.md) for pairing on application code.
+
+→ [Skills](skills/index.md)
