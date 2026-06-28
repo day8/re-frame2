@@ -9,7 +9,7 @@ For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, s
 - M-3 — run-to-completion drain
 - M-5 — Var-aliased `reg-*`
 - M-10 — reserved-namespace collision
-- M-11 — plain Reagent fns under non-default frames
+- M-11 — plain Reagent fns under any frame (including the default/single frame)
 - M-12 — render-count test re-baseline
 - M-13 — `reg-event-error-handler`
 - M-14 — `:rf.route/not-found` requirement (only if adopting Spec 012)
@@ -74,11 +74,11 @@ Present every call site with its file:line and the four options; collect the aut
 
 ---
 
-## M-11 — Plain Reagent fns under non-default frames
+## M-11 — Plain Reagent fns under any frame, including the default/single frame
 
 **Identify**:
 
-1. Find every React-context `(rf/frame-provider …)` — its `{:frame <id>}` SCOPE-only shape or its `{:id <id> …}` ENSURE shape — whose frame is **not** `:rf/default`. (The merged `frame-provider` dispatches on the prop map, so match both shapes when sweeping.)
+1. Find every React-context `(rf/frame-provider …)` — its `{:frame <id>}` SCOPE-only shape or its `{:id <id> …}` ENSURE shape — **regardless of which frame it establishes, the root/default provider included**. (The merged `frame-provider` dispatches on the prop map, so match both shapes when sweeping.) A single-frame app has exactly **one** such provider at its root — walk it too. The footgun is not confined to non-default frames; under EP-0002 a plain fn can't read **any** provider's frame from context.
 2. Walk the hiccup subtree under each such provider. List every Var-referenced function (or anonymous lambda) that is **not** registered via `rf/reg-view`. Cross-reference the `(rf/registrations :view)` registry.
 
 **Risk**: a plain Reagent function rendered inside a `frame-provider` can't read the provider's frame (no `:contextType`), so its internal `(subscribe ...)` / `(dispatch ...)` calls carry no frame and raise `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing; the old one-time warning is superseded by this loud error). The failure surfaces at runtime when the component renders.
@@ -87,7 +87,18 @@ Present every call site with its file:line and the four options; collect the aut
 
 1. **Convert to `reg-view`**. Replace `(defn my-view [args] ...)` with `(rf/reg-view ^{:doc "..."} my-view [args] ...)`. The view picks up the surrounding frame correctly. Recommended.
 2. **Hold a `(rf/capture-frame)`**. Inside the plain fn body, capture the frame api once and route through it: `(let [{:keys [dispatch subscribe]} (rf/capture-frame)] ...)`, then call `(dispatch [...])` / `(subscribe [...])` instead of the bare `rf/dispatch` / `rf/subscribe`. The frame api captures the surrounding frame at render time and (unlike the ambient binding) survives into any async callback the body sets up.
-3. **Leave as-is** — *only* when the component never calls `rf/subscribe` / `rf/dispatch` (a pure presentational fn with no frame-scoped reads), **or** when it establishes / carries a frame explicitly inside its own body (a `with-frame`, an explicit `{:frame <id>}` op opt, or a captured `(rf/capture-frame)`). Do **not** describe this as pinning to `:rf/default`: there is no `:rf/default` fall-through (EP-0002), so a frame-dependent plain fn left under a non-default provider raises `:rf.error/no-frame-context` at render — it does not silently route to a default. To *intentionally* target `:rf/default` (e.g. a "global" UI primitive), the component must scope or pass that frame explicitly like any other; document why.
+3. **Leave as-is** — *only* when the component never calls `rf/subscribe` / `rf/dispatch` (a pure presentational fn with no frame-scoped reads), **or** when it establishes / carries a frame explicitly inside its own body (a `with-frame`, an explicit `{:frame <id>}` op opt, or a captured `(rf/capture-frame)`). Do **not** describe this as pinning to `:rf/default`: there is no `:rf/default` fall-through (EP-0002), so a frame-dependent plain fn left under any provider — the default/root included — raises `:rf.error/no-frame-context` at render; it does not silently route to a default. To *intentionally* target `:rf/default` (e.g. a "global" UI primitive), the component must scope or pass that frame explicitly like any other; document why.
+
+### The single-frame case — a forced whole-tree sweep, not the opt-in O-2
+
+The footgun is most visible in a multi-frame app, but it is **not multi-frame-specific**. Under EP-0002 there is no `:rf/default` fall-through: a plain fn carries no `:contextType`, so it cannot read **any** provider's frame from React context — the default/root provider included — and `with-frame`'s dynamic-var tier does not cross React's render boundary. So a **single-frame app** whose whole view tree is plain bare-`subscribe`/`dispatch` fns under one root `frame-provider` has **every** such fn throw `:rf.error/no-frame-context` the moment it renders.
+
+There is **no ambient-default shortcut**, and there is **no "one root `reg-view` fixes the plain descendants"**: each plain fn is its own React component, so converting the root view does nothing for the unregistered fns below it — every frame-dependent fn must carry its own `:contextType`. The fix takes the same two shapes as the decision above, applied to the **whole tree**:
+
+- **Convert every frame-dependent plain fn to `reg-view`** — each then carries its own `:contextType` and resolves the root frame — **or**
+- **Hold a `(rf/capture-frame)` per fn**, routing its `dispatch` / `subscribe` through the captured frame api.
+
+For a bare-`dispatch`/`subscribe` plain-fn tree this conversion is **FORCED, not optional** — it is the boots-or-not floor (M-11), not the opt-in modernisation O-2. O-2 is a *clean* view that already works being made multi-frame-ready; here the app **does not boot** until the tree is converted (or each fn captures a frame). Name the extent honestly: it is a **whole-tree sweep**, potentially every view file in the app. **Size it in the Phase-0a inventory** — count the unregistered frame-dependent plain fns up front — rather than discovering the extent when boot throws `:rf.error/no-frame-context`.
 
 ---
 
