@@ -1,19 +1,10 @@
 # Project structure
 
-Where each kind of file goes in a re-frame2 CLJS project. Load this leaf
-before writing any non-trivial code so new files land in the slots their
-peers expect.
+Where each kind of file goes in a re-frame2 CLJS project. Load before writing any non-trivial code so new files land in the slots their peers expect.
 
-> Assumes monorepo conventions, `src/`/`test/` split, and CLJS
-> namespace ↔ path rules. Only the re-frame2-specific placements
-> appear here.
+> Assumes `src/`/`test/` split and CLJS namespace ↔ path rules; only re-frame2-specific placements appear here.
 >
-> **The structure is portable; the paths are not.** Throughout this leaf,
-> parenthetical `examples/...` and `tools/...` citations point at the
-> re-frame2 *source repo's* own worked examples — they are evidence for
-> the shape, not directories your app will have. Read them as "here is
-> where this shape is demonstrated," and substitute your own project's
-> segment (`myapp/` below) for the layout.
+> **The structure is portable; the paths are not.** The `examples/...` / `tools/...` citations point at the re-frame2 *source repo's* worked examples — evidence for the shape, not directories your app will have. Substitute your own segment (`myapp/` below).
 
 ## The shape — at a glance
 
@@ -43,74 +34,27 @@ Mirrors `examples/real-apps/realworld_http/` (`examples/real-apps/realworld_http
 
 ## Source files — one feature, one .cljs
 
-Each feature owns one `.cljs` file at the top of the project namespace.
-The feature file registers everything it owns: events, subs, fxs, cofxs,
-views, machines. Don't split a feature across `events.cljs` / `subs.cljs`
-/ `views.cljs` files — that pre-fragments code that should be read
-together. The single-feature shape is what `realworld/auth.cljs`,
-`realworld/articles.cljs`, and `realworld/comments.cljs` show:
-machine + supporting events + subs + views, all in one ns
-(`examples/real-apps/realworld_http/auth.cljs:1-23`).
+Each feature owns one `.cljs` file at the top of the project namespace, registering everything it owns: events, subs, fxs, cofxs, views, machines. Don't split a feature across `events.cljs` / `subs.cljs` / `views.cljs` — that pre-fragments code that should be read together. The single-feature shape (machine + supporting events + subs + views in one ns) is what `realworld/auth.cljs`, `articles.cljs`, and `comments.cljs` show (`examples/real-apps/realworld_http/auth.cljs:1-23`).
 
-Tiny apps that don't carve into features (counter, login) collapse to a
-single `core.cljs` and skip the per-feature step
-(`examples/core/counter/core.cljs`, `examples/core/login/core.cljs`).
-
-When the app grows past a single file, promote each section into its
-own feature file before the per-feature file grows past ~400 lines.
+Tiny apps that don't carve into features (counter, login) collapse to a single `core.cljs` (`examples/core/counter/core.cljs`, `examples/core/login/core.cljs`). When the app grows past a single file, promote each section into its own feature file before any one grows past ~400 lines.
 
 ## Tests — sibling `test/` tree, mirroring source
 
-In a consumer app, tests live in a sibling `test/` directory rooted at
-the same namespace. Each source file `src/myapp/foo.cljs` has a peer
-test `test/myapp/foo_test.cljs`. The `_test` suffix is the convention;
-the test ns matches — `(ns myapp.foo-test ...)`.
+In a consumer app, tests live in a sibling `test/` directory rooted at the same namespace. Each `src/myapp/foo.cljs` has a peer `test/myapp/foo_test.cljs` (the `_test` suffix is the convention; the test ns matches — `(ns myapp.foo-test ...)`). A `test_helpers.cljs` at the root owns shared fixture helpers (canned-stub wrappers, frame builders); per-test files require it as `[myapp.test-helpers :as th]`.
 
-A `test_helpers.cljs` at the root of the test tree owns shared fixture
-helpers (canned-stub registration wrappers, frame builders); per-test
-files require it as `[myapp.test-helpers :as th]`.
-
-(Note: this dev repo's own `examples/` tree is deliberately *test-free*
-per the locked test-free-examples policy — the examples' headless
-fixtures live in the framework test tree, not under `examples/`. That is
-a repo-internal convention; a normal consumer app keeps the sibling
-`test/` tree described above.)
+(This dev repo's own `examples/` tree is deliberately *test-free* — the examples' headless fixtures live in the framework test tree. A repo-internal convention; a normal consumer app keeps the sibling `test/` tree above.)
 
 ## Stories — co-located with the feature
 
-Stories ship in the same `src/myapp/` tree as the code they exercise,
-in a file named `<feature>_stories.cljs` (or, when many stories share a
-feature, a `stories/` subdirectory rooted at that feature). The
-story authoring spec puts the ns at `<app>.stories.<feature>` or
-`<app>.<feature>.stories` (`tools/story/spec/001-Authoring.md:228-230`);
-either works as long as the file's path tracks the ns.
+Stories ship in the same `src/myapp/` tree as the code they exercise, in `<feature>_stories.cljs` (or a `stories/` subdirectory when many share a feature). The ns is `<app>.stories.<feature>` or `<app>.<feature>.stories` (`tools/story/spec/001-Authoring.md:228-230`) — either works as long as the path tracks the ns. The stories file requires its feature's events / subs / views so registrations fire before the variant bodies are read (`tools/story/testbeds/counter_with_stories/stories.cljs:1-40`).
 
-In the canonical example the four counter variants live in one
-`stories.cljs` next to `events.cljs` / `subs.cljs` / `views.cljs`
-(`tools/story/testbeds/counter_with_stories/stories.cljs:1-40`). The
-stories file requires its feature's events / subs / views so the
-registrations fire before the variant bodies are read.
-
-Story integration tests live alongside the stories file, not under
-`test/` — they need the same load order
-(`tools/story/testbeds/counter_with_stories/stories_cljs_test.cljs:1-25`).
+Story integration tests live alongside the stories file, not under `test/` — they need the same load order (`tools/story/testbeds/counter_with_stories/stories_cljs_test.cljs:1-25`).
 
 ## Schemas — one `schema.cljs` per feature tree
 
-Boundary schemas live in one `schema.cljs` at the top of the feature
-tree. Each `reg-app-schema` call attaches a Malli schema to a path the
-feature owns (`examples/real-apps/realworld_http/schema.cljs:1-23`).
+Boundary schemas live in one `schema.cljs` at the top of the feature tree; each `reg-app-schema` attaches a Malli schema to a path the feature owns (`examples/real-apps/realworld_http/schema.cljs:1-23`). A single project-wide `schema.cljs` is the default; a larger app that vendors a sub-feature with its own boundary may keep a feature-local `schema.cljs` the top-level one requires.
 
-A single project-wide `schema.cljs` is the default for small-to-medium
-apps. Larger apps that vendor a sub-feature with its own boundary may
-keep a feature-local `schema.cljs` inside the sub-feature's directory —
-the entry namespace requires the top-level `schema.cljs`, which
-in turn requires the sub-feature ones.
-
-Do not co-locate schema registrations inside the feature file that uses
-them — keeping them in one place makes "what does the app validate?"
-answerable by reading one file (Cardinal Rule 4: schemas at boundaries,
-not everywhere; `SKILL.md:32`).
+Do not co-locate schema registrations inside the feature file that uses them — one place makes "what does the app validate?" answerable by reading one file (Cardinal Rule 4: schemas at boundaries, not everywhere).
 
 ## SSR — `.cljc` with reader conditionals
 
@@ -154,34 +98,13 @@ in the same ns (`examples/capabilities/ssr/ssr/core.cljc:188-269`).
 
 ## Routing — one `routing.cljs`
 
-Route registrations belong in a single `routing.cljs`. It owns the
-`reg-route` table, auth-gating helpers, and a small `route-link`
-helper view (`examples/real-apps/realworld_http/routing.cljs:1-49`). The
-entry ns requires `routing` for side-effects and calls its
-`install-router!` from `run` (`realworld/core.cljs:310-312`).
-
-Don't sprinkle `reg-route` calls across feature files — the router is
-one table; one file makes the table grep-able and lets the auth-guard
-helpers stay private.
+Route registrations belong in a single `routing.cljs` — the `reg-route` table, auth-gating helpers, and a small `route-link` helper view (`examples/real-apps/realworld_http/routing.cljs:1-49`). The entry ns requires it for side-effects and calls its `install-router!` from `run` (`realworld/core.cljs:310-312`). Don't sprinkle `reg-route` across feature files — the router is one table; one file makes it grep-able and keeps the auth-guard helpers private.
 
 ## Per-frame organisation (multi-frame apps)
 
-Most apps run a single frame — but it is an **explicitly registered,
-descriptively-named** one (e.g. `:app/main`); there is no ambient default
-(EP-0002 — `:rf/default` is an ordinary id with no privilege, never inferred
-from a missing frame, and is only worth picking for a tiny app or a v1
-migration). Apps with several frames (server-render per request, stories
-shell, embedded widget) name each frame and configure it in `core`. Per-frame
-configuration — `:fx-overrides`, `:initial-events`, request interceptors — goes
-through the render-root `frame-provider {:id …}` config props (or `reg-frame` for a frame created outside React)
-(`realworld/core.cljs:575-586`). Feature files do not configure frames; they
-register events/subs against no particular frame and let the entry ns own the
-frame wiring, talking to a frame only through `dispatch` / `subscribe`.
+Most apps run a single frame — an **explicitly registered, descriptively-named** one (e.g. `:app/main`); there is no ambient default (EP-0002 — `:rf/default` is an ordinary id with no privilege, worth picking only for a tiny app or v1 migration). Apps with several frames (server-render per request, stories shell, embedded widget) name and configure each in `core`. Per-frame config — `:fx-overrides`, `:initial-events`, request interceptors — goes through the render-root `frame-provider {:id …}` config props (or `reg-frame` for a frame created outside React) (`realworld/core.cljs:575-586`). Feature files do not configure frames; they register events/subs against no particular frame and talk to a frame only through `dispatch` / `subscribe`.
 
-If a per-frame concern is large enough to warrant its own file (e.g. a
-"per-request server frame" helper), put it next to `core` —
-`server.cljc` for the server frame, `client.cljs` for the client
-frame — and let `core` orchestrate the wiring.
+A per-frame concern large enough for its own file (a "per-request server frame" helper) goes next to `core` — `server.cljc` / `client.cljs` — and `core` orchestrates the wiring.
 
 ## Smell checks
 

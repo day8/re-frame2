@@ -1,10 +1,10 @@
 # Anti-pattern — Manual HTTP retry loops
 
-Hand-rolled retry logic for HTTP calls — `setTimeout` re-dispatching the same fetch, retry counters in `app-db`, ad-hoc back-off arithmetic inside event handlers. Re-frame2 ships Managed HTTP precisely so this code does not have to exist in application files.
+Hand-rolled retry logic for HTTP calls — `setTimeout` re-dispatching the same fetch, retry counters in `app-db`, ad-hoc back-off arithmetic inside event handlers. Managed HTTP exists precisely so this code does not live in application files.
 
 ## Detection rules
 
-Greppable signals (run inside any `.cljs` / `.cljc` source under review):
+Greppable signals (in any `.cljs` / `.cljc` source under review):
 
 - `setTimeout` *and* `dispatch` in the same handler body — `(js/setTimeout #(rf/dispatch [...]) ...)`.
 - A retry counter in `app-db`: keys named `:*/retries`, `:*/attempts`, `:*/retry-count`, or `(update db :*/attempts inc)` paired with a re-dispatch.

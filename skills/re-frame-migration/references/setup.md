@@ -7,7 +7,9 @@ Operational detail for two early steps: the **React-19 / Reagent-2 floor gate** 
 - The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
 - The coord swap (M-0)
 - Per-build-tool shapes
+- Coords to detect
 - Picking the substrate-adapter artefact
+- Pin the migration corpus before reading it
 - Discovering the current VERSION
 - The pay-as-you-go artefact split (M-27 through M-32)
 - Edge cases
@@ -95,7 +97,7 @@ The author then runs `npm install` (or the project's package-manager equivalent)
 
 ## The coord swap (M-0)
 
-Run this only after the React-19 floor gate above returns **GO**. The dep-coord swap, the React/Reagent bump, **any component-lib bumps, and the shadow-cljs/CLJS toolchain bump (Check 4)** all land in the same M-0 pass — carry every GO-state edit the gate identified into this one dep-file pass, so the post-M-0 compile runs against the fully-current toolchain (an older shadow-cljs left in place detonates the first compile with the cryptic `NoSuchFieldError`, Check 4). The **author runs the `npm install`** for the React/component/shadow-cljs bumps (cardinal rule 5); the skill makes the `package.json` edits and prints the install command.
+Run this only after the floor gate above returns **GO**. Carry every GO-state edit the gate identified — the dep-coord swap, the React/Reagent bump, any component-lib bumps, and the shadow-cljs/CLJS toolchain bump (Check 4) — into this one dep-file pass, so the post-M-0 compile runs against the fully-current toolchain (an older shadow-cljs detonates the first compile with the cryptic `NoSuchFieldError`, Check 4). The **author runs the `npm install`** (cardinal rule 5); the skill makes the `package.json` edits and prints the install command.
 
 ### The swap itself
 
@@ -117,7 +119,7 @@ So, in the same M-0 dep-file edit:
 - **Remove the `:preloads` entry** `day8.re-frame-10x.preload` (and any 10x dev-module / `closure-defines` 10x flag).
 - The 10x **Maven dev-dep coord** itself (`day8.re-frame/re-frame-10x`) also goes — see [`xray-replaces-10x.md`](xray-replaces-10x.md) for the full dep+preload drop and the Xray replacement.
 
-The devtools are **restored later, not now** — but restored they are: for a 10x app, swapping in the re-frame2 Xray panel is a **standard, expected** migration step (Xray IS the v2 devtools replacement for 10x), whose done-state is the app on Xray. The restore is **post-M-40** purely as a sequencing detail — the Xray preload auto-opens *after* `(rf/init!)` runs, so it can't mount until boot wiring is in place. That timing is **not** a downgrade to optional. Cross-ref [`xray-replaces-10x.md`](xray-replaces-10x.md) for the post-M-40 restore and the 10x-present/no-10x rule. The point at M-0 here is narrow: clear the dead 10x preload **now** so the post-M-0 compile gate is actually reachable — don't leave it blocking the immediate "stop and compile" step while waiting for the post-M-40 Xray mount.
+The point at M-0 is narrow: clear the dead 10x preload **now** so the post-M-0 compile gate is reachable — don't leave it blocking the immediate "stop and compile" step. The Xray restore is **post-M-40** (its preload auto-opens after `(rf/init!)`, so it can't mount until boot wiring is in place — a sequencing detail, not a downgrade to optional). For a 10x app the restore is a standard step whose done-state is the app on Xray; see [`xray-replaces-10x.md`](xray-replaces-10x.md) for the restore and the 10x-present/no-10x rule.
 
 ## Per-build-tool shapes
 
@@ -212,7 +214,7 @@ git -C <path-to-re-frame2> rev-parse HEAD          # the pinned commit
 git -C <path-to-re-frame2> remote get-url origin   # confirm it's day8/re-frame2
 ```
 
-These two are **read-only provenance checks the skill runs itself** — they inspect the corpus checkout without executing project code, so they are allow-listed (the scoped `Bash(git -C * rev-parse *)` / `Bash(git -C * remote get-url *)` entries in `SKILL.md`'s `allowed-tools`), and they sit on the *same* read-only side of the trust boundary as `rg`. They are NOT in the author-runs-it class (compile / test / install / smoke — see [`SKILL.md` cardinal rule 5](../SKILL.md)); that class is gated because it is arbitrary-code execution, which a `rev-parse` / `remote get-url` is not. Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
+These two are **read-only provenance checks the skill runs itself** — allow-listed (the scoped `Bash(git -C * rev-parse *)` / `Bash(git -C * remote get-url *)` entries in `SKILL.md`'s `allowed-tools`), on the same read-only side of the trust boundary as `rg`, not the author-runs-it compile/test/install/smoke class ([`SKILL.md` cardinal rule 5](../SKILL.md)). Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
 
 ## Discovering the current VERSION
 
@@ -226,7 +228,7 @@ For the author's reference (so they can pick), three sources of authoritative ve
 
 If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` coord instead of `:mvn/version` — but they still type the SHA into the kickoff prompt; the skill does not pick. Niche; default to released `:mvn/version`.
 
-**Never invent a version. Never silently pick `latest`.** Both are accidents the gate exists to prevent — newly published packages may be broken or malicious, and unpinned coords make the migration non-reproducible. Record the chosen `<v2-version>` in the migration report.
+**Never invent a version; never silently pick `latest`** — newly published packages may be broken or malicious, and unpinned coords make the migration non-reproducible. Record the chosen `<v2-version>` in the migration report.
 
 **If no released v2 version exists yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the report — the author must update the coord manually once a release lands, then re-run the migration.
 

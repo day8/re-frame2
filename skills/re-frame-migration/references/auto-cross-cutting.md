@@ -110,9 +110,9 @@ The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cach
 
 ## Listener-registration verb unification (M-55)
 
-> **Superseded for the event/error-emit half by M-69.** M-69 consolidates the event-emit / error-emit listener names along a namespace-based axis (`register-event-emit-listener!` → `register-event-listener!`, `register-error-emit-listener!` → `register-error-listener!`, and the trace half `register-trace-listener!` → `register-listener!`). On a v2-pre-rename codebase apply the **M-69** table for those names; see `breaking-changes.md` M-69. (A pure v1→v2 migration lands directly on the current names via M-26 and never sees either M-55 or M-69.)
+> **Superseded for the event/error-emit half by M-69.** M-69 collapsed all four per-channel listener pairs into the **one stream-parameterized verb** `register-listener!` — `register-trace-listener!` → `(register-listener! :trace …)`, `register-event-emit-listener!` → `(register-listener! :events …)`, `register-error-emit-listener!` → `(register-listener! :errors …)` (no `register-event-listener!`/`register-error-listener!` facade aliases). On a v2-pre-rename codebase apply the **M-69** table for those names; see `breaking-changes.md` M-69. (A pure v1→v2 migration lands directly on the current names via M-26 and never sees either M-55 or M-69.)
 
-Closed mechanical rename table. The trace and epoch listener APIs collapse onto the same `register-*-listener!` / `unregister-*-listener!` shape already used by `register-event-listener!` / `register-error-listener!`. Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
+Closed mechanical rename table. The trace and epoch listener APIs collapse onto the same one stream-parameterized `register-listener!` / `unregister-listener!` verb (stream ∈ `{:trace :events :errors :epoch}`). Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
 
 ```
 (rf/register-trace-cb! ...) → (rf/register-listener! ...)
@@ -226,7 +226,7 @@ v2's `reg-event` puts per-event interceptor chains in the registration metadata 
  (fn [{:keys [db]} ev] {:db <handler-body>}))
 ```
 
-The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → `reg-interceptor :app/x mw/x` + metadata `:interceptors [:app/x]`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates when the app boots — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). So the *compiler* can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES at each** — do NOT march-the-wall (the compiler never points you at the next occurrence), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
+The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → `reg-interceptor :app/x mw/x` + metadata `:interceptors [:app/x]`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates at boot — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). The compiler can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES** (do NOT march-the-wall), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
 
 ```bash
 # Surface every reg-event-* registration; a hit = bare interceptor, positional
@@ -235,7 +235,7 @@ The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → `reg-inte
 rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
 ```
 
-An existing metadata map with `:interceptors [...]` is already canonical. A metadata map without `:interceptors` and no following vector is fine. The detection is **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any bare, vector, or metadata-plus-vector chain shape. The registration guard is loud-at-*runtime* only, so the structural up-front grep + boot smoke-test remain the detectors.
+Detect **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any bare, vector, or metadata-plus-vector chain shape. (An existing metadata map with `:interceptors [...]` is already canonical; a metadata map without `:interceptors` and no following vector is fine.)
 
 ---
 

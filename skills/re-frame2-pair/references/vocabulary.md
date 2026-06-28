@@ -1,14 +1,8 @@
 # Vocabulary — surfaces this skill operates on
 
-This file is a flat reference glossary. It is *not* a trigger surface for the
-skill; the routing decision is made by the frontmatter in `SKILL.md`, which
-keys off the **running-runtime** precondition, not off these terms. Words
-listed here will appear in user requests once a runtime session is already
-underway, or when a code-reading task strays close enough to the runtime that
-the skill needs to confirm whether the runtime is up.
+A flat reference glossary. *Not* a trigger surface — routing is decided by `SKILL.md`'s frontmatter, which keys off the **running-runtime** precondition, not these terms. These words appear in user requests once a runtime session is underway, or when a code-reading task strays close enough to the runtime that the skill must confirm whether the runtime is up.
 
-If you arrived here from a source-only / spec-only question, you are in the
-wrong skill — close this and answer from the spec corpus directly.
+If you arrived here from a source-only / spec-only question, you're in the wrong skill — close this and answer from the spec corpus directly.
 
 ## re-frame2 runtime surfaces
 
@@ -41,22 +35,19 @@ wrong skill — close this and answer from the spec corpus directly.
 - **register-epoch-listener!** / **epoch-history** / **restore-epoch** — the
   assembled-stream listener, the per-frame ring of epoch records, and the
   time-travel entry point.
-- **derivation/process graph** (the EP-0014 algebra view) — the one node-and-edge
+- **derivation/process graph** (the EP-0014 algebra view) — the single node-and-edge
   view subscriptions, flows, resources, route facts, and machine selectors all
   lower to (`spec/Derivations.md`: inputs / output / storage class / evaluation
-  policy / lifecycle; superkinds `:derivation` / `:process`). If a session asks
-  to "read the derivation graph," know that this is an **internal, structured
-  accessor** the framework produces for tools + conformance fixtures — it ships
-  **no public accessor name** and **no `re-frame.core` facade export** in this
-  slice (the public name is deferred until a third consumer needs it). So do
-  **not** assume a public graph API to call over the wire; the pair surfaces you
-  drive a running app through are the existing structured ops (`list-subscriptions`,
-  `list-handlers`, `read-sub`, `sub-cache` introspection) and raw `eval-cljs`
-  against the bundle-isolated tooling-sibling fns (e.g. `re-frame.subs.tooling/…`,
-  `re-frame.derivation.graph` where the app loads them) — never a stable public
-  name. Static inspection of the graph **never executes** a node's param/scope
-  functions (the don't-execute rule); a parametric edge set reads as
-  `:parametric` until concrete query vectors realise it in the live graph.
+  policy / lifecycle; superkinds `:derivation` / `:process`). A "read the derivation graph"
+  request hits an **internal, structured accessor** the framework produces for tools +
+  conformance fixtures — **no public accessor name**, **no `re-frame.core` facade export**
+  in this slice (the public name is deferred until a third consumer needs it). So do
+  **not** assume a public graph API over the wire; drive a running app through the existing
+  structured ops (`list-subscriptions`, `list-handlers`, `read-sub`, `sub-cache` introspection)
+  and raw `eval-cljs` against the bundle-isolated tooling-sibling fns (e.g. `re-frame.subs.tooling/…`,
+  `re-frame.derivation.graph` where the app loads them) — never a stable public name. Static
+  inspection **never executes** a node's param/scope functions (the don't-execute rule);
+  a parametric edge set reads as `:parametric` until concrete query vectors realise it in the live graph.
 
 ## Toolchain / host
 
@@ -84,53 +75,45 @@ This is the operational summary for a pair session.
 
 **The contract.** Per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md),
 the re-frame2-pair-mcp server defaults to a redacting wire boundary. The
-`--allow-sensitive-reads` boot gate is **OFF by default** (the CLI flag
-is aligned across the day8 MCP family). With it OFF, every **structured
-read / stream tool** — `snapshot`, `get-path`, `read-sub`, `subscribe`,
-`trace-window`, `watch-epochs`, `dispatch-dry-run`, and the signal
-recorders `record` / `read-recording` / `watch-until` — applies
-wire-boundary elision server-side: declared-sensitive slots redact to
-`:rf/redacted`, declared-large slots to `:rf.size/large-elided`. The
-epoch-egressing tools additionally route each record through
-`projected-record` / `elide-wire-value`, so a sensitive slot inside
-`:db-before` / `:db-after` redacts and a whole epoch the runtime stamped
-`:rf.epoch/sensitive?` drops entirely. Streaming additionally drops
-trace events whose top-level `:sensitive?` is `true` before they ever
-queue. Net: structured reads/streams are safe to fire by default.
+`--allow-sensitive-reads` boot gate is **OFF by default** (CLI flag aligned
+across the day8 MCP family). With it OFF, every **structured read / stream tool**
+— `snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`, `watch-epochs`,
+`dispatch-dry-run`, and the signal recorders `record` / `read-recording` / `watch-until`
+— applies wire-boundary elision server-side: declared-sensitive slots → `:rf/redacted`,
+declared-large → `:rf.size/large-elided`. The epoch-egressing tools additionally route
+each record through `projected-record` / `elide-wire-value`, so a sensitive slot inside
+`:db-before` / `:db-after` redacts and a whole epoch the runtime stamped `:rf.epoch/sensitive?`
+drops entirely. Streaming additionally drops trace events whose top-level `:sensitive?` is
+`true` before they queue. Net: structured reads/streams are safe to fire by default.
 
 ### The raw-eval carve-out — eval-cljs is OUTSIDE the structured guarantee
 
 `eval-cljs` is the one surface the gate does **not** cover. It is
 **default-ON** (governed only by the independent `--no-eval` opt-out,
-never by `--allow-sensitive-reads`) and returns the form's value
-**without running the elision walker**. So a raw
-`(re-frame2-pair.runtime/snapshot)` / `(…/sub-cache)` /
-`(re-frame.trace.tooling/trace-buffer)` / `(rf/epoch-history …)` eval can
-return verbatim app-db, sub-cache, trace-buffer, or epoch-history values
-— passwords, tokens, PII — to the AI host even with
-`--allow-sensitive-reads` OFF.
+never `--allow-sensitive-reads`) and returns the form's value **without
+the elision walker**. So a raw `(re-frame2-pair.runtime/snapshot)` / `(…/sub-cache)` /
+`(re-frame.trace.tooling/trace-buffer)` / `(rf/epoch-history …)` eval can return
+verbatim app-db, sub-cache, trace-buffer, or epoch-history — passwords, tokens, PII —
+to the AI host even with `--allow-sensitive-reads` OFF.
 
 So **do not reach for raw `eval-cljs` to read a privacy-sensitive app-db
 path, sub value, trace event, or epoch payload when a structured elided
-tool fits** — use `get-path` / `read-sub` / `snapshot {path}` /
-`trace-window` / `watch-epochs` / `subscribe`. Reserve raw eval for
-forensics / cross-referencing / recovery, and pour raw state into an
-eval only on explicit user/operator request. The same carve-out applies
-to the time-travel **eval forms** (`app-db-reset!`, `rf/restore-epoch!`):
-they are un-elided and un-gated, so for a *named* write prefer the
-dedicated `--allow-writes`-gated tools (`replace-app-db` /
-`restore-epoch`) — the eval forms are the backstop for a gate-OFF server
-(see §Time-travel writes in SKILL.md).
+tool fits** — use `get-path` / `read-sub` / `snapshot {path}` / `trace-window` /
+`watch-epochs` / `subscribe`. Reserve raw eval for forensics / cross-referencing /
+recovery, and pour raw state into an eval only on explicit user/operator request. The
+same carve-out applies to the time-travel **eval forms** (`app-db-reset!`, `rf/restore-epoch!`):
+un-elided and un-gated, so for a *named* write prefer the dedicated `--allow-writes`-gated
+tools (`replace-app-db` / `restore-epoch`) — the eval forms are the backstop for a
+gate-OFF server (see §Time-travel writes in SKILL.md).
 
 ### Opting in to the unmasked view
 
 Rare — only when the pair tool is itself the trust boundary (e.g. a
-self-hosted server inside a private network). Launch the server with
+self-hosted server inside a private network). Launch with
 `--allow-sensitive-reads`; then the per-call args win on the structured
 tools (`:include-sensitive true` and `:elision false` pass through). The
 gate does **not** change the `eval-cljs` posture. State the trade-off
-plainly when proposing it; this is not a knob to flip casually. The same
-flag name carries on story-mcp.
+plainly when proposing it — not a knob to flip casually. Same flag name carries on story-mcp.
 
 The three server gates, for reference:
 

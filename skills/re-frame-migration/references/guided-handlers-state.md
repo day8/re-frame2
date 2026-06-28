@@ -110,14 +110,14 @@ No mechanical rewrite — the author updates the expected numbers.
 **Risk**: v1's process-wide error-handler is gone, and there is **no app-steering error-recovery policy** in v2 — recovery is framework-owned (the typed per-category default). The right replacement depends on the role the handler played:
 
 - If it was **recovery-steering** ("when an event handler throws in this frame, swallow / substitute / route to this recovery"), it has **no v2 equivalent** — drop it. Rely on the framework's typed per-category default; move any genuine recovery for *expected* failures to the source (managed-HTTP `:retry`, optional-read fallback). To re-run a failed event, dispatch a fresh one.
-- If it was a **process-wide observer** (audit logging, metrics, Sentry forwarding), it moves to a listener filtering on `:op-type :error`. Pick the surface by environment: `register-listener!` is **dev-only** (production-elided); for **always-on production** error egress (Sentry / Honeybadger / Datadog) use `register-error-listener!` — see [`error-events.md` §Production elision](error-events.md#production-elision--what-elides-and-what-stays-always-on).
+- If it was a **process-wide observer** (audit logging, metrics, Sentry forwarding), it moves to a listener filtering on `:op-type :error`. Pick the surface by **stream** on the one `register-listener!` verb: `(register-listener! :trace …)` is **dev-only** (production-elided); for **always-on production** error egress (Sentry / Honeybadger / Datadog) use `(register-listener! :errors …)` — see [`error-events.md` §Production elision](error-events.md#production-elision--what-elides-and-what-stays-always-on).
 
 A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for logging) drops the recovery half and moves the logging half to a listener.
 
 **Decision shape**:
 
 1. Read the handler body. If it modifies state, swallows, or substitutes a result, that's recovery-steering — drop it; there is no v2 policy slot. Move any genuine recovery to the source.
-2. If it logs / reports / metrics, that's a listener — `register-error-listener!` if it must run in production, `register-listener!` if dev-only.
+2. If it logs / reports / metrics, that's a listener — `(register-listener! :errors …)` if it must run in production, `(register-listener! :trace …)` if dev-only.
 3. If it does both, split the body — drop the recovery-steering, move observation to the appropriate listener surface.
 
 Present the categorisation; confirm with the author; apply.

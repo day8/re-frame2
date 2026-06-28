@@ -4,7 +4,7 @@ Anti-pattern catalogue for `re-frame2-improver`. Each leaf is one anti-pattern w
 
 ## Status — populated
 
-Six launch anti-patterns are now resident. The catalogue is intentionally narrow — grow it as new anti-patterns surface across 3+ real review sessions (same growth discipline as [`re-frame2-pair-retro/references/known-frictions.md`](../../re-frame2-pair-retro/references/known-frictions.md)).
+Six launch anti-patterns resident. The catalogue is intentionally narrow — grow it only as new anti-patterns surface across 3+ real review sessions (same discipline as [`re-frame2-pair-retro/references/known-frictions.md`](../../re-frame2-pair-retro/references/known-frictions.md)).
 
 ## Catalogue
 
@@ -29,7 +29,7 @@ Each leaf carries the same five sections:
 
 ## Growth procedure
 
-When a new anti-pattern surfaces across 3+ review sessions, add it as a new leaf and a new row above. Mirrors how [`re-frame2-pair-retro/references/known-frictions.md`](../../re-frame2-pair-retro/references/known-frictions.md) grows organically. Two deferred "bonus" candidates (view renders only the happy state with no error/loading branches; effect handlers writing to a foreign frame's `app-db`) are documented in [`../spec/design.md` §Deferred catalogue candidates](../spec/design.md) and held back until they surface in real reviews.
+When a new anti-pattern surfaces across 3+ review sessions, add it as a new leaf and a new row above (same organic growth as [`re-frame2-pair-retro/references/known-frictions.md`](../../re-frame2-pair-retro/references/known-frictions.md)). Two deferred "bonus" candidates — view renders only the happy state with no error/loading branches; effect handlers writing to a foreign frame's `app-db` — are documented in [`../spec/design.md` §Deferred catalogue candidates](../spec/design.md), held back until they surface in real reviews.
 
 ## Shared retro protocol
 

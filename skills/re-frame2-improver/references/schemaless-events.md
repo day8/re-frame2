@@ -13,9 +13,9 @@
 
 Detection logic, per candidate handler:
 
-1. Does the handler ingest data from an untrusted source? If no → not in scope for this leaf.
-2. **Where does the untrusted value arrive?** Classify the boundary shape; it picks which gate counts (see above). If a matching gate is present → not a finding.
-3. If no matching gate → **flag**, regardless of whether `:schema` and `reg-app-schema` are attached — both are dev-elided, so the boundary is open in the deployed bundle. In particular, a body-read handler carrying `:schema` plus `:rf.schema/at-boundary` *for the event id only* is still a finding: the interceptor validates the (trusted) dispatch, not the (untrusted) value the body fetched.
+1. Ingests data from an untrusted source? No → not in scope for this leaf.
+2. **Where does the untrusted value arrive?** Classify the boundary shape (event-payload vs body-read above); it picks which gate counts. Matching gate present → not a finding.
+3. No matching gate → **flag**, regardless of whether `:schema` / `reg-app-schema` are attached (both dev-elided → boundary open in production). A body-read handler carrying `:schema` + `:rf.schema/at-boundary` *for the event id only* is still a finding — see the Regression example below.
 
 Greppable signals — flag when **any** match AND no production gate is wired:
 
@@ -31,7 +31,7 @@ Structural signal: the boundary between **untrusted input** and **trusted `app-d
 
 `app-db` is the trust boundary. The whole substrate downstream of it (subs, views, machine reads, story snapshots, time-travel) assumes the values it reads conform to the application's mental model. A schemaless boundary event smuggles arbitrary data past the gate — a stale API field, a server schema change, a malformed query string, a tampered `localStorage` payload — and the failure surfaces hundreds of dispatches later in a sub that crashes on a missing key. Schemas at boundaries are Cardinal Rule #4 (`skills/re-frame2/SKILL.md`).
 
-The runtime offers two complementary dev-time tools: handler `:schema` (validates the **event vector** before the handler runs) and `reg-app-schema` (validates the **app-db path** after the handler writes). **Both are dev-elided in production** (gated on `goog.DEBUG`). The always-on `:rf.schema/at-boundary` interceptor re-runs the handler's `:schema` over the **event vector** in production — closing an *event-payload* boundary (Managed HTTP `:decode` is the other always-on gate there). It cannot see a value the handler reads mid-body, so a *body-read* boundary needs the **raw value itself** validated. A handler carrying only `:schema` and/or `reg-app-schema` is validated in dev but unvalidated in the deployed bundle — the exact place the boundary matters.
+The runtime offers two complementary dev-time tools: handler `:schema` (validates the **event vector** before the handler runs) and `reg-app-schema` (validates the **app-db path** after the handler writes). **Both are dev-elided in production** (gated on `goog.DEBUG`) — so a handler carrying only `:schema` and/or `reg-app-schema` is validated in dev but unvalidated in the deployed bundle, the exact place the boundary matters. Closing it needs an always-on gate matched to the boundary shape (the two-gate split is in Detection rules above).
 
 ## The canonical fix
 
@@ -93,7 +93,7 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
       {:db (assoc db :session (js->clj (js/JSON.parse raw)))}))) ;; production: writes arbitrary localStorage straight in
 ```
 
-**Why it flags.** `:rf.schema/at-boundary` runs the handler's `:schema` over `[:session/rehydrate]` — which the app dispatched itself and is trivially valid. The interceptor has no visibility into `raw`; nothing validates the JSON a tampered or stale `localStorage` returns, and in production the `reg-app-schema` write-check is elided too.
+**Why it flags.** `:rf.schema/at-boundary` validates only the trivially-valid `[:session/rehydrate]` dispatch; it has no visibility into `raw`, and the `reg-app-schema` write-check is elided in production — so nothing validates the JSON a tampered/stale `localStorage` returns.
 
 **The fix — validate the raw value, two equivalent shapes:**
 
@@ -121,9 +121,9 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
     (cond-> {} stored (assoc :db (assoc db :session stored)))))
 ```
 
-Both gates validate the **value the body would have read**, so the boundary is closed in the production bundle — not just the dispatch shape. For an *event-payload* source instead (query-string params or a `postMessage` arg dispatched into the event vector), the gate is `:rf.schema/at-boundary` in metadata `:interceptors`, not a body validator.
+Both gates validate the **value the body would have read**, closing the boundary in production — not just the dispatch shape. (For an *event-payload* source — query-string params or a `postMessage` arg dispatched into the event vector — the gate is `:rf.schema/at-boundary` in metadata `:interceptors`, not a body validator.)
 
-> **Validation closes the trust boundary, not the replay boundary.** A boundary read that feeds **durable** state (here `:session/rehydrate` writes the validated value straight into `:db`) is also subject to the durable-write rule — an ambient host read re-reads the *current* host on every replay, so epoch restore / SSR / time-travel diverge from the recorded boot. The fix that makes the fact **recordable** (the boot/restore token carries the value via `:rf.cofx/requires`, not a fresh host read at the write site) is owned in full by [`imperative-effects.md` §Reads — the durable/diagnostic fork](imperative-effects.md#reads--the-durablediagnostic-fork-ep-0010). A boot/rehydrate value is the legitimate edge (the persisted durable state itself, no prior epoch to diverge from); a read landing only in a diagnostic / host-transient slot stays an ordinary ambient cofx.
+> **Validation closes the trust boundary, not the replay boundary.** A boundary read feeding **durable** state (here `:session/rehydrate` writes the validated value straight into `:db`) is also subject to the durable-write rule — an ambient host read re-reads the *current* host on every replay, so epoch restore / SSR / time-travel diverge from the recorded boot. Making the fact **recordable** (the boot/restore token carries the value via `:rf.cofx/requires`, not a fresh host read at the write site) is owned in full by [`imperative-effects.md` §Reads — the durable/diagnostic fork](imperative-effects.md#reads--the-durablediagnostic-fork-ep-0010). A boot/rehydrate value is the legitimate edge (the persisted durable state itself — no prior epoch to diverge from); a read landing only in a diagnostic / host-transient slot stays an ordinary ambient cofx.
 
 ## Edge cases — when schemaless is fine
 

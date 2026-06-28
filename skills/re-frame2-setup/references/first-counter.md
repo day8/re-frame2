@@ -4,7 +4,7 @@ End-to-end worked example: a working re-frame2 counter in one file. This is the 
 
 Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, **greenfield setup is done** — switch the author to the main `re-frame2` skill for everything else.
 
-> **Reagent only.** This leaf uses Reagent's `reg-view` macro (with auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/capture-frame))`, and mount through their own root API. For a UIx/Helix greenfield, do **not** use this Reagent counter: take the complete generator route (SKILL.md cardinal rule 4) or copy the substrate-specific entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md). The events and subs below (`reg-event` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
+> **Reagent only.** This leaf uses Reagent's `reg-view` macro (auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook, dispatch through `(:dispatch (rf/capture-frame))`, and mount through their own root API. For a UIx/Helix greenfield do **not** use this counter: copy the substrate entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md), or take the generator route (SKILL.md cardinal rule 4). The events and subs below (`reg-event` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
 
 ## Contents
 
@@ -29,7 +29,7 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
             ;; schemas artefact's deps.
             [re-frame.schemas]
             [re-frame.schemas.malli])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Schema ----------------------------------------------------------------
 
@@ -44,11 +44,14 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 
 ;; App-db schemas are FRAME-LOCAL (EP-0002 carried-frame invariant): they
 ;; target a frame, and the runtime never synthesises one from absence. A
-;; bare ns-load reg-app-schema with no frame in scope would raise
-;; :rf.error/no-frame-context, so the registration is wrapped in
-;; `with-frame :rf/default` — naming the app's frame explicitly so it carries
-;; a frame stamp even though it runs at module load, before init.
-(with-frame :rf/default
+;; bare ns-load reg-app-schema with no frame in scope raises
+;; :rf.error/no-frame-context, so the attach lives in `register-schema!` and
+;; runs at BOOT — `init` calls it under `with-frame :rf/default`, AFTER
+;; `reg-frame` makes the frame live (see the Mount section below). This is the
+;; same register-schema! the generator template ships in `_shared/schema.cljs`.
+;; (Contrast reg-event / reg-sub, which are frame-agnostic global
+;; registrations and are fine at ns-load.)
+(defn register-schema! []
   (rf/reg-app-schema [] {:schema CounterDb}))   ;; :schema-in-metadata grammar
 
 ;; -- Events ----------------------------------------------------------------
@@ -81,30 +84,30 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 ;; Namespace load does no DOM work — the root is created lazily inside init.
 (defonce react-root (atom nil))
 
-(def app-frame :rf/default)
-
-;; mount! re-renders the views into the same root + frame on each hot reload.
-(defn ^:dev/after-load mount! []
+;; shadow-cljs's :browser target re-runs :init-fn (init) after EACH hot
+;; reload, so init IS the re-render path — no separate ^:dev/after-load hook.
+(defn ^:export init []
+  (rf/init! reagent-adapter/adapter)             ;; install the Reagent adapter (no frame yet)
+  (rf/reg-frame :rf/default {})                   ;; register the app frame (surgical hot-reload update)
+  (rf/with-frame :rf/default                      ;; under a live frame scope:
+    (register-schema!)                            ;;   attach the frame-local schema (needs a frame)
+    (rf/dispatch-sync [:counter/initialise]))     ;;   seed app-db synchronously — the reset boundary
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
-    ;; frame-provider's ENSURE shape ({:id …}) creates the frame on first
-    ;; mount and runs :initial-events once to seed app-db; a hot-reload
-    ;; remount reuses the live frame and does NOT re-seed (app-db survives).
+    ;; frame-provider's {:frame …} SCOPE shape scopes the already-registered
+    ;; :rf/default frame into the tree (it creates / destroys nothing).
     (rdc/render @react-root
-                [rf/frame-provider {:id             app-frame
-                                    :initial-events [[:counter/initialise]]}
+                [rf/frame-provider {:frame :rf/default}
                  [counter-app]])))
-
-(defn ^:export init []
-  (rf/init! reagent-adapter/adapter)
-  (mount!))
 ```
 
 That's the entire greenfield app. ~35 lines of substance, every re-frame2 primitive exercised once — including the typed-at-boundaries schema attach the generator ships.
 
-This is the same `:counter/initialise` / `:counter/increment` events, `:counter/value` sub, and `CounterDb` whole-app-db schema that the generator template registers (`tools/template/resources/day8/re_frame2_template/_shared/events.cljs` + `_shared/subs.cljs` + `_shared/schema.cljs`, attached under the frame in `_reagent/core.cljs`) and that the UIx / Helix view snippets in [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md) dispatch and subscribe — so the SKILL.md claim "the events and subs are identical across substrates; only the view layer differs" holds in **copied** code. The canonical worked example at `examples/core/counter/core.cljs` uses the same namespaced `:counter/value` app-db key (seeded to `5` there) and additionally keeps a `:counter/dec` / `-` button; this minimal greenfield counter stays on the single-increment shape the template ships, so the three sources share one vocabulary. If you want decrement, add a `:counter/decrement` event (`(fn [{:keys [db]} _] {:db (update db :counter/value dec)})`) and a matching `-` button in **all** substrate views you use.
+These are the same `:counter/initialise` / `:counter/increment` events, `:counter/value` sub, and `CounterDb` schema the generator template registers (`tools/template/resources/day8/re_frame2_template/_shared/events.cljs` + `_shared/subs.cljs` + `_shared/schema.cljs`, attached under the frame in `_reagent/core.cljs`) — and the same forms the UIx / Helix snippets in [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md) dispatch and subscribe, so the "events and subs identical across substrates; only the view differs" claim holds in **copied** code.
+
+The canonical worked example `examples/core/counter/core.cljs` uses the same `:counter/value` key (seeded to `5`) and adds a `:counter/dec` / `-` button; this minimal counter stays single-increment. To add decrement: a `:counter/decrement` event (`(fn [{:keys [db]} _] {:db (update db :counter/value dec)})`) plus a `-` button in **all** substrate views you use.
 
 ## What each block does
 
@@ -121,11 +124,9 @@ A schema describes **shape**, not durable egress policy — whether an app-db pa
 
 ### Events
 
-Two events: an initialiser and one mutation. There is **one** event-registration form — `reg-event`. A handler takes the coeffects map (destructure `:db` from it to read the current app-db) and the event vector, and returns a map describing the next state and what to do: `{:db <next-app-db>}` writes the new app-db. Pure functions, dispatched through re-frame2's drain so they run in order, one at a time.
+An initialiser and one mutation, both via the **one** event-registration form `reg-event`. A handler takes the coeffects map (destructure `:db` to read the current app-db) + the event vector, and returns `{:db <next-app-db>}`. Pure functions, dispatched through re-frame2's drain so they run in order, one at a time. So `:counter/initialise` returns `{:db {:counter/value 0}}` (seed a fresh counter); `:counter/increment` destructures `{:keys [db]}` and returns `{:db (update db :counter/value inc)}` (count bumped). `_cofx` is the unused coeffects argument.
 
-So `:counter/initialise` returns `{:db {:counter/value 0}}` — seed the app-db to a fresh counter — and `:counter/increment` returns `{:db (update db :counter/value inc)}` — the next app-db with the count bumped. `_cofx` in the initialiser is just the unused coeffects argument; `:counter/increment` destructures `{:keys [db]}` to read the current value.
-
-Adding a side effect later (an HTTP request, navigation, a child dispatch) doesn't change the form: the same handler returns the same `{:db ...}` **plus** an `:fx` key — `{:db ... :fx [...]}`. No new macro, no signature change. The counter doesn't need `:fx` yet.
+Adding a side effect later (HTTP, navigation, a child dispatch) doesn't change the form — the same handler returns `{:db ... :fx [...]}`, no new macro, no signature change. The counter doesn't need `:fx` yet.
 
 ### Subscriptions
 
@@ -140,20 +141,16 @@ Inside the body, two locals are **auto-injected** by the macro:
 - `dispatch` — bound to the current frame's `dispatch` fn. Use it like `(dispatch [:counter/increment])`.
 - `subscribe` — bound to the current frame's `subscribe` fn. Use it like `@(subscribe [:counter/value])`.
 
-This is what makes registered views frame-aware without you threading the frame through every component. The macro resolves both at render time against whatever frame is in scope — here `:rf/default`, scoped by the root `frame-provider {:frame …}` in `init`; multi-frame apps wrap subtrees in additional `frame-provider`s to swap it (`{:frame …}` to scope an existing frame, or `{:id …}` to ensure a named frame for the subtree). (There is no implicit default frame: the provider is what supplies the carried frame to the tree.)
+This makes registered views frame-aware without threading the frame through every component. The macro resolves both at render time against whatever frame is in scope — here `:rf/default`, scoped by the root `frame-provider {:frame …}` in `init`. (There is no implicit default frame; the provider supplies the carried frame to the tree. Multi-frame apps wrap subtrees in additional `frame-provider`s.)
 
 The result is regular Reagent hiccup. Reagent renders, the React 19 root commits, the DOM updates.
 
 ### Mount
 
-`defonce` guards `react-root` against hot-reload. See `entry-namespace.md` for why.
+`defonce` guards `react-root` against hot-reload. `init` runs four steps in order — `rf/init!` → `reg-frame` → `with-frame (register-schema!) (dispatch-sync …)` → `rdc/render` wrapped in `frame-provider` — fully detailed in [`entry-namespace.md` §Order of operations](entry-namespace.md). Two facts specific to this counter:
 
-`init`'s lines (in this order):
-
-1. `(rf/init! reagent-adapter/adapter)` — install the Reagent substrate adapter (no frame is created here).
-2. `(rf/reg-frame :rf/default {})` — register the app frame. On a hot reload this re-registration is a **surgical update** that preserves the existing app-db (and sub-cache and queue); only the frame's metadata/config is replaced.
-3. `(rf/with-frame :rf/default (register-schema!) (rf/dispatch-sync [:counter/initialise]))` — under a live frame scope: first attach the frame-local schema (`reg-app-schema` needs an established frame — see §Schema), then seed the app-db synchronously, so the initial render sees `{:counter/value 0}` rather than a transient empty frame. This explicit `dispatch-sync` is the **reset boundary**: it re-seeds the demo state on **every** hot reload. (Seeding via `:initial-events` instead would only run on the first registration — the surgical update in step 2 does not rerun them — so a save during the demo would leave the counter wherever you'd clicked it.)
-4. `(rdc/render react-root [rf/frame-provider {:frame :rf/default} [counter-app]])` — mount, wrapped in `frame-provider`'s `{:frame …}` SCOPE-only shape (the frame already exists from step 2) so the tree's `dispatch` / `subscribe` resolve to `:rf/default`.
+- **Step 3 attaches the schema before the seed**, both inside `(rf/with-frame :rf/default …)`: `reg-app-schema` needs an established frame (§Schema), and seeding synchronously means the initial render sees `{:counter/value 0}`, not a transient empty frame.
+- **The `dispatch-sync` seed is the reset boundary** — it re-seeds the demo state on **every** hot reload. Seeding via `:initial-events` instead would only run on the first registration (step 2's surgical update does not rerun them), so a save mid-demo would leave the counter wherever you'd clicked it.
 
 ## Verifying it works
 
@@ -161,11 +158,9 @@ The result is regular Reagent hiccup. Reagent renders, the React 19 root commits
 npx shadow-cljs watch app
 ```
 
-(`npx` resolves the locally-installed `shadow-cljs` from `node_modules/.bin`, so it works even when no global `shadow-cljs` binary is on your shell PATH — the common case on a fresh project, especially on Windows/PowerShell. `npm run watch` runs the same command via the `package.json` script.)
+(`npx` resolves the locally-installed `shadow-cljs` from `node_modules/.bin`, so it works with no global binary on PATH — the common case on a fresh project, especially on Windows/PowerShell. `npm run watch` runs the same command.)
 
-Wait for the compile to land. The terminal prints something like `[:app] Build completed.`
-
-Visit `http://localhost:8280/` (the template's port — or whatever you set in `:dev-http` in `shadow-cljs.edn`).
+Wait for the compile to land (the terminal prints `[:app] Build completed.`), then visit `http://localhost:8280/` (the template's port — or whatever you set in `:dev-http`).
 
 You should see:
 
@@ -186,15 +181,16 @@ If you see a blank page, open the browser console. Most failures land there with
 - A thrown / emitted `:rf.error/no-frame-context` — the tree rendered with **no frame established**. Under EP-0002 the runtime infers no frame (`:rf/default` is not auto-registered — you register it yourself), so a bare `subscribe` / `dispatch` outside any scope fails loudly. Fix: wrap the root in `[rf/frame-provider {:frame :rf/default} [root-view]]` and ensure `(rf/reg-frame :rf/default …)` ran before render — see `init` above.
 - A blank/empty subscribed value with **no console error** (e.g. the number never appears) — a subscribe to an unregistered sub builds a nil-yielding reaction and emits `:rf.error/no-such-sub`; it does **not** throw. On this bare route there's no error-sink listener wired, so the miss surfaces only as a silent `nil` render — registrations didn't run. If you split subs into multiple namespaces, make sure `core.cljs` `:require`s them so they load. (The generator template wires an error-sink in `events.cljs` that pushes `:rf.error/no-such-sub` to the console; this minimal counter doesn't, so the only tell is the blank value.)
 
-**No schema errors? That's expected — and it means validation ran clean.** This counter attaches the `CounterDb` whole-app-db schema (see §Schema), so after `:counter/initialise` and each `:counter/increment` the framework *does* validate the new app-db against it — and `{:counter/value 0}` (then `1`, `2`, …) conforms, so there are no `:rf.error/schema-validation-failure` traces. This is real validation, not a soft-pass: with `day8/re-frame2-schemas` on the classpath, requiring `re-frame.schemas` wires Malli automatically (Spec 010 §Schema implies validation on CLJS). To *see* it fire, temporarily seed a non-`:int` value (e.g. `{:counter/value "0"}` in `:counter/initialise`) — the write rolls back and the error sink surfaces the violation; revert it once you've seen the boundary work.
+**No schema errors? That's validation running clean, not a soft-pass.** This counter attaches the `CounterDb` schema (§Schema), so after `:counter/initialise` and each `:counter/increment` the framework *does* validate the new app-db — and `{:counter/value 0}` (then `1`, `2`, …) conforms, so no `:rf.error/schema-validation-failure` traces. It is real validation: with `day8/re-frame2-schemas` on the classpath, requiring `re-frame.schemas` wires Malli automatically (Spec 010 §Schema implies validation on CLJS). To *see* it fire, temporarily seed a non-`:int` (e.g. `{:counter/value "0"}` in `:counter/initialise`) — the write rolls back and the error sink surfaces the violation; revert once seen.
 
 ## What to do next
 
 **Setup is done.** From here, **switch skills**:
 
 - **Writing more code (events, subs, machines, schemas, frames, fx, flows, routing, SSR)** — load the **`re-frame2`** skill. It covers the API surface in modular files; you can load just the pieces relevant to what you're building.
+- **Touring the Xray panel that just auto-opened** — load the **`re-frame2-xray`** skill. The day-one preload mounts Xray into the right-side host the moment the counter renders; the skill is a read-only tour of how to launch it and which tab surfaces what (epoch cascade, app-db, trace, the registry-browse Static tabs).
 - **Inspecting the running app live from the REPL** — install the **`re-frame2-pair`** skill. It attaches over nREPL, lets you walk app-db, dispatch from the REPL, hot-swap handlers, time-travel through epoch history. nREPL stays dev-only and bound to localhost — see SKILL.md cardinal rule 6.
 
-Both skills are independent of this one and can be loaded individually.
+All three are independent and can be loaded individually.
 
-If you want worked examples of more substantial re-frame2 apps before you keep building, the repo's `examples/` directory has worked apps for: TodoMVC, the seven 7GUIs tasks, login with state machines + managed HTTP, routing, SSR, the nine-states pattern, realworld. Browse them via `SKILL-REDIRECT.md` → Examples directory.
+For worked examples of more substantial apps, the repo's `examples/` directory has TodoMVC, the seven 7GUIs tasks, login with state machines + managed HTTP, routing, SSR, the nine-states pattern, and realworld. Browse them via `SKILL-REDIRECT.md` → Examples directory.

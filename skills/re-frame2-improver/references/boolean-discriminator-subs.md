@@ -21,7 +21,7 @@ A re-frame2 state machine declares the states once; tags label the per-state int
 
 ## The canonical fix
 
-[`skills/re-frame2/references/state-machines/tags.md`](../../re-frame2/references/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then resolve the page's render through **one selector sub** over a data-shaped render-priority table (the view does a single `case`). Use `@(rf/machine-has-tag? machine-id tag)` directly only for single one-off affordances, not for the mutually-exclusive whole-page render branch — that is what the selector sub is for.
+[`skills/re-frame2/references/state-machines/tags.md`](../../re-frame2/references/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then resolve the page's render through **one selector sub** over a data-shaped render-priority table (the view does a single `case`). `@(rf/machine-has-tag? machine-id tag)` directly is for single one-off affordances only, not the whole-page render branch — see the callout below.
 
 For full page-level rendering with cardinality buckets, [`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md) is the canonical pattern.
 
@@ -91,7 +91,7 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
 ;; `[:rf/machine :article]` is nil before the machine first runs, so `snap`
 ;; (and its `:tags`) may be nil. `contains?` against a possibly-nil set is the
 ;; right test, and `some` returns nil when nothing matches — the view must
-;; tolerate that nil (see the `:rf/uninitialised` default below).
+;; tolerate that nil (see the `:uninitialised` default below).
 (rf/reg-sub :article/render
   :<- [:rf/machine :article]
   (fn [snap _]
@@ -99,9 +99,9 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
       (or (some (fn [{:keys [tag render]}]
                   (when (contains? tags tag) render))
                 render-priority)
-          :rf/uninitialised))))
+          :uninitialised))))
 
-;; The view branches once, in a `case`. The `:rf/uninitialised` default is the
+;; The view branches once, in a `case`. The `:uninitialised` default is the
 ;; pre-snapshot guard: even with the eager-start kick above, a `case` with no
 ;; default would throw on the nil/no-match render keyword, so keep a branch for
 ;; "machine not addressed yet" rather than relying on the kick alone.
@@ -111,12 +111,12 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
     :error          [error-banner]
     :empty          [empty-state]
     :loaded         [article-body]
-    :rf/uninitialised [spinner]))   ;; lazy-init boundary — render the resting/booting UI
+    :uninitialised  [spinner]))   ;; lazy-init boundary — render the resting/booting UI
 ```
 
 The guarded-vector transition on `:load-success` (first match wins) routes an empty payload to `:empty` and a non-empty one to `:loaded` — the same discrimination the boolean cluster encoded, now declared once in the transition table instead of recomputed in four subs. The render priority that was previously hidden in the `cond` clause order now lives in the `render-priority` vector; the root view holds a single deref and a single branch. Adding a `:stale` state is one row in the table plus one `case` clause — no audit of mutual-exclusion across a boolean cluster.
 
-> **The lazy-initialisation boundary.** `:initial :loading` declares where the machine *starts*, not that a snapshot already exists: until the machine first runs, `[:rf/machine :article]` is `nil` and the selector resolves no tag. Two complementary safeguards keep the pasted view safe — (1) dispatch the eager-start kick `[:article [:rf.machine/start]]` from app/frame init so the `:loading` snapshot is materialised before first paint, and (2) keep a `:rf/uninitialised` default branch so the root `case` cannot throw if the machine is rendered before any event reaches it. The kick alone is not enough — a render that races ahead of init, or a frame that reverts past the machine's birth, can still present `nil`; the default branch is the belt to the kick's braces.
+> **The lazy-initialisation boundary** (the rule the code comments above apply). `:initial :loading` declares where the machine *starts*, not that a snapshot exists: until it first runs, `[:rf/machine :article]` is `nil` and the selector resolves no tag. Two complementary safeguards — both required — (1) dispatch the eager-start kick `[:article [:rf.machine/start]]` from app/frame init so the `:loading` snapshot is materialised before first paint, and (2) keep a `:uninitialised` default branch so the root `case` cannot throw on the nil/no-match keyword. The kick alone is insufficient: a render racing ahead of init, or a frame reverting past the machine's birth, can still present `nil`.
 
 For full page-level rendering across parallel render axes (data × form × mode), the same selector-sub idiom scales up to the Nine States pattern — see [`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md).
 

@@ -110,13 +110,9 @@ StaleDetection is rarely the *primary* pattern for a task. It is the **epoch idi
 
 ## Step 3 — verify against the example app
 
-Every pattern that has a worked example is verified end-to-end by a Playwright spec. After picking the pattern leaf, point at the example app named in [`examples-map.md`](../examples-map.md) and confirm:
+Every pattern has a worked example app (the `examples/` tree is test-free; patterns are regression-covered by CLJS contract/unit tests + adapter smokes, not per-example Playwright). After picking the pattern leaf, point at the example named in [`examples-map.md`](../examples-map.md) and confirm: the slice shape matches; the event names scale to the example's `:feature/<verb>` naming; the `reg-app-schema` attachment points cover the same boundaries.
 
-- The slice shape in your task matches the slice shape in the example.
-- The event names in your task scale to the example's `:feature/<verb>` naming.
-- The schema attachment points (`reg-app-schema` invocations) cover the same boundaries.
-
-If the example contradicts the leaf, **the example wins** — re-frame2's cardinal rule is that implementation is ground truth (per SKILL.md §Cardinal rules). Report the divergence upstream as a `day8/re-frame2` GitHub issue against the spec; don't silently work around.
+If the example contradicts the leaf, **the example wins** (implementation is ground truth). Report the divergence upstream as a `day8/re-frame2` GitHub issue against the spec; don't silently work around.
 
 ## Step 4 — load the leaves
 

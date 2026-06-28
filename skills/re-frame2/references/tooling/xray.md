@@ -74,7 +74,7 @@ Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`, …)
 
 The variable is published as `day8.re-frame2-xray.config/default-layout-host-css-var` and the 560px default as `default-layout-host-width`, so tooling can refer to them without forking the string. **Xray MUST NOT introduce a CLJS setter for this property** — the host's stylesheet is the single source of truth.
 
-Xray also auto-injects a drag handle on the panel's outer edge (see `tools/xray/spec/007-UX-IA.md` §Resize affordance). The variable seeds the initial width; a user drag overrides it (persisted across reloads in the Settings slot `[:general :panel-width-px]`, written at runtime by the resize handle via the `:rf.xray/settings-update` event; a host boot default can bulk-set it with the one-arg map `configure!`, `{:rf.xray/settings {:general {:panel-width-px 720}}}`), clamped to `[320px, 90vw]`, double-click to reset). Both mechanisms write the same `flex-basis` slot — no parallel sizing channel. Consumers that prefer the browser-native handle opt out by setting `resize: horizontal` on the host; Xray detects that via `getComputedStyle` and yields (no double-handle).
+Xray also auto-injects a drag handle on the panel's outer edge (`tools/xray/spec/007-UX-IA.md` §Resize affordance). The variable seeds the initial width; a user drag overrides it — persisted across reloads in the Settings slot `[:general :panel-width-px]` (written by the resize handle via `:rf.xray/settings-update`; a host boot default bulk-sets it via the one-arg `configure!`, `{:rf.xray/settings {:general {:panel-width-px 720}}}`), clamped to `[320px, 90vw]`, double-click to reset. Both write the same `flex-basis` slot — no parallel sizing channel. To prefer the browser-native handle, set `resize: horizontal` on the host; Xray detects it via `getComputedStyle` and yields (no double-handle).
 
 ## Brand-accent CSS variable (`--rf-xray-accent`)
 
@@ -113,9 +113,9 @@ Pop-out uses `window.open` whose JS realm connects to the opener's via `window.o
 
 ## Frame isolation — `:rf/xray`
 
-Xray's shell idempotently registers `(rf/reg-frame :rf/xray {})` and wraps its view in `[rf/frame-provider {:frame :rf/xray} ...]` (the SCOPE-only shape — the frame already exists). Every `subscribe` / `dispatch` inside the shell resolves to the `:rf/xray` **own** frame; the host app's frame (the inspected **target** frame, whatever its id) is untouched. Xray's own registrations live under the `:rf.xray/*` namespace and operate against `:rf/xray`'s db. The host app keeps its keyspace clean — Xray never writes to the host frame. (Per EP-0002, Xray distinguishes its **own** frame `:rf/xray` from the inspected **target** frame, selected explicitly by host config or the picker; it never falls back to `:rf/default`.)
+Xray's shell idempotently registers `(rf/reg-frame :rf/xray {})` and wraps its view in `[rf/frame-provider {:frame :rf/xray} ...]` (SCOPE-only — the frame already exists). Every `subscribe` / `dispatch` inside the shell resolves to the `:rf/xray` **own** frame; the inspected **target** frame (whatever its id) is untouched. Xray's registrations live under `:rf.xray/*` and operate against `:rf/xray`'s db — Xray never writes to the host frame. (Per EP-0002 it distinguishes its own `:rf/xray` from the target frame, selected explicitly by host config or the picker; it never falls back to `:rf/default`.)
 
-## See also
+## Deeper material
 
 - `tools/xray/README.md` — panel inventory, headline experiences, file layout.
 - `tools/xray/spec/011-Launch-Modes.md` — normative launch-mode contract, full popout handling.

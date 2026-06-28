@@ -27,12 +27,14 @@ skills/re-frame2/
 ├── .claude-plugin/
 │   └── plugin.json                   Claude Code plugin metadata.
 ├── references/
-│   ├── fundamentals/                 events, fx, cofx, subs, flows, frames, schemas, event-state-cycle, project-structure.
+│   ├── fundamentals/                 events, fx, cofx, subs, views, flows, frames, schemas, event-state-cycle, project-structure.
 │   ├── state-machines/               reg-machine, regions, tags, spawn, history, cancellation.
 │   ├── tooling/                      stories, routing, story-recorder, story-mcp-loop, xray.
-│   └── cross-cutting/                testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring.
+│   └── cross-cutting/                testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity.
 ├── patterns/                         One leaf per canonical pattern (14 leaves).
-└── decision-trees/                   pick-a-pattern, slice-or-machine.
+├── decision-trees/                   pick-a-pattern, slice-or-machine.
+├── spec/                             Skill-internal meta-docs (design, inputs, authoring-prompt). Not loaded at runtime.
+└── evals/                            Eval harness. Repo-maintenance artifact; not in the published package.
 ```
 
 The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the fourteen canonical patterns, and the two decision trees. Footers pin each leaf to the implementation it derives from, re-verified after refactors.

@@ -1,16 +1,47 @@
 # chrome — the first-screen navigation primitives around the tabs
 
 Companion to [`panels.md`](panels.md) (the tabs) and
-[`launch-modes.md`](launch-modes.md) (getting Xray visible). This leaf
-owns the **detailed inventory** of the chrome the operator meets before
-they pick a tab: the LIVE/RETRO spine, time-travel (passive inspect vs
-explicit rewind), the filter-pill cluster, the command palette, and the
-Settings popup. [`SKILL.md` §The chrome around the tabs](../SKILL.md#the-chrome-around-the-tabs)
-carries the one-line router; this leaf carries the control-by-control
-detail. When a chrome question needs more than the one-liner, load this.
+[`launch-modes.md`](launch-modes.md) (getting Xray visible). This leaf owns
+the **control-by-control inventory** of the chrome the operator meets
+before picking a tab: the LIVE/RETRO spine, time-travel (passive inspect vs
+explicit rewind), the filter-pill cluster, the command palette, the
+Settings popup.
+[`SKILL.md` §The chrome around the tabs](../SKILL.md#the-chrome-around-the-tabs)
+is the one-line router; load this when a chrome question needs more.
 
 Source of truth for chrome layout / tokens / animation:
 [`007-UX-IA.md`](../../../tools/xray/spec/007-UX-IA.md).
+
+## L1 frame picker
+
+The leftmost L1-ribbon cluster is the **`Frame ▾` frame-switcher** — the
+single contractually-anchored surface every frame-aware feature reaches
+through (the L1 picker, the Cmd-K palette's `:palette/select-frame` verb).
+It chooses **which frame Xray observes**; every Dynamic tab, the L2 spine,
+*and* the Static catalogues rebind to the picked frame (the picker is
+**mode-independent** — registries are frame-scoped, so pick the frame
+whether you're in Dynamic or Static).
+
+- **Single-frame apps collapse it to a flat `Frame: :rf/default` label** —
+  there is no dropdown to hunt for when only one app frame exists.
+- **It is a TRANSIENT view scope, not a filter and NOT persisted across
+  reload.** The pin is written to localStorage within a session but
+  `mount.cljs/::reset-transient-filters` clears it on load, so every
+  session starts at the head-frame default (per spec/007 §Frame slot
+  contract / rf2-swclw). Don't tell a user their frame choice survives a
+  refresh — it doesn't.
+- **Tool frames are hidden by default.** `:rf/xray` (and other tool frames)
+  are filtered out of the picker — invariant **I1**: Xray observes ANOTHER
+  frame, never itself. Reveal them via **Settings → View → "Show tool
+  frames in picker"**. So "I can't find frame X in the picker" → it's a tool
+  frame; flip that toggle.
+
+Canonical write is `:rf.xray/select-frame <frame-id>` (which re-seeds the
+spine's `:target-frame` + `:epoch-history`); the picker sub is
+`:rf.xray/current-frame`, the selectable set `:rf.xray/available-frames`.
+Spec [`007-UX-IA.md` §Frame slot contract](../../../tools/xray/spec/007-UX-IA.md)
++ §Frame-observation isolation invariants; source
+[`frame_switcher.cljs`](../../../tools/xray/src/day8/re_frame2_xray/frame_switcher.cljs).
 
 ## LIVE vs RETRO spine
 
@@ -73,7 +104,7 @@ popup controls are:
   auto-open-on-error, epoch-history depth (slider), the per-operator
   editor-override picker, and the show-`:ungrouped` toggle.
 - **Buffer** — cascades-retained (writes through to `(rf/configure!
-  :trace-buffer {:cascades-retained N})`) + a destructive Clear-buffer
+  {:trace-buffer {:cascades-retained N}})`) + a destructive Clear-buffer
   button.
 - **Diff** — the hiccup-diff fn-ref-changes toggle.
 - **Keybindings** — a read-only chord catalogue + the master "Handle
@@ -131,11 +162,8 @@ command's default. Source
 [`palette/sources.cljc`](../../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
 (`:snapshot-app-db` command).
 
-*(Status: shipped. The palette command routes the snapshot through
-`runtime/egress-value` by default — sensitive ⇒ `:rf/redacted`, large ⇒
-`:rf.size/large-elided`, pinned to the focused frame, fail-closed, no
-command-level raw opt-in (PR #3155). The contract prose above is
-what the share path honours today, not an in-flight target.)*
+*(Status: shipped (PR #3155) — the contract above is what the path honours
+today, not an in-flight target.)*
 
 ## Wired hotkeys
 

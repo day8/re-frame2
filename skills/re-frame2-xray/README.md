@@ -5,7 +5,7 @@
 `re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers three questions, and only three:
 
 1. **How do I launch Xray?** — the inline panel, the overlay fallback (`open-overlay!`, for hosts that can't give Xray a layout column), the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
-2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 9 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules) and the 5 Static registry-browse tabs. The **Graph** tab is Xray's UI over the EP-0014 derivation/process graph; the **Modules** tab is its EP-0023 `image -> frame -> event stream` lens (which image loaded which frame, how a frame resolves its registrations — no realm / app / module browse dimension; an L4-only tab — focusable, no standalone mount facade). The underlying graph accessor stays internal (no `re-frame.core` facade export).
+2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 9 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules) and the 5 Static registry-browse tabs. The **Graph** tab is Xray's UI over the EP-0014 derivation/process graph; the **Modules** tab (rendered in the tab bar as **Frames**) is its EP-0023 `image -> frame -> event stream` lens (which image loaded which frame, how a frame resolves its registrations — no realm / app / module browse dimension; an L4-only tab — focusable, no standalone mount facade). The underlying graph accessor stays internal (no `re-frame.core` facade export).
 3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
@@ -34,11 +34,11 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 - [`re-frame2`](../re-frame2/) — authors host application code. The host app provides the `[data-rf-xray-host]` column Xray mounts into.
 - [`re-frame2-setup`](../re-frame2-setup/) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Xray's `:preloads` entry can mount on first run.
 
-This skill does **not** depend on or reference `re-frame-10x`. Xray is the structural successor — re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely. The surface enumeration and the "supersedes re-frame-10x" claim live once in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (§Supersedes re-frame-10x); cite it rather than restating the surface list here.
+This skill does **not** depend on or reference `re-frame-10x` — Xray is its structural successor (re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely). The surface enumeration + "supersedes re-frame-10x" claim live once in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (§Supersedes re-frame-10x); cite it rather than restating here.
 
 ## Status
 
-Pre-alpha. The Xray surface itself is pre-alpha (some tabs are partial — the Machines tab renders through the shared xyflow styling under `panels/machines/`, still stabilising; Schemas / Hydration only render when the relevant feature is wired into the host; the Static Machines Sim engine is still stabilising). The Static catalogues themselves are full registry browsers, not stubs. The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
+Pre-alpha. Some tabs are partial: the Machines tab renders through the shared xyflow styling under `panels/machines/` (still stabilising); Schemas / Hydration only render when the relevant feature is wired into the host; the Static Machines Sim engine is still stabilising. The Static catalogues themselves are full registry browsers, not stubs. The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
 
 A future `re-frame2-xray-implementor` sibling skill is deferred to post-alpha until the Xray surface stabilises.
 

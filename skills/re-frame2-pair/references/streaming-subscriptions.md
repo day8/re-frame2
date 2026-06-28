@@ -2,9 +2,8 @@
 
 True server-pushed events from the running re-frame2 app, delivered as
 `notifications/progress` notifications on a long-running MCP `tools/call`.
-The MCP tools are `subscribe` and `unsubscribe`; the runtime-side
-implementation lives in `re-frame2-pair.runtime/subscribe!` /
-`drain-subscription!` / `unsubscribe!`.
+MCP tools: `subscribe` and `unsubscribe`; runtime-side implementation:
+`re-frame2-pair.runtime/subscribe!` / `drain-subscription!` / `unsubscribe!`.
 
 ## Contents
 
@@ -28,7 +27,7 @@ Two transports cover the same buses; pick by interaction shape.
 | Stream until a fixed number of matches, then summarise | `subscribe` with `max-events` |
 | Agent host doesn't surface `notifications/progress` to the model | `watch-epochs` (pull-mode) |
 
-`subscribe` is the **push-mode** path; the long-running tools/call holds open until termination and emits each batch of matching events as a `notifications/progress` tick. `watch-epochs` is the **pull-mode** path; you call it repeatedly with the last `:epoch-id` you've seen and drain matches each time. Op semantics are otherwise identical — both consume the same runtime sub queues.
+`subscribe` is the **push-mode** path; the long-running tools/call holds open until termination, emitting each batch of matching events as a `notifications/progress` tick. `watch-epochs` is the **pull-mode** path; call it repeatedly with the last `:epoch-id` seen, draining matches each time. Otherwise identical — both consume the same runtime sub queues.
 
 ## Topic vocabulary
 
@@ -46,7 +45,7 @@ The `:fx` and `:error` topics are convenience sugar — they pre-pin the `:op-ty
 
 **Cascade-bundle vs flat delivery.** On `:trace` / `:fx` / `:error` each tick's matched events ship **grouped by `:rf.trace/dispatch-id` into cascade bundles** (matching the `(re-frame.trace.tooling/trace-buffer frame-id)` shape — `:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`); the progress payload's load slot is `:cascades`. `:epoch` and `:frameless` ship flat as `:events`. **Frameless events NEVER ride the cascade-bundle topics** — opt into the `:frameless` topic explicitly to see registration / REPL / lifecycle events that belong to no cascade.
 
-Use `:epoch` whenever you want assembled cascades (with their `:sub-runs` / `:renders` / `:effects` projections); use `:trace` (or its sugar) when you need raw trace-event detail (handler timings, registry traces, sub-cache events, the things the projection drops).
+Use `:epoch` for assembled cascades (with their `:sub-runs` / `:renders` / `:effects` projections); use `:trace` (or its sugar) for raw trace-event detail (handler timings, registry traces, sub-cache events — the things the projection drops).
 
 ## Filter shape per topic
 
@@ -62,7 +61,7 @@ Mirrors `(re-frame.trace.tooling/trace-buffer)` per Spec 009. Recognised keys:
 - `:severity` — alias for `:op-type`, restricted to `:error` `:warning` `:info` (no `:debug`; the spelling is `:warning`, not `:warn`)
 - `:event-id` — exact event id keyword
 - `:handler-id` — exact handler id keyword (e.g. for `:rf.sub/run` traces)
-- `:source` — `:tags.source` value (trigger kind: `:ui` `:after-timer` `:http` `:repl` `:machine-action` `:machine-spawn` `:fx-dispatch` `:fx-dispatch-later` `:always` `:frame-init` `:ssr-hydration` `:test` `:unknown` `:other` — see `spec/Spec-Schemas.md §:rf/dispatch-envelope`)
+- `:source` — `:tags.source` value (trigger kind: `:ui` `:frame-init` `:machine-spawn` `:machine-action` `:always` `:after-timer` `:fx-dispatch` `:fx-dispatch-later` `:http` `:router` `:ssr-hydration` `:test` `:tool` `:websocket` `:repl` `:unknown` `:other` — see `spec/Spec-Schemas.md §:rf/dispatch-envelope`)
 - `:origin` — `:tags.origin` value (actor: `:app` `:pair` `:story` `:test`)
 - `:dispatch-id` — exact dispatch-id; combine with `cascade-of` for tree drills
 - `:since-ms` / `:between` — time-window keys (see [ops.md](ops.md) `trace/buffer`)
@@ -143,7 +142,7 @@ The final summary the call resolves with:
  :dropped-sensitive <count>}
 ```
 
-The byte+event buffer budget: the runtime queue is bounded by an OR-combined pair — `max-buffered-events` (default 500) and `max-buffered-bytes` (default 5_000_000, ~5 MB pr-str char count). On overflow the OLDEST queued events are evicted (drop-oldest FIFO) and the count/bytes/reason surface on the next `notifications/progress` tick and the final summary. The byte budget is the load-bearing bound; the event budget is a coarse backstop for chatty-filter overruns. Tune `max-buffered-bytes` when `:overflow-reason :max-buffered-bytes` keeps tripping — that's a large-payload storm.
+Byte+event buffer budget: the runtime queue is bounded by an OR-combined pair — `max-buffered-events` (default 500) and `max-buffered-bytes` (default 5_000_000, ~5 MB pr-str char count). On overflow the OLDEST queued events are evicted (drop-oldest FIFO); count/bytes/reason surface on the next `notifications/progress` tick and the final summary. The byte budget is the load-bearing bound; the event budget is a coarse backstop for chatty-filter overruns. Tune `max-buffered-bytes` when `:overflow-reason :max-buffered-bytes` keeps tripping — a large-payload storm.
 
 ## Privacy posture
 
@@ -186,3 +185,22 @@ Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :droppe
 Optional filters: pass `topic` (one of `trace` / `epoch` / `fx` / `error` / `frameless`) to narrow to a single topic, or `sub-id` to look up a specific stream — e.g. `mcp__re-frame2-pair__list-streams {topic: "epoch"}` or `mcp__re-frame2-pair__list-streams {sub-id: "<uuid>"}`.
 
 > **Note:** `list-streams` is the streaming-tap diagnostic. It is distinct from `list-subscriptions`, which reports the **live reactive sub-cache** for a frame (the answer to "what reactive subscriptions are active?", matching `snapshot :sub-cache`). The two answer different questions.
+
+### `get-stream-controls` — "why was my stream denied / quiet / terminated?"
+
+`list-streams` reads the **runtime** streaming-tap registry (what trace/epoch/fx streams are open in the browser). `get-stream-controls` reads the **other side** — the MCP **server's** resource controller: effective caps, active stream slots vs limit, token-bucket pressure, abuse-window count vs threshold. Reach for it when a `subscribe` is **refused**, has gone **silent**, or **terminated** unexpectedly and you need to know whether a server-side cap (not the runtime) is the cause.
+
+```
+mcp__re-frame2-pair__get-stream-controls {}
+```
+
+It reads the server's resource-control atoms **in-process — no nREPL round-trip** — so it answers **even when the runtime is down** (exactly when you're diagnosing a stalled stream and `list-streams` can't reach the browser). It carries **no event payloads or app-db data** (control state only), so it is unconditionally safe — **no `--allow-sensitive-reads` gate**.
+
+Returns `{:ok? true :config {<the four caps>} :concurrent-streams {:active :limit :at-capacity?} :rate-limit {:capacity :tokens :initialized? :throttling?} :abuse-window {:count :threshold :window-ms :tripped?} :cross-check <hint>}`. Read it against `list-streams`:
+
+- `:concurrent-streams :at-capacity? true` → a new `subscribe` is refused because every slot is taken — `unsubscribe` an idle stream (or raise `--max-concurrent-streams`) first.
+- `:rate-limit :throttling? true` → the token bucket is empty (a chatty filter is firing faster than `--max-events-per-sec`); narrow the `filter` / `pred`.
+- `:abuse-window :tripped? true` → the abuse threshold tripped; the server is shedding load.
+- **Cross-check `:concurrent-streams :active` against the `list-streams` row count.** A server `:active` count with **no** matching `list-streams` row signals a **leaked server slot**; the reverse (a runtime row with no server slot) signals a **stale runtime subscription**.
+
+The server-side cap knobs (`--max-concurrent-streams`, `--max-events-per-sec`, `--abuse-overflow-threshold`, …) live in [`mcp-transport.md`](mcp-transport.md); `get-stream-controls` is how you read their *effective* values mid-session.

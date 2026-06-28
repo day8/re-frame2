@@ -27,13 +27,13 @@ The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re
                            :print    print-fn})
 ```
 
-> **Bundle maps must NOT go to `set-schema-validator!`.** It accepts a validator **fn or `nil`** only — it does no map-shape inspection. Because maps are invokable in Clojure, passing `{:validate ... :explain ...}` installs the *map itself* as the validator (it is called as `(the-map schema value)`, looking up `schema` as a key — almost always returning `nil`/falsey or a stray value), so validation silently mis-validates instead of running the intended fn. The bundle map belongs to `set-schema-fns!`.
+> **Bundle maps must NOT go to `set-schema-validator!`.** It accepts a validator **fn or `nil`** only — no map-shape inspection. Because maps are invokable in Clojure, passing `{:validate ... :explain ...}` installs the *map itself* as the validator (called as `(the-map schema value)`, looking up `schema` as a key — almost always `nil`/falsey), so validation silently mis-validates. The bundle map belongs to `set-schema-fns!`.
 
 Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases and the `set-schema-validator!` / `set-schema-fns!` validator seam are reached on `re-frame.schemas` directly (no longer façade-re-exported, per the front-porch shrink).
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 
-`reg-app-schema` validates the **app-db partition only**. The framework's runtime-db partition (machine snapshots, route slice, elision declarations — under `:rf.runtime/*`) is governed by its own framework schemas, not yours. This is the payoff of the two-partition frame: your `reg-app-schema` set describes a *pure* application contract with no framework state mixed in. Keep calling it "the app-db schema" — that's the public name; it just happens to cover exactly the partition you own.
+`reg-app-schema` validates the **app-db partition only**; the runtime-db partition (machine snapshots, route slice, elision declarations under `:rf.runtime/*`) is governed by its own framework schemas. So your `reg-app-schema` set describes a *pure* application contract with no framework state mixed in — the payoff of the two-partition frame. Keep calling it "the app-db schema"; it covers exactly the partition you own.
 
 ## What `:schema` does on a handler
 

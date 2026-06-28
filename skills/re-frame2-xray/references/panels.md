@@ -2,29 +2,26 @@
 
 Sources of truth: the live tab inventory is the set of
 `panel-registry/reg-l4-tab!` calls under
-`tools/xray/src/day8/re_frame2_xray/panels/` (Dynamic) and
-`.../static/` (Static); the normative tab list is
+`tools/xray/src/day8/re_frame2_xray/panels/` (Dynamic) and `.../static/`
+(Static); the normative tab list is
 [`018-Event-Spine.md` §5](../../../tools/xray/spec/018-Event-Spine.md)
 + [`021-Dynamic-Panel-Designs.md` §9.1](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
 (Dynamic) + [`007-UX-IA.md` §Static mode](../../../tools/xray/spec/007-UX-IA.md)
-(Static). Per-panel content design lives in
-[`021-Dynamic-Panel-Designs.md`](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-(per-panel layout, locked decisions, palette / iconography / animation);
-[`007-UX-IA.md`](../../../tools/xray/spec/007-UX-IA.md) for chrome,
-palette tokens, density. Tab order is set declaratively via `reg-l4-tab!`
-`:order` and rendered by `shell.cljs` (Dynamic) / `static/shell.cljs`
-(Static). The live Dynamic `:order` values are Epoch `-1` · app-db `1` ·
-Views `2` · Trace `3` · Machine `4` · Routes `6` · Resources `7` ·
-Graph `8` · Modules `9` — nine Dynamic tabs in all (the core six plus the
-three cross-feature lenses, **Resources**, **Graph**, and **Modules**,
-each registered by its own panel through the `reg-l4-tab!` seam). (`:order
-5` is unallocated — it was the retired Issues tab's slot.) The canonical
-inventory lives in `focus.cljc`'s `valid-panels` def (`#{:epoch :app-db
-:views :trace :machines :routing :resources :derivation-graph
-:module-view}`), which mirrors the live `panel-registry/tab-ids-for-mode
-:dynamic` set — a cross-check test fails the build if the two drift, so
-that def is the authoritative count when this leaf and the source ever
-disagree.
+(Static). Per-panel content design (layout, locked decisions, palette /
+iconography / animation) lives in
+[`021-Dynamic-Panel-Designs.md`](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md);
+chrome / palette tokens / density in
+[`007-UX-IA.md`](../../../tools/xray/spec/007-UX-IA.md). Tab order is set
+declaratively via `reg-l4-tab!` `:order`, rendered by `shell.cljs`
+(Dynamic) / `static/shell.cljs` (Static). Live Dynamic `:order` values:
+Epoch `-1` · app-db `1` · Views `2` · Trace `3` · Machine `4` · Routes `6`
+· Resources `7` · Graph `8` · Modules `9` — nine in all (`:order 5`
+unallocated — the retired Issues tab's slot). The canonical inventory is
+`focus.cljc`'s `valid-panels` def (`#{:epoch :app-db :views :trace
+:machines :routing :resources :derivation-graph :module-view}`), which
+mirrors the live `panel-registry/tab-ids-for-mode :dynamic` set — a
+cross-check test fails the build if they drift, so that def is the
+authoritative count when this leaf and the source disagree.
 
 ## Two modes
 
@@ -86,19 +83,16 @@ projection alone (`002-Time-Travel.md`).
 
 Nine Dynamic tabs, left-to-right by `:order` (mnemonics
 `e a v t m r s g u`): **Epoch · app-db · Views · Trace · Machine · Routes ·
-Resources · Graph · Modules.** The first six are the core spine lenses
-(§018 §5 + §021 §9.1); **Resources** (`:order 7`), **Graph** (`:order 8`),
-and **Modules** (`:order 9`) are the three cross-feature lenses that
-landed last, each self-registered through the `reg-l4-tab!` seam
-(`panels/resources.cljs`, `panels/derivation_graph.cljs`,
-`panels/module_view.cljs`). (Internal tab ids stay `:epoch :app-db
-:views :trace :machines :routing :resources :derivation-graph
-:module-view` — the display labels rebased over a rename history but the
-ids are stable.) The
-pre-rebuild **Event** panel was retired (2026-05-27 —
-`panels/event_detail.cljs` is deleted) and the **Issues** tab was retired
-(2026-05-31 — `panels/issues_ribbon.cljs` is deleted); see §What's
-deliberately NOT here.
+Resources · Graph · Modules.** First six are core spine lenses (§018 §5 +
+§021 §9.1); **Resources** (`:order 7`), **Graph** (`:order 8`), **Modules**
+(`:order 9`) are the cross-feature lenses, each self-registered through
+`reg-l4-tab!` (`panels/resources.cljs`, `panels/derivation_graph.cljs`,
+`panels/module_view.cljs`). Internal tab ids (`:epoch :app-db :views
+:trace :machines :routing :resources :derivation-graph :module-view`) are
+stable; display labels rebased over a rename history. The pre-rebuild
+**Event** panel was retired 2026-05-27 (`panels/event_detail.cljs`
+deleted), the **Issues** tab 2026-05-31 (`panels/issues_ribbon.cljs`
+deleted) — see §What's deliberately NOT here.
 
 Most Dynamic tabs share the same chrome: panel icon (left of stripe) ·
 panel title · focused-event id · `[◀ Prev] [Next ▶]` film-strip walking
@@ -433,15 +427,23 @@ Two blocks:
 
 - **Active route tree** (always visible) — each node with one of three
  markers per current state and per-epoch activity:
- - `◉` active this epoch, on the resolved match
- - `◇` registered, traversed (`:can-leave` / `:can-enter`) this epoch
- - `●` current active node (no activity this epoch)
+ - `◉` active this epoch, on the resolved match (the `:to` destination)
+ - `◇` registered, traversed (can-leave / can-enter guard phases) this epoch (the `:from` origin)
+ - `◀ current` on the current matched route with no activity this epoch
+   (folded into the mode-accent row highlight, not a painted dot glyph)
 - **This epoch** — short dense block: `Phase`, `From`, `To`, `Match`,
  `Events`. Empty state ("No route activity in this epoch.") keeps
  the tree visible above.
 
-Reads `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`,
-`:rf.route/fragment-changed` filtered by `:dispatch-id`.
+Reads the focused cascade's routing trace ops (correlated by
+`:rf.trace/dispatch-id`) — the live phase derivation keys off
+`:rf.route.nav-token/allocated` (a navigation landed → `:on-match`),
+`:rf.route/navigation-blocked`, and `:rf.route/fragment-changed`, and the
+active-tree traversal markers read `:rf.route/deactivated` +
+the navigate / `:rf.route/transitioned` ops (`panels/routing_helpers.cljc`).
+(Spec §021 §7's `:rf.route/can-leave` / `:rf.route/can-enter` /
+`:rf.route/on-match` op names are normative-spec naming; the live panel
+correlates the ops just listed.)
 
 **Open when:** "what route am I on?", "what params did the nav-token
 resolve?", "did the route change this epoch?"
@@ -543,8 +545,8 @@ implementation language — this skill calls the user-facing control a
 *Declared/Realized projection toggle* so it never collides with the L1
 `Static`/`Dynamic` mode words.)
 
-Two caveats this skill owns (cited from SKILL.md + the Out-of-scope
-section rather than re-paragraphed there):
+Two caveats this skill owns (this is their full owning home; SKILL.md
+carries the short forms):
 
 > **Authority is an axis, not a storage class.** Remote-backed nodes
 > (resources) carry an **authority** chip. A resource's *storage* class is
@@ -578,8 +580,11 @@ implementation at
 ### Modules — cross-feature · mnem `u` · `:order 9`
 
 Question: **Which images load which frames, and how do those frames
-resolve their registrations?** (Display label **Modules**; internal tab id
-`:module-view`.) Xray's UI over the EP-0023 **`image -> frame -> event
+resolve their registrations?** (Rendered tab-bar label **Frames** — that
+is the literal `:label` `reg-l4-tab!` registers, per `module_view.cljs` +
+spec/026 §5 Tab registration; this skill and the spec call it the
+**Modules** / module-view tab conceptually; internal tab id `:module-view`.) Xray's UI
+over the EP-0023 **`image -> frame -> event
 stream`** public model — the structural counterpart to the Graph tab (Graph
 is the per-fact derivation/process view; Modules is the per-frame
 installation + image-provenance view). Registered at `:order 9`, after the
@@ -594,8 +599,9 @@ developer reasons in: image assembly plus frame isolation are the whole
 composition story, with no realm / app / module layer to browse.
 
 The projection runs through the pure
-`module_view_helpers/project-module-view` over the public frame/image reads
-(`rf/frame-ids` plus each frame's resolved generation).
+`image-view-helpers/project-image-view` over the live-frame reads
+(`re-frame.live-frame/image-view-frames`, via the `image_view_reads` seam —
+each frame carrying its resolved image generation).
 
 > **`:module-view` is an L4-only registry tab — no standalone mount
 > facade.** Like the Graph tab, Modules registers through `reg-l4-tab!`
@@ -622,7 +628,8 @@ this frame resolve its registrations?" — the public partitioning axis is
 Spec: [`026-Module-View-Panel.md` §8](../../../tools/xray/spec/026-Module-View-Panel.md);
 implementation at
 [`panels/module_view.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/module_view.cljs)
-+ [`panels/module_view_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/module_view_helpers.cljc).
++ [`panels/image_view_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/image_view_helpers.cljc)
++ [`panels/image_view_reads.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/image_view_reads.cljs).
 
 ### Issues — no longer a Dynamic tab
 
@@ -680,11 +687,16 @@ Static opens the Machines registry browse).
 | **Interceptors** | `i` | "What interceptors run, and in what order?" Pure-browse lens over the interceptor chains. | [`static/interceptors/panel.cljs`](../../../tools/xray/src/day8/re_frame2_xray/static/interceptors/panel.cljs) |
 
 The L1 frame picker is mode-independent — registries are frame-scoped, so
-pick the frame whether you're in Dynamic or Static. The mode choice lives
-at `[:rf.xray/mode]` (`:dynamic | :static`, persisted to localStorage);
-the Static-scoped tab choice lives at
+pick the frame whether you're in Dynamic or Static (the picker's full
+contract — single-frame collapse, tool-frames-hidden-by-default, the
+transient-not-persisted pin — lives in
+[`chrome.md` §L1 frame picker](chrome.md#l1-frame-picker)). The mode choice
+lives at `[:rf.xray/mode]` (`:dynamic | :static`, persisted to
+localStorage); the Static-scoped tab choice lives at
 `[:rf.xray.static/selected-tab]` (default `:machines`), independent of
 Dynamic's `[:rf.xray/selected-tab]` so flipping modes preserves both.
+(Note the asymmetry: mode and tab choices persist across reload, but the
+**frame pin does not** — it resets to the head-frame default each session.)
 
 **Open when:** "where do I see all my registered machines / routes /
 schemas / flows / interceptors?", "browse the whole registry", "what's
@@ -702,11 +714,10 @@ cross-panel-arrow glyph reference live in
 
 Per §021 §15 (Dynamic mode) + §007 §Static mode:
 
-- **No Issues tab.** Removed (#2540, Mike Option (c),
- 2026-05-31 — `panels/issues_ribbon.cljs` deleted); the session-wide
- aggregate / triage list was consciously dropped. The three inline
- channels issues surface through instead are detailed in §Issues — no
- longer a Dynamic tab above.
+- **No Issues tab.** Removed (#2540, Mike Option (c), 2026-05-31 —
+ `panels/issues_ribbon.cljs` deleted; the session-wide aggregate / triage
+ list dropped). The three inline channels that replace it are in §Issues —
+ no longer a Dynamic tab above.
 - **No Event tab.** Retired (2026-05-27 —
  `panels/event_detail.cljs` deleted). The **Epoch** panel (numbered
  cascade, `:order -1`) is the canonical "what happened" surface.

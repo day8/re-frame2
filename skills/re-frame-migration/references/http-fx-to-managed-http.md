@@ -152,7 +152,7 @@ What changed:
 
 - **The fx moves from a top-level `:http-xhrio` key into `:fx [[:rf.http/managed {...}]]`** (the M-8 reshape — every fx lives in `:fx`).
 - **The request envelope splits:** `:uri` → `:request :url`, `:method` → `:request :method`; every wire key nests under `:request`, lifecycle keys stay at the top level.
-- **`:response-format (ajax/json-response-format {:keywords? true})` → `:decode :json`** (same keywordisation **because this v1 site set `{:keywords? true}`**; keyword sugar instead of a fn-valued slot). The canonical upgrade is `:decode <MalliSchema>`. **Had this site used `{:keywords? false}` / omitted the options / read string keys, `:decode :json` would NOT be like-for-like** — see the String-key trap escalation.
+- **`:response-format (ajax/json-response-format {:keywords? true})` → `:decode :json`** — like-for-like **only because this site set `{:keywords? true}`** (keyword sugar replaces the fn-valued slot; canonical upgrade is `:decode <MalliSchema>`). Had it used `{:keywords? false}` / omitted the options / read string keys, `:decode :json` would NOT be like-for-like — see the String-key trap escalation.
 - **`:timeout 10000` → `:timeout-ms 10000`.**
 - **`:on-success` payload `response` → `{:keys [value]}`** — the handler destructures `:value` from the `{:kind :success :value ...}` reply.
 - **`:on-failure` payload `{:status :response}` → `{:keys [failure]}`** keyed on `(:kind failure)`, the closed `:rf.http/*` taxonomy. Re-shaping the failure body is the substantial part of every per-call-site conversion — the operator decides which categories get distinct UX.

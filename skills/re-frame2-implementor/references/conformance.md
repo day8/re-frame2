@@ -1,8 +1,8 @@
 # conformance
 
-How the port consumes the conformance corpus. The corpus is the **acceptance test** for "this is a re-frame2 implementation"; without it passing, the port is "inspired by re-frame2" but not conformant.
+How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation"; without it passing, the port is "inspired by re-frame2" but not conformant.
 
-The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance) in the re-frame2 repo. The full contract is at [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/). This leaf walks the operational shape — how to build the harness, what the fixtures look like, how to score, when a failure is a spec gap vs an implementation bug.
+The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/). This leaf walks the operational shape — building the harness, what the fixtures look like, scoring, and spec-gap vs implementation-bug diagnosis.
 
 ## What the corpus is
 
@@ -185,6 +185,8 @@ Score: 77 / 78 applicable. 1 failure.
 ```
 
 Wire the harness into the port's CI; every commit should report the score. Conformance regressions caught at commit time are far cheaper than at release time.
+
+**The harness is tooling — the file-path security obligation applies.** If your harness translates the corpus to a host-native form, regenerates fixtures, or writes results into a scratch directory configured by an env-var override, it MUST constrain that path to a closed allowed-prefix list and fail fast on an escape (no silent `$HOME`/`/` write). This is a spec-pinned MUST for any writing tool, the harness included — see [`phase-2-impl-order.md` §Tooling-security obligations](phase-2-impl-order.md#tooling-security-obligations-any-port-that-ships-tooling).
 
 ## When the corpus itself is incomplete
 

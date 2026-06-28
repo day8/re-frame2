@@ -108,4 +108,4 @@ Do not "fix" these — flagging an allowed ambient read as a violation is itself
 
 ## Reporting
 
-World-input migration is a **report-worthy** class even when the app runs: list each durable ambient read found, the bucket you assigned it, and the route taken (envelope / payload / recordable cofx) or — for diagnostic/host-transient — the reason it stayed ambient. Because the failure is silent (replay/restore-only), the author cannot see it in a boot smoke-test; the report is the only record that the boundary was checked.
+World-input migration is **report-worthy even when the app runs** — the failure is silent (replay/restore-only), invisible to the boot smoke-test, so the report is the only record that the boundary was checked. List each durable ambient read found, the bucket you assigned it, and the route taken (envelope / payload / recordable cofx) or — for diagnostic/host-transient — the reason it stayed ambient.

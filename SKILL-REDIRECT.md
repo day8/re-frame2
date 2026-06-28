@@ -51,7 +51,7 @@ Audience: `[app]` / `[setup]` / `[mig]` / `[pair]`. API + Guide + MIGRATION + Ex
 - **Migration from re-frame v1** → https://day8.github.io/re-frame2/migration/from-re-frame-v1/ `[app]` `[setup]` `[mig]`
 - **Narrative guide (overview)** → https://day8.github.io/re-frame2/guide/README/ `[setup]`
 - **Story tutorial** → https://day8.github.io/re-frame2/story/ `[app]`
-- **Examples directory (worked apps)** → https://github.com/day8/re-frame2/tree/main/examples/reagent `[app]` `[setup]` `[impl]`
+- **Examples directory (worked apps)** → https://github.com/day8/re-frame2/tree/main/examples `[app]` `[setup]` `[impl]`
 - **VERSION (next release string)** → https://github.com/day8/re-frame2/blob/main/VERSION `[setup]` `[mig]`
 - **CHANGELOG** → https://github.com/day8/re-frame2/blob/main/CHANGELOG.md `[setup]` `[mig]`
 - **GitHub releases** → https://github.com/day8/re-frame2/releases `[setup]` `[mig]`
@@ -76,6 +76,7 @@ Audience: `[impl]` (primary), `[app]` (deep-dive lookups). Read EPs in numeric o
 - **EP — Routing (012)** → https://day8.github.io/re-frame2/spec/012-Routing/ `[app]` `[impl]`
 - **EP — Flows (013)** → https://day8.github.io/re-frame2/spec/013-Flows/ `[app]` `[impl]`
 - **EP — HTTP requests (014)** → https://day8.github.io/re-frame2/spec/014-HTTPRequests/ `[app]` `[impl]`
+- **EP — Data classification (015)** → https://day8.github.io/re-frame2/spec/015-Data-Classification/ `[app]` `[pair]` `[impl]`
 - **EP — Resources (016)** → https://day8.github.io/re-frame2/spec/016-Resources/ `[app]` `[impl]`
 
 ### Contract & cross-cutting normative docs
@@ -92,11 +93,15 @@ Audience: `[impl]` (primary), `[app]` (deep-dive lookups). Read EPs in numeric o
 
 - **Pattern — Async effect** → https://day8.github.io/re-frame2/spec/Pattern-AsyncEffect/ `[app]` `[impl]`
 - **Pattern — Boot** → https://day8.github.io/re-frame2/spec/Pattern-Boot/ `[app]` `[impl]`
+- **Pattern — Form action** → https://day8.github.io/re-frame2/spec/Pattern-FormAction/ `[app]` `[impl]`
 - **Pattern — Forms** → https://day8.github.io/re-frame2/spec/Pattern-Forms/ `[app]` `[impl]`
 - **Pattern — Long-running work** → https://day8.github.io/re-frame2/spec/Pattern-LongRunningWork/ `[app]` `[impl]`
 - **Pattern — Nine states** → https://day8.github.io/re-frame2/spec/Pattern-NineStates/ `[app]` `[impl]`
 - **Pattern — Remote data** → https://day8.github.io/re-frame2/spec/Pattern-RemoteData/ `[app]` `[impl]`
+- **Pattern — Reusable components** → https://day8.github.io/re-frame2/spec/Pattern-ReusableComponents/ `[app]` `[impl]`
+- **Pattern — SSR loaders** → https://day8.github.io/re-frame2/spec/Pattern-SSR-Loaders/ `[app]` `[impl]`
 - **Pattern — Stale detection** → https://day8.github.io/re-frame2/spec/Pattern-StaleDetection/ `[app]` `[impl]`
+- **Pattern — Stateful components** → https://day8.github.io/re-frame2/spec/Pattern-StatefulComponents/ `[app]` `[impl]`
 - **Pattern — WebSocket** → https://day8.github.io/re-frame2/spec/Pattern-WebSocket/ `[app]` `[impl]`
 
 ### Construction & validation

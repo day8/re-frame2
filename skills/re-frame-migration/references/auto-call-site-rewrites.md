@@ -206,11 +206,11 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 ;; has run to completion.
 (defn wait-for-event* [event-id done f]
   (let [k (keyword "test" (str "wait-" (name event-id)))]
-    (rf/register-listener! k
+    (rf/register-listener! :trace k          ; stream keyword is required (3-arg)
       (fn [ev]
         (when (and (= :rf.event/run-end (:operation ev))
                    (= event-id (get-in ev [:tags :rf.trace/event-id])))
-          (rf/unregister-listener! k)        ; one-shot
+          (rf/unregister-listener! :trace k) ; one-shot
           (f)
           (done))))))
 
@@ -222,7 +222,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 ```
 
 **Notes.**
-- The listener is **dev/test-only** (`register-listener!` rides the `re-frame.trace` surface, DCE'd under `:advanced` + `goog.DEBUG=false`) — that is correct for a test runner; do **not** reach for the always-on `register-event-listener!` here (its tight per-event record is not trace-shaped and is for production observability, not test waits).
+- The listener is **dev/test-only** (the `:trace` stream rides the `re-frame.trace` surface, DCE'd under `:advanced` + `goog.DEBUG=false`) — that is correct for a test runner; do **not** reach for the always-on `:events` stream (`register-listener! :events …`) here (its tight per-event record is not trace-shaped and is for production observability, not test waits).
 - For a pure **state-observable** wait (the awaited effect lands in `app-db` rather than via a discrete event — e.g. a debounce that just updates a slice), prefer `re-frame.test-support/poll-until`, which returns a `js/Promise` that composes directly with `cljs.test/async` (`(-> (ts/poll-until pred) (.then ...) (.catch ...))`). Use the `:rf.event/run-end` listener when the contract is "*this event* fired", `poll-until` when it is "*this state* settled".
 - After the `re-frame.test` → `re-frame.test-support` require swap, also drop the `day8/re-frame-test` Maven coord (see M-25 above) — `run-test-async` / `wait-for-event` shipped from it and have no v2 successor symbol; they become the inline shapes above.
 

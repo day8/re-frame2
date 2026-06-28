@@ -71,7 +71,7 @@ When the parent destroys the child, the child's exit cascade fires `:ws/close` b
 
 ### Parent-side `:exit` on the `:spawn`-bearing state
 
-If the parent needs to capture the child's last reported value before tearing it down, declare a parent `:exit` action — it runs **before** the auto-destroy (Spec 005 §Composition with explicit `:entry` / `:exit`, `spec/005-StateMachines.md:2992`). A machine action receives **only its context map** `(fn [{:keys [data event state meta]}] …)` — `app-db` is **not** in scope, and a direct `@app-db` read would both fail to compile and cross the frame / encapsulation boundary. The supported shape is: the child *reports* the value the parent needs (an ordinary event the parent folds into its own `:data`), then the parent `:exit` reads it straight off the context map's `:data`.
+If the parent needs the child's last reported value before tearing it down, declare a parent `:exit` action — it runs **before** the auto-destroy (Spec 005 §Composition with explicit `:entry` / `:exit`). A machine action receives **only its context map** `(fn [{:keys [data event state meta]}] …)` — `app-db` is **not** in scope, and a direct `@app-db` read would fail to compile *and* cross the encapsulation boundary. The supported shape: the child *reports* the value (an ordinary event the parent folds into its `:data`), then the parent `:exit` reads it off the context map's `:data`.
 
 ```clojure
 {:authenticating

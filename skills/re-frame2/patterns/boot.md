@@ -2,11 +2,11 @@
 
 Application boot as a chained-async sequence — the canonical state-machine shape for "read config → authenticate → load profile → hydrate → resolve route → ready".
 
-Boot is a composition of two **managed external effect** surfaces: state-machine `:spawn` (the per-phase actors) and `:rf.http/managed` (the per-phase fetches). Both surfaces inherit the nine-property umbrella contract — framework-owned lifecycle, structured failure taxonomy, retry/abort/teardown semantics, trace-bus observability, and the uniform reply envelope for async completion — which is what lets the boot machine reason about per-phase failure uniformly. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names how to *sequence* the phases.
+Boot composes two **managed external effect** surfaces: state-machine `:spawn` (per-phase actors) and `:rf.http/managed` (per-phase fetches). Both inherit the nine-property umbrella contract — framework-owned lifecycle, structured failure taxonomy, retry/abort/teardown, trace-bus observability, uniform reply envelope — which lets the boot machine reason about per-phase failure uniformly. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); this leaf names how to *sequence* the phases.
 
 > **Worked example:** `examples/patterns/boot/` ships the canonical machine — `:configuring → :loading-deps → :hydrating → :ready` with one `:spawn`'d loader and a fan-out `:spawn-all` parallel-load step.
 
-## When to use this pattern
+## When to load
 
 Reach for it whenever the app needs more than a one-step bootstrap — sequential dependencies between phases, per-phase failure semantics, visible "Loading profile…" progress, per-phase retry, or SSR handoff. A boot graph scattered across N event handlers is invisible; a state machine names the sequence.
 
@@ -126,11 +126,11 @@ Each link is a Pattern-AsyncEffect interaction. Past three links, scatter wins; 
 
 No parallel `:loading?` flag — the machine's state IS the UI signal.
 
-**SSR handoff.** `:rf/server-init` runs server-meaningful phases. Client-only phases (`:hydrating` from `localStorage`, `:ws/connect`) skipped via `:platforms #{:client}`. The server's machine snapshot rides the hydration payload's serializable runtime-db projection — `[:rf.runtime/machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) — and the client installs it as part of the frame-state on `:rf/hydrate`, then resumes per Spec 005. No double-fetch of `/config`.
+**SSR handoff.** `:rf/server-init` runs server-meaningful phases; client-only phases (`:hydrating` from `localStorage`, `:ws/connect`) are skipped via `:platforms #{:client}`. The server's machine snapshot rides the hydration payload's serializable runtime-db projection (`[:rf.runtime/machines :snapshots :app/boot :state] = :hydrating` or `:routing`); the client installs it as part of the frame-state on `:rf/hydrate` and resumes per Spec 005. No double-fetch of `/config`.
 
 **Re-boot.** Dispatch a wildcard parent event: `:auth.session/expired {:target :authenticating}`. Most apps reload the page on session expiry.
 
-**Final-state handoff (`:final?` / `:on-done`).** When boot is `:spawn`'d by an outer coordinator (SSR shell, embedding host, test harness), mark `:ready` as `:final?` — parent receives `:on-done` synchronously, with optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (canonical above) must NOT use `:final?` — auto-destroy takes the snapshot and the `[:app.boot/*]` subs with it. Keep `:ready` as ordinary terminal (`:meta {:terminal? true}`) when the app subscribes to the boot snapshot post-handoff. See `../references/state-machines/spawn.md` §Final states.
+**Final-state handoff (`:final?` / `:on-done`).** When boot is `:spawn`'d by an outer coordinator (SSR shell, embedding host, test harness), mark `:ready` as `:final?` — parent receives `:on-done` synchronously, optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (canonical above) must NOT use `:final?` — auto-destroy takes the snapshot and the `[:app.boot/*]` subs with it; keep `:ready` as ordinary terminal (`:meta {:terminal? true}`) when the app subscribes post-handoff. See `../references/state-machines/spawn.md` §Final states.
 
 **Parameters — the canonical seam.** The boot machine is the ONLY place that reads host globals (`/config` endpoint, build-time env vars, restored session). Once captured into `:data :config`, downstream phases thread values forward via Pattern-AsyncEffect (event payload or spawn-spec `:data` fn). Downstream machines never reach into a global.
 

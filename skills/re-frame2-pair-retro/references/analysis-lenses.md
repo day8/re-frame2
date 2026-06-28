@@ -37,21 +37,21 @@ These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watc
 - source-coordinate workflows that assume `data-rf2-source-coord` is present when the runtime opt is off
 - private-namespace reach-through (`re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`) — these are off-contract per Tool-Pair §REPL-eval and may move
 - hot-swap that fired but the user could not tell because `:rf.registry/handler-replaced` was not surfaced
-- dispatch correlation gaps: cascade walks where `:dispatch-id` / `:parent-dispatch-id` were available but the tool did not stitch them
+- dispatch correlation gaps: cascade walks where `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` were available but the tool did not stitch them
 - machine-snapshot version skew (`:rf/snapshot-version`) silently breaking restore after a hot reload
 - effect overrides (`:fx-overrides`) that lingered or leaked across experiments
 
 ## Error-observability lens
 
-Use when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected. There is **no app-steering recovery policy** (the per-frame `:on-error` policy was removed): recovery is framework-owned (the typed per-category default), and observability is the always-on `register-error-listener!` surface. This lens feeds error-observability friction back into re-frame2-pair improvements.
+Use when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected. There is **no app-steering recovery policy** (the per-frame `:on-error` policy was removed): recovery is framework-owned (the typed per-category default), and observability is the always-on error-emit listener surface — `(rf/register-listener! :errors id listener-fn)`, the `:errors` stream of the stream-parameterized listener verb.
 
 Friction signals specific to errors:
 
-- the agent (or the user) expected an app-level error policy to swallow or substitute a result and was confused that the framework applied its typed default instead. Surface the model: recovery is not app-steerable; genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback), and observability is `register-error-listener!`.
-- the session looked for a per-frame `:on-error` slot (an old idiom from drafts) — it no longer exists; point the user at the always-on error listener for observability.
-- the agent assumed the error-emit listener elides in a CLJS production build and so dismissed a production error report. Surface the real dev/prod split:
+- the agent or user expected an app-level error policy to swallow or substitute a result and was confused the framework applied its typed default. Surface the model: recovery is not app-steerable; genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback); observability is the `:errors` stream of `register-listener!`.
+- the session looked for a per-frame `:on-error` slot (an old draft idiom) — it no longer exists; point the user at the always-on error listener.
+- the agent assumed the error-emit listener elides in a CLJS production build and dismissed a production error report. The real dev/prod split:
     - **The error-emit listener is always-on.** It rides the always-on error-emit substrate, is NOT gated by `re-frame.interop/debug-enabled?`, and survives `:advanced` + `goog.DEBUG=false` for every catalogued production-reachable `:rf.error/*` (per `spec/009-Instrumentation.md` §Production elision and the posture matrix). Registered listeners DO fire in prod.
-    - **Only dev-side enrichments elide.** The `:dispatch-id` / `:rf.trace/trigger-handler` source-coord correlation and the retain-N ring buffer ride the dev trace surface.
+    - **Only dev-side enrichments elide.** The `:rf.trace/dispatch-id` / `:rf.trace/trigger-handler` source-coord correlation and the retain-N ring buffer ride the dev trace surface.
 
 Routing the fix:
 
