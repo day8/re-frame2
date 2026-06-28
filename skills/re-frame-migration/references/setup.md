@@ -260,7 +260,7 @@ re-frame2 splits seven per-feature artefacts out of core. **Add them only when t
 | `day8/re-frame2-schemas` | `reg-app-schema`, or `:schema` keys in registration metadata (incl. `:schema` on `reg-event-*` for event-payload schemas — the key is `:schema` post-M-54, was `:spec` pre-M-54) (M-27) |
 | `day8/re-frame2-machines` | `reg-machine` (M-28) |
 | `day8/re-frame2-routing` | `reg-route` or dispatches `:rf.route/*` events (M-29) |
-| `day8/re-frame2-flows` | `reg-flow` (M-30) — also where v1's `on-changes` interceptor migrates to |
+| `day8/re-frame2-flows` | `reg-flow` (M-30) — also where v1's `on-changes` interceptor migrates to. M-30 also carries the v1→v2 flow-map conversion (Type-B `:live?` re-home) — see [`breaking-changes.md` §M-30](breaking-changes.md#m-30-also-carries-the-flow-map-conversion) |
 | `day8/re-frame2-http` | `[:rf.http/managed ...]` as an `:fx` entry, or `:rf.http/managed` as a child machine (M-31) |
 | `day8/re-frame2-ssr` | `render-to-string` server-side (M-32) |
 | `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch`, or transitively via `re-frame2-pair` (no M-rule; pull only if directly used) |

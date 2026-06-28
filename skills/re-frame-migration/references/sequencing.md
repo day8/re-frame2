@@ -133,7 +133,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 32 | **M-28** | Triggered by `reg-machine` / `sub-machine`. Add `day8/re-frame2-machines`. |
 | 32a | **M-57** | If the codebase uses `(rf/create-machine-handler ...)`. Rename to `make-machine-handler`. Also rename `:machines/create-machine-handler` late-bind hook key. Pairs with M-28. v2-pre-rename only. |
 | 33 | **M-29** | Triggered by `reg-route` / `:rf.route/*` events. Add `day8/re-frame2-routing`. Pairs with M-14 (the `not-found` requirement). |
-| 34 | **M-30** | Triggered by `reg-flow` or by M-21's `on-changes` rewrite. Add `day8/re-frame2-flows`. |
+| 34 | **M-30** | Triggered by `reg-flow` or by M-21's `on-changes` rewrite. Add `day8/re-frame2-flows` — **and** apply the v1→v2 flow-map conversion (a Type-B `:live?` re-home rides along). See [`breaking-changes.md` §M-30](breaking-changes.md#m-30-also-carries-the-flow-map-conversion). |
 | 35 | **M-31** | Triggered by `:rf.http/managed` fx. Add `day8/re-frame2-http`. |
 | 36 | **M-32** | Triggered by `render-to-string` (SSR). Add `day8/re-frame2-ssr`. |
 | 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch`. Add `day8/re-frame2-epoch`. |
