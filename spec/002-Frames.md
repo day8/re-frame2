@@ -86,7 +86,7 @@ conventional default. This is the whole rule; everything below is its shape.
 ### How a frame is carried — scope / hold / override
 
 Frame identity reaches an operation through exactly the three intents the Views
-chapter already teaches ([`docs/guide/api/02-views.md`](../docs/guide/api/02-views.md)). There is
+chapter already teaches ([`docs/core/api/02-views.md`](../docs/core/api/02-views.md)). There is
 **no separate priority-list of "ambient places to search"** — that was the old
 four-tier chain, and removing its `:rf/default` floor is what this EP does.
 

@@ -7,7 +7,7 @@
   that's the honest shape for an ordinary function. And hiccup throughout, which
   is really just markup-as-data. The job of a view is small and strict: read
   derived state, dispatch events when the user does something. No business logic
-  sneaks in here. See docs/guide/glossary.md (view)."
+  sneaks in here. See docs/core/glossary.md (view)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.views])
@@ -138,7 +138,7 @@
 ;; right there in the signature. `reg-view` is reserved for the root: inside its
 ;; body `dispatch` and `subscribe` arrive in scope for free, which is exactly why
 ;; the root is the one threading them down to the helpers below.
-;; See docs/guide/concepts/views.md.
+;; See docs/core/concepts/views.md.
 (reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]
     [:<>

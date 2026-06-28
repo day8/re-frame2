@@ -1,6 +1,6 @@
 (ns flows.core
-  "Worked example for flows. Guide: docs/guide/concepts/flows.md
-   (glossary: docs/guide/glossary.md#flow).
+  "Worked example for flows. Guide: docs/core/concepts/flows.md
+   (glossary: docs/core/glossary.md#flow).
 
    A flow is a standing rule: \"when these app-db paths change, run this pure
    function and write its result to that app-db path.\" Each flow fires right
@@ -51,7 +51,7 @@
 ;; bare path reads app-db; a path led by `:rf.db/runtime` reads runtime-db).
 ;; `:derive` gets the values at those paths, in order, and returns the value
 ;; written to `:output-path`. That's the whole contract; the full map is in
-;; docs/guide/concepts/flows.md.
+;; docs/core/concepts/flows.md.
 
 (defn- line-total [{:keys [price qty]}]
   (* price qty))
@@ -62,7 +62,7 @@
 ;; toggleable `:cart/discount-rate` flow comes later, registered via
 ;; :rf.fx/reg-flow from inside a handler — that route carries the dispatching
 ;; frame along for you, no naming required.)
-;; See docs/guide/glossary.md#frame-identity-is-carried-not-found.
+;; See docs/core/glossary.md#frame-identity-is-carried-not-found.
 (with-frame :rf/default
 
 (rf/reg-flow
@@ -147,7 +147,7 @@
 ;; registry, so that walk finally materialises `[:cart :discount-rate]` (and
 ;; the `[:cart :total]` that depends on it) at the discounted figure.
 ;; `:cart/touch` writes nothing — the walk it triggers does all the work.
-;; Guide: docs/guide/concepts/flows.md#toggling-a-derivation-at-runtime.
+;; Guide: docs/core/concepts/flows.md#toggling-a-derivation-at-runtime.
 (rf/reg-event :cart/apply-discount
   {:doc "Engage the 10%-off feature gate: register a flow that writes the
          discount rate, then nudge a re-walk so :cart/total recomputes."}

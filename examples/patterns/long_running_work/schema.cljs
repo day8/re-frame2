@@ -2,11 +2,11 @@
   "Malli schemas for the two machines in this example.
 
    A machine's snapshot doesn't live in app-db — it lives in runtime-db
-   (docs/guide/glossary.md#runtime-db). So instead of registering an
+   (docs/core/glossary.md#runtime-db). So instead of registering an
    app-db path, each machine carries its own `:data` schema in its
    `[:schemas :data]` slot, and the runtime checks it after every
    transition and at spawn time. See the schemas guide's machine
-   section (docs/guide/how-to/validate-with-schemas.md).
+   section (docs/core/how-to/validate-with-schemas.md).
 
    Two machines, two schemas:
 

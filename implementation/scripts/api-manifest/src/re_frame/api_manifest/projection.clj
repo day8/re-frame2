@@ -105,7 +105,7 @@
 (defn require-markdown-files
   "Like `markdown-files`, but throws when `dir` does not exist or is not a
    directory (rf2-utvst non-vacuous floor). A check that owns an EXPECTED
-   surface directory (skills/, docs/guide/) must fail loudly when that
+   surface directory (skills/, docs/core/) must fail loudly when that
    directory moves or is renamed rather than silently checking zero files
    and reporting a vacuous OK. `label` names the surface for the error."
   [label dir]
@@ -130,7 +130,7 @@
    glob (`docs/machines/concepts.md`, `docs/routing/api.md`, …).
 
    THE SHAPE (rf2-earvtz). The #4961 docs reorg moved each capability's
-   CONCEPT and API reference out of the flat `docs/guide/` and top-level
+   CONCEPT and API reference out of the flat `docs/core/` and top-level
    API trees into per-capability directories `docs/<cap>/{concepts,api}.md`. The
    doc-guide / doc-api projection gates scanned only the old flat trees, so
    the moved files went UNSCANNED — a broken `(rf/<var>` reference in them
@@ -141,7 +141,7 @@
    SCOPE DISCIPLINE. The glob is anchored on a SINGLE path segment between
    `docs/` and the filename, so it matches ONLY immediate-child capability
    files. It never sweeps in the flat trees the gates already own
-   (`docs/guide/` / `docs/guide/api/` are directories, not `docs/api.md` files) nor
+   (`docs/core/` / `docs/core/api/` are directories, not `docs/api.md` files) nor
    nested API trees (`docs/story/api/` is a directory; `docs/story/api.md`
    does not exist). The match excludes directories defensively.
 

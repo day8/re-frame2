@@ -122,7 +122,7 @@ The `Status:` line is machine-readable. Its value MUST be one of:
 4. **One EP, one decision surface.** Bundling independent decisions invites
    all-or-nothing rulings; prefer narrow EPs and cross-references.
 5. **Graduation includes a guide-impact assessment:** the graduating EP names
-   which `docs/guide` chapters change and which payoffs become newly teachable;
+   which `docs/core` chapters change and which payoffs become newly teachable;
    the docs bead of the EP's wave carries those edits (e.g. EP-0010 upgrades
    guide ch.07's clock section from the cofx idiom to the envelope stamp;
    EP-0011 rewrites ch.10's no-await box around the reply envelope; EP-0008

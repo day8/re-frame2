@@ -353,8 +353,8 @@ of it, so no doc ever describes a key the code still has.
   `:initial-events` / `[:rf/set-db …]` forms. **Tracked files only** (`git grep`, so the
   generated `site/` and build copies are skipped — the residue trap). `spec/*` are hot-zone
   (sequential). Pre-alpha clean break: no shim, no deprecation note. Land in lockstep with B6.
-- **B8 — Sweep `/docs/guide` + examples / skills / conformance.** _[task · P2]_ The same
-  careful, tracked-files-only `git grep` over `/docs/guide`, plus `examples/`, `skills/`, the
+- **B8 — Sweep `/docs/core` + examples / skills / conformance.** _[task · P2]_ The same
+  careful, tracked-files-only `git grep` over `/docs/core`, plus `examples/`, `skills/`, the
   conformance / schema fixtures, and any teaching README. Land in lockstep with B6.
 
 ## Acceptance criteria

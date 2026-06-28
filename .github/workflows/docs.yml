@@ -1,6 +1,6 @@
 # Builds and publishes the re-frame2 docs site (rf2-h09k).
 #
-# Source: docs/guide/ (narrative) + spec/ (normative) + spec/API.md (reference).
+# Source: docs/core/ (narrative) + spec/ (normative) + spec/API.md (reference).
 # Sink:   https://day8.github.io/re-frame2/
 #
 # PREREQUISITE: the repository's Pages source must be set to "GitHub Actions"
@@ -285,12 +285,12 @@ jobs:
       # but the EP landing wave left STALE copy-pasteable teaching examples
       # behind (live `[(rf/inject-cofx :rf.server/request)]` interceptor
       # entries in spec/Pattern-SSR-Loaders.md + spec/Pattern-FormAction.md,
-      # rf2-d8mvke.3 finding 2). This guard scans docs/guide, spec/,
+      # rf2-d8mvke.3 finding 2). This guard scans docs/core, spec/,
       # and skills/ markdown for the retired spellings as LIVE recommended API
       # (inside fenced code blocks) with a narrow file allowlist for the
       # migration surface (the migration guide page / re-frame-migration skill
       # / EP docs) where a v1 "before" snippet is legitimate per
-      # docs/guide/AUTHORING.md §Delta teaching. Removed-context prose + inline
+      # docs/core/AUTHORING.md §Delta teaching. Removed-context prose + inline
       # code spans + masked `;` comments never fire. Self-test first (proves
       # the gate fires on each live shape + stays green on every
       # removed-context counterpart + the allowlist exemption), then the live
@@ -305,7 +305,7 @@ jobs:
       # construction + install + inspection vocabulary from the public facade
       # in favour of image -> frame -> event stream. The `pl97nd` epic scrubbed
       # it repo-wide (facade exports, spec/API rows, doc/skill teaching
-      # surface). This guard keeps the scrub done: it scans docs/guide,
+      # surface). This guard keeps the scrub done: it scans docs/core,
       # docs/EP, spec/, and skills/ markdown for the retired symbols as LIVE
       # copy-pasteable public API (inside fenced code blocks), and (rf2-2c8zq6)
       # the root-support surfaces the dir scan misses — README.md, TESTING.md,

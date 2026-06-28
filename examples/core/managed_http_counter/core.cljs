@@ -228,7 +228,7 @@
     ;; :rf.error/no-frame-context. In re-frame2 a frame's identity is *carried,
     ;; not found*, so the fix is to grab the frame from this fx's context right
     ;; here and hand it to the deferred dispatch ourselves. See
-    ;; docs/guide/glossary.md#frame-identity-is-carried-not-found.
+    ;; docs/core/glossary.md#frame-identity-is-carried-not-found.
     (let [frame (:frame frame-ctx)]
       (http-registry/record-in-flight!
         request-id nil

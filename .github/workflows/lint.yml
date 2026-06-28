@@ -63,7 +63,7 @@ on:
       # api-manifest job. (tools/story/spec + tools/xray/spec already ride
       # the tools/** entry above.)
       - 'skills/**'
-      - 'docs/guide/**'
+      - 'docs/core/**'
       # Per-capability CONCEPT docs (rf2-earvtz): the #4961 reorg moved each
       # capability's concept doc to docs/<cap>/concepts.md; doc-guide-check now
       # scans them, so a PR touching only one must run the api-manifest job.
@@ -75,7 +75,7 @@ on:
       # the spec/ entries the classifier already lights; the push filter
       # names it explicitly for the same reason API.md is named above.)
       - 'spec/Privacy.md'
-      - 'docs/guide/api/**'
+      - 'docs/core/api/**'
       - 'docs/story/api/**'
       # Per-capability API docs (rf2-earvtz): the #4961 reorg moved each
       # capability's API reference to docs/<cap>/api.md; doc-api-check now scans
@@ -155,7 +155,7 @@ jobs:
               # pure-doc-guide PR must still run the drift-check. The
               # per-capability concept docs (docs/<cap>/concepts.md from the
               # #4961 reorg) are scanned by doc-guide-check now too (rf2-earvtz).
-              skills/*|docs/guide/*|docs/*/concepts.md)
+              skills/*|docs/core/*|docs/*/concepts.md)
                 lint_surface=true ;;
               # The three human-doc API-reference trees are manifest
               # projections too (rf2-vzupmg): a removed/renamed public surface
@@ -163,7 +163,7 @@ jobs:
               # A pure-doc PR touching them must still run the drift-check. The
               # per-capability API docs (docs/<cap>/api.md from the #4961 reorg)
               # are scanned by doc-api-check now too (rf2-earvtz).
-              spec/Privacy.md|docs/guide/api/*|docs/story/api/*|docs/*/api.md)
+              spec/Privacy.md|docs/core/api/*|docs/story/api/*|docs/*/api.md)
                 lint_surface=true ;;
             esac
           done <<< "$files"
@@ -383,18 +383,18 @@ jobs:
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.skills-check
 
-      - name: Assert docs/guide/ projection matches the manifest
+      - name: Assert docs/core/ projection matches the manifest
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.doc-guide-check
 
       # Human-doc API-reference projection drift-check (rf2-vzupmg). Extends
       # the call-position discipline to the three human-facing API-reference
       # trees the keystone + the checks above left uncovered:
-      # spec/Privacy.md + docs/guide/api/** + docs/story/api/**. Goes RED on a
+      # spec/Privacy.md + docs/core/api/** + docs/story/api/**. Goes RED on a
       # call-position `(rf/<var>` / `(story/<var>` reference to a renamed /
       # removed / never-manifested public surface (the EP-graduation
       # doc-drift class that previously passed every CI check).
-      - name: Assert spec/Privacy + docs/guide/api + docs/story/api projection matches the manifest
+      - name: Assert spec/Privacy + docs/core/api + docs/story/api projection matches the manifest
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.doc-api-check
 

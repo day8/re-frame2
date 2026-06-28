@@ -53,7 +53,7 @@ That's the whole entry namespace. Events / subs / views go above the mount point
 
 `counter-app` is the top-level registered view (the name the generator template and `first-counter.md` use). **Note the `frame-provider` wrap:** under EP-0002 (the carried-frame invariant) the runtime never infers a frame — you register one with `reg-frame` and scope it at the root with `frame-provider`'s `{:frame …}` SCOPE-only shape (see Order of operations below). `:rf/default` is the generator template's frame id; it is **not** auto-registered. Any other id works — keep it consistent across `reg-frame`, `with-frame`, and the provider.
 
-The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/core/counter/core.cljs` calls its entry fn `run` and uses the canonical lazy-root + `frame-provider {:id … :initial-events …}` ENSURE-shape boot — a different boot shape, not just a renamed `init`; see [`boot-and-mount-an-app.md`](../../../docs/guide/how-to/boot-and-mount-an-app.md). Pick whichever entry-symbol name you like and keep `shadow-cljs.edn`'s `:init-fn` pointing at it; this skill uses `init`.)
+The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/core/counter/core.cljs` calls its entry fn `run` and uses the canonical lazy-root + `frame-provider {:id … :initial-events …}` ENSURE-shape boot — a different boot shape, not just a renamed `init`; see [`boot-and-mount-an-app.md`](../../../docs/core/how-to/boot-and-mount-an-app.md). Pick whichever entry-symbol name you like and keep `shadow-cljs.edn`'s `:init-fn` pointing at it; this skill uses `init`.)
 
 ## Order of operations
 

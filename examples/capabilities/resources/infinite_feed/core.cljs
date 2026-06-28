@@ -345,7 +345,7 @@
 ;; tree resolves to it. Hot reload? It reuses the same frame. And there's no
 ;; boot seed to write: route entry's `:resources` plan ensures page 0, so the
 ;; frame carries no `:initial-events`.
-;; See docs/guide/glossary.md#frame-provider.
+;; See docs/core/glossary.md#frame-provider.
 
 (defonce react-root (atom nil))
 

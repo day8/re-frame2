@@ -86,7 +86,7 @@
         ;; while we're rendering and a frame is in scope, and pass it along —
         ;; the deferred dispatch rides the frame in. Without it, a bare
         ;; dispatch out there would raise :rf.error/no-frame-context.
-        ;; See docs/guide/glossary.md#capture-frame.
+        ;; See docs/core/glossary.md#capture-frame.
         handle        (rf/capture-frame)]
     [:div.lifecycle
      [:button {:data-testid "ws-connect"

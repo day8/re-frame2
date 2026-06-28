@@ -280,7 +280,7 @@ Forms typically don't need SSR-rendered hydration; the form is interactive clien
 - [005-StateMachines.md](005-StateMachines.md) — multi-step wizards use machines on top of the form slice
 - [examples/core/login/core.cljs](../examples/core/login/core.cljs) — login form built on this convention plus a state machine
 - [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that folds form validation and success into the `:form` region of a parallel state machine, surfacing `Incorrect` / `Correct` as tag-tagged states alongside the data and mode axes.
-- [examples/patterns/nine_states/](../examples/patterns/nine_states/) — worked example whose `:form` region exercises this lifecycle (validation errors, touched-field display, recovery from `:incorrect` to `:neutral` via `:edit`).
+- [examples/patterns/nine_states/](../examples/patterns/nine_states) — worked example whose `:form` region exercises this lifecycle (validation errors, touched-field display, recovery from `:incorrect` to `:neutral` via `:edit`).
 - [examples/real-apps/realworld_http/auth.cljs](../examples/real-apps/realworld_http/auth.cljs) — RealWorld's login and register forms exercise the full convention; [article_editor.cljs](../examples/real-apps/realworld_http/article_editor.cljs) and [comments.cljs](../examples/real-apps/realworld_http/comments.cljs) extend it across more shapes.
 
 ## Conformance checklist

@@ -39,7 +39,7 @@ template's role is over.
 Every variant emits a working counter. The counter:
 
 - Is the same shape developers read about in [the Guide quickstart
-  — a counter in five minutes](../../../docs/guide/quickstart.md).
+  — a counter in five minutes](../../../docs/core/quickstart.md).
 - Matches the per-substrate `examples/<substrate>/counter*/`
   reference apps.
 - Uses the smallest amount of re-frame2 surface that demonstrates

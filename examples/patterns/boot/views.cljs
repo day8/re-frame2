@@ -1,5 +1,5 @@
 (ns boot.views
-  "Views for the boot example (docs/guide/glossary.md#view).
+  "Views for the boot example (docs/core/glossary.md#view).
 
    The whole view tree pivots on one question — has the boot finished? —
    and `root-view` is where that fork lives:

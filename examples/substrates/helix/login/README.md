@@ -6,14 +6,14 @@ It is the same feature as [`examples/core/login/`](../../../core/login/) — the
 
 > **Swap the rendering library and almost nothing else moves.**
 
-You can see exactly how little moves in `core.cljs` itself, which draws the dividing line as a literal `SUBSTRATE BOUNDARY` comment. Above it is the half that knows nothing about what renders the app — identical, id for id, to its Reagent and UIx siblings. Below it is the only code that does the rendering: the Helix part, `defnc` components that read [subscriptions](../../../../docs/guide/glossary.md#subscription) through a hook. That split between the two halves of the app is what makes re-frame2 substrate-agnostic. Read the three side by side and you see exactly which layers move when you switch [substrate](../../../../docs/guide/glossary.md#substrate). Almost none of them do.
+You can see exactly how little moves in `core.cljs` itself, which draws the dividing line as a literal `SUBSTRATE BOUNDARY` comment. Above it is the half that knows nothing about what renders the app — identical, id for id, to its Reagent and UIx siblings. Below it is the only code that does the rendering: the Helix part, `defnc` components that read [subscriptions](../../../../docs/core/glossary.md#subscription) through a hook. That split between the two halves of the app is what makes re-frame2 substrate-agnostic. Read the three side by side and you see exactly which layers move when you switch [substrate](../../../../docs/core/glossary.md#substrate). Almost none of them do.
 
 ## What this demonstrates
 
 - **Views are plain `defnc` and read subs through a hook.** Reagent hides its
   reactivity behind a reactive atom: you deref a
-  [subscription](../../../../docs/guide/glossary.md#subscription) and the
-  [view](../../../../docs/guide/glossary.md#view) re-renders. Helix is plain React,
+  [subscription](../../../../docs/core/glossary.md#subscription) and the
+  [view](../../../../docs/core/glossary.md#view) re-renders. Helix is plain React,
   with no reactive atom to lean on. Instead `use-subscribe` is a React hook that
   subscribes on mount and re-renders the component when the value changes.
   `busy?`, the error string, the authenticated and locked flags — each is one
@@ -22,20 +22,20 @@ You can see exactly how little moves in `core.cljs` itself, which draws the divi
 
 - **The wiring is explicit — no auto-injection.** Under Reagent, `reg-view`
   hands each view a `dispatch` and `subscribe` already bound to the right
-  [frame](../../../../docs/guide/glossary.md#frame). Helix views skip `reg-view`
+  [frame](../../../../docs/core/glossary.md#frame). Helix views skip `reg-view`
   (it stays Reagent-only), so here the binding is done by hand: grab a
-  [capture-frame](../../../../docs/guide/glossary.md#capture-frame) with
+  [capture-frame](../../../../docs/core/glossary.md#capture-frame) with
   `(rf/capture-frame)` at render time and pull `dispatch` off it. That is one
   extra line per component — the honest cost of crossing the boundary. The
   layer beneath never notices.
 
 - **The machine, the schemas, and the HTTP run unchanged.** This is the payoff.
   The [state machine](../../../../docs/machines/glossary.md#machine), the Malli
-  [schemas](../../../../docs/guide/glossary.md#schema), and the managed-HTTP
-  [effect](../../../../docs/guide/glossary.md#effect) are the same registrations as
+  [schemas](../../../../docs/core/glossary.md#schema), and the managed-HTTP
+  [effect](../../../../docs/core/glossary.md#effect) are the same registrations as
   the Reagent example: same `:auth.login/*` ids, same transition table, same
   canned stub. The login flow dispatches the same wrapped
-  [event](../../../../docs/guide/glossary.md#event) into the machine
+  [event](../../../../docs/core/glossary.md#event) into the machine
   (`[:auth.login/flow [:auth.login/submit creds]]`), the machine computes the
   same [transition](../../../../docs/machines/glossary.md#transition), and the
   managed-HTTP reply lands back as just another event. The substrate swapped;

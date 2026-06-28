@@ -4674,7 +4674,7 @@
             pair-debug 2026-05-27). Asserted against the source-of-truth
             private `default-trace-events-keep` var, bypassing the
             fixture's keep<depth override. Pins the default consistently
-            with docs/guide/api/01-core.md and `re-frame.epoch.state`."
+            with docs/core/api/01-core.md and `re-frame.epoch.state`."
     (is (= 50 @#'state/default-trace-events-keep)
         "the source-of-truth default var ships 50")
     ;; The accessor is wired to fall back to that var when the slot is

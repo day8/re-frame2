@@ -52,7 +52,7 @@ These shape voice and structure but aren't quoted directly.
 - **A live re-frame2 runtime / `app-db` snapshot** — that's `re-frame2-pair`'s domain.
 - **A pair-session transcript** — that's `re-frame2-pair-retro`'s domain.
 - **`implementation/**` as a thing to teach** — the improver verifies API facts against it but does not lecture the framework internals.
-- **`docs/guide/**`** — the narrative tutorial is for learners; the improver works one level up, on existing code.
+- **`docs/core/**`** — the narrative tutorial is for learners; the improver works one level up, on existing code.
 
 ## 7. Update procedure
 

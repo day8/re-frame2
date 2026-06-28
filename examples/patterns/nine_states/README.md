@@ -40,7 +40,7 @@ is a small chart of a few
 a *map* of region → state, with all three running at once.
 
 The second idea is how the
-[view](../../../docs/guide/glossary.md#view) decides what to draw. It does
+[view](../../../docs/core/glossary.md#view) decides what to draw. It does
 **not** read the three regions and reason about their combinations — that
 just moves the `cond` tower into render. Instead:
 
@@ -49,7 +49,7 @@ just moves the `cond` tower into render. Instead:
   `:mode/read-only`, …).
 - The runtime unions every active state's tags onto the snapshot.
 - One plain-data `render-priority` table — read top to bottom by a single
-  [subscription](../../../docs/guide/glossary.md#subscription),
+  [subscription](../../../docs/core/glossary.md#subscription),
   `:ui/render` — collapses that tag union to *one* render-model keyword.
 
 The view's whole branching logic is then a single `case` over that
@@ -93,7 +93,7 @@ lifecycle that shares the machine's `:data` map with its siblings:
   clears itself the moment the user starts typing the next one. (The
   form's *runtime* — the draft text, per-field errors, which fields have
   been touched — lives in app-db at `:new-todo`, validated by a
-  [schema](../../../docs/guide/glossary.md#schema). The region tracks only
+  [schema](../../../docs/core/glossary.md#schema). The region tracks only
   *which stage of the lifecycle* the form is in. Two kinds of fact, two
   homes.)
 - **`:mode` region** — the live/archived axis: `:active → :done`.
@@ -121,10 +121,10 @@ beats which, you edit one table, not ten views.
   and [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md)
   §Parallel regions / §State tags.
 - **A remote-data lifecycle, folded into a region.** A real
-  [managed-HTTP](../../../docs/guide/glossary.md#effect) request drives
+  [managed-HTTP](../../../docs/core/glossary.md#effect) request drives
   the fetch. Its reply comes back the re-frame2 way — as a dispatched
-  [event](../../../docs/guide/glossary.md#event) carrying a reply map
-  ([the uniform reply](../../../docs/guide/glossary.md#the-uniform-reply)),
+  [event](../../../docs/core/glossary.md#event) carrying a reply map
+  ([the uniform reply](../../../docs/core/glossary.md#the-uniform-reply)),
   which the demo events forward into the machine as `:fetch-succeeded` /
   `:fetch-failed`. No promise-threading glue between the network and the
   state graph. See

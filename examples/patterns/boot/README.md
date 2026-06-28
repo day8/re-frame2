@@ -46,16 +46,16 @@ Read it as a story:
   and cancels the rest — no requests left dangling.
 - **`:hydrating`** — the loads are done, but the data is sitting in a
   staging area. This state copies it into the real top-level
-  [app-db](../../../docs/guide/glossary.md#app-db) keys (`:config`,
+  [app-db](../../../docs/core/glossary.md#app-db) keys (`:config`,
   `:flags`, `:user`, `:routes`), then moves to `:ready`.
 - **`:ready`** — done. The main app
-  [view](../../../docs/guide/glossary.md#view) mounts only now. Its
+  [view](../../../docs/core/glossary.md#view) mounts only now. Its
   subscriptions never see a half-loaded app-db, because they don't
   render until the data is all there.
 - **`:failed`** — done, but you can retry. The view shows an error
   screen with a retry button. Clicking it dispatches
   `[:app/boot [:boot/restart]]` — a real
-  [event](../../../docs/guide/glossary.md#event) that re-runs the boot
+  [event](../../../docs/core/glossary.md#event) that re-runs the boot
   from `:configuring`. (It's `:boot/restart`, *not* the
   `:rf.machine/start` creation marker. That marker only kicks a machine
   to life once; it does nothing on an existing machine, so re-boot has

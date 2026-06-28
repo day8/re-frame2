@@ -78,7 +78,7 @@ from typing import Iterable, NamedTuple
 # --------------------------------------------------------------------------
 
 # Doc/teaching markdown surfaces.
-DEFAULT_DOC_DIRS = ("docs/guide", "docs/EP", "spec", "skills")
+DEFAULT_DOC_DIRS = ("docs/core", "docs/EP", "spec", "skills")
 # Per-tool spec trees are a teaching surface too (discovered at runtime).
 _TOOL_SPEC_GLOB = "tools/*/spec"
 

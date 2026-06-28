@@ -41,7 +41,7 @@ The whole point fits in four facts, all in one small app.
   exact-target twin of a resource's `:patches`. That patch runs *before* the
   request is sent, so the new card appears, or the title changes, or the card
   jumps columns the instant the user acts. The
-  [view](../../../../docs/guide/glossary.md#view) does **not** change state to make
+  [view](../../../../docs/core/glossary.md#view) does **not** change state to make
   this happen. There is no app-db issue list, no `:saving?` flag, no hand-rolled
   copy. The board is one managed
   [resource](../../../../docs/resources/glossary.md#resource), and every write
@@ -106,8 +106,8 @@ resource. Each of the three writes is a named
 [`reg-mutation`](../../../../docs/resources/glossary.md#mutation). And the demo chrome
 — the fail-next-write toggle, the new-issue draft, the id of the card being
 inline-edited — are ordinary app-db slices: an
-[event](../../../../docs/guide/glossary.md#event) writes, a
-[subscription](../../../../docs/guide/glossary.md#subscription) reads, and the view
+[event](../../../../docs/core/glossary.md#event) writes, a
+[subscription](../../../../docs/core/glossary.md#subscription) reads, and the view
 reads the sub. No raw atoms through views, no frame-ids as view args, no vestigial
 timing. The only durable "server state" — the issue board itself — lives in the
 runtime resource cache, not app-db, exactly where state you don't own belongs.

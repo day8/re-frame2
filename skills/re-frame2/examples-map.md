@@ -47,7 +47,7 @@ The focused **read-side** Pattern-Resources example for the optional `day8/re-fr
 
 ## realworld_resources — `examples/real-apps/realworld_resources/`
 
-RealWorld (Conduit) rebuilt on resources + mutations end-to-end — the write-side counterpart the focused `resources/` example omits. It exercises the completion surface the [`patterns/resources.md`](./patterns/resources.md) leaf teaches: `reg-mutation` writes, call-site **`:reply-to`** continuations (settings save, article create/edit/delete, the social controls), **per-target scoped invalidation descriptors** (one favourite/save stales global article tags *and* the session-scoped `[:feed]` in one mutation), **populate-as-authoritative-load** (`:populates` returning the canonical `{target value}` map form), and a **named `reg-resource-scope` resolver** (`:realworld/session`) referenced everywhere as `{:from-db :realworld/session}` — the feed resource's `:scope`, the home-route feed entry, the mutations' session invalidation descriptor, and (via `resolve-resource-scope`) logout's `clear-scope`. Point at this example when authoring **any** resource mutation, mixed-scope invalidation, post-write workflow continuation, or named-scope-resolver wiring. The sibling of the managed-HTTP `examples/real-apps/realworld_http/` (kept intact as the Spec 014 counterpart) — read the two side by side to see what resources buy you. Exercises Pattern-Resources, 016 Resources, 014 HTTPRequests, 012 Routing, and Pattern-Forms.
+RealWorld (Conduit) rebuilt on resources + mutations end-to-end — the write-side counterpart the focused `resources/` example omits. It exercises the completion surface the [`patterns/resources.md`](patterns/resources.md) leaf teaches: `reg-mutation` writes, call-site **`:reply-to`** continuations (settings save, article create/edit/delete, the social controls), **per-target scoped invalidation descriptors** (one favourite/save stales global article tags *and* the session-scoped `[:feed]` in one mutation), **populate-as-authoritative-load** (`:populates` returning the canonical `{target value}` map form), and a **named `reg-resource-scope` resolver** (`:realworld/session`) referenced everywhere as `{:from-db :realworld/session}` — the feed resource's `:scope`, the home-route feed entry, the mutations' session invalidation descriptor, and (via `resolve-resource-scope`) logout's `clear-scope`. Point at this example when authoring **any** resource mutation, mixed-scope invalidation, post-write workflow continuation, or named-scope-resolver wiring. The sibling of the managed-HTTP `examples/real-apps/realworld_http/` (kept intact as the Spec 014 counterpart) — read the two side by side to see what resources buy you. Exercises Pattern-Resources, 016 Resources, 014 HTTPRequests, 012 Routing, and Pattern-Forms.
 
 ## routing — `examples/capabilities/routing/routing/`
 
@@ -91,18 +91,18 @@ Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md
 
 ## How to use this map during an authoring task
 
-1. Pick the primary pattern from [`decision-trees/pick-a-pattern.md`](./decision-trees/pick-a-pattern.md).
-2. Pick the state shape from [`decision-trees/slice-or-machine.md`](./decision-trees/slice-or-machine.md).
+1. Pick the primary pattern from [`decision-trees/pick-a-pattern.md`](decision-trees/pick-a-pattern.md).
+2. Pick the state shape from [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md).
 3. Find the example above whose paragraph names the same pattern + shape combination.
 4. Read the example's source — match its shape; do not re-derive (per SKILL.md cardinal rule 2).
 5. If the example contradicts the pattern leaf, **the example wins** (per SKILL.md cardinal rule 1).
 
 ## Cross-references
 
-- [`SKILL.md`](./SKILL.md) — router skill; cardinal rules; loading map.
+- [`SKILL.md`](SKILL.md) — router skill; cardinal rules; loading map.
 - [`examples/README.md`](../../examples/README.md) — the full example catalogue with maturity, build ids, and end-to-end coverage.
 - [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md) — Reagent-canonical / UIx-Helix-smoke-pair policy.
-- [`patterns/`](./patterns/) — pattern leaves; each names the worked example for its pattern.
+- [`patterns/`](patterns) — pattern leaves; each names the worked example for its pattern.
 
 ---
 

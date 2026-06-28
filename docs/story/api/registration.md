@@ -331,4 +331,4 @@ These `:app-db` paths are **not** a frame annotation and are **not** threaded on
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 worked walkthrough.
 - [Story tutorial — Workspaces, modes, and composition](../07-workspaces-modes-composition.md) — workspaces, modes, the args editor.
-- [Framework API — Schemas and data classification](../../guide/api/08-schemas.md) — the framework's commit-plane `:sensitive` / `:large` classification model.
+- [Framework API — Schemas and data classification](../../core/api/08-schemas.md) — the framework's commit-plane `:sensitive` / `:large` classification model.

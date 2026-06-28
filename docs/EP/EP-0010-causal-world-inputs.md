@@ -120,12 +120,12 @@ All five build steps of the EP-0010 action wave shipped. Verified
 - **Docs + guide update — SHIPPED.** Step 10 ([§Guide Impact](#guide-impact)).
   The guide teaches causal world inputs instead of ambient clock stubbing across
   the effects-and-coeffects concept page
-  (`docs/guide/concepts/effects-and-coeffects.md` — §Two grades: ambient and
+  (`docs/core/concepts/effects-and-coeffects.md` — §Two grades: ambient and
   recordable, §Testing is just supplying the inputs), the testing how-tos
-  (`docs/guide/how-to/test-an-event-handler.md` and
-  `docs/guide/how-to/test-a-cascade.md`, which pin `:rf/time-ms` via `:rf.cofx`
+  (`docs/core/how-to/test-an-event-handler.md` and
+  `docs/core/how-to/test-a-cascade.md`, which pin `:rf/time-ms` via `:rf.cofx`
   rather than freezing the clock), and the v1 migration chapter
-  (`docs/guide/25-from-re-frame-v1.md`). The spec graduation that anchors them is normative
+  (`docs/core/25-from-re-frame-v1.md`). The spec graduation that anchors them is normative
   in `spec/002-Frames.md` §Recordable coeffects and `spec/Spec-Schemas.md`
   (`:rf.cofx` — renamed from the shipped `:rf.world/inputs` / `WorldInputs` by
   EP-0017).

@@ -156,7 +156,7 @@ The privacy cluster carries one cross-tool gate that Xray, Story, and any other 
   ```
 - **Description**: The cross-tool `:rf.privacy/show-sensitive?` flag. When `false` (default), Xray's trace collector drops `:sensitive? true` events and the shell surfaces a redaction hint near the always-on issue/status signals. Set to `true` while debugging redaction policy to see the raw cascade. `nil` resets to the default. Re-exported from `core`.
 
-The single normative emission site for `:sensitive?` redaction is the framework's `elide-wire-value` (see [framework API instrumentation §The wire-boundary walker](../../guide/api/11-instrumentation.md#the-wire-boundary-walker)). Xray's gate just decides whether the redacted-out events reach the buffer at all.
+The single normative emission site for `:sensitive?` redaction is the framework's `elide-wire-value` (see [framework API instrumentation §The wire-boundary walker](../../core/api/11-instrumentation.md#the-wire-boundary-walker)). Xray's gate just decides whether the redacted-out events reach the buffer at all.
 
 ## Settings cluster
 
@@ -248,4 +248,4 @@ The three answer different questions: `configure!` is the boot-time data knob (s
 - [Mount control](mount-control.md) — `open!` / `close!` / `toggle!` / `popout!` and the lifecycle the auto-open setting drives.
 - [Runtime seam](runtime-seam.md) — the keybinding `attach!` / `detach!` lifecycle pair the keybinding cluster setters control.
 - [Xray tutorial — Installation](../01-installation.md) — the five-minute wiring walkthrough with the recommended host snippet.
-- [Framework API — Instrumentation](../../guide/api/11-instrumentation.md#the-wire-boundary-walker) — `elide-wire-value`, the single normative emission site for `:sensitive?` redaction that the privacy cluster gates.
+- [Framework API — Instrumentation](../../core/api/11-instrumentation.md#the-wire-boundary-walker) — `elide-wire-value`, the single normative emission site for `:sensitive?` redaction that the privacy cluster gates.

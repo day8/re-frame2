@@ -1,6 +1,6 @@
 # xray-replaces-10x
 
-The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-frame2-xray`). **Xray IS the v2 devtools replacement for re-frame-10x** — a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces, not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/guide/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/guide/25-from-re-frame-v1.md#the-devtools-moved-house) for the narrative version of this swap.
+The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-frame2-xray`). **Xray IS the v2 devtools replacement for re-frame-10x** — a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces, not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/core/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/core/25-from-re-frame-v1.md#the-devtools-moved-house) for the narrative version of this swap.
 
 **This is a STANDARD, first-class, EXPECTED migration step — not an optional adjunct.** **The rule: 10x present ⇒ swap to Xray (standard); no 10x ⇒ Xray optional.** The swap is triggered, and carried to completion, whenever the dep file holds a `day8.re-frame-10x` coord or a `day8.re-frame-10x.preload` `:preloads` entry; its **done-state is the app ON Xray**, not merely the dead preload removed — dropping 10x without restoring Xray leaves the author worse off than they started. If the app **never** had re-frame-10x, do **not** force devtools on it — Xray is then a genuine offer the author can decline.
 
@@ -206,7 +206,7 @@ Full panel inventory: [`tools/xray/spec/000-Vision.md`](../../../tools/xray/spec
 - [`tools/xray/README.md`](../../../tools/xray/README.md) — entry-point summary, spec index, file layout.
 - [`tools/xray/spec/API.md`](../../../tools/xray/spec/API.md) — the full user-facing surface (`configure!`, `popout!`, programmatic open/close, the layout-host contract, `--rf-xray-inline-width`).
 - [`tools/xray/spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md) — true-inline default + standalone-via-MCP for remote-attach scenarios.
-- [`docs/guide/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/guide/25-from-re-frame-v1.md#the-devtools-moved-house) — the narrative version of the 10x → Xray swap.
+- [`docs/core/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/core/25-from-re-frame-v1.md#the-devtools-moved-house) — the narrative version of the 10x → Xray swap.
 
 ---
 

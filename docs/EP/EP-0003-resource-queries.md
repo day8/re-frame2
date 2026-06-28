@@ -3381,5 +3381,5 @@ Deferred GraphQL-phase beads (after the HTTP core lands):
 - [SWR: Automatic Revalidation](https://swr.vercel.app/docs/revalidation)
 - [SWR: Mutation and Revalidation](https://swr.vercel.app/docs/mutation)
 - [Apollo Client: Caching](https://www.apollographql.com/docs/react/caching/overview)
-- [Relay: Staleness of Data](https://relay.dev/docs/guided-tour/reusing-cached-data/staleness-of-data/)
+- [Relay: Staleness of Data](https://relay.dev/docs/cored-tour/reusing-cached-data/staleness-of-data/)
 - [shipclojure/re-frame-query](https://github.com/shipclojure/re-frame-query)

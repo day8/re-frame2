@@ -53,7 +53,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *- Don't teach the skill to *run* the author's builds / tests / smoke-tests — it prints the commands; the author runs them (cardinal rule 5). (This is NOT a ban on the boot smoke-test itself: `references/runtime-smoke-test.md` is a kept leaf and the Phase-4 smoke-test is the done-bar — keep teaching it as a read-only, author-run live-introspection loop.)*
 > *- Don't duplicate `migration/from-re-frame-v1/README.md` content — reference it by rule id and link.*
 >
-> *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`migration/from-re-frame-v1/README.md`, `docs/guide/25-from-re-frame-v1.md`, `docs/the-mayor-method.md`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
+> *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`migration/from-re-frame-v1/README.md`, `docs/core/25-from-re-frame-v1.md`, `docs/the-mayor-method.md`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
 
 ## Notes on the reauthoring contract
 

@@ -8,7 +8,7 @@
   it derives the active filter from the route id, the very filter app-db makes a
   point of never storing. It's pure functions all the way down, and each one
   recomputes only when an input it actually depends on moves.
-  See docs/guide/glossary.md (subscription)."
+  See docs/core/glossary.md (subscription)."
   (:require [re-frame.core :as rf]))
 
 ;; :todo/showing turns the route id into the active filter. Both

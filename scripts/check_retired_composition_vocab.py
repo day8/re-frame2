@@ -81,7 +81,7 @@ tracked no longer exist.) Keep this guard deliberately small and modular.
 
 SCAN SURFACE
 
-`docs/guide`, `spec`, and `skills` markdown (`.md`). Generated
+`docs/core`, `spec`, and `skills` markdown (`.md`). Generated
 mirrors (`docs/spec/` — CI does `rm -rf docs/spec && cp -r spec docs/spec`)
 and vendor/build dirs are excluded; the tracked `spec/` source is the
 authoritative copy. `docs/EP` rides under `docs/` but is allowlisted as a whole
@@ -124,8 +124,8 @@ from typing import Iterable, NamedTuple
 
 # The human-facing + AI-facing doc surface EP-0023 governs: the API reference,
 # the guide, the spec, and the skills docs. (docs/EP rides under docs/ via the
-# `docs/guide`-sibling tree, but every EP doc is allowlisted below.)
-DEFAULT_SCAN_DIRS = ("docs/guide", "docs/EP", "spec", "skills")
+# `docs/core`-sibling tree, but every EP doc is allowlisted below.)
+DEFAULT_SCAN_DIRS = ("docs/core", "docs/EP", "spec", "skills")
 
 # rf2-lq99wc — the per-tool spec trees (`tools/<tool>/spec/`) are a teaching
 # surface too: the Xray / Pair-MCP / Story tool specs document the host model a

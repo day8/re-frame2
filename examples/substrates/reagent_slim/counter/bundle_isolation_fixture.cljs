@@ -17,7 +17,7 @@
    the absence of server rendering in a bundle that never renders on the
    server anyway. The host-global write below keeps the exercise from being
    optimised away under `:advanced`. For the two HTML paths slim ships, see
-   docs/guide/how-to/use-uix-helix-or-slim.md."
+   docs/core/how-to/use-uix-helix-or-slim.md."
   (:require [reagent2.dom.server :as rds]
             [re-frame.core       :as rf]))
 

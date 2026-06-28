@@ -17,7 +17,7 @@ Structure of MIGRATION.md the skill depends on:
 
 When MIGRATION.md adds a new rule, the skill's `breaking-changes.md` index needs a new row. When MIGRATION.md changes a rule's type (Type A → Type B or vice versa), the skill's `sequencing.md` may need to move the rule between groups. When a new per-feature artefact is split out, the skill's `setup.md` "pay-as-you-go" table needs a row. Drift between MIGRATION.md and the skill is the maintenance burden; periodic audits (manual or beadwise) keep them aligned.
 
-## 2. Secondary input — `docs/guide/25-from-re-frame-v1.md`
+## 2. Secondary input — `docs/core/25-from-re-frame-v1.md`
 
 The v1→v2 chapter in the narrative guide (the runtime leaves `xray-replaces-10x.md` and `README.md` link to this path).
 
@@ -54,7 +54,7 @@ These are deliberately out of the loop:
 - **`spec/000-Vision.md`** through **`spec/014-HTTPRequests.md`** (the EP corpus) — the skill doesn't teach re-frame2; the `re-frame2` skill does. The migration skill assumes the author knows v2 conceptually (or will read the EPs separately).
 - **`implementation/**`** — implementation is the ground truth for the `re-frame2` skill (what surfaces exist, what their signatures are). For the migration skill, MIGRATION.md is the ground truth, and MIGRATION.md is itself verified against implementation. The migration skill is downstream of that verification.
 - **`examples/**`** — worked examples are for authoring new code, not for migrating. The migration skill does not point at examples.
-- **The narrative guide** (other than `docs/guide/25-from-re-frame-v1.md`) — too discursive for the migration agent's needs.
+- **The narrative guide** (other than `docs/core/25-from-re-frame-v1.md`) — too discursive for the migration agent's needs.
 
 ## 6. Update procedure
 

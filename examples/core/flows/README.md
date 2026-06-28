@@ -2,15 +2,15 @@
 
 This example is a small shopping cart. It has three line items, each with a quantity you can nudge up or down, plus a running subtotal and total. Bump a quantity and the subtotal and total update on their own. Click **Apply 10% discount** and the total drops; click **Remove discount** and it climbs back. It all runs in your browser — there's nothing to set up.
 
-Those totals aren't worked out in the [view](../../../docs/guide/glossary.md#view). The framework computes them and stores them in [app-db](../../../docs/guide/glossary.md#app-db), right next to the line items they come from — and a derived value kept in app-db like that is a [flow](../../../docs/guide/glossary.md#flow). That's the idea worth taking away:
+Those totals aren't worked out in the [view](../../../docs/core/glossary.md#view). The framework computes them and stores them in [app-db](../../../docs/core/glossary.md#app-db), right next to the line items they come from — and a derived value kept in app-db like that is a [flow](../../../docs/core/glossary.md#flow). That's the idea worth taking away:
 
 > **Some computed values are state, not just something a view shows.**
 
-A [subscription](../../../docs/guide/glossary.md#subscription) derives a value too, but it keeps the result in a view-facing cache — perfect for rendering, invisible to everything else. A flow writes its result to app-db instead. So an [event](../../../docs/guide/glossary.md#event) handler can read it as plain data, it comes back under time-travel, and it survives the wire.
+A [subscription](../../../docs/core/glossary.md#subscription) derives a value too, but it keeps the result in a view-facing cache — perfect for rendering, invisible to everything else. A flow writes its result to app-db instead. So an [event](../../../docs/core/glossary.md#event) handler can read it as plain data, it comes back under time-travel, and it survives the wire.
 
 You declare three things: the `:inputs` to watch, a pure `:derive`, and the `:output-path` to write. When an input changes, the runtime re-runs `:derive` and writes the result — in step with the event cascade. The cart's subtotal and total are exactly that kind of value.
 
-This is the runnable companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md), the spec for flows. New to flows? Read the [flows guide](../../../docs/guide/concepts/flows.md) first — this example assumes the basics.
+This is the runnable companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md), the spec for flows. New to flows? Read the [flows guide](../../../docs/core/concepts/flows.md) first — this example assumes the basics.
 
 ## Why a flow and not a sub
 

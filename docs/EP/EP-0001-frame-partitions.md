@@ -1202,7 +1202,7 @@ ruling here is the binding form.
    > text named the optional app-db projection slots `:app-db-before` /
    > `:app-db-after` and stated "There is no `:db-before` / `:db-after`." That
    > naming did not land: the reference implementation, the conformance fixtures,
-   > the skill docs, and most of `spec/` + `docs/guide/` ship the projection slots
+   > the skill docs, and most of `spec/` + `docs/core/` ship the projection slots
    > as **`:db-before` / `:db-after`**. Per one-name-per-fact (EP-0007), the
    > de-facto short names are now blessed as canonical — renaming the corpus to the
    > originally-ruled names was the costlier path and is rejected. The

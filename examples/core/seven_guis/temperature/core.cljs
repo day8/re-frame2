@@ -16,9 +16,9 @@
    That gives us a tidy tour of the basics: a single source of truth, one
    event and one subscription chain over one value, pure Celsius ↔ Fahrenheit
    derivation in the subs, and a schema watching the slice. The guide walks
-   subscriptions slowly in `docs/guide/concepts/subscriptions.md`; event,
+   subscriptions slowly in `docs/core/concepts/subscriptions.md`; event,
    subscription, and app-db each have a glossary entry in
-   `docs/guide/glossary.md`."
+   `docs/core/glossary.md`."
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -124,7 +124,7 @@
 ;; reformat itself out from under you mid-keystroke.
 ;;
 ;; For the layers, the equality gate, and the `:<-` arrow in full, see
-;; `docs/guide/concepts/subscriptions.md`.
+;; `docs/core/concepts/subscriptions.md`.
 
 (rf/reg-sub :temp/active
   (fn sub-temp-active [db _] (get-in db [:temp :input-source])))
@@ -200,13 +200,13 @@
 ;; `subscribe` in the tree finds its way home to that frame. Mount again under
 ;; the same `:id` — a hot reload, say — and the provider hands back the frame
 ;; that's already alive instead of re-seeding, so your half-typed temperature
-;; survives the save. See `docs/guide/concepts/frames.md`.
+;; survives the save. See `docs/core/concepts/frames.md`.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` looks special but isn't —
 ;; it's an ordinary frame id. The runtime never guesses which frame you mean,
 ;; so we name one here and hand it over explicitly, the same way the counter
 ;; example does (`examples/core/counter/core.cljs`). See
-;; `docs/guide/glossary.md#frame-identity-is-carried-not-found`.
+;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
 (defn run []
@@ -214,7 +214,7 @@
   ;; Reagent. Each adapter ns exports an `adapter` var; you require the ns and
   ;; pass that var. One call, at startup. Note it installs the adapter, not a
   ;; frame — the frame comes later, via the provider below.
-  ;; See `docs/guide/glossary.md#init`.
+  ;; See `docs/core/glossary.md#init`.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

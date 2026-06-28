@@ -99,7 +99,7 @@
 ;; re-seed. Every `dispatch`/`subscribe` inside the tree finds that
 ;; frame — including the work-bench wrapper's `r/with-let` cleanup over
 ;; in views.cljs, which dispatches `[:work/flow [:cancel]]` from render
-;; scope. See the frame glossary (docs/guide/glossary.md#frame).
+;; scope. See the frame glossary (docs/core/glossary.md#frame).
 (def app-frame :rf/default)
 
 (defn run []

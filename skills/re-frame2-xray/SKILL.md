@@ -149,7 +149,7 @@ that matches the user's situation.
 | Put Xray on a second monitor with the app full-screen | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path — it dispatches `:rf.xray/popout-shell`). Or, as the secondary programmatic/devtools path, `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
 | Install Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation + apply config (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. Static drops the event spine and shows the 5 registry-browse tabs. |
-| Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/). |
+| Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp). |
 | Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
 
 **Most common launch failure — "the panel never appeared."** Preload in,

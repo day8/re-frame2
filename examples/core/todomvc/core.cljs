@@ -8,7 +8,7 @@
   address bar, and seeds it once via `:initial-events`. A small hash listener
   turns a `#/active` URL change into a `:rf.route/handle-url-change` event —
   because in re-frame2 the URL is just an input, and navigation is just an
-  event. See docs/guide/concepts/frames.md."
+  event. See docs/core/concepts/frames.md."
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]

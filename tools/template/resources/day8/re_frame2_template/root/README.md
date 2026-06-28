@@ -331,7 +331,7 @@ A minimal **counter app** demonstrates the re-frame2 dataflow end-to-end:
   plus a `<span>` that reads the subscription.
 
 This is the same counter walked through in
-[the re-frame2 guide](https://github.com/day8/re-frame2/tree/main/docs/guide) —
+[the re-frame2 guide](https://github.com/day8/re-frame2/tree/main/docs/core) —
 the state key is intentionally feature-scoped (`:counter/value`, not a
 bare `:count`) so generated applications start with AI-readable,
 non-colliding app-db slices.
@@ -622,7 +622,7 @@ and the feature-modularity prefix convention.
 
 ## Next steps
 
-- Read the [the re-frame2 guide](https://github.com/day8/re-frame2/tree/main/docs/guide).
+- Read the [the re-frame2 guide](https://github.com/day8/re-frame2/tree/main/docs/core).
 - Browse the
   [Pattern Specification](https://github.com/day8/re-frame2/tree/main/spec)
   for the contract.

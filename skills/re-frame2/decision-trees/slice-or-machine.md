@@ -123,7 +123,7 @@ If a reference contradicts the leaf, **the reference wins** — and if it's the 
 
 ## Cross-references
 
-- [`pick-a-pattern.md`](./pick-a-pattern.md) — pattern choice (orthogonal to state-shape choice).
+- [`pick-a-pattern.md`](pick-a-pattern.md) — pattern choice (orthogonal to state-shape choice).
 - [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) — how to author `reg-machine` (states / initial / guards / actions).
 - [`../references/state-machines/regions.md`](../references/state-machines/regions.md) — single-region and `:type :parallel` regions.
 - [`../references/state-machines/tags.md`](../references/state-machines/tags.md) — `:tags` on states + `machine-has-tag?` query.

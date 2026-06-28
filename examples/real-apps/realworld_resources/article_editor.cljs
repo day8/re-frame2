@@ -22,7 +22,7 @@
       value through a plain sub over the flow's `:output-path`. The flow is
       registered per-frame from `:editor/initialise` via `:rf.fx/reg-flow`, so it
       binds to whatever frame the app booted on. See the flow glossary:
-      ../../../docs/guide/glossary.md#flow.
+      ../../../docs/core/glossary.md#flow.
 
    3. A navigation `:can-leave` guard. The editor route declares
       `:can-leave [:editor/can-leave?]`; a dirty draft blocks a navigate-away and
@@ -113,7 +113,7 @@
 ;; the submit, and a sub would force the handler to subscribe mid-handler, which is
 ;; awkward. The submit button, meanwhile, reads the very same materialised value
 ;; through a plain sub over the `:output-path`. One derived fact, two readers, no
-;; duplication. See the flow glossary: ../../../docs/guide/glossary.md#flow.
+;; duplication. See the flow glossary: ../../../docs/core/glossary.md#flow.
 ;;
 ;; It's registered per-frame via `:rf.fx/reg-flow` from `:editor/initialise` (not
 ;; at ns-load), so it binds to whatever frame the app booted on. The flow's first

@@ -134,7 +134,7 @@ hello-world, not a routing-demo.
 **Why.**
 
 - **rf2-2kzw throughline.** [The Guide quickstart — a counter in
-  five minutes](../../../docs/guide/quickstart.md) walks through a
+  five minutes](../../../docs/core/quickstart.md) walks through a
   counter. The reference `examples/<substrate>/counter*/` apps
   are counters. The template emits a counter. A developer who
   runs the template and then opens the guide sees the same code

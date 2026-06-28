@@ -6,7 +6,7 @@ These hold across every phase of building a new re-frame2 implementation. Each r
 
 ## 1. The spec is the contract
 
-[`spec/`](../../../spec/) is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; draft a GitHub issue against `day8/re-frame2` (against the spec or the reference impl as appropriate) and ask the engineer to OK it before filing — see rule 9.
+[`spec/`](../../../spec) is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; draft a GitHub issue against `day8/re-frame2` (against the spec or the reference impl as appropriate) and ask the engineer to OK it before filing — see rule 9.
 
 **Pin the spec before reading it.** The kickoff prompt names a specific `day8/re-frame2` commit/tag; Phase 1 records that pin in `DECISIONS.md` (the preamble before D1 — see [`decision-record.md`](decision-record.md)). Before reading the spec corpus, verify `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin **and** that the origin is `https://github.com/day8/re-frame2`. The engineer actually runs this check in the Phase 1 preamble ([`phase-1-decisions.md`](phase-1-decisions.md)). An unpinned or unverified checkout is not a contract — it's whatever happens to be on the filesystem.
 
@@ -32,7 +32,7 @@ Where the CLJS reference makes `compute-sub` and `machine-transition` pure-funct
 
 ## 7. Conformance corpus is the acceptance test
 
-[`spec/conformance/`](../../../spec/conformance/) is the verification mechanism. Your port runs the fixtures whose capabilities are a subset of what you've claimed; the score is `passed / claimed-applicable`. A fixture you cannot make pass without consulting outside sources is a **spec gap**, not an implementation gap — draft a GitHub issue against `day8/re-frame2` against the spec corpus, then file with engineer approval (rule 9).
+[`spec/conformance/`](../../../spec/conformance) is the verification mechanism. Your port runs the fixtures whose capabilities are a subset of what you've claimed; the score is `passed / claimed-applicable`. A fixture you cannot make pass without consulting outside sources is a **spec gap**, not an implementation gap — draft a GitHub issue against `day8/re-frame2` against the spec corpus, then file with engineer approval (rule 9).
 
 ## 8. If you find a spec gap, draft a GitHub issue and ask before filing. Do not paper.
 

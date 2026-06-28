@@ -4,7 +4,7 @@ If you've shipped a React app in the last few years, you've almost certainly rea
 
 re-frame2's [resources](concepts.md) capability is that instinct, ported to a data-oriented Clojure world. The core idea transfers almost completely: **a keyed cache of server reads, with staleness, request deduplication, tag-based invalidation, and garbage collection.** If you hold that model, you already understand 80% of resources. This page maps the vocabulary so the remaining 20% lands fast — and then spends most of its words on the handful of places re-frame2 deliberately walked away from the TanStack design, because *that's* the interesting part.
 
-The honest framing up front: TanStack Query is a *hook* library. Its primitives live inside a component's render and reach back out into the cache. re-frame2's primitives live in the [event](../guide/glossary.md#event)/[subscription](../guide/glossary.md#subscription) substrate, and the cache is just another piece of [runtime-db](../guide/glossary.md#runtime-db). So the cache *behaviour* maps cleanly; the *seams* — where the cache touches your components — are drawn in a different place on purpose. Most of the friction you'll feel moving over is one fact restated three ways: **a read never causes a fetch.**
+The honest framing up front: TanStack Query is a *hook* library. Its primitives live inside a component's render and reach back out into the cache. re-frame2's primitives live in the [event](../core/glossary.md#event)/[subscription](../core/glossary.md#subscription) substrate, and the cache is just another piece of [runtime-db](../core/glossary.md#runtime-db). So the cache *behaviour* maps cleanly; the *seams* — where the cache touches your components — are drawn in a different place on purpose. Most of the friction you'll feel moving over is one fact restated three ways: **a read never causes a fetch.**
 
 ## The mapping
 
@@ -18,9 +18,9 @@ The honest framing up front: TanStack Query is a *hook* library. Its primitives 
 | `gcTime` (was `cacheTime`) | `:gc-after-ms` | Reclaim after the entry goes *owner-free* for this long. |
 | an *observer* (a mounted `useQuery`) keeps data alive | an **[owner](glossary.md#owner--cause)** (a route, machine, or explicit lease) | Owner = liveness lease. Decoupled from any component mounting. |
 | `enabled: false` / conditional queries | route `:resources` `:when` predicate (or simply: don't fire the cause) | A read with no cause sits at `:idle` — that's the "disabled" state, for free. |
-| `select: (data) => …` | a plain [subscription](../guide/glossary.md#subscription) over `[:rf.resource/data …]` | No `:select` key. You already have a memoised [derivation graph](../guide/glossary.md#the-derivation-graph). |
+| `select: (data) => …` | a plain [subscription](../core/glossary.md#subscription) over `[:rf.resource/data …]` | No `:select` key. You already have a memoised [derivation graph](../core/glossary.md#the-derivation-graph). |
 | `placeholderData: keepPreviousData` | route `:keep-previous?` (+ `:previous-data` in the view-model) | Same anti-flash behaviour for pagination. |
-| `refetchOnWindowFocus` / `refetchOnReconnect` | `(rf/install-revalidation-listeners! frame-id)` | Opt-in per [frame](../guide/glossary.md#frame); refetches only stale *and* owned entries. |
+| `refetchOnWindowFocus` / `refetchOnReconnect` | `(rf/install-revalidation-listeners! frame-id)` | Opt-in per [frame](../core/glossary.md#frame); refetches only stale *and* owned entries. |
 | `refetchInterval` | `:poll-interval-ms` | Owner-driven, auto-pauses on hidden tab. No `setInterval`. |
 | `queryClient.invalidateQueries({ queryKey })` | a [mutation](glossary.md#mutation)'s declared `:invalidates` (by [tag](glossary.md#cache-tag)) | Declared on the write, not called imperatively in `onSuccess`. |
 | `queryClient.setQueryData(key, data)` | a mutation's `:populates` / `:patches` | `:populates` seeds a key; `:patches` transforms one. |
@@ -32,12 +32,12 @@ The honest framing up front: TanStack Query is a *hook* library. Its primitives 
 | `getNextPageParam(lastPage, allPages)` | `:next-page-param` | Terminal is **`nil`** (not `undefined`). |
 | `fetchNextPage()` | `[:rf.resource/load-more …]` (a cause) | Ownerless — it extends the entry the route already owns. |
 | `data.pages.flatMap(p => p.items)` | `[:rf.resource/items …]` | The merged list is framework-owned and memoised, not re-derived in render. |
-| `QueryClientProvider` (one client per app) | a [frame](../guide/glossary.md#frame) (cache lives in its runtime-db) | On the server, *one frame per request* — no process-global cache to leak across users. |
+| `QueryClientProvider` (one client per app) | a [frame](../core/glossary.md#frame) (cache lives in its runtime-db) | On the server, *one frame per request* — no process-global cache to leak across users. |
 | `<HydrationBoundary>` / `dehydrate` | SSR projection + [hydration](../ssr/glossary.md#hydration) under the same freshness rules | A still-fresh hydrated entry isn't refetched; scopes must agree. |
 
 A note for the **SWR** crowd: `useSWR(key, fetcher)` is the `useQuery` row; `mutate(key)` is `invalidateQueries`; bound `mutate` with `optimisticData` + `rollbackOnError` is the `:optimistic` / rollback row; `keepPreviousData` is `:keep-previous?`. SWR's `revalidateOnFocus` is the revalidation-listeners row. The mental model is identical; SWR just gives you a smaller surface.
 
-And for **RTK Query**: you're already closest to home, because RTK Query also makes you *declare* the cache graph up front (`createApi` with endpoints, `providesTags` / `invalidatesTags`) instead of calling `invalidateQueries` ad hoc. re-frame2's [tag](glossary.md#cache-tag) invalidation is RTK Query's `providesTags`/`invalidatesTags` with one upgrade — the invalidation is recorded on the causal [event](../guide/glossary.md#event) record, so you can see *which write* staled *which read* in [Xray](../guide/glossary.md#xray). RTK Query's `keepUnusedDataFor` is `:gc-after-ms`; its auto-generated hooks have no analogue (resources don't code-gen — you write the read and the cause), and its endpoint *is* roughly a resource registration.
+And for **RTK Query**: you're already closest to home, because RTK Query also makes you *declare* the cache graph up front (`createApi` with endpoints, `providesTags` / `invalidatesTags`) instead of calling `invalidateQueries` ad hoc. re-frame2's [tag](glossary.md#cache-tag) invalidation is RTK Query's `providesTags`/`invalidatesTags` with one upgrade — the invalidation is recorded on the causal [event](../core/glossary.md#event) record, so you can see *which write* staled *which read* in [Xray](../core/glossary.md#xray). RTK Query's `keepUnusedDataFor` is `:gc-after-ms`; its auto-generated hooks have no analogue (resources don't code-gen — you write the read and the cause), and its endpoint *is* roughly a resource registration.
 
 ## Where it diverges
 
@@ -51,7 +51,7 @@ re-frame2 splits those into three lanes that never blur:
 
 - **Register** — `(rf/reg-resource …)` at boot. Teaches the runtime *how* to fetch. Fetches nothing.
 - **Cause** — a route entry, an event, or a [machine](../machines/glossary.md#machine) dispatches `[:rf.resource/ensure …]`. This is what makes a fetch happen.
-- **Project** — `@(subscribe [:rf.resource/state …])` in a [view](../guide/glossary.md#view). Passive. Reads the cache; never triggers a fetch.
+- **Project** — `@(subscribe [:rf.resource/state …])` in a [view](../core/glossary.md#view). Passive. Reads the cache; never triggers a fetch.
 
 The cost: you write a cause that `useQuery` gave you for free. The payoff: the view is now a pure function of the cache. The *same* view renders on the server, in a unit test, or after a cache hit — with **no network call hiding in the render**. That's also why "I registered the resource but my view is a permanent skeleton" almost always means *you forgot the cause*, not the read. A subscription that finds no entry reads `:idle` and stays there until something causes the fetch. (TanStack's `enabled: false` is this same idea — a read that doesn't fetch — except here it's the default shape rather than a flag.)
 
@@ -136,7 +136,7 @@ The genuinely *different* behaviour — not just a different spelling — is the
 
 A `QueryClient` is conceptually one cache per app. That's fine in the browser. On the server it's a hazard — a process-global cache is, by construction, a place where one request's data can surface in another's. TanStack's answer is careful per-request dehydration; you opt into isolation.
 
-In re-frame2 the cache is a subsystem of [runtime-db](../guide/glossary.md#runtime-db), which is a half of a [frame](../guide/glossary.md#frame) — one running instance of your app. On the server, **each request renders in its own frame**, so request isolation isn't a discipline you maintain; it's the default topology. (It also means the cache is deliberately *not* your [app-db](../guide/glossary.md#app-db) — an ordinary event handler can't reach in and corrupt it; same in / out discipline as the rest of the framework, the storage just moved next door.) Blocking route resources are the render's wait point, settled entries serialize with the page (sensitive slots redacted by [data classification](../guide/glossary.md#data-classification)), and [hydration](../ssr/glossary.md#hydration) reinstalls them under the same freshness rules — a still-fresh entry isn't refetched, so there's no duplicate-fetch flash on first paint, and hydration refuses to cross scopes.
+In re-frame2 the cache is a subsystem of [runtime-db](../core/glossary.md#runtime-db), which is a half of a [frame](../core/glossary.md#frame) — one running instance of your app. On the server, **each request renders in its own frame**, so request isolation isn't a discipline you maintain; it's the default topology. (It also means the cache is deliberately *not* your [app-db](../core/glossary.md#app-db) — an ordinary event handler can't reach in and corrupt it; same in / out discipline as the rest of the framework, the storage just moved next door.) Blocking route resources are the render's wait point, settled entries serialize with the page (sensitive slots redacted by [data classification](../core/glossary.md#data-classification)), and [hydration](../ssr/glossary.md#hydration) reinstalls them under the same freshness rules — a still-fresh entry isn't refetched, so there's no duplicate-fetch flash on first paint, and hydration refuses to cross scopes.
 
 ## Where do auth headers go?
 
@@ -162,7 +162,7 @@ A query library is the obvious default in React because it's the *only* server-s
 > - **A handful of reads, no caching story.** A [managed HTTP request](http.md) plus a small app-db slice is less machinery and entirely idiomatic.
 > - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../machines/concepts.md), not a cached read.
 
-Reach for resources when cached server reads start multiplying and the per-read bookkeeping — scope, staleness, dedupe, invalidation, GC, SSR — is worth moving into the framework. [Where should this value live?](../guide/where-state-lives.md) has the decision table, and resources are one of [the four homes](../guide/glossary.md#the-four-homes-where-state-lives) state can take.
+Reach for resources when cached server reads start multiplying and the per-read bookkeeping — scope, staleness, dedupe, invalidation, GC, SSR — is worth moving into the framework. [Where should this value live?](../core/where-state-lives.md) has the decision table, and resources are one of [the four homes](../core/glossary.md#the-four-homes-where-state-lives) state can take.
 
 ## The full parity scorecard
 
@@ -219,7 +219,7 @@ Three command names earn a sentence each, because a query-library reader reaches
 
 - **`:rf.resource/refetch`** is the imperative bypass — TanStack's `refetch()` / SWR's `mutate(key)` with no data. It forces a fetch regardless of freshness, carrying a `:cause` but usually *no* `:owner` (a manual refresh keeps no lease).
 - **`:rf.resource/remove`** evicts one exact entry (scope + resource + params), eagerly, regardless of GC policy — the surgical counterpart to letting GC reclaim it.
-- **`:rf.resource/release-owner`** drops an app-minted lease (the matching half of an `:owner` you attached on an `ensure`). Forgetting it is the orphaned-owner leak [Xray](../guide/glossary.md#xray) lints for.
+- **`:rf.resource/release-owner`** drops an app-minted lease (the matching half of an `:owner` you attached on an `ensure`). Forgetting it is the orphaned-owner leak [Xray](../core/glossary.md#xray) lints for.
 
 ---
 

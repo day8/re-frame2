@@ -17,7 +17,7 @@
      - `(:dispatch (rf/capture-frame))` to dispatch from a click handler
 
    For the full substrate tour see
-   `docs/guide/how-to/use-uix-helix-or-slim.md`."
+   `docs/core/how-to/use-uix-helix-or-slim.md`."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
@@ -32,7 +32,7 @@
 ;; "replace app-db with this value", and the runtime commits it atomically at
 ;; the end of the cascade. Not a word about React in here — so this block is
 ;; byte-for-byte the same as the Reagent and UIx counters. See
-;; `docs/guide/glossary.md#event-handler`.
+;; `docs/core/glossary.md#event-handler`.
 ;;
 ;; You might wonder why the three counters retype these handlers instead of
 ;; sharing one namespace. It's deliberate. Each example is its own self-
@@ -69,7 +69,7 @@
 ;; frame as a value, so the closed-over `dispatch` still finds this frame when
 ;; a click fires later — on a stack that no longer has any frame in scope. So
 ;; grab it at render time, while the frame is still around. See
-;; `docs/guide/glossary.md#capture-frame`.
+;; `docs/core/glossary.md#capture-frame`.
 
 (defnc counter-buttons []
   (let [count    (helix-adapter/use-subscribe [:counter/value])  ;; read: re-renders when :counter/value changes
@@ -95,13 +95,13 @@
 ;; with no special status — the runtime never conjures a frame for you, so we
 ;; name one here and hand it to the provider. From there the `use-subscribe`
 ;; hook and the render-time `(rf/capture-frame)` both resolve to it. See
-;; `docs/guide/glossary.md#frame-identity-is-carried-not-found`.
+;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
 (defn run []
   ;; `init!` installs the reactive adapter for the process. Each adapter ns
   ;; exports an `adapter` var; require the ns and pass that var. Call once at
-  ;; startup. See `docs/guide/glossary.md#init`.
+  ;; startup. See `docs/core/glossary.md#init`.
   (rf/init! helix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root
@@ -110,7 +110,7 @@
     ;; mount creates the app frame and runs its `:initial-events` once to seed
     ;; app-db. A later mount under the same `:id` — a hot reload — reuses the
     ;; live frame and skips the seeding, so the count you were staring at
-    ;; survives the reload. See `docs/guide/concepts/frames.md`.
+    ;; survives the reload. See `docs/core/concepts/frames.md`.
     (.render @react-root
              ($ helix-adapter/frame-provider {:id app-frame
                                               :initial-events [[:counter/initialise]]}

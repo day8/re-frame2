@@ -432,10 +432,10 @@ alternatives.
 | EP-0017 text | `:rf.cofx/requires` lives on `reg-event` (no db-handler exception) |
 | `implementation/core` (`events.cljc`, `core.cljc`, `router.cljc`) | add `reg-event`; remove public `-db`/`-fx`/`-ctx`; one `:rf/event-handler` wrapper; drop the now-moot `reg-event-db`-requires error path |
 | `examples/` | ~33 `reg-event-db`/`-fx` sites across ≥10 files → `reg-event` |
-| `docs/guide/` + quickstart | first event examples rewritten around the one form (the two pedagogy mitigations) |
+| `docs/core/` + quickstart | first event examples rewritten around the one form (the two pedagogy mitigations) |
 | `skills/` + `migration/from-re-frame-v1/` + `skills/re-frame-migration` | one-form guidance; the codemod + a migration breaking-changes entry |
 | Xray / Story / pair-MCP | code-snippet labels, highlighting, event panels |
-| `docs/guide/api/15-removed.md` | record `reg-event-db` / `reg-event-fx` / public `reg-event-ctx` as removed, naming `reg-event` / `->interceptor` |
+| `docs/core/api/15-removed.md` | record `reg-event-db` / `reg-event-fx` / public `reg-event-ctx` as removed, naming `reg-event` / `->interceptor` |
 
 Hot-zone: 001-Registration, 002-Frames, Spec-Schemas, 009, 015, API.md/manifest
 are sequential, one worker per step.
@@ -463,7 +463,7 @@ are sequential, one worker per step.
    representative v1 snippets; flag nil-capable `-db` handlers (D7).
 7. **Conformance** — the assertions below.
 8. **Wave-end** — correctness/completeness review + the four standard
-   propagation tails (`/skills`, `/examples`, `/tools`, `/docs/guide`).
+   propagation tails (`/skills`, `/examples`, `/tools`, `/docs/core`).
 
 ## Conformance
 

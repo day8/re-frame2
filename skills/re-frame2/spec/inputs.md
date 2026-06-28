@@ -65,7 +65,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 ## 5. What the skill does NOT consume
 
-- **`docs/guide/**`** — the narrative human guide. The skill is for AI agents authoring code; the guide is for humans learning the framework. Cross-references run through `SKILL-REDIRECT.md`, not into the guide directly.
+- **`docs/core/**`** — the narrative human guide. The skill is for AI agents authoring code; the guide is for humans learning the framework. Cross-references run through `SKILL-REDIRECT.md`, not into the guide directly.
 - **`docs/EPs/**`** — EP rationale documents. The leaves cite EPs by name but don't quote them.
 - **`tests/**`** — re-frame2's own test suite. The test-authoring leaf points at `re-frame.test-support` (the public surface), not at how that surface is tested internally.
 - **`tools/**`** — re-frame2's dev/inspection tooling. Out of scope for application-authoring guidance.

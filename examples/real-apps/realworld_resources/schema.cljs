@@ -11,7 +11,7 @@
 
    The wire shapes pull double duty: they're the resource `:data-schema` values
    AND the `:decode` schemas inside each resource / mutation `:request`. See
-   schema: ../../../docs/guide/glossary.md#schema.
+   schema: ../../../docs/core/glossary.md#schema.
 
    The RealWorld API spec is documented at:
      https://github.com/gothinkster/realworld/tree/main/api"
@@ -35,7 +35,7 @@
   ;; capture of the response body. The durable copy at [:auth :token] is a
   ;; separate matter, classified by the `:sensitive` effect in core.cljs —
   ;; classification doesn't propagate, so each surface declares its own. See data
-  ;; classification: ../../../docs/guide/glossary.md#data-classification.
+  ;; classification: ../../../docs/core/glossary.md#data-classification.
   [:map
    [:email    :string]
    [:token    {:sensitive? true} :string]

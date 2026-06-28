@@ -27,13 +27,13 @@
    exactly the seed content and not one feature more, which keeps the
    bundle small and spares us an npm dependency for a demo.
 
-   New to the terms? docs/guide/glossary.md defines event, subscription,
-   app-db, and view; docs/guide/concepts/views.md covers views and hiccup
+   New to the terms? docs/core/glossary.md defines event, subscription,
+   app-db, and view; docs/core/concepts/views.md covers views and hiccup
    in depth."
   ;; We render through stock Reagent (`reagent.dom.client` +
   ;; `re-frame.adapter.reagent`). The adapter is the value that teaches
   ;; re-frame2 how to talk to a given rendering library — swap it and the
-  ;; same app runs on UIx or Helix. See docs/guide/glossary.md#adapter.
+  ;; same app runs on UIx or Helix. See docs/core/glossary.md#adapter.
   (:require [reagent.dom.client :as rdc]
             [clojure.string     :as str]
             [re-frame.core      :as rf]
@@ -86,7 +86,7 @@
 ;; quietly poison that — every replay would mint a different id. The
 ;; seeded docs (`:welcome`, `:six-dominoes`, …) have no `doc-` prefix, so
 ;; they're invisible to the scan and the first new id is `:doc-1`. See
-;; docs/guide/concepts/events-and-the-cascade.md on replayable events.
+;; docs/core/concepts/events-and-the-cascade.md on replayable events.
 (defn- allocate-next-doc-id
   "Next `:doc-N` id: highest existing N plus one (or 1 when there are
    none). A pure function of the current documents, so it replays
@@ -123,7 +123,7 @@
 ;; function of their values. The payoff is that it recomputes only when
 ;; one of those inputs actually changes, and the subs downstream (`-body`,
 ;; `-hiccup`) chain off this one in the same way. A little graph of pure
-;; derivations. See docs/guide/concepts/subscriptions.md.
+;; derivations. See docs/core/concepts/subscriptions.md.
 (rf/reg-sub :notebook/selected
   :<- [:notebook/documents]
   :<- [:notebook/selected-id]
@@ -298,7 +298,7 @@
 ;; No `rf/` prefix, no frame to thread through; they find the frame in
 ;; scope at render time on their own. Each view below just subscribes to
 ;; what it needs and dispatches on interaction — pure functions of state,
-;; nothing reaching out to mutate. See docs/guide/concepts/views.md.
+;; nothing reaching out to mutate. See docs/core/concepts/views.md.
 
 (reg-view sidebar []
   (let [docs        @(subscribe [:notebook/documents])
@@ -372,7 +372,7 @@
 ;; every `dispatch` and `subscribe` in the tree resolves to it. The name
 ;; `:rf/default` is just an id — pick any keyword; it earns no special
 ;; privileges for being the only one here. See
-;; docs/guide/concepts/frames.md.
+;; docs/core/concepts/frames.md.
 (def app-frame :rf/default)
 
 (defn run []

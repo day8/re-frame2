@@ -41,7 +41,7 @@
 ;; lands in app-db should be a function of prior state. Replay the same event
 ;; stream and you must get the same ids back — a random uuid would betray that
 ;; the moment you replayed (see "Recordable vs ambient coeffects" in
-;; docs/guide/glossary.md). The id itself is humble: a React `:key` and
+;; docs/core/glossary.md). The id itself is humble: a React `:key` and
 ;; something to aim a right-click at. And since undo/redo snapshots whole
 ;; `:circles` vectors, the ids simply ride along in the snapshot and come back
 ;; unchanged.
@@ -87,7 +87,7 @@
 ;; this interceptor's id (`:undoable`) in its :interceptors — nothing more. Only
 ;; the events that *commit* a change wear it, which is exactly why dragging the
 ;; slider around can stay silent and add no history at all.
-;; See docs/guide/concepts/interceptors.md.
+;; See docs/core/concepts/interceptors.md.
 
 (rf/reg-interceptor :undoable
   {:doc "Snapshot :circles before an undoable handler runs; push the prior
@@ -205,7 +205,7 @@
 ;; and the subs below chain off it with `:<-`. So the [:drawer ...] walk happens
 ;; a single time per app-db swap, not once per dependent recompute — a small
 ;; habit that keeps a subscription graph cheap as it grows.
-;; See docs/guide/concepts/subscriptions.md.
+;; See docs/core/concepts/subscriptions.md.
 
 (rf/reg-sub :drawer/slice (fn [db _] (:drawer db)))
 
@@ -288,7 +288,7 @@
 ;;
 ;; `app-frame` is just a name we picked. `:rf/default` carries no special powers;
 ;; it's an ordinary frame id, named here and handed to the provider like any
-;; other. See docs/guide/concepts/frames.md.
+;; other. See docs/core/concepts/frames.md.
 (def app-frame :rf/default)
 
 (defn run []

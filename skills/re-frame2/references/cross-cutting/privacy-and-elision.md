@@ -4,7 +4,7 @@ re-frame2's killer feature is also its leak: one runtime story feeds every tool 
 
 > **Mental model: classify a path, redact at the boundary — fail-open.** Familiar if you've used Rails' filtered parameters, a logging redactor, or a DLP scheme — *but inverted from the usual mistake.* The wrong answer is to filter at each consumer ("tell every tool to drop the password"); the one that doesn't, leaks everything. re-frame2 classifies a *path* once **at the owner of that data's shape**, projects at the **trust boundary**, and every **sink receives an already-safe record**. You declare; the framework projects; sinks consume. It is **fail-open** — a path you never classify ships raw, and there is **no propagation or taint**. Hygiene, not a guarantee.
 
-This leaf is the recipe + when-to-reach-for-it. Depth (failure posture, exception gap, three sentinels, SSR allowlist): [Keep secrets out of traces](../../../../docs/guide/how-to/keep-secrets-out-of-traces.md). Normative home: [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md).
+This leaf is the recipe + when-to-reach-for-it. Depth (failure posture, exception gap, three sentinels, SSR allowlist): [Keep secrets out of traces](../../../../docs/core/how-to/keep-secrets-out-of-traces.md). Normative home: [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md).
 
 ## The one law
 
@@ -244,7 +244,7 @@ Calling any of these names fails the skills projection gate (it does not resolve
 
 ## Cross-references
 
-- [Guide — Keep secrets out of traces](../../../../docs/guide/how-to/keep-secrets-out-of-traces.md): the failure posture, the exception gap, the SSR allowlist, the exception-path residual.
+- [Guide — Keep secrets out of traces](../../../../docs/core/how-to/keep-secrets-out-of-traces.md): the failure posture, the exception gap, the SSR allowlist, the exception-path residual.
 - [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md): normative home.
 - `production-observability.md`: the listener/event/error substrate behind frame `:observability`.
 - Spec 009: privacy at the trace/emission boundary. Spec 010: per-slot Malli metadata and the schema walker.

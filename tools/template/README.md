@@ -140,7 +140,7 @@ clojure -M:shadow watch app   # or: npx shadow-cljs watch app
 ```
 
 You should see the counter — the same shape walked through in
-[Guide quickstart — a counter in five minutes](../../docs/guide/quickstart.md).
+[Guide quickstart — a counter in five minutes](../../docs/core/quickstart.md).
 
 ## Testing the template
 

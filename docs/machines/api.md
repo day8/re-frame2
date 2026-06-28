@@ -231,7 +231,7 @@ The v1 transition-table grammar covers a specific subset of Statechart capabilit
 
 ## See also
 
-- [01 — Core](../guide/api/01-core.md) — `reg-machine` rowed in registration.
-- [08 — Schemas](../guide/api/08-schemas.md) — machines declare schemas for their `:data` slot the same way ordinary handlers do.
-- [11 — Instrumentation](../guide/api/11-instrumentation.md) — machine snapshots are part of the epoch buffer; transitions emit trace events.
+- [01 — Core](../core/api/01-core.md) — `reg-machine` rowed in registration.
+- [08 — Schemas](../core/api/08-schemas.md) — machines declare schemas for their `:data` slot the same way ordinary handlers do.
+- [11 — Instrumentation](../core/api/11-instrumentation.md) — machine snapshots are part of the epoch buffer; transitions emit trace events.
 - [Spec 005 — State Machines](../../spec/005-StateMachines.md) — the normative source.

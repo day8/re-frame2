@@ -478,5 +478,5 @@ Phase 4's `:dispatch` rail emits these fx; the chrome's control widgets and tool
 - [MCP surface](mcp-surface.md) — the same fns above, consumed by the `tools/story-mcp/` jar over JSON-RPC.
 - [Story tutorial — Your first variant](../01-first-variant.md) — `mount-shell!` in context.
 - [Story tutorial — Snapshot identity and sharing](../08-snapshot-identity-and-sharing.md) — `snapshot-identity` + `variant-share-url` in worked usage.
-- [Framework API — Lifecycle](../../guide/api/13-lifecycle.md) — `rf/init!` runs before `mount-shell!`. The adapter must be installed before Story attaches.
+- [Framework API — Lifecycle](../../core/api/13-lifecycle.md) — `rf/init!` runs before `mount-shell!`. The adapter must be installed before Story attaches.
 - [Xray API — Configuration keys](../../xray/api/config-keys.md) — `:rf.xray/project-root`, the slot Story's `:rf.story/project-root` bridges into.

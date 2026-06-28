@@ -152,7 +152,7 @@
   `[:rf.interceptor/path <path-vector>]` in a handler's `:interceptors` chain.
   Calling `rf/path` is the hard error `:rf.error/path-removed`, naming that ref
   as the replacement. See spec/API.md §Standard interceptors,
-  EP-0022 §Registered interceptors, and docs/guide/api/15-removed.md."
+  EP-0022 §Registered interceptors, and docs/core/api/15-removed.md."
   [& path-segs]
   (raise-removed-std-interceptor! (get removed-std-interceptor-by-sym 'path) path-segs))
 
@@ -186,7 +186,7 @@
   `:app/unwrap` interceptor for genuine chain-wide reshaping. Referencing
   `rf/unwrap-interceptor` is the hard error `:rf.error/unwrap-removed`, naming
   those replacements. See spec/API.md §Standard interceptors,
-  EP-0022 §Registered interceptors, and docs/guide/api/15-removed.md."
+  EP-0022 §Registered interceptors, and docs/core/api/15-removed.md."
   [& _args]
   (raise-removed-std-interceptor!
     (get removed-std-interceptor-by-sym 'unwrap-interceptor) _args))

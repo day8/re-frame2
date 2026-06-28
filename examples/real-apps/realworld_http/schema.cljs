@@ -5,7 +5,7 @@
    API hands back AND the shape of each app-db slice that stores it, so the two
    never quietly drift apart. The slice schemas get wired up for path-based
    validation via `reg-app-schemas` at the bottom. See the schemas how-to:
-   ../../../docs/guide/how-to/validate-with-schemas.md
+   ../../../docs/core/how-to/validate-with-schemas.md
 
    The RealWorld API spec is documented at:
      https://github.com/gothinkster/realworld/tree/main/api
@@ -40,7 +40,7 @@
   ;; so every surface a secret touches has to declare it for itself. (The
   ;; Bearer header gets this for free, via the framework's built-in carrier
   ;; denylist.) See the keep-secrets how-to:
-  ;; ../../../docs/guide/how-to/keep-secrets-out-of-traces.md
+  ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
   [:map
    [:email    :string]
    [:token    {:sensitive? true} :string]

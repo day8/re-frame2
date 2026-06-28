@@ -11,7 +11,7 @@ step `:idle → :submitting → :error-shown` and back, then finally settle in
 just start it and click.
 
 The form runs on a [machine](../../../../docs/machines/glossary.md#machine), which
-is really just an [event handler](../../../../docs/guide/glossary.md#event-handler)
+is really just an [event handler](../../../../docs/core/glossary.md#event-handler)
 written as a transition table. That's the idea worth taking away:
 
 > **A machine is just data — so the same value that renders in a browser also unit-tests on the JVM.**
@@ -47,7 +47,7 @@ at it, poke here.
   [`views.cljs`](views.cljs) mounts a real Reagent login form. Every visible
   decision reads the machine's
   [snapshot](../../../../docs/machines/glossary.md#snapshot) through
-  [subscriptions](../../../../docs/guide/glossary.md#subscription). The view asks
+  [subscriptions](../../../../docs/core/glossary.md#subscription). The view asks
   *what tag is active*, not *which exact state*. `(rf/machine-has-tag?
   :auth.login/flow :auth/busy)` disables the inputs and re-labels the button
   while a request is in flight; `:auth/locked` swaps the form for a lockout
@@ -61,22 +61,22 @@ at it, poke here.
   [snapshot](../../../../docs/machines/glossary.md#snapshot) and an event into
   `machine-transition`, then assert against the snapshot that comes back. For
   the full-loop scenarios,
-  [drain](../../../../docs/guide/glossary.md#drain--run-to-completion) the event
-  queue through a throwaway [frame](../../../../docs/guide/glossary.md#frame) and
-  check where the [app-db](../../../../docs/guide/glossary.md#app-db) settles. The
+  [drain](../../../../docs/core/glossary.md#drain--run-to-completion) the event
+  queue through a throwaway [frame](../../../../docs/core/glossary.md#frame) and
+  check where the [app-db](../../../../docs/core/glossary.md#app-db) settles. The
   chapter promises "runs in microseconds on the JVM, no browser, no network,"
   and the same `login-flow` value makes good on it.
 
 - **An HTTP call that composes with the machine for free.** The
   `:issue-request` action returns an
-  [effect](../../../../docs/guide/glossary.md#effect), not a side effect. It fires
+  [effect](../../../../docs/core/glossary.md#effect), not a side effect. It fires
   `:rf.http/managed` and names its `:on-success` / `:on-failure` as
   machine-wrapped events. When the request returns,
   [managed HTTP](../../../../docs/resources/http.md) appends the reply to that
   inner event and dispatches it straight back into the machine. That is
-  [the uniform reply](../../../../docs/guide/glossary.md#the-uniform-reply), and
+  [the uniform reply](../../../../docs/core/glossary.md#the-uniform-reply), and
   it's why the async boundary needs no glue code. The network is swapped out via
-  the [`:fx-overrides`](../../../../docs/guide/glossary.md#effect) seam: it
+  the [`:fx-overrides`](../../../../docs/core/glossary.md#effect) seam: it
   redirects `:rf.http/managed` to the example's own
   `:auth.login/canned-success` / `:auth.login/canned-failure` wrapper effects in
   [`core.cljc`](core.cljc), which fix this example's payloads. No real traffic,

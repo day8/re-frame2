@@ -85,7 +85,7 @@
 ;; onto the causal token, and replay / epoch-restore later re-presents that exact
 ;; captured token rather than re-reading whatever localStorage happens to hold
 ;; now. See recordable vs ambient coeffects:
-;; ../../../docs/guide/glossary.md#recordable-vs-ambient-coeffects.
+;; ../../../docs/core/glossary.md#recordable-vs-ambient-coeffects.
 (defn read-jwt-from-storage
   "Read the saved JWT from localStorage, or nil — the supplier body behind the
    `:realworld-resources.session/token` recordable generator. nil when the token

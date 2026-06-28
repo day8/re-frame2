@@ -16,11 +16,11 @@ The runtime throws on both, and `cofx_cljs_test.cljc` pins the throws. But the
 EP landing wave left STALE current-surface teaching examples behind — a
 copy-pasteable `[(rf/inject-cofx :rf.server/request)]` interceptor entry in
 spec/Pattern-SSR-Loaders.md / spec/Pattern-FormAction.md, prose in
-docs/guide/api/03-effects.md (rf2-d8mvke.3 finding 2). No residue test scanned the
+docs/core/api/03-effects.md (rf2-d8mvke.3 finding 2). No residue test scanned the
 human-facing surface for the retired API as *live recommended* code, so the
 migration-breaking examples survived. This gate is that scan.
 
-THE POLICY (docs/guide/AUTHORING.md §Delta teaching)
+THE POLICY (docs/core/AUTHORING.md §Delta teaching)
 
     "Retired v1 surfaces (`inject-cofx`, `:rf.world/inputs`) appear *only* on
      that migration page, marked superseded — never in teaching prose
@@ -61,7 +61,7 @@ retired form inside a code fence — that is its job. The allowlist is exactly
 the migration-owning files named by AUTHORING.md plus the EP docs that carry
 the retirement rationale:
 
-  * docs/guide/25-from-re-frame-v1.md   — THE migration guide page
+  * docs/core/25-from-re-frame-v1.md   — THE migration guide page
   * skills/re-frame-migration/**        — the v1→v2 migration skill (owns M-72)
   * docs/EP/** , spec/**/EP-*           — the EP docs (retirement rationale)
 
@@ -74,7 +74,7 @@ allowlist touched.
 
 SCAN SURFACE
 
-`docs/guide/`, `spec/`, and `skills/` markdown (`.md`). Generated
+`docs/core/`, `spec/`, and `skills/` markdown (`.md`). Generated
 mirrors (`docs/spec/` — CI does `rm -rf docs/spec && cp -r spec docs/spec`)
 and vendor/build dirs are excluded; the tracked `spec/` source is the
 authoritative copy.
@@ -101,7 +101,7 @@ from typing import Iterable, NamedTuple
 
 # The human-facing + AI-facing doc surface EP-0017 finding 2 names: the API
 # reference, the guide, the spec, and the skills docs.
-DEFAULT_SCAN_DIRS = ("docs/guide", "spec", "skills")
+DEFAULT_SCAN_DIRS = ("docs/core", "spec", "skills")
 
 _DOC_SUFFIXES = (".md",)
 
@@ -132,7 +132,7 @@ _EXCLUDE_REL_PREFIXES = ("docs/spec/",)
 # §Delta teaching). Matched as repo-relative path prefixes / globs with
 # forward slashes (normalised before matching).
 _ALLOWLIST_PREFIXES = (
-    "docs/guide/25-from-re-frame-v1.md",   # THE migration guide page
+    "docs/core/25-from-re-frame-v1.md",   # THE migration guide page
     "skills/re-frame-migration/",          # the v1→v2 migration skill (M-72)
     "docs/EP/",                            # EP docs (retirement rationale)
 )
@@ -326,7 +326,7 @@ _FIX_HINTS = {
         "metadata key, and suppliers are value-returning `reg-cofx` "
         "(`(fn [] v)` / `(fn [arg] v)`). Rewrite the interceptor entry "
         "`[(rf/inject-cofx :x)]` as `{:rf.cofx/requires [:x]}` on the event's "
-        "registration map. See docs/guide/07-effects-and-coeffects.md and "
+        "registration map. See docs/core/07-effects-and-coeffects.md and "
         "spec/001-Registration.md §`inject-cofx` is removed. (A v1 \"before\" "
         "snippet is legitimate ONLY on the migration surface — the migration "
         "guide page / the re-frame-migration skill / the EP docs.)"
@@ -499,7 +499,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     if allow_path.is_file():
         text = allow_path.read_text(encoding="utf-8", errors="replace")
         got = len(_scan_text(allow_path, text,
-                             rel_posix="docs/guide/25-from-re-frame-v1.md"))
+                             rel_posix="docs/core/25-from-re-frame-v1.md"))
         if got == 0:
             if verbose:
                 sys.stderr.write(

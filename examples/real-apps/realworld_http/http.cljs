@@ -205,7 +205,7 @@
 ;; In tests and replay fixtures you can pin an exact instant through the
 ;; dispatch opts (`{:rf.cofx {:rf/time-ms 1781078400123}}`); live code just
 ;; lets the router stamp the real time. See the coeffects guide:
-;; ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
+;; ../../../docs/core/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
 
 ;; ============================================================================
 ;; FAILURE PROJECTION

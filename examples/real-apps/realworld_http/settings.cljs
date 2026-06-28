@@ -8,7 +8,7 @@
    `:editor`, `:comment-form`) stick with the plain
    `{:draft :submitted :status :errors :touched :submit-error}` slice, so the
    two approaches sit side by side for comparison. See the forms how-to:
-   ../../../docs/guide/how-to/build-a-form.md
+   ../../../docs/core/how-to/build-a-form.md
 
    What moving the form into a machine buys (and costs):
 

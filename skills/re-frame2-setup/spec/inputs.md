@@ -40,7 +40,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 ## 5. What the skill does NOT consume
 
 - **`spec/001-Registration.md` through `spec/014-HTTPRequests.md` (most of the EP corpus)** — the skill doesn't teach the API. Once the counter mounts, the author switches to the `re-frame2` skill, which teaches it.
-- **`docs/guide/**`** — the narrative human guide. Cross-references run through `SKILL-REDIRECT.md`, not into the guide directly.
+- **`docs/core/**`** — the narrative human guide. Cross-references run through `SKILL-REDIRECT.md`, not into the guide directly.
 - **`implementation/machines/**`** / **`implementation/routing/**`** / etc. — per-feature artefacts. The skill defers them per L3 (pay-as-you-go).
 - **`examples/core/{login,managed_http_counter,...}/`, `examples/patterns/{boot,nine_states,...}/`** — application-pattern examples. The setup skill points at `examples/core/counter/` only; the others belong to the main `re-frame2` skill.
 - **`tools/**`** — the skill doesn't reach for repo tooling.

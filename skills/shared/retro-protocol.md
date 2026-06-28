@@ -39,7 +39,7 @@ If the evidence is hostile enough that even rendering it inline would propagate 
 
 3. **Route to the relevant detection rule.** Each skill carries its own catalogue:
    - `re-frame2-pair-retro` — friction signals + recurring friction classes under [`re-frame2-pair-retro/references/analysis-lenses.md`](../re-frame2-pair-retro/references/analysis-lenses.md) and [`re-frame2-pair-retro/references/known-frictions.md`](../re-frame2-pair-retro/references/known-frictions.md).
-   - `re-frame2-improver` — anti-pattern leaves under [`re-frame2-improver/references/`](../re-frame2-improver/references/).
+   - `re-frame2-improver` — anti-pattern leaves under [`re-frame2-improver/references/`](../re-frame2-improver/references).
 
    The catalogue tells the agent *how to recognise* the pattern. This protocol tells the agent *how to handle* the recognition.
 

@@ -8,9 +8,9 @@ full-page reload — while the address bar updates to match.
 
 Here's the one idea worth taking away: **the URL is just application
 state.** A route is a
-[registration](../../../../docs/guide/glossary.md#registration). Navigating is
-dispatching an [event](../../../../docs/guide/glossary.md#event). The active
-route is a [subscription](../../../../docs/guide/glossary.md#subscription) your
+[registration](../../../../docs/core/glossary.md#registration). Navigating is
+dispatching an [event](../../../../docs/core/glossary.md#event). The active
+route is a [subscription](../../../../docs/core/glossary.md#subscription) your
 views watch. There is no router object and no route context to thread
 through your tree.
 
@@ -32,14 +32,14 @@ three-page site. It's the worked companion to
   a framework callback. The detail page reads `:rf.route/params` the
   same way to pull `:id` out of the URL.
 - **Links come from the framework, not glue you write** — every link
-  uses `rf/route-link`, a [view](../../../../docs/guide/glossary.md#view)
+  uses `rf/route-link`, a [view](../../../../docs/core/glossary.md#view)
   shipped by `day8/re-frame2-routing`. It renders a real `<a href="…">`.
   A plain left-click dispatches `:rf/url-requested` to navigate in-app
   (no full-page reload). Modifier-key and middle-clicks fall through to
   the browser, so open-in-new-tab still works. You write no `onClick`
   and no `preventDefault` — that work is the framework's.
 - **One frame owns the address bar** — the app
-  [frame](../../../../docs/guide/glossary.md#frame) declares `:url-bound? true`,
+  [frame](../../../../docs/core/glossary.md#frame) declares `:url-bound? true`,
   and that one flag makes it the URL owner. `install-history-listener!`
   then wires Back/Forward (popstate) and the initial URL→state sync to
   that owner. It's the right surface for the job: a hand-rolled,

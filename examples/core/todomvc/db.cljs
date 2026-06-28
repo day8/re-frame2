@@ -7,7 +7,7 @@
   coeffect (`reg-cofx :todo.storage/todos`) that reads the saved todos in at
   boot. Routing the storage read through a coeffect keeps the durable write
   replayable, which a stray localStorage call inside a handler would quietly
-  break. See docs/guide/glossary.md (coeffect)."
+  break. See docs/core/glossary.md (coeffect)."
   (:require [re-frame.core :as rf]))
 
 ;; Notice there's no `:showing` slot here. The active filter isn't stored — it's
@@ -59,8 +59,8 @@
 ;; that captured snapshot instead of reading localStorage all over again.
 ;;
 ;; `reg-cofx` is how you make a coeffect available. See
-;; docs/guide/glossary.md (coeffect) and
-;; docs/guide/glossary.md#recordable-vs-ambient-coeffects.
+;; docs/core/glossary.md (coeffect) and
+;; docs/core/glossary.md#recordable-vs-ambient-coeffects.
 
 (defn read-todos-from-storage
   "Read the saved TodoMVC items from localStorage into a sorted-map. This is the

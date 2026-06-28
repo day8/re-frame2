@@ -34,7 +34,7 @@
                   via :auth.login/flow → :auth.login/submit.
 
                   Thread two is STATUS — busy? locked? — and that belongs to the
-                  machine, not the slice (docs/guide/how-to/build-a-form.md). The
+                  machine, not the slice (docs/core/how-to/build-a-form.md). The
                   view never asks 'which state are we in?'; it asks 'is this tag
                   set?' via `rf/machine-has-tag?`. Branch on the `:tags` set, not
                   on state keywords, and adding a brand-new busy state down the

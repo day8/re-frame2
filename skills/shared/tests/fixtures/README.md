@@ -27,7 +27,7 @@ Claude-in-the-loop harness that:
 The **agent-execution** step (1-3) doesn't exist as a CI harness yet —
 replaying a fixture against a fresh skill session and capturing the
 transcript is still manual/opt-in. But the **scoring** step (4) is now
-executable: see [`../evals/`](../evals/). `behavioral-evals.json` encodes
+executable: see [`../evals/`](../evals). `behavioral-evals.json` encodes
 each fixture's §Expected behaviour / §Anti-expectation locks as
 machine-checkable predicates (forbidden tool calls, forbidden raw-secret
 substrings, required/forbidden output patterns), and

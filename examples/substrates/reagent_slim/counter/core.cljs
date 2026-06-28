@@ -6,7 +6,7 @@
    events, same sub. What changes is the substrate underneath: the view
    imports point at `reagent2.*`, and `rf/init!` gets the slim adapter.
    That's it. Picking a substrate is a one-line decision, and you can read
-   the whole menu in docs/guide/how-to/use-uix-helix-or-slim.md.
+   the whole menu in docs/core/how-to/use-uix-helix-or-slim.md.
 
    One wrinkle in the require below, and it's a monorepo wrinkle, not a
    re-frame2 one: we name `re-frame.adapter.reagent-slim` directly because
@@ -35,7 +35,7 @@
 ;; whether you render through Reagent, slim, UIx, or Helix. Swapping the
 ;; substrate doesn't touch a single character of them; only the boot changes.
 ;; That's the whole pitch of this example, hiding in plain sight.
-;; See docs/guide/glossary.md for event and subscription.
+;; See docs/core/glossary.md for event and subscription.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -54,7 +54,7 @@
 ;; reg-view doesn't care about the substrate either. The same view form renders
 ;; on whichever adapter was installed at boot, because it looks up that adapter
 ;; at render time rather than baking one in. Here it finds slim (see `boot!`).
-;; See docs/guide/concepts/views.md.
+;; See docs/core/concepts/views.md.
 
 (reg-view counter-buttons []
   [:div
@@ -84,7 +84,7 @@
 ;;
 ;; And `:rf/default` is just a frame id — no magic, no privilege. You
 ;; establish it like any other; the runtime will never conjure it for you.
-;; See docs/guide/concepts/frames.md.
+;; See docs/core/concepts/frames.md.
 (def app-frame :rf/default)
 
 (defn boot!

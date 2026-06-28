@@ -137,7 +137,7 @@ The repo has two audiences and they each get their own docs.
 
 It is worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort. Kidding.
 
-[The guide](docs/guide/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
+[The guide](docs/core/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
 
 After that, consider browsing:
   - [The Pattern's Principles](spec/Principles.md) — which is part of the pattern's specification
@@ -280,7 +280,7 @@ skills/                        Claude skills
 
 re-frame2 is spec-first and AI-implementable. If you're an LLM landing here to implement, port, scaffold, or audit the pattern, this section is the map you need. The narrative above is for humans; this section is for tools.
 
-**Spec is the artefact.** [`spec/`](spec/) is the contract. [`docs/guide/`](docs/guide/) is narrative for humans. The `Pattern-*.md` files are worked-example conventions, not normative. The reference implementation in [`implementation/`](implementation/) is downstream of the spec, not the source of truth.
+**Spec is the artefact.** [`spec/`](spec/) is the contract. [`docs/core/`](docs/core/) is narrative for humans. The `Pattern-*.md` files are worked-example conventions, not normative. The reference implementation in [`implementation/`](implementation/) is downstream of the spec, not the source of truth.
 
 ### Reading order
 

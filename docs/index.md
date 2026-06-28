@@ -6,9 +6,9 @@ The guide is organised into five sections.
 
 ## Core
 
-The fundamentals every app is built from — the dataflow loop: app-db, events, subscriptions, flows, effects, and views. Start with the [Quickstart](guide/quickstart.md), then the [core concepts](guide/concepts/index.md).
+The fundamentals every app is built from — the dataflow loop: app-db, events, subscriptions, flows, effects, and views. Start with the [Quickstart](core/quickstart.md), then the [core concepts](core/concepts/index.md).
 
-→ [Core guide](guide/README.md)
+→ [Core guide](core/README.md)
 
 ## Capabilities
 

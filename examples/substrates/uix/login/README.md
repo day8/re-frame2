@@ -8,10 +8,10 @@ the login right in the page, so you just start it and click.
 
 The one twist is the renderer. This is the
 [`examples/core/login/`](../../../core/login/) twin, with one thing
-changed — the [substrate](../../../../docs/guide/glossary.md#substrate) that draws
+changed — the [substrate](../../../../docs/core/glossary.md#substrate) that draws
 the pixels. Here that's **UIx** instead of Reagent.
 
-Everything below the [view](../../../../docs/guide/glossary.md#view) layer stays
+Everything below the [view](../../../../docs/core/glossary.md#view) layer stays
 the same — the same schemas, the same machine, the same named subscriptions,
 the same canned HTTP stub, with the same ids and shapes. Only the views are
 written differently. That's the idea worth taking away: swapping the renderer
@@ -19,19 +19,19 @@ changes almost nothing. So this is a clear place to see where the substrate
 boundary falls, and how little sits on the substrate side of it.
 
 That is the whole point of re-frame2's
-[adapter](../../../../docs/guide/glossary.md#adapter) design: your events,
+[adapter](../../../../docs/core/glossary.md#adapter) design: your events,
 subscriptions, app-db, machine, and effects don't know — or care — which
 React-family library renders them. Same model, swap the renderer, get UIx.
 
 ## What this demonstrates
 
 - **The substrate boundary, drawn in one file.** Above the boundary is the
-  substrate-agnostic model: a Malli [schema](../../../../docs/guide/glossary.md#schema)
+  substrate-agnostic model: a Malli [schema](../../../../docs/core/glossary.md#schema)
   on the login credentials and the event vector, the `:auth.login/flow`
   [machine](../../../../docs/machines/glossary.md#machine), two named
-  [subscriptions](../../../../docs/guide/glossary.md#subscription), and the demo
+  [subscriptions](../../../../docs/core/glossary.md#subscription), and the demo
   HTTP stub. None of it names a substrate. Below the boundary is the *only*
-  substrate-specific code: the [views](../../../../docs/guide/glossary.md#view) and
+  substrate-specific code: the [views](../../../../docs/core/glossary.md#view) and
   the mount. The Reagent twin runs the identical model — same ids, same shapes,
   different renderer.
 
@@ -40,7 +40,7 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   re-renders off that read. A UIx view is a plain `defui` component that reads
   the same value through a React hook —
   `(use-subscribe [:auth.login/error])`. Different idiom, same
-  [subscription](../../../../docs/guide/glossary.md#subscription) underneath.
+  [subscription](../../../../docs/core/glossary.md#subscription) underneath.
   (`reg-view` stays a Reagent-only convenience; under UIx you write ordinary
   components.)
 
@@ -68,7 +68,7 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   the hook changes.
 
 - **No magic, no auto-injection.** A UIx component reads `dispatch` off a
-  [`capture-frame`](../../../../docs/guide/glossary.md#capture-frame) and calls
+  [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) and calls
   `use-subscribe` itself. Nothing threads state into your components behind your
   back — the read and the dispatch are right there in the function body. The
   view layer is explicit; the model beneath it is shared by all three

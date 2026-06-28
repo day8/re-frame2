@@ -2,7 +2,7 @@
 
 These are small, complete apps you can run and read top to bottom — each one composing the spec's primitives into real UI. They're organised by concept:
 
-- **Core** — the fundamentals (the dataflow concepts in [docs/guide/concepts](../docs/guide/)).
+- **Core** — the fundamentals (the dataflow concepts in [docs/core/concepts](../docs/core/)).
 - **Capabilities** — one framework subsystem per folder (each has its own `docs/<capability>/` guide).
 - **Patterns** — composition recipes built from the capabilities (the `spec/Pattern-*` docs).
 - **Real-apps** — full applications that put it all together.

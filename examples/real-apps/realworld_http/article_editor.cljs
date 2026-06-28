@@ -12,7 +12,7 @@
      submit-error data lives in an app-db slice (`:editor`), while the machine
      carries only the state vocabulary. `:editor/dirty?` is just a
      draft-vs-baseline sub — no machine involved. See the forms how-to:
-     ../../../docs/guide/how-to/build-a-form.md.
+     ../../../docs/core/how-to/build-a-form.md.
    - The view asking the machine yes/no questions through tag queries
      (`(rf/machine-has-tag? :ui/article-editor :editor/busy)` and
      `… :editor/can-delete`) instead of hand-rolled boolean subs.
@@ -29,7 +29,7 @@
             ;; `:editor/can-submit?` flow (see :editor/initialise below) that
             ;; keeps "valid AND dirty" materialised in app-db. Requiring the ns
             ;; registers the hooks behind the `:rf.fx/reg-flow` effect. See the
-            ;; flows guide: ../../../docs/guide/concepts/flows.md
+            ;; flows guide: ../../../docs/core/concepts/flows.md
             [re-frame.flows]
             [realworld-http.schema :as schema]
             [realworld-http.http :as rh])
@@ -89,7 +89,7 @@
 ;; reads the very same value through a plain sub over the flow's
 ;; `:output-path` — one source of truth, two readers. See the flows guide on
 ;; when a derivation earns a place in app-db:
-;; ../../../docs/guide/concepts/flows.md#when-a-derivation-earns-app-db
+;; ../../../docs/core/concepts/flows.md#when-a-derivation-earns-app-db
 ;;
 ;; The flow registers per-frame via `:rf.fx/reg-flow` from `:editor/initialise`
 ;; (below), so it binds to whichever frame the app booted on — the default one
@@ -375,7 +375,7 @@
   {:doc "The validation error for one field, or nil while we keep mum. Same
          courtesy as every other form here: nothing shown until the field is
          touched or the user has tried to submit. See the forms how-to:
-         ../../../docs/guide/how-to/build-a-form.md"}
+         ../../../docs/core/how-to/build-a-form.md"}
   :<- [:editor/slice]
   (fn [editor [_ field]]
     (when (or (:submit-attempted? editor)

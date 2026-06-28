@@ -238,7 +238,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 
 **Why walk the view, not just assert state?** State-only assertions (`(is (= 2 (:n db)))`) catch handler bugs but miss two classes the hiccup-walk catches — *state-correct, view-broken* (handler updated db, view reads the wrong path / forgets a branch) and *wrong-frame dispatch* (`:on-click` dispatches into the wrong frame; host-frame state never changes). Both surface on JVM and Node-CLJS with no browser.
 
-**Single-frame discipline.** Application view tests use ONE frame — the host frame. Views, events, subs, and asserts all reference the same frame. A multi-frame harness — a test where an **observer / tool** frame watches another frame's app-db or trace stream (as a dev tool would) — is the only shape that legitimately spans frames, and it is never a regular application view. Full walkthrough at [`docs/guide/how-to/test-a-cascade.md`](../../../../docs/guide/how-to/test-a-cascade.md).
+**Single-frame discipline.** Application view tests use ONE frame — the host frame. Views, events, subs, and asserts all reference the same frame. A multi-frame harness — a test where an **observer / tool** frame watches another frame's app-db or trace stream (as a dev tool would) — is the only shape that legitimately spans frames, and it is never a regular application view. Full walkthrough at [`docs/core/how-to/test-a-cascade.md`](../../../../docs/core/how-to/test-a-cascade.md).
 
 ## Machine snapshots and tag queries
 

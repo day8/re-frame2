@@ -4,11 +4,11 @@ re-frame2's optional server-side-rendering capability — run your real app on t
 
 ### **SSR**
 
-Server-side rendering: rendering your app to an HTML string on the server (per request, in its own [frame](../guide/glossary.md#frame)) so the first paint arrives before the client bundle runs. The same events, subscriptions, and views run on both sides — you don't write a second app. Code that must run on only one side declares `:platforms #{:client}` (or `#{:server}`), so a `localStorage` write never fires during a server render and no logic branches on `typeof window`.
+Server-side rendering: rendering your app to an HTML string on the server (per request, in its own [frame](../core/glossary.md#frame)) so the first paint arrives before the client bundle runs. The same events, subscriptions, and views run on both sides — you don't write a second app. Code that must run on only one side declares `:platforms #{:client}` (or `#{:server}`), so a `localStorage` write never fires during a server render and no logic branches on `typeof window`.
 
 ### **render-to-string**
 
-The pure function at the heart of SSR — `hiccup → HTML string`, no browser, no DOM, JVM-runnable. It runs your real [views](../guide/glossary.md#view) against a per-request [frame](../guide/glossary.md#frame), which is what makes "one app, runs twice" hold.
+The pure function at the heart of SSR — `hiccup → HTML string`, no browser, no DOM, JVM-runnable. It runs your real [views](../core/glossary.md#view) against a per-request [frame](../core/glossary.md#frame), which is what makes "one app, runs twice" hold.
 
 ### **hydration**
 
