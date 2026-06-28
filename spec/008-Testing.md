@@ -35,7 +35,7 @@ A test that exercises events / subs / machines reaches `re-frame.test-support`. 
 
 ### Adapter-aware test helpers — `flush-views!`
 
-Some test helpers are **per-adapter** by design. The React-based adapters (`re-frame.adapter.reagent`, `re-frame.adapter.uix`, `re-frame.adapter.helix`) each ship a `flush-views!` fn that wraps React's `act()` so tests dispatching against a mounted tree can settle pending React effects before reading the DOM. The function NAME is shared across adapters (substrate uniformity); the entry point is **per-adapter-require**, not centralised through `re-frame.test-support`:
+Some test helpers are **per-adapter**. The React-based adapters (`re-frame.adapter.reagent`, `re-frame.adapter.uix`, `re-frame.adapter.helix`) each ship a `flush-views!` fn that wraps React's `act()` so tests dispatching against a mounted tree can settle pending React effects before reading the DOM. The function NAME is shared across adapters (substrate uniformity); the entry point is **per-adapter-require**, not centralised through `re-frame.test-support`:
 
 ```clojure
 (:require [re-frame.adapter.reagent :as reagent-adapter])
@@ -200,7 +200,7 @@ The macro:
 5. Runs `body`.
 6. In a `finally`, destroys the frame regardless of whether `body` returned normally or threw — no leaked frames across tests.
 
-`opts-map` keys (all optional): `:install`, `:root-view`, `:root-view-args`, `:frame-config` (the record-config map seated onto the fixture frame — `:initial-events`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors` and the rest of the frame-shape contract per [Spec 002 §`reg-frame`](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar); these are record-config keys, so the fixture seats them via `reg-frame` / the advanced `re-frame.frame/make-frame`, not the EP-0023 object constructor `rf/make-frame`).
+`opts-map` keys (all optional): `:install`, `:root-view`, `:root-view-args`, `:frame-config` (the record-config map seated onto the fixture frame — `:initial-events`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors` and the rest of the frame-shape contract per [Spec 002 §`reg-frame`](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar); these are record-config keys, so the fixture seats them via `reg-frame` / the advanced `re-frame.frame/make-frame`, not the object constructor `rf/make-frame`).
 
 The companion helpers:
 
@@ -209,7 +209,7 @@ The companion helpers:
 
 When NOT to use Pattern 5:
 
-- **Multi-frame setups** (Xray, Story, cross-frame tests) — Pattern 1 / 2 with explicit `rf/with-frame` calls each frame is clearer; the fixture stash is single-slot by design.
+- **Multi-frame setups** (Xray, Story, cross-frame tests) — Pattern 1 / 2 with explicit `rf/with-frame` calls each frame is clearer; the fixture stash is single-slot.
 - **Tests that don't render** — the install + frame lifecycle of Pattern 5 is overkill for pure-event tests. Reach for `(rf/with-new-frame [f (rf/make-frame opts)] ...)` and skip the view-stash entirely.
 
 ### Pattern 6 — pure event-handler simulation (no frame)
@@ -234,11 +234,11 @@ Hand-build the coeffects map (`:db`, the declared `:rf.cofx/requires` leaves fla
 
 ### HTTP test surfaces — single namespace
 
-The managed-HTTP artefact (Spec 014) ships its entire test surface in a single namespace, `re-frame.http.test-support`. The previous split — macros in `re-frame.http.managed`, registration gate in `re-frame.http.test-support` — was closed per (audit-of-audits #15): one require, one home, namespace name matches content.
+The managed-HTTP artefact (Spec 014) ships its entire test surface in a single namespace, `re-frame.http.test-support`. One require, one home, namespace name matches content.
 
 | Namespace | Role | Surfaces |
 |---|---|---|
-| `re-frame.http.test-support` | **All HTTP test machinery.** Loading the namespace registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, defines the stub-routing helpers (`with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`), and publishes the `:http/with-managed-request-stubs*` late-bind hook (the path the `re-frame.core` `with-managed-request-stubs` / `with-managed-request-stubs*` re-exports resolve through). The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core` re-export (rf2-ntwwyt) and publishes no late-bind hook — call it directly through this namespace. Production code must NOT `:require` this namespace. | `(reg-fx :rf.http/managed-canned-success ...)`, `(reg-fx :rf.http/managed-canned-failure ...)`, `with-managed-request-stubs`, `with-managed-request-stubs*`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!` (see [API.md §HTTP requests (Spec 014)](API.md#http-requests-spec-014)) |
+| `re-frame.http.test-support` | **All HTTP test machinery.** Loading the namespace registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, defines the stub-routing helpers (`with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`), and publishes the `:http/with-managed-request-stubs*` late-bind hook (the path the `re-frame.core` `with-managed-request-stubs` / `with-managed-request-stubs*` re-exports resolve through). The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core` re-export and publishes no late-bind hook — call it directly through this namespace. Production code must NOT `:require` this namespace. | `(reg-fx :rf.http/managed-canned-success ...)`, `(reg-fx :rf.http/managed-canned-failure ...)`, `with-managed-request-stubs`, `with-managed-request-stubs*`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!` (see [API.md §HTTP requests (Spec 014)](API.md#http-requests-spec-014)) |
 | `re-frame.http.managed` | **Production fx home only.** Hosts the production-eligible `:rf.http/managed` / `:rf.http/managed-abort` fxs, the middleware family, and the registry helpers. No test surfaces ship here. | `:rf.http/managed`, `:rf.http/managed-abort`, `reg-http-interceptor`, `clear-http-interceptor`, `clear-all-in-flight!`, the privacy denylist surface |
 
 A test reaching for "the HTTP stub helper" — macros, canned-stub fx ids in a `:fx-overrides` map, or the `re-frame.core` stub re-exports — `:require`s `re-frame.http.test-support`. Production / SSR code paths require only `re-frame.http.managed`; the test-support namespace stays out of the require closure so the canned-stub fxs and the stub-family late-bind hooks remain unregistered (classpath absence on JVM/SSR; module-graph DCE on CLJS `:advanced`).
@@ -256,11 +256,11 @@ Four ways to "reset between tests" ship in `re-frame.test-support`. They form a 
 
 **Granularity guidance.** Default to L3 (`make-reset-runtime-fixture`) unless the test needs less reset (L1 / L2 for ad-hoc bracketing) or finer composition (L4 for one-artefact fixtures). L3 is the cheap default — late-bind no-ops when an artefact is absent, so JVM tests that don't pull flows / schemas / epoch don't pay for those resets. L1 and L2 do NOT reset `frame/frames` or any artefact state; a test using L2 in a suite that mounts an adapter will see cross-test pollution from a sibling test's frames. L4 is for fixture-machinery authors, not test authors.
 
-`make-reset-runtime-fixture` is a **factory**: the call shape is `(make-reset-runtime-fixture opts) → fixture-fn`. Use the returned fn in `(use-fixtures :each ...)`. Contrast `with-fresh-registrar`, which takes a thunk and runs it directly — the names differ deliberately to mark the call-shape axis.
+`make-reset-runtime-fixture` is a **factory**: the call shape is `(make-reset-runtime-fixture opts) → fixture-fn`. Use the returned fn in `(use-fixtures :each ...)`. Contrast `with-fresh-registrar`, which takes a thunk and runs it directly — the names differ to mark the call-shape axis.
 
 ## Hermetic-frame testing — a fresh frame composed from images
 
-The fixture-granularity ladder above isolates tests by **snapshot/restore of the process-global registrar** (L1–L3) — capture the one shared registrar, run, restore it. An **image-loaded frame** (per [EP-0023 §Image / §Public API](../docs/EP/EP-0023-image-loaded-frames.md)) offers a different isolation axis: build a frame from exactly the images under test, **compose** an overrides image after them to stub the doubles you need, and destroy it on teardown — there is no process-global registrar to clear, because the test never touched one. The frame *is* the hermetic unit: it owns its own resolved image generation (the sealed registration set), app state, and subscription cache. Test doubles are supplied by a later image whose registrations shadow the app's (EP-0026 §Use Cases — composition resolves by image order, and `rf/frame-shadows` reports what got overridden).
+The fixture-granularity ladder above isolates tests by **snapshot/restore of the process-global registrar** (L1–L3) — capture the one shared registrar, run, restore it. An **image-loaded frame** (per [EP-0023 §Image / §Public API](../docs/EP/EP-0023-image-loaded-frames.md)) offers a different isolation axis: build a frame from exactly the images under test, **compose** an overrides image after them to stub the doubles you need, and destroy it on teardown — there is no process-global registrar to clear, because the test never touched one. The frame *is* the hermetic unit: it owns its own resolved image generation (the sealed registration set), app state, and subscription cache. Test doubles are supplied by a later image whose registrations shadow the app's — composition resolves by image order, and `rf/frame-shadows` reports what got overridden.
 
 ```clojure
 ;; A hermetic test frame — the images under test composed with an overrides
@@ -286,7 +286,7 @@ The fixture-granularity ladder above isolates tests by **snapshot/restore of the
         (rf/destroy-frame! :test/cart)))))               ;; drop the frame + its state for GC
 ```
 
-**Composing an overrides image is the explicit dependency seam.** Instead of injecting a capability map, a hermetic test composes a later image whose `:registrations` stub exactly the effects/coeffects it needs to control (`:cart.http/post`, a fixed clock, a seeded random source). Image order resolves the composition — the later overrides image wins — and `rf/frame-shadows` reports each registration it shadowed, so the test can assert on exactly which doubles it installed. This is the **injectable** alternative to process-global stubs discovered by namespace load order. (EP-0026, rf2-dlvmpc, retired the image-declared host-capability surface: there is no `make-frame :capabilities` map and no `:rf.image/requires` capability-check; model a host dependency as an overriding registration instead. The `:rf.capability/*` vocabulary itself remains the name for those runtime services — see [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps).)
+**Composing an overrides image is the explicit dependency seam.** Instead of injecting a capability map, a hermetic test composes a later image whose `:registrations` stub exactly the effects/coeffects it needs to control (`:cart.http/post`, a fixed clock, a seeded random source). Image order resolves the composition — the later overrides image wins — and `rf/frame-shadows` reports each registration it shadowed, so the test can assert on exactly which doubles it installed. This is the **injectable** alternative to process-global stubs discovered by namespace load order. (There is no `make-frame :capabilities` map and no `:rf.image/requires` capability-check; model a host dependency as an overriding registration instead. The `:rf.capability/*` vocabulary itself remains the name for those runtime services — see [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps).)
 
 **The public surface** (all from `re-frame.core`, per [API §Registration](API.md#registration)): `(rf/make-frame {:id … :images [...] :adapter …})` builds + registers a hermetic-by-default frame from the named images; `(rf/destroy-frame! frame-or-id)` drops it (runs `:on-destroy`, the machine teardown cascade, and sub-cache disposal). Each frame runs its own resolved image generation, so two frames can hold different handlers for the same id without collision.
 
@@ -371,7 +371,7 @@ This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/mi
 
 ### Disabling a logging interceptor in tests
 
-Under EP-0022, `:interceptor-overrides` is **reference-based**: keys are interceptor **references** (a bare keyword matches that registered interceptor; a parameterized `[id arg]` 2-vector matches the full reference), and values are either a replacement reference or `nil` to remove the matched interceptor (per [002 §`:interceptor-overrides` — exact-reference substitution](002-Frames.md#interceptor-overrides--exact-reference-substitution)). The keys are never inline interceptor values — the matched interceptor was registered via `reg-interceptor` and is referenced by id:
+`:interceptor-overrides` is **reference-based**: keys are interceptor **references** (a bare keyword matches that registered interceptor; a parameterized `[id arg]` 2-vector matches the full reference), and values are either a replacement reference or `nil` to remove the matched interceptor (per [002 §`:interceptor-overrides` — exact-reference substitution](002-Frames.md#interceptor-overrides--exact-reference-substitution)). The keys are never inline interceptor values — the matched interceptor was registered via `reg-interceptor` and is referenced by id:
 
 ```clojure
 ;; Bare-keyword reference — remove the registered :my-app/logger interceptor.
@@ -739,13 +739,13 @@ No special integration — works because `cljs.test` and `clojure.test` work. Ka
 
 ### `re-frame-test` (existing community library)
 
-The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. re-frame2 does **not** ship a `run-test-sync` shim — the macro existed in v1 to wrap test bodies in a synchronous drain, and v2's `dispatch-sync` is already settle-by-default, so the shim was pure migration tax. Existing test suites built against `re-frame-test` rewrite the `run-test-sync` body to inline `dispatch-sync` calls under the standard per-test `make-reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bodies) — see [MIGRATION §M-52](../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). The other two re-frame-test helpers ship in `re-frame.test-support`: `dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` per [MIGRATION §M-62](../migration/from-re-frame-v1/README.md#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals) so the fn-side shares a name root with the `:rf.assert/*` Story event-family. The require move is a mechanical `re-frame.test` → `re-frame.test-support` rewrite per [MIGRATION §M-25](../migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
+The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. re-frame2 does **not** ship a `run-test-sync` shim — `dispatch-sync` is settle-by-default. Test suites built against `re-frame-test` rewrite the `run-test-sync` body to inline `dispatch-sync` calls under the standard per-test `make-reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bodies) — see [MIGRATION §M-52](../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). Two re-frame-test helpers ship in `re-frame.test-support`: `dispatch-sequence`; and `assert-path-equals` + `assert-db-equals` per [MIGRATION §M-62](../migration/from-re-frame-v1/README.md#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals), so the fn-side shares a name root with the `:rf.assert/*` Story event-family. The require is `re-frame.test-support` per [MIGRATION §M-25](../migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
 
 ## Forward compatibility with stories
 
 A test fixture is a story-variant minus the rendering — the story library's `run-variant` consumes the same primitives a test does (see [007 §Portable into tests](007-Stories.md#portable-into-tests)). The testing surface guarantees these shapes for 007:
 
-- `(make-frame {:images [...] :id … :initial-events [[:rf/set-db {…}]] :adapter …})` — the EP-0024 one-constructor opts shape; image-selection and record-config keys (`:initial-events` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors`) ride the same call. Seed app-db via a leading `[:rf/set-db {…}]` setup step. (EP-0026 retired the `:capabilities` key.)
+- `(make-frame {:images [...] :id … :initial-events [[:rf/set-db {…}]] :adapter …})` — the one-constructor opts shape; image-selection and record-config keys (`:initial-events` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors`) ride the same call. Seed app-db via a leading `[:rf/set-db {…}]` setup step. (There is no `:capabilities` key.)
 - `(reg-frame :id {:initial-events [[:event-id]] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact record-config opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
 - `(app-db-value f)` — current `app-db` value (a plain map) for the named frame.
@@ -775,7 +775,7 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 `settled-boundary` is the author-facing settlement contract for a
 `[:dispatch event-vector]` step. It is **not** a new headless scheduler:
 in the `:headless` runner it is the existing `dispatch-sync`
-run-to-fixed-point drain (§Normative surface), renamed/projected rather
+run-to-fixed-point drain (§Normative surface), projected rather
 than reimplemented. Richer runners add adapter-supplied flushes with a
 declared bound:
 

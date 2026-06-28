@@ -123,7 +123,7 @@ The `:render-key` tuple is part of the trace surface; per [Spec 009 §Production
 
 ### Loading state is explicit, not implicit
 
-React Suspense lets a component "suspend" while async work runs; the framework shows a fallback; the component renders normally on resolve. Loading state is implicit, sitting inside the suspended-component machinery. **Re-frame2 takes the opposite approach: loading state is explicit data in `app-db`.** [Pattern-RemoteData](Pattern-RemoteData.md)'s `:status :loading` is the canonical place it lives; views read the state and branch on it. The choice is deliberate and worth calling out, because developers arriving from React (and other Suspense-using frameworks) would otherwise expect the implicit form.
+React Suspense lets a component "suspend" while async work runs; the framework shows a fallback; the component renders normally on resolve. Loading state is implicit, sitting inside the suspended-component machinery. **Re-frame2 takes the opposite approach: loading state is explicit data in `app-db`.** [Pattern-RemoteData](Pattern-RemoteData.md)'s `:status :loading` is the canonical place it lives; views read the state and branch on it. Developers arriving from React (and other Suspense-using frameworks) should note this: re-frame2 does not use the implicit Suspense form.
 
 #### Why explicit-loading-state wins for re-frame2
 
@@ -247,7 +247,7 @@ This is the family-asymmetry rule applied to views: **render trees use Vars; run
 ;; (or whatever Reagent's hiccup interpretation produces for that tag).
 ```
 
-An earlier draft included an opt-in `(rf/h ...)` macro that walked hiccup at compile time and rewrote namespaced-keyword heads into runtime view lookups. It has been **dropped from the v1 surface**. See [§`h` macro dropped](#h-macro-dropped) below — the Var idiom plus the function-position `[(rf/view :id) args]` form cover every previous use case without a compile-time hiccup walker.
+There is no `(rf/h ...)` macro in the v1 surface — no compile-time hiccup walker that rewrites namespaced-keyword heads into runtime view lookups. See [§`h` macro dropped](#h-macro-dropped) below — the Var idiom plus the function-position `[(rf/view :id) args]` form cover every use case.
 
 ## How registered views are used in hiccup
 
@@ -295,7 +295,7 @@ Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** f
 
 Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection — they carry no `:contextType` wiring, so a plain fn **cannot read the surrounding frame scope from React context** (whether that scope was established by a `with-frame` or a `frame-provider`).
 
-Under the EP-0002 carried invariant ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)) there is **no `:rf/default` floor**. A plain fn that cannot read the context resolves to *nil*, and its `subscribe`/`dispatch` (qualified `rf/`, the ambient 1-arity form) raises `:rf.error/no-frame-context` — the operation **fails fast** rather than silently routing to a conventional default. This is the sharper successor to the old warn-and-fall-through behaviour: a bare reagent fn that depends on the surrounding frame now errors loudly at the call site rather than reading the wrong frame's app-db.
+Under the carried invariant ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)) there is **no `:rf/default` floor**. A plain fn that cannot read the context resolves to *nil*, and its `subscribe`/`dispatch` (qualified `rf/`, the ambient 1-arity form) raises `:rf.error/no-frame-context` — the operation **fails fast** rather than silently routing to a conventional default. A bare reagent fn that depends on the surrounding frame errors loudly at the call site rather than reading the wrong frame's app-db.
 
 A plain fn is therefore only safe when it establishes its own frame scope — inside an explicit `with-frame`, or by capturing a `(rf/capture-frame)` at render time and using its bound ops (see §Affordance for plain fns below). A single-frame app keeps working by establishing exactly **one** root `frame-provider` / `with-frame`; *inside that scope* registered views (`reg-view`) pick up the frame ergonomically.
 
@@ -311,7 +311,7 @@ The error rides the always-on error axis (surface #4 per [009 §What IS availabl
  :recovery    :supply-frame}
 ```
 
-> **Migration note (EP-0002).** The earlier `:rf.warning/plain-fn-under-non-default-frame-once` once-per-pair warning is **superseded** by this error. Its firing case — a plain fn under a non-default provider falling through to `:rf/default` — is gone: there is no fall-through to warn about, only the loud no-frame-context error. Consumers (10x / pair) that branched on the warning should branch on `:rf.error/no-frame-context` instead. (The runtime's warn-once helper is retained as a structural no-op during the EP-0002 chain; a follow-on cleanup retires it.)
+> **Migration note.** There is no fall-through to `:rf/default` to warn about — only the loud no-frame-context error. Consumers (10x / pair) branch on `:rf.error/no-frame-context`.
 
 ### Migration path
 
@@ -460,7 +460,7 @@ A view's render body computes hiccup; it does not advance state. Dispatching dur
 
 Hiccup attrs like `:on-click`, `:on-change`, `:on-input` are the **substrate's synthetic-event surface**: the substrate adapter wraps each fn-valued attr at render time so the eventual callback closes over the frame in scope. This is what gives `(dispatch [:inc])` inside an `:on-click` lambda its frame-correctness (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)).
 
-Native imperative attach — `(.addEventListener el "click" ...)`, `(js/setTimeout ...)`, raw `requestAnimationFrame` — bypasses that wrapper. The callback fires on a fresh stack with no `*current-frame*` binding and no React-context resolution path; a bare `(rf/dispatch [...])` from inside it carries no frame stamp and **fails loudly with `:rf.error/no-frame-context`** (EP-0002 — the runtime never synthesises `:rf/default` from absence; per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)). The fix is to capture the frame as a value at render time and carry it into the callback.
+Native imperative attach — `(.addEventListener el "click" ...)`, `(js/setTimeout ...)`, raw `requestAnimationFrame` — bypasses that wrapper. The callback fires on a fresh stack with no `*current-frame*` binding and no React-context resolution path; a bare `(rf/dispatch [...])` from inside it carries no frame stamp and **fails loudly with `:rf.error/no-frame-context`** (the runtime never synthesises `:rf/default` from absence; per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)). The fix is to capture the frame as a value at render time and carry it into the callback.
 
 The right shapes:
 
@@ -546,7 +546,7 @@ For the rare case where the user wants no Var binding (e.g. views generated prog
 
 ### `h` macro dropped
 
-An earlier draft of this spec included an `h` macro that walked hiccup at compile time and rewrote namespaced-keyword heads (`[:my-app/widget args]`) into runtime `(rf/view :my-app/widget)` lookups. It has been removed from the v1 surface. The Var idiom — `(reg-view counter [...] ...)` defs `counter`; users write `[counter "Hello"]` — is the canonical call-site form. For late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites) the canonical handle is the explicit function-position form `[(rf/view :counter) "Hello"]`. Two surfaces, both data-friendly, no compile-time hiccup walker to learn or reason about.
+The v1 surface has no `h` macro that walks hiccup at compile time and rewrites namespaced-keyword heads (`[:my-app/widget args]`) into runtime `(rf/view :my-app/widget)` lookups. The Var idiom — `(reg-view counter [...] ...)` defs `counter`; users write `[counter "Hello"]` — is the canonical call-site form. For late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites) the canonical handle is the explicit function-position form `[(rf/view :counter) "Hello"]`. Two surfaces, both data-friendly, no compile-time hiccup walker to learn or reason about.
 
 ### Form-3 (`reagent.core/create-class`) — out of scope for the macro
 
