@@ -160,7 +160,7 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
   ```clojure
   (reg-http-interceptor id interceptor-map)
   ```
-- **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (the EP-0002 *override*) and the standard `:rf/registration-metadata`. The target frame is the explicit `:frame`, else the carried scope it registers under (`with-frame` / an `:initial-events` step); registering under **no** scope raises `:rf.error/no-frame-context` — there is no `:rf/default` default. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
+- **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (the explicit-frame *override*) and the standard `:rf/registration-metadata`. The target frame is the explicit `:frame`, else the carried scope it registers under (`with-frame` / an `:initial-events` step); registering under **no** scope raises `:rf.error/no-frame-context` — there is no `:rf/default` default. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
 - **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### `clear-http-interceptor`
@@ -238,7 +238,7 @@ Tests want to drive the cascade without hitting the network. The test-support su
   ```
 - **Description**: Drop installed stubs; restore real-request routing. Idempotent. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http.test-support`.
 
-All the test-support surfaces live in `re-frame.http.test-support` (the single home per audit of audits #15). One namespace; same artefact (`day8/re-frame2-http`) as the production code. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install`/`uninstall` pair is reached only through the home namespace (rf2-ntwwyt).
+All the test-support surfaces live in `re-frame.http.test-support`. One namespace; same artefact (`day8/re-frame2-http`) as the production code. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install`/`uninstall` pair is reached only through the home namespace.
 
 ```clojure
 (deftest cart-loads
@@ -260,7 +260,7 @@ HTTP is the canonical privacy surface in any app: passwords ride request bodies,
 |---|---|---|
 | **Built-in header denylist** | A closed, **immutable** set of always-sensitive header names (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token`, …). Redacted in every `:rf.http/*` trace's `:headers` slot regardless of any `:sensitive?` flag; case-insensitive. No frame can remove a name. | framework default |
 | **Built-in query-param denylist** | A closed, **immutable** set of always-sensitive query-param names (`api_key`, `access_token`, `token`, `secret`, `password`, `session`, `signature`, …). The **value** is redacted inline in `:url` slots (`?api_key=:rf/redacted&page=2`); name + position preserved. A hit also stamps `:sensitive? true` on the event — the name is the signal. | framework default |
-| **Managed-HTTP carriers** | App-specific sensitive header / query-param names, declared on the **`:rf.http/managed` `reg-fx` registration** (the EP-0025 transient-payload case); they **union** onto the built-in defaults. | `reg-fx :rf.http/managed` `:carriers {:headers […] :query-params […]}` |
+| **Managed-HTTP carriers** | App-specific sensitive header / query-param names, declared on the **`:rf.http/managed` `reg-fx` registration** (the transient-payload case); they **union** onto the built-in defaults. | `reg-fx :rf.http/managed` `:carriers {:headers […] :query-params […]}` |
 | **Per-request / per-call `:sensitive?`** | The coarse opt-in that redacts a single request's body / params / all URL param values wholesale. | the `:rf.http/managed` args map (`:sensitive?` at top level, or under `:request`) |
 
 ```clojure
@@ -280,7 +280,7 @@ HTTP is the canonical privacy surface in any app: passwords ride request bodies,
 
 ### Response-body classification — on the `:decode` schema
 
-The denylists and `:sensitive?` flag cover request carriers; the **response body** is a registration-owned transient payload, classified **per-slot via `:sensitive?` / `:large?` props on the request's `:decode` schema** (EP-0015 §5). The `:decode` schema is the owner's natural declaration of the body shape, so per-slot props are the *one* route — there is no second route to classify it. These props fire **independently of** the per-call `:sensitive?` flag.
+The denylists and `:sensitive?` flag cover request carriers; the **response body** is a registration-owned transient payload, classified **per-slot via `:sensitive?` / `:large?` props on the request's `:decode` schema**. The `:decode` schema is the owner's natural declaration of the body shape, so per-slot props are the *one* route — there is no second route to classify it. These props fire **independently of** the per-call `:sensitive?` flag.
 
 ```clojure
 (rf/reg-event :auth/login

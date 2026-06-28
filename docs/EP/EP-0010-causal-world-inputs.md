@@ -8,7 +8,7 @@ Type: standards-track
 > facts affect durable frame-state, they enter the frame fold as causal input
 > data, not as ambient reads during transition execution.
 >
-> **Ruling recorded 2026-06-11 (Mike, bead `rf2-jm6tlv`).** Accepted. All five
+> **Ruling recorded 2026-06-11 (Mike).** Accepted. All five
 > open issues are dispositioned **as recommended**, with three riders recorded
 > in [§Open Issues](#open-issues): the named `:rf.world/uuid` deferral trigger,
 > the `:dispatched-at` same-change retirement rule, and the secrets-exclusion
@@ -36,7 +36,7 @@ Type: standards-track
 > rationale; the spec governs the current authoring surface.** The recording
 > contract itself (durable state folds facts, never reads) is unchanged.
 
-> **`final` means the decisions are settled (2026-06-11, bead `rf2-s9ss0t`).**
+> **`final` means the decisions are settled (2026-06-11).**
 > All five open issues were dispositioned with three riders recorded (see
 > [§Open Issues](#open-issues)); the design is locked. The **core slice** has
 > shipped: the recordable-coeffect envelope field + framework coeffect (shipped as
@@ -57,8 +57,8 @@ Type: standards-track
 
 The EP decisions are final, and the EP-0010 action wave is **complete**. The
 **core slice** (envelope field, coeffect, stamping, trace filter,
-`:dispatched-at` retirement, spec graduation into 002 + Spec-Schemas) shipped
-under `rf2-s9ss0t`, and the five follow-on build steps below have since shipped
+`:dispatched-at` retirement, spec graduation into 002 + Spec-Schemas) shipped,
+and the five follow-on build steps below have since shipped
 and merged. Each carried out a settled decision; none changed a contract. This
 ledger now records the wave as closed, not as open errata. The single explicit
 deferral (`:rf.world/uuid` / `:rf.world/random` recordable coeffects, disposition
@@ -68,34 +68,32 @@ such below.
 ### Shipped — EP-0010 wave steps
 
 All five build steps of the EP-0010 action wave shipped. Verified
-2026-06-12 against the merged implementation, tests, docs, and `git log`; the
-closing bead-ids / commits are cited per step.
+2026-06-12 against the merged implementation, tests, docs, and `git log`.
 
 - **Causal-token coverage across all dispatch sites — SHIPPED.** Reference
   Implementation step 4. Every causal token stamps or supplies its own
   `:rf.world/inputs`: the core router stamps `:dispatch` / `:dispatch-later`
   fresh per child (`re-frame.router/build-envelope`, not inherited via
   `inheritable-envelope-keys`); machine `:after` timers dispatch without world
-  inputs so the router stamps fresh at fire time (`rf2-hg39nf` adversarial
+  inputs so the router stamps fresh at fire time (adversarial
   fresh-token regression); routing dispatches carry `:source :router`; HTTP
   replies thread `:completed-at` as `:rf.world/inputs :time-ms`
   (`re-frame.http.encoding/dispatch-reply-via-late-bind!`); SSR hydration is a
   normal router-stamped event; and the tool dispatch helpers carry it too
-  (pair-mcp `dispatch` accepts `:rf.world/inputs`, `rf2-q6s1nb`; story strips
-  the volatile `:time-ms` for canonical fingerprints, `rf2-jt854w`; Xray
-  surfaces it in the Event lens, `rf2-9fyn40`). Machine callback contexts thread
-  it (`rf2-g0m4p5`).
+  (pair-mcp `dispatch` accepts `:rf.world/inputs`; story strips
+  the volatile `:time-ms` for canonical fingerprints; Xray
+  surfaces it in the Event lens). Machine callback contexts thread
+  it.
 - **Resource / mutation / work-ledger timestamps + reply completion — SHIPPED.**
   Steps 5–6
   ([§Resources, Mutations, And Work-Ledger Timestamps](#resources-mutations-and-work-ledger-timestamps)).
   `:started-at`, `:deadline-at`, and `:invalidated-at` are durable runtime-db
-  facts read from the triggering token's `:time-ms`
-  (`rf2-258p1z`, `rf2-uuzj88`, `rf2-dsyqmz`); `:completed-at`, `:loaded-at`,
+  facts read from the triggering token's `:time-ms`; `:completed-at`, `:loaded-at`,
   `:stale-at`, and mutation `:settled-at` come from the reply token's causal
-  completion time (`rf2-n1rh0f`, `rf2-40dqi6`, `rf2-r65m41`); restore reconciles
-  `:settled-at` from the causal token (`rf2-wshzsp`); the `:committed-at` epoch
-  stamp comes from the causal token's `:time-ms` (`rf2-bh56rc`), with the
-  pair-tool / wall-clock source pinned (`rf2-czwwf4`, `rf2-2elcw3`, `rf2-1t30y7`).
+  completion time; restore reconciles
+  `:settled-at` from the causal token; the `:committed-at` epoch
+  stamp comes from the causal token's `:time-ms`, with the
+  pair-tool / wall-clock source pinned.
   The conversion is complete: no ambient `interop/now-ms` read survives in a
   durable resource/mutation/work-ledger reducer write site (the lint guard below
   enforces this; subscription/SSR freshness reads are on-read view-layer
@@ -118,7 +116,7 @@ closing bead-ids / commits are cited per step.
   `random-uuid`, `js/location`, …) inside enumerated durable-write namespaces,
   with the diagnostic / host-transient / effect-interpreter allowlists and a
   self-test of planted-violation + sanctioned-pattern fixtures; it is wired into
-  the PR spine in `.github/workflows/test.yml` (`rf2-f2t151`).
+  the PR spine in `.github/workflows/test.yml`.
 - **Docs + guide update — SHIPPED.** Step 10 ([§Guide Impact](#guide-impact)).
   The guide teaches causal world inputs instead of ambient clock stubbing across
   the effects-and-coeffects concept page
@@ -127,8 +125,7 @@ closing bead-ids / commits are cited per step.
   (`docs/guide/how-to/test-an-event-handler.md` and
   `docs/guide/how-to/test-a-cascade.md`, which pin `:rf/time-ms` via `:rf.cofx`
   rather than freezing the clock), and the v1 migration chapter
-  (`docs/guide/25-from-re-frame-v1.md`) (`rf2-nj416f`, `rf2-q2vbuf`; comment + skills passes
-  `rf2-kpg1fh`, `rf2-d4q7xc`). The spec graduation that anchors them is normative
+  (`docs/guide/25-from-re-frame-v1.md`). The spec graduation that anchors them is normative
   in `spec/002-Frames.md` §Recordable coeffects and `spec/Spec-Schemas.md`
   (`:rf.cofx` — renamed from the shipped `:rf.world/inputs` / `WorldInputs` by
   EP-0017).
@@ -155,10 +152,9 @@ closing bead-ids / commits are cited per step.
 
 ### Review series — closed clean
 
-The cross-cutting review beads `rf2-cc25b9` (correctness + completeness),
-`rf2-h273u8` (independent second review), and `rf2-bkp3ik` (testing-rigour +
-coverage audit) are all closed, as is the mandatory final review `rf2-czc9zn`
-(graduation-ready) and the best-practice pass `rf2-s2mizv` (PR #4020).
+The cross-cutting reviews — correctness + completeness, an independent second
+review, and a testing-rigour + coverage audit — are all closed, as are the
+mandatory final review (graduation-ready) and the best-practice pass (PR #4020).
 
 ## Abstract
 
@@ -295,7 +291,7 @@ repaired by silently asking the host again.
   that section works around — durable timestamps minted from an ambient clock
   whose meaning shifts under restore.
 - **EP-0006 (runtime-subsystem contract)** owns the durable / host-transient
-  grading this EP's classes build on, including the rf2-oosjmh ruling that
+  grading this EP's classes build on, including the ruling that
   host-side monotonic allocator counters never rewind.
 - **EP-0008 (production observability channels)** defines the channel split
   this EP relies on: causal facts are data and replayable, diagnostic facts are
@@ -703,7 +699,7 @@ After restore:
   reconciled as dangling according to the resource/work-ledger contract;
 - host-transient handles are cleared or recomputed on demand;
 - host-side monotonic allocators (generation counters, work-id high-water
-  marks) are not rewound. Per the rf2-oosjmh ruling carried in EP-0006's
+  marks) are not rewound. Per the ruling carried in EP-0006's
   grading table and EP-0003's §Restore and Replay, an allocator whose
   identities can be carried by an uncancellable host continuation only ever
   moves forward. Such allocators are host-transient under this EP's
@@ -1137,7 +1133,7 @@ all durable projections are equal after replay.
 
 ## Open Issues
 
-**All five issues were ruled 2026-06-11 (Mike, bead `rf2-jm6tlv`): every
+**All five issues were ruled 2026-06-11 (Mike): every
 disposition is "as recommended", with three riders recorded inline below.** The
 original recommendations are kept verbatim as the record of what was ruled.
 
@@ -1180,7 +1176,7 @@ original recommendations are kept verbatim as the record of what was ruled.
    stamp (Spec 009).
    **Disposition: retire, with the timing pinned (rider):** retirement happens
    **in the same change that lands the envelope stamp** — no coexistence
-   window. The `rf2-cg7llv` epoch-naming ruling demonstrated that coexistence
+   window. The epoch-naming ruling demonstrated that coexistence
    windows become permanent and the de-facto spelling wins; the window here is
    open precisely because `:rf.world/inputs` has not shipped. Standard
    retirement treatment: a hard error naming the replacement, never a silent

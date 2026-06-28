@@ -14,13 +14,13 @@ Type: standards-track
 > **rationale record**; where it and the spec differ, the spec governs.
 >
 > **BUILD status (updated 2026-06-12):** complete. The post-graduation consumer
-> propagation has shipped — `/skills` (`rf2-1w4x3l`) and `/examples`
-> (`rf2-d9ol4m`, a considered no-op: the algebra is a view, not an authoring
-> surface) via PR #3971, `/docs/guide` (`rf2-mpa1t5`) via PR #3983, and the
-> Xray derivation-graph panel (`rf2-9ett2d`, plus the `rf2-yjarv6`
+> propagation has shipped — `/skills` and `/examples`
+> (a considered no-op: the algebra is a view, not an authoring
+> surface) via PR #3971, `/docs/guide` via PR #3983, and the
+> Xray derivation-graph panel (plus the
 > redact-keep-structure coverage test) via the `feat(xray): EP-0014
 > derivation-graph panel + off-box redaction` merge — all closed and on
-> `main`. The action epic (`rf2-k0meap`) is therefore complete for its ruled
+> `main`. The action epic is therefore complete for its ruled
 > slice scope and ready to close. The items that legitimately remain
 > outstanding are deferred-by-criterion, not pending work: the public
 > graph-accessor name + facade classification (graduation-gated on a third
@@ -35,7 +35,7 @@ Type: standards-track
 > lifecycle/owner. Existing APIs remain source forms; the algebra is the
 > canonical view tools, specs, tests, and future source forms share.
 >
-> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-gwezdt`).**
+> **Ruling recorded 2026-06-11 (Mike, in-session).**
 > Accepted, per the EP's single decision surface: **vocabulary, spec model,
 > internal metadata, and graph inspection now; no new public authoring
 > primitive.** All six open issues are dispositioned in
@@ -231,8 +231,8 @@ mental model.
   this EP defines is exactly the per-fact/per-process row an app value
   carries, so the algebra view moves from registrar-derived metadata to a
   section of the app value with no shape change — enforced by the
-  **shape-agreement obligation** recorded on the EP-0013 action epic
-  (`rf2-c6armm`), which verifies the two shapes agree before either EP's spec
+  **shape-agreement obligation** recorded on the EP-0013 action epic, which
+  verifies the two shapes agree before either EP's spec
   slice lands. The relocation itself happens inside EP-0013's D2.
 
 ## Definitions
@@ -446,7 +446,7 @@ refinements, but a tool that understands only `:derivation` and `:process` must
 still be able to classify every node by reading `:kind` alone. (Graduation note:
 earlier drafts placed the refined kind directly in `:kind`; the graduated
 Spec-Schemas `DerivationKind` closed the enum to the two superkinds, so the
-examples below carry the refinement under `:refinement` — rf2-7wwp1z.)
+examples below carry the refinement under `:refinement`.)
 
 Function values in graph output MAY be represented by symbols, source
 coordinates, registry metadata, or opaque implementation tokens. The graph
@@ -1427,8 +1427,8 @@ A conforming implementation should satisfy these checks:
 
 ## Open Issues
 
-**All six issues were ruled 2026-06-11 (Mike, in-session; bead `rf2-gwezdt`),
-merging three convergent analyses.** Original recommendations are kept verbatim
+**All six issues were ruled 2026-06-11 (Mike, in-session), merging three
+convergent analyses.** Original recommendations are kept verbatim
 as the record of what was ruled; dispositions and riders are inline.
 
 1. What is the public name and exact return shape for graph inspection?
@@ -1504,7 +1504,7 @@ as the record of what was ruled; dispositions and riders are inline.
    would carry (see Relationships), so the move is a relocation, not a redesign.
    **Disposition: the condition FIRED — EP-0013 was accepted the same day.**
    The disposition updates from "wait" to "coordinate": the **shape-agreement
-   obligation** recorded on the EP-0013 action epic (`rf2-c6armm`) verifies
+   obligation** recorded on the EP-0013 action epic verifies
    the EP-0014 node shape and the EP-0013 descriptor shape agree before
    either EP's spec slice lands. This EP's first slice stays
    registrar-derived; the relocation lands inside EP-0013's D2 — "a

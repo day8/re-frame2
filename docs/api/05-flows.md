@@ -108,7 +108,7 @@ In the common case the lag is invisible — you register a flow in an `:enter`-s
 (rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
 ```
 
-This is a deliberate, explicit step — not a hidden one — and most apps never need it. The lag is by design: closing it would require a second `app-db` install per event, breaking the one-install-per-event invariant. See [Spec 013 §Sequencing — the one-event lag](../../spec/013-Flows.md#sequencing--the-one-event-lag) for the full rationale.
+This is an explicit step — not a hidden one — and most apps never need it. There is a one-event lag before a flow recomputes, which preserves the one-install-per-event invariant. See [Spec 013 §Sequencing — the one-event lag](../../spec/013-Flows.md#sequencing--the-one-event-lag).
 
 ## Failure semantics
 

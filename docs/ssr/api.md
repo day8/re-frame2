@@ -117,7 +117,7 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   ```clojure
   (active-head frame-id) → :rf/head-model
   ```
-- **Description**: Resolve the head-model for the currently active route in the named frame. Head rendering is a frame-scoped read (it reads the frame's route slice and app-db), so the frame is **carried, not ambient**: the no-arg form is gone (EP-0002), and a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised `:rf/default`. Sub-shape: `[:rf/head]` subscribes to this.
+- **Description**: Resolve the head-model for the currently active route in the named frame. Head rendering is a frame-scoped read (it reads the frame's route slice and app-db), so the frame is **carried, not ambient**: the no-arg form is gone, and a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised `:rf/default`. Sub-shape: `[:rf/head]` subscribes to this.
 
 ### `head-model->html`
 

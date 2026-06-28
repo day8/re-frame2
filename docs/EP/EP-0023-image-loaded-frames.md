@@ -11,7 +11,7 @@ Type: standards-track
 > `spec/Spec-Schemas.md`, `spec/Runtime-Subsystems.md`, and
 > `spec/Conventions.md`.
 >
-> **Graduated 2026-06-16 (Mike-ruled via the `rf2-32siq3.32` decision).**
+> **Graduated 2026-06-16 (Mike-ruled).**
 > EP-0023 is GRADUATED. The engine was verified flagship-quality and correct
 > across three final reviews (resolution coherence, the fail-loud assembly
 > lattice, cache coherence, hot reload, provenance elision; the conformance
@@ -21,10 +21,10 @@ Type: standards-track
 > object unification, the facade export of object `make-frame` / `reload-images!`,
 > reproject-on-`reg-*` wiring, standard-registry population, and the remaining
 > caller migration) does **not** block graduation and is tracked under the
-> `rf2-32siq3` epic. This EP partially supersedes EP-0013, whose status is now
+> EP-0023 action epic. This EP partially supersedes EP-0013, whose status is now
 > `superseded-by EP-0023`.
 >
-> **Substrate update 2026-06-19 (rf2-afdlyr):** the retained EP-0013 *multi-realm*
+> **Substrate update 2026-06-19:** the retained EP-0013 *multi-realm*
 > substrate was found to have no consumer and collapsed to a single default
 > realm; image assembly + frame isolation are now the governing isolation
 > architecture. See the *Addendum — multi-realm substrate retired* under
@@ -405,7 +405,7 @@ The useful cases are concrete:
 9. package reusable feature slices without giving them live state;
 10. make migration and tooling work from data instead of process-global mutation.
 
-The headline cases depend on one prerequisite: **per-frame live registration resolution**. Dispatch, subscribe, fx, cofx, view, resource, and related lookups must resolve through the targeted frame's resolved image generation. Static install/query isolation is not enough. If a target branch still treats a constructed realm as install/query-isolated but routes live dispatch through a global/default registrar, this EP's examples do not work there. Landing or retaining the a15n62-equivalent live-resolution slice is in scope for this proposal and is a graduation blocker.
+The headline cases depend on one prerequisite: **per-frame live registration resolution**. Dispatch, subscribe, fx, cofx, view, resource, and related lookups must resolve through the targeted frame's resolved image generation. Static install/query isolation is not enough. If a target branch still treats a constructed realm as install/query-isolated but routes live dispatch through a global/default registrar, this EP's examples do not work there. Landing or retaining the live-resolution slice is in scope for this proposal and is a graduation blocker.
 
 ## Use Cases
 
@@ -1618,7 +1618,7 @@ Reload uses the same `:images` spelling:
 
 `rf/reload-images!` targets one frame, by id or direct frame object, and replaces that frame's whole image composition. It returns a reload report naming added, changed, removed, and retained registrations. It does not mutate the image values supplied to other frames.
 
-> **Errata (rf2-wkw8na, sanctioned forward-extension):** the EP's model — "target frame → resolved image generation → registration resolution" — promised a public READ over a frame's generation, but the graduated facade exported only constructors/mutators (`rf/image`, `rf/make-frame`, `rf/reload-images!`). That read now ships: the registrar query trio (`rf/registrations` / `rf/handler-meta` / `rf/handler-ids`) grows a `{:frame f …}` arity that resolves the `(kind, id)` set through the target frame's sealed generation (surfacing `:rf.provenance/ns` + replacement facts), and `rf/frame-generation` returns the whole sealed generation (the four `:rf.gen/*` keys). `:frame` accepts a registered frame id or a direct frame object; an unresolvable `:frame` fails loud (`:rf.error/frame-no-generation`, no default fallback). A registrar-query map is ALWAYS a frame-targeted read (rf2-10nggz): the retired pre-EP-0023 `:realm` map arity was removed, and a map without `:frame` fails loud (`:rf.error/registrar-query-needs-frame`) — there is no realm coordinate in the public read grammar. This is the sanctioned public tooling surface for Pair MCP / Xray, which the EP forbids from consuming `re-frame.live-frame` / `re-frame.image-assembly` internals. Normative home: [spec/API.md §Public registrar query API](../../spec/API.md).
+> **Errata (sanctioned forward-extension):** the EP's model — "target frame → resolved image generation → registration resolution" — promised a public READ over a frame's generation, but the graduated facade exported only constructors/mutators (`rf/image`, `rf/make-frame`, `rf/reload-images!`). That read now ships: the registrar query trio (`rf/registrations` / `rf/handler-meta` / `rf/handler-ids`) grows a `{:frame f …}` arity that resolves the `(kind, id)` set through the target frame's sealed generation (surfacing `:rf.provenance/ns` + replacement facts), and `rf/frame-generation` returns the whole sealed generation (the four `:rf.gen/*` keys). `:frame` accepts a registered frame id or a direct frame object; an unresolvable `:frame` fails loud (`:rf.error/frame-no-generation`, no default fallback). A registrar-query map is ALWAYS a frame-targeted read: the retired pre-EP-0023 `:realm` map arity was removed, and a map without `:frame` fails loud (`:rf.error/registrar-query-needs-frame`) — there is no realm coordinate in the public read grammar. This is the sanctioned public tooling surface for Pair MCP / Xray, which the EP forbids from consuming `re-frame.live-frame` / `re-frame.image-assembly` internals. Normative home: [spec/API.md §Public registrar query API](../../spec/API.md).
 
 ## Backwards Compatibility And EP-0013 Partial Supersession
 
@@ -1626,7 +1626,7 @@ EP-0013 is final and shipped, so this EP is not a post-implementation amendment 
 
 Now that this EP has graduated, the EP-0009-valid bookkeeping is recorded: EP-0013's status is `superseded-by EP-0023`, and this EP records what carries forward and what is replaced (see the surface-disposition table below). The word "partial" is explanatory, not a separate status value.
 
-This EP **retains** EP-0013's D1 runtime-realm machinery as the internal installation boundary: a registrar container, adapter/capability owner, frame registry, host-transient owner, disposal boundary, and compatibility home for the default registration path. It also requires the a15n62 invariant in substance: live dispatch, subscribe, fx, and cofx resolution must be derived from the frame being targeted, not from a process-global registrar.
+This EP **retains** EP-0013's D1 runtime-realm machinery as the internal installation boundary: a registrar container, adapter/capability owner, frame registry, host-transient owner, disposal boundary, and compatibility home for the default registration path. It also requires the live-resolution invariant in substance: live dispatch, subscribe, fx, and cofx resolution must be derived from the frame being targeted, not from a process-global registrar.
 
 What changes is the public story. Instead of asking users to reason about an app value installed into a realm and then addressed by `(realm, frame)`, the main public model becomes:
 
@@ -1646,7 +1646,7 @@ The target model is:
 frame -> resolved image generation
 ```
 
-Those are equivalent at the a15n62 boundary if the frame is the only public target: once you have the frame, you have the instruction set used for resolution. The realm can remain the internal container that makes installation, hot reload, host-transient ownership, and disposal work.
+Those are equivalent at the live-resolution boundary if the frame is the only public target: once you have the frame, you have the instruction set used for resolution. The realm can remain the internal container that makes installation, hot reload, host-transient ownership, and disposal work.
 
 The target public contract is that the **frame absorbs the realm's live responsibilities**. That does not mean the frame-state value absorbs them. It means the live frame object becomes the thing that names the running environment, while the frame-state value remains the serializable projection.
 
@@ -1662,7 +1662,7 @@ EP-0013 realm responsibilities rehome as follows:
 
 This is the missing cut: image owns behavior; frame owns the live run. The old realm can continue as a private installation structure while the public model collapses to the frame target.
 
-This EP is therefore a **partial supersession of EP-0013's public app/realm surface**. EP-0013's isolation decisions are retained, and a15n62-equivalent live-routing behavior is required. On branches where that behavior has already shipped, this EP retains it. On branches where it is still deferred, landing it is part of this EP's implementation scope. The public vocabulary and addressing surface are simplified.
+This EP is therefore a **partial supersession of EP-0013's public app/realm surface**. EP-0013's isolation decisions are retained, and live-routing behavior is required. On branches where that behavior has already shipped, this EP retains it. On branches where it is still deferred, landing it is part of this EP's implementation scope. The public vocabulary and addressing surface are simplified.
 
 Migration has one deliberate hardening break: default-image assembly is stricter than today's registrar. An existing codebase may contain two loaded namespaces that register the same `(kind, id)` and currently "work" only because the later registration silently clobbers the earlier one. Under this proposal, the source store retains both descriptors and the default image fails assembly with a collision diagnostic. The migration is to rename the duplicate id, narrow the image selector, or declare an exact replacement winner. This is intentional fail-loud behavior, not a compatibility regression to paper over.
 
@@ -1671,7 +1671,7 @@ Surface dispositions:
 | EP-0013 surface | Status in this EP | Disposition |
 |---|---|---|
 | D1 realm container | Retained internally | The realm remains a valid implementation substrate for registrar seating, adapter/capability storage, host-transient ownership, disposal, and compatibility during migration. It stops being the beginner-facing public architecture. |
-| a15n62 realm-routed dispatch/subscribe/fx/cofx | Required invariant and migration path | The invariant is restated as frame-derived resolution: the target frame determines the registration universe. An implementation may realize that as `frame -> owning realm -> realm registrar` or collapse it to `frame -> resolved image generation`. Both satisfy the same observable contract; a branch without either behavior cannot deliver this EP's headline use cases. |
+| Realm-routed dispatch/subscribe/fx/cofx | Required invariant and migration path | The invariant is restated as frame-derived resolution: the target frame determines the registration universe. An implementation may realize that as `frame -> owning realm -> realm registrar` or collapse it to `frame -> resolved image generation`. Both satisfy the same observable contract; a branch without either behavior cannot deliver this EP's headline use cases. |
 | `rf/app` / app value | Publicly replaced by `rf/image` | The same "registration set as value" idea survives, but the public name becomes the thing a frame loads. Migration can keep `rf/app` as an alias or diagnostic bridge while docs and new code use `rf/image`. |
 | `rf/module` / module descriptor | Re-expressed as image fragments | The deferred D3 module-manifest slice is realized as image fragments, namespace-provenance selection, ownership metadata, and capability requirements inside images. No separate public `module` noun is needed for the core model. |
 | `rf/realm`, `install!`, `reinstall!`, `installed-app`, realm-scoped registrar queries | Retained as implementation/migration/tooling surface unless separately retired | Existing shipped code can keep working while the public guide moves to `rf/image` + `rf/make-frame`. Tooling may still expose the internal installation boundary, but should label it as such. |
@@ -1694,10 +1694,10 @@ The proposed vocabulary relates to the current API like this:
 
 The point is to make the public model smaller and more internally consistent while preserving the useful current machinery: registrations, frames, `runtime-db`, carried frame identity, frame-derived resolution, and the internal realm substrate where it still earns its keep.
 
-### Addendum — multi-realm substrate retired (rf2-afdlyr, 2026-06-19)
+### Addendum — multi-realm substrate retired (2026-06-19)
 
 > Post-graduation amendment. The dispositions above retained EP-0013's realm
-> machinery "internally." A subsequent pre-alpha review (rf2-afdlyr, Mike-ruled
+> machinery "internally." A subsequent pre-alpha review (Mike-ruled
 > 2026-06-19) found that the retained substrate's one remaining capability —
 > multi-realm isolation — had no consumer, and collapsed it. This addendum
 > narrows the "Retained internally" rows above; it introduces no new public
@@ -1730,7 +1730,7 @@ substrate is gone):
 
 Retained, narrowed to the single default realm: the registrar-seating seam,
 adapter selection, and the `installed-app` projection (whose one live consumer
-is the Xray module/image view). The a15n62 invariant is unchanged — live
+is the Xray module/image view). The live-resolution invariant is unchanged — live
 resolution is frame-derived; the implementation realizes it as
 `frame -> resolved image generation`, with the single default realm as the
 backing installation container.
@@ -1742,12 +1742,11 @@ and `*current-realm*` build on it, `call-with-realm` threads it through
 `destroy-frame!` / `reset-frame!`, and `frame-realm` feeds `frame-address` (read
 by its SSR side-channel consumers). Since there is now only ever the one default
 realm, this addressing vestige is dead weight scheduled for collapse — tracked
-as the afdlyr-completion follow-up (rf2-upgtq4: collapse `frame-key` to a bare
+as a follow-up (collapse `frame-key` to a bare
 frame id and drop `*current-realm*` / `frame-realm` / `call-with-realm`).
 
 This is a consequence of EP-0023, not a new conceptual surface; no separate EP
-is created. Tracking: rf2-afdlyr (the decision) and the residual-addressing
-follow-up rf2-upgtq4.
+is created.
 
 ## Placement Rules And Rationale
 
@@ -1771,7 +1770,7 @@ event stream = the program
 ## Bead Plan / Reference Implementation
 
 1. Keep the EP-0013 realm container as a migration substrate while making the live frame object the public owner of adapter binding, capability map, frame lifecycle, and host-transient leases.
-2. Land or retain the a15n62-equivalent live-resolution path: dispatch, subscribe, fx, cofx, view/resource lookup, and related registration resolution derive from the targeted frame.
+2. Land or retain the live-resolution path: dispatch, subscribe, fx, cofx, view/resource lookup, and related registration resolution derive from the targeted frame.
 3. Add `rf/image` as the public constructor for selected registration-set values.
 4. Teach `rf/make-frame` to accept `:images`, always as a vector, and resolve those image values into one sealed image generation. `make-frame` always returns the live frame object; `:id` additionally registers that object in the process-local live-frame registry.
 5. Replace the clobbering default registrar model with a provenance-preserving registration source store keyed by `[kind id provenance-namespace]`, then project selected descriptors into a sealed `[kind id]` resolver at image assembly.
@@ -1791,7 +1790,7 @@ event stream = the program
 
 ### Implementation Beads
 
-Implementation proceeded after acceptance as narrow, ordered beads rather than one broad "implement images" bead, tracked under the `rf2-32siq3` epic. The bead split was:
+Implementation proceeded after acceptance as narrow, ordered beads rather than one broad "implement images" bead, tracked under the EP-0023 action epic. The bead split was:
 
 | Bead | Scope | Depends On | Acceptance |
 | --- | --- | --- | --- |
@@ -1888,8 +1887,7 @@ operator to accept, reject, defer, or request a narrower replacement surface.
 
 ## Recommendation
 
-Accepted as a standards-track EP and graduated (Mike-ruled via the
-`rf2-32siq3.32` decision, 2026-06-16).
+Accepted as a standards-track EP and graduated (Mike-ruled 2026-06-16).
 
 The public model is `image -> frame -> event stream`. EP-0013's realm
 machinery remains available as the internal installation substrate while
@@ -1899,4 +1897,4 @@ caching, frame-derived registration resolution, explicit replacement winners,
 and guide/tooling updates ahead of graduation; the conformance suite reports
 zero contract gaps. A sequenced post-graduation wave (the object-returning
 `make-frame` collapse and related caller migration) is tracked under the
-`rf2-32siq3` epic and does not block graduation.
+EP-0023 action epic and does not block graduation.

@@ -67,7 +67,7 @@ The full catalogue — every category, its trigger, its `:tags` payload, its rec
 
 When an error fires, the runtime applies a typed, per-category default. That's the whole story. There's no app-steering error policy here: no global error handler, no hook that swallows an exception or substitutes a result.
 
-This is deliberate, and the reasoning is worth sitting with — swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](../../resources/http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
+Swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](../../resources/http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
 
 The `:recovery` vocabulary is small and readable on sight:
 
@@ -88,7 +88,7 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 - **A missing fx drops only itself.** Read this one twice, because people get it backwards. `:rf.error/no-such-fx` does *not* halt the cascade — the handler's `:db` change still applies and the sibling `:fx` entries still fire.
 - **A missing coeffect fails loud, before the handler runs.** `:rf.error/unregistered-cofx`. We'll see why this is the strict sibling of the missing-fx case below.
 
-> **From re-frame v1.** `reg-event-error-handler` is gone. Its observability half becomes a [listener](../glossary.md#listener) on the error channel (the `:errors` stream covered at the end of this page). Its steering half has no successor, by design — re-frame2 has no app-policy recovery hook, because recovery is a framework-owned typed default, not an app concern. The [migration page](../25-from-re-frame-v1.md) maps the translation.
+> **No app-policy error hook.** There is no `reg-event-error-handler`. Observation lives on a [listener](../glossary.md#listener) on the error channel (the `:errors` stream covered at the end of this page); there is no app-policy recovery hook — recovery is a framework-owned typed default, not an app concern. The [migration page](../25-from-re-frame-v1.md) maps the translation from re-frame v1.
 
 > **One category, three modes.** `:rf.error/no-such-handler` covers three [registrar](../glossary.md#registrar) misses, discriminated by a mandatory `:kind` tag: `:kind :event` (the dispatch case above), `:kind :route` (a URL that matched no registered [route](../../routing/glossary.md#route) pattern — see [routing](../../routing/concepts.md)), and `:kind :frame` (a tool surface addressing a frame-id that isn't registered). Filter on the operation keyword alone for a single "registrar miss" view; route on `:kind` when you want per-mode handling.
 

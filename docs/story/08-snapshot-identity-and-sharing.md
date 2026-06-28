@@ -105,14 +105,13 @@ wire-facing tools such as Story-MCP apply redaction/elision when values cross
 the agent boundary.
 
 The share URL, copied EDN, static build, and screenshot ARE re-frame2-created
-artifacts — which the framework's egress policy scopes in. The recorded ruling
-is that they ship unredacted: a human pressing share / copy / export is the
-trusted-local operator revealing their own frame (the same intent as the
-framework's `:rf.egress/local-raw` boundary), of an app they already have full
-access to. The residual risk — a recipient of a deliberately shared artifact
-sees what the operator chose to share — is the operator's own choice, exactly
-as it is when pasting their own console output. Redaction lives at the off-box
-boundaries (MCP / logs), not on this human egress UX.
+artifacts — which the framework's egress policy scopes in. They ship unredacted:
+a human pressing share / copy / export is the trusted-local operator revealing
+their own frame (the same intent as the framework's `:rf.egress/local-raw`
+boundary), of an app they already have full access to. A recipient of a shared
+artifact sees what the operator chose to share, exactly as when pasting console
+output. Redaction lives at the off-box boundaries (MCP / logs), not on this
+human egress UX.
 
 This keeps local developer tooling useful without pretending a screenshot or
 URL is a security boundary.

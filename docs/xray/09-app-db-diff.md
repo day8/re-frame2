@@ -8,7 +8,7 @@ The app-db panel compares the focused epoch's `:db-before` and `:db-after`. It s
 
 ![The app-db panel showing changed slices](../images/xray/xray-tutorial-app-db.png)
 
-This is deliberately not a giant tree dump on first paint. Giant tree dumps are where useful questions go to become archaeology.
+This is not a giant tree dump on first paint. Giant tree dumps are where useful questions go to become archaeology.
 
 Use app-db when you are asking:
 

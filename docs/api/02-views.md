@@ -60,7 +60,7 @@ The macro accepts three shapes for the same registration. They produce the same 
   [:tr ...])
 ```
 
-In all three cases the symbol `cart-line` is `def`-ed so you can write `[cart-line item]` from sibling code. The macro also injects `dispatch` and `subscribe` as lexical bindings so you can call them without the `rf/` prefix inside the body — this matters less than it used to (the `rf/` prefix is conventional) but the seam is preserved for muscle-memory and macro composition.
+In all three cases the symbol `cart-line` is `def`-ed so you can write `[cart-line item]` from sibling code. The macro also injects `dispatch` and `subscribe` as lexical bindings so you can call them without the `rf/` prefix inside the body; the `rf/` prefix is conventional.
 
 ### Rendering an app-facing view
 
@@ -153,18 +153,13 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
       [:div "streaming…"]))
   ```
 
-> **`frame-bound-fn` / `frame-bound-fn*` are internal under EP-0024.** Earlier
-> re-frame2 also shipped `frame-bound-fn` (a `fn`-syntax macro) and
-> `frame-bound-fn*` (its `*`-twin) for wrapping an arbitrary fn whose body
-> re-establishes the frame. EP-0024 Open Issue #8 retiered both to internal
-> (`:tier :implementation`) — `capture-frame` (or an explicit `{:frame …}` opt)
-> expresses the real use cases, and the empirical backbone found no app or tool
-> calling them. They are no longer app API; author async / tooling paths with
-> `capture-frame`.
+> **`frame-bound-fn` / `frame-bound-fn*` are internal.** They are not app API.
+> Author async / tooling paths with `capture-frame` (or an explicit `{:frame …}`
+> opt), which expresses the real use cases.
 
 ### When to reach for `capture-frame`
 
-The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` (per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant), the runtime never synthesises `:rf/default` from absence — frame identity is *carried*, not *found*).
+The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` — the runtime never synthesises `:rf/default` from absence; frame identity is *carried*, not *found* (see [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)).
 
 The fix is to capture the frame *at the point you have it* and carry it as a value with **`capture-frame`**: build the operation bundle inside a render body or under `with-frame`, store it, and invoke its `:dispatch` / `:subscribe` ops from any later async context.
 

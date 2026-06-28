@@ -59,7 +59,7 @@ Story core returns **marks-as-data**: the registered bodies and per-frame snapsh
 The split keeps Story's read surface composable:
 
 - **Crosses the wire elided** — every payload returned by a story-mcp tool (`get-variant`, `run-variant`, `snapshot-identity`, registry reads, recorder output). The MCP jar is the wire owner; egress is where elision lands.
-- **Crosses the wire raw** — nothing the MCP jar emits. A future in-process consumer that calls the read primitives directly (without going through the MCP jar) gets real values; this is by design so on-box devtool surfaces can read the same data unredacted.
+- **Crosses the wire raw** — nothing the MCP jar emits. A future in-process consumer that calls the read primitives directly (without going through the MCP jar) gets real values, so on-box devtool surfaces can read the same data unredacted.
 
 Story core's contract is **real-values-in, real-values-out**; elision is the MCP jar's responsibility. The same split governs Xray's runtime seam — the framework / Xray / Story emit; tools consume; the contract is the data shape, not the call shape.
 

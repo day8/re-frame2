@@ -12,7 +12,7 @@ An app author learns one boot sentence — **install an adapter with `init!`, th
 
 ## Application boot
 
-This is the only lane an app author needs. It has exactly two steps: install the substrate adapter once, then create your app's frame(s) explicitly. Frame creation is always under your control — `init!` deliberately creates none.
+This is the only lane an app author needs. It has exactly two steps: install the substrate adapter once, then create your app's frame(s) explicitly. Frame creation is always under your control — `init!` creates none.
 
 ```clojure
 (rf/init! reagent/adapter)                          ;; 1. install the substrate (once)
@@ -30,7 +30,7 @@ Step 2's `:initial-events` is the seam into the **frame-startup** lane — the e
   ```clojure
   (init! adapter-map)
   ```
-- **Description**: The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile / load time — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime. Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. `init!` installs adapters and runtime capabilities only; per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant) it does **not** create or guarantee any frame — you register your app frame explicitly (`reg-frame`) and establish it at your root.
+- **Description**: The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile / load time, so the missing-adapter mistake surfaces before runtime. Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. `init!` installs adapters and runtime capabilities only; it does **not** create or guarantee any frame (see [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)) — you register your app frame explicitly (`reg-frame`) and establish it at your root.
 - **Example**:
   ```clojure
   (:require [re-frame.adapter.reagent :as reagent-adapter])
@@ -43,7 +43,7 @@ After `init!`, create your frame(s) — that's the next subsection.
 
 ## Frame startup — the second boot step
 
-`init!` installs host capability and creates **no** frame; per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant) frame ownership is always explicit. So the app author's second move is to create the frame and establish it at the root:
+`init!` installs host capability and creates **no** frame; frame ownership is always explicit (see [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)). So the app author's second move is to create the frame and establish it at the root:
 
 - **`reg-frame`** / **`make-frame`** create a frame atomically and run its `:initial-events` synchronously — the frame's startup lifecycle. Both are rowed in [01 — Core §Frames](01-core.md#frames-the-scoping-primitive).
 - **`frame-provider`** establishes a created frame at a point in the view tree, so every bare `dispatch` / `subscribe` underneath resolves against it.
@@ -143,9 +143,9 @@ Back in the app-author lane: the `configure` fn is application boot's adjacent s
   ```
 - **Description**: Runtime config. One of three orthogonal configuration surfaces — `configure` for process-level data knobs; `set-!` / `install-!` for adapter-pluggable hooks; per-frame metadata for frame-scoped overrides. The vocabulary of keys lives in [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
-The three configuration surfaces — `configure`, the `set-!` / `install-!` setters (`set-schema-validator!`, etc.), and per-frame metadata — are deliberately separate. Each answers a different question: `configure` for data knobs (depth, threshold, grace period); the setters for hook-shaped pluggability (which validator to use, which printer); per-frame metadata for frame-scoped overrides (which projector, which `:fx-overrides`).
+The three configuration surfaces — `configure`, the `set-!` / `install-!` setters (`set-schema-validator!`, etc.), and per-frame metadata — are separate. Each answers a different question: `configure` for data knobs (depth, threshold, grace period); the setters for hook-shaped pluggability (which validator to use, which printer); per-frame metadata for frame-scoped overrides (which projector, which `:fx-overrides`).
 
-Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata).
+See [Conventions §Configuration surfaces](../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata).
 
 ## Bootstrap pattern
 

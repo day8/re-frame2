@@ -3,8 +3,8 @@
 Status: final
 Type: standards-track
 
-> **Graduated `accepted → final` 2026-06-17 (Mike, operator graduation; bead
-> `rf2-7mj7mt`).** This EP added *interval revalidation* (polling) to Spec 016
+> **Graduated `accepted → final` 2026-06-17 (Mike, operator graduation).** This
+> EP added *interval revalidation* (polling) to Spec 016
 > Resources, on the recommended cut: resource-level `:poll-interval-ms`, an
 > unconditional active-owner tick (Open Question 3 → (a)),
 > default-pause-when-hidden with `:poll-when-hidden?` reserved (OQ 2), the
@@ -21,9 +21,7 @@ Type: standards-track
 > `entry-revalidation-in-flight?` coalescing gate), and the polling conformance
 > suite (`resources_polling_cljs_test.cljc`). The §Specification section below is
 > the design record; where it and the spec differ, the spec governs. `final`
-> asserts the **decisions are settled** and the normative home governs. Tracking
-> beads: `rf2-byl7bk.2` (the resource-management parity tranche epic
-> `rf2-byl7bk`) and the graduation bead `rf2-7mj7mt`.
+> asserts the **decisions are settled** and the normative home governs.
 
 ## Abstract
 
@@ -60,7 +58,7 @@ re-frame2 today has the *adjacent* primitives — `:stale-after-ms` /
 scheduling](../../spec/016-Resources.md#stale-and-gc-scheduling)) and
 focus/reconnect active-stale revalidation (the
 `:rf.resource/window-focused` / `:rf.resource/network-reconnected` events,
-landed via `rf2-vtblcq`) — but **no polling primitive**. Polling is explicitly
+landed earlier) — but **no polling primitive**. Polling is explicitly
 named a deferred later slice in [Spec 016 §Deferred
 slices](../../spec/016-Resources.md#deferred-slices) ("polling/interval
 revalidation") and in the reserved-but-unused key list ("`:poll-ms`" among the
@@ -152,7 +150,7 @@ concept. A poll is "while a live cause keeps this entry alive, keep it fresh."
   and named scope resolvers. Polling composes with that surface: a poll tick is
   an ordinary `:rf.resource/refetch` and a polled scoped resource resolves its
   scope through the same `reg-resource-scope` resolvers.
-- **Focus/reconnect active-stale revalidation (landed, `rf2-vtblcq`).** Polling
+- **Focus/reconnect active-stale revalidation (landed).** Polling
   reuses the exact scan-and-refetch discipline of
   `re-frame.resources.events/revalidate-handler`: select active-owner entries,
   skip those with a live in-flight refetch (the `entry-revalidation-in-flight?`
@@ -161,7 +159,7 @@ concept. A poll is "while a live cause keeps this entry alive, keep it fresh."
 - **[EP-0010](EP-0010-causal-world-inputs.md) (final).** A poll tick's freshness
   basis is the firing token's causal `:rf/time-ms`, not an ambient host clock
   read — the same World-Input discipline the focus/reconnect scan follows
-  (`re-frame.resources.events/revalidate-handler`, the `rf2-95b0lc` note). The
+  (`re-frame.resources.events/revalidate-handler`). The
   timer itself is host-transient scheduling (allowed to read the wall clock to
   arm), but the durable freshness decision uses the causal time.
 - **[EP-0002](EP-0002-frame-target-resolution.md) (final).** A poll timer is
@@ -372,7 +370,7 @@ the two substrates it needs already exist and are battle-tested:
    (`entry-revalidation-in-flight?`, the coalescing gate), dispatches background
    `:rf.resource/refetch` with a **cause** (never an owner), and bases its
    freshness decision on the causal `:rf/time-ms` not an ambient clock
-   (the `rf2-95b0lc` EP-0010 discipline). A poll is the same operation triggered
+   (the EP-0010 discipline). A poll is the same operation triggered
    by a timer instead of a host focus/online event.
 
 Polling therefore introduces **no new race surface, no new transport, no new
@@ -529,7 +527,7 @@ they are kept verbatim as the record of what was ruled.
 
 ## Resolved Decisions
 
-Ruled by Mike at graduation (`accepted → final`, 2026-06-17; bead `rf2-7mj7mt`),
+Ruled by Mike at graduation (`accepted → final`, 2026-06-17),
 adopting the recommended cut. One row per Open Question. These rows are normative;
 the [§Open Issues](#open-issues) above carry the full rationale, and the
 §Specification body has been reconciled to them.

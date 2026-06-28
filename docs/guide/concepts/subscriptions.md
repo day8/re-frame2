@@ -234,7 +234,7 @@ Any `reg-sub` may carry an optional **metadata map** immediately after the id, b
 The keys you'll reach for:
 
 - **`:doc`** — a human-readable description. It's structurally optional, but the dev build *warns* when a registration omits it, because tools (Xray's sub list, the topology view) surface it. Treat it as a SHOULD.
-- **`:schema`** — a [Malli](https://github.com/metosin/malli) [schema](../glossary.md#schema) (or your implementation's equivalent) describing the sub's **output**. When present, the runtime validates the computed value against it at the `:sub-return` validation boundary — a fail-loud guard that catches a derivation quietly producing the wrong shape, long before a view chokes on it. (`:schema` is the canonical key; the v1 `:spec` was renamed.) The full schema-everywhere story is in [Validate with schemas](../how-to/validate-with-schemas.md).
+- **`:schema`** — a [Malli](https://github.com/metosin/malli) [schema](../glossary.md#schema) (or your implementation's equivalent) describing the sub's **output**. When present, the runtime validates the computed value against it at the `:sub-return` validation boundary — a fail-loud guard that catches a derivation quietly producing the wrong shape, long before a view chokes on it. (`:schema` is the canonical key.) The full schema-everywhere story is in [Validate with schemas](../how-to/validate-with-schemas.md).
 - **`:tags`** — a set of keywords for your own grouping and tooling.
 
 Two metadata keys are specific to subscriptions, both from the [data-classification](../glossary.md#data-classification) model ([EP-0025](../../../spec/015-Data-Classification.md)). They classify the sub's **own output** so the observability pipeline knows what to redact or summarise when it captures a value into a trace:
@@ -249,7 +249,7 @@ Two metadata keys are specific to subscriptions, both from the [data-classificat
   (fn [db _] (:auth/token db)))
 ```
 
-> **Gotcha — classification doesn't propagate.** A sub does **not** inherit its inputs' `:sensitive`/`:large` declarations — EP-0025 removed derived-output sensitivity propagation. If a derived value is sensitive, classify it *at the sub that produces it*. Each output path is classified where it's declared, full stop. The narrative and the keep-it-out-of-traces recipe live in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
+> **Gotcha — classification doesn't propagate.** A sub does **not** inherit its inputs' `:sensitive`/`:large` declarations — derived-output sensitivity does not propagate. If a derived value is sensitive, classify it *at the sub that produces it*. Each output path is classified where it's declared, full stop. The narrative and the keep-it-out-of-traces recipe live in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
 
 A malformed `:sensitive`/`:large` value is rejected at registration with `:rf.error/bad-classification` — another fail-loud guard rather than a silent drop.
 

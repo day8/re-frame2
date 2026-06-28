@@ -53,7 +53,7 @@ These three (`:params-schema`, `:scope`, request fn) are the registration gate �
 
 **Optional keys**: `:doc`, `:data-schema` (validates successful data when present / transport decode supports it — not enforced by the registration gate), `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:infinite` + the infinite-only keys (`:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, `:page-data-schema`, `:refetch` — see [Infinite resources](#infinite-resources)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
 
-**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, transport extension protocols. (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling; the `:infinite` load-more kind landed via EP-0021 — see [Infinite resources](#infinite-resources).) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation`.
+**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, transport extension protocols. (Interval polling is `:poll-interval-ms`; the `:infinite` load-more kind — see [Infinite resources](#infinite-resources).) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation`.
 
 ### Scope policy
 
@@ -133,7 +133,7 @@ Resource events take a **map payload**, not a positional argument vector.
 
 ### Focus/reconnect revalidation
 
-Active-stale revalidation is expressed as **resource events**, never subscription-driven fetching (rf2-vtblcq, landed). On window focus / tab-return / network reconnect, the frame's active-owner **stale** entries are rescanned and refetched by policy — a stale entry with no active owner is left alone (revalidation creates no liveness).
+Active-stale revalidation is expressed as **resource events**, never subscription-driven fetching. On window focus / tab-return / network reconnect, the frame's active-owner **stale** entries are rescanned and refetched by policy — a stale entry with no active owner is left alone (revalidation creates no liveness).
 
 #### `[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`
 
@@ -178,7 +178,7 @@ A "just polling" view with no natural route/machine owner needs an app-minted `[
 
 ### Infinite resources
 
-An **infinite resource** is the load-more / infinite-scroll feed counterpart of TanStack Query's `useInfiniteQuery` / SWR's `useSWRInfinite` (landed via [EP-0021](../EP/EP-0021-infinite-resources.md); normative source [016 §Infinite resources and load-more feeds](../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)). It is a resource registered with `:infinite true` plus a pure `:next-page-param`; the user accumulates pages (1, then 1+2, then 1+2+3) rendered as one growing list, with the *next* page param derived from the last page's data. Numbered / cursor pagination (`:keep-previous?` + per-page entries) is untouched and orthogonal — an app picks per feed.
+An **infinite resource** is the load-more / infinite-scroll feed counterpart of TanStack Query's `useInfiniteQuery` / SWR's `useSWRInfinite` (see [EP-0021](../EP/EP-0021-infinite-resources.md); normative source [016 §Infinite resources and load-more feeds](../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)). It is a resource registered with `:infinite true` plus a pure `:next-page-param`; the user accumulates pages (1, then 1+2, then 1+2+3) rendered as one growing list, with the *next* page param derived from the last page's data. Numbered / cursor pagination (`:keep-previous?` + per-page entries) is untouched and orthogonal — an app picks per feed.
 
 ```clojure
 (rf/reg-resource :feed/timeline
@@ -289,7 +289,7 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
 
 > **Mutation `:scope` is not fail-closed.** Unlike a resource read — whose `:scope` is **required** and fails closed — a mutation's `:scope` is optional and resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it **MUST match the scope of the resources the write changes**: a write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead and silently misses the scoped entries (stale reads, no error). Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site; the `:rf.scope/from-caller` *policy* is a resource-read concept, not a mutation one.
 
-**Optimistic keys** (landed via [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) — see [spec/016 §Optimistic mutations](../../spec/016-Resources.md#optimistic-mutations)): `:optimistic` is a registration-level forward plan (the twin of `:patches`) applied **before** the server confirms; `:optimistic-tags` is its tag-addressed twin for cross-view consistency; `:on-conflict` (`:invalidate` default | `:force`) decides the contested-rollback policy. The **inverse is runtime-recorded** — the author supplies no `:rollback` registration key; the runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol.
+**Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [spec/016 §Optimistic mutations](../../spec/016-Resources.md#optimistic-mutations)): `:optimistic` is a registration-level forward plan (the twin of `:patches`) applied **before** the server confirms; `:optimistic-tags` is its tag-addressed twin for cross-view consistency; `:on-conflict` (`:invalidate` default | `:force`) decides the contested-rollback policy. The **inverse is runtime-recorded** — the author supplies no `:rollback` registration key; the runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol.
 
 ### `clear-mutation`
 
@@ -389,7 +389,7 @@ These direct functions are the **tool/test projection lane** — not an app-read
   ```clojure
   (mutation-state {:instance … :frame …}) → row or nil
   ```
-- **Description**: A mutation **instance**'s durable runtime row (`{:status :result :error …}`) for an explicit-frame target, or nil. Per [EP-0002](../EP/EP-0002-frame-target-resolution.md) the frame is carried explicitly.
+- **Description**: A mutation **instance**'s durable runtime row (`{:status :result :error …}`) for an explicit-frame target, or nil. The frame is carried explicitly (see [EP-0002](../EP/EP-0002-frame-target-resolution.md)).
 
 ### `mutations`
 
@@ -405,7 +405,7 @@ Xray exposes the same shapes plus the tool accessors (`list-resources`, `list-re
 
 ## Cache home
 
-Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db partition (`:rf.db/runtime`); the frame work ledger at `:rf.runtime/work-ledger`. Both are reserved runtime-db keys, framework-owned, per-frame isolated, allocated lazily. App code reads through the subs and accessors and never hand-edits the slice. Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) are deliberately separate; host handles (AbortControllers, timers, promises) live in side tables and are never serialized. The correctness rule: **cancellation is opportunistic; stale-reply suppression (by work-id + generation) is mandatory.** See [Guide ch.27 §Cache home and the work ledger](concepts.md).
+Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db partition (`:rf.db/runtime`); the frame work ledger at `:rf.runtime/work-ledger`. Both are reserved runtime-db keys, framework-owned, per-frame isolated, allocated lazily. App code reads through the subs and accessors and never hand-edits the slice. Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) are separate; host handles (AbortControllers, timers, promises) live in side tables and are never serialized. The correctness rule: **cancellation is opportunistic; stale-reply suppression (by work-id + generation) is mandatory.** See [Guide ch.27 §Cache home and the work ledger](concepts.md).
 
 ## Examples and cross-references
 

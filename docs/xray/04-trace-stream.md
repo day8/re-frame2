@@ -53,7 +53,7 @@ That is the same architectural move Xray makes, just with a smaller presentation
 
 ## Why The Trace Tab Stays Flat
 
-It is tempting to turn Trace into another nested dashboard. Xray deliberately does not. The nested explanation lives in Epoch. The flat feed is valuable precisely because it stays close to the wire.
+Trace is not another nested dashboard. The nested explanation lives in Epoch. The flat feed is valuable precisely because it stays close to the wire.
 
 When something looks suspicious in a friendly panel, Trace lets you answer:
 

@@ -1,8 +1,8 @@
 # 08 — Schemas and data classification
 
-Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You register them with `reg-app-schema` (path-keyed, not id-keyed — the only `reg-*` that breaks that pattern, deliberately); the runtime validates `app-db` writes against the matching schemas in dev; production builds elide the validation at the call sites.
+Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You register them with `reg-app-schema` (path-keyed, not id-keyed — the only `reg-*` that breaks that pattern); the runtime validates `app-db` writes against the matching schemas in dev; production builds elide the validation at the call sites.
 
-Schemas describe **shape and validation**. Per [EP-0025](../EP/EP-0025-data-classification.md), durable `app-db` data classification is *not* a schema concern: a schema must not be a second route to classify an `app-db` path the **event** already owns (the event is `app-db`'s definition site — see below). Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (commit-plane classification effects for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
+Schemas describe **shape and validation**. Durable `app-db` data classification is *not* a schema concern (see [EP-0025](../EP/EP-0025-data-classification.md)): a schema must not be a second route to classify an `app-db` path the **event** already owns (the event is `app-db`'s definition site — see below). Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (commit-plane classification effects for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
 
 This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the canonical contracts, see [010-Schemas.md](../../spec/010-Schemas.md), [015-Data-Classification.md](../../spec/015-Data-Classification.md), and [Privacy.md](../../spec/Privacy.md).
 
@@ -16,7 +16,7 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
   (reg-app-schema path {:schema schema})
   (reg-app-schema path {:schema schema :frame frame})
   ```
-- **Description**: "Attach this Malli schema to this `app-db` path." The schema rides the metadata map under `:schema`; the optional frame target rides `:frame` in the same map. **Path is the registration id** — app-db schemas are path-keyed (the schemas-at-paths grain matches `get-in` / `assoc-in`) and live in the schemas artefact's per-frame side-table (per rf2-cq1ak app-db schemas are NOT a registrar kind). `(app-schema-at [:user])` looks up by the same path vector.
+- **Description**: "Attach this Malli schema to this `app-db` path." The schema rides the metadata map under `:schema`; the optional frame target rides `:frame` in the same map. **Path is the registration id** — app-db schemas are path-keyed (the schemas-at-paths grain matches `get-in` / `assoc-in`) and live in the schemas artefact's per-frame side-table (app-db schemas are NOT a registrar kind). `(app-schema-at [:user])` looks up by the same path vector.
 - **Example**:
   ```clojure
   (rf/reg-app-schema [:cells]
@@ -151,7 +151,7 @@ The pattern: dev-time validation runs at every commit by default; production-tim
 
 ## Data classification
 
-Schemas describe shape; **classification of durable `app-db` data is event-owned**, not schema-attached. The `app-db` path is yours at an absolute path you own, so you classify it (EP-0025) by returning a **commit-plane classification effect** from a `reg-event` handler — alongside `:db`, in the same event. There are four, one per axis-and-direction:
+Schemas describe shape; **classification of durable `app-db` data is event-owned**, not schema-attached. The `app-db` path is yours at an absolute path you own, so you classify it by returning a **commit-plane classification effect** from a `reg-event` handler — alongside `:db`, in the same event. There are four, one per axis-and-direction:
 
 ```clojure
 (rf/reg-event :app/init
@@ -174,7 +174,7 @@ Schemas describe shape; **classification of durable `app-db` data is event-owned
   re-frame.http.managed/managed-handler)
 ```
 
-A `reg-frame` / `make-frame` config carrying `:sensitive` or `:large` **fails loud at registration** (EP-0025 retired the frame keys — the durable `:app-db` block moved to the commit-plane effects, the `:http` carrier block moved to `:rf.http/managed`). There is likewise **no** schema-attached or imperative-mark route to classify a durable `app-db` path; the event is `app-db`'s definition site, and that is the one route. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](../machines/api.md), [16 — Resources](../resources/api.md), [07 — HTTP](../resources/http-api.md).) Transient payloads (event args, sub/flow outputs, the `:rf.http/managed` `:carriers` block) are classified by the registration that introduces the shape.
+A `reg-frame` / `make-frame` config carrying `:sensitive` or `:large` **fails loud at registration**. There is likewise **no** schema-attached or imperative-mark route to classify a durable `app-db` path; the event is `app-db`'s definition site, and that is the one route. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](../machines/api.md), [16 — Resources](../resources/api.md), [07 — HTTP](../resources/http-api.md).) Transient payloads (event args, sub/flow outputs, the `:rf.http/managed` `:carriers` block) are classified by the registration that introduces the shape.
 
 The full teaching of the three owners, the two projection primitives, and the egress profiles lives in [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md). For the framework-internal egress primitives (`project-egress`, `elide-wire-value`) consumed by tools and sinks, see [11 — Instrumentation](11-instrumentation.md).
 

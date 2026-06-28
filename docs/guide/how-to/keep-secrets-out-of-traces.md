@@ -32,7 +32,7 @@ Wire `:auth/init` to run at frame creation with `:initial-events`, so the classi
   {:initial-events [[:auth/init]]})
 ```
 
-> **From re-frame v1.** v1 had no classification model — every event vector and every bit of app-db flowed into `re-frame-10x` raw, and keeping a token out of a trace meant not putting it in app-db at all. re-frame2 lets the secret live where it naturally belongs and redacts it *at the boundary*. If you tried the EP-0015 preview: the frame `:sensitive {:app-db …}` annotation and the top-level `:large` frame key are **gone** (both now fail loud with `:rf.error/bad-frame-classification`). The event is app-db's definition site; that is the one route.
+> **Classify at the boundary.** re-frame2 lets the secret live where it naturally belongs and redacts it *at the boundary* — you don't keep a token out of traces by keeping it out of app-db. There is no frame-level `:sensitive {:app-db …}` annotation and no top-level `:large` frame key (both fail loud with `:rf.error/bad-frame-classification`). The event is app-db's definition site; that is the one route.
 
 > **For JavaScript developers.** `:initial-events` is the only frame-init surface — there is no `:initial-db` and no `:on-create`. A [frame](../glossary.md#frame) always starts with `app-db = {}`; seeding it is itself an event (`[:rf/set-db {…}]`) dispatched as the first init step. See [the frames concept page](../concepts/frames.md).
 

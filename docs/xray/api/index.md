@@ -2,7 +2,7 @@
 
 This is the human-facing API reference for Xray — the dev-only panel that renders re-frame2's runtime through six Dynamic lenses and five Static catalogues over a single observation surface. The tutorial chapters one folder up walk a developer through the surface from a sitting position; this folder walks it from a standing one, organised by **what part of the contract you're touching** rather than by user journey. Each chapter opens with a paragraph on what the surface is *for* — the problem it solves, the shape of the contract — and only then drops into the function tables.
 
-If you want the dense, single-page contract — every signature, every status keyword, every cross-reference — the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) is still where that lives. This guide is the consumer extract: the surfaces a *host application* or a *tool integrator* may legitimately reach for, with intuition notes attached. Internal seams (the panel reg-views composed by Xray's own shell, the shell composer, the registry's per-key handlers) are deliberately absent — those are documented for Xray's maintainers, not for hosts.
+If you want the dense, single-page contract — every signature, every status keyword, every cross-reference — the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) is still where that lives. This guide is the consumer extract: the surfaces a *host application* or a *tool integrator* may legitimately reach for, with intuition notes attached. Internal seams (the panel reg-views composed by Xray's own shell, the shell composer, the registry's per-key handlers) are absent here — those are documented for Xray's maintainers, not for hosts.
 
 ## What "canonical" means here
 
@@ -45,7 +45,7 @@ The closing chapter is **[Reference](reference.md)** — the complete symbol tab
 
 ## When to reach for the spec instead
 
-The chapters here are organised for readers; the [normative spec](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) is organised for completeness. If you're looking for *every* row at once — including the internal-but-visible surfaces, the resolved-decisions log, the migration notes for surfaces that were renamed mid-alpha — that's where you want to be. If you're writing a host integration and want to know which surfaces *exist* in a given domain, you want a chapter here.
+The chapters here are organised for readers; the [normative spec](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) is organised for completeness. If you're looking for *every* row at once — including the internal-but-visible surfaces and the resolved-decisions log — that's where you want to be. If you're writing a host integration and want to know which surfaces *exist* in a given domain, you want a chapter here.
 
 The normative spec docs (`007-UX-IA.md`, `011-Launch-Modes.md`, `015-Configuration.md`, etc. under [`tools/xray/spec/`](https://github.com/day8/re-frame2/tree/main/tools/xray/spec)) own the *why* — the design rationale, the alternatives considered, the dispositions. The chapters here cite those when they matter and stay quiet otherwise.
 

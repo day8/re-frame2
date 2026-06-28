@@ -42,8 +42,8 @@ Type: standards-track
 > (EP-0016 optimistic temp-ids the named candidate) — both tracked as the
 > separate slice-A action wave, not by this status flip.
 
-> **Graduated `accepted → final` 2026-06-13 (Mike, in-session; bead
-> `rf2-o2z6gs`).** The decisions are settled and the normative homes named in
+> **Graduated `accepted → final` 2026-06-13 (Mike, in-session).** The decisions
+> are settled and the normative homes named in
 > the acceptance note above govern (where this EP and the spec differ, the spec
 > governs). Slice A (the six sequential hot-zone beads — spec amendment, runtime
 > rename + flat reshape, requires-parsing + declared-only delivery +
@@ -53,7 +53,7 @@ Type: standards-track
 > generation machinery) stays gated per disposition 11, and the review's open
 > errata are tracked as child beads — both recorded in the
 > [§Implementation errata](#implementation-errata) ledger below. One
-> determinism question surfaced by the review (`rf2-16ck78`) is **held for
+> determinism question surfaced by the review is **held for
 > operator ruling**; it is noted in the ledger and not resolved by this flip.
 
 ## Implementation errata
@@ -65,7 +65,7 @@ beads, not as reopened decisions — the EP-0010 / EP-0013 precedent, where a
 settled decision's later slice and its build-not-decision tails are recorded as
 errata rather than as open questions. Verified 2026-06-13 against the merged
 Slice A implementation, the six-lens review verdicts, and the open child beads
-of epic `rf2-d8mvke`.
+of the action epic.
 
 ### Shipped (Slice A)
 
@@ -121,7 +121,7 @@ generator machinery (slice-B.7) is the first wave; mint-policy wiring
 (slice-B.8) and machine consumer-attachment (slice-B.9) follow, both gated on
 B.7 as before.
 
-- **Recordable generator machinery — BUILT (`rf2-ygpac8`, slice-B.7).**
+- **Recordable generator machinery — BUILT (slice-B.7).**
   Generation at processing-start (the generator runs under the cofx
   HandlerScope + platform gate when the mint policy permits; the produced
   value is written back into the in-flight `:rf.cofx` record so the epoch
@@ -137,9 +137,9 @@ B.7 as before.
   throwing validator). The mint policy threads in via a `mint-policy` arg to
   `deliver-declared-cofx` (default `:live`, the router default); the binding
   points (`:test` preset / replay → `:strict`) are slice-B.8's job.
-  **The structural-EDN-always half is now built (rf2-rmroo4 slice A for
-  supplied values; rf2-uqz2ir for generated values; production-hardened
-  rf2-q34j26).** A non-EDN recordable value — a host object reaching the
+  **The structural-EDN-always half is now built (slice A for
+  supplied values, a follow-up for generated values, and a production-hardening
+  pass).** A non-EDN recordable value — a host object reaching the
   durable token whether supplied at the dispatch boundary or freshly generated,
   independent of any declared `:schema` — is `:rf.error/cofx-value-invalid`
   (`:rf.cofx/value-error :non-edn-recordable-value`), and the check is
@@ -153,11 +153,11 @@ B.7 as before.
   dev gate with the rationale that no shipped generator minted a non-EDN value;
   the production-hardening closes the gate so the contract holds in production
   too, not only where the dev walk runs.)
-- **Mint policies — DEFERRED (`rf2-5spzo7`, slice-B.8).** `:live` (router
+- **Mint policies — DEFERRED (slice-B.8).** `:live` (router
   default), `:strict` (hard-wired for replay; the `:test` preset default), and
   `:explicit-live` (declared-nondeterminism escape), wired to their normative
   homes. Gated on slice-B.7.
-- **Machine consumer-attachment — DEFERRED (`rf2-mjmxgb`, slice-B.9).**
+- **Machine consumer-attachment — DEFERRED (slice-B.9).**
   Consumer-attachment entry-map `requires`, the derived per-(state × event-type)
   ensure-sets (incl. the `:always` closure), the inline-fn restriction, and the
   lint. Gated on slice-B.7.
@@ -171,7 +171,7 @@ B.7 as before.
 
 The six independent lens reviews (correctness, completeness, best-practice,
 test-coverage, skills, guide) filed **25 findings**, tracked as child beads of
-epic `rf2-d8mvke` and being actioned in waves. They are build-and-doc errata,
+the action epic and being actioned in waves. They are build-and-doc errata,
 not reopened decisions: residual old-shape vocabulary in shipped docs/skills,
 JVM-only contract-suite ports, facade docstring drift, a bare/unqualified
 routing cofx id, and similar tails.
@@ -179,7 +179,7 @@ routing cofx id, and similar tails.
 One determinism question is **held for operator ruling** rather than actioned:
 
 - **Boot/rehydrate localStorage reads registered AMBIENT but folded into
-  durable app-db — HELD (`rf2-16ck78`).** Three example-layer instances
+  durable app-db — HELD.** Three example-layer instances
   (todomvc, realworld, realworld-resources) register a localStorage read as an
   *ambient* coeffect and then fold its value straight into durable app-db on
   `:*/initialise`. The A.4 migration audit ruled this an **acceptable boot

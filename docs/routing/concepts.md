@@ -54,7 +54,7 @@ Move 1 is a couple of registry rows. Move 2 is a dispatch — the same verb you 
 
 ## Move 1: a route is a registry entry
 
-`reg-route` registers a route the same way `reg-event` registers an event: an id, a metadata map, and — in the third slot — the path. The path grammar is deliberately small enough to parse in your head. A path is made of exactly five kinds of thing, and no more: literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`).
+`reg-route` registers a route the same way `reg-event` registers an event: an id, a metadata map, and — in the third slot — the path. The path grammar is small enough to parse in your head. A path is made of exactly five kinds of thing, and no more: literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`).
 
 > **Gotcha — `reg-route` needs the artefact loaded.** `reg-route` (and `route-link`, `match-url`, `route-url`, the route subs) all live in the separately-packaged `day8/re-frame2-routing` artefact, not in core. Requiring `re-frame.routing` *at boot* is what wires them up — that's the `(:require … [re-frame.routing])` in the three-moves snippet above. Forget it and the first `reg-route` call **throws** `:rf.error/routing-artefact-missing`, naming the namespace to require and the Maven coordinate to add — a loud, actionable error, not a silent no-op.
 
@@ -178,7 +178,7 @@ For links *in views*, use `route-link`. It renders a real `<a href>` (good for a
 
 > **Gotcha — native-anchor attributes win.** A `route-link` carrying `:target "_blank"` (or `_parent`/`_top`/a named frame) or `:download` is **not** intercepted, even on a plain left-click — the browser handles it, exactly as the DOM attributes advertise. SPA-intercepting a `{:target "_blank"}` link would silently break open-in-new-tab; intercepting a `{:download ...}` link would turn it into a no-op. The link still renders as a real `<a>`; the click is just left to the browser. Want SPA interception? Omit those attributes (or set `:target "_self"`).
 
-Plain `[:a {:href "..."}]` anchors are deliberately **not** intercepted; they do a native full-page navigation. This surprises people at first, but it's intentional: site-wide anchor interception is a host-adapter concern, not framework magic, so you opt in per link (or install your own document-level click handler that dispatches `:rf/url-requested` — the same decision-point event `route-link` uses).
+Plain `[:a {:href "..."}]` anchors are **not** intercepted; they do a native full-page navigation. Site-wide anchor interception is a host-adapter concern, not framework magic, so you opt in per link (or install your own document-level click handler that dispatches `:rf/url-requested` — the same decision-point event `route-link` uses).
 
 > **`:rf/url-requested` is the policy seam.** Every `route-link` click dispatches `:rf/url-requested`, and *that* event is the single decision point for "in-app or external?", "is the leave-guard satisfied?", and any per-frame policy (auth, modifier keys). It's enumerable and testable with zero DOM: dispatch `[:rf/url-requested {:url "/cart"}]` from a test and assert the result — an in-app request pushes the URL and synthesises the transition; an external one (anything not provably same-origin) emits a `:rf.route/external-url-requested` trace and pushes nothing. Re-registering `:rf/url-requested` is how you install app-wide navigation policy.
 
@@ -233,7 +233,7 @@ Try it with the [Xray inspector](../guide/how-to/debug-with-xray.md) open. Dispa
 
 ### Fragments and scrolling
 
-The `#fragment` part of a URL is first-class: it rides in the slice, it has its own sub (`:rf.route/fragment`), and `route-url`'s 4-arity emits one. A fragment-only change — same route, same params, just a new `#anchor` — updates the slice and emits a `:rf.route/fragment-changed` trace but deliberately does **not** re-fire the route's loaders (`:on-match`), because nothing about the data changed. You jumped to an anchor; you didn't reload the page.
+The `#fragment` part of a URL is first-class: it rides in the slice, it has its own sub (`:rf.route/fragment`), and `route-url`'s 4-arity emits one. A fragment-only change — same route, same params, just a new `#anchor` — updates the slice and emits a `:rf.route/fragment-changed` trace but does **not** re-fire the route's loaders (`:on-match`). You jumped to an anchor; you didn't reload the page.
 
 Scrolling on navigation is declarative too — a route's `:scroll` key (or a per-call `:scroll` in the navigate opts) names one of three strategies:
 

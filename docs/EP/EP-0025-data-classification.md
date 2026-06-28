@@ -3,7 +3,7 @@
 Status: final
 Type: standards-track
 
-> **Graduated 2026-06-24** into [`spec/015-Data-Classification.md`](../../spec/015-Data-Classification.md), reconciled across the affected specs (Privacy, Security, 009, 014, 016, 011) and the migration guide; the repo-wide propagation audit (`rf2-vl0jur`) closed with zero findings. Per EP-0009 the spec now governs where it and this EP differ. One tool-local follow-up is tracked under Implementation Errata, below.
+> **Graduated 2026-06-24** into [`spec/015-Data-Classification.md`](../../spec/015-Data-Classification.md), reconciled across the affected specs (Privacy, Security, 009, 014, 016, 011) and the migration guide; the repo-wide propagation audit closed with zero findings. Per EP-0009 the spec now governs where it and this EP differ. One tool-local follow-up is tracked under Implementation Errata, below.
 
 > **Supersedes** the earlier "Registration-Time Subsystem Data Classification" version
 > of EP-0025 (a global registrar, frame app-db annotations, a per-egress
@@ -110,7 +110,7 @@ Non-Goals:
   with the image; the registry is per-frame.
 - **EP-0027** (frame initial events) — the **preferred** home for known-path
   classification; `:on-create` is transitional only.
-- **Managed effects** (Spec 014 §Abort on actor destroy, rf2-wvkn) — the machine case
+- **Managed effects** (Spec 014 §Abort on actor destroy) — the machine case
   of subsystem teardown-clear shares this plumbing.
 
 ## How it works
@@ -241,7 +241,7 @@ keyword-ids in arbitrary data). A Datadog shipper is therefore the whole of:
 It knows nothing about HTTP, websockets, or any effect — **add a new effect tomorrow
 and its `reg-fx` declaration is redacted with zero changes to the shipper.** Every
 consumer works this way: the prod off-box observability channel (EP-0008) projects
-before shipping (closing the always-on off-box-ships-raw gap, `rf2-mrtis6`); the MCP
+before shipping (closing the always-on off-box-ships-raw gap); the MCP
 server (`mcp-base`) projects every value it returns to an AI; Xray, SSR, and async-reply
 trace rows likewise. Redaction applies at the **default/safe** profiles; local trusted
 profiles may keep raw escape hatches per existing egress policy.
@@ -441,7 +441,7 @@ section-by-section map.
    backstop, **no propagation** (classify exactly what you mark — no value-match, no
    input → output inheritance) — **profile-aware**,
    and ensure **every default/safe consumer projects** (prod off-box / EP-0008, MCP /
-   `mcp-base`, Xray, SSR, async-reply), closing the off-box-ships-raw gap (`rf2-mrtis6`).
+   `mcp-base`, Xray, SSR, async-reply), closing the off-box-ships-raw gap.
 5. Remove the **durable app-db** frame annotation + durable-state Malli-prop
    classification **and the derived-output propagation policy**; **keep** validation /
    transient / validation-failure / HTTP-carrier redaction.
@@ -495,7 +495,7 @@ specs (8), `/docs/guide` (9), and `/skills` (10):
   marks residue.
 - **`implementation/security/`** — the cross-cutting security regression tests (MCP
   egress, schema redaction, SSR escaping) must exercise the new projection path and
-  the prod-off-box-projects fix (`rf2-mrtis6`).
+  the prod-off-box-projects fix.
 - **`/migration`** — check the v1→v2 rules for any classification / redaction guidance.
 
 Run this cluster after the new structure is in (stage 3+); graduation is not complete
@@ -505,7 +505,7 @@ until it's green.
 
 Both items were dispositioned by graduation (no open issues ship silently, per EP-0009).
 
-- **`marks.cljc` decomposition** (Bead-Plan stage 1) — **resolved in implementation.** The imperative marks API was removed and its logic recast as the classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`); the `marks` vocabulary and namespace residue were swept across spec and code. Confirmed by the `rf2-vl0jur` propagation audit (zero findings).
+- **`marks.cljc` decomposition** (Bead-Plan stage 1) — **resolved in implementation.** The imperative marks API was removed and its logic recast as the classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`); the `marks` vocabulary and namespace residue were swept across spec and code. Confirmed by the propagation audit (zero findings).
 - **Per-subsystem declaration shape** — *decided in principle:* each subsystem owns the arrangement that fits it (shared axis keys + projection-relative paths; the rest is its own ergonomic call). The concrete shapes landed in each subsystem's spec — not an EP-level blocker.
 
 ## Recommendation
@@ -524,9 +524,9 @@ trust the developer — and stays a *helper*, not a contract.
 
 ## Implementation Errata
 
-*Final means the decisions are settled; it does not assert the build is gap-free (EP-0009). Rows cite live bead ids and are struck as they close.*
+*Final means the decisions are settled; it does not assert the build is gap-free (EP-0009). Rows are struck as they close.*
 
-- **`rf2-jwggld`** (open, P2 decision) — Story-MCP's two inherently re-keyed, routinely non-live scrub surfaces (`record-as-variant`, `read-a11y-violations`) meet the now fail-closed `project-egress` boundary, which would redact their whole re-keyed payload to `:rf/redacted` without closing any leak the live-frame case would have. An **explicit, bead-tracked interim** ships those payloads raw when the variant frame is non-live; the framework boundary itself stays fail-closed. The permanent option (require a live frame / structured refusal / a trusted-local-raw profile) awaits an operator ruling. Tool-local — it does not change the EP-0025 contract.
+- **Open (P2 decision)** — Story-MCP's two inherently re-keyed, routinely non-live scrub surfaces (`record-as-variant`, `read-a11y-violations`) meet the now fail-closed `project-egress` boundary, which would redact their whole re-keyed payload to `:rf/redacted` without closing any leak the live-frame case would have. An **explicit, tracked interim** ships those payloads raw when the variant frame is non-live; the framework boundary itself stays fail-closed. The permanent option (require a live frame / structured refusal / a trusted-local-raw profile) awaits an operator ruling. Tool-local — it does not change the EP-0025 contract.
 
 ## Guide impact
 

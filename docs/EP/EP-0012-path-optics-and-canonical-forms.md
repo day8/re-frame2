@@ -13,14 +13,14 @@ Type: standards-track
 > canonical-identity rules), validated end-to-end by the `re-frame.path` /
 > `re-frame.identity` reference implementation. This EP is now the **rationale
 > record**; where it and the spec differ, the spec governs. The action epic
-> (`rf2-94o54l`) stays open for the remaining post-graduation item (the
-> deferred cache-key normalisation, `rf2-o84qq2`).
+> stays open for the remaining post-graduation item (the
+> deferred cache-key normalisation).
 
 > This EP defines one small path and canonical-identity algebra for app-db
 > paths, runtime-db paths, flow dependencies and outputs, schema and redaction
 > paths, resource identity, work ids, and routing parse/print round trips.
 >
-> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-s7xshi`).**
+> **Ruling recorded 2026-06-11 (Mike, in-session).**
 > Accepted. All six open issues are dispositioned in
 > [§Open Issues](#open-issues): internal-first surface with a concrete per-op
 > graduation criterion; the `[:rf.path/param …]` data form as the canonical
@@ -1419,7 +1419,7 @@ Public/internal conformance:
 
 ## Open Issues
 
-**All six issues were ruled 2026-06-11 (Mike, in-session; bead `rf2-s7xshi`).**
+**All six issues were ruled 2026-06-11 (Mike, in-session).**
 Original recommendations are kept verbatim as the record of what was ruled;
 dispositions and riders are inline.
 

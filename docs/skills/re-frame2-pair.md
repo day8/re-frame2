@@ -30,8 +30,8 @@ Do **not** use this skill for:
 
 Every session starts with `discover-app`, called via the
 `re-frame2-pair-mcp` server (the only skill-facing transport — see
-[Transport](#transport) below). The `scripts/` shims are retired from
-the skill surface and exist only for the project's own e2e harness and
+[Transport](#transport) below). The `scripts/` shims are not part of the
+skill surface — they exist only for the project's own e2e harness and
 ad-hoc manual use, so they are not part of a skill session:
 
 ```
@@ -50,9 +50,9 @@ The skill is **MCP-only**: a single skill-facing transport.
   `npm install -g @day8/re-frame2-pair-mcp` and add to your agent
   host's MCP config. Source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
 
-The `scripts/` bash shims that originally fronted these ops are
-**non-skill-facing**: retired from the skill's `allowed-tools` and kept
-on disk only for the project's own e2e test harness and ad-hoc shell use.
+The `scripts/` bash shims are **non-skill-facing**: they are not in the
+skill's `allowed-tools` and live on disk only for the project's own e2e
+test harness and ad-hoc shell use.
 
 To force-load in Claude Code:
 

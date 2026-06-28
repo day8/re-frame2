@@ -11,11 +11,10 @@ Type: standards-track
 > reserved-key grammar), with `spec/002-Frames.md` and `spec/API.md` updated to
 > match.
 >
-> **Accepted 2026-06-22 (Mike-ruled).** Implementation is tracked under beads
-> rf2-o2vfrc (spec graduation — Conventions / 002-Frames / API), rf2-6ls85a
-> (`:select-ns` + image-order resolution), rf2-ke7w5j (shadow report), rf2-dlvmpc
-> (retirements + surgical capability removal), rf2-fsd822 (inline grammar +
-> default image), and rf2-qp8qi8 (conformance). The EP moves to `final` once the
+> **Accepted 2026-06-22 (Mike-ruled).** Implementation is tracked across spec
+> graduation (Conventions / 002-Frames / API), `:select-ns` + image-order
+> resolution, the shadow report, retirements + surgical capability removal, the
+> inline grammar + default image, and conformance. The EP moves to `final` once the
 > spec graduation and implementation land.
 
 ## Abstract
@@ -607,7 +606,7 @@ Retired keys MUST fail loudly so stale examples do not keep working by accident.
    unique per composition; a chain reports the final winner for every loser). Build
    the shadow report and expose it as `:rf.gen/shadows`, the `rf/frame-shadows`
    accessor, and the `reload-images!` report; reflect it in the `frame-generation`
-   read (rf2-wkw8na). The resolved-generation cache key MUST include the
+   read. The resolved-generation cache key MUST include the
    `:select-ns` selection and the image order.
 3. Fail loud only for: any within-image `[kind id]` collision (two selected, two
    inline, or inline-vs-selected), a duplicate image `:id` in one composition, a
@@ -645,7 +644,7 @@ At minimum, the implementation sweep should cover:
 - `implementation/core/src/re_frame/live_frame.cljc`
 - `implementation/core/src/re_frame/late_bind/directory.cljc` and the per-kind
   inline-lowering publishers (events / subs / fx / cofx)
-- the `reload-images!` report path and the `frame-generation` read (rf2-wkw8na)
+- the `reload-images!` report path and the `frame-generation` read
 - the resolved-generation cache key
 - `spec/API.md`
 - `spec/Conventions.md`

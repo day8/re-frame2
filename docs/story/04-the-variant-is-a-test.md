@@ -135,9 +135,9 @@ guessing which parent or fragment contributed a field, read the explanation:
 source chain, merge decisions, final setup order, final script order, runner
 requirements, tags, platforms, and source coordinates.
 
-You can see the same explanation in the Story inspector. It is deliberately
-boring and explicit. Composition without a receipt is just global state wearing
-a clever moustache.
+You can see the same explanation in the Story inspector. It is boring and
+explicit. Composition without a receipt is just global state wearing a clever
+moustache.
 
 ## Checks and assertions
 

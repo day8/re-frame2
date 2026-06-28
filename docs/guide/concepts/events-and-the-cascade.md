@@ -31,7 +31,7 @@ This is the first load-bearing idea, and it's the one that trips people up comin
 
 > **For JavaScript developers.** A DOM `on-click` usually *does* the work — mutate state, kick off a fetch, maybe both. Here the `on-click` does exactly one thing: it hands a value to `dispatch` and returns. Think of it less like calling a function and more like posting a message to a queue. Whatever the increment *means* lives somewhere else entirely, and the button neither knows nor cares.
 
-> **The canonical shape.** Best practice is `[<id>]` for a trivial event, `[<id> <scalar>]` for one argument, and `[<id> {<k> <v>}]` when you have several — a single map payload rather than positional args. The runtime still *tolerates* variadic `[<id> a b c]` for migration and convenience, but the linter nudges new code toward the map form, because a named map is easier to read, grow, and destructure than a positional tail. (The full rationale lives in [Conventions §Canonical event-vector shape](../../../spec/Conventions.md#canonical-event-vector-shape-best-practice).)
+> **The canonical shape.** Best practice is `[<id>]` for a trivial event, `[<id> <scalar>]` for one argument, and `[<id> {<k> <v>}]` when you have several — a single map payload rather than positional args. The runtime still *tolerates* variadic `[<id> a b c]` for migration and convenience, but the linter nudges new code toward the map form, because a named map is easier to read, grow, and destructure than a positional tail. (The full convention lives in [Conventions §Canonical event-vector shape](../../../spec/Conventions.md#canonical-event-vector-shape-best-practice).)
 
 ## One click, in slow motion
 

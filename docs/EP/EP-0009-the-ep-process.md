@@ -9,7 +9,7 @@ Type: process
 >
 > Normative home: **this active EP**, specifically its §Specification.
 
-> **Ruling recorded 2026-06-11 (rf2-rjh00f).** The corpus already follows this
+> **Ruling recorded 2026-06-11.** The corpus already follows this
 > process de facto, and the first coherence remediation made the process
 > dependency explicit by marking this EP `active`. This note records that
 > activation in the EP itself so the process document follows its own
@@ -157,7 +157,7 @@ as standards-track. The README remains an index, not a second normative home.
    lifecycle vocabulary, and index, pointing here for the full process.
 2. **Done.** Tooling bead: `check_ep_status_sync.py` enforces README/header
    status sync, status grammar, and the post-EP-0005 `Type:` header rule.
-3. **Open — `rf2-lbxhlm`.** Template/update bead: update any EP authoring
+3. **Open.** Template/update bead: update any EP authoring
    template or implementor skill that still treats `Status:` as free text or
    assumes every successful EP graduates into `spec/`.
 

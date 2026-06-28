@@ -5,8 +5,8 @@ Type: standards-track
 
 > **`final` means the decisions are settled (2026-06-11).** Mike green-lit
 > actioning this EP on 2026-06-11; the full lowering chain (slices .1–.8) then
-> landed and the final correctness review (`rf2-zqefg3.9`) and completeness
-> review (`rf2-zqefg3.10`) both passed clean. The canonical contract — the
+> landed and the final correctness review and completeness
+> review both passed clean. The canonical contract — the
 > uniform reply map shape, the reply target, the closed status taxonomy,
 > work-id correlation, mandatory stale suppression, and the reply-mapping
 > functor law — lives in its primary normative home,
@@ -28,7 +28,7 @@ Type: standards-track
 > claim is conformance-proven by the test-only managed-timer probe
 > (`re-frame.timer-probe`, slice .6). A **public** managed-timer surface
 > (`:rf.timer/after`) and its `:rf.timer/*` Conventions reservation are
-> deliberately deferred to `rf2-5wuikc` (EP-0003 test-only-instance precedent),
+> deliberately deferred (EP-0003 test-only-instance precedent),
 > so the timer carries no shipped Conventions reservation by design, not by
 > omission.
 >
@@ -52,7 +52,7 @@ managed async families (HTTP, resources + mutations, machines, route loaders)
 complete through the one shared `re-frame.reply` substrate, each carrying
 property 9 and its work-id tuple, and the inheritance claim is
 conformance-proven by the test-only managed-timer probe. The final correctness
-review (`rf2-zqefg3.9`) and this completeness review (`rf2-zqefg3.10`) both
+review and this completeness review both
 passed clean with no state-safety or correctness defect.
 
 The items below carry out the settled design; neither reopens a ruling or
@@ -60,7 +60,7 @@ changes a contract. They are recorded here per the EP-0005 final-with-errata
 pattern: finalizing the *decisions* does not, on its own, assert the
 *implementation* is gap-free.
 
-- **`rf2-lohbfg`** *(RESOLVED — P3, observability, behaviourally safe)* — wire
+- **Resolved (P3, observability, behaviourally safe)** — wire
   the machine `stale-spawn-reply` into the one reachable machine-supersession
   path: a spawned child reaching a `:final?` leaf *after* its parent was
   already destroyed. This path was previously handled in `finalize-machine` by
@@ -79,7 +79,7 @@ pattern: finalizing the *decisions* does not, on its own, assert the
   The machine completion model is synchronous, so a genuinely-late completion
   arriving after the child itself was destroyed is not reachable;
   parent-destroyed-before-child-finishes was the only live case.
-- **`rf2-mdjzs0`** *(RESOLVED — P4, cosmetic, one-name-per-fact tidy)* — converge
+- **Resolved (P4, cosmetic, one-name-per-fact tidy)** — converge
   the unqualified `:work-id` spelling that survived in several resource /
   mutation **trace-tag** and internal in-flight-bookkeeping maps onto the
   qualified `:work/id`. The **durable** identity was already uniformly
@@ -1446,7 +1446,7 @@ map. The normative rule is the reply map and work id, not the exact internal
 event id split. The internal verification-payload key has since converged on the
 qualified `:work/id` already used by the ledger row and this EP — one attempt
 identity, one spelling, per EP-0007 (the convergence and the Xray
-tolerance-drop landed under `rf2-mdjzs0`; see the
+tolerance-drop landed; see the
 [Implementation errata](#implementation-errata) ledger).
 
 Mutation internals follow the same compatibility posture. The current

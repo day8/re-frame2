@@ -129,7 +129,7 @@ A failed write settles `:error?` and parks the structured error under `:error` (
 [:rf.mutation/clear {:instance [:article-save slug]}]
 ```
 
-`:rf.mutation/clear` clears the runtime instance (and best-effort aborts any in-flight work for it). It is the *causal* reset — the form-level "start over" — and is deliberately distinct from `clear-mutation`, the registration-lifecycle function that *unregisters* the mutation entirely. You will reach for `:rf.mutation/clear` constantly; you will reach for `clear-mutation` almost never.
+`:rf.mutation/clear` clears the runtime instance (and best-effort aborts any in-flight work for it). It is the *causal* reset — the form-level "start over" — and is distinct from `clear-mutation`, the registration-lifecycle function that *unregisters* the mutation entirely. You will reach for `:rf.mutation/clear` constantly; you will reach for `clear-mutation` almost never.
 
 That's the complete simple path: tag the reads, declare what the write breaks, fire it and watch the instance. Everything below is optional — reach for it when a particular write needs more than "mark it stale and refetch."
 
@@ -296,7 +296,7 @@ A descriptor can only name scopes you already know. Occasionally you need the op
                  :cause        [:admin/article-purged article-id]}])
 ```
 
-Because it can stale or refetch data across *every* user, tenant, story frame, and SSR request, it's deliberately load-bearing to spell out and is treated as a privacy-relevant operation:
+Because it can stale or refetch data across *every* user, tenant, story frame, and SSR request, it's load-bearing to spell out and is treated as a privacy-relevant operation:
 
 - it **must** carry `:cause` evidence — a cross-scope invalidation with no `:cause` is a loud `:rf.error/resource-cross-scope-cause-required`, never a silent unaudited sweep (the mutation engine stamps `:cause` for you when you supply one on the descriptor);
 - it shows up as a privacy-relevant [trace event](../../guide/glossary.md#trace-event), recording that a mutation reached outside its own scope;
@@ -344,7 +344,7 @@ What the runtime guarantees, so you don't hand-roll any of it:
 
 Two guardrails worth internalizing:
 
-> **Gotcha — optimistic plans are fail-closed and scope-bounded.** Every optimistic target's scope is fail-closed: a `{:from-db …}` that resolves nil *drops* that target rather than writing under an implicit global (unlike a mutation's fail-open *execution* scope — an optimistic apply writes the cache, so it carries the same leak boundary a read does). There is deliberately **no `:cross-scope?` optimistic form**: the optimistic surface is exact-key or tag-within-named-scope only, so it can't leak a write across users or tenants the way an audited `:cross-scope?` invalidation deliberately can. A malformed `:optimistic-tags` descriptor (non-map, missing `:patch`, non-collection `:tags`) is warn-and-skipped (`:rf.warning/optimistic-tags-descriptor-skipped`), not thrown — it runs *before* the request lowers, so throwing would kill the whole write; the well-formed descriptors in the same plan still apply.
+> **Gotcha — optimistic plans are fail-closed and scope-bounded.** Every optimistic target's scope is fail-closed: a `{:from-db …}` that resolves nil *drops* that target rather than writing under an implicit global (unlike a mutation's fail-open *execution* scope — an optimistic apply writes the cache, so it carries the same leak boundary a read does). There is **no `:cross-scope?` optimistic form**: the optimistic surface is exact-key or tag-within-named-scope only, so it can't leak a write across users or tenants the way an audited `:cross-scope?` invalidation can. A malformed `:optimistic-tags` descriptor (non-map, missing `:patch`, non-collection `:tags`) is warn-and-skipped (`:rf.warning/optimistic-tags-descriptor-skipped`), not thrown — it runs *before* the request lowers, so throwing would kill the whole write; the well-formed descriptors in the same plan still apply.
 
 > **Gotcha — don't combine `:optimistic*` with `:invalidate-timing :before-request`.** A `:before-request` invalidation stales the very entries an optimistic apply immediately re-populates — contradictory (stale-then-optimistic-fresh). It's a loud registration error (`:rf.error/mutation-optimistic-before-request`), not a silent precedence rule; optimistic writes use the default `:after-success` timing. To skip a registered optimistic plan for one call, pass `{:optimistic? false}` on the execute payload (a boolean disable, never a per-call forward plan — call-site cache logic stays off the call site).
 

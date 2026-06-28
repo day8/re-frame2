@@ -253,7 +253,7 @@ One test-fixture isolation helper. Production code never calls this.
   ```clojure
   (reset-for-test!) → nil
   ```
-- **Description**: Clears `subscriptions` + `probe-counter` for fixture isolation. Does NOT touch `session-id` (per-preload constant by design) or the JS-global sentinel. Test-only — never call from production code.
+- **Description**: Clears `subscriptions` + `probe-counter` for fixture isolation. Does NOT touch `session-id` (a per-preload constant) or the JS-global sentinel. Test-only — never call from production code.
 
 ## Keybinding lifecycle
 

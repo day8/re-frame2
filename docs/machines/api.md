@@ -6,9 +6,9 @@ The point of the machine surface isn't novelty — Statecharts have been around 
 
 This chapter covers the registration surface (the `reg-machine` / `defmachine` macros on `re-frame.core`, plus the `re-frame.machines`-owned `reg-machine*` / `make-machine-handler` / `machine-transition`), the inspection / subscription surface (the `[:rf/machine machine-id]` subscription vector, the `re-frame.core` facade `machine-has-tag?`, and the `re-frame.machines`-owned `machines` / `machine-meta` / `machine-by-system-id`), the in-machine dispatch sugar (`:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.machine/dispatch-to-system`), and the JVM machine-tooling exports (`machine-algebra-view`, `machine-instance-algebra-view`).
 
-> **Front-porch shrink (rf2-wad2fl / rf2-gkt25a).** Only `reg-machine` / `defmachine` and the `machine-has-tag?` subscription sugar are `re-frame.core` facade exports. The plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the `dispatch-to-system` fn live in their owned namespace `re-frame.machines` — reach them as `re-frame.machines/<name>`, not `rf/<name>`. The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple. `re-frame.machines` is the `day8/re-frame2-machines` artefact.
+> **Facade surface.** Only `reg-machine` / `defmachine` and the `machine-has-tag?` subscription sugar are `re-frame.core` facade exports. The plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the `dispatch-to-system` fn live in their owned namespace `re-frame.machines` — reach them as `re-frame.machines/<name>`, not `rf/<name>`. The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple. `re-frame.machines` is the `day8/re-frame2-machines` artefact.
 
-For the *why* — the design rationale, the v1 vs post-v1 split, the capability matrix — see [005-StateMachines.md](../../spec/005-StateMachines.md).
+For the full treatment — the capability matrix and the underlying model — see [005-StateMachines.md](../../spec/005-StateMachines.md).
 
 ## Registration
 
@@ -144,13 +144,13 @@ When a child actor spawns under a parent, the parent's `:data` often gets the ch
 
 ### `re-frame.machines/dispatch-to-system` (implementation-tier fn)
 
-- **Kind**: function (owned by `re-frame.machines`, implementation tier — **demoted off the `re-frame.core` facade**, rf2-gkt25a / rf2-80mmlf)
+- **Kind**: function (owned by `re-frame.machines`, implementation tier — **not a `re-frame.core` facade export**)
 - **Signature**:
   ```clojure
   (re-frame.machines/dispatch-to-system system-id event)
   (re-frame.machines/dispatch-to-system system-id event frame-id)
   ```
-- **Description**: The direct-call twin of the fx above — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`, no-op when the `system-id` is unbound. The two-arity form resolves the frame from the carried scope it runs under; the three-arity form names the frame explicitly — there is no `:rf/default` fallback, and looking up under no scope raises `:rf.error/no-frame-context` (EP-0002). Retained as an implementation-tier helper; new app code should emit the `[:rf.machine/dispatch-to-system [system-id event]]` fx instead.
+- **Description**: The direct-call twin of the fx above — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`, no-op when the `system-id` is unbound. The two-arity form resolves the frame from the carried scope it runs under; the three-arity form names the frame explicitly — there is no `:rf/default` fallback, and looking up under no scope raises `:rf.error/no-frame-context`. This is an implementation-tier helper; new app code should emit the `[:rf.machine/dispatch-to-system [system-id event]]` fx instead.
 
 ## The actor-lifecycle fx
 

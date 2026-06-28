@@ -3,13 +3,13 @@
 Status: final
 Type: standards-track
 
-> Formalizes bead `rf2-6nn8bi` (filed from the 2026-06-10 EP-0001 review). Ruling
-> on this EP supersedes ruling on that bead.
+> Formalizes the runtime-subsystem contract raised in the 2026-06-10 EP-0001
+> review; the ruling on this EP is the authoritative one.
 
-> **`final` means the decisions are settled.** Mike ruled on 2026-06-10
-> (rf2-6nn8bi = adopt the contract as a standalone `spec/Runtime-Subsystems.md`,
-> the Managed-Effects precedent; rf2-fhoz1m = graduate this EP proposal → final as
-> the decision-record EP). That ruling *is* the EP-0006 ruling, so "proposal" was a
+> **`final` means the decisions are settled.** Mike ruled on 2026-06-10:
+> adopt the contract as a standalone `spec/Runtime-Subsystems.md`, on the
+> Managed-Effects precedent, and graduate this EP proposal → final as
+> the decision-record EP. That ruling *is* the EP-0006 ruling, so "proposal" was a
 > false status. The contract's normative output has shipped in full — the
 > five-clause contract, the grading table, and (under this graduation) the **two
 > derived rules** now live in [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md);
@@ -33,18 +33,17 @@ the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
 
 ### Open errata
 
-- **`rf2-ba5acq`** *(open — drift test unbuilt)* — the [Conformance](#conformance)
+- **Open — drift test unbuilt** — the [Conformance](#conformance)
   section specifies a drift test that pins the grading table's subsystem list
   against the reserved-key table in [`spec/Conventions.md`](../../spec/Conventions.md#reserved-runtime-db-keys),
   so a new `:rf.runtime/*` child landed *without* a contract grading row fails CI.
   The grading table now covers the runtime-subsystem rows, including the
   EP-0003 resource trio (`resources`, `work-ledger`, `mutations`), and the
-  per-subsystem ownership-diagnostic sweep (`rf2-o4dmp8` shape)
+  per-subsystem ownership-diagnostic sweep
   exists, but the **table-vs-reserved-key drift test itself is not yet wired into a
   gate**. Until it lands, a new subsystem child without a grading row is caught
   only by review, not CI. *(Decision-settled, build-incomplete: the test's shape
-  is fully specified above; only the wiring is outstanding. File a follow-up bead
-  at dispatch if this is not picked up with the next runtime-subsystem change.)*
+  is fully specified above; only the wiring is outstanding.)*
 
 ## Abstract
 
@@ -69,7 +68,7 @@ in prose per subsystem. The contract lives in a new standalone
 
 Three concrete failures this contract would have prevented or will prevent:
 
-1. **The write-authority gap (rf2-3939ig, now fixed).** Spec 002 names
+1. **The write-authority gap (now fixed).** Spec 002 names
    machines, routing, elision, and SSR as legitimate runtime-db writers; the
    implementation minted framework authority from `:rf/machine?` only — so
    routing fired `:rf.warning/app-handler-runtime-effect` on every navigation
@@ -83,7 +82,7 @@ Three concrete failures this contract would have prevented or will prevent:
    (write authority). Without a named contract, that observation took a manual
    review to surface; with one, it is a failing checklist row.
 3. **The projection-policy class keeps being re-decided.** The routing
-   classification table (the rf2-oosjmh ruling: durable-serialized /
+   classification table (the routing ruling: durable-serialized /
    local-subscribable / host-transient, per key) is the right shape — and it is
    exactly clause 4 of this contract, invented ad hoc because no contract asked
    for it. Resources, the work-ledger, and mutations need the same table; they
@@ -102,8 +101,7 @@ third-party-registration API.
 - Give EP-0003's runtime children (`resources`, `work-ledger`, `mutations`) a
   graduation checklist.
 - Make write-authority minting (clause 2) an enumerable, conformance-testable
-  fact per subsystem, implemented by the general registration-meta mechanism
-  `rf2-3939ig` introduces.
+  fact per subsystem, implemented by the general registration-meta mechanism.
 - Give the AI-Audit a gradeable surface identical in kind to Managed-Effects.
 
 ## Non-Goals
@@ -126,10 +124,10 @@ third-party-registration API.
 - **Informed EP-0003 graduation** (by recommendation, not hard dependency):
   `:rf.runtime/resources`, `:rf.runtime/work-ledger`, and
   `:rf.runtime/mutations` graduated against this checklist. EP-0003 is now
-  **final** (graduated 2026-06-11, `rf2-9l9xs2`) with those grading rows
+  **final** (graduated 2026-06-11) with those grading rows
   shipped; this relationship is settled history plus ongoing conformance
-  hygiene (the drift test, `rf2-ba5acq`).
-- **Sequenced with rf2-3939ig, not coupled to it:** the authority *mechanism*
+  hygiene (the drift test).
+- **Sequenced with the framework-authority fix, not coupled to it:** the authority *mechanism*
   (general framework-authority registration meta) has shipped as a bug fix;
   this contract is the *policy* layer that cites it as clause 2's
   implementation. No rework either way.
@@ -152,7 +150,7 @@ Two derived rules:
 
 - **The restore question is mandatory.** Clause 5 must answer "what does
   epoch restore do to every value in this sub-tree?" — including allocator
-  counters, which must never rewind (the rf2-oosjmh anti-recycling principle).
+  counters, which must never rewind (the anti-recycling principle).
 - **One authoritative home per fact.** Where a subsystem mirrors another's data
   (indexes, denormalized owners), the mirror is declared a recomputable
   projection, never a second source of truth.
@@ -161,8 +159,8 @@ Two derived rules:
 > [`spec/Runtime-Subsystems.md` §Two derived rules](../../spec/Runtime-Subsystems.md#two-derived-rules)
 > ([rule 1](../../spec/Runtime-Subsystems.md#derived-rule-1--the-restore-question-is-mandatory-allocators-never-rewind),
 > [rule 2](../../spec/Runtime-Subsystems.md#derived-rule-2--one-authoritative-home-per-fact-mirrors-are-recomputable-projections)).
-> The original spec-authoring bead landed the five-clause contract + grading table
-> blind to this EP, so the rules were ported under this graduation (rf2-fhoz1m).
+> The original spec-authoring work landed the five-clause contract + grading table
+> blind to this EP, so the rules were ported under this graduation.
 > The spec is the normative home; this list is the rationale record.
 
 ### The grading table
@@ -178,7 +176,7 @@ graduation. An empty or contested cell is a tracked gap, not prose.
 
 - A drift test pins the grading table's subsystem list against the reserved-key
   table in Conventions (a new child without a contract row fails CI).
-- The `rf2-o4dmp8` sweep shape extends per subsystem: the framework's own
+- The ownership-diagnostic sweep shape extends per subsystem: the framework's own
   writers never trigger the ownership diagnostics.
 
 ### Runtime-extension seam and deferred public API
@@ -212,7 +210,7 @@ table shows the shape is empirical, not speculative.
 2. Grading bead: fill the initial runtime-subsystem rows from the owning specs;
    file gaps found as beads.
 3. Conformance bead: the drift test + the per-subsystem diagnostics sweep.
-4. EP-0003 integration: `rf2-pbzds6` added the initial resources +
+4. EP-0003 integration: the integration added the initial resources +
    work-ledger rows; later resource-trio syncs added the mutation row as the
    mutation slice landed.
 
@@ -224,7 +222,7 @@ table shows the shape is empirical, not speculative.
    ledger's API, which holds the authority; revisit if a writer needs direct
    row access.
 
-   **Resolved as deferred (2026-06-10, rf2-fhoz1m), with a divergence to record
+   **Resolved as deferred (2026-06-10), with a divergence to record
    honestly.** This is a deferred *implementation* question, not a live decision
    blocking the contract: the shipped Resources artefact writers stamp
    framework authority, so the unresolved question is the first writer outside
