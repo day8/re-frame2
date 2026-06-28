@@ -21,24 +21,24 @@ Closed: **`:db` + `:fx` only**. That's the entire effect-map vocabulary in v2.
 
 If you remember v1's `:dispatch` / `:dispatch-later` / `:dispatch-n` at the top level of the effect map, those don't exist any more — they're inside `:fx`. The migration is mechanical; see [MIGRATION §M-8](../../../migration/from-re-frame-v1/README.md). The closed shape is what lets the conformance harness validate handler outputs across implementations.
 
-Full schema: [Spec-Schemas §`:rf/effect-map`](../../../spec/Spec-Schemas.md#rfeffect-map).
+The closed `:db` + `:fx` shape above is the entire `:rf/effect-map` schema — see the [effect map](../glossary.md#effect-map) glossary entry for the two reserved keys in plain language.
 
 ## Standard `:fx` entries
 
 Anything in `:fx` is a `[fx-id args]` pair. The runtime looks up `fx-id` in the `:fx` registrar and runs the registered handler against `args`. User code registers its own fx-ids via `reg-fx`; a small set of fx-ids is framework-reserved.
 
-| `[fx-id args]` | Args | Status | Spec | Intuition |
-|---|---|---|---|---|
-| `[:dispatch event-vec]` | event vector | v1 | 002 | "Schedule this event on the same queue." Async — runs after the current cascade completes. |
-| `[:dispatch-later {:ms ms :event event-vec}]` | options map | v1 | 002 | "Schedule this event after N ms." |
-| `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | 014 | The canonical managed-HTTP fx. See [07 — HTTP](../../resources/http-api.md). |
-| `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](../../routing/api.md). |
-| `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
-| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic machine actor — see [04 — Machines](../../machines/api.md). |
-| `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | Destroy a dynamic machine actor — see [04 — Machines](../../machines/api.md). |
-| `[:rf.fx/reg-flow flow-map]` | flow map | v1 | 013 | Register a flow at runtime via `:fx`. See [05 — Flows](05-flows.md). |
-| `[:rf.fx/clear-flow id]` | id | v1 | 013 | Clear a registered flow at runtime via `:fx`. |
-| `[:http args]` | impl-specific | — | — | User-registered via `reg-fx`. The legacy un-managed shape; new code uses `:rf.http/managed`. |
+| `[fx-id args]` | Args | Status | Intuition |
+|---|---|---|---|
+| `[:dispatch event-vec]` | event vector | v1 | "Schedule this event on the same queue." Async — runs after the current cascade completes. |
+| `[:dispatch-later {:ms ms :event event-vec}]` | options map | v1 | "Schedule this event after N ms." |
+| `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | The canonical managed-HTTP fx. See [07 — HTTP](../../resources/http-api.md). |
+| `[:rf.nav/push-url url-string]` | URL string | v1 | Navigate. See [06 — Routing](../../routing/api.md). |
+| `[:raise event-vec]` | event vector | v1 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
+| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | Spawn a dynamic machine actor — see [04 — Machines](../../machines/api.md). |
+| `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | Destroy a dynamic machine actor — see [04 — Machines](../../machines/api.md). |
+| `[:rf.fx/reg-flow flow-map]` | flow map | v1 | Register a flow at runtime via `:fx`. See [05 — Flows](05-flows.md). |
+| `[:rf.fx/clear-flow id]` | id | v1 | Clear a registered flow at runtime via `:fx`. |
+| `[:http args]` | impl-specific | — | User-registered via `reg-fx`. The legacy un-managed shape; new code uses `:rf.http/managed`. |
 
 SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/redirect`, etc.) are rowed in [09 — SSR](../../ssr/api.md). Their `:platforms` metadata gates them off the client.
 
@@ -93,7 +93,7 @@ There is no standard `unwrap` interceptor in v2 (the v1 value is removed; a stal
 ```clojure
 (rf/reg-event :foo/update
   (fn [cofx {:keys [id new-value]}]           ;; second arg IS the payload map
-    ...))
+    {:db (assoc-in (:db cofx) [:foo id] new-value)}))
 
 ;; You wrote: (rf/dispatch [:foo/update {:id 1 :new-value "x"}])
 ```
@@ -111,7 +111,8 @@ The handler's second argument is the payload map directly — no interceptor req
 
 (rf/reg-event ::save-cart
   {:interceptors [:log-on-error]}                ;; reference by id
-  (fn [cofx _] ...))
+  (fn [cofx _]
+    {:db (assoc (:db cofx) :cart/saving? true)}))
 ```
 
 Register the interceptor once with `reg-interceptor`, then reference it **by id** from the `:interceptors` vector. The `:before` / `:after` fns receive and return the context map; `{:before :after}` is the entire behaviour vocabulary, and every standard interceptor is just a registered interceptor with specific behaviour baked in.
@@ -157,7 +158,7 @@ Most tests reach for `with-fx-overrides` because it scopes the swap to the test 
 
 ### `:fx-overrides` asymmetry
 
-At the pattern level (`(rf/dispatch event {:fx-overrides {:my/fx :other-fx-id}})`) the override value is an **id** — the registry name of another fx handler. The CLJS reference implementation **also** accepts a **fn** value (`{:my/fx (fn [args] ...)}`) for ergonomic test wiring. The asymmetry is documented: ports that don't ship fn-valued overrides remain pattern-conformant. See [002 §`:fx-overrides`](../../../spec/002-Frames.md#fx-overrides--replace-fx-handlers).
+At the pattern level (`(rf/dispatch event {:fx-overrides {:my/fx :other-fx-id}})`) the override value is an **id** — the registry name of another fx handler. The CLJS reference implementation **also** accepts a **fn** value (`{:my/fx (fn [args] ...)}`) for ergonomic test wiring. The asymmetry is deliberate: ports that don't ship fn-valued overrides remain pattern-conformant.
 
 ## See also
 

@@ -16,7 +16,7 @@ The surface lives across **three namespaces** because the three concerns separat
           [re-frame.test-helpers :as th])
 ```
 
-For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` compatibility), see [008-Testing.md](../../../spec/008-Testing.md).
+For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` compatibility), see the how-to guides [Test an event handler](../how-to/test-an-event-handler.md) and [Test a full cascade](../how-to/test-a-cascade.md).
 
 ## Runtime-state assertions (`re-frame.test-support`)
 
@@ -58,7 +58,7 @@ For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` 
   (poll-until pred)
   (poll-until pred opts)
   ```
-- **Description**: Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` carrying `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator, per Spec 009) on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
+- **Description**: Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` carrying `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator) on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
 
 ### `with-fx-overrides`
 
@@ -111,7 +111,7 @@ The pattern: fresh registrar, register the handler, dispatch synchronously, asse
 
 ## View assertions (`re-frame.test-helpers`)
 
-The view-assertion surface treats a view as what it is — a function that returns hiccup — and walks the returned hiccup data structure. **JVM-runnable. No JSDOM. No React. No `act()`.** Pairs with `render-to-string` (the HTML-string view-test path per [Spec 011](../../../spec/011-SSR.md)): hiccup-walk for structure / handler assertions, `render-to-string` for HTML-markup assertions.
+The view-assertion surface treats a view as what it is — a function that returns hiccup — and walks the returned hiccup data structure. **JVM-runnable. No JSDOM. No React. No `act()`.** Pairs with `render-to-string` (the HTML-string view-test path; see [`render-to-string`](../../ssr/api.md#render-to-string)): hiccup-walk for structure / handler assertions, `render-to-string` for HTML-markup assertions.
 
 ### `expand-tree`
 
@@ -254,12 +254,12 @@ No JSDOM; no `act()`; no JSON serialisation; no DOM walk. The hiccup is data; th
 
 ## Multi-frame testing
 
-Tests targeting multiple frames reach for the same surfaces with explicit frame opts: `dispatch-sync` accepts a frame in its envelope, `subscribe-once` accepts a frame in its second arity, and `compute-sub` works against any `app-db` value. For driving a machine through `machine-transition` and asserting on the resulting snapshot, see [04 — Machines](../../machines/api.md) (the `re-frame.machines/machine-transition` worked example).
+Tests targeting multiple frames reach for the same surfaces with explicit frame opts: `dispatch-sync` accepts a frame in its envelope, `subscribe-once` accepts a frame in its second arity, and `compute-sub` works against any `app-db` value. To scope a block of test code to a particular frame, use the frame-scoping macros `with-frame` (pin an existing frame-id) and `with-new-frame` (create a throwaway frame, run the body, destroy it on exit) — both rowed in [01 — Core §Frames](01-core.md#frames-the-scoping-primitive). For driving a machine through `machine-transition` and asserting on the resulting snapshot, see [04 — Machines](../../machines/api.md) (the `re-frame.machines/machine-transition` worked example).
 
 ## See also
 
-- [01 — Core](01-core.md) — `dispatch-sync`, `subscribe-once`, `make-frame`, `with-frame` rowed in dispatch / registration.
+- [01 — Core](01-core.md) — `dispatch-sync`, `subscribe-once`, `make-frame` rowed in dispatch / registration; `with-frame` / `with-new-frame` in the Frames section.
 - [03 — Effects and interceptors](03-effects.md) — `with-fx-overrides` and the precedence rules.
 - [07 — HTTP](../../resources/http-api.md) — HTTP test stubs (`with-managed-request-stubs`, canned-reply fx).
 - [12 — Registrar](12-registrar.md) — `registrations`, `handler-meta`, `sub-topology` for tests that introspect what's registered.
-- [Spec 008 — Testing](../../../spec/008-Testing.md) — the normative source.
+- [Test an event handler](../how-to/test-an-event-handler.md) and [Test a full cascade](../how-to/test-a-cascade.md) — the practical how-to guides for the testing surface.

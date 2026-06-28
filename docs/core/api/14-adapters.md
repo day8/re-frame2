@@ -38,7 +38,7 @@ The slim variant is bundle-isolated — the `npm run test:reagent-slim:bundle-is
 
 ## The UIx adapter
 
-UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-uix`). The hook is named `use-subscribe` (matching the React/UIx idiom); there is no auto-injection — UIx components call the hook and `(rf/capture-frame)` directly. The full decision set lives at [Spec 006 §CLJS reference: UIx as alternative substrate](../../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate).
+UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-uix`). The hook is named `use-subscribe` (matching the React/UIx idiom); there is no auto-injection — UIx components call the hook and `(rf/capture-frame)` directly. The full decision set lives in [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
 
 ### `uix-adapter/adapter`
 
@@ -110,7 +110,7 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
 
-UIx users register their views by Var (the React-component idiom) or with `rf/reg-view*` if they want registry-keyed view addressing — `reg-view` (the Reagent macro) does **not** cover UIx. See [Spec 006 §CLJS reference: UIx as alternative substrate](../../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate).
+UIx users register their views by Var (the React-component idiom) or with `rf/reg-view*` if they want registry-keyed view addressing — `reg-view` (the Reagent macro) does **not** cover UIx.
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -200,11 +200,26 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ```
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam.
 
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.adapter.helix :as helix-adapter]
+          [helix.core :refer [defnc]]
+          [helix.dom :as d])
+
+(rf/init! helix-adapter/adapter)
+
+(defnc cart-row [{:keys [item]}]
+  (let [count (helix-adapter/use-subscribe [:cart/count])]
+    (d/tr
+      (d/td (:name item))
+      (d/td count))))
+```
+
 The duplication between UIx and Helix is intentional — both expose the same hooks-first idiom; both decisions sets transfer; both surfaces are structurally identical. The two adapters are separate artefacts because the *underlying React-substrate libraries* are separate, not because the re-frame2 contract differs between them.
 
 ## The shared React Context
 
-The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the **same** `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not three, so a mixed-substrate app composes: a Reagent `frame-provider` can wrap a UIx subtree; a Helix subtree can be wrapped by a UIx provider; the chain composes across substrate boundaries. See [Spec 006 §CLJS reference: UIx as alternative substrate](../../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate).
+The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the **same** `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not three, so a mixed-substrate app composes: a Reagent `frame-provider` can wrap a UIx subtree; a Helix subtree can be wrapped by a UIx provider; the chain composes across substrate boundaries.
 
 ## DOM source-coord annotations
 
@@ -230,5 +245,5 @@ There's a fourth adapter — Plain Atom — that ships in core and exists for tw
 
 - [02 — Views](02-views.md) — the substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`).
 - [13 — Lifecycle](13-lifecycle.md) — `init!`, `install-adapter!`, `destroy-adapter!`, `current-adapter`, `adapter-disposed?`.
-- [Spec 006 — Reactive Substrate](../../../spec/006-ReactiveSubstrate.md) — the adapter contract.
+- [Adapter (glossary)](../glossary.md#adapter) — the substrate seam, defined.
 - [Guide ch.21 — Adapters](../how-to/use-uix-helix-or-slim.md) — narrative coverage with worked examples.

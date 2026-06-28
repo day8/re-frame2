@@ -6,7 +6,7 @@ This works because the framework was designed around immutable data and an expli
 
 This chapter covers the rendering primitives (`render-to-string`, the streaming triple, the structural-hash), the head model (`reg-head`, `active-head`, `render-head`), the per-request response accumulator and its server-only fx, the error-projection seam (`reg-error-projector`, `project-error`), and the `:platforms` metadata that gates fx execution by active platform.
 
-The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); the Ring host-adapter lives in `re-frame.ssr.ring`. The implementation ships in a separate artefact — you add `day8/re-frame2-ssr` to your deps and require the namespace to get the full surface. For convenience, a curated set of the rendering and head primitives is **re-exported from `re-frame.core` as late-bound wrappers** (`render-to-string`, `render-tree-hash`, `project-error`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`): these resolve to the `re-frame.ssr` implementation at call time when the artefact is on the classpath, and throw a clear "SSR not loaded" error otherwise. So apps that already `(:require [re-frame.core :as rf])` can call `rf/render-to-string` directly; the host-adapter surface (`re-frame.ssr.ring`) and the per-request `:rf.server/*` fx are **not** re-exported — require `re-frame.ssr` / `re-frame.ssr.ring` for those. The two registration macros `reg-head` and `reg-error-projector` are also `re-frame.core` facade exports (rowed in [01 — Core](../core/api/01-core.md)).
+The conceptual walkthrough is [Server-side rendering — the tutorial](concepts.md). The SSR surfaces live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); the Ring host-adapter lives in `re-frame.ssr.ring`. The implementation ships in a separate artefact — you add `day8/re-frame2-ssr` to your deps and require the namespace to get the full surface. For convenience, a curated set of the rendering and head primitives is **re-exported from `re-frame.core` as late-bound wrappers** (`render-to-string`, `render-tree-hash`, `project-error`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`): these resolve to the `re-frame.ssr` implementation at call time when the artefact is on the classpath, and throw a clear "SSR not loaded" error otherwise. So apps that already `(:require [re-frame.core :as rf])` can call `rf/render-to-string` directly; the host-adapter surface (`re-frame.ssr.ring`) and the per-request `:rf.server/*` fx are **not** re-exported — require `re-frame.ssr` / `re-frame.ssr.ring` for those. The two registration macros `reg-head` and `reg-error-projector` are also `re-frame.core` facade exports (rowed in [01 — Core](../core/api/01-core.md)).
 
 The render/head primitives are re-exported on the `re-frame.core` facade; the full SSR surface and the Ring host adapter live in their own namespaces:
 
@@ -75,7 +75,7 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
   (streaming-render-continuation frame-id entry)
     → {:id :html :delta :failed?}
   ```
-- **Description**: Drain one continuation against `frame-id`'s app-db. Snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline (per [011 §Failure semantics — inline fallback](../../spec/011-SSR.md#failure-semantics--inline-fallback)).
+- **Description**: Drain one continuation against `frame-id`'s app-db. Snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline.
 
 ### `streaming-build-final-payload`
 
@@ -148,39 +148,39 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
 
 ## Standard SSR events
 
-| Event | What it does | Spec |
-|---|---|---|
-| `:rf/server-init` | Per-request server-side initialisation. Reads request cofx; dispatches setup events. `:platforms #{:server}`. | 011 |
-| `:rf/hydrate` | Seed the client-side `app-db` from the server-supplied payload. Runs once on client bootstrap. | 011 |
+| Event | What it does |
+|---|---|
+| `:rf/server-init` | Per-request server-side initialisation. Reads request cofx; dispatches setup events. `:platforms #{:server}`. |
+| `:rf/hydrate` | Seed the client-side `app-db` from the server-supplied payload. Runs once on client bootstrap. |
 
 ## Standard SSR fx (server-only)
 
 All server-only — `:platforms #{:server}`. These build the response accumulator that the host adapter turns into the HTTP response.
 
-| Fx | Args | Spec |
-|---|---|---|
-| `[:rf.server/set-status int]` | per `:rf.fx.server/set-status-args` | 011 |
-| `[:rf.server/set-header {:name :value}]` | per `:rf.fx.server/set-header-args` | 011 |
-| `[:rf.server/append-header {:name :value}]` | per `:rf.fx.server/append-header-args` | 011 |
-| `[:rf.server/set-cookie :rf.server/cookie]` | structured cookie map | 011 |
-| `[:rf.server/delete-cookie {:name ?:path ?:domain}]` | — | 011 |
-| `[:rf.server/redirect {:location ?:status}]` | default `:status 302`; truncates HTML. **Caller-trusted** `:location`. | 011 |
-| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow}]` | The caller-untrusted variant — parses `:location`, rejects `javascript:` / `data:` / `vbscript:` schemes, and enforces `:relative-only?` / `:allow` allowlist before setting `:redirect`. Open-redirect mitigation for attacker-controlled `?next=` strings. | 011 |
+| Fx | Args |
+|---|---|
+| `[:rf.server/set-status int]` | per `:rf.fx.server/set-status-args` |
+| `[:rf.server/set-header {:name :value}]` | per `:rf.fx.server/set-header-args` |
+| `[:rf.server/append-header {:name :value}]` | per `:rf.fx.server/append-header-args` |
+| `[:rf.server/set-cookie :rf.server/cookie]` | structured cookie map |
+| `[:rf.server/delete-cookie {:name ?:path ?:domain}]` | — |
+| `[:rf.server/redirect {:location ?:status}]` | default `:status 302`; truncates HTML. **Caller-trusted** `:location`. |
+| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow}]` | The caller-untrusted variant — parses `:location`, rejects `javascript:` / `data:` / `vbscript:` schemes, and enforces `:relative-only?` / `:allow` allowlist before setting `:redirect`. Open-redirect mitigation for attacker-controlled `?next=` strings. |
 
 ## Standard SSR subs
 
-| Sub | Returns | Spec |
-|---|---|---|
-| `:rf/head` | The head model for the active route (resolved via `active-head` against the subscribed frame) | 011 |
-| `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise | 011 |
+| Sub | Returns |
+|---|---|
+| `:rf/head` | The head model for the active route (resolved via `active-head` against the subscribed frame) |
+| `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise |
 
-The current request's **response accumulator** (status / headers / cookies / redirect) is *not* a registered subscription. It lives in a framework-private side-channel atom keyed by frame-id and is read exclusively by the runtime via `re-frame.ssr/get-response` (per [011 §Response storage substrate](../../spec/011-SSR.md#response-storage-substrate)); the host adapter consumes the resolved value to build the wire response.
+The current request's **response accumulator** (status / headers / cookies / redirect) is *not* a registered subscription. It lives in a framework-private side-channel atom keyed by frame-id and is read exclusively by the runtime via `re-frame.ssr/get-response`; the host adapter consumes the resolved value to build the wire response.
 
 ## Standard SSR cofx
 
-| Cofx | Returns | Spec |
-|---|---|---|
-| `:rf.server/request` | The active HTTP request map. | 011 |
+| Cofx | Returns |
+|---|---|
+| `:rf.server/request` | The active HTTP request map. |
 
 ## `:platforms` metadata on `reg-fx`
 
@@ -194,7 +194,7 @@ The current request's **response accumulator** (status / headers / cookies / red
 
 Skipped fx emit a `:rf.fx/skipped-on-platform` trace event so debug tools see the gate firing. The cofx side has a mirror trace event, `:rf.cofx/skipped-on-platform`.
 
-Detail in [011 §`:platforms` metadata on `reg-fx`](../../spec/011-SSR.md#platforms-metadata-on-reg-fx).
+Detail in [the SSR tutorial §`:platforms`](concepts.md).
 
 ## Per-frame error-projection policy
 
@@ -218,17 +218,17 @@ A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-
 
 The companion `project-error` accessor is rowed above in [§Rendering primitives](#project-error) — same signature; same job. Apply the active projector for the named frame.
 
-Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucket 3 and [011 §Server error projection](../../spec/011-SSR.md#server-error-projection).
+Full rationale: [the SSR tutorial §When the server throws](concepts.md#when-the-server-throws).
 
 ## Hydration
 
 The server-rendered HTML carries a `__rf_payload` chunk that the client deserialises into `app-db` on bootstrap. The structural-hash from `render-tree-hash` is captured at render time and checked at hydration; a mismatch between the server-render hash and the client-render hash surfaces **`:rf.ssr/hydration-mismatch`** (in `:hard-error` mode it also throws; otherwise it warns and re-renders client-side) rather than silently mounting a broken DOM. This is distinct from the two payload-provenance checks the reference `:rf/hydrate` handler runs — `:rf.ssr/version-mismatch` (the payload was produced by a different framework version) and `:rf.ssr/schema-digest-mismatch` (the app's schema set drifted since the payload was built); those guard payload compatibility, while `:rf.ssr/hydration-mismatch` guards the render-tree structural hash.
 
-The hydration payload shape lives at [Spec-Schemas §`:rf/hydration-payload`](../../spec/Spec-Schemas.md#rfhydration-payload).
+The hydration payload is the `__rf_payload` chunk seeded into `app-db` on bootstrap — see [the SSR tutorial §The client side](concepts.md#the-client-side-hydrate-then-verify).
 
 ## See also
 
 - [01 — Core](../core/api/01-core.md) — `reg-head` / `reg-error-projector` rowed in registration.
 - [Routing API](../routing/api.md) — routes opt into head models via `:head` metadata.
 - [11 — Instrumentation](../core/api/11-instrumentation.md) — the SSR-specific trace events live in the error catalogue.
-- [Spec 011 — SSR](../../spec/011-SSR.md) — the normative source.
+- [Server-side rendering — the tutorial](concepts.md) — the conceptual walkthrough.
