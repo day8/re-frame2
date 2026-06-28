@@ -25,32 +25,37 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
 
 ;; -- mount point ------------------------------------------------------------
 
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+;; Namespace load does no DOM work — the root is created lazily inside mount!.
+(defonce react-root (atom nil))
+
+(def app-frame :rf/default)
 
 ;; -- entry ------------------------------------------------------------------
 
+;; mount! re-renders the views into the same root + frame on each hot reload.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (rdc/create-root el)))
+    ;; frame-provider's ENSURE shape ({:id …}) creates the frame on first
+    ;; mount and runs :initial-events once to seed app-db; a hot-reload
+    ;; remount reuses the live frame and does NOT re-seed (app-db survives).
+    (rdc/render @react-root
+                [rf/frame-provider {:id             app-frame
+                                    :initial-events [[:your-app/initialise]]}
+                 [counter-app]])))
+
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame :rf/default {})
-  ;; Seed under a live frame scope, synchronously, so the first render
-  ;; sees the seeded app-db. This explicit dispatch-sync is the reset
-  ;; boundary the generator ships: the reg-frame above is a surgical
-  ;; (app-db-preserving) update on a hot reload, and this re-seeds the
-  ;; demo state each time. (Seeding via :initial-events would only run on
-  ;; the first registration.)
-  (rf/with-frame :rf/default
-    (rf/dispatch-sync [:your-app/initialise]))
-  (rdc/render react-root
-    [rf/frame-provider {:frame :rf/default}
-     [counter-app]]))
+  (mount!))
 ```
 
 That's the whole entry namespace. Events / subs / views go above the mount point, in this same file for a tiny app or in their own namespaces (`your-app.events`, `your-app.subs`, `your-app.views`) and `:require`d here for any non-trivial app.
 
 `counter-app` is the top-level registered view (the name the generator template and `first-counter.md` use). See `first-counter.md` for what it looks like. **Note the `frame-provider` wrap:** under EP-0002 (the carried-frame invariant), the runtime never infers a frame — you register one explicitly with `reg-frame` and scope it at the root with `frame-provider`'s `{:frame …}` SCOPE-only shape (it provides an already-created frame's id to descendants and creates / destroys nothing — the frame was already created by `reg-frame`). Inside that subtree every bare `dispatch` / `subscribe` resolves against `:rf/default`; a render *without* a provider would make every subscription raise `:rf.error/no-frame-context`. (`:rf/default` is the generator template's frame id — it is **not** auto-registered; you register and provide it explicitly, never inferred. Any other id works too; keep it consistent across `reg-frame`, `with-frame`, and the provider.)
 
-The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/core/counter/core.cljs` happens to call its entry fn `run` — same shape, different name. Pick one and keep `shadow-cljs.edn`'s `:init-fn` pointing at whatever you choose; this skill uses `init` so the manual route matches the template.)
+The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/core/counter/core.cljs` calls its entry fn `run` and uses the canonical lazy-root + `frame-provider {:id … :initial-events …}` ENSURE-shape boot — a different boot shape, not just a renamed `init`; see [`boot-and-mount-an-app.md`](../../../docs/guide/how-to/boot-and-mount-an-app.md). Pick whichever entry-symbol name you like and keep `shadow-cljs.edn`'s `:init-fn` pointing at it; this skill uses `init`.)
 
 ## Order of operations
 

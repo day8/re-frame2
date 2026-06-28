@@ -29,7 +29,7 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
             ;; schemas artefact's deps.
             [re-frame.schemas]
             [re-frame.schemas.malli])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; -- Schema ----------------------------------------------------------------
 
@@ -43,12 +43,12 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
    [:counter/value :int]])
 
 ;; App-db schemas are FRAME-LOCAL (EP-0002 carried-frame invariant): they
-;; target a frame, and the runtime never synthesises one from absence. At
-;; ns-load time no frame is established, so this registration MUST NOT run as
-;; a load-time side-effect (it would raise :rf.error/no-frame-context).
-;; Instead it is a boot step: init calls register-schema! AFTER reg-frame
-;; makes the app's :rf/default frame live, inside a with-frame scope.
-(defn register-schema! []
+;; target a frame, and the runtime never synthesises one from absence. A
+;; bare ns-load reg-app-schema with no frame in scope would raise
+;; :rf.error/no-frame-context, so the registration is wrapped in
+;; `with-frame :rf/default` — naming the app's frame explicitly so it carries
+;; a frame stamp even though it runs at module load, before init.
+(with-frame :rf/default
   (rf/reg-app-schema [] {:schema CounterDb}))   ;; :schema-in-metadata grammar
 
 ;; -- Events ----------------------------------------------------------------
@@ -78,25 +78,28 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 
 ;; -- Mount -----------------------------------------------------------------
 
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+;; Namespace load does no DOM work — the root is created lazily inside init.
+(defonce react-root (atom nil))
+
+(def app-frame :rf/default)
+
+;; mount! re-renders the views into the same root + frame on each hot reload.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (rdc/create-root el)))
+    ;; frame-provider's ENSURE shape ({:id …}) creates the frame on first
+    ;; mount and runs :initial-events once to seed app-db; a hot-reload
+    ;; remount reuses the live frame and does NOT re-seed (app-db survives).
+    (rdc/render @react-root
+                [rf/frame-provider {:id             app-frame
+                                    :initial-events [[:counter/initialise]]}
+                 [counter-app]])))
 
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame :rf/default {})
-  ;; Attach the schema and seed the app-db under a live frame scope, with
-  ;; dispatch-sync so the initial render sees the seeded state (not a
-  ;; transient empty frame). This is the reset-boundary shape the generator
-  ;; ships: on a hot reload the second reg-frame is a surgical update that
-  ;; PRESERVES app-db, and this explicit dispatch-sync re-seeds the demo
-  ;; state each time. Seeding via :initial-events instead would only run on
-  ;; the first registration, so a save during the demo would not reseed.
-  (rf/with-frame :rf/default
-    (register-schema!)                          ;; frame-local schema attach
-    (rf/dispatch-sync [:counter/initialise]))
-  (rdc/render react-root
-    [rf/frame-provider {:frame :rf/default}
-     [counter-app]]))
+  (mount!))
 ```
 
 That's the entire greenfield app. ~35 lines of substance, every re-frame2 primitive exercised once — including the typed-at-boundaries schema attach the generator ships.
