@@ -16,6 +16,8 @@ Operational detail for two early steps: the **React-19 / Reagent-2 floor gate** 
 
 ---
 
+> **Delegated / orchestrated / CI execution.** Every "the **author** runs it" below is the *interactive* default — the skill prints the `npm install` / compile / classpath-check command and waits for the pasted result. Under delegated / orchestrated / CI execution the executor is a *sandboxed autonomous worker* (an isolated git worktree) or a *CI runner*: it runs the printed command **itself, inside its own sandbox** and posts command + result for human ratification at PR review. The trust boundary — *arbitrary-code execution* — is unchanged; the sandbox stands in for the human's machine. See [`SKILL.md` cardinal rule 5 — the sandboxed-executor exception](../SKILL.md).
+
 ## The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
 
 > **This is a go/no-go gate, not a footnote.** Run all five checks below *before* you touch any dep coord. For a codebase already on React 19 *and* a current build toolchain it is a fast pass — read the checks, confirm each, move on. For the rest of the v1 population (overwhelmingly React 17/18 + Reagent 1.x, often on a years-old shadow-cljs) this gate is the single largest and riskiest part of the whole migration, and the blocking cases — the component-library blocker (Check 2) and the toolchain-skew compile failure (Check 4) — must be discovered here, not deep inside a failed compile loop after the coord swap.
