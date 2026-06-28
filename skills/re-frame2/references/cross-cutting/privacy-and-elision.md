@@ -143,7 +143,7 @@ Sink policy is the other thing you declare. Production observability — the alw
     (datadog/send projected-record)))
 ```
 
-The framework ships no Datadog / Sentry client — the sink id lives outside the framework namespace (`:my-app.sinks/datadog`, not `:rf.sink/datadog`) and vendor options ride a local `:opts` map. The sink fn receives an **already-projected** record. Routing is **fail-closed and frame-scoped**: an unresolved frame or a frame with no `:observability` policy routes *nothing* (never synthesizes `:rf/default`); a throwing sink is isolated. Under the default `:rf.egress/off-box-observability` profile a handled-event record carries frame, event id, status, elapsed, effect keys, and correlation ids — and **omits the `:event` args slot entirely**. The low-level `register-event-listener!` / `register-error-listener!` registries remain as advanced integration APIs, not the normal production story.
+The framework ships no Datadog / Sentry client — the sink id lives outside the framework namespace (`:my-app.sinks/datadog`, not `:rf.sink/datadog`) and vendor options ride a local `:opts` map. The sink fn receives an **already-projected** record. Routing is **fail-closed and frame-scoped**: an unresolved frame or a frame with no `:observability` policy routes *nothing* (never synthesizes `:rf/default`); a throwing sink is isolated. Under the default `:rf.egress/off-box-observability` profile a handled-event record carries frame, event id, status, elapsed, effect keys, and correlation ids — and **omits the `:event` args slot entirely**. The low-level `register-listener!` `:events` / `:errors` stream registries remain as advanced integration APIs, not the normal production story.
 
 ## Projection profiles: which boundary is this?
 

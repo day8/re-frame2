@@ -67,7 +67,7 @@ The public multi-frame model is `image -> frame -> event stream`: an image is th
 
 ## Composition: `image → frame → event stream`
 
-The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`); there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade. A registrar-query map is ALWAYS frame-targeted (`(rf/registrations {:frame f :kind k})` — a map without `:frame` is an error). Frame isolation plus image assembly are the whole composition story — see [`../fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story). Any retired pre-alpha names are inspectable as data via `rf/migration-map` / `rf/migration-explain`.
+The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`); there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade. A registrar-query map is ALWAYS frame-targeted (`(rf/registrations {:frame f :kind k})` — a map without `:frame` is an error). Frame isolation plus image assembly are the whole composition story — see [`../fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story). The EP-0013→EP-0023 migration mapping for retired pre-alpha names is documented in EP-0023 §Backwards Compatibility; it is no longer inspectable as a live data surface (the `rf/migration-map` / `rf/migration-explain` facade reads were removed).
 
 ## Routing — `day8/re-frame2-routing`
 
@@ -148,7 +148,7 @@ Owner classifies / framework projects / sinks consume. Classification keys are *
 | `rf/elide-wire-value` | `(value opts)` — low-level tree-shaped-value walker `project-egress` delegates to; advanced `:rf.size/include-sensitive?` / `:include-large?` / `:include-digests?` overrides |
 | `rf/register-observability-sink!` | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction) |
 | `rf/projected-record` | `(record)` — dev-only projected epoch/observation record read |
-| `rf/register-event-listener!` / `rf/register-error-listener!` (+ `unregister-*`) | advanced low-level listener registries beneath frame `:observability` |
+| `rf/register-listener!` `:events` / `:errors` (+ `rf/unregister-listener!`) | advanced low-level listener registries beneath frame `:observability` |
 
 Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` (trusted-local opt-in) · `ssr-hydration` · `public-error`. Classification is **fail-open** (an unclassified path ships raw; no propagation/taint). **Retired (removed):** `add-marks` / `set-marks` and the frame `:sensitive {:app-db …}` annotation → the `:sensitive` classification effect (alongside `:db`); `redact-interceptor` → registration `:sensitive`; `declare-sensitive-header!` / `declare-sensitive-query-param!` AND the frame `:sensitive {:http …}` block → the `:rf.http/managed` `reg-fx` registration's `:carriers` block; `:rf.egress/output-sensitivity` (propagation/declassification) → classify the output path directly. (The whole `:sensitive` / `:large` frame key is retired — a `reg-frame` carrying either fails loud.)
 
