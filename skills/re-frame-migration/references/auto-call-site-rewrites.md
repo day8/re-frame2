@@ -23,6 +23,7 @@ Per-file confirmation is not required — the author has already invoked the mig
 ## Contents
 
 - Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25 — incl. the async-test recipe `run-test-async` / `wait-for-event`, M-50, M-52)
+- Test-layer v1 API to v2 mapping (M-25 / M-26 / M-64 / M-73 — the test/fixture-layer sweep target, in one place)
 - reg-sub flat-sub sugar removed (`:->` / `:=>` desugaring — no `M-N` id)
 - Effect-map consolidation (M-8)
 - Dispatch-shape rewrites (M-4, M-9, M-16)
@@ -228,6 +229,19 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 - The listener is **dev/test-only** (the `:trace` stream rides the `re-frame.trace` surface, DCE'd under `:advanced` + `goog.DEBUG=false`) — that is correct for a test runner; do **not** reach for the always-on `:events` stream (`register-listener! :events …`) here (its tight per-event record is not trace-shaped and is for production observability, not test waits).
 - For a pure **state-observable** wait (the awaited effect lands in `app-db` rather than via a discrete event — e.g. a debounce that just updates a slice), prefer `re-frame.test-support/poll-until`, which returns a `js/Promise` that composes directly with `cljs.test/async` (`(-> (ts/poll-until pred) (.then ...) (.catch ...))`). Use the `:rf.event/run-end` listener when the contract is "*this event* fired", `poll-until` when it is "*this state* settled".
 - After the `re-frame.test` → `re-frame.test-support` require swap, also drop the `day8/re-frame-test` Maven coord (see M-25 above) — `run-test-async` / `wait-for-event` shipped from it and have no v2 successor symbol; they become the inline shapes above.
+
+### Test-layer v1 API to v2 mapping
+
+The test / fixture layer carries its own v1 *test-API* subset — distinct from the app's `src/` surfaces and from the `re-frame.alpha` / off-contract rewrites above. It is **invisible to both the compiler and the boot smoke-test** (fixtures and `*_test` namespaces load only under the test runner, never at app boot — see [`runtime-smoke-test.md` §The done-bar is more than the local dev build](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build)), so it is a distinct Phase-0a sweep target ([`inventory-and-plan.md`](inventory-and-plan.md)) that gates the migration only when the suite RUNS. The four surfaces and their v2 destinations, gathered here in **one place** (full code shapes for the async pair are in [§M-25 (async tests)](#m-25-async-tests--run-test-async--wait-for--wait-for-event) above):
+
+| v1 test-layer surface | v2 replacement | Rule |
+|---|---|---|
+| `(:require [re-frame.test …])` / `[day8.re-frame.test …]` | `(:require [re-frame.test-support …])` — ships in core; drop the `day8/re-frame-test` Maven coord | **M-25** |
+| `(use-fixtures :each (rf-test/make-restore-fn))` — the per-test snapshot/restore fixture | `(ts/make-reset-runtime-fixture {:adapter adapter})` is the v2 per-test `:each` fixture that fills the same role — registrar / runtime isolation, the fixture every v2 suite installs (the builder rename is M-64). The **app-db snapshot/restore** half `make-restore-fn` performed stacks on top: epoch-free inline (snapshot `(rf/app-db-value :rf/default)`, restore via a one-shot `reg-event` dispatched synchronously) or, when the suite pulls `day8/re-frame2-epoch`, `replace-app-db!`. | **M-26** (the `make-restore-fn` drop) + the `make-reset-runtime-fixture` builder (M-64) |
+| `(rf/reg-event-db …)` inside a fixture / `:before` body | `(rf/reg-event …)` — destructure `:db` from the coeffects map, wrap the body `{:db …}`. A fixture is **not** exempt: the retired `reg-event-db` throwing stub throws `:rf.error/reg-event-db-removed` the instant the fixture registers it. | **M-73** |
+| `add-post-event-callback` / `remove-post-event-callback` driving an **async** test wait | a **one-shot `:trace`-stream listener matching `:rf.event/run-end`** — `(rf/register-listener! :trace k f)` that fires once the awaited event's handler has run to completion, then `(rf/unregister-listener! :trace k)`. | **M-26** |
+
+These are the same rules the app-source sweep applies, but the test layer is a **separate row** in the Phase-0a inventory because a `src/`-scoped grep never reaches it — and neither the compile nor the boot smoke executes it. The required backstop is **running the suite on a clean checkout** ([`runtime-smoke-test.md`](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build)).
 
 ### M-50 — `with-overrides` → `with-fx-overrides`
 

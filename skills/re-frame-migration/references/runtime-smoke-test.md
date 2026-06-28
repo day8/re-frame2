@@ -51,6 +51,23 @@ The cheapest tool that can see these failures is **live `app-db` + machine-snaps
 
 A migration is **not done when it compiles**. It is done when this loop comes back clean: every expected snapshot present, every seeded slot populated, every first-screen sub producing a value, and a clean boot trace.
 
+## The done-bar is more than the local dev build
+
+The boot smoke-test loop above clears the **booted dev build** — necessary, but only one axis of "done." A migration run entirely on the author's own machine can show a green dev build *and* a clean boot smoke and **still** be unshippable, because the done-bar reaches past the local dev build. The gates below are not optional polish — each catches a class the dev-build boot smoke structurally cannot.
+
+### The optimized `:advanced` compile (local)
+
+A green **dev** build does not prove the **`:advanced` production bundle** compiles and elides. Dev-only code paths — `goog.DEBUG`-gated diagnostics, tool preloads (Xray), the dev-only `:trace` listener surface — can break or bloat the production build the dev `watch` never exercises. Run the `:advanced` compile as part of the local done-bar, not just the dev `watch`.
+
+### The test suite is a THIRD gate the compiler and boot-smoke both miss
+
+The M-rule sweep targets the application's `src/`; the boot smoke verifies the *booting* app. **Both can be green while the test-support / fixtures / `*_test` namespaces still run v1 test API the sweep never touched** — that layer is its own Phase-0a sweep target ([`inventory-and-plan.md`](inventory-and-plan.md)), carrying a v1 test-API subset a `src/`-focused grep misses. It is invisible to **both** existing gates:
+
+- **The compiler passes.** The retired `reg-event-db` registrar is a facade-exported throwing stub — it *resolves*, so the compile stays clean. `make-restore-fn` / `add-post-event-callback` / `remove-post-event-callback` are undeclared vars on the v2 facade, which CLJS reports as **warnings, not errors** — the build "completes with N warnings" and proceeds.
+- **The boot smoke passes.** Fixtures and `*_test` namespaces load only under the **test runner**, never at app boot — so the booted-app smoke never executes a line of them.
+
+Neither gate covers the test layer. It surfaces only when the **suite RUNS**: the first fixture `:before` throws on the undefined v1 var, and the runner reports **"No test results found"** — a runner crash with zero results, not a failed assertion. So **running the test suite on a clean checkout is a required third gate, after the compile and the boot smoke.** The v1 test-API → v2 mapping — `re-frame.test` → `re-frame.test-support` (M-25); `make-restore-fn` → the per-test `make-reset-runtime-fixture {:adapter …}` plus an app-db snapshot/restore (M-26 + M-64); in-fixture `reg-event-db` → `reg-event` (M-73); async `add` / `remove-post-event-callback` → a one-shot `:rf.event/run-end` `:trace` listener (M-26) — lives in one place: [`auto-call-site-rewrites.md` §Test-layer v1 API to v2 mapping](auto-call-site-rewrites.md#test-layer-v1-api-to-v2-mapping).
+
 ## Why a compile can't catch these
 
 | v1 mechanism | v2 mechanism | Consequence for the migrator |
