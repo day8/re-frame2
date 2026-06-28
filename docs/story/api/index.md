@@ -55,5 +55,5 @@ The normative spec docs (`001-Authoring.md`, `002-Runtime.md`, `004-Assertions.m
 
 - [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 walkthrough. Read this first if you've not yet authored a `reg-variant`.
 - [Story tutorial — The recorder, and `:cannot-run`](../05-recorder-and-cannot-run.md) — record a canvas interaction, get a `:script` body back.
-- [Framework API — Instrumentation](../../api/11-instrumentation.md) — the trace bus the recorder reads, the source-coord stamping that drives Story's "open in editor" affordances.
+- [Framework API — Instrumentation](../../guide/api/11-instrumentation.md) — the trace bus the recorder reads, the source-coord stamping that drives Story's "open in editor" affordances.
 - [Xray API reference](../../xray/api/index.md) — the sibling tool's API. Story embeds Xray in its right-hand pane; the two cross-link extensively.

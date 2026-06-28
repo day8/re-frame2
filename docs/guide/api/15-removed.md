@@ -16,16 +16,16 @@ This chapter is the tombstone register. It exists so re-frame v1 migrators can f
 | `reg-frame` / `make-frame` / `frame-provider` `:initial-db` construction key | There is no separate `app-db`-seeding data key — seeding `app-db` is itself an event, `[:rf/set-db {…}]` (see [01 — Core §Standard events](01-core.md#standard-events)), placed in `:initial-events`: `:initial-events [[:rf/set-db {:n 0}]]`. Supplying `:initial-db` **fails loud** with `:rf.error/initial-db-retired`. | EP-0027 |
 | `reg-global-interceptor` | `reg-frame :interceptors` — frame-level is the canonical "global within this frame." For cross-frame observation, use `register-listener!`. | MIGRATION M-17 |
 | `clear-global-interceptor` | No replacement needed — re-register `reg-frame` with an updated `:interceptors` vector (absent-key semantics clear it). | MIGRATION M-17 |
-| `reg-sub-raw` | `reg-sub` for app-db reads; Pattern-AsyncEffect for non-app-db sources; state machines for lifecycle; the [006](../../spec/006-ReactiveSubstrate.md) adapter contract for bridging external reactivity. | MIGRATION M-18 |
+| `reg-sub-raw` | `reg-sub` for app-db reads; Pattern-AsyncEffect for non-app-db sources; state machines for lifecycle; the [006](../../../spec/006-ReactiveSubstrate.md) adapter contract for bridging external reactivity. | MIGRATION M-18 |
 | `re-frame.alpha/reg` | The shipped per-kind registrars: `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow`. (The v1 event trio `reg-event-db` / `reg-event-fx` / `reg-event-ctx` is **not** a v2 target — those are removed/withdrawn throwing stubs and migration inputs only, see the rows below and EP-0018; `reg-event` is the single event-registration form.) The `re-frame.alpha` namespace is dissolved. | MIGRATION M-23 |
 | `re-frame.alpha/sub` | Vector-form `(rf/subscribe [::id arg])`. | MIGRATION M-23 |
 | `re-frame.alpha/reg-sub-lifecycle` and built-in lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) | Sub-cache uses a single algorithm — synchronous ref-counting (dispose on derefer-count → 0). | MIGRATION M-23 |
-| `debug` interceptor | Trace surface ([Spec 009](../../spec/009-Instrumentation.md)) + 10x / re-frame-pair | MIGRATION M-21 |
+| `debug` interceptor | Trace surface ([Spec 009](../../../spec/009-Instrumentation.md)) + 10x / re-frame-pair | MIGRATION M-21 |
 | `trim-v` interceptor | Canonical map-payload call shape | MIGRATION M-21 |
-| `on-changes` interceptor | Flows ([Spec 013](../../spec/013-Flows.md)) | MIGRATION M-21 |
+| `on-changes` interceptor | Flows ([Spec 013](../../../spec/013-Flows.md)) | MIGRATION M-21 |
 | `enrich` interceptor | Flows (derived state) / `:schema` (validation) / custom `->interceptor` (escape hatch) | MIGRATION M-21 |
 | `after` interceptor | Registered fx (`:fx [[:my-fx ...]]`) for side-effects; custom `->interceptor` for context-shaped work; vendor from v1 if the helper is wanted as a local utility | MIGRATION M-21 |
-| `inject-cofx` / `inject-cofx*` (coeffect-delivery interceptors) | Declare the facts a handler needs with `:rf.cofx/requires` registration metadata; the runtime supplies them. Register the supplier with value-returning `reg-cofx`. There is no interceptor that delivers a coeffect — see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [Guide — Effects and coeffects](../guide/concepts/effects-and-coeffects.md). | EP-0017 |
+| `inject-cofx` / `inject-cofx*` (coeffect-delivery interceptors) | Declare the facts a handler needs with `:rf.cofx/requires` registration metadata; the runtime supplies them. Register the supplier with value-returning `reg-cofx`. There is no interceptor that delivers a coeffect — see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [Guide — Effects and coeffects](../concepts/effects-and-coeffects.md). | EP-0017 |
 | `reg-event` positional interceptor vector middle slot | Put the chain in registration metadata: `(reg-event :id {:interceptors [i1 i2]} handler)`. If a call also has metadata, merge `:interceptors` into that map. | MIGRATION M-70 |
 | `reg-event-db` | Use `reg-event` (no alias). Destructure `:db` from the coeffects map and wrap the return in `{:db …}`: `(reg-event id (fn [{:keys [db]} ev] {:db BODY}))`. A stale call raises the always-on hard error `:rf.error/reg-event-db-removed` naming `reg-event`. | EP-0018 / MIGRATION M-73 |
 | `reg-event-fx` | Use `reg-event` (no alias) — the identical shape under the bare name (coeffects in, effects out); just rename the call. A stale call raises `:rf.error/reg-event-fx-removed`. | EP-0018 / MIGRATION M-73 |
@@ -40,5 +40,5 @@ This chapter is the tombstone register. It exists so re-frame v1 migrators can f
 
 ## See also
 
-- [MIGRATION.md](../../migration/from-re-frame-v1/README.md) — the AI-driven migration spec, with one rule per row above.
+- [MIGRATION.md](../../../migration/from-re-frame-v1/README.md) — the AI-driven migration spec, with one rule per row above.
 - [01 — Core](01-core.md) — the surfaces that replaced the removed ones.

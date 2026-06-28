@@ -13,7 +13,7 @@ We won't reproduce the contracts here — they'd rot the moment the spec moved. 
 Before the surface-by-surface map, one orientation. The docs come in three layers, and it helps to know which one you're standing in.
 
 - **This guide** (tutorial, how-to, explanation) teaches you the *model* — the why and the how, prose-first. It splits three ways by *intent*: the [tutorial](../resources/tutorial/index.md) walks one app end to end; the [how-to recipes](how-to/index.md) answer "I need to do X" in isolation; the [concepts pages](concepts/index.md) explain one idea at a time, prose-first (app-db, events, subscriptions, effects, frames, machines, flows, routing, http, server-state, ssr, observability, errors). When you half-remember a concept and want the *explanation* rather than the *signature*, the concepts pages are the bridge between this map and the API reference.
-- The **[API reference](../api/README.md)** is the signature lookup, organised by domain. Go there once you know the concept and just need the call shape.
+- The **[API reference](api/README.md)** is the signature lookup, organised by domain. Go there once you know the concept and just need the call shape.
 - The **[spec](../../spec/README.md)** is the normative source: exhaustive, written for AI and implementors, and the thing every other layer is downstream of.
 
 The rule when two sources seem to disagree: **the spec wins.** It's the artefact; everything else is a friendlier reading of it.
@@ -36,21 +36,21 @@ Now the map itself. Every public surface gets one row below. The API page gives 
 
 | Domain | What it covers | API page | Owning spec |
 |---|---|---|---|
-| Core | `reg-event`, `reg-sub`, `dispatch`, `subscribe`, frames — the loop's registration and verb surface | [01 — Core](../api/01-core.md) | [001-Registration](../../spec/001-Registration.md), [002-Frames](../../spec/002-Frames.md) |
-| Views | `reg-view` and the substrate-agnostic pure-view contract | [02 — Views](../api/02-views.md) | [004-Views](../../spec/004-Views.md) |
-| Effects and interceptors | The closed `:db` + `:fx` effect map, `reg-fx` / `reg-cofx`, interceptors, fx-overrides | [03 — Effects](../api/03-effects.md) | [002-Frames](../../spec/002-Frames.md) |
+| Core | `reg-event`, `reg-sub`, `dispatch`, `subscribe`, frames — the loop's registration and verb surface | [01 — Core](api/01-core.md) | [001-Registration](../../spec/001-Registration.md), [002-Frames](../../spec/002-Frames.md) |
+| Views | `reg-view` and the substrate-agnostic pure-view contract | [02 — Views](api/02-views.md) | [004-Views](../../spec/004-Views.md) |
+| Effects and interceptors | The closed `:db` + `:fx` effect map, `reg-fx` / `reg-cofx`, interceptors, fx-overrides | [03 — Effects](api/03-effects.md) | [002-Frames](../../spec/002-Frames.md) |
 | State machines | `reg-machine` and the transition-table grammar — hierarchy, `:after`, `:spawn`, parallel regions | [04 — Machines](../machines/api.md) | [005-StateMachines](../../spec/005-StateMachines.md) |
-| Flows | `reg-flow` — derived values materialised into app-db so handlers can read them | [05 — Flows](../api/05-flows.md) | [013-Flows](../../spec/013-Flows.md) |
+| Flows | `reg-flow` — derived values materialised into app-db so handlers can read them | [05 — Flows](api/05-flows.md) | [013-Flows](../../spec/013-Flows.md) |
 | Routing | `reg-route`, navigation events, the `:route` sub, blocking and not-found | [06 — Routing](../routing/api.md) | [012-Routing](../../spec/012-Routing.md) |
 | HTTP | `:rf.http/managed` — decode pipeline, retry, abort, the closed failure taxonomy | [07 — HTTP](../resources/http-api.md) | [014-HTTPRequests](../../spec/014-HTTPRequests.md) |
-| Schemas and classification | `:schema` metadata, `reg-app-schema`, the `:sensitive` / `:large` classification effects | [08 — Schemas](../api/08-schemas.md) | [010-Schemas](../../spec/010-Schemas.md), [015-Data-Classification](../../spec/015-Data-Classification.md) |
+| Schemas and classification | `:schema` metadata, `reg-app-schema`, the `:sensitive` / `:large` classification effects | [08 — Schemas](api/08-schemas.md) | [010-Schemas](../../spec/010-Schemas.md), [015-Data-Classification](../../spec/015-Data-Classification.md) |
 | SSR | `render-to-string`, hydration, streaming boundaries | [09 — SSR](../ssr/api.md) | [011-SSR](../../spec/011-SSR.md) |
-| Testing | Fixtures, `dispatch-sequence`, `compute-sub`, the helper namespaces below | [10 — Testing](../api/10-testing.md) | [008-Testing](../../spec/008-Testing.md) |
-| Instrumentation | The dev trace bus, the always-on event / error emit substrates, the epoch buffer | [11 — Instrumentation](../api/11-instrumentation.md) | [009-Instrumentation](../../spec/009-Instrumentation.md), [Tool-Pair](../../spec/Tool-Pair.md) |
-| Registrar queries | `registrations`, `handler-meta` — the read-side query API tools build on | [12 — Registrar](../api/12-registrar.md) | [001-Registration](../../spec/001-Registration.md) |
-| Lifecycle | `init!` adapter selection at boot, adapter inspection, teardown | [13 — Lifecycle](../api/13-lifecycle.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
-| Adapters | The Reagent / UIx / Helix / reagent-slim substrate surfaces, `use-subscribe`, `frame-provider` | [14 — Adapters](../api/14-adapters.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
-| Removed / not shipped | What's gone since v1 and what replaced it | [15 — Removed](../api/15-removed.md) | [Migration rules](../../migration/from-re-frame-v1/README.md) |
+| Testing | Fixtures, `dispatch-sequence`, `compute-sub`, the helper namespaces below | [10 — Testing](api/10-testing.md) | [008-Testing](../../spec/008-Testing.md) |
+| Instrumentation | The dev trace bus, the always-on event / error emit substrates, the epoch buffer | [11 — Instrumentation](api/11-instrumentation.md) | [009-Instrumentation](../../spec/009-Instrumentation.md), [Tool-Pair](../../spec/Tool-Pair.md) |
+| Registrar queries | `registrations`, `handler-meta` — the read-side query API tools build on | [12 — Registrar](api/12-registrar.md) | [001-Registration](../../spec/001-Registration.md) |
+| Lifecycle | `init!` adapter selection at boot, adapter inspection, teardown | [13 — Lifecycle](api/13-lifecycle.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
+| Adapters | The Reagent / UIx / Helix / reagent-slim substrate surfaces, `use-subscribe`, `frame-provider` | [14 — Adapters](api/14-adapters.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
+| Removed / not shipped | What's gone since v1 and what replaced it | [15 — Removed](api/15-removed.md) | [Migration rules](../../migration/from-re-frame-v1/README.md) |
 | Resources | `reg-resource` / `reg-mutation` — declarative server state and the invalidate-then-refetch loop | [16 — Resources](../resources/api.md) | [016-Resources](../../spec/016-Resources.md) |
 
 Want the same surface on *one* page — every signature, status, and tier in a single `Ctrl-F` target? That's [spec/API.md](../../spec/API.md). Think of the table above as the domain-by-domain reading and `API.md` as the flat search index over the very same rows.
@@ -66,7 +66,7 @@ Two documents own that lookup, and they split along the same Conventions-vs-009 
 
 So `:rf.error/set-db-bad-value` (you handed `[:rf/set-db]` a non-map), `:rf.error/image-zero-match` (a `:select-ns :include` glob matched no loaded namespace), and `:rf.error/invalid-image` (an image carrying a retired key) all resolve to one row in that catalogue — code, meaning, and recovery, side by side.
 
-> **Why this matters.** Because [error records](glossary.md#error-record) fan out to your always-on `:errors` listeners, they **survive production**, unlike the dev-only trace surface — so this lookup stays useful in the wild, not just at the REPL. The narrative version (why re-frame2 makes that choice) is the guide's [Errors](concepts/errors.md) concept page; the production observability channel that carries them is [11 — Instrumentation](../api/11-instrumentation.md), with the working recipe at [how-to: Report errors in production](how-to/report-errors-in-production.md).
+> **Why this matters.** Because [error records](glossary.md#error-record) fan out to your always-on `:errors` listeners, they **survive production**, unlike the dev-only trace surface — so this lookup stays useful in the wild, not just at the REPL. The narrative version (why re-frame2 makes that choice) is the guide's [Errors](concepts/errors.md) concept page; the production observability channel that carries them is [11 — Instrumentation](api/11-instrumentation.md), with the working recipe at [how-to: Report errors in production](how-to/report-errors-in-production.md).
 
 ## The test-helper namespaces
 
@@ -82,7 +82,7 @@ The rule of thumb: a test that drives *events, subs, or machines* reaches for `r
 
 > **From re-frame v1.** "test-helpers" was once the catch-all noun for the *whole* testing surface, so your fingers may type `re-frame.test-helpers` reaching for `dispatch-sequence` or a registrar fixture — and find nothing. Those moved to `re-frame.test-support`. The names now carry the *axis* (runtime state vs view tree), not the old audience grouping. When a helper seems missing, you're probably in the wrong one of the two — switch axes.
 
-The full inventory is in [10 — Testing](../api/10-testing.md), and the working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
+The full inventory is in [10 — Testing](api/10-testing.md), and the working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
 
 ## Images and frames: where the composition model lives
 
@@ -90,28 +90,28 @@ One model carries the whole composition story: **`image → frame → event stre
 
 The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration), and the composition rules — image order, the `rf/frame-shadows` report, collisions — are owned by [002-Frames](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent). The everyday rule that there's no enclosing container to address — you target a frame by its id — is [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found), taught in [Frames](concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found).
 
-> **From re-frame v1.** The older app / realm / module composition vocabulary — `rf/app`, `rf/module`, `rf/realm`, `install!`, and their inspectors — has left the public facade; the image/frame model replaced it. [15 — Removed](../api/15-removed.md) lists what's gone and what took its place.
+> **From re-frame v1.** The older app / realm / module composition vocabulary — `rf/app`, `rf/module`, `rf/realm`, `install!`, and their inspectors — has left the public facade; the image/frame model replaced it. [15 — Removed](api/15-removed.md) lists what's gone and what took its place.
 
 ## The worked examples
 
 The [examples catalogue](../../examples/README.md) is the runnable canon. When you're starting something new, the fastest path is usually to fork the one closest to what you're building and delete what you don't need — half a working app beats a blank file every time. The tree:
 
-- **Pedagogical sketches** — [`counter`](../../examples/core/counter/), [`login`](../../examples/core/login/), `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `boot`, `flows`, `websocket`, `long_running_work`. Each isolates one surface, composed end-to-end. Read these to *learn* a feature.
+- **Pedagogical sketches** — [`counter`](../../examples/core/counter), [`login`](../../examples/core/login), `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `boot`, `flows`, `websocket`, `long_running_work`. Each isolates one surface, composed end-to-end. Read these to *learn* a feature.
 - **Benchmarks** — `todomvc`, the `seven_guis` cluster, `nine_states`. Same primitives, fuller compositions — read these to see the pieces fit together under load.
-- **Server state** — [`resources`](../../examples/capabilities/resources/resources/), `resources_ssr`, `ssr_streaming`.
-- **The RealWorld pair** — [`realworld`](../../examples/real-apps/realworld_http/) on `:rf.http/managed`, and [`realworld_resources`](../../examples/real-apps/realworld_resources/) on resources + mutations. This is the "what does a *real* one look like?" answer, and the app this guide's [tutorial](../resources/tutorial/index.md) builds.
+- **Server state** — [`resources`](../../examples/capabilities/resources/resources), `resources_ssr`, `ssr_streaming`.
+- **The RealWorld pair** — [`realworld`](../../examples/real-apps/realworld_http) on `:rf.http/managed`, and [`realworld_resources`](../../examples/real-apps/realworld_resources) on resources + mutations. This is the "what does a *real* one look like?" answer, and the app this guide's [tutorial](../resources/tutorial/index.md) builds.
 - **Other substrates** — `substrates/uix/` and `substrates/helix/` each carry counter + login (the dataflow is *identical*; only the view layer differs — which is rather the point), plus one design-led example each. `substrates/reagent_slim/` carries the slim adapter's counter fixture.
 
 ## Tools, and where their docs live
 
 - **[Xray](../xray/index.md)** — the dev inspector: events, sub runs, app-db diffs, machine transitions, [time-travel](glossary.md#time-travel), per frame. Ten doc pages plus an API reference. The guide's working introduction is [Debug with Xray](how-to/debug-with-xray.md).
 - **[Story](../story/index.md)** — the frame-aware component playground. It's built on re-frame2's own primitives, so a story *is* a [frame](glossary.md#frame) you can dispatch into. Nine doc pages plus an API reference.
-- **The pair MCP** — [`tools/re-frame2-pair-mcp`](../../tools/re-frame2-pair-mcp/) lets an AI agent attach to your running app: inspect a frame, dispatch, hot-swap handlers, time-travel. You drive it through the skill below.
+- **The pair MCP** — [`tools/re-frame2-pair-mcp`](../../tools/re-frame2-pair-mcp) lets an AI agent attach to your running app: inspect a frame, dispatch, hot-swap handlers, time-travel. You drive it through the skill below.
 
 > **For JavaScript developers.** If you've used the Redux DevTools, Xray is that mental picture plus frames, subs, and machines — the same time-travel and action log, extended to re-frame2's richer dataflow. And Story is Storybook-flavoured: the same isolated-component playground, except a story is a live frame you can dispatch [events](glossary.md#event) into rather than a static prop fixture.
 
-The [skills](../skills/index.md) are Claude Code skills for putting an agent to work on a re-frame2 app: [`re-frame2-setup`](../../skills/re-frame2-setup/) scaffolds a new app, [`re-frame2`](../../skills/re-frame2/) is the authoring skill, [`re-frame-migration`](../../skills/re-frame-migration/) drives a v1 port, [`re-frame2-pair`](../../skills/re-frame2-pair/) pairs against a running app, and [`re-frame2-xray`](../../skills/re-frame2-xray/) drives the inspection surface.
+The [skills](../skills/index.md) are Claude Code skills for putting an agent to work on a re-frame2 app: [`re-frame2-setup`](../../skills/re-frame2-setup) scaffolds a new app, [`re-frame2`](../../skills/re-frame2) is the authoring skill, [`re-frame-migration`](../../skills/re-frame-migration) drives a v1 port, [`re-frame2-pair`](../../skills/re-frame2-pair) pairs against a running app, and [`re-frame2-xray`](../../skills/re-frame2-xray) drives the inspection surface.
 
 ## Coming from re-frame v1
 
-[From re-frame v1](25-from-re-frame-v1.md) is the narrative delta — what carries over (almost everything), what changed and why. The mechanical rule set is the [migration reference](../../migration/from-re-frame-v1/README.md), and for any real port the [`re-frame-migration`](../../skills/re-frame-migration/) skill is the recommended driver — it knows the rule set so you don't have to memorise it. When a name you remember has simply *vanished*, [15 — Removed](../api/15-removed.md) is where to look: it lists what's gone and what replaced it, so a missing symbol turns into a one-line lookup rather than a mystery.
+[From re-frame v1](25-from-re-frame-v1.md) is the narrative delta — what carries over (almost everything), what changed and why. The mechanical rule set is the [migration reference](../../migration/from-re-frame-v1/README.md), and for any real port the [`re-frame-migration`](../../skills/re-frame-migration) skill is the recommended driver — it knows the rule set so you don't have to memorise it. When a name you remember has simply *vanished*, [15 — Removed](api/15-removed.md) is where to look: it lists what's gone and what replaced it, so a missing symbol turns into a one-line lookup rather than a mystery.

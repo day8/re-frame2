@@ -40,7 +40,7 @@ The guide is layered by *how much you have to read before you can do something u
 | Tier | What it's for | Door |
 |---|---|---|
 | **Quickstart** | Pixels in five minutes; nothing explained yet | [Quickstart](quickstart.md) |
-| **Core concepts: the loop** | The mental model — events, app-db, subscriptions, views, effects — taught as six steps that knock into each other like dominoes, one page per step, all on the counter | [The model: six dominoes, one loop](concepts/index.md) |
+| **The loop** | The mental model — events, app-db, subscriptions, views, effects — taught as six steps that knock into each other like dominoes, one page per step, all on the counter | [The model: six dominoes, one loop](concepts/index.md) |
 | **Tutorial** | Build RealWorld end to end — pages, server data, auth, writes, tests — one app, start to finish | [Build RealWorld](../resources/tutorial/index.md) |
 | **More concepts** | Everything built *on* the loop — interceptors, frames, images, flows, machines, HTTP, resources, routing, SSR, errors, observability | [Interceptors](concepts/interceptors.md) |
 | **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |

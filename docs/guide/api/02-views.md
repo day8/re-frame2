@@ -112,7 +112,7 @@ A tool's own chrome — Story's panel grid, Xray's inspector views — is regist
 
 ## The substrate-agnostic ergonomic surface
 
-These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope or ensure a frame** (`frame-provider`, `with-frame`, `with-new-frame`), **hold** (`capture-frame` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
+These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope or ensure a frame** (`frame-provider`, `with-frame`, `with-new-frame`), **hold** (`capture-frame` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
 
 ### `frame-provider`
 
@@ -134,7 +134,7 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
   (with-frame :keyword body)        ;; pin to an existing frame-id
   (with-new-frame [sym expr] body)  ;; eval, bind, run, destroy on exit
   ```
-- **Description**: `with-frame` pins `*current-frame*` to an existing frame-id; the frame is not created or destroyed. `with-new-frame` evals `expr`, binds the resulting id to `sym`, runs body in that frame's dynamic context, and destroys the frame on exit. Each rejects the other's argument shape at compile time. Documented in [002 §with-frame and with-new-frame](../../spec/002-Frames.md#with-frame-and-with-new-frame).
+- **Description**: `with-frame` pins `*current-frame*` to an existing frame-id; the frame is not created or destroyed. `with-new-frame` evals `expr`, binds the resulting id to `sym`, runs body in that frame's dynamic context, and destroys the frame on exit. Each rejects the other's argument shape at compile time. Documented in [002 §with-frame and with-new-frame](../../../spec/002-Frames.md#with-frame-and-with-new-frame).
 
 ### `capture-frame`
 
@@ -159,7 +159,7 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
 
 ### When to reach for `capture-frame`
 
-The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` — the runtime never synthesises `:rf/default` from absence; frame identity is *carried*, not *found* (see [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)).
+The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` — the runtime never synthesises `:rf/default` from absence; frame identity is *carried*, not *found* (see [EP-0002](../../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)).
 
 The fix is to capture the frame *at the point you have it* and carry it as a value with **`capture-frame`**: build the operation bundle inside a render body or under `with-frame`, store it, and invoke its `:dispatch` / `:subscribe` ops from any later async context.
 
@@ -170,7 +170,7 @@ The fix is to capture the frame *at the point you have it* and carry it as a val
     (js/setTimeout #(dispatch [::tick]) 1000)))  ;; fires :tool even after with-frame unwinds
 ```
 
-Full async-boundary contract (the four routing patterns and the React click-handler case): [Spec 002 §React click-handler routing](../../spec/002-Frames.md#react-click-handler-routing--the-canonical-pattern).
+Full async-boundary contract (the four routing patterns and the React click-handler case): [Spec 002 §React click-handler routing](../../../spec/002-Frames.md#react-click-handler-routing--the-canonical-pattern).
 
 ### `with-frame` and `with-new-frame` — the sibling pair
 
@@ -190,7 +190,7 @@ Full async-boundary contract (the four routing patterns and the React click-hand
   (rf/dispatch [::action f]))   ;; frame destroyed on exit
 ```
 
-Full semantics in [002 §with-frame and with-new-frame](../../spec/002-Frames.md#with-frame-and-with-new-frame).
+Full semantics in [002 §with-frame and with-new-frame](../../../spec/002-Frames.md#with-frame-and-with-new-frame).
 
 ## Reagent: the default substrate
 
@@ -306,7 +306,7 @@ Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`
 
 The JVM SSR emitter mirrors the same contract so server-rendered HTML can be clicked back to the source position before any hydration happens.
 
-Full contract: [Spec 006 §Source-coord annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory) and [Spec 011 §Source-coord annotation under SSR](../../spec/011-SSR.md#source-coord-annotation-under-ssr).
+Full contract: [Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory) and [Spec 011 §Source-coord annotation under SSR](../../../spec/011-SSR.md#source-coord-annotation-under-ssr).
 
 ## See also
 

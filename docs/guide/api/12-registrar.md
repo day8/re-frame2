@@ -36,7 +36,7 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
   ```
 - **Description**: "What did `reg-*` stamp at this id?" View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta`; pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup.
 
-`kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:flow`, `:route`, `:head`, `:error-projector`. App-db schemas are **not** a registrar kind; look them up via `(app-schema-meta-at path)` instead. The full list lives in [001-Vision §Registry model](../../spec/000-Vision.md).
+`kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:flow`, `:route`, `:head`, `:error-projector`. App-db schemas are **not** a registrar kind; look them up via `(app-schema-meta-at path)` instead. The full list lives in [001-Vision §Registry model](../../../spec/000-Vision.md).
 
 ## Machines
 
@@ -60,7 +60,7 @@ These are derived views over the event registrar — a machine is registered as 
   ```
 - **Description**: Transition table, doc, schemas. Equivalent to `(handler-meta :event machine-id)`.
 
-See [04 — Machines](../machines/api.md) for the rest of the machine surface (subscription helpers, system-id reverse lookup, etc).
+See [04 — Machines](../../machines/api.md) for the rest of the machine surface (subscription helpers, system-id reverse lookup, etc).
 
 ## Frames
 
@@ -150,7 +150,7 @@ The schema-introspection surfaces are rowed in [08 — Schemas](08-schemas.md). 
 
 ## Behaviour against destroyed frames
 
-The pair-tool surfaces all share a common behaviour against destroyed frames, documented at [Tool-Pair §Surface behaviour against destroyed frames](../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames):
+The pair-tool surfaces all share a common behaviour against destroyed frames, documented at [Tool-Pair §Surface behaviour against destroyed frames](../../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames):
 
 - `app-db-value` → `nil`
 - `epoch-history` → `[]`
@@ -163,5 +163,5 @@ The pattern: dynamic-ID queries don't throw on absent frames — they return `ni
 ## See also
 
 - [01 — Core](01-core.md) — the write-side surface (`reg-*` / `clear-*`).
-- [04 — Machines](../machines/api.md), [05 — Flows](05-flows.md), [06 — Routing](../routing/api.md), [08 — Schemas](08-schemas.md), [09 — SSR](../ssr/api.md) — the feature-specific surfaces each register their own kind into the registrar.
+- [04 — Machines](../../machines/api.md), [05 — Flows](05-flows.md), [06 — Routing](../../routing/api.md), [08 — Schemas](08-schemas.md), [09 — SSR](../../ssr/api.md) — the feature-specific surfaces each register their own kind into the registrar.
 - [11 — Instrumentation](11-instrumentation.md) — the trace bus is what Xray and the pair tools layer on top of the registrar to give "what's running" alongside "what's registered."

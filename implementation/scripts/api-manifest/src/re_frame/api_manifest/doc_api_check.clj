@@ -9,7 +9,7 @@
   REFERENCE trees:
 
     * `spec/Privacy.md`   — the EP-0015 cross-artefact privacy inventory;
-    * `docs/api/**`       — the per-chapter human API reference;
+    * `docs/guide/api/**` — the per-chapter human API reference;
     * `docs/story/api/**` — the Story human API reference.
 
   EP-0025 stale prose slipped into exactly those trees and passed EVERY CI
@@ -20,7 +20,7 @@
   reference to a renamed / removed / never-manifested public surface goes RED.
 
   CAPABILITY API DOCS (rf2-earvtz). The #4961 docs reorg moved each
-  capability's API REFERENCE out of the flat `docs/api/` tree into
+  capability's API REFERENCE out of the flat top-level API tree into
   per-capability `docs/<cap>/api.md` files (machines / resources / routing /
   ssr). Those API docs are the same projection class — they name public vars
   in call position — and so are scanned here via the `docs/*/api.md` glob
@@ -50,7 +50,7 @@
 
   REMOVAL-NOTE / TOMBSTONE TOLERANCE. Mirroring how `api-md-check` tolerates
   `spec/API.md` removal notes and how `doc-guide-check` file-scopes removed
-  names, the `docs/api/15-removed.md` tombstone register names removed
+  names, the `docs/guide/api/15-removed.md` tombstone register names removed
   surfaces by design. Its removed names appear as bare back-ticked
   identifiers (`` `add-marks` ``, `` `reg-sub-raw` ``), NOT as call-position
   `(rf/<var>` forms, so the call-position scope already excludes them. The
@@ -74,14 +74,14 @@
 ;; separately below (a `require`-style existence assertion).
 (def ^:private dir-surfaces
   "[[label repo-relative-dir-segs] ...] — directory reference trees."
-  [["docs/api/"       ["docs" "api"]]
+  [["docs/guide/api/" ["docs" "guide" "api"]]
    ["docs/story/api/" ["docs" "story" "api"]]])
 
 (def ^:private privacy-file-segs ["spec" "Privacy.md"])
 
 (def ^:private min-references
   "Non-vacuous floor (rf2-utvst-style). The three trees together carry ~50
-   call-position references today (docs/api ~35, spec/Privacy ~22,
+   call-position references today (docs/guide/api ~35, spec/Privacy ~22,
    docs/story/api ~15). This floor sits well below that combined live count,
    so it trips only on a near-total collapse (a tree moved/renamed, the
    `(alias/<var>` extraction broke, the alias convention changed) — never on
@@ -143,7 +143,7 @@
                                   label (apply proj/repo-file segs)))
                               dir-surfaces)
         ;; Per-capability API docs (rf2-earvtz). The #4961 docs reorg moved
-        ;; each capability's API reference out of the flat docs/api/ tree into
+        ;; each capability's API reference out of the flat top-level API tree into
         ;; docs/<cap>/api.md (machines/resources/routing/ssr). The
         ;; docs/*/api.md glob folds those moved files back under this gate's
         ;; scan so a removed/renamed public surface named there goes RED; it
@@ -172,7 +172,7 @@
         kw-problems   (proj/keyword-drift-problems-over-files files)
         problems      (concat var-problems kw-problems)]
     (proj/report-with-floor!
-      "spec/Privacy.md + docs/api/ + docs/story/api/ + docs/*/api.md"
+      "spec/Privacy.md + docs/guide/api/ + docs/story/api/ + docs/*/api.md"
       (count references) min-references problems)))
 
 (defn -main [& _]

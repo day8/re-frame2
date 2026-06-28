@@ -1,3 +1,3 @@
 # The Mayor Method
 
-This document has moved to [here](./the-mayor-method/).
+This document has moved to [here](the-mayor-method).

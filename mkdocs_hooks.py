@@ -256,7 +256,7 @@ def on_page_markdown(markdown, page, config, files):
         # Choose by source depth. A guide sub-chapter at
         # docs/guide/<chapter-dir>/X.md is depth 3; its source spec ref is
         # ../../../spec/ and the staged path is ../../spec/. Plain
-        # docs/guide/X.md (and docs/api/X.md, docs/EP/X.md) is depth 2;
+        # docs/guide/X.md (and docs/EP/X.md) is depth 2;
         # ../../spec/ -> ../spec/.
         # Applying both rules unconditionally would let the depth-2 rule
         # re-rewrite the depth-3 rule's output ../../spec/ down to ../spec/,

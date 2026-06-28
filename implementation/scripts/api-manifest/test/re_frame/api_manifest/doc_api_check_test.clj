@@ -5,7 +5,7 @@
   THE GAP. The keystone manifest drift-check and its existing projection
   checks scan spec/API.md, docs/guide/**, the two tool API specs, and
   skills/ — but NOT the three human-facing API-reference trees
-  (spec/Privacy.md, docs/api/**, docs/story/api/**). EP-0025 stale prose
+  (spec/Privacy.md, docs/guide/api/**, docs/story/api/**). EP-0025 stale prose
   slipped into exactly those trees and passed every CI check. This check
   extends the same call-position discipline to them.
 
@@ -27,7 +27,7 @@
   #{"reg-event" "reg-sub" "dispatch" "configure!" "reg-story" "machine-meta"})
 
 (def ^:private scoped-allow
-  {"reg-sub-raw" #{"docs/api/15-removed.md"}})
+  {"reg-sub-raw" #{"docs/guide/api/15-removed.md"}})
 
 (defn- problems-for [references]
   (c/reconcile {:references references
@@ -38,11 +38,11 @@
   (testing "a live manifest var resolves in any reference tree with no problem"
     (is (empty? (problems-for
                   [{:var "reg-event" :line 13 :raw "rf/reg-event"
-                    :file "docs/api/01-core.md"}
+                    :file "docs/guide/api/01-core.md"}
                    {:var "configure!" :line 7 :raw "story/configure!"
                     :file "docs/story/api/registration.md"}
                    {:var "machine-meta" :line 259 :raw "rf/machine-meta"
-                    :file "docs/api/10-testing.md"}
+                    :file "docs/guide/api/10-testing.md"}
                    {:var "reg-event" :line 88 :raw "rf/reg-event"
                     :file "spec/Privacy.md"}])))))
 
@@ -51,27 +51,27 @@
             prose is flagged"
     (let [probs (problems-for
                   [{:var "path" :line 85 :raw "rf/path"
-                    :file "docs/api/03-effects.md"}])]
+                    :file "docs/guide/api/03-effects.md"}])]
       (is (= 1 (count probs)))
-      (is (= "docs/api/03-effects.md" (:file (first probs))))
+      (is (= "docs/guide/api/03-effects.md" (:file (first probs))))
       (is (re-find #"no manifest row" (:detail (first probs)))))))
 
 (deftest scoped-removed-name-silenced-only-in-approved-file
   (testing "a scoped removed name is silenced in its approved tombstone file"
     (is (empty? (problems-for
                   [{:var "reg-sub-raw" :line 26 :raw "rf/reg-sub-raw"
-                    :file "docs/api/15-removed.md"}]))))
+                    :file "docs/guide/api/15-removed.md"}]))))
   (testing "the SAME scoped removed name in a NON-approved live reference file
             is RED — it leaked into live reference prose"
     (let [probs (problems-for
                   [{:var "reg-sub-raw" :line 50 :raw "rf/reg-sub-raw"
-                    :file "docs/api/01-core.md"}])]
+                    :file "docs/guide/api/01-core.md"}])]
       (is (= 1 (count probs)))
-      (is (= "docs/api/01-core.md" (:file (first probs))))
+      (is (= "docs/guide/api/01-core.md" (:file (first probs))))
       (is (re-find #"removed API named outside its approved" (:detail (first probs)))))))
 
 (deftest live-doc-api-reconciles-clean
-  (testing "the committed spec/Privacy.md + docs/api + docs/story/api
+  (testing "the committed spec/Privacy.md + docs/guide/api + docs/story/api
             reconcile against the committed manifest with zero problems
             (the CI contract — #4887/#4888 cleaned these trees + this PR
             corrected the residual path/unwrap drift the gate surfaced)"

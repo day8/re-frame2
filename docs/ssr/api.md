@@ -220,7 +220,7 @@ The hydration payload shape lives at [Spec-Schemas §`:rf/hydration-payload`](..
 
 ## See also
 
-- [01 — Core](../api/01-core.md) — `reg-head` / `reg-error-projector` rowed in registration.
+- [01 — Core](../guide/api/01-core.md) — `reg-head` / `reg-error-projector` rowed in registration.
 - [Routing API](../routing/api.md) — routes opt into head models via `:head` metadata.
-- [11 — Instrumentation](../api/11-instrumentation.md) — the SSR-specific trace events live in the error catalogue.
+- [11 — Instrumentation](../guide/api/11-instrumentation.md) — the SSR-specific trace events live in the error catalogue.
 - [Spec 011 — SSR](../../spec/011-SSR.md) — the normative source.

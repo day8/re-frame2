@@ -10,7 +10,7 @@ The surface lives across **three namespaces** because the three concerns separat
 
 `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. The seam between the three namespaces is deliberate: production code never picks up test-flavoured assertion machinery by accident.
 
-For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` compatibility), see [008-Testing.md](../../spec/008-Testing.md).
+For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` compatibility), see [008-Testing.md](../../../spec/008-Testing.md).
 
 ## Runtime-state assertions (`re-frame.test-support`)
 
@@ -110,7 +110,7 @@ The pattern: fresh registrar, register the handler, dispatch synchronously, asse
 
 ## View assertions (`re-frame.test-helpers`)
 
-The view-assertion surface treats a view as what it is — a function that returns hiccup — and walks the returned hiccup data structure. **JVM-runnable. No JSDOM. No React. No `act()`.** Pairs with `render-to-string` (the HTML-string view-test path per [Spec 011](../../spec/011-SSR.md)): hiccup-walk for structure / handler assertions, `render-to-string` for HTML-markup assertions.
+The view-assertion surface treats a view as what it is — a function that returns hiccup — and walks the returned hiccup data structure. **JVM-runnable. No JSDOM. No React. No `act()`.** Pairs with `render-to-string` (the HTML-string view-test path per [Spec 011](../../../spec/011-SSR.md)): hiccup-walk for structure / handler assertions, `render-to-string` for HTML-markup assertions.
 
 ### `expand-tree`
 
@@ -268,6 +268,6 @@ Tests targeting multiple frames or machines reach for the same surfaces with exp
 
 - [01 — Core](01-core.md) — `dispatch-sync`, `subscribe-once`, `make-frame`, `with-frame` rowed in dispatch / registration.
 - [03 — Effects and interceptors](03-effects.md) — `with-fx-overrides` and the precedence rules.
-- [07 — HTTP](../resources/http-api.md) — HTTP test stubs (`with-managed-request-stubs`, canned-reply fx).
+- [07 — HTTP](../../resources/http-api.md) — HTTP test stubs (`with-managed-request-stubs`, canned-reply fx).
 - [12 — Registrar](12-registrar.md) — `registrations`, `handler-meta`, `sub-topology` for tests that introspect what's registered.
-- [Spec 008 — Testing](../../spec/008-Testing.md) — the normative source.
+- [Spec 008 — Testing](../../../spec/008-Testing.md) — the normative source.

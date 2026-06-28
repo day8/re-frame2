@@ -189,7 +189,7 @@ That isn't an oversight — it's [frame identity is carried, not found](../gloss
     - `reg-view*`, the plain-fn surface beneath the macro, registers a view from a **computed id** or a non-`defn` render fn.
     - `(rf/view id)` resolves a registered view by id at render time.
 
-    That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference under [Tooling / host view registration](../../api/02-views.md#tooling--host-view-registration); the contract is in [spec 004](../../../spec/004-Views.md).
+    That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference under [Tooling / host view registration](../api/02-views.md#tooling--host-view-registration); the contract is in [spec 004](../../../spec/004-Views.md).
 
 ## The one rule: views compute hiccup only
 

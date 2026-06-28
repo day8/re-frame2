@@ -20,7 +20,7 @@ That's why your v1 code reads as v2 code on the first pass. A `reg-sub` is a `re
 
 ## The one tool: don't do this by hand
 
-The migration is automated, and you should keep it that way — do not hand-migrate anything larger than a toy. A Claude Code skill ships in this repo, [`skills/re-frame-migration/`](../../skills/re-frame-migration/), and its whole job is to drive the sweep. It walks six phases — orient, bump, sweep, verify, optional modernisations, report — applying the mechanical rewrites unprompted and *stopping* at every judgment call to ask you first. The skill calls the mechanical rewrites **Type A** and the judgment calls **Type B**. You'll see those two words throughout this chapter.
+The migration is automated, and you should keep it that way — do not hand-migrate anything larger than a toy. A Claude Code skill ships in this repo, [`skills/re-frame-migration/`](../../skills/re-frame-migration), and its whole job is to drive the sweep. It walks six phases — orient, bump, sweep, verify, optional modernisations, report — applying the mechanical rewrites unprompted and *stopping* at every judgment call to ask you first. The skill calls the mechanical rewrites **Type A** and the judgment calls **Type B**. You'll see those two words throughout this chapter.
 
 The workflow is four steps:
 
