@@ -6,6 +6,13 @@ This is the load-bearing surface for the pair-shape architecture — every tool 
 
 This chapter covers the event-emit listener surface, the error-emit listener surface, the dev-only tracing surface, the epoch buffer (time-travel), the performance instrumentation gate, the source-coord annotation contract, the wire-boundary elision walker, and the error contract.
 
+This chapter spans `re-frame.core` (trace / egress) and `re-frame.epoch` (time-travel):
+
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.epoch :as epoch])
+```
+
 ## Event-emit (always-on, production-survivable)
 
 A minimal always-on listener surface that survives `:advanced` + `goog.DEBUG=false` and delivers one tight record per processed event. The intended consumers are hosted observability back-ends (Datadog, Honeycomb, Sentry, …). **Parallel to (not a fallback for) the dev-only trace surface; per-event only — no per-sub, per-fx, or per-`:rf.event/db-changed` records.**
@@ -324,9 +331,7 @@ See [08 — Schemas §Data classification](08-schemas.md#data-classification) fo
 
 ## DOM source-coord annotations
 
-Every adapter whose host has a DOM-attribute concept (Reagent / UIx / Helix on the browser) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions live in [Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory).
-
-The annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the contract per [Spec 011 §Source-coord annotation under SSR](../../../spec/011-SSR.md#source-coord-annotation-under-ssr).
+The DOM `data-rf2-source-coord` injection contract is documented in [02 — Views §DOM source-coord annotations](02-views.md#dom-source-coord-annotations) (instrumentation only consumes the resolved coords).
 
 ## The error contract
 

@@ -4,6 +4,12 @@ The Core chapter is what you `:require` from `re-frame.core` to make an app exis
 
 If you read only one chapter of this reference, this is the one to read. Everything in the other chapters builds on these five clusters.
 
+The surfaces in this chapter live in `re-frame.core`:
+
+```clojure
+(:require [re-frame.core :as rf])
+```
+
 ## Registration
 
 This is the surface every re-frame2 app touches. You're answering "what events can my app handle, what data can it subscribe to, what side effects can it action, what state can it inject as coeffects?" Every entry is a registration of a named handler into the frame's registrar.
@@ -177,16 +183,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-view sym [args] body+)
   ```
   (plus shape-variants — see [02 — Views](02-views.md))
-- **Description**: `defn`-shape view registration. Auto-defs the symbol; auto-derives an id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. See [02 — Views](02-views.md).
-- **Example**:
-  ```clojure
-  (rf/reg-view counter-buttons []
-    [:div
-     [:button {:on-click #(dispatch [:counter/dec])} "-"]
-     [:span @(subscribe [:counter/value])]
-     [:button {:on-click #(dispatch [:counter/inc])} "+"]])
-  ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/core/counter)
+- `defn`-shape view registration. Full contract in [02 — Views](02-views.md).
 
 ### `reg-view*`
 
@@ -196,7 +193,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-view* id render-fn)
   (reg-view* id metadata render-fn)
   ```
-- **Description**: Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var.
+- Plain-fn surface beneath `reg-view`. Full contract in [02 — Views](02-views.md).
 
 ### `reg-machine`
 
@@ -205,16 +202,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-machine machine-id machine-spec)
   ```
-- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](../../machines/api.md).
-- **Example**:
-  ```clojure
-  (rf/reg-machine :auth.login/flow
-    {:initial :idle
-     :states  {:idle      {:on {:submit :submitting}}
-               :submitting {:on {:ok :done :err :idle}}
-               :done      {}}})
-  ```
-- **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/capabilities/machines/state_machine_walkthrough)
+- Registers a state machine as an event handler. Re-exported on the `re-frame.core` facade; full grammar (transitions, `:spawn`/`:regions`, snapshot shape) in [04 — Machines](../../machines/api.md).
 
 > **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core`. Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](../../machines/api.md#re-framemachinesreg-machine).
 
@@ -226,13 +214,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-app-schema path {:schema schema})
   (reg-app-schema path {:schema schema :frame frame})
   ```
-- **Description**: "Declare the Malli schema for this `app-db` path." **Path is the registration id** — the only `reg-*` keyed by path rather than keyword, because schemas-at-paths matches the dataflow grain. The schema rides the metadata map under `:schema`; the optional frame target rides `:frame`. See [08 — Schemas](08-schemas.md).
-- **Example**:
-  ```clojure
-  (rf/reg-app-schema [:cells]
-    {:schema [:map [:cells/grid [:map-of :keyword :string]]]})
-  ```
-- **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/core/seven_guis)
+- Declare the Malli schema for an `app-db` path (path is the registration id). Re-exported on the `re-frame.core` facade; full contract in [08 — Schemas](08-schemas.md).
 
 ### `reg-app-schemas`
 
@@ -241,15 +223,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-app-schemas {path-1 schema-1, ...})
   ```
-- **Description**: Bulk plural form for feature-modular apps that register 5–20 paths together. Each entry routes through the singular form and is stamped with this call's source-coords.
-- **Example**:
-  ```clojure
-  (rf/reg-app-schemas
-    {[:auth]     AuthState
-     [:articles] ArticlesState
-     [:profile]  ProfileState})
-  ```
-- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
+- Bulk plural form of `reg-app-schema`. Re-exported on the `re-frame.core` facade; full contract in [08 — Schemas](08-schemas.md).
 
 ### `reg-flow`
 
@@ -259,15 +233,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-flow flow)
   (reg-flow flow opts)
   ```
-- **Description**: Register a derived flow — `{:id :inputs :derive :output-path}` — that auto-recomputes when its inputs change and writes the result into `:output-path` in `app-db`. `:inputs` is a positional vector of `app-db` paths; the values arrive as positional args to `:derive`. See [05 — Flows](05-flows.md).
-- **Example**:
-  ```clojure
-  (rf/reg-flow
-    {:id     :cart/total
-     :inputs [[:cart :items]]
-     :derive (fn [items] (reduce + (map :price items)))
-     :output-path [:cart :total]})
-  ```
+- Register a derived flow that auto-recomputes and writes to an `app-db` path. Re-exported on the `re-frame.core` facade; full contract in [05 — Flows](05-flows.md).
 
 ### `reg-route`
 
@@ -276,14 +242,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-route id metadata path)
   ```
-- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](../../routing/api.md).
-- **Example**:
-  ```clojure
-  (rf/reg-route :route/home
-    {:on-match [[:home/load]]}
-    "/")
-  ```
-- **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/capabilities/routing/routing)
+- Registers a route as data. Re-exported on the `re-frame.core` facade; full route-metadata grammar in [06 — Routing](../../routing/api.md).
 
 ### `reg-head`
 
@@ -292,13 +251,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-head id ?metadata head-fn)
   ```
-- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](../../ssr/api.md).
-- **Example**:
-  ```clojure
-  (rf/reg-head :app/head
-    (fn [db _route]
-      {:title (str "MyApp — " (:page-title db))}))
-  ```
+- SSR: register a head-model fn keyed by id. Re-exported on the `re-frame.core` facade; full contract in [09 — SSR](../../ssr/api.md).
 
 ### `reg-error-projector`
 
@@ -307,7 +260,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-error-projector id ?metadata projector-fn)
   ```
-- **Description**: SSR: register a `(fn [trace-event] :rf/public-error)`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata.
+- SSR: register a trace-event → public-error projector, named per-frame via `:ssr {:public-error-id …}`. Re-exported on the `re-frame.core` facade; full contract in [09 — SSR](../../ssr/api.md).
 
 ### Clearing registrations
 
@@ -339,15 +292,6 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (clear-fx id)
   ```
 - **Description**: "Forget this fx."
-
-#### `clear-flow`
-
-- **Signature**:
-  ```clojure
-  (clear-flow id)
-  (clear-flow id opts)
-  ```
-- **Description**: Deregisters the flow from the named frame and `dissoc-in`s its `:output-path` from that frame's `app-db` only. See [05 — Flows](05-flows.md).
 
 #### `destroy-frame!`
 
@@ -472,7 +416,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
 
 ### Reading a machine's snapshot
 
-To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](../../machines/api.md).
+Subscribe to `[:rf/machine machine-id]` for a reaction over the machine's `{:state :data}` snapshot. See [04 — Machines](../../machines/api.md).
 
 **The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics live in [002 §Routing: the dispatch envelope](../../../spec/002-Frames.md#routing-the-dispatch-envelope). The most common pattern is `(rf/dispatch [::save x] {:frame :todo})` to target a non-default frame.
 
@@ -517,7 +461,7 @@ The family has two sub-shapes that look alike on first read but answer different
 
 **Stamping pair** (`dispatch` / `dispatch*` and `dispatch-sync` / `dispatch-sync*`). The pair-shape question is "do you want call-site stamping or not?" The macro captures source coords for `:rf.trace/call-site`; the `*` fn-form skips the stamping for HoF composition. Both route through the same dispatcher.
 
-**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](../../machines/api.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
+**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx). The question is "do you have a `:system-id` instead of a target machine-id?" It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.) For `:system-id` resolution, see [04 — Machines](../../machines/api.md).
 
 The two compose: the named-target fx ultimately dispatches, so the same trace stamping fires on the resulting event.
 

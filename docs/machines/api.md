@@ -10,6 +10,13 @@ This chapter covers the registration surface (the `reg-machine` / `defmachine` m
 
 For the full treatment — the capability matrix and the underlying model — see [005-StateMachines.md](../../spec/005-StateMachines.md).
 
+This chapter spans `re-frame.core` (the `reg-machine` / `defmachine` macros) and `re-frame.machines` (the engine, query, and transition surfaces):
+
+```clojure
+(:require [re-frame.core     :as rf]
+          [re-frame.machines :as machines])
+```
+
 ## Registration
 
 ### `reg-machine`
@@ -48,6 +55,15 @@ For the full treatment — the capability matrix and the underlying model — se
   (re-frame.machines/machine-transition definition snapshot event) → [next-snapshot effects]
   ```
 - **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns the next snapshot and the effect map. JVM-runnable; the conformance harness uses this as its primary test surface for machine behaviour.
+- **Worked example** — drive a transition and assert on the snapshot (JVM-runnable, no live frame needed):
+  ```clojure
+  (let [definition          (machines/machine-meta :session)
+        snapshot            {:state :anonymous :data {}}
+        [next-snap effects] (machines/machine-transition definition snapshot [:login {:user "alice"}])]
+    (is (= :authenticating (:state next-snap)))
+    (is (= "alice" (get-in next-snap [:data :credentials :user])))
+    (is (= [[:rf.http/managed ...]] (:fx effects))))
+  ```
 
 ### A minimal machine
 

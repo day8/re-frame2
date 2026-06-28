@@ -6,6 +6,13 @@ Schemas describe **shape and validation**. Durable `app-db` data classification 
 
 This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the canonical contracts, see [010-Schemas.md](../../../spec/010-Schemas.md), [015-Data-Classification.md](../../../spec/015-Data-Classification.md), and [Privacy.md](../../../spec/Privacy.md).
 
+This chapter spans `re-frame.core` (the `reg-app-schema` / `reg-app-schemas` macros) and `re-frame.schemas` (schema introspection):
+
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.schemas :as schemas])
+```
+
 ## Registration
 
 ### `reg-app-schema`
@@ -151,36 +158,14 @@ The pattern: dev-time validation runs at every commit by default; production-tim
 
 ## Data classification
 
-Schemas describe shape; **classification of durable `app-db` data is event-owned**, not schema-attached. The `app-db` path is yours at an absolute path you own, so you classify it by returning a **commit-plane classification effect** from a `reg-event` handler — alongside `:db`, in the same event. There are four, one per axis-and-direction:
+Durable `app-db` data classification is **event-owned** — a `reg-event` handler returns a commit-plane classification effect alongside `:db`, in the same event. There are four, one per axis-and-direction:
 
-```clojure
-(rf/reg-event :app/init
-  (fn [{:keys [db]} _]
-    {:db              (assoc db :auth {})
-     :sensitive       [[:auth :token]
-                       [:tenant :partner-api-key]]   ;; classify sensitive
-     :large           [[:documents :csv-upload]]}))  ;; classify large
-;;   :clear-sensitive / :clear-large un-classify a path when its ownership ends.
+- `:sensitive` — classify the listed `app-db` paths as sensitive (redacted at the wire boundary).
+- `:large` — classify the listed `app-db` paths as large (size-elided at the wire boundary).
+- `:clear-sensitive` — un-classify the listed paths' sensitive marking when their ownership ends.
+- `:clear-large` — un-classify the listed paths' large marking when their ownership ends.
 
-;; Wire the init event at frame creation; the classification is in place
-;; before any off-box egress. The frame owns only the :observability sink
-;; policy now — durable app-db paths and HTTP carriers do NOT live on it.
-(rf/reg-frame :app/main
-  {:initial-events [[:app/init]]})
-
-;; App-specific HTTP carrier names ride the :rf.http/managed registration.
-(rf/reg-fx :rf.http/managed
-  {:carriers {:headers ["X-Honeycomb-Team"]}}
-  re-frame.http.managed/managed-handler)
-```
-
-A `reg-frame` / `make-frame` config carrying `:sensitive` or `:large` **fails loud at registration**. There is likewise **no** schema-attached or imperative-mark route to classify a durable `app-db` path; the event is `app-db`'s definition site, and that is the one route. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](../../machines/api.md), [16 — Resources](../../resources/api.md), [07 — HTTP](../../resources/http-api.md).) Transient payloads (event args, sub/flow outputs, the `:rf.http/managed` `:carriers` block) are classified by the registration that introduces the shape.
-
-The full teaching of the three owners, the two projection primitives, and the egress profiles lives in [Guide ch.23 — Privacy and large things](../how-to/keep-secrets-out-of-traces.md). For the framework-internal egress primitives (`project-egress`, `elide-wire-value`) consumed by tools and sinks, see [11 — Instrumentation](11-instrumentation.md).
-
-### Composition rule
-
-When both classifications match the same slot (`:sensitive?` AND `:large?`), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` information from a sensitive slot. The composition rule is normative; per [009 §Size elision in traces](../../../spec/009-Instrumentation.md#size-elision-in-traces) and [015 §Projection](../../../spec/015-Data-Classification.md).
+Composition: sensitive-drop wins; full teaching in [Guide ch.23](../how-to/keep-secrets-out-of-traces.md), normative in spec 009/015.
 
 ## See also
 

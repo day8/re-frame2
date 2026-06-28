@@ -11,6 +11,12 @@ If you're not sure, you're an application author: use the app-facing lane and sk
 
 This chapter also covers the substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
 
+The view-authoring surfaces in this chapter live in `re-frame.core`:
+
+```clojure
+(:require [re-frame.core :as rf])
+```
+
 ## App-facing view registration
 
 This is the lane for application authors. You register a view with `reg-view`, render it by Var reference, and that's the whole story for the 80% case. The view registry that backs this is what `[my-view "arg"]` resolves against: every view you register lives in it, keyed by id (a keyword, conventionally `(keyword *ns* sym)` so the view's id matches its symbol).
@@ -194,109 +200,15 @@ Full semantics in [002 §with-frame and with-new-frame](../../../spec/002-Frames
 
 ## Reagent: the default substrate
 
-The CLJS reference implementation ships against Reagent as the default substrate. There's no separate `re-frame.adapter.reagent` namespace to require — `re-frame.core` includes the Reagent adapter inline, because that's the historical default and the path of least surprise for re-frame v1 migrators.
+The CLJS reference implementation ships against Reagent as the default substrate. There's no separate `re-frame.adapter.reagent` namespace to require — `re-frame.core` includes the Reagent adapter inline, because that's the historical default and the path of least surprise for re-frame v1 migrators. The common case needs no explicit adapter wiring.
 
 Reagent views are plain Clojure functions returning hiccup; re-frame2's `reg-view` macro is the typed sugar over `defn` + `reg-view*`. Form-2 (a fn that returns a fn) and Form-3 (`create-class`) are both supported; the wrapping the macro emits is transparent to either pattern.
 
-The adapter spec map — the value `(rf/init!)` consumes — lives at `re-frame.adapter.reagent/adapter` (Reagent-full) or `re-frame.adapter.reagent-slim/adapter` (Reagent without the React server-rendering tax, for SSR pipelines).
-
-```clojure
-(:require [re-frame.adapter.reagent :as reagent])
-
-(rf/init! reagent/adapter)
-```
+For the adapter value, the `reagent-slim` spec map (Reagent without the React server-rendering tax, for SSR pipelines), and the `init!` wiring, see [14 — Adapters](14-adapters.md).
 
 ## UIx and Helix: hooks-shaped substrates
 
-UIx and Helix expose React's hooks model directly. The re-frame2 adapter for each ships in its own artefact (`day8/re-frame2-uix`, `day8/re-frame2-helix`) and exposes a small, parallel surface — the same shape across both, because the Helix decisions transfer the UIx decisions one-for-one.
-
-In the entries below, `<adapter>` stands for the adapter namespace alias the consumer chose at require — typically `uix-adapter` or `helix-adapter`.
-
-### `<adapter>/adapter`
-
-- **Kind**: Var (map)
-- **Signature**:
-  ```clojure
-  {:make-state-container …
-   :render …
-   :dispose-adapter! …}
-  ```
-- **Description**: The adapter spec passed to `(rf/init! ...)`.
-- **Example**:
-  ```clojure
-  (:require [re-frame.adapter.uix :as uix-adapter])
-
-  (rf/init! uix-adapter/adapter)
-  ```
-- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/substrates/uix/counter) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/substrates/helix/counter)
-
-### `<adapter>/use-subscribe`
-
-- **Kind**: hook (function)
-- **Signature**:
-  ```clojure
-  (use-subscribe query-v) → value
-  (use-subscribe frame-kw query-v) → value
-  ```
-- **Description**: The hook-shaped read. Matches the React/UIx/Helix idiom; there's no auto-injection — components call the hook and `(rf/capture-frame)` directly.
-- **Example**:
-  ```clojure
-  (let [count    (uix-adapter/use-subscribe [:count])
-        {:keys [dispatch]} (rf/capture-frame)]
-    ($ :button {:on-click #(dispatch [:inc])} count))
-  ```
-- **In the wild**: [counter_uix](https://github.com/day8/re-frame2/tree/main/examples/substrates/uix/counter) · [counter_helix](https://github.com/day8/re-frame2/tree/main/examples/substrates/helix/counter)
-
-### `<adapter>/use-current-frame`
-
-- **Kind**: hook (function)
-- **Signature**:
-  ```clojure
-  (use-current-frame) → frame-kw
-  ```
-- **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
-
-### `<adapter>/frame-provider`
-
-- **Kind**: component (function — one component, two config shapes)
-- **Signatures**:
-  ```clojure
-  ($ frame-provider {:frame :session} child-1 child-2)                  ;; SCOPE an existing frame
-  ($ frame-provider {:id :session :images [session-image]} child-1 child-2)  ;; ENSURE create-if-absent / reuse
-  ```
-- **Description**: The component-shaped equivalent of Reagent's merged `frame-provider`, dispatched on the prop map: `{:frame …}` scopes an existing frame (failing loud if absent), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed / provide id, no destroy-on-unmount). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map. The underlying React Context (`re-frame.adapter.context`) is **shared** across all three substrates, so a mixed-substrate app's provider chain composes across substrate boundaries.
-
-### `<adapter>/wrap-view`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (wrap-view id metadata user-fn) → wrapped fn
-  ```
-- **Description**: Adapter-side source-coord annotation. Most UIx / Helix users register through `reg-view*` and let the adapter wrap; `wrap-view` is exposed for code-gen and library scaffolding.
-
-### `<adapter>/flush-views!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (flush-views!)
-  (flush-views! f)
-  ```
-- **Description**: Wraps React's `act()` for tests. Drain queued state updates before assertions.
-
-### `<adapter>/set-hiccup-emitter!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (set-hiccup-emitter! f)
-  ```
-- **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
-
-The UIx / Helix adapters do **not** support `reg-view` (the macro is Reagent-specific in its `defn`-shape rewriting). For UIx and Helix the app-facing lane *is* native components plus the adapter hooks — most application views need no view registration at all, because UIx and Helix components compose by Var reference like ordinary React components. `reg-view*` is the tooling/host lane here too: reach for it only when something needs registry-keyed view addressing (a tool hosting the view by id, a code-gen pipeline).
-
-See [14 — Adapters](14-adapters.md) for the per-substrate detail.
+UIx and Helix are hooks-shaped substrates: instead of the inline Reagent default, you mount through an explicit adapter and read subscriptions through a hook. The per-substrate surface — `adapter`, `use-subscribe`, `use-current-frame`, `frame-provider`, `wrap-view`, `flush-views!`, `set-hiccup-emitter!` — lives in [14 — Adapters](14-adapters.md), which documents each substrate's namespace (`re-frame.adapter.uix` / `re-frame.adapter.helix`) and hook signatures.
 
 ## DOM source-coord annotations
 

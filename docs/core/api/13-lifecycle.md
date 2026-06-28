@@ -10,6 +10,12 @@ This chapter is about the surfaces that bring a re-frame2 process up and take it
 
 An app author learns one boot sentence — **install an adapter with `init!`, then create your frame(s) explicitly** — and nothing else. The adapter-author surfaces (install / dispose / inspect, and the spec-map slots) are *not* peer choices beside `init!`; they sit one layer down and an ordinary app never touches them. The frame-startup lane is a third thing again: it's about what a *single frame* does when it comes alive (`:initial-events`), independent of which substrate the process installed. Keep the three apart and the lifecycle reads cleanly.
 
+The lifecycle surfaces in this chapter live in `re-frame.core`:
+
+```clojure
+(:require [re-frame.core :as rf])
+```
+
 ## Application boot
 
 This is the only lane an app author needs. It has exactly two steps: install the substrate adapter once, then create your app's frame(s) explicitly. Frame creation is always under your control — `init!` creates none.

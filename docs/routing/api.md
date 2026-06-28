@@ -6,6 +6,13 @@ The point isn't novelty — every SPA framework has a router. The point is that 
 
 This chapter covers the registration shape, the dispatch / sub / fx surface, and the helpers that map URLs to/from route ids. For nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing, see [Guide ch.19 — Routing reference](concepts.md). The normative source is [012-Routing.md](../../spec/012-Routing.md).
 
+The `reg-route` macro is on the `re-frame.core` facade; the rest of the routing surface lives in `re-frame.routing`:
+
+```clojure
+(:require [re-frame.core    :as rf]
+          [re-frame.routing :as routing])
+```
+
 ## Registration
 
 ### `reg-route`

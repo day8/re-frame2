@@ -6,6 +6,12 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
 
 > **Scope is HTTP-only.** The first public-beta surface is **landed and complete**: the read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)), **focus/reconnect active-stale revalidation** (`:rf.resource/window-focused` / `:rf.resource/network-reconnected` + the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns — see [Revalidation](#focusreconnect-revalidation)), and **active-owner polling** (`:poll-interval-ms` — see [Polling](#polling)). **GraphQL is deferred** to a later slice. See [Guide ch.27 §What's deferred](concepts.md).
 
+The resource surfaces are on the `re-frame.core` facade (`reg-resource` / `reg-mutation`); the events and subscriptions are keyword-addressed:
+
+```clojure
+(:require [re-frame.core :as rf])
+```
+
 ## Registration
 
 ### `reg-resource`
