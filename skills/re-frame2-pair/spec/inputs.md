@@ -14,7 +14,7 @@ Path: `spec/Tool-Pair.md` (the contract specification) + `spec/009-Instrumentati
 - `(rf/register-epoch-listener! id cb)` / `(rf/epoch-history frame-id)` — the assembled epoch stream and per-frame ring.
 - `(rf/restore-epoch! ...)` — first-class time-travel.
 - `(rf/frame-ids)` / `(rf/frame-meta id)` — multi-frame inspection.
-- `(re-frame.schemas/app-schemas)` / `(rf/handler-meta kind id)` — registrar reflection (source-coords). (`app-schemas` lives on `re-frame.schemas` — no longer re-exported from `re-frame.core`, per rf2-wad2fl; `handler-meta` stays on the `rf/` façade.)
+- `(re-frame.schemas/app-schemas)` / `(rf/handler-meta kind id)` — registrar reflection (source-coords). (`app-schemas` lives on `re-frame.schemas`, not the `re-frame.core` façade; `handler-meta` stays on `rf/`.)
 - `(rf/configure! {:epoch-history {:depth N}})` — ring retention.
 
 The skill is one of the principal downstream consumers of these surfaces.

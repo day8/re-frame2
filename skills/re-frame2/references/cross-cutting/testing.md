@@ -51,7 +51,7 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
 ```
 
 - **The frame is a local frame value** (no `:id`) — born in the test, discarded with it, never claiming a public frame id. `make-frame` returns the frame value (the lifecycle token); a test passes it (or its id, via `rf/frame-value->id`) to `dispatch-sync` / `subscribe`. That is the direct-frame-value test pattern (EP-0024).
-- **Override behaviour through a later image**, not a global install: compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones — image order decides, the later image wins), then read `rf/frame-shadows` to assert exactly what it overrode. A swap is data the test states rather than last-writer-wins on a shared table. (The EP-0023 `:replace` / `:replace-standard` declared-winner keys are retired by EP-0026.)
+- **Override behaviour through a later image**, not a global install: compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones — image order decides, the later image wins), then read `rf/frame-shadows` to assert exactly what it overrode. A swap is data the test states rather than last-writer-wins on a shared table. There is no `:replace` / `:replace-standard` declared-winner key — image order is the only mechanism.
 - For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`. A frame created with no `:images` resolves against the shared registrar; pass `:images [...]` to isolate behaviour. **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame** — there is no realm / app / module install surface (the public composition model is `image → frame → event stream`; see [`fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story)).
 
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
@@ -133,7 +133,7 @@ Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story 
 (ts/assert-db-equals   {:n 0} {:frame :stories})        ;; same for the full-db form
 ```
 
-`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:script` blocks; the shared name root is deliberate so a reader navigating between the two surfaces does not need a translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
+`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:script` blocks; the shared name root means a reader navigating between the two surfaces needs no translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
 
 Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an assertion:
 
@@ -267,7 +267,7 @@ A machine's snapshot lives in the **runtime-db** partition at `(get-in runtime-d
 
 For compound machines, `:state` is a path vector (`[:auth :dashboard]`) and `:tags` is the union along the path. `machine-has-tag?` is null-tolerant: a missing or uninitialised machine returns `false` rather than throwing.
 
-The pure transition fn — `(re-frame.machines/machine-transition machine snapshot event)` — returns `[new-snapshot fx]` with no frame and no dispatch loop. Use it when the test wants to assert transition tables in isolation. (`machine-transition` lives on the owning `re-frame.machines` namespace — it is no longer re-exported from `re-frame.core`, per the front-porch shrink.)
+The pure transition fn — `(re-frame.machines/machine-transition machine snapshot event)` — returns `[new-snapshot fx]` with no frame and no dispatch loop. Use it when the test wants to assert transition tables in isolation. (`machine-transition` lives on the owning `re-frame.machines` namespace — it is not on the `re-frame.core` façade.)
 
 ## HTTP and other side-effecting fx
 

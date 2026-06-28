@@ -16,7 +16,7 @@ declaratively via `reg-l4-tab!` `:order`, rendered by `shell.cljs`
 (Dynamic) / `static/shell.cljs` (Static). Live Dynamic `:order` values:
 Epoch `-1` · app-db `1` · Views `2` · Trace `3` · Machine `4` · Routes `6`
 · Resources `7` · Graph `8` · Modules `9` — nine in all (`:order 5`
-unallocated — the retired Issues tab's slot). The canonical inventory is
+unallocated). The canonical inventory is
 `focus.cljc`'s `valid-panels` def (`#{:epoch :app-db :views :trace
 :machines :routing :resources :derivation-graph :module-view}`), which
 mirrors the live `panel-registry/tab-ids-for-mode :dynamic` set — a
@@ -56,9 +56,9 @@ The L2 timeline above the panels carries:
  washes its whole L2 row with the `:bg-issue-row` light-pink token. The
  wash is driven by `cascade-has-issue?`, which reuses the same
  `issue-event?` predicate as the issues-ribbon signal so the wash and the
- ribbon stay in lockstep by construction. This is now (with the Epoch
- cascade's per-step ✓/✗) the primary "which epochs are broken?" signal —
- the dedicated Issues tab is gone.
+ ribbon stay in lockstep by construction. Together with the Epoch
+ cascade's per-step ✓/✗, this is the primary "which epochs are broken?"
+ signal — there is no dedicated Issues tab.
 
 Implementation lives at
 [`panels/l2_timeline.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/l2_timeline.cljc)
@@ -89,10 +89,8 @@ Resources · Graph · Modules.** First six are core spine lenses (§018 §5 +
 `reg-l4-tab!` (`panels/resources.cljs`, `panels/derivation_graph.cljs`,
 `panels/module_view.cljs`). Internal tab ids (`:epoch :app-db :views
 :trace :machines :routing :resources :derivation-graph :module-view`) are
-stable; display labels rebased over a rename history. The pre-rebuild
-**Event** panel was retired 2026-05-27 (`panels/event_detail.cljs`
-deleted), the **Issues** tab 2026-05-31 (`panels/issues_ribbon.cljs`
-deleted) — see §What's deliberately NOT here.
+stable. There is no **Event** tab and no **Issues** tab — see §What's
+deliberately NOT here.
 
 Most Dynamic tabs share the same chrome: panel icon (left of stripe) ·
 panel title · focused-event id · `[◀ Prev] [Next ▶]` film-strip walking
@@ -104,7 +102,7 @@ list already owns spine focus navigation.
 ### Epoch — `⚡` · stripe `:accent-violet` · mnem `e` · `:order -1`
 
 Question: **What happened in this epoch?** — the full computational
-timeline. Default landing view; supersedes the retired Event panel.
+timeline. Default landing view.
 Registered at `:order -1` so it claims the leftmost /
 default-landing slot.
 
@@ -130,7 +128,7 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
  shared Exception card. Sits between COEFFECTS and HANDLER (the chain's
  cascade position).
 4. **EVENT HANDLER** — always present; body adapts to **what the handler
- returned**, not to a registrar flavour (post-EP-0018 there is one public
+ returned**, not to a registrar flavour (there is one public
  `reg-event` and the registry kind is simply `:event` — no `:db`-vs-`:fx`
  sub-discriminator): a returned map carrying only `:db` → `:db` diff · a
  map carrying `:db` + `:fx` → `:db` diff + per-fx · a `reg-machine` event
@@ -175,8 +173,7 @@ implementation at
 
 The Epoch cascade's EFFECT HANDLERS step renders as **one flat ledger** —
 one row per effect, down the page, in execution order, with **no group
-headers** (supersedes the old 3-tier / "EFFECTS RETURNED + EFFECTS
-APPLIED" split). Per `panels/epoch/projection.cljc`'s `side-effects-step`:
+headers**. Per `panels/epoch/projection.cljc`'s `side-effects-step`:
 
 - **One row per effect**, leading with a per-effect status glyph: `✓` ran
  ok · `✗` threw / no-such-fx / `:db` schema-fail rollback · `↺` fx
@@ -199,8 +196,7 @@ APPLIED" split). Per `panels/epoch/projection.cljc`'s `side-effects-step`:
 
 Question: **What does state LOOK LIKE — and what just changed?**
 
-Sectioned-by-reserved-area layout (§021 §4.2 — the prior DIFF / STATE
-two-zone split is **superseded**, per §021 line 693). The complete
+Sectioned-by-reserved-area layout (§021 §4.2). The complete
 app-db renders as **vertical sections**, each headed by an uppercase
 caption label and rendering its value as a collapsible cljs-devtools-
 style inspector widget (shared lazy-tree renderer, depth-3-collapsed
@@ -267,11 +263,8 @@ the downstream-subs walk lives in
 
 Question: **What RENDERED as a result?**
 
-The display label is **Views** — the rename chain ran `Views`
-(pre-rebuild) → `Reactive` (§021 §11.5) → `View` → back to `Views`, the
-final all-plural-domain-noun convention (Mike-direction 2026-05-21), set
-at `reactive_panel.cljs:75`. **The L3 tab key stays `:views`** — it's an
-internal id, not a user contract, so only the display label rebases.
+The display label is **Views** (set at `reactive_panel.cljs:75`). **The L3
+tab key is `:views`** — an internal id, not a user contract.
 
 The reactive cascade (the SUBSCRIPTIONS + VIEWS trailing edge) rendered as
 a depth-first DAG with explicit indentation showing sub-of-sub layering:
@@ -357,8 +350,8 @@ event, flip to **Static mode** and open its Machines tab — its Topology
 sub-mode is the spine-INDEPENDENT canvas browser.)
 
 Topology-plus-overlay (§021 §6 + §17.4). Each machine renders as an
-xyflow canvas (path B locked per §021 §6.0 — xyflow with Xray-palette
-styling; not Stately Inspect, not native Reagent). Nodes, edges,
+xyflow canvas with Xray-palette styling (§021 §6.0) — not Stately Inspect,
+not native Reagent. Nodes, edges,
 current-state pulse, parallel-region containers, final-state double-rings
 all render through
 [`panels/machines/xyflow_style.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/machines/xyflow_style.cljs)
@@ -382,21 +375,19 @@ verb `<before-state → after-state>` (larger / bolder / magenta, doubling
 as click-to-source) over a **logical-state DELTA box** — an
 `edn-inspector` before→after DIFF of the machine's `{:state :tags}` only
 (`:data` excluded — the per-action `↳ data Δ` carries it; `:rf/*` snapshot
-slots excluded). This reverses the older transition-map "delight shape":
-the delta box earns its place by carrying `:tags` + the structured
-before→after object (§021 §6).
+slots excluded), carrying `:tags` + the structured before→after object
+(§021 §6).
 
 Per-canvas footer lists guards / actions / cancellation cascade chips
 inline (no modal, no popout). When the focused event had **no machine
 activity** the panel is **truly blank** — a single calm placeholder line,
-**no per-machine topology** (agreeing with this leaf's earlier BLANK
-statement and the `machine_inspector` blank-state tests, which assert no
-topology renders on a non-machine epoch). To browse a machine's topology
+**no per-machine topology** (no topology renders on a non-machine epoch).
+To browse a machine's topology
 cold — without picking a machine-active event — flip to **Static mode**'s
-Machines tab (the spine-INDEPENDENT canvas browser). (The "topology
-always visible on a no-activity epoch" treatment in §021 §6.2 Case B is a
-documented future tightening, **not** the live behaviour — the live panel
-gates topology on machine activity.)
+Machines tab (the spine-INDEPENDENT canvas browser). (The live panel
+gates topology on machine activity; the "topology always visible on a
+no-activity epoch" treatment in §021 §6.2 Case B is **not** the live
+behaviour.)
 
 **Open when:** "what state is my checkout machine in?", "what
 transition fired this epoch?", "what guards passed / failed?"
@@ -410,8 +401,8 @@ implementation at
 > **Browse-all machine canvas → Static mode.** The spine-INDEPENDENT
 > "what does this machine LOOK like overall?" canvas (picker + interactive
 > zoom / pan / fit, regardless of focused event) is **not a Dynamic tab** —
-> it lives under Static mode's Machines tab (Topology sub-mode); the
-> standalone Dynamic "Machines Canvas" tab was removed. Impl
+> it lives under Static mode's Machines tab (Topology sub-mode). There is no
+> standalone Dynamic "Machines Canvas" tab. Impl
 > [`static/machines/topology.cljs`](../../../tools/xray/src/day8/re_frame2_xray/static/machines/topology.cljs).
 
 ### Routes — `🌐` · stripe `:yellow` · mnem `r`
@@ -420,8 +411,7 @@ Question: **What did this event do to my routes?** (Display label
 **Routes**, plural-noun convention; internal tab id `:routing`.)
 
 Same topology-plus-overlay pattern as Machines, rendered as a textual
-tree (route trees are typically ≤ 4 levels deep, so a tree with `├─ └─`
-box-drawing is denser AND simpler than xyflow — per §021 §7.1).
+tree with `├─ └─` box-drawing (per §021 §7.1).
 
 Two blocks:
 
@@ -470,7 +460,7 @@ re-encoding the field-by-field detail here:
 - **LIVE INSTANCES** (per frame) — each scoped cache entry with state,
  generation, owner count, and freshness.
 - **WORK LEDGER** — live fetch attempts (running · cancellable ·
- deadline); host handles are inaccessible by design.
+ deadline); host handles are inaccessible.
 - **ROUTE / RESOURCE GRAPH** — blocking activations (the SSR wait
  points), the lifecycle timeline, and cache growth.
 - **SCOPE RESOLUTION TIMELINE** (EP-0016 D3) — which named
@@ -554,14 +544,13 @@ carries the short forms):
 > *remote* describes its **authority** — where the value is sourced/owned
 > upstream — a distinct axis from where it is stored. Read the chip as
 > "locally stored, locally read, upstream source of truth", never as
-> app-db/runtime-db placement (the EP-0014 ruled split).
+> app-db/runtime-db placement.
 
 > **The graph accessor is internal, not a public API.** The Graph tab
 > *consumes* EP-0014's internal `re-frame.derivation.graph` composer — a
 > **structured** internal accessor, **not** a `re-frame.core` facade
-> export and **not** a public app authoring/accessor primitive. EP-0014
-> defers the public name until a third consumer (beyond Xray + the
-> conformance fixtures) needs it. Route users to **open the Graph tab**;
+> export and **not** a public app authoring/accessor primitive, with no
+> public accessor name. Route users to **open the Graph tab**;
 > do **not** tell them to call a public graph API from app code.
 
 **Read-only** — observing the graph pins nothing, dispatches nothing,
@@ -631,35 +620,32 @@ implementation at
 + [`panels/image_view_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/image_view_helpers.cljc)
 + [`panels/image_view_reads.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/image_view_reads.cljs).
 
-### Issues — no longer a Dynamic tab
+### Issues — not a Dynamic tab
 
-There is **no dedicated Issues tab**. Mike ruled it out (#2540,
-Option (c), 2026-05-31): the standalone tab + its aggregate panel
-(`panels/issues_ribbon.cljs`) were deleted and the session-wide triage
-list was consciously dropped. "What's wrong in this epoch?" is answered
-inline, through **three** always-on channels (per the surviving `.cljc`
-algebra
+There is **no dedicated Issues tab** and no session-wide triage list.
+"What's wrong in this epoch?" is answered
+inline, through **three** always-on channels (the `.cljc` algebra lives in
 [`panels/issues_ribbon_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/issues_ribbon_helpers.cljc)):
 
 1. **Inline in the Epoch cascade** — per-step ✓ / ✗ status glyphs, the
  shared **"Exception Thrown"** card under the throwing step
  (handler / interceptor / coeffect / fx / flow exceptions), and the
- `:db` schema-fail rollback ✗ on the EFFECT HANDLERS `:db` row. The
- errors + warnings + schema violations + hydration mismatches that the
- old tab unified now surface against the step where they occurred.
+ `:db` schema-fail rollback ✗ on the EFFECT HANDLERS `:db` row.
+ Errors, warnings, schema violations, and hydration mismatches each
+ surface against the step where they occurred.
 2. **L2 event-row pink-wash** — a cascade carrying an issue
  washes its L2 timeline row pink; the `cascade-has-issue?` predicate
  reuses `issue-event?` so the wash stays in lockstep with the ribbon.
 3. **The always-on `:rf.xray/issues-ribbon` signal** — the composite
  (registered in `registry.cljs`) drives the auto-open-on-error watcher
  (`settings/effects.cljs/install-auto-open-watcher!`) — the cross-epoch
- "something is wrong" signal Mike kept.
+ "something is wrong" signal.
 
 So route "anything broken in this epoch?" to the **Epoch tab**; "which
 epochs are broken?" to the **L2 pink-wash**.
 
-> **Accessibility note.** A11y dogfooding is **not** a Xray tab — the
-> pre-rebuild "Chrome A11y" tab was removed. A11y scanning lives in Story
+> **Accessibility note.** A11y dogfooding is **not** a Xray tab. A11y
+> scanning lives in Story
 > (`re-frame.story.ui.chrome-a11y` + the variant scanner
 > `re-frame.story.ui.a11y`). Route a11y questions there, not to Xray.
 
@@ -714,26 +700,24 @@ cross-panel-arrow glyph reference live in
 
 Per §021 §15 (Dynamic mode) + §007 §Static mode:
 
-- **No Issues tab.** Removed (#2540, Mike Option (c), 2026-05-31 —
- `panels/issues_ribbon.cljs` deleted; the session-wide aggregate / triage
- list dropped). The three inline channels that replace it are in §Issues —
- no longer a Dynamic tab above.
-- **No Event tab.** Retired (2026-05-27 —
- `panels/event_detail.cljs` deleted). The **Epoch** panel (numbered
+- **No Issues tab** and no session-wide aggregate / triage list. The three
+ inline channels that carry issues are in §Issues — not a Dynamic tab
+ above.
+- **No Event tab.** The **Epoch** panel (numbered
  cascade, `:order -1`) is the canonical "what happened" surface.
 - **No peer Subscriptions L4 tab.** The reactive cascade surfaces inline
  in Views + the app-db hover popover, not as its own Dynamic tab. (The
  Dynamic set is open through the `reg-l4-tab!` seam — Resources, Graph,
- and Modules each registered their own cross-feature tab — but there is
+ and Modules each register their own cross-feature tab — but there is
  no separate Subs lens.)
-- **No Chrome A11y tab.** Removed; a11y dogfooding is Story's domain.
-- **No standalone Dynamic "Machines Canvas" tab.** Removed;
- the spine-INDEPENDENT browse-all machine canvas lives under Static
+- **No Chrome A11y tab.** A11y dogfooding is Story's domain.
+- **No standalone Dynamic "Machines Canvas" tab.**
+ The spine-INDEPENDENT browse-all machine canvas lives under Static
  mode's Machines tab (Topology sub-mode). The Dynamic Machine tab is
  purely the event-driven lens.
 - **No cross-epoch Dynamic L4 views.** Aggregate signals live on L2
  badges only.
-- **No pattern-view.** Deferred.
+- **No pattern-view.**
 - **No master-detail coupling.** Tabs are peers, bridged by app-db.
 - **No simultaneous multi-frame display.** Single-frame focus (§021
  §1.6); switch focus via the L1 frame picker.
@@ -748,10 +732,9 @@ Per §021 §15 (Dynamic mode) + §007 §Static mode:
  - Schemas → Epoch (violations attach inline to the owning step) + L2 pink-wash · Static → Schemas (registry)
  - Hydration → Epoch inline + the issues-ribbon signal
 
-Stale file refs once cited here — `event_detail.cljs` and
-`issues_ribbon.cljs` — are **deleted**; only
-`issues_ribbon_helpers.cljc` survives (powering the ribbon signal +
-L2 wash).
+The only issues-related source file is `issues_ribbon_helpers.cljc`
+(powering the ribbon signal + L2 wash); there is no `event_detail.cljs` or
+`issues_ribbon.cljs`.
 
 For the user-question → tab routing tables, see
 [`SKILL.md` §The tabs — what each surfaces](../SKILL.md#the-tabs--what-each-surfaces).

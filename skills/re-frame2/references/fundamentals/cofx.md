@@ -22,7 +22,7 @@ The coeffects map has two layers. The **base framework coeffects are always stag
 ;;           | (fn [arg] value)   ;; call-site-parameterized; declared [id arg]
 ;;
 ;; The supplier RETURNS the coeffect VALUE directly (the EP-0017 shape).
-;; The retired ctx→ctx form ((fn [ctx] (assoc-in ctx [:coeffects k] v))) is gone.
+;; There is no ctx→ctx supplier form ((fn [ctx] (assoc-in ctx [:coeffects k] v))).
 ```
 
 Verified in `implementation/core/src/re_frame/cofx.cljc` (the `reg-cofx`, `parse-requires`, and `deliver-declared-cofx` fns). Metadata may carry:
@@ -49,7 +49,7 @@ A handler takes delivery by declaring the ids it consumes in `:rf.cofx/requires`
 
 - A parameterized id appears as `[id arg]` (mirroring the binary supplier arity): `:rf.cofx/requires [[:ui/local-theme "theme"]]`.
 - Delivery is **declared-only**: a leaf on the token but not declared by this handler is **not staged** (`handler-meta` is the complete consumption record). Forgetting to declare what you destructure is a lint target ("consuming without declaring").
-- Every `reg-event` handler can carry `:rf.cofx/requires` — there is one event form, so there is no second-class handler that cannot declare its world facts (the EP-0018 collapse closed that gap).
+- Every `reg-event` handler can carry `:rf.cofx/requires` — there is one event form, so there is no second-class handler that cannot declare its world facts.
 
 ## The two grades — ambient vs recordable
 
@@ -161,7 +161,7 @@ Parameterise with the binary supplier + `[id arg]` declaration when the sub take
   (fn [{:keys [db sub/value]} _] ...))
 ```
 
-There is deliberately **no `cofx-from-sub` shortcut helper** in `re-frame.core` — the small `reg-cofx` wrapper is the canonical shape.
+There is **no `cofx-from-sub` shortcut helper** in `re-frame.core` — the small `reg-cofx` wrapper is the canonical shape.
 
 A sub value that feeds a **durable** write follows the durable-write rule: if the sub reads recorded durable state, the wrapped read is a read of already-recorded data (ambient is fine); if it reads ambient host state, the durable write needs that fact recorded instead.
 
@@ -189,7 +189,7 @@ The testing story is *supply the facts; don't monkey-patch the clock or RNG*:
 (rf/reg-cofx :ui/local-theme {:doc "Test stub."} (fn [_k] "dark"))
 ```
 
-The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); supplied values are preserved verbatim and never overwritten. **Reserve it for tests** — it is the seam that pins recordable facts for a deterministic assertion. A production dispatch carries no cofx; the app supplies its world-reads through `reg-cofx` (a generator for what it owns, a provided registration for boundary facts). The retired `:rf.world/inputs` dispatch opt is a hard error (`:rf.error/world-inputs-renamed`) naming `:rf.cofx`.
+The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); supplied values are preserved verbatim and never overwritten. **Reserve it for tests** — it is the seam that pins recordable facts for a deterministic assertion. A production dispatch carries no cofx; the app supplies its world-reads through `reg-cofx` (a generator for what it owns, a provided registration for boundary facts). There is no `:rf.world/inputs` dispatch opt — passing it is a hard error (`:rf.error/world-inputs-renamed`) naming `:rf.cofx`.
 
 ## Common gotchas
 

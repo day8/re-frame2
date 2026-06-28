@@ -4,7 +4,7 @@
 
 Reach for this leaf when a `:spawn`d child issues `:rf.http/managed` requests, holds a websocket, or owns any in-flight side effect — and the parent might decide to leave the `:spawn`-bearing state. The cleanup is automatic; this leaf tells you what is guaranteed and what to add by hand for non-HTTP side effects.
 
-> **Mental model — think in xstate, map onto re-frame2.** In xstate, leaving an `invoke`-bearing state stops the invoked actor; re-frame2 keeps that intuition — leaving a `:spawn`-bearing state destroys the child — but the **abort cascade is richer and the mechanism deliberately diverges**. There is no `ActorRef` to `.stop()` and no per-actor mailbox: the snapshot lives in the runtime-db partition (at `[:rf.runtime/machines :snapshots <id>]`), and a single destroy hook fires across every trigger (state exit, `:after` timeout, `:spawn-all` cancel-on-decision, frame teardown, imperative destroy), automatically aborting the actor's in-flight `:rf.http/managed` requests. And re-frame2 uses **no `core.async`** in the cancellation path — for non-HTTP resources (websocket, timer, external stream) you wire cleanup into the child's `:exit` action, not a channel close. Sketch the lifecycle the xstate way, then lean on the exit cascade rather than an explicit teardown call.
+> **Mental model — think in xstate, map onto re-frame2.** In xstate, leaving an `invoke`-bearing state stops the invoked actor; re-frame2 keeps that intuition — leaving a `:spawn`-bearing state destroys the child — but the **abort cascade is richer and the mechanism differs**. There is no `ActorRef` to `.stop()` and no per-actor mailbox: the snapshot lives in the runtime-db partition (at `[:rf.runtime/machines :snapshots <id>]`), and a single destroy hook fires across every trigger (state exit, `:after` timeout, `:spawn-all` cancel-on-decision, frame teardown, imperative destroy), automatically aborting the actor's in-flight `:rf.http/managed` requests. re-frame2 uses **no `core.async`** in the cancellation path — for non-HTTP resources (websocket, timer, external stream) you wire cleanup into the child's `:exit` action, not a channel close. Sketch the lifecycle the xstate way, then lean on the exit cascade rather than an explicit teardown call.
 
 ## The guarantee
 
@@ -29,7 +29,7 @@ A trace event `:rf.http/aborted-on-actor-destroy` fires per cancelled request, c
 
 A request is in-flight inside actor `<spawned-id>` iff its originating event vector's first element was `<spawned-id>`. The http fx records the `(request-id, actor-id)` tuple in its in-flight registry alongside the abort handle (`spec/005-StateMachines.md:3519`).
 
-A request issued **directly from an ordinary `reg-event` handler** — not via a spawned actor — is NOT tracked by actor-id and is NOT aborted by any state machine destroy. That's deliberate (Spec 005 §Open question — direct dispatches from event handlers): an ordinary handler has no analogous lifecycle peg. If you want HTTP requests bound to a state's lifetime, the answer is **to spawn a child machine that issues them** — the `:spawn` declaration is the explicit binding.
+A request issued **directly from an ordinary `reg-event` handler** — not via a spawned actor — is NOT tracked by actor-id and is NOT aborted by any state machine destroy: an ordinary handler has no analogous lifecycle peg. If you want HTTP requests bound to a state's lifetime, the answer is **to spawn a child machine that issues them** — the `:spawn` declaration is the explicit binding.
 
 ## Canonical worked example
 

@@ -7,9 +7,9 @@ session loaded with the skill.
 
 ## Repo-maintenance artifact, not shipped
 
-`evals/` is a **repo-maintenance artifact** — it is deliberately **not** part of
+`evals/` is a **repo-maintenance artifact** — it is **not** part of
 the distributable skill package. `skills/re-frame2/package.json`'s `files`
-allow-list omits `evals/` on purpose: a packaged-skill consumer runs the skill,
+allow-list omits `evals/`: a packaged-skill consumer runs the skill,
 they do not re-run its gate suite, so shipping the harness would only bloat the
 tarball with material that points back at the monorepo's test infrastructure.
 The harness lives and runs from a full re-frame2 clone (where
@@ -53,7 +53,7 @@ Two harness extensions on top of the base schema:
 
 ## Coverage
 
-Eight evals, covering the three dimensions the bead called for:
+Eight evals, covering the three dimensions:
 
 | ID | Name | Dimension | What it probes |
 |---:|---|---|---|
@@ -69,8 +69,8 @@ Eight evals, covering the three dimensions the bead called for:
 Three is Anthropic's minimum. Eight gives **four** recipe-correctness evals
 and **two** each for discovery and routing-correctness, so every dimension keeps
 multi-eval coverage and any single eval can flake without the dimension going
-dark. The skew toward recipe-correctness is deliberate: that dimension carries
-the highest defect risk (idiom drift in produced code, including the
+dark. The skew toward recipe-correctness reflects that dimension's higher defect
+risk (idiom drift in produced code, including the
 Story-recorder privacy contract eval 7 guards and the Story authoring/run
 boundary eval 8 guards).
 
@@ -119,5 +119,5 @@ For v1.0 release of `skills/re-frame2/`:
   a recursion limit, or reading `>3` leaves for a single prompt).
 
 If an eval consistently fails, the fix usually lives in the leaf, not the
-eval — that's the whole point of evaluation-driven development. File a follow-
-up bead against the leaf rather than weakening the assertion.
+eval — that's the whole point of evaluation-driven development. Fix the leaf
+rather than weakening the assertion.

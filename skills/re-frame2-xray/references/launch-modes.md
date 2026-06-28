@@ -240,7 +240,7 @@ layout column.
 ;; window.day8.re_frame2_xray.open_overlay_BANG_()
 ```
 
-`open-overlay!` is one of the mount facade's three open verbs by design
+`open-overlay!` is one of the mount facade's three open verbs
 (`open!` inline · `open-overlay!` modal overlay · `popout!` window — per
 [`spec/API.md` §Mount facade](../../../tools/xray/spec/API.md), three
 distinct mount surfaces, not modal variants of one shape). It is the
@@ -300,8 +300,7 @@ in [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)):
  matching class / font-size immediately (no reload).
 - `:buffer-depths` honours `{:epoch <n>}` only — it drives the substrate's
  per-frame ring (depth + trace-keep to the same `n`). A `:trace` axis is
- **silently dropped** (folded into the one `:epoch` knob per the
- D1=a ruling — one operator knob, atomic relationship).
+ **silently dropped** (folded into the one `:epoch` knob).
 
 Unknown opt keys are silently ignored for forward-compat — so an `init!`
 that worked against a newer Xray won't break an older one. (There is **no**
@@ -365,7 +364,7 @@ Four hotkey families have keydown listeners attached today
 [`spec/007-UX-IA.md` §Keyboard](../../../tools/xray/spec/007-UX-IA.md#keyboard)
 catalogues additional shortcuts that remain normative for the future but
 are not yet wired. Note: `Cmd/Ctrl+K` **is** wired today (the command
-palette) — do not say it was struck. Embed hosts can suppress Xray's
+palette) — don't tell users the K-binding is unavailable. Embed hosts can suppress Xray's
 global listeners via `:rf.xray/keybinding-enabled?` (e.g. Story's RHS, so
 its own `Cmd/Ctrl+K` palette is not swallowed). Source of truth:
 [`keybinding.cljs`](../../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs).

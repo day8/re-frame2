@@ -53,7 +53,7 @@ Route by direction:
 
 ### Reads — the durable/diagnostic fork (EP-0010)
 
-re-frame2's core model is a causal fold: a durable transition is `next-state = f(prev-state, causal-token)`. The **durable-write rule** (Spec 002 §Recordable coeffects; EP-0010 recording / EP-0017 authoring): *if a host fact can affect a durable write, the transition must fold a recorded fact — a declared recordable coeffect or the event payload — never an ambient host read at the write site.* **Durable state folds facts, never reads.** So a read inside a handler routes by **where its value lands**, not merely by being impure:
+re-frame2's core model is a causal fold: a durable transition is `next-state = f(prev-state, causal-token)`. The **durable-write rule** (Spec 002 §Recordable coeffects): *if a host fact can affect a durable write, the transition must fold a recorded fact — a declared recordable coeffect or the event payload — never an ambient host read at the write site.* **Durable state folds facts, never reads.** So a read inside a handler routes by **where its value lands**, not merely by being impure:
 
 1. **Durable read → declared recordable coeffect / event payload.** The value is written into app-db, runtime-db, a resource entry, a machine snapshot, a work-ledger row, durable routing state, or a hydration/epoch payload. Examples: a `:created-at` / `:updated-at` timestamp, a generated entity id, a `:loaded-at` on a cached resource.
    - **Durable wall-clock time** is the headline case: the framework's one built-in recordable coeffect, `:rf/time-ms`, is stamped once at enqueue, pinnable by tests/replay, and *replayed from the token on restore*. The fix is **not** a `:now` cofx that re-reads `js/Date` — it is to declare `:rf.cofx/requires [:rf/time-ms]` and read `time-ms` flat. A hand-rolled durable `:now` cofx is itself the milder anti-pattern (two names for one fact, and it re-reads the host on replay unless explicitly recorded).
@@ -76,7 +76,7 @@ The cofx wrap (a value-returning `reg-cofx` supplier that materialises the value
 
 When none of those hold — a one-shot, cache-aware current-value read inside a single handler — a bare `rf/subscribe-once` is correct as written. Converting it to a cofx purely because it appears in a handler is a policy-inverted rewrite; do not suggest it. (Contrast: a **reactive** `@(rf/subscribe ...)` or a retained reaction in a handler body IS still a finding — flag those.)
 
-Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx) and Cardinal Rule #1 (implementation is ground truth; the runtime's effect-map shape is closed — `:rf.error/effect-map-shape` fires if you try to sneak `:dispatch` or `:http` as a top-level key). `reg-fx` and `reg-cofx` are public `re-frame.core` exports (cofx also ships in the `re-frame.cofx` namespace). `inject-cofx` is **removed** in EP-0017 — coeffect delivery is the `:rf.cofx/requires` registration declaration.
+Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx) and Cardinal Rule #1 (implementation is ground truth; the runtime's effect-map shape is closed — `:rf.error/effect-map-shape` fires if you try to sneak `:dispatch` or `:http` as a top-level key). `reg-fx` and `reg-cofx` are public `re-frame.core` exports (cofx also ships in the `re-frame.cofx` namespace). There is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` registration declaration.
 
 ## Worked example
 

@@ -19,7 +19,7 @@ Per [`spec/007-Stories.md` §Relationship with frames](../../../spec/007-Stories
 (rf/reg-frame variant-id {:doc ... :preset :story :rf/story? true :rf/variant variant-id ...})
 ```
 
-(The frame is created with `:preset :story` plus the `:rf/story?` / `:rf/variant` marker keys; app-db seeding rides the variant's `:loaders` / `:events` as setup events, not a create-time `:app-db` key — EP-0027 retired the `:initial-db` config seed.) The `variant-id` keyword (e.g. `:story.counter/loaded`) is BOTH the variant id Story tracks in its side-table AND the frame id re-frame2's registrar knows — the same keyword, no separate "frame-id for this variant". **No resolver step needed.** Anywhere re-frame2-pair's ops take a `frame: ":foo"` arg (or `{:frame <id>}` in the runtime helpers), pass the variant id directly.
+(The frame is created with `:preset :story` plus the `:rf/story?` / `:rf/variant` marker keys; app-db seeding rides the variant's `:loaders` / `:events` as setup events, not a create-time `:app-db` key. There is no `:initial-db` config seed.) The `variant-id` keyword (e.g. `:story.counter/loaded`) is BOTH the variant id Story tracks in its side-table AND the frame id re-frame2's registrar knows — the same keyword, no separate "frame-id for this variant". **No resolver step needed.** Anywhere re-frame2-pair's ops take a `frame: ":foo"` arg (or `{:frame <id>}` in the runtime helpers), pass the variant id directly.
 
 This identity is the single most important thing about the pattern; once internalised, the rest is normal re-frame2-pair ops with a different default-frame.
 

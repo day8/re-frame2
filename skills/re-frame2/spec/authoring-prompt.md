@@ -86,7 +86,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > *Locks to preserve verbatim:*
 >
 > *- **L3 — NO verification module.** No `references/verify.md`; no "verify before claiming done" hard rule. The author runs tests.*
-> *- **L10 — No bead-ids in user-facing skill content.** `SKILL.md` + `references/` + `patterns/` + `decision-trees/` carry no `rf2-XXXX` references.*
+> *- **L10 — No issue-tracker ids in user-facing skill content.** `SKILL.md` + `references/` + `patterns/` + `decision-trees/` carry no issue-tracker ids.*
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/` content.*
 >
 > *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every re-frame2 surface that should trigger discovery: `reg-event` (the one event form — EP-0018), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, managed HTTP, RemoteData lifecycles. Plus natural-language phrases: "writing tests for a re-frame2 app", "state-machine-for-HTTP shapes". Carve out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) explicitly so the AI routes correctly.*
@@ -100,7 +100,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > *- Don't commit `ai/` or `findings/` content.*
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
 > *- Don't write a verification leaf or a verify-before-done hard rule.*
-> *- Don't include bead-ids in user-facing leaves — only in `spec/` (workflow tracking).*
+> *- Don't include issue-tracker ids in user-facing leaves.*
 >
 > *Open the PR with title `feat(skills): re-frame2 — authoring-only skill for writing re-frame2 CLJS code`. PR body lists: the skill structure, the file LoC table, the locks applied, the relationship to the adjacent skills (setup / migration / re-frame2-pair / implementor).*
 

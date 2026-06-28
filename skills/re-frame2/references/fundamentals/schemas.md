@@ -10,7 +10,7 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or atta
 
 ## Canonical signatures
 
-The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re-frame.core` façade (`rf/`). The **query + validator-install helpers** live on the owning `re-frame.schemas` namespace — `(:require [re-frame.schemas :as schemas])` — they are no longer re-exported from `re-frame.core` (front-porch shrink).
+The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re-frame.core` façade (`rf/`). The **query + validator-install helpers** live on the owning `re-frame.schemas` namespace — `(:require [re-frame.schemas :as schemas])` — they are not on the `re-frame.core` façade.
 
 ```clojure
 (rf/reg-app-schema path {:schema schema})
@@ -29,7 +29,7 @@ The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re
 
 > **Bundle maps must NOT go to `set-schema-validator!`.** It accepts a validator **fn or `nil`** only — no map-shape inspection. Because maps are invokable in Clojure, passing `{:validate ... :explain ...}` installs the *map itself* as the validator (called as `(the-map schema value)`, looking up `schema` as a key — almost always `nil`/falsey), so validation silently mis-validates. The bundle map belongs to `set-schema-fns!`.
 
-Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases and the `set-schema-validator!` / `set-schema-fns!` validator seam are reached on `re-frame.schemas` directly (no longer façade-re-exported, per the front-porch shrink).
+Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases and the `set-schema-validator!` / `set-schema-fns!` validator seam are reached on `re-frame.schemas` directly (not on the `re-frame.core` façade).
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 

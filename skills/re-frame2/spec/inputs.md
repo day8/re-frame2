@@ -8,7 +8,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 Path: `implementation/core/src/re_frame/**`, `implementation/adapters/reagent/src/re_frame/**`, plus per-feature artefacts (`implementation/machines/`, `implementation/routing/`, `implementation/flows/`, `implementation/http/`, `implementation/ssr/`, `implementation/schemas/`, `implementation/epoch/`).
 
-**This is the source of truth.** Every code snippet in `references/` and `patterns/` is verified against the implementation — the function signatures, the macro shapes, the keyword option sets, the late-bind hook contracts. When the spec disagrees with the implementation, the implementation wins and a `bd` bead is filed against the spec.
+**This is the source of truth.** Every code snippet in `references/` and `patterns/` is verified against the implementation — the function signatures, the macro shapes, the keyword option sets, the late-bind hook contracts. When the spec disagrees with the implementation, the implementation wins.
 
 Specific files the leaves lean on:
 
@@ -68,14 +68,14 @@ These shape the skill's voice and structure but aren't quoted directly.
 - **`docs/guide/**`** — the narrative human guide. The skill is for AI agents authoring code; the guide is for humans learning the framework. Cross-references run through `SKILL-REDIRECT.md`, not into the guide directly.
 - **`docs/EPs/**`** — EP rationale documents. The leaves cite EPs by name but don't quote them.
 - **`tests/**`** — re-frame2's own test suite. The test-authoring leaf points at `re-frame.test-support` (the public surface), not at how that surface is tested internally.
-- **`tools/**`** — re-frame2's tooling (bd, claudia, etc.). Out of scope for application-authoring guidance.
+- **`tools/**`** — re-frame2's dev/inspection tooling. Out of scope for application-authoring guidance.
 
 ## 6. Update procedure
 
 When implementation changes land:
 
 1. **New `reg-*` surface added** → add a row to the relevant fundamentals leaf or add a new leaf if a new registry kind is introduced.
-2. **Existing `reg-*` option set changed** → grep `references/` and `patterns/` for the surface, update every occurrence; file a `bd` bead if the spec lags.
+2. **Existing `reg-*` option set changed** → grep `references/` and `patterns/` for the surface, update every occurrence.
 3. **New canonical pattern added** → write a new `patterns/<name>.md`, add an entry to SKILL.md's pattern table and to `decision-trees/pick-a-pattern.md`. Add a row to `examples-map.md` if a worked example exists.
 4. **Example app moved or renamed** → update `examples-map.md` and every pattern leaf that points at it.
 5. **Spec adds a new EP** → update `SKILL-REDIRECT.md` (the pointer table); add a leaf only if there's a corresponding `reg-*` surface AI agents would author against.
