@@ -252,6 +252,23 @@ If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` co
 
 **If nothing is published to Clojars yet** (pre-publication): the migration is still fully doable — a first release is **not** a precondition. When no `:mvn/version` resolves, the author consumes re-frame2 via a **`:local/root`** sibling-checkout coord ([`deps-versions.md` §The `:local/root` sibling-checkout dev route](../../re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish)) or a **`:git/url` + `:git/sha`** coord, and the migration proceeds normally — apply every M/O-rule exactly as you would against a published target. Do **not** leave the dep alone, and do **not** stop and wait for a release. The guardrails are unchanged: never invent a version, never silently pick `latest`, and the author still supplies the pin or route — the skill never picks it for them. "Stop and ask" applies only when the author has supplied **no consumption route at all** (no `:mvn/version`, no `:git/sha`, no `:local/root`), *not* merely because nothing is on Clojars yet. Record the chosen route — the sibling-checkout path or the pinned SHA — in the migration report, exactly as a `<v2-version>` would be recorded.
 
+## The consumability done-gate
+
+The `:local/root` sibling-checkout route above (and in [`deps-versions.md` §The `:local/root` sibling-checkout dev route](../../re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish)) is a **dev convenience, not a shippable coordinate** — that route is the SETUP half; this is the **UNWIRE** half that complements it. A `:local/root` coord resolves to an **absolute path on the author's own disk**: `{:local/root "../re-frame2/implementation/core"}` names *this* machine's sibling checkout, nothing a clean runner can find. So a migration that consumes pre-publish re-frame2 (the monorepo modules + Xray) and any forked upstream entirely through `:local/root` paths can compile 0/0, boot, and pass the boot smoke-test **locally** — looking "done" — while **every CI run is red from the first step**, because the runner has no such paths:
+
+```
+Error building classpath. Local lib day8/re-frame2-reagent not found: ...
+```
+
+**The done-gate:** before the migration is "done", repin **every** re-frame2 (and forked-upstream) dep to a coordinate a **clean runner can resolve**:
+
+- **`:git/url` + `:git/sha` pinned to a PUSHED commit** — the pragmatic pre-publish coord (no Maven release required). One coord per artefact, each a `{:git/url … :git/sha … :deps/root "implementation/<subdir>"}` git-subdir coord — **one `:deps/root` per monorepo module**. Shapes in [`deps-versions.md` §Choosing the coordinate](../../re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
+- **`:mvn/version`** — once the artefacts are published to a registry the runner can reach.
+
+**Any forked or extended upstream MUST be pushed.** A `:git/sha` that exists only in a local commit is no more resolvable than a `:local/root` path — CI cannot fetch an unpushed SHA. Push the fork's branch so its SHA is fetchable, then pin to it.
+
+The real done-signal is therefore **CI green on a clean checkout**, not a green local build — see [`runtime-smoke-test.md` §The done-bar is more than the local dev build](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build). Record the final clean-runner-resolvable coords in the migration report, exactly as the chosen `<v2-version>` / route is recorded above.
+
 ## The pay-as-you-go artefact split (M-27 through M-32)
 
 re-frame2 splits seven per-feature artefacts out of core. **Add them only when the codebase actually uses the feature.** Do not add them defensively.
