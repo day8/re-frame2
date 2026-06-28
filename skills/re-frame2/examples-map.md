@@ -11,7 +11,7 @@ The full catalogue (with maturity, build ids, and end-to-end Playwright coverage
 
 ## counter — `examples/core/counter/`
 
-The smallest possible re-frame2 app. One `reg-event`, one `reg-sub`, one `reg-view` Var, an `:initial-fx` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, when verifying the canonical macro-shapes (`reg-event`, `reg-sub`, `reg-view` Form-1 with a Var reference), or when checking the minimum-viable `app-db` schema attachment. Exercises 002 Frames and 004 Views. The pedagogical "hello world" — its shape sets the bar for every other example.
+The smallest possible re-frame2 app. One `reg-event`, one `reg-sub`, one `reg-view` Var, an `:initial-events` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, when verifying the canonical macro-shapes (`reg-event`, `reg-sub`, `reg-view` Form-1 with a Var reference), or when checking the minimum-viable `app-db` schema attachment. Exercises 002 Frames and 004 Views. The pedagogical "hello world" — its shape sets the bar for every other example.
 
 ## counter_slim_and_fast — `examples/substrates/reagent_slim/counter/`
 
@@ -39,7 +39,7 @@ The nine canonical UI states (Nothing / Loading / Empty / One / Some / Too Many 
 
 ## realworld — `examples/real-apps/realworld_http/`
 
-The de-facto cross-framework benchmark — [RealWorld (Conduit)](https://github.com/gothinkster/realworld). The widest API-surface example in the repo: auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue all sketched on the current API surface. Maturity is **worked scaffold** — it covers breadth, not depth. Point at this example when verifying how the conventions hold up across many features composed in one app (feature-prefix discipline, schema attachment at HTTP boundaries, route-driven data loads, the SSR `:rf/server-init` cofx). Not a teaching example — read individual files (`auth.cljs`, `articles.cljs`, `routing.cljs`) for the relevant cross-cutting shape. Exercises 014 HTTPRequests, 012 Routing, 005 StateMachines, 011 SSR, Pattern-RemoteData, and Pattern-Forms.
+The de-facto cross-framework benchmark — [RealWorld (Conduit)](https://github.com/gothinkster/realworld). The widest API-surface example in the repo: auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue all sketched on the current API surface. Maturity is **worked scaffold** — it covers breadth, not depth. Point at this example when verifying how the conventions hold up across many features composed in one app (feature-prefix discipline, schema attachment at HTTP boundaries, route-driven data loads, the SSR `:rf/hydrate` client bootstrap). Not a teaching example — read individual files (`auth.cljs`, `articles.cljs`, `routing.cljs`) for the relevant cross-cutting shape. Exercises 014 HTTPRequests, 012 Routing, 005 StateMachines, 011 SSR, Pattern-RemoteData, and Pattern-Forms.
 
 ## resources — `examples/capabilities/resources/resources/`
 
@@ -55,7 +55,7 @@ The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`
 
 ## ssr — `examples/capabilities/ssr/ssr/`
 
-The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, `:rf/server-init` cofxs, the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR and 004 Views. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
+The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, `:rf/server-init` events, the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR and 004 Views. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
 
 ## state_machine_walkthrough — `examples/capabilities/machines/state_machine_walkthrough/`
 
