@@ -43,8 +43,8 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation; the `:cascades` bundle on the `subscribe` trace topics walks the tree |
 | Show components that re-rendered | *done* | `:renders` projection per epoch |
 | Attach source location to renders | *done* | Source coords flow from registrar metadata; `:render-key` is a finalised **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` — resolve coords from `(first render-key)` via `handler-meta {kind: "view"}`, or `read-ui`'s `:source-coord` for anonymous fns (see `references/recipes.md` "Explain this dispatch") |
-| List registered machines, see their state | *done* | `list-handlers {kind: "machine"}`, `handler-meta {kind: "machine"}` over `rf/machines` / `rf/machine-meta` / `rf/snapshot-of` |
-| List registered app-schemas | *done* | `rf/app-schemas` (schemas are not a registrar kind — query via the runtime helper) |
+| List registered machines, see their state | *done* | `list-handlers {kind: "machine"}`, `handler-meta {kind: "machine"}` over `re-frame.machines/machines` / `re-frame.machines/machine-meta` / `rf/snapshot-of` |
+| List registered app-schemas | *done* | `re-frame.schemas/app-schemas` (schemas are not a registrar kind — query via the runtime helper) |
 | Frame enumeration / metadata | *done* | `get-operating-frame` (lists all registered frames) over `rf/frame-ids` / `rf/frame-meta` |
 
 ---

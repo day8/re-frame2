@@ -10,7 +10,7 @@ Forms is an **app-side** lifecycle slice composed on top of a **managed external
 
 The prompt mentions: a form, validation, "show errors after submit", inline field errors, `:disabled` while submitting, a login / signup / settings / editor screen, or any UI that collects user input and submits it. Also load this leaf when picking between the **slice form** (a key in `app-db`) and the **machine form** (`:form-region` of a `reg-machine`) — see §Common variations.
 
-## The re-frame2 features that implement it
+## The re-frame2 features this pattern uses
 
 - **`reg-app-schema`** for the slice path; **plus** a separate schema for the form's *value* (what the form collects, e.g. `LoginForm`). Two schemas: one for the slice container, one for the draft's shape.
 - **`reg-event :form.feature/initialise`** — seed `:draft` with defaults; `:status :idle` (returns `{:db ...}`).
@@ -30,7 +30,7 @@ Two non-obvious rules:
 
 Password, TOTP, recovery-code, and similar secret fields are a **different lifecycle** to the everyday text input. The slice shape above does not change, but four extra disciplines apply:
 
-1. **Classify the secret's path at its owner** (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). Here the secret is the login `:password` / TOTP riding the **event payload**, so name it in the submit handler's **registration** `:sensitive` metadata — `(rf/reg-event :auth/login {:sensitive [[:password]]} handler)`; a secret that instead lands at a durable app-db slot is classified by the writing event's `:sensitive` **commit-plane effect** — `{:db … :sensitive [[:auth :token]]}`. (Not a handler-meta `{:sensitive? true}` switch — that was removed; classification is fail-open, so each path the secret reaches is classified on its own.)
+1. **Classify the secret's path at its owner** (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). A login `:password` / TOTP riding the **event payload** is named in the submit handler's **registration** `:sensitive` metadata — `(rf/reg-event :auth/login {:sensitive [[:password]]} handler)`; a secret landing at a durable app-db slot is classified by the writing event's `:sensitive` **commit-plane effect** — `{:db … :sensitive [[:auth :token]]}`. (Not a handler-meta `{:sensitive? true}` switch — removed; classification is fail-open, so each path is classified on its own.)
 2. **Do not copy a secret field into `:submitted`.** The `:dirty?` sub compares `:draft` against `:submitted`; persisting a password into `:submitted` keeps the secret in app-db longer than the form needs it. Either omit the secret from the `:submitted` mirror (the `:dirty?` sub falls back to comparing against defaults, which is fine for auth forms — re-submitting a login *should* feel "dirty" again), or clear the secret out of `:submitted` after the request resolves.
 3. **Clear secret fields out of `:draft` after submit.** Once the request is in flight, the secret has done its job — `assoc-in [:auth :login :draft :password] nil` in the `:submitting` transition (or the `:submit-success` / `:submit-error` handlers). Don't leave a credential sitting in app-db waiting for the next snapshot, recorder capture, or pair-tooling inspection.
 4. **Do not include the secret in `:errors`.** Server-side rejection ("password incorrect") lands under the reserved `:_form` key with a non-revealing message; the offending value never echoes back.
@@ -192,15 +192,9 @@ Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-
 
 ## Why error visibility hinges on `submit-attempted? OR touched`
 
-Three options exist for "when do per-field errors show?":
+Three options for "when do per-field errors show?": **Always** (blank required fields on first render — hostile); **only when touched** (a still-empty required field stays invisibly invalid after a submit attempt — hidden); **touched OR submit-attempted?** (after the first submit, every error shows regardless of whether that field was touched). Only the third handles "user pressed submit on a half-filled form". The `:submit-attempted?` latch is `false` until the first submit click, then `true` forever. The `:field-error` convenience sub bakes the rule in; views read `@(subscribe [:form.login/field-error :email])` and don't reason about visibility.
 
-1. **Always** — including blank required fields on the very first render. Hostile.
-2. **Only when touched** — a still-empty required field stays invisibly invalid after a submit attempt. Hidden.
-3. **Touched OR submit-attempted?** — once the user has pressed submit, every error becomes visible regardless of whether that field was individually touched.
-
-(3) is the only option that handles "user pressed submit on a half-filled form". The `:submit-attempted?` latch is `false` until the first submit click, then `true` forever. The `:field-error` convenience sub bakes the rule in; views read `@(subscribe [:form.login/field-error :email])` and don't reason about visibility.
-
-`:_form` (the reserved form-level errors key) is treated differently: always visible whenever present. Cross-field errors and server-rejection banners aren't bound to a single field, so the touched/submit-attempted gate doesn't apply.
+`:_form` (the reserved form-level errors key) is always visible whenever present — cross-field errors and server-rejection banners aren't bound to a single field, so the gate doesn't apply.
 
 ## Deeper pointers
 

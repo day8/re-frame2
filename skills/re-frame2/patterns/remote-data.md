@@ -4,13 +4,13 @@ The standard request-lifecycle convention. A 5-key slice (or one machine region)
 
 > **Mental-model anchor:** this is the **SWR / React-Query "stale-while-revalidate"** shape — the `:loading` vs `:fetching` split IS the SWR distinction (show a spinner on an empty page; keep stale data visible while refreshing). Map that intuition onto the re-frame2 slice below.
 
-RemoteData is the **app-side** lifecycle slice that sits on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any managed surface, whether framework-shipped (state-machine `:spawn`'d loaders, `:rf.server/*` per-request fxs) or app/library-built (request-reply messages over a WebSocket connection you build yourself per [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md) — re-frame2 does **not** ship `:rf.ws/*`). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names what the *receiving* state looks like once the umbrella's reply lands.
+RemoteData is the **app-side** lifecycle slice on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any managed surface, framework-shipped (state-machine `:spawn`'d loaders, `:rf.server/*` per-request fxs) or app/library-built (request-reply over a WebSocket connection you build per [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md) — re-frame2 ships **no** `:rf.ws/*`). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); this leaf names what the *receiving* state looks like once the reply lands.
 
 ## When to load
 
 The prompt mentions: fetching data from a server, an HTTP request lifecycle, a list/article/feed/profile that needs to load, "spinner vs revalidate", optimistic update, polling, or any feature whose `app-db` will hold "the result of a fetch". Also load this leaf when picking between the **slice form** (a key in `app-db`) and the **machine form** (`:data-region` of a `reg-machine`) — see §Common variations.
 
-## The re-frame2 features that implement it
+## The re-frame2 features this pattern uses
 
 The pattern composes:
 
@@ -153,9 +153,9 @@ Realworld ships both shapes side-by-side. `articles`, `feed`, `article`, `commen
 
 ## Why `:loading` vs `:fetching` is non-negotiable
 
-The split exists for one reason: the UI for an empty page mid-load is a spinner; the UI for a page that already has data and is refreshing is not. Without the split, every revalidation flashes a spinner over loaded content. The pattern's `:loading?` and `:fetching?` subs hide the distinction from view code that doesn't care, while making it cheap for view code that does.
+The split exists for one reason: an empty page mid-load shows a spinner; a page that already has data and is refreshing does not. Without it, every revalidation flashes a spinner over loaded content. The `:loading?` / `:fetching?` subs hide the distinction from view code that doesn't care, cheaply expose it to code that does.
 
-`:attempt` increments on **every** fetch (initial load is `1`, first retry `2`, revalidate `3`). One counter answers two questions: "have we ever tried?" (`> 0`) and "how many times have we retried?" (drives backoff). Don't add a parallel retry-only counter — derive it.
+`:attempt` increments on **every** fetch (initial `1`, first retry `2`, revalidate `3`). One counter answers two questions: "have we ever tried?" (`> 0`) and "how many retries?" (drives backoff). Don't add a parallel retry-only counter — derive it.
 
 ## When a resource fits better
 

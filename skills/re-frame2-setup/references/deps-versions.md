@@ -6,7 +6,7 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 
 - The lockstep contract
 - The eleven artefacts (and which ones a greenfield project needs)
-- Discovering the current VERSION
+- Choosing the coordinate (publication state decides the shape) — including discovering the current VERSION
 - `deps.edn` shape
 - `package.json` shape
 - When to add the optional per-feature artefacts
@@ -15,11 +15,11 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 
 ## The lockstep contract
 
-re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. The `day8/re-frame2-xray` devtools panel publishes on the same version line too. Mixing versions across artefacts is unsupported — the runtime contract between core, adapters, and the per-feature surfaces is bound to a single coordinated VERSION.
+re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. The `day8/re-frame2-xray` devtools panel rides the same version line. Mixing versions across `day8/re-frame2-*` coordinates is **unsupported and undefined** — the runtime contract between core, adapters, and per-feature surfaces is bound to a single coordinated VERSION.
 
-**Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` validates only that you handed it an adapter spec map (it rejects nil / non-map) and installs it; the adapter spec carries a `:kind` discriminator, **not** a VERSION field, so the runtime does not compare per-artefact versions at boot. (Verified: `implementation/core/src/re_frame/core.cljc` `init!` and `implementation/core/src/re_frame/substrate/adapter.cljc` `install-adapter!` carry no version metadata.) The enforcement that *does* exist is **build-time**: the generator template pins `:rf2-version` / `:shadow-version` / `:react-version` and a test (`tools/template/test/day8/re_frame2_template/version_lockstep_test.clj`) fails if the template's literals drift from their sources of truth. So keep every `day8/re-frame2-*` coordinate at one VERSION because a mixed set is **unsupported and undefined**, not because a guard will catch it for you.
+**Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` validates only that you handed it an adapter spec map (rejects nil / non-map) and installs it; the adapter spec carries a `:kind` discriminator, **not** a VERSION field, so the runtime never compares per-artefact versions at boot. (Verified: `implementation/core/src/re_frame/core.cljc` `init!` and `implementation/core/src/re_frame/substrate/adapter.cljc` `install-adapter!` carry no version metadata.) The enforcement that *does* exist is **build-time**: the generator template pins `:rf2-version` / `:shadow-version` / `:react-version`, and `tools/template/test/day8/re_frame2_template/version_lockstep_test.clj` fails if those literals drift from their sources of truth. Keep every coordinate at one VERSION because a mixed set is undefined, not because a guard will catch it.
 
-**Validate lockstep yourself.** The cheap check: grep your `deps.edn` for `day8/re-frame2-` coordinates and confirm every pin is identical. Pre-publish (git coords) every `:git/sha` must match; post-publish (Maven coords) every `:mvn/version` must match.
+**Validate lockstep yourself.** Grep your `deps.edn` for `day8/re-frame2-` coordinates and confirm every pin is identical: pre-publish (git coords) every `:git/sha` must match; post-publish (Maven coords) every `:mvn/version` must match.
 
 ```bash
 # Pre-publish (git coords) — every printed SHA must be the same string:
@@ -44,24 +44,24 @@ Picking a re-frame2 pin for your project means picking it once (one `:git/sha` t
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
 | `day8/re-frame2-http` | per-feature | When you dispatch `:rf.http/managed`. |
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
-| `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch` (also pulled in transitively by `re-frame2-pair`). |
+| `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch!` (also pulled in transitively by `re-frame2-pair`). |
 
-These eleven are the **publishable** lockstep set. (Two niche local roots — `day8/reagent-slim` and `day8/re-frame2-ssr-ring` — ride the same version but aren't part of greenfield.) Separately, the in-app devtools panel `day8/re-frame2-xray` ships on the same version line and is a **day-one** dep in the template (see the day-one shape below); it is tooling, not one of the eleven library artefacts.
+These eleven are the **publishable** lockstep set. (Two niche local roots — `day8/reagent-slim` and `day8/re-frame2-ssr-ring` — ride the same version but aren't part of greenfield.) The `day8/re-frame2-xray` devtools panel is tooling, not one of the eleven library artefacts, but is a **day-one** dep (see the day-one shape below).
 
-**Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual route and the one-command route land on the same scaffold. The template ships **four** re-frame2 coords on day one — core + the Reagent adapter, plus `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; the artefact is required because the app calls `reg-app-schema`, and requiring `re-frame.schemas` wires Malli so the schema validates — omitting the artefact makes the registration throw `:rf.error/schemas-artefact-missing`, per Spec 010) and `day8/re-frame2-xray` (the in-app devtools panel, wired via `:devtools/preloads` and Xray-priority by default) — plus an explicit `reagent/reagent` pin.
+**Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual and one-command routes land on the same scaffold. The template ships **four** re-frame2 coords on day one — `day8/re-frame2` (core) + `day8/re-frame2-reagent` (adapter) + `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; see the table row above for the `reg-app-schema` / `:rf.error/schemas-artefact-missing` contract) + `day8/re-frame2-xray` (in-app devtools, wired via `:devtools/preloads`, Xray-priority by default) — plus an explicit `reagent/reagent` pin.
 
 The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) stay pay-as-you-go: resist adding them until the author writes code that actually uses them, so apps that don't use them don't pay the classpath cost.
 
 ## Choosing the coordinate (publication state decides the shape)
 
-**Pre-publish reality (today): re-frame2 is NOT on Clojars/npm yet.** The repo's [`README.md`](../../../README.md) §Status says artifacts have not been published to Clojars and NPM, and tells early users to add re-frame2 as a `:git/sha` coordinate. The `day8/re-frame2*` Maven coordinates **do not resolve** — a greenfield project that writes `{:mvn/version "<VERSION>"}` for the framework artefacts fails dependency resolution before it ever compiles. So the coordinate *shape* branches on publication state:
+**Pre-publish reality (today): re-frame2 is NOT on Clojars/npm yet.** The repo's [`README.md`](../../../README.md) §Status confirms this and tells early users to add re-frame2 as a `:git/sha` coordinate. The `day8/re-frame2*` Maven coordinates **do not resolve** — a project that writes `{:mvn/version "<VERSION>"}` for the framework artefacts fails dependency resolution before it compiles. So the coordinate *shape* branches on publication state:
 
 - **Before the first Clojars release (now):** use a **`:git/url` + `:git/sha`** coordinate for each `day8/re-frame2*` artefact, OR a **`:local/root`** coordinate against a reviewed checkout of the monorepo. This is the **only** working manual route today.
 - **After publication (forward-correct):** switch each artefact to `{:mvn/version "<VERSION>"}`. The `:mvn/version` shape below is the post-publish destination; it is not usable until the coordinates resolve on Clojars.
 
 **Two different "versions" — don't conflate them.** The repo `VERSION` / next-release string is what release *tags* are cut from; the *latest published Maven version* is whatever has actually shipped to Clojars (currently: none). Version discovery distinguishes them: a repo `VERSION` of `0.0.1.alpha` does **not** mean `{:mvn/version "0.0.1.alpha"}` resolves.
 
-**The author picks the re-frame2 pin at kickoff; the skill never auto-selects.** Pinning makes the project reproducible and avoids silently chasing whatever has just shipped. For the author's reference (so they can pick a `:git/sha` today, or a `:mvn/version` once published), the sources in order of authority:
+**The author picks the re-frame2 pin at kickoff; the skill never auto-selects.** Pinning makes the project reproducible. Sources for the author to pick a `:git/sha` today (or a `:mvn/version` once published), in order of authority:
 
 1. **The repo's `VERSION` file** — `https://github.com/day8/re-frame2/blob/main/VERSION` is the single source of truth that release tags are cut from. The string here is the canonical VERSION for the **next** release — NOT a guarantee it is published.
 2. **`CHANGELOG.md`** — `https://github.com/day8/re-frame2/blob/main/CHANGELOG.md` lists released VERSIONs with summaries.
@@ -146,7 +146,7 @@ re-frame2 itself ships no npm code — but Reagent depends on React, and shadow-
 }
 ```
 
-`shadow-cljs` is a build-only tool, so it lives in `devDependencies`. `react` / `react-dom` are runtime dependencies of the shipped app (Reagent renders against them), so they live in `dependencies` — this matches the generator template's `package.json`. Read `<path-to-re-frame2>/implementation/package.json` (verified pinned checkout — see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the `shadow-cljs` / `react` / `react-dom` versions verbatim. This is the **default path** and the safer baseline; pinning what the framework itself builds against avoids surprise breakage and silent exposure to newly published packages.
+`shadow-cljs` is build-only → `devDependencies`. `react` / `react-dom` are runtime deps of the shipped app (Reagent renders against them) → `dependencies`. This matches the generator template's `package.json`. Read `<path-to-re-frame2>/implementation/package.json` (verified pinned checkout — see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the three versions verbatim.
 
 **Latest-from-npm is opt-in only.** If the author explicitly asks for the newest versions, run `npm view shadow-cljs version` / `npm view react version` / `npm view react-dom version` and **show the result for confirmation before writing it into `package.json`**. Do not auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop.
 

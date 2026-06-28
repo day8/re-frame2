@@ -3,9 +3,9 @@
 > **Audience:** authors writing re-frame2 ClojureScript application code.
 > **Use when:** a task lands on a pattern or a primitive whose shape needs to be cross-checked against a known-shipping worked example.
 
-re-frame2's examples are the canonical authoring substrate — per SKILL.md cardinal rule 5, when an example exists for a pattern, **prefer the example's shape over a synthesised one**. The examples reflect the implementation as currently shipped; the spec/EP docs describe *why*, and the example describes *what*.
+re-frame2's examples are the canonical authoring substrate — per SKILL.md cardinal rule 5, when an example exists for a pattern, **prefer the example's shape over a synthesised one**. Examples reflect the implementation as shipped; spec/EP docs describe *why*, the example *what*.
 
-This file is a one-paragraph-per-example index. It names what each example demonstrates and when to point at it during an authoring task. It deliberately does **not** explain the example's internals — read the source for that. Each paragraph names the *patterns and primitives* the example exercises so a routing decision (e.g. "I want to verify the Pattern-NineStates shape") lands on the right directory in one hop.
+A one-paragraph-per-example index: what each demonstrates and when to point at it, naming the *patterns and primitives* it exercises so a routing decision lands on the right directory in one hop. It does **not** explain internals — read the source.
 
 The full catalogue (with maturity, build ids, and end-to-end Playwright coverage) lives at [`examples/README.md`](../../examples/README.md). The substrate policy (Reagent is canonical; UIx and Helix ship a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md).
 

@@ -1,6 +1,6 @@
 # Pattern — Reusable Components
 
-The entity-id idiom for parameterised widgets — a `customer-card` that works against *any* customer, where the caller supplies the id and the card subscribes and dispatches in terms of it. The same view function instantiates N times against N entities, each reading its own slice, each dispatching its own scoped events. **Convention, not Spec** — built entirely from `reg-sub`'s query-vector, `reg-view`'s positional args, and the standard `dispatch` / `subscribe` surfaces; no new substrate.
+The entity-id idiom for parameterised widgets — a `customer-card` that works against *any* customer: the caller supplies the id and the card subscribes and dispatches in terms of it. One view function instantiates N times against N entities, each reading its own slice, dispatching its own scoped events. **Convention, not Spec** — built from `reg-sub`'s query-vector, `reg-view`'s positional args, and the standard `dispatch` / `subscribe`; no new substrate.
 
 > **Mental-model anchor:** this is the **React "prop-as-id, not prop-as-data"** discipline — pass `id`, let the component resolve its own data through a (cached) selector, exactly the shape that lets `<CustomerCard id={42} />` and `<CustomerCard id={43} />` render side by side without sharing state. Map that intuition onto the re-frame2 query-vector below.
 
@@ -87,7 +87,7 @@ The idiom ports across adapters with **zero changes to the view body**. The view
 ## Anti-patterns
 
 - **Hardcoded slice path inside a "reusable" component.** `(subscribe [:current-customer])` is by definition single-instance — the moment two entities must render at once, the singleton sub shows the same data in both.
-- **Threading the full entity map through the render tree** (`[customer-card customer-map]`). Defeats the sub-cache: every parent re-render reconstructs the map literal, the cached-sub input-equality check fails, the card re-renders even when its data is unchanged. Pass the **id**; let the card resolve the entity.
+- **Threading the full entity map through the render tree** (`[customer-card customer-map]`). Defeats the sub-cache: every parent re-render reconstructs the map literal, the input-equality check fails, the card re-renders even when its data is unchanged. Pass the **id**; let the card resolve the entity.
 - **Asymmetric dispatches** — reading `[:customer id]` but dispatching `[:customer/edit]` without the id. Broken under multi-instance rendering.
 - **Storing per-instance UI state in the entity slice.** A card's `:expanded?` flag does not belong at `[:customers id :expanded?]` — that conflates the entity with transient view state. Use a separate `[:ui :customer-cards id]` slice (keyed by the same id), or, when the widget wraps a stateful JS thing, the stateful-component idiom (`patterns/stateful-components.md`).
 

@@ -10,9 +10,9 @@
 
 Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/references/tooling/stories.md`. Load this leaf for the five live-session tools and the composition patterns with re-frame2-pair's reads/writes/watches.
 
-## The five tools — live-session palette
+## The five live-session tools — drive + assert palette
 
-The `re-frame2-pair` skill's `allowed-tools` (per the SKILL.md frontmatter) pulls in exactly these five from the story-mcp surface. The authoring side (`register-variant`, `get-variant`, `preview-variant`, `list-stories`, …) is allow-listed by `re-frame2` instead — load `recipes.md §Refine a variant interactively` when you need to call those across the skill boundary.
+The `re-frame2-pair` skill's `allowed-tools` (per SKILL.md frontmatter) pulls in these five **live-session** story-mcp tools — the ones that drive or assert against a running variant. The variant-body **authoring** side (`register-variant`, `get-variant`, `preview-variant`, `list-stories`, …) is allow-listed by `re-frame2` instead — load `recipes.md §Refine a variant interactively` to call those across the skill boundary. (Three further **read-only** story-mcp tools are also allow-listed here — see [§Read-only story-mcp enumerations](#read-only-story-mcp-enumerations) below.)
 
 | Tool | What it does | Returns |
 |---|---|---|
@@ -33,11 +33,23 @@ mcp__re-frame2-story-mcp__record-as-variant
   {variant-id: ":story.counter/loaded" :duration-ms 5000}
 ```
 
+## Read-only story-mcp enumerations
+
+Three further story-mcp tools are allow-listed by re-frame2-pair — all **read-only**, for grounding yourself in a Story-enabled build without crossing to the authoring skill. They take no write gate.
+
+| Tool | What it does | Returns |
+|---|---|---|
+| `mcp__re-frame2-story-mcp__list-decorators` | Enumerate registered decorators (`:hiccup` / `:frame-setup` / `:fx-override`). Read-only by construction — decorators carry closures JSON-RPC can't transport, so there is **no decorator write tool**. Optional `:kind` narrows; paginated (`:limit` default 25, `:cursor`). | `{:decorators [{:id :kind :doc …}…]}` — each entry adds kind-specific pure-data slots: `:has-wrap?` (`:hiccup`), `:init` + `:app-db-patch` (`:frame-setup`), `:fx-id` + `:response` (`:fx-override`). Use it to see what a variant's `:fx-override` decorators (e.g. `:http → :stub-http`) will do **before** you drive it. |
+| `mcp__re-frame2-story-mcp__explain-variant` | The variant-plan **`:explain` projection** — the same data the human Explain panel renders (Story spec/017 §Explain API). Answers *"why did the plan resolve this way?"*. | `{:variant-id :explain {:source-chain :parent-chain :compose :strict-conflicts :merge :effective-args :network :sub-overrides :setup-order :script-order :checks :assertions :required-runner :platforms :tags}}`. The runtime-resolved value slots (`:effective-args` / `:args` / `:substitutions` / `:network` replies / `:db-seed`) are **path-projected against the variant frame's classification at egress** (EP-0025 fail-open) — a value at a classified app-db path redacts; `:include-sensitive true` opts out (gated by `--allow-sensitive-reads`). Reach for it when `extends` / `compose` make a variant's effective config non-obvious. |
+| `mcp__re-frame2-story-mcp__get-docs-markdown` | Render a story's docs as paste-ready GitHub-flavoured Markdown (story `:doc` + per-variant `:doc` + args / argtypes / tags / decorators composed into one string). The other docs reads (`get-story`/`get-variant`) return EDN — this is the right shape when the user wants a docs blurb for an issue or chat. | Markdown in the wire-canonical `:content` text slot **and** a `:markdown` structuredContent slot. `{:story-id …}`; miss → `:isError` "Story not found". |
+
+These complement the live-session palette: `list-decorators` / `explain-variant` tell you *how a variant will resolve* before you `run-variant` it; `get-docs-markdown` is for handing the user readable docs. None mutate.
+
 ## Composition with the re-frame2-pair surface
 
-Per [`variant-as-frame.md`](variant-as-frame.md), the variant id *is* the frame id. Every story-mcp tool that targets a variant operates on the same frame re-frame2-pair reads and writes. Three patterns fall out:
+Per [`variant-as-frame.md`](variant-as-frame.md), the variant id *is* the frame id. Every story-mcp tool targeting a variant operates on the same frame re-frame2-pair reads and writes. Three patterns fall out:
 
-**Snapshot the variant via the variant-as-frame pattern.** Before driving a tool, ground yourself in the variant's current state — read it as a frame, not as a story-mcp value:
+**Snapshot the variant via the variant-as-frame pattern.** Before driving a tool, ground yourself in the variant's current state — read it as a frame, not a story-mcp value:
 
 ```
 set-operating-frame {frame: ":story.counter/loaded"}
@@ -88,7 +100,7 @@ loop until :status :pass (result-passed? true)
 
 A `:status :cannot-run` is the distinct third verdict — the runner could not even attempt the plan. Handle it as "not runnable here", NOT as a fail: fix the runner/environment, don't refine the body.
 
-What re-frame2-pair adds over the bare story-mcp loop: a watch-epochs subscription stays open across iterations so you narrate each play event; `dispatch` lets you probe candidate fixes without re-registering the variant; `trace/last-epoch` shows you the cascade `read-failures` won't (it only reads the assertion accumulator, not the trace stream).
+What re-frame2-pair adds over the bare loop: a watch-epochs subscription stays open across iterations so you narrate each play event; `dispatch` probes candidate fixes without re-registering the variant; `trace/last-epoch` shows the cascade `read-failures` won't (it reads only the assertion accumulator, not the trace stream).
 
 When the loop terminates, optionally call `record-as-variant` to capture the now-passing interaction as a fresh `:play-script` snippet — the user lands it back in source.
 

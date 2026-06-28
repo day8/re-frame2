@@ -29,7 +29,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | Surface | State | Notes |
 |---|---|---|
 | Orientation + discovery | **Live** | `discover-app` (health probe + `:freshness` token), `orient` (one-round-trip app-shape summary), `get-re-frame2-pair-instructions`, `list-handlers`, `handler-meta`. |
-| Read (data plane) | **Live** | `snapshot` (multi-slice, `:app-db` summary/path-sliced modes), `get-path`, `read-sub`, `read-ui`, `read-dom`, `list-subscriptions`, `machines/*` — over `rf/app-db-value`, `rf/snapshot-of`, `rf/sub-cache`, `rf/machines`, `rf/machine-meta`, `rf/app-schemas`, etc. |
+| Read (data plane) | **Live** | `snapshot` (multi-slice, `:app-db` summary/path-sliced modes), `get-path`, `read-sub`, `read-ui`, `read-dom`, `list-subscriptions`, `machines/*` — over `rf/app-db-value`, `rf/snapshot-of`, `re-frame.subs.tooling/sub-cache-snapshot`, `re-frame.machines/machines`, `re-frame.machines/machine-meta`, `re-frame.schemas/app-schemas`, etc. |
 | Dispatch | **Live** | `dispatch` (returns the consequence by default; `sync`/`queued`/`trace`/`await-render`/`settle` modes), `dispatch-dry-run` (simulate without committing — NOT `--allow-writes`-gated), per-call `frame:` + `fx-overrides:`. |
 | Trace (read-only) | **Live** | `trace-window`, `record` / `read-recording`, plus the eval-form trace ops over `re-frame.trace.tooling/trace-buffer` + `rf/epoch-history` + the assembled-epoch projections. |
 | Live watch | **Live — both modes** | Pull-mode `watch-epochs` / `watch-until` AND push-mode `subscribe` / `unsubscribe` (`notifications/progress`). The Phase-3-era "streaming-via-`:out` deferred" note is obsolete — push-mode landed. |

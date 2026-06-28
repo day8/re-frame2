@@ -2,7 +2,7 @@
 
 Cancellable spawn-and-join coordination via `:spawn-all` — one parent coordinates N parallel children that yield to the browser between chunks.
 
-State-machine `:spawn` / `:spawn-all` is one of the shipped instances of the **managed external effect** umbrella — alongside `:rf.http/managed`, `:rf.server/*`, and `:rf.flow/*` (a WebSocket connection is the app/library-built case; re-frame2 does **not** ship `:rf.ws/*`). The runtime owns child lifetime (spawn on entry, teardown on exit, abort on parent transition), failure classification under `:rf.machine/*`, and trace-bus observability. Machine async work is also one of the **property-9** async-reply-envelope families (alongside managed HTTP, resources, mutations, and route loaders — but *not* the synchronous `:rf.server/*` / `:rf.flow/*` surfaces): a child reports completion back through `:on-child-done` / `:on-done`, which lower to the framework reply target, with a late completion for a superseded actor suppressed as `:status :stale` (correlated by the child's `:work/id`) — which is exactly what makes the spawn-and-join shape below correctness-by-construction. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names the *coordination* shape on top.
+State-machine `:spawn` / `:spawn-all` is one of the four shipped instances of the **managed external effect** umbrella — alongside `:rf.http/managed`, `:rf.server/*`, `:rf.flow/*` (a WebSocket connection is the app/library-built case; re-frame2 ships **no** `:rf.ws/*`). The runtime owns child lifetime (spawn on entry, teardown on exit, abort on parent transition), failure classification under `:rf.machine/*`, and trace-bus observability. Machine async work is also a **property-9** async-reply-envelope family (alongside managed HTTP, resources, mutations, route loaders — *not* the synchronous `:rf.server/*` / `:rf.flow/*`): a child reports completion through `:on-child-done` / `:on-done`, which lower to the framework reply target, with a late completion for a superseded actor suppressed as `:status :stale` (correlated by the child's `:work/id`) — which makes the spawn-and-join shape below correctness-by-construction. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); this leaf names the *coordination* shape on top.
 
 ## When to load
 
@@ -22,7 +22,7 @@ Do NOT load for:
 
 One parent coordinator spawns N children declaratively via `:spawn-all`. Each child processes its shard in chunks, yielding via `:after` between chunks, and dispatches `:progress` back. When all N report done, the runtime fires `:on-all-complete`. Cancellation is a transition out of `:working` — the standard exit cascade tears down every surviving child.
 
-## re-frame2 features this pattern uses
+## The re-frame2 features this pattern uses
 
 | Feature | Role |
 |---|---|
@@ -143,7 +143,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 
 `examples/patterns/long_running_work/` — three parallel `:work/processor` children coordinated by `:work/flow` via `:spawn-all`. The Show / Hide wrapper's `r/with-let` cleanup dispatches `[:work/flow [:cancel]]`. The machines live in `worker.cljs`; `core.cljs` / `schema.cljs` / `views.cljs` complete it; `test/long_running_work/worker_test.cljs` is the CLJS unit test.
 
-## Pointer to the spec
+## Pointers
 
 Full rationale — `:spawn-all` runtime, join-state layout, `:join` modes (`:all` / `:any` / `{:n N}` / `{:fn pred}`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/spawn.md` §Final states. (Partial joins use `{:n N}`, NOT `:n-of` — and require `:on-some-complete`; `:all` requires `:on-all-complete`, per `re-frame.machines.lifecycle-fx.validation`.)
 

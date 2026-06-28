@@ -1,9 +1,8 @@
 # launch-modes — getting Xray visible
 
 Source of truth: [`tools/xray/spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md).
-This leaf is the decision-tree-shaped tour of what the spec normalises.
-When a user's question hits a corner this leaf doesn't cover, defer to
-the spec doc rather than improvising prose.
+This leaf is the decision-tree-shaped tour of what the spec normalises;
+on a corner it doesn't cover, defer to the spec doc.
 
 ## Decision tree
 
@@ -49,8 +48,9 @@ The default path. Add the preload namespace to shadow-cljs's
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload runs four foundation side-effects (per
-[`spec/011-Launch-Modes.md` §Mount lifecycle](../../../tools/xray/spec/011-Launch-Modes.md)):
+The preload runs five foundation side-effects (per
+[`spec/011-Launch-Modes.md` §Mount lifecycle](../../../tools/xray/spec/011-Launch-Modes.md);
+matching the `init!` docstring's enumeration in `core.cljs`):
 
 1. Register `:rf.xray/*` handlers against the `:rf/xray` frame.
 2. Register the trace collector via `register-listener!` under
@@ -58,7 +58,10 @@ The preload runs four foundation side-effects (per
 3. Register the epoch collector via `register-epoch-listener!` under
  `:rf.xray/epoch-collector` (no-op when the
  `day8/re-frame2-epoch` artefact is absent).
-4. Attach the global keydown listener (one capture-phase handler routing
+4. Install the `window.day8.re_frame2_xray.*` browser-API exports
+ (`install-browser-api-exports!`) — the console verbs `open_BANG_` /
+ `open_overlay_BANG_` / `popout_BANG_` the devtools paths below invoke.
+5. Attach the global keydown listener (one capture-phase handler routing
  `Ctrl+Shift+C` shell-toggle, `Cmd/Ctrl+Shift+M` mode-toggle,
  `Cmd/Ctrl+K` command-palette, and the focus-gated spine keys).
 
@@ -121,7 +124,9 @@ The recommended CSS reads `--rf-xray-inline-width` for its
  outer edge. Pointer-driven (mouse, touch, pen via pointer events),
  keyboard-navigable, persisted across reloads in the Settings slot
  `[:general :panel-width-px]` (written at runtime by the resize handle
- via the `:rf.xray/settings-update` event), clamped to `[320px, 90vw]`,
+ via the dedicated `:rf.xray/set-panel-width-px` event — it dual-writes
+ the same `:general :panel-width-px` slot the `:rf.xray/settings-update`
+ event uses), clamped to `[320px, 90vw]`,
  double-click to reset. Hosts that want a boot-time default can bulk-set
  the slot through the one-arg map `configure!`:
  `(xray-config/configure! {:rf.xray/settings {:general {:panel-width-px 720}}})`.
@@ -172,6 +177,54 @@ Two distinct levers — pick the one that matches your intent:
                 :compiler-options {:closure-defines {goog.DEBUG false}}}}}
 ```
 
+## Missing host — diagnostic + recovery
+
+The single most common "Xray didn't open" cause: the preload ran but no
+element matched the layout-host selector when the substrate adapter became
+ready. Per [`spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md)
+Xray **must fail loudly but safely** — it MUST NOT `alert()` and MUST NOT
+block host app startup. The same diagnostic lands in two places (source
+[`mount.cljs`](../../../tools/xray/src/day8/re_frame2_xray/mount.cljs)
+`missing-host-diagnostic` / `report-diagnostic!`):
+
+1. **`console.error`** — names the expected selector + the host snippet to
+   add.
+2. **`window.day8.re_frame2_xray.status()`** — the inspectable mount/API
+   status map (wired by `install.cljs`, defined at `mount.cljs` `status`):
+
+   ```clojure
+   {:mounted?      false
+    :visible?      false
+    :mode          nil
+    :diagnostic    {:ok? false
+                    :reason :missing-layout-host
+                    :selector "[data-rf-xray-host]"
+                    :message "Xray default launch requires an app-provided …"
+                    :snippet  "…the recommended host markup…"}
+    :host-selector "[data-rf-xray-host]"
+    :auto-open?    true}
+   ```
+
+An explicit `(xray/open!)` / `(xray/toggle!)` against a missing host
+**returns the same diagnostic map** (and logs the `console.error`) rather
+than throwing — so a programmatic caller can branch on `:ok?`.
+
+Three recoveries, in order of preference:
+
+- **Add the `[data-rf-xray-host]` column** to your app layout (§Layout host
+  contract above) — the default fix.
+- **Point the selector** at an element you already have:
+  `(xray-config/configure! {:rf.xray/layout-host-selector "#my-host"})`
+  before Xray opens.
+- **Fall back to the overlay** — `(xray/open-overlay!)` (§Overlay fallback
+  below) when the host genuinely cannot give a column.
+
+Distinct from this is the **dev-build posture banner** — a dismissable
+yellow "Xray is enabled in this build" top banner shown when a non-elided
+dev build runs in production-like conditions (§Production posture below).
+That is a *warning to elide for production*, not the missing-host failure;
+don't conflate the two.
+
 ## Overlay fallback (open-overlay!)
 
 For hosts that **cannot accommodate a right column** — a full-screen
@@ -189,16 +242,14 @@ layout column.
 
 `open-overlay!` is one of the mount facade's three open verbs by design
 (`open!` inline · `open-overlay!` modal overlay · `popout!` window — per
-[`spec/API.md` §Mount facade](../../../tools/xray/spec/API.md), the three
-naming distinct mount surfaces, not modal variants of one shape). It is
-the **optional, non-default** path: the inline panel is the canonical
-developer experience, and `open-overlay!` is explicitly documented as a
-real-but-non-primary surface — per
-[`spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md),
-the overlay debug surface "remains an optional debug mode and must not be
-described as the primary path." Prefer adding the `[data-rf-xray-host]`
-column when the host can host one; reach for `open-overlay!` only when it
-can't. Source
+[`spec/API.md` §Mount facade](../../../tools/xray/spec/API.md), three
+distinct mount surfaces, not modal variants of one shape). It is the
+**optional, non-default** path: the inline panel is the canonical
+developer experience, and per
+[`spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md)
+the overlay "remains an optional debug mode and must not be described as
+the primary path." Prefer the `[data-rf-xray-host]` column when the host
+can give one; reach for `open-overlay!` only when it can't. Source
 [`mount.cljs`](../../../tools/xray/src/day8/re_frame2_xray/mount.cljs)
 (`open-overlay!`), exported via
 [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs).
@@ -211,7 +262,8 @@ from app code after `rf/init!`. Idempotent; each underlying side-effect is
 
 `init!` installs the foundation and applies config; it does **not** show a
 panel. It registers the `:rf.xray/*` handlers, the trace + epoch collectors,
-and the keybinding listener, then threads each supplied opt to its backing
+the `window.day8.re_frame2_xray.*` browser-API exports, and the keybinding
+listener, then threads each supplied opt to its backing
 surface (per the `init!` docstring in
 [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)).
 Unlike the preload it does **not** schedule the page-load auto-open, so after
@@ -224,9 +276,8 @@ Unlike the preload it does **not** schedule the page-load auto-open, so after
  visible `⛶` top-bar button is the canonical chrome equivalent; this verb is
  the secondary programmatic path.
 
-`(xray/init!)` alone leaves Xray installed-but-hidden — no panel opens until a
-mount verb runs (or `Ctrl+Shift+C` toggles the shell, which mounts on first
-press).
+(`Ctrl+Shift+C` also mounts the shell on first press — so init!-then-hotkey
+works too.)
 
 ```clojure
 (require '[day8.re-frame2-xray.core :as xray])

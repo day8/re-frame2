@@ -94,7 +94,7 @@ The loader machine fans out three fetches, joins, writes on `:ready`, and stamps
 
 The per-fetch child is a thin shared machine — one state spawns `:rf.http/managed`; terminal states dispatch the success keyword (`[:pdp/load [:pdp/child-loaded :product {…}]]` carrying the payload, plus the join keyword `[:pdp/load [:pdp/child-done :product]]`) or `:pdp/child-error` back to the parent (the parent-id is stamped at spawn time and read from the child's `:data :env`). Only the spawn-spec `:data` fn differs per sibling.
 
-> **Why two keywords per child.** `:on-child-done` / `:on-child-error` are REQUIRED keyword slots on `:spawn-all` (validated at registration in `re-frame.machines.lifecycle-fx.validation` — omitting either throws `:rf.error/machine-spawn-all-bad-shape`). The runtime *intercepts* events whose inner-event-id matches those keywords to drive the join count — so the join keyword carries no usable payload to the parent's `:on` table. To thread each child's result into the parent, the child dispatches a SECOND, non-intercepted keyword (`:pdp/child-loaded`) the parent stages via an internal self-transition, exactly as the boot example (`examples/patterns/boot/boot.cljs`) does.
+> **Why two keywords per child.** `:on-child-done` / `:on-child-error` are REQUIRED keyword slots on `:spawn-all` (omitting either throws `:rf.error/machine-spawn-all-bad-shape`). The runtime *intercepts* events whose inner-event-id matches those keywords to drive the join count — so the join keyword carries no usable payload to the parent's `:on` table. To thread each child's result in, the child dispatches a SECOND, non-intercepted keyword (`:pdp/child-loaded`) the parent stages via an internal self-transition, as the boot example (`examples/patterns/boot/boot.cljs`) does.
 
 The SSR request wires it from `:rf/server-init`, reading request-derived values from the `:rf.server/request` cofx **once**, at the spawn site:
 
@@ -113,11 +113,11 @@ Children read auth-token/locale from the parent's snapshot at spawn — nothing 
 
 ## The deadline
 
-`:after {30000 :pdp/timed-out}` is the SSR-specific knob. A client can tolerate "spinner for 60 s then resolves"; a server has a single render moment and a request-timeout budget. If one fetch hangs past the deadline, the `:after` exits `:loading`, the exit cascade tears down every surviving child (their `:rf.http/managed` invocations abort via the destroy fx), and `:error` stamps a 502 — no partial render of half-loaded slices. Pick a deadline **shorter** than the host adapter's request timeout.
+`:after {30000 :pdp/timed-out}` is the SSR-specific knob. A client tolerates "spinner for 60 s then resolves"; a server has a single render moment and a request-timeout budget. If one fetch hangs past the deadline, `:after` exits `:loading`, the exit cascade tears down every surviving child (their `:rf.http/managed` invocations abort via the destroy fx), and `:error` stamps a 502 — no partial render. Pick a deadline **shorter** than the host adapter's request timeout.
 
 ## Server vs client
 
-The same machine works on both platforms; only the deadline policy and the rendering moment differ. Server: spawned from `:initial-events`, drain settles before `render-to-string`, deadline mandatory, no partial render. Client: spawned at the route's `:on-match`, drain settles before the next React tick, deadline optional, *can* render a skeleton mid-fetch (give the parent an `:on :loaded` handler that writes results incrementally). One machine; the platform decides whether to render mid-fetch or only after the join.
+The same machine works on both platforms; only the deadline policy and rendering moment differ. **Server**: spawned from `:initial-events`, drain settles before `render-to-string`, deadline mandatory, no partial render. **Client**: spawned at the route's `:on-match`, drain settles before the next React tick, deadline optional, *can* render a skeleton mid-fetch (give the parent an `:on :loaded` handler writing results incrementally).
 
 ## Anti-patterns
 

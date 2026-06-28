@@ -75,13 +75,13 @@ The success/failure effects are the only platform-divergent slot. `:rf.server/re
 
 **re-frame2 ships no CSRF surface** — there is no `:rf.csrf/*` sub, cofx, or app-db slot, and `:rf/*` (every sub-namespace, `:rf.csrf/*` included) is reserved (`SKILL.md` Cardinal rule 7; `spec/Conventions.md` single-root reserved set). Register the CSRF surface under **your app's own feature prefix** — the `:app.csrf/*` ids below are illustrative placeholders for *your* registrations, not framework-provided surfaces (substitute `:auth.csrf/*` or whatever prefix your app owns).
 
-Every form POST MUST carry a CSRF token; the server MUST reject a mismatched token *before any state mutation*. Store the session token at an app-owned slot such as `[:app.csrf :session-token]` (seeded by `:rf/server-init` from the request); the view subscribes to an app-owned `[:app.csrf/token]` and emits a hidden `csrf-token` field; an app-owned `:app.csrf/active-token` cofx exposes the session token to the handler, which fails-closed with 403 on mismatch. Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme.
+Every form POST MUST carry a CSRF token; the server MUST reject a mismatch *before any state mutation*. Store the session token at an app-owned slot like `[:app.csrf :session-token]` (seeded by `:rf/server-init` from the request); the view subscribes to `[:app.csrf/token]` and emits a hidden `csrf-token` field; an app-owned `:app.csrf/active-token` cofx exposes it to the handler, which fails-closed with 403 on mismatch. Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme.
 
 ## File uploads
 
 `enctype="multipart/form-data"` — the host adapter parses files under `:form-params` as `{:filename :content-type :size :tempfile}` maps. The `:tempfile` is host-specific and **opaque**: pass it to a file-storage fx (S3 PUT, disk write); never dereference it in the handler, and write only the resulting URL/storage-id into `app-db`. File **contents** never appear in trace events.
 
-**Marking the POST sensitive — classify the path at the owner** (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). Here the secret rides the POST `:form-params`, which the action handler is just a `reg-event` over — so name its path in the **registration's** `:sensitive` metadata (a `:form-params` field that instead lands at a durable app-db slot is classified by the writing event's `:sensitive` **commit-plane effect** instead):
+**Marking the POST sensitive — classify the path at the owner** (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). The secret rides the POST `:form-params`, which the action handler is just a `reg-event` over — so name its path in the **registration's** `:sensitive` metadata (a `:form-params` field landing at a durable app-db slot is classified by the writing event's `:sensitive` **commit-plane effect** instead):
 
 ```clojure
 (rf/reg-event :upload/submit
@@ -108,7 +108,7 @@ No standalone example app — the SSR worked apps are `examples/capabilities/ssr
 
 - Spec: [`spec/Pattern-FormAction.md`](../../../spec/Pattern-FormAction.md) — full worked `/cart/add` page, the failure-path projector hook, multipart privacy, the server-vs-client handler-tree table, conformance checklist.
 - Substrate: `SKILL-REDIRECT.md` → *EP — SSR (011)* (`:rf.server/request` cofx, the side-channel response accumulator read via `get-response`, the seven server-only fxs, `:platforms` gating, server error projection), *EP — Schemas (010)* (`:schema` boundary check, `:sensitive?`).
-- Cross-cutting: `references/cross-cutting/ssr-authoring.md` (head/meta + the `:rf/hydrate` checks); `references/cross-cutting/privacy-and-elision.md` (the path-based, fail-open owner-classification model — the `:sensitive` commit-plane effect for durable app-db, projection-relative `:sensitive` on a subsystem definition for machine/resource data, `:sensitive?` props on an HTTP `:decode` schema for transient bodies, registration `:sensitive` metadata for transient payloads; handler-meta `:sensitive?` is a no-op; no propagation).
+- Cross-cutting: `references/cross-cutting/ssr-authoring.md` (head/meta + `:rf/hydrate` checks); `references/cross-cutting/privacy-and-elision.md` (the path-based, fail-open owner-classification model; handler-meta `:sensitive?` is a no-op; no propagation).
 - Compose: `patterns/forms.md` (the form-slice shape this reuses server-side), `patterns/ssr-loaders.md` (the GET-path sibling — a page uses Loaders for the initial render, FormAction for subsequent POSTs).
 
 ---

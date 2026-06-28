@@ -114,7 +114,7 @@ For a parallel machine the snapshot's `:state` is a **map** keyed by region-name
 
 ## When to reach for parallel regions vs N machines
 
-Per Spec 005 §When to reach for parallel regions: pick parallel regions when the axes (a) share a domain (the same conceptual feature — data + form + mode for a todos screen), (b) need a unified `:data` map, and (c) want a unified tag-set for view queries. Pick N separate `rf/reg-machine` calls when the axes are unrelated lifecycles (a websocket connection + a separate authentication flow + a separate route) that happen to coexist in the app.
+Pick parallel regions when the axes (a) share a domain (one conceptual feature — data + form + mode for a todos screen), (b) need a unified `:data` map, and (c) want a unified tag-set for view queries. Pick N separate `rf/reg-machine` calls when the axes are unrelated lifecycles (a websocket connection + a separate auth flow + a separate route) that merely coexist.
 
 ## Deeper material
 

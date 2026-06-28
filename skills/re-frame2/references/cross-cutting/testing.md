@@ -1,8 +1,6 @@
 # Writing re-frame2 tests
 
-Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. This leaf teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed.
-
-This leaf teaches how to **write** re-frame2 tests so they pass when the suite runs. It is not a `cljs.test` tutorial. The skill stops at writing the test; the author runs the suite. Help the hand-off by naming the nearest relevant gate concretely (see [§Discovering a project's gates](#discovering-a-projects-gates) below) so the author can run the exact command.
+Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. Teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed. The skill stops at writing the test; the author runs the suite, so name the nearest relevant gate concretely (see [§Discovering a project's gates](#discovering-a-projects-gates)) for the hand-off.
 
 ## The single import
 
@@ -54,8 +52,7 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
 
 - **The frame is a local frame value** (no `:id`) — born in the test, discarded with it, never claiming a public frame id. `make-frame` returns the frame value (the lifecycle token); a test passes it (or its id, via `rf/frame-value->id`) to `dispatch-sync` / `subscribe`. That is the direct-frame-value test pattern (EP-0024).
 - **Override behaviour through a later image**, not a global install: compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones — image order decides, the later image wins), then read `rf/frame-shadows` to assert exactly what it overrode. A swap is data the test states rather than last-writer-wins on a shared table. (The EP-0023 `:replace` / `:replace-standard` declared-winner keys are retired by EP-0026.)
-- For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`; reach for the image shape above when a test must isolate *behaviour*, not just state. A frame created with no `:images` is an ordinary configured frame (resolves against the shared registrar); pass `:images [...]` to isolate behaviour.
-- The test-isolation path is the **image + frame** shape — there is no realm / app / module install surface to reach for (the public composition model is `image → frame → event stream`; see [`fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story)). Isolate *behaviour* with a later overrides image supplied via a frame's `:images`; isolate *state* with a fresh frame.
+- For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`. A frame created with no `:images` resolves against the shared registrar; pass `:images [...]` to isolate behaviour. **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame** — there is no realm / app / module install surface (the public composition model is `image → frame → event stream`; see [`fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story)).
 
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
 
@@ -107,7 +104,7 @@ A handler that writes a durable timestamp / generated id **declares** the fact i
              :todo/id    #uuid "00000000-0000-0000-0000-000000000001"}})
 ```
 
-Pin the value at the boundary that owns it: a caller-pinned id is simplest on the **event payload** (`[:todo/create {:id … :text …}]`); a fold-internal fact rides `:rf.cofx`. This pinning works through `rf/dispatch-sync` (and `rf/dispatch`) opts — the router preserves a caller-supplied `:rf.cofx` verbatim, filling only `:rf/time-ms` when it is absent. If you omit it, the runtime stamps `:rf/time-ms` itself (the wall clock at dispatch) — fine for a non-durable assertion, but pin it whenever a durable timestamp/id is what the test asserts, so the assertion can't drift with the clock. (`ts/dispatch-sequence` does **not** forward `:rf.cofx` today — it threads only `:frame` / `:source` / `:origin` — so a multi-event scenario that needs a pinned clock dispatches each step through `rf/dispatch-sync` with the `:rf.cofx` opt rather than relying on the sequence helper.) (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx) for the cofx-override shape; a plain ambient cofx for a diagnostic read needs no pinning.)
+Pin at the boundary that owns it: a caller-pinned id is simplest on the **event payload** (`[:todo/create {:id … :text …}]`); a fold-internal fact rides `:rf.cofx`. Pinning works through `rf/dispatch-sync` (and `rf/dispatch`) opts — the router preserves a caller-supplied `:rf.cofx` verbatim, filling only `:rf/time-ms` when absent (omit it and the runtime stamps the wall clock at dispatch — fine for a non-durable assertion, but pin it whenever the test asserts a durable timestamp/id). `ts/dispatch-sequence` does **not** forward `:rf.cofx` (it threads only `:frame` / `:source` / `:origin`), so a multi-event scenario needing a pinned clock dispatches each step through `rf/dispatch-sync` with the opt. (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx); a plain ambient cofx for a diagnostic read needs no pinning.)
 
 ## Pinning a frame: `with-frame`
 
@@ -215,7 +212,7 @@ This is the dominant shape for an app-developer e2e view test — it compresses 
 (h/wait-until :status "done" {:timeout-ms 5000 :interval-ms 10 :label "status ready"})
 ```
 
-`opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape** (matching `poll-until`): on **JVM** it is synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/wait-until-timeout`) on timeout. On **CLJS** it returns a `js/Promise` — resolves with the truthy value, rejects on timeout; compose with `cljs.test/async`. For sync cascades, `expect-text` after `dispatch-sync` is enough — only reach for `wait-until` when the cascade is genuinely async. It is not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
+`opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape** (matching `poll-until`): **JVM** synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/wait-until-timeout`) on timeout; **CLJS** returns a `js/Promise` — resolves with the truthy value, rejects on timeout, compose with `cljs.test/async`. For sync cascades, `expect-text` after `dispatch-sync` suffices — reach for `wait-until` only when the cascade is genuinely async. Not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
 
 ### Lower-level walk helpers — the hiccup-walk pattern
 
@@ -323,7 +320,7 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 
 ## Discovering a project's gates
 
-Find the project's *actual* gate commands — don't guess names — so you can name the precise command for the author to run. Point at the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
+Find the project's *actual* gate commands — don't guess names — and name the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
 
 - **`deps.edn` `:aliases`** — the `:test` alias is the per-artefact runner (`clojure -M:test` from that artefact's dir). A consumer monorepo often has one `deps.edn` per artefact; name the alias for the dir whose source you changed.
 - **`shadow-cljs.edn`** — `:builds` keys and any `:test` build id reveal the CLJS compile/test targets (`npx shadow-cljs compile <id>`, or the project's test build).

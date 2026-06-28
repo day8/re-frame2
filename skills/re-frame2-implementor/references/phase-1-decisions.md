@@ -1,8 +1,6 @@
 # phase-1-decisions
 
-The Phase 1 walkthrough. Before writing any implementation code, the engineer walks each decision block below and captures the answer in the **decision record** (template at `decision-record.md`).
-
-Every decision in Phase 1 propagates through every line of Phase 2 code. Spending one focused session locking the decisions saves weeks of rewrites later.
+The Phase 1 walkthrough. Before writing any implementation code, walk each decision block below and capture the answer in the **decision record** (template at `decision-record.md`). Every Phase 1 decision propagates through every line of Phase 2 code; one focused session locking them saves weeks of rewrites.
 
 ## Contents
 
@@ -51,7 +49,7 @@ Record the pinned SHA, the verification date, and both confirmations in the `Spe
 
 **The question.** Which host language and runtime does the port target?
 
-**What's at stake.** Every Phase 1 sub-decision (identity primitive, persistent data structures, concurrency model, render-tree shape) is constrained by what the host provides. The choice of host fixes the "shape of the space" the port operates in.
+**What's at stake.** Every Phase 1 sub-decision (identity primitive, persistent data structures, concurrency model, render-tree shape) is constrained by what the host provides — the host fixes the shape of the space the port operates in.
 
 **Options.** [`spec/000-Vision.md`](https://day8.github.io/re-frame2/spec/000-Vision/) §scope footnote locks the host set to exactly eight **JS-cross-compile-to-React+VDOM** languages — these are the *only* in-scope implementation targets:
 
@@ -103,7 +101,7 @@ Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-c
 
 **The question.** Which optional EPs does this port include in v1?
 
-**What's at stake.** The required core is non-negotiable. Optional EPs are declared yes/no per the [Implementor-Checklist Part 1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-1--how-complete). Each "yes" gates a substantial chunk of additional implementation work.
+**What's at stake.** The required core is non-negotiable. Optional EPs are declared yes/no per the [Implementor-Checklist Part 1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-1--how-complete). Each "yes" gates a substantial chunk of additional implementation work. (Checklist Part 1 enumerates **Q1–Q7**; **Q8 Flows / Q9 Managed HTTP / Q10 Resources** below extend that scheme to the post-checklist optional EPs 013 / 014 / 016 — gate them off the owning EP spec, not the checklist's Q-list.)
 
 **Required (every port ships these).** Identity primitive, persistent data structures, registry by `(kind, id)`, event handler contract, closed effect-map shape, subscription system, frame as runtime boundary, run-to-completion drain, view contract, trace event stream, error contract, conformance corpus consumption. Per [Implementor-Checklist Part 1 §Required](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#required-not-gated-every-implementation-ships-these).
 
@@ -114,7 +112,7 @@ Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-c
 - **Q3 — SSR** ([EP 011](https://day8.github.io/re-frame2/spec/011-SSR/)). `:platforms` metadata, `render-to-string`, hydration-mismatch detection.
 - **Q4 — Schemas** ([EP 010](https://day8.github.io/re-frame2/spec/010-Schemas/)). Three answers, not two: *yes-runtime-schema*, *yes-via-host-types*, *no*.
 - **Q5 — Stories** ([EP 007](https://day8.github.io/re-frame2/spec/007-Stories/)). Storybook/devcards-class tooling. Post-v1 in the CLJS reference too.
-- **Q6 — Tool-Pair adapters** ([Tool-Pair.md](https://day8.github.io/re-frame2/spec/Tool-Pair/)). REPL-attached AI inspection surface.
+- **Q6 — Tool-Pair adapters** ([Tool-Pair.md](https://day8.github.io/re-frame2/spec/Tool-Pair/)). REPL-attached AI inspection surface. **Mostly reproduction of EP surfaces you already build** (registrar query, trace stream, hot-swap, `:fx-overrides`, source coords, `compute-sub`, `flush-render!`) — the genuinely-new obligations a `yes` adds are the **time-travel / epoch surface** (`epoch-history` / `restore-epoch!` rewinding the whole frame-state / `replace-frame-state!` injection), **direct-read egress through `project-egress`** (tool reads bypass the EP 015 trace-stamp boundary), the optional **derivation graph-inspection** capability, and the **tooling-security obligations** (editor-URI allowlist, file-path boundary). See [`phase-2-impl-order.md` §Tool-Pair attachment surface](phase-2-impl-order.md#tool-pair-attachment-surface-if-d3-q6-is-yes).
 - **Q7 — AI-Audit grading** ([AI-Audit.md](https://day8.github.io/re-frame2/spec/AI-Audit/)). Self-grading discipline doc.
 - **Q8 — Flows** ([EP 013](https://day8.github.io/re-frame2/spec/013-Flows/)). Declarative derived-state cells (`reg-flow`) recomputed topologically off `app-db`, with their own trace stream and frame-scoped lifecycle. Gates the `:flow/*` conformance family.
 - **Q9 — Managed HTTP** ([EP 014](https://day8.github.io/re-frame2/spec/014-HTTPRequests/)). The `:rf.http/managed` fx — transport, decode, retry-with-backoff, abort, reply addressing — riding the [Managed-Effects](https://day8.github.io/re-frame2/spec/Managed-Effects/) lifecycle. Gates the `:rf.http/managed` conformance family.
@@ -358,8 +356,8 @@ This is the single error-observability surface; recovery is the framework's type
 **The owner rule (the whole model in one line).** Classification is attached to *whoever owns the data's shape* and is always a **path** declaration; there is one declaration surface per owner, and the contract is **fail-open** — a path you never classify ships raw (the one-name-per-fact discipline of EP-0007, hygiene not security):
 
 - **Durable app-db facts → commit-plane effects from the writing event.** A handler returns one or more of `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` (each a vector of `:rf/path` vectors) alongside `:db`; known paths in the frame's init event, discovered ones in the handler that writes them. There is **no** frame `:sensitive {:app-db …}` annotation (rejected fail-loud) and **no** schema-prop route to durable app-db. (The imperative `add-marks` / `set-marks` / `clear-app-db-marks!` API is **removed**.)
-- **Subsystem instance data → projection-relative declaration on the subsystem.** Machine `:data` and resource `:data` / params classify via top-level `:sensitive` / `:large` keys on the `reg-machine` / `reg-resource` **definition**, projection-relative to one instance's shape (e.g. `[:data :token]`), lowered per instance at spawn/fetch. Machine `:data` SNAPSHOT egress is this declaration, **not** the `:data-schema` prop (EP-0025 reverses the EP-0005 schema→snapshot bridge). `reg-machine` is `(reg-machine machine-id machine-spec)` / `(reg-machine machine-id opts machine-spec)`; the `:sensitive` / `:large` keys ride the machine-spec map.
-- **Schema-owned transient products → per-slot schema props.** An HTTP request's decoded body classifies via `:sensitive?` / `:large?` Malli props on its `:decode` schema; the same props on a `:data-schema` / `:params-schema` drive **only** the schema's own validation-FAILURE-trace redaction. Schemas own *transient* and *validation-failure* products, never durable state.
+- **Subsystem instance data → projection-relative declaration on the subsystem.** Machine `:data` and resource `:data` / params classify via top-level `:sensitive` / `:large` keys on the `reg-machine` / `reg-resource` **definition**, projection-relative to one instance's shape (e.g. `[:data :token]`), lowered per instance at spawn/fetch. Machine `:data` SNAPSHOT egress is this declaration, **not** the machine's `[:schemas :data]` schema (EP-0025 reverses the EP-0005 schema→snapshot bridge; per EP-0029 the machine schema is `[:schemas :data]`, the `:data-schema` key retired). `reg-machine` is `(reg-machine machine-id machine-spec)` / `(reg-machine machine-id opts machine-spec)`; the `:sensitive` / `:large` keys ride the machine-spec map.
+- **Schema-owned transient products → per-slot schema props.** An HTTP request's decoded body classifies via `:sensitive?` / `:large?` Malli props on its `:decode` schema; the same props on a machine's `[:schemas :data]` (and a resource's `:data-schema` / `:params-schema`) drive **only** the schema's own validation-FAILURE-trace redaction. Schemas own *transient* and *validation-failure* products, never durable state.
 - **Transient registration payloads → registration metadata.** `reg-event` (the one public event registrar — EP-0018), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow` accept `{:sensitive [path…] :large [path…]}` on their registration map (paths index into that registration's primary shape — the event arg-map, fx-input map, sub output, flow output; `[[]]` marks the whole shape). A secret carried positionally has no named path — prefer the map payload.
 
 **What's at stake.**

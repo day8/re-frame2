@@ -21,13 +21,13 @@ The prompt mentions: wrapping a chart / map / code-editor / 3D-scene / grid / an
 ```
 
 - **Outer — pure re-frame2 view.** A standard `reg-view`. Reads subscriptions, computes one props map, renders the inner with it. Never touches the DOM; never holds an instance handle. When subs change, the outer re-renders and feeds the inner fresh props.
-- **Inner — Form-3-equivalent lifecycle wrapper.** Owns three phases: **mount** (after first commit, read the DOM node via a ref, hand it to the library constructor, stash the instance in a per-mount closure cell), **update** (push new props into the *already-mounted* instance via its imperative API — never tear down and re-create), **unmount** (call the library's dispose/destroy API, remove listeners, null the closure cells). The inner's render body is trivial — just `[:div {:ref …}]`; the library fills the node.
+- **Inner — Form-3-equivalent lifecycle wrapper.** Three phases: **mount** (after first commit, read the DOM node via a ref, hand it to the library constructor, stash the instance in a per-mount closure cell), **update** (push new props into the *already-mounted* instance via its imperative API — never tear down and re-create), **unmount** (call the library's dispose/destroy API, remove listeners, null the cells). Render body is trivial — `[:div {:ref …}]`; the library fills the node.
 
 The split is forced by reactive context: subs want render-time reads; lifecycle callbacks run after commit on a stack with no reactive context. Props are the seam.
 
 ## The one cross-adapter discipline — capture the frame at render-time
 
-Capture `(rf/capture-frame)` in the inner's top-level `let` (Reagent: in the closure around `create-class`) and use its `:dispatch` op for any library callback. A bare `(rf/dispatch …)` from inside a lifecycle callback fires on a fresh stack with no `*current-frame*` binding and — under the EP-0002 carried invariant — fails loudly with `:rf.error/no-frame-context` rather than routing to a default. Capture the frame api while the frame scope still exists.
+Capture `(rf/capture-frame)` in the inner's top-level `let` (Reagent: in the closure around `create-class`) and use its `:dispatch` op for any library callback. A bare `(rf/dispatch …)` from a lifecycle callback fires on a fresh stack with no `*current-frame*` binding and — under EP-0002 — fails loudly with `:rf.error/no-frame-context`. Capture the frame api while the frame scope still exists.
 
 ## Canonical declaration (Reagent — a Mapbox-shaped widget)
 

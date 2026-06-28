@@ -1,8 +1,8 @@
 # Recipes
 
-Named procedures the user may ask for. When the user asks a matching question, run the procedure below rather than improvising.
+Named procedures the user may ask for. On a matching question, run the procedure below rather than improvising.
 
-Each recipe is expressed in **MCP-tool form** — the only transport this skill exposes — using the flat `mcp__re-frame2-pair__*` tool vocabulary (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, …). Where a gesture has no dedicated tool, the recipe drops to `eval-cljs` over a `re-frame2-pair.runtime` helper — that is **first-class for the long tail**, not a last resort (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse)). **Named state-rewrite gestures route through the dedicated, gated tools** — `restore-epoch` and `replace-app-db` are the canonical, `--allow-writes`-gated path; the raw eval forms are the backstop for a gate-OFF server (see [ops.md §Time-travel](ops.md#time-travel-epoch-restore)).
+Each recipe is in **MCP-tool form** — the only transport this skill exposes — using the flat `mcp__re-frame2-pair__*` vocabulary (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, …). Where a gesture has no dedicated tool, the recipe drops to `eval-cljs` over a `re-frame2-pair.runtime` helper — **first-class for the long tail**, not a last resort (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse)). **Named state-rewrite gestures route through the dedicated, gated tools** — `restore-epoch` and `replace-app-db` are the canonical `--allow-writes`-gated path; the raw eval forms are the backstop for a gate-OFF server (see [ops.md §Time-travel](ops.md#time-travel-epoch-restore)).
 
 ## Contents
 
@@ -33,9 +33,9 @@ Each recipe is expressed in **MCP-tool form** — the only transport this skill 
 
 ## eval-cljs is the workhorse
 
-The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. **Named state rewrites have structured tools too** — `restore-epoch` and `replace-app-db` are the canonical, audited path for time-travel undo and state injection (see the [Experiment loop](#experiment-loop) below and SKILL.md §Time-travel writes). But re-frame2-pair also exposes `eval-cljs` — arbitrary ClojureScript against the live runtime — and in a real session it carries the **long tail**: anything the dedicated tools don't have a shape for.
+The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. **Named state rewrites have structured tools too** — `restore-epoch` and `replace-app-db` are the canonical, audited path for time-travel undo and state injection (see [Experiment loop](#experiment-loop) below and SKILL.md §Time-travel writes). But `eval-cljs` — arbitrary ClojureScript against the live runtime — carries the **long tail**: anything the dedicated tools don't have a shape for.
 
-**The rule:** *prefer a structured op WHEN ONE FITS the gesture — including the dedicated write tools for named rewrites; for the long tail and for recovery, `eval-cljs` is first-class, not a last resort.*
+**The rule:** *prefer a structured op WHEN ONE FITS the gesture — including the dedicated write tools for named rewrites; for the long tail and recovery, `eval-cljs` is first-class, not a last resort.*
 
 `eval-cljs` is the right call — not a fallback — for:
 
@@ -48,7 +48,7 @@ Every `eval-cljs` form takes the same `frame: ":foo"` arg the dedicated tools do
 
 ## "What is this app?" / First contact
 
-**Your first move on an unfamiliar app — a cart, a dashboard, anything you didn't write.** After `discover-app` connects, run `orient` *before any other read*. It is one round-trip that maps the whole app: which frames are app vs reserved tool frames, each app frame's top-level app-db keys, the registry **counts** per kind, and the navigable event / sub / fx / machine **id lists** — compact by construction (counts + ids + top-keys, never the full app-db).
+**Your first move on an unfamiliar app — a cart, a dashboard, anything you didn't write.** After `discover-app` connects, run `orient` *before any other read*. One round-trip that maps the whole app: which frames are app vs reserved tool frames, each app frame's top-level app-db keys, the registry **counts** per kind, and the navigable event / sub / fx / machine **id lists** — compact by construction (counts + ids + top-keys, never the full app-db).
 
 ```
 mcp__re-frame2-pair__orient {}
@@ -197,7 +197,7 @@ When the user mentions a state machine (Spec 005), chain:
 
 ## Experiment loop
 
-**Reach for `dispatch-dry-run` first — it is the safe primitive for hypothesis-testing.** When the user says *"test this handler"* / *"try a dispatch"* / *"what would this event do?"*, you don't need the full baseline → restore → modify → re-dispatch dance, and you should **not** reach for a live `dispatch` or a throwaway `eval-cljs` handler by default. `dispatch-dry-run {event: "[:foo …]"}` runs the whole cascade (reducer, interceptors, schema validation, machine transitions, sub-runs, renders) **without committing**: no fx execute and the framework auto-rolls-back the app-db via `restore-epoch`. It returns the same `:cascade-summary` shape as `dispatch` plus `:would-fire-effects` (every fx that *would* have fired, with args). See [§"What would this event do?"](#what-would-this-event-do-dry-run). Use the manual loop below only when you need to **commit a change and compare two REAL epochs** — i.e. you're iterating on a handler's code, not just reading one consequence.
+**Reach for `dispatch-dry-run` first — the safe primitive for hypothesis-testing.** When the user says *"test this handler"* / *"try a dispatch"* / *"what would this event do?"*, you don't need the full baseline → restore → modify → re-dispatch dance, and you should **not** reach for a live `dispatch` or throwaway `eval-cljs` handler by default. `dispatch-dry-run {event: "[:foo …]"}` runs the whole cascade (reducer, interceptors, schema validation, machine transitions, sub-runs, renders) **without committing**: no fx execute, the framework auto-rolls-back app-db via `restore-epoch`. Returns the same `:cascade-summary` shape as `dispatch` plus `:would-fire-effects` (every fx that *would* have fired, with args). See [§"What would this event do?"](#what-would-this-event-do-dry-run). Use the manual loop below only when you need to **commit a change and compare two REAL epochs** — iterating on a handler's code, not just reading one consequence.
 
 **Probing a *throwaway* handler — register, then dry-run.** `dispatch-dry-run` targets a **registered** event, so to test a hypothesis handler you wrote on the spot: register it with `eval-cljs`, then dry-run it — never drive it with a live `dispatch`:
 
@@ -208,9 +208,9 @@ mcp__re-frame2-pair__dispatch-dry-run {event: "[:exp/probe]"}
 
 The dry-run rolls back, so even a misbehaving probe leaves the live app-db untouched. Tear the registration down (or just leave it — it's ephemeral and gone on full page reload).
 
-> **WARNING — a `reg-event` handler returning `{:db …}` REPLACES app-db wholesale; it does NOT merge.** `{:db <map>}` is the canonical "the new app-db is exactly this map" effect. A throwaway probe handler returning a bare literal — `(fn [_ _] {:db {:exp/x 1}})` — then driven by a **live** `dispatch` (or an `eval-cljs` that runs the real cascade) will nuke the *entire* frame's **app-db** (every boot-seeded app slice) — leaving only `{:exp/x 1}`, unrecoverable without `restore-epoch`. (Runtime-db — machine snapshots, routing, elision — is a *separate* partition a `:db` return cannot touch, so it survives; and a `:db` carrying a retired `:rf/runtime` key is a hard error, `:rf.error/legacy-runtime-root`.) This is a foot-gun an agent WILL hit. Two safe paths: **(1) dry-run the probe** (above) — the rollback means even a `{:db …}` handler can't damage the live db; **(2) if you must commit, preserve the existing db** — destructure the `db` cofx (it IS the live app-db) and return `{:db (assoc db :exp/x 1)}`, never a bare literal map. Never test a `{:db …}` handler with a live `dispatch` against a frame whose state you can't afford to lose.
+> **WARNING — a `reg-event` handler returning `{:db …}` REPLACES app-db wholesale; it does NOT merge.** `{:db <map>}` is the canonical "the new app-db is exactly this map" effect. A throwaway probe returning a bare literal — `(fn [_ _] {:db {:exp/x 1}})` — driven by a **live** `dispatch` (or an `eval-cljs` running the real cascade) nukes the *entire* frame's **app-db** (every boot-seeded slice), leaving only `{:exp/x 1}`, unrecoverable without `restore-epoch`. (Runtime-db — machine snapshots, routing, elision — is a *separate* partition a `:db` return can't touch, so it survives; a `:db` carrying a retired `:rf/runtime` key is a hard error, `:rf.error/legacy-runtime-root`.) An agent WILL hit this. Two safe paths: **(1) dry-run the probe** (above) — the rollback means even a `{:db …}` handler can't damage the live db; **(2) if you must commit, preserve the existing db** — destructure the `db` cofx (it IS the live app-db) and return `{:db (assoc db :exp/x 1)}`, never a bare literal map. Never test a `{:db …}` handler with a live `dispatch` against a frame whose state you can't afford to lose.
 
-**Why the manual loop works:** the same starting `app-db`, the same event, only the code changes — so any difference in the resulting epoch is attributable to *your edit*, nothing else. That makes it a controlled experiment rather than a fix-and-pray. re-frame2's first-class `restore-epoch` makes the loop fully closed — no adapter caveats.
+**Why the manual loop works:** same starting `app-db`, same event, only the code changes — so any difference in the resulting epoch is attributable to *your edit*, nothing else. A controlled experiment, not fix-and-pray. re-frame2's first-class `restore-epoch` makes the loop fully closed — no adapter caveats.
 
 Canonical procedure (commit-and-compare):
 
@@ -233,7 +233,7 @@ Canonical procedure (commit-and-compare):
 
 ## "What would this event do?" (dry-run)
 
-**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the frame back via `restore-epoch` (which reinstalls the whole frame-state — both partitions — so any machine/route mutation the simulated cascade made is rewound too, not just app-db). No fx execute; every fx that *would* have fired is enumerated with its args.
+**When the user wants an event's consequence WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the frame back via `restore-epoch` (reinstalls the whole frame-state — both partitions — so any machine/route mutation the simulated cascade made is rewound too, not just app-db). No fx execute; every fx that *would* have fired is enumerated with its args.
 
 ```
 mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
@@ -326,9 +326,9 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 ## "Drive a Story variant from a re-frame2-pair session"
 
-**Why this works:** a Story variant *is* a re-frame2 frame — the variant id is also the frame id. Every re-frame2-pair op that takes a `frame:` arg works against a variant out of the box. See [variant-as-frame.md](variant-as-frame.md) for the full pattern.
+**Why this works:** a Story variant *is* a re-frame2 frame — the variant id is the frame id. Every re-frame2-pair op taking a `frame:` arg works against a variant out of the box. Full pattern: [variant-as-frame.md](variant-as-frame.md).
 
-**Setup.** A Story-enabled build is running (the user has `re-frame.story` loaded; some variants are registered). Either the variant is already mounted in the canvas, or you'll mount it via story-mcp / `run-variant`.
+**Setup.** A Story-enabled build is running (`re-frame.story` loaded; some variants registered). The variant is either already mounted in the canvas or you mount it via story-mcp / `run-variant`.
 
 **Procedure:**
 
@@ -353,13 +353,13 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `snapshot` returns whatever the variant's loaders + events seeded; `last-epoch` returns the last dispatch (often the last `:play-script` step if the variant just mounted).
 
-**Gotcha.** If you forget to pin the frame (`set-operating-frame`) or pass a per-call `frame:` arg, the op resolves the operating frame by the four-tier contract (per-call > session pin > sole app frame > refuse). With the variant frame plus the host app's frame both live, that is two-plus app frames, so the op **refuses** with `:reason :ambiguous-frame` rather than silently targeting another frame — you see a refusal, not the variant's history. Pin the variant id (or pass `frame:`). See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
+**Gotcha.** Forget to pin (`set-operating-frame`) or pass a per-call `frame:`, and the op resolves by the four-tier contract (per-call > session pin > sole app frame > refuse). With the variant frame plus the host app frame both live, that's two-plus app frames, so the op **refuses** with `:reason :ambiguous-frame` rather than silently targeting another frame — you see a refusal, not the variant's history. Pin the variant id (or pass `frame:`). See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
 
 ## "Diff two variants of the same component"
 
-**Why this works:** per-variant frame isolation (Story spec 007) means each variant carries its own `app-db`. When the user asks *"why does state diverge in scenario A vs scenario B?"*, you compare the two frames' app-db values directly.
+**Why this works:** per-variant frame isolation (Story spec 007) means each variant carries its own `app-db`. For *"why does state diverge in scenario A vs scenario B?"*, compare the two frames' app-db values directly.
 
-**Setup.** Both variants are mounted (canvas or `run-variant`). Both belong to the same parent story, so they share `:component`, `:args` defaults, decorators — only the variant body diverges.
+**Setup.** Both variants mounted (canvas or `run-variant`). Both belong to the same parent story, so they share `:component`, `:args` defaults, decorators — only the variant body diverges.
 
 **Procedure:**
 
@@ -387,9 +387,9 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 ## "Refine a variant interactively"
 
-**Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — the variant body is edited via the **authoring** surface, then re-frame2-pair watches the trace events as it re-runs. re-frame2-pair sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
+**Why this works:** the same loop powering Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — the variant body is edited via the **authoring** surface, then re-frame2-pair watches the trace events as it re-runs. re-frame2-pair sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
 
-**Skill-boundary handoff.** Editing a variant body — reading it (`get-variant`) and re-registering it (`register-variant`) — is the **Story authoring** surface, allow-listed by the `re-frame2` skill, **not** by re-frame2-pair (see `SKILL.md` frontmatter + `stories.md §The five tools`). re-frame2-pair's own Story allow-list is the five live-session tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, `record-as-variant`). So the body-editing steps below are a **handoff to the authoring skill**: drive them under `re-frame2` (its `register-variant`/`get-variant` are reachable there), and let re-frame2-pair watch + run + diagnose against the live runtime. The handoff is by design — re-frame2-pair drives the runtime; `re-frame2` owns the source-of-truth variant body.
+**Skill-boundary handoff.** Editing a variant body — reading it (`get-variant`) and re-registering it (`register-variant`) — is the **Story authoring** surface, allow-listed by the `re-frame2` skill, **not** re-frame2-pair (see `SKILL.md` frontmatter + `stories.md §The five tools`). re-frame2-pair's Story allow-list is the five live-session tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, `record-as-variant`). So the body-editing steps below are a **handoff to the authoring skill**: drive them under `re-frame2` (its `register-variant`/`get-variant` are reachable there); let re-frame2-pair watch + run + diagnose against the live runtime. By design — re-frame2-pair drives the runtime; `re-frame2` owns the source-of-truth variant body.
 
 **Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:play-script` body to make an assertion pass.
 

@@ -1,21 +1,18 @@
 # Wire size budget — de-dupe decoding & size-conscious tool args
 
-re-frame2-pair-mcp tool responses are shaped to fit a tight wire-token budget
-(default ~5K tokens, `:rf.mcp/overflow` marker on cap breach). Two
-things to know: (1) some payloads arrive structurally **deduped** and
-must be expanded host-side to be useful, and (2) the read tools take
-a small family of args that trade off detail for size. Reach for them
-*before* a payload overflows.
+re-frame2-pair-mcp tool responses fit a tight wire-token budget
+(default ~5K tokens, `:rf.mcp/overflow` marker on cap breach). Two things to know:
+(1) some payloads arrive structurally **deduped** and must be expanded host-side to be useful;
+(2) the read tools take a small family of args trading detail for size — reach for them *before* a payload overflows.
 
 ---
 
 ## de-dupe — round-tripping the wire form
 
 **What it is.** Structural-sharing preserver from `day8/de-dupe`
-(`.cljc`). Persistent data structures share subtrees in
-memory; `pr-str` flattens them. de-dupe walks the value, hash-pools
-repeated subtrees, and rewrites the structure as a flat cache map
-keyed by `de-dupe.cache/cache-N` namespaced symbols. The companion
+(`.cljc`). Persistent data structures share subtrees in memory; `pr-str` flattens them.
+de-dupe walks the value, hash-pools repeated subtrees, and rewrites the structure as a
+flat cache map keyed by `de-dupe.cache/cache-N` namespaced symbols. The companion
 `expand` function reconstructs the original.
 
 **How to spot it.** A deduped payload arrives wrapped in the cross-
@@ -47,15 +44,12 @@ no extra round-trip to the runtime.
 **Where it fires.** `:epochs` slice on `snapshot`, `trace-window`,
 `watch-epochs`; the per-tick subscribe payload slot on `subscribe`.
 That slot is **topic-dependent** (per `streaming-subscriptions.md`):
-`:events` for the flat topics (`:epoch` / `:frameless`) and `:cascades`
+`:events` for the flat topics (`:epoch` / `:frameless`), `:cascades`
 for the cascade-bundle topics (`:trace` / `:fx` / `:error`). A host
 decoding subscribe dedup must look under whichever slot the topic
-delivers, not `:events` alone. Always opt-out via `dedup false` if
-your host hasn't been taught the marker.
+delivers, not `:events` alone. Opt out via `dedup false` if your host hasn't been taught the marker.
 
-**Empty / scalar inputs** are passed through unmodified (no marker),
-so the only thing that ever needs `expand` is something that already
-benefits from sharing.
+**Empty / scalar inputs** pass through unmodified (no marker) — the only thing that ever needs `expand` is something that already benefits from sharing.
 
 ---
 

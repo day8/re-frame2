@@ -86,7 +86,7 @@ signal, colour is never alone):
 | Routes | `r` | `🌐` | `:yellow` |
 | Resources | `s` | — | (family-tinted rows; no single stripe) |
 | Graph | `g` | — | `:magenta` (violet — the algebra lens) |
-| Modules | `u` | — | (family-tinted rows; no single stripe) |
+| Modules *(tab labelled **Frames**)* | `u` | — | (family-tinted rows; no single stripe) |
 
 Nine Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
 slot; **Resources** `:order 7`, **Graph** `:order 8`, and **Modules**

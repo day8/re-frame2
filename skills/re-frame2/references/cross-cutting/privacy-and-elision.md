@@ -1,10 +1,10 @@
 # Privacy and size elision — the egress-policy model
 
-re-frame2's killer feature is also its leak: one runtime story feeds every tool and every off-box shipper, so an auth token in an event vector is reachable by every trace listener, every Datadog dashboard, every MCP server an agent attached to. A multi-megabyte `app-db` slice is the same shape of problem — a denial-of-service against your own observability. Both have one answer.
+re-frame2's killer feature is also its leak: one runtime story feeds every tool and off-box shipper, so an auth token in an event vector is reachable by every trace listener, Datadog dashboard, and attached MCP server. A multi-megabyte `app-db` slice is the same problem — a DoS against your own observability. Both have one answer.
 
-> **Mental model: classify a path, redact at the boundary — fail-open.** If you have used Rails' filtered parameters, a logging redactor, or a DLP/data-classification scheme, the move is familiar — *but inverted from the usual mistake.* The wrong answer is to filter at each consumer ("tell every tool to drop the password"); the one that doesn't, leaks everything. re-frame2 classifies a *path* once **at the owner of that data's shape**, projects at the **trust boundary**, and every **sink receives an already-safe record**. You declare; the framework projects; sinks consume. Critically: it is **fail-open** — a path you never classify ships raw, and there is **no propagation or taint**. This is hygiene, not a guarantee.
+> **Mental model: classify a path, redact at the boundary — fail-open.** Familiar if you've used Rails' filtered parameters, a logging redactor, or a DLP scheme — *but inverted from the usual mistake.* The wrong answer is to filter at each consumer ("tell every tool to drop the password"); the one that doesn't, leaks everything. re-frame2 classifies a *path* once **at the owner of that data's shape**, projects at the **trust boundary**, and every **sink receives an already-safe record**. You declare; the framework projects; sinks consume. It is **fail-open** — a path you never classify ships raw, and there is **no propagation or taint**. Hygiene, not a guarantee.
 
-This leaf is the recipe and when-to-reach-for-it. The depth — the failure posture, the exception gap, the three sentinels, the SSR allowlist — lives in [Keep secrets out of traces](../../../../docs/guide/how-to/keep-secrets-out-of-traces.md). The normative home is [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md).
+This leaf is the recipe + when-to-reach-for-it. Depth (failure posture, exception gap, three sentinels, SSR allowlist): [Keep secrets out of traces](../../../../docs/guide/how-to/keep-secrets-out-of-traces.md). Normative home: [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md).
 
 ## The one law
 
@@ -14,14 +14,12 @@ This leaf is the recipe and when-to-reach-for-it. The depth — the failure post
 >
 > **App authors declare classification (the paths) and sink policy. The framework performs projection. Sinks consume already-projected records only.**
 
-Everything you write is a *declaration of paths*; everything the framework runs is *projection*; a sink never hand-rolls redaction and neither do you.
-
 Two different defaults sit at two different surfaces, and conflating them is the common error:
 
 - **Classification is fail-OPEN.** A path you forget to classify ships raw — that's the hygiene bargain, not a leak the framework guards against. Classify exactly the paths you care about; a re-keyed or rendered secret ships raw until *its* path is classified too.
 - **Projection is fail-CLOSED on the unknowns it *can* see.** An unknown frame, an unschematized HTTP body, an unknown egress profile — the projector redacts the whole value or errors rather than leak under invented scope.
 
-This is a **leak-prevention overlay on observability, not a security boundary.** Your app still owns auth, authorisation, encryption-at-rest, and transport. What this buys you is that the framework's *own* observation surfaces cannot accidentally exfiltrate a *classified* secret or stuff a record with megabytes.
+This is a **leak-prevention overlay on observability, not a security boundary.** Your app still owns auth, authorisation, encryption-at-rest, and transport. It buys you one thing: the framework's *own* observation surfaces cannot accidentally exfiltrate a *classified* secret or stuff a record with megabytes.
 
 ## Where you declare it: the three-owner table
 
@@ -35,7 +33,7 @@ Classification attaches to **whoever owns the data's shape**, and you always cla
 
 Hold this one line in your head: *durable app-db → classification effects from the writing event; subsystem instance data → projection-relative declaration on the subsystem; transient payloads → registration metadata.* Three owners, three surfaces, no overlap, and **each classifies a path it owns** — the same secret crossing two surfaces (an HTTP reply *and* its durable app-db copy) is two declarations, because there is no propagation between them.
 
-**`:sensitive` (no `?`) vs `:sensitive?` (with `?`) is deliberate, not an inconsistency.** `:sensitive` names a *collection of paths* (a set → plural, bare) — the classification effects, the registration marks, the subsystem declaration. `:sensitive?` answers a *yes/no question about one schema slot* (a boolean → predicate `?`) and survives **only** for a schema's own validation-failure-trace redaction and for the schema-owned *transient* products (HTTP `:decode` body, resource params). Same for `:large` / `:large?`. Because `:sensitive` already means "a collection of paths," there is no `:sensitive false` — and no declassification key, because nothing propagates (see [no propagation](#no-propagation-no-taint)).
+**`:sensitive` (no `?`) vs `:sensitive?` (with `?`) is deliberate.** `:sensitive` names a *collection of paths* (a set → plural, bare) — the classification effects, registration marks, subsystem declaration. `:sensitive?` answers a *yes/no question about one schema slot* (boolean → predicate `?`) and survives **only** for a schema's validation-failure-trace redaction and the schema-owned *transient* products (HTTP `:decode` body, resource params). Same for `:large` / `:large?`. There is no `:sensitive false` and no declassification key, because nothing propagates (see [no propagation](#no-propagation-no-taint)).
 
 ## 1 — Event-owned: durable app-db state
 
@@ -73,7 +71,7 @@ Wire the init event with `:initial-events [[:app/init]]` so the classification i
 - **Sensitive wins over large.** A path that's both redacts as sensitive and emits *no* size marker (the marker's `:path` / `:bytes` would themselves leak structure).
 - Malformed effect payloads (a non-vector value, a non-path entry, an unknown axis) **fail loud pre-commit** with `:rf.error/classification-effect-shape` — the transition aborts, no `:db` commits.
 
-There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the event is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case — the earlier frame `:sensitive {:http …}` block is removed); observability sink policy *does* still live on the frame (see [§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A `reg-frame` carrying `:sensitive` or `:large` now fails loud.
+There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the event is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (transient-payload case; the earlier frame `:sensitive {:http …}` block is removed); observability sink policy *does* still live on the frame ([§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A `reg-frame` carrying `:sensitive` or `:large` now fails loud.
 
 ## 2 — Subsystem-owned: machine and resource instance data
 
@@ -120,7 +118,7 @@ Values that flow *through* the cascade rather than *living* in durable state are
 
 The paths index into the registration's primary data shape — the event arg-map (the second element of `[:event-id {arg-map}]`), the fx-input map, the sub/flow output. The empty path `[[]]` marks the whole shape. A mark at a missing slot is a silent no-op (payload shapes evolve); a malformed path *vector* fails at registration.
 
-A secret carried positionally (`[:auth/login "alice" "hunter2"]`) has **no stable named path** to classify — prefer the map payload form (`[:auth/login {:password "…"}]`) so the registration mark can name the key. The handler body sees `password` verbatim — handlers need real values to work. Only the *observable shadow* on a framework surface (the `:event/dispatched` trace event, the always-on event-emit record, the HTTP body) ships with `:password` → `:rf/redacted`. The registration declares the path; the framework projects it.
+A secret carried positionally (`[:auth/login "alice" "hunter2"]`) has **no stable named path** to classify — prefer the map payload form (`[:auth/login {:password "…"}]`) so the mark can name the key. The handler body sees `password` verbatim (handlers need real values); only the *observable shadow* on a framework surface (the `:event/dispatched` trace, the event-emit record, the HTTP body) ships `:password` → `:rf/redacted`.
 
 ## Choosing where observations go: frame `:observability`
 
@@ -147,7 +145,7 @@ The framework ships no Datadog / Sentry client — the sink id lives outside the
 
 ## Projection profiles: which boundary is this?
 
-The framework projects, but needs to know *which trust boundary* a record is about to cross. You answer with a named **egress profile** — a value from a **closed six-member enum** under `:rf.egress/profile`, not a remembered combination of booleans:
+The framework projects, but needs to know *which trust boundary* a record is about to cross. Answer with a named **egress profile** — a value from a **closed six-member enum** under `:rf.egress/profile`, not a remembered combination of booleans:
 
 ```clojure
 (rf/project-egress record
@@ -187,7 +185,7 @@ Beneath it, **`rf/elide-wire-value`** is the single low-level walker for *tree-s
 
 ## Direct reads must project, with the frame known
 
-`rf/app-db-value`, `rf/sub-cache`, and an MCP `get-path` bypass the trace surface. Any direct read crossing an egress boundary must **project app-side with the frame known**. Egress policy is frame-scoped and inherits the no-default-frame rule: **if a projection needs frame policy and no frame is known, it fails closed — it does not synthesize `:rf/default`.** On-box visibility is **per (tool, frame) pair** — no single process-global "show sensitive" toggle; local tools default `:rf.egress/local-redacted`, raw requires explicit `:rf.egress/local-raw` opt-in. The payoff of routing everything through one projection: **revealing sensitive data is an operator act and is itself trace-visible** — auditable, not silent.
+`rf/app-db-value`, `rf/sub-cache`, and an MCP `get-path` bypass the trace surface. Any direct read crossing an egress boundary must **project app-side with the frame known**. Egress policy is frame-scoped and inherits the no-default-frame rule: **a projection needing frame policy with no frame known fails closed — it does not synthesize `:rf/default`.** On-box visibility is **per (tool, frame) pair** — no process-global "show sensitive" toggle; local tools default `:rf.egress/local-redacted`, raw requires explicit `:rf.egress/local-raw` opt-in. The payoff of one projection path: **revealing sensitive data is an operator act, itself trace-visible** — auditable, not silent.
 
 ## No propagation, no taint
 
@@ -214,7 +212,7 @@ Beneath it, **`rf/elide-wire-value`** is the single low-level walker for *tree-s
   (fn [db _] (get-in db [:tenant :partner-api-key])))
 ```
 
-This is a deliberate scope decision: propagation is machinery for an unusual case already covered by classifying the output path. The egress rules over the paths you *do* classify are unchanged — **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant redacts rather than showing a size preview; large auto-elides an oversized value even at an undeclared path (the size backstop). When reviewing a consumer app, the audit question is simply *"is every path a secret reaches classified?"* — there is no inheritance to reason about.
+A deliberate scope decision: propagation is machinery for an unusual case already covered by classifying the output path. The egress rules over the paths you *do* classify are unchanged — **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant redacts rather than showing a size preview; large auto-elides an oversized value even at an undeclared path (the size backstop). The audit question for a consumer app is simply *"is every path a secret reaches classified?"* — no inheritance to reason about.
 
 ## The display contract: three sentinels
 

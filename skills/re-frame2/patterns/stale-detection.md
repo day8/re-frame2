@@ -2,9 +2,9 @@
 
 The cross-cutting epoch idiom re-frame2 uses to silently ignore async results from a superseded state. Capture an epoch, carry it through, check on receipt, suppress on mismatch.
 
-Stale-detection is the cross-cutting **correctness** idiom layered over **managed async effects** — the async-completing surfaces that lower onto the uniform reply envelope (Managed-Effects property 9): managed HTTP, resources, mutations, machine async work, and route loaders, plus any future/test timer or background-job surface — and, by hand, any app/library-built async surface such as a request-reply message over a WebSocket connection *you* build (re-frame2 does **not** ship `:rf.ws/*`; you build it per [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md)). The reply envelope delivers a completion to a `:rf/reply-to` target (an event-vector prefix; the reply map is appended as the final arg — managed HTTP's `:on-success` / `:on-failure` and the co-located originating-event-id default are public *sugar* that lower to it). This leaf names the epoch convention that decides whether the receiving state still wants the reply.
+Stale-detection is the cross-cutting **correctness** idiom layered over **managed async effects** — the async-completing surfaces that lower onto the uniform reply envelope (Managed-Effects property 9: managed HTTP, resources, mutations, machine async work, route loaders, plus future/test timer or background-job surfaces) — and, by hand, any app/library-built async surface like a request-reply over a WebSocket connection *you* build (re-frame2 ships **no** `:rf.ws/*`; build it per [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md)). The envelope delivers a completion to a `:rf/reply-to` target (event-vector prefix; the reply map appended as final arg — managed HTTP's `:on-success` / `:on-failure` and the originating-event-id default are sugar that lower to it). This leaf names the epoch convention that decides whether the receiving state still wants the reply.
 
-> **Stale suppression is already built into the shipped managed async surfaces.** Per the uniform reply envelope (Managed-Effects property 9), a superseded completion for a ledger-backed surface arrives as **`:status :stale`** and never mutates app-db — the framework runs the suppression for you, keyed by the single attempt identity `:work/id` (a resource/mutation by `:work/id` embedding generation, a route loader by `:work/id` embedding the nav-token, a machine `:after` timer by declaring-path + epoch). An HTTP `:request-id` is correlation/abort metadata, **not** a second stale-suppression key — there is one identity per attempt. So you rarely hand-roll the epoch idiom for a *shipped* managed call; reach for the epoch convention below for **app-owned async** (a Web Worker reply, a request-reply over a WebSocket *you* built) and for **app-side coordination** where the "did the user move on?" question is broader than a single managed call's work-id. When you build your own surface, model its stale check on the envelope's `:status :stale` rule — drop the late reply, no mutation — so it reads like the shipped surfaces. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella and [§The uniform reply envelope](../../../spec/Managed-Effects.md) for the reply-map contract.
+> **Stale suppression is already built into the shipped managed async surfaces.** A superseded completion for a ledger-backed surface arrives as **`:status :stale`** and never mutates app-db — the framework runs the suppression for you, keyed by the single attempt identity `:work/id` (a resource/mutation by `:work/id` embedding generation, a route loader by `:work/id` embedding the nav-token, a machine `:after` timer by declaring-path + epoch). An HTTP `:request-id` is correlation/abort metadata, **not** a second stale key. So you rarely hand-roll the epoch idiom for a *shipped* managed call; reach for the convention below for **app-owned async** (a Web Worker reply, a request-reply over a WebSocket *you* built) and **app-side coordination** where "did the user move on?" is broader than one managed call's work-id. When you build your own surface, model its stale check on the `:status :stale` rule (drop the late reply, no mutation) so it reads like the shipped surfaces. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md).
 
 ## When to load
 
@@ -21,7 +21,7 @@ Do NOT load for:
 - A reply whose event id is unique to its request (`:auth/succeeded`, `:cart/loaded`). Re-frame's standard "unhandled event" fallback already drops it cleanly when the receiving state has moved past handling it. The epoch is needed only when the *same event id* may be dispatched against *different state instances* of the same container.
 - Cancellation as an optimisation (saving bandwidth or CPU). That's an `AbortController` concern, not stale-detection. The epoch handles correctness regardless.
 
-> **Superseded — post-mutation watcher reactions.** Before mutation `:reply-to`, an app drove post-write workflow by *watching mutation state from a component lifecycle hook*: a Reagent Form-3 reaction watched `@(rf/subscribe [:rf.mutation/state {:instance …}])` and dispatched a workflow event once the watched instance became successful. That is adapter-specific, per-site, lifecycle-sensitive boilerplate that inverts ownership — the runtime knows when it accepted and settled the reply, so it should produce the continuation. **Use call-site `:reply-to` instead** (above). The watcher idiom is shown here only as the shape `:reply-to` replaces; do not author it for new code.
+> **Superseded — post-mutation watcher reactions.** Before mutation `:reply-to`, an app drove post-write workflow by watching mutation state from a component lifecycle hook (a Reagent Form-3 reaction watching `@(rf/subscribe [:rf.mutation/state {:instance …}])`, dispatching once the instance became successful) — adapter-specific, per-site, lifecycle-sensitive boilerplate that inverts ownership. **Use call-site `:reply-to` instead** (above); do not author the watcher idiom for new code.
 
 ## The shape
 
@@ -33,7 +33,7 @@ Five steps, owned by the state container that initiates the async work.
 4. On receipt, the handler compares carried-epoch to current-epoch.
 5. **Match → commit.** State has not been superseded; apply normally. **Mismatch → suppress.** Emit a structured `:<feature>/stale-<reason>` trace event for visibility, leave state unchanged.
 
-## re-frame2 features this pattern uses
+## The re-frame2 features this pattern uses
 
 | Feature | Role here |
 |---|---|
@@ -139,7 +139,7 @@ The owner is also responsible for *advancing* — typically in the same handler 
 
 No standalone example app — every state machine using `:after` is an inline example (the substrate-owned variant), and the routing example in `examples/capabilities/routing/routing/` exercises the nav-token variant. The substrate's behaviour is verified by the conformance suite under `spec/conformance/fixtures/` (look for the `stale-after` and `nav-token` fixtures).
 
-## Pointer to the spec
+## Pointers
 
 Full rationale — including the architectural properties that make the pattern work, the trace-event family-naming rule, the ownership table for every container type, and the worked example of applying the pattern to a hypothetical `:debounced-input` substrate — lives in *Pattern — Stale detection* (see `SKILL-REDIRECT.md` at the repo root). The first instance of the pattern (substrate-owned `:after` epoch) is in Spec 005 §Epoch-based stale detection; the second (routing nav-tokens) is in Spec 012 §Navigation tokens.
 
