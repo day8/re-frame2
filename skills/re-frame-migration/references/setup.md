@@ -51,6 +51,8 @@ If the project leans on a **UI component library** — any Reagent-based or Reac
 
   A Reagent component library with no Reagent-2 / React-19 build **and** no empirical pass cannot be carried across the floor, and discovering that *after* the coord swap means unwinding a half-migrated tree. Discover it here.
 
+**Verify a candidate component-lib branch by its pins, not its name** — the same *identity-by-structure* trap as the corpus-pin step below. A branch named `feature/reagent-upgrade` (or `react-19`, `next`, …) is **not** thereby a React-19 / Reagent-2 build; the name is a label someone typed, often onto an **abandoned spike** that still pins old `react` / `reagent` and was last touched months ago. Confirm the candidate by its **actual `react` / `reagent` pins** (read the branch's `package.json` / `deps.edn` at that ref) **and its last-commit recency** (`git log -1`), never by the branch name. A stale-pinned, long-untouched "upgrade" branch is a NO-GO dressed as a GO.
+
 This is the one check most likely to turn a "cheap coord swap" into a multi-week project — which is exactly why it runs before any edit.
 
 ### Check 3 — Legacy React-API scan
@@ -209,14 +211,19 @@ If the author wants the non-root substrate **out of scope** (a real, common choi
 
 ## Pin the migration corpus before reading it
 
-[`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) is the contract for every rewrite, so it must be **pinned**, not fetched live. Load it from a **local checkout of `day8/re-frame2` pinned to a specific commit or tag** — an unpinned remote fetch makes every migration depend on whatever happens to be on `main` that minute, and a non-reproducible corpus is a non-reproducible migration. Before reading the corpus, verify the checkout:
+[`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) is the contract for every rewrite, so it must be **pinned**, not fetched live. Load it from a **local checkout of `day8/re-frame2` pinned to a specific commit or tag** — an unpinned remote fetch makes every migration depend on whatever happens to be on `main` that minute, and a non-reproducible corpus is a non-reproducible migration.
+
+> **A branch or remote NAME is not an IDENTITY — verify by structure and pins, never by name.** That a checkout's `origin` is named `day8/re-frame2`, or that its branch/tag carries the expected name, does **not** prove it is the re-frame2 you mean. Names are cheap and collide; the only proof is the commit it resolves to **and the structure that commit carries**.
+
+Before reading the corpus, verify the checkout — commit, remote, **and layout**:
 
 ```bash
-git -C <path-to-re-frame2> rev-parse HEAD          # the pinned commit
-git -C <path-to-re-frame2> remote get-url origin   # confirm it's day8/re-frame2
+git -C <path-to-re-frame2> rev-parse HEAD                                                    # the pinned commit
+git -C <path-to-re-frame2> remote get-url origin                                             # confirm origin is day8/re-frame2 (NAME only)
+git -C <path-to-re-frame2> ls-tree <SHA> implementation/core/deps.edn implementation/adapters  # STRUCTURE: the multi-artifact layout exists at this ref
 ```
 
-These two are **read-only provenance checks the skill runs itself** — allow-listed (the scoped `Bash(git -C * rev-parse *)` / `Bash(git -C * remote get-url *)` entries in `SKILL.md`'s `allowed-tools`), on the same read-only side of the trust boundary as `rg`, not the author-runs-it compile/test/install/smoke class ([`SKILL.md` cardinal rule 5](../SKILL.md)). Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
+These three are **read-only provenance checks the skill runs itself** — allow-listed (the scoped `Bash(git -C * rev-parse *)` / `Bash(git -C * remote get-url *)` / `Bash(git -C * ls-tree *)` entries in `SKILL.md`'s `allowed-tools`), on the same read-only side of the trust boundary as `rg`, not the author-runs-it compile/test/install/smoke class ([`SKILL.md` cardinal rule 5](../SKILL.md)). The first two prove the commit and the remote NAME; the third proves **identity by structure** — a `git ls-tree` / path-existence read, not project-code execution. Confirm at the pinned ref that the **multi-artifact monorepo** layout is actually present: `implementation/core/deps.edn` (the core artefact), `implementation/adapters/<substrate>` (`reagent` / `uix` / `helix`), and the per-feature `implementation/<feature>` dirs the app pulls (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`, `resources` — each its own artefact dir). Confirm too that the substrate floor is **Reagent 2 / React 19** by reading `implementation/package.json` at that same ref (`react` / `react-dom` pinned to `19`). **Why this matters:** the two NAME probes pass even for an **old single-artifact ancestor** — a pre-monorepo-split commit, branch, or tag under the very same `day8/re-frame2` origin — where `implementation/` does not yet exist in this shape and the per-feature artefacts the migration depends on are simply absent at that ref. Pre-publish, several re-frame2 source checkouts on disk are **normal**, so this name-collision is common, not exotic: without the structure read the migration silently reads an **obsolete corpus** and plans against artefacts that do not exist at the pinned ref. Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
 
 ## Discovering the current VERSION
 

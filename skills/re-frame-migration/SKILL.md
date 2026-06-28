@@ -21,6 +21,7 @@ allowed-tools:
   - Bash(rg -l *)
   - Bash(git -C * rev-parse *)
   - Bash(git -C * remote get-url *)
+  - Bash(git -C * ls-tree *)
   - Bash(gh issue list *)
   - Bash(gh issue view *)
   - Bash(gh issue create *)
