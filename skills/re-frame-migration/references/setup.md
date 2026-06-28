@@ -99,6 +99,10 @@ Decide and record the gate outcome before proceeding:
 
 The author then runs `npm install` (or the project's package-manager equivalent) before the first dev build. If the project is already on React 19, leave it alone; do not downgrade.
 
+**Expect `npm install` to ERESOLVE-fail against any JS dep still pinned to a React `<19` peer.** The moment `react`/`react-dom` move to `^19`, npm's resolver rejects the whole tree if *any* remaining JS dependency still declares a `react` peer below 19 — a categorically common case in a view-heavy app (an animation library, a UI-component kit, a date-picker, a chart or drag-and-drop lib, etc., still pinned to `^18`). The install aborts with `npm error ERESOLVE could not resolve` / `peer react@"^18..." from <lib>`, and **the CLJS compile cannot even start without `node_modules`** — so this blocks the post-M-0 compile gate *before any re-frame rule runs*, and it reads like a setup failure rather than the dependency-floor issue it is.
+
+The **interim unblock to reach the compile gate** is `npm install --legacy-peer-deps` (or `--force`): it installs the tree despite the unmet React peer so the build can proceed and the migration sweep can continue. Treat that flag as **scaffolding, not a destination** — the peer-pinned JS deps it papers over are a **real to-do, not resolved**: bump each to a release that admits React 19 (this is the same Check-1 / Check-2 bump work above), so that `npm install` resolves *cleanly without the flag* **and** the library is actually runtime-safe on React 19. Do not leave `--legacy-peer-deps` as the project's permanent state — it silences the resolver, it does not make a React-`<19` library work under React 19; a lib that only *installs* under the flag can still mis-render or throw at runtime. Surface the still-pinned deps as a tracked follow-up alongside the GO decision.
+
 ---
 
 ## The coord swap (M-0)
