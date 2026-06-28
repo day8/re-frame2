@@ -435,7 +435,7 @@ alternatives.
 | `docs/core/` + quickstart | first event examples rewritten around the one form (the two pedagogy mitigations) |
 | `skills/` + `migration/from-re-frame-v1/` + `skills/re-frame-migration` | one-form guidance; the codemod + a migration breaking-changes entry |
 | Xray / Story / pair-MCP | code-snippet labels, highlighting, event panels |
-| `docs/core/api/15-removed.md` | record `reg-event-db` / `reg-event-fx` / public `reg-event-ctx` as removed, naming `reg-event` / `->interceptor` |
+| `migration/from-re-frame-v1/README.md` | record `reg-event-db` / `reg-event-fx` / public `reg-event-ctx` as removed, naming `reg-event` / `->interceptor` |
 
 Hot-zone: 001-Registration, 002-Frames, Spec-Schemas, 009, 015, API.md/manifest
 are sequential, one worker per step.

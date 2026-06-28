@@ -50,7 +50,7 @@
 
   REMOVAL-NOTE / TOMBSTONE TOLERANCE. Mirroring how `api-md-check` tolerates
   `spec/API.md` removal notes and how `doc-guide-check` file-scopes removed
-  names, the `docs/core/api/15-removed.md` tombstone register names removed
+  names, the `migration/from-re-frame-v1/README.md` removed-symbol register names removed
   surfaces by design. Its removed names appear as bare back-ticked
   identifiers (`` `add-marks` ``, `` `reg-sub-raw` ``), NOT as call-position
   `(rf/<var>` forms, so the call-position scope already excludes them. The

@@ -55,7 +55,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-sub id ?metadata input-fn? computation-fn)
   ```
-- **Description**: "Computed view over `app-db` and other subs." `reg-sub` supports **three input-production modes** — every subscription has an *input query-vector producer*: a layer-1 app-db reader has no producer, `:<-` is the literal producer, and a parametric `input-fn` is the query-parametric producer. The optional first fn is a v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**; it is **not** a v1 reaction-returning signal fn (it must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and it must not return live reactions). The runtime resolves each returned query vector in the *same frame* as the outer subscription. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance). Full contract, input grammar, and error ids: [spec API §`reg-sub` input-production modes](../../../spec/API.md#reg-sub-input-production-modes) and [spec 006 — Reactive Substrate](../../../spec/006-ReactiveSubstrate.md). The teaching walkthrough is [Guide ch.05 §Three ways a sub names its inputs](../concepts/subscriptions.md).
+- **Description**: "Computed view over `app-db` and other subs." `reg-sub` supports **three input-production modes** — every subscription has an *input query-vector producer*: a layer-1 app-db reader has no producer, `:<-` is the literal producer, and a parametric `input-fn` is the query-parametric producer. The optional first fn is a v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**; it is **not** a v1 reaction-returning signal fn (it must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and it must not return live reactions). The runtime resolves each returned query vector in the *same frame* as the outer subscription. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see the [migration reference](../../../migration/from-re-frame-v1/README.md) for the replacement guidance). Full contract, input grammar, and error ids: [spec API §`reg-sub` input-production modes](../../../spec/API.md#reg-sub-input-production-modes) and [spec 006 — Reactive Substrate](../../../spec/006-ReactiveSubstrate.md). The teaching walkthrough is [Guide ch.05 §Three ways a sub names its inputs](../concepts/subscriptions.md).
 
 | Mode | Form | Where the inputs come from |
 |---|---|---|
@@ -175,92 +175,20 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```
 - **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/core/seven_guis)
 
-### `reg-view`
+### Registrars owned by other chapters
 
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-view sym [args] body+)
-  ```
-  (plus shape-variants — see [02 — Views](02-views.md))
-- `defn`-shape view registration. Full contract in [02 — Views](02-views.md).
+These registrars are re-exported on the `re-frame.core` facade for single-import ergonomics, but each is **defined in full — signature, metadata grammar, examples — in its domain chapter**. This table is the index; author against the chapter.
 
-### `reg-view*`
+| Registrar | What it registers | Defined in |
+|---|---|---|
+| `reg-view` / `reg-view*` | Views — the `defn`-shape macro, and the plain-fn / computed-id form | [02 — Views](02-views.md) |
+| `reg-machine` | A state machine as an event handler | [04 — Machines](../../machines/api.md) |
+| `reg-app-schema` / `reg-app-schemas` | Malli schema for an `app-db` path (and the bulk plural form) | [08 — Schemas](08-schemas.md) |
+| `reg-flow` | A derived flow that auto-recomputes into an `app-db` path | [05 — Flows](05-flows.md) |
+| `reg-route` | A route as data | [06 — Routing](../../routing/api.md) |
+| `reg-head` / `reg-error-projector` | SSR head-model and trace-event → public-error projector | [09 — SSR](../../ssr/api.md) |
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-view* id render-fn)
-  (reg-view* id metadata render-fn)
-  ```
-- Plain-fn surface beneath `reg-view`. Full contract in [02 — Views](02-views.md).
-
-### `reg-machine`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-machine machine-id machine-spec)
-  ```
-- Registers a state machine as an event handler. Re-exported on the `re-frame.core` facade; full grammar (transitions, `:spawn`/`:regions`, snapshot shape) in [04 — Machines](../../machines/api.md).
-
-> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core`. Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](../../machines/api.md#re-framemachinesreg-machine).
-
-### `reg-app-schema`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-app-schema path {:schema schema})
-  (reg-app-schema path {:schema schema :frame frame})
-  ```
-- Declare the Malli schema for an `app-db` path (path is the registration id). Re-exported on the `re-frame.core` facade; full contract in [08 — Schemas](08-schemas.md).
-
-### `reg-app-schemas`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-app-schemas {path-1 schema-1, ...})
-  ```
-- Bulk plural form of `reg-app-schema`. Re-exported on the `re-frame.core` facade; full contract in [08 — Schemas](08-schemas.md).
-
-### `reg-flow`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-flow flow)
-  (reg-flow flow opts)
-  ```
-- Register a derived flow that auto-recomputes and writes to an `app-db` path. Re-exported on the `re-frame.core` facade; full contract in [05 — Flows](05-flows.md).
-
-### `reg-route`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-route id metadata path)
-  ```
-- Registers a route as data. Re-exported on the `re-frame.core` facade; full route-metadata grammar in [06 — Routing](../../routing/api.md).
-
-### `reg-head`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-head id ?metadata head-fn)
-  ```
-- SSR: register a head-model fn keyed by id. Re-exported on the `re-frame.core` facade; full contract in [09 — SSR](../../ssr/api.md).
-
-### `reg-error-projector`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-error-projector id ?metadata projector-fn)
-  ```
-- SSR: register a trace-event → public-error projector, named per-frame via `:ssr {:public-error-id …}`. Re-exported on the `re-frame.core` facade; full contract in [09 — SSR](../../ssr/api.md).
+> **Facade status of the starred forms.** `reg-view*` is on the `re-frame.core` facade (the plain-fn / computed-id view surface). `reg-machine*` is **not** — the plain-fn machine-registration surface lives in `re-frame.machines/reg-machine*`, and only the `reg-machine` / `defmachine` macros are on the facade.
 
 ### Clearing registrations
 
@@ -443,7 +371,7 @@ The framework ships a small, fixed set of standard `:rf/*` events you can dispat
   ```
 - **Description**: The framework-standard `app-db` seeding event. `[:rf/set-db {…}]` **replaces** the whole `app-db` partition with the supplied map (it is a replace, not a merge) and rides the **normal** post-commit path — schema validation, rollback, trace emission, epoch recording — so seeding `app-db` is an ordinary, traceable event rather than a privileged direct write. It returns `{:db new-db}` from a pure handler, so it touches **only** the `app-db` partition and never runtime-db.
 - **Validation**: takes **exactly one map argument**. A missing / `nil` / non-map argument, or any extra trailing arg (`[:rf/set-db {} :junk]`), throws `:rf.error/set-db-bad-value`. Empty `app-db` is `[:rf/set-db {}]`.
-- **In the wild**: the canonical boot-seed shape — `:initial-events [[:rf/set-db {:count 0}]]` on `frame-provider` / `make-frame`. (There is no `:initial-db` data key — see [15 — Removed](15-removed.md).)
+- **In the wild**: the canonical boot-seed shape — `:initial-events [[:rf/set-db {:count 0}]]` on `frame-provider` / `make-frame`. (There is no `:initial-db` data key.)
 
 ```clojure
 ;; seed app-db at frame creation
@@ -474,26 +402,7 @@ The two compose: the named-target fx ultimately dispatches, so the same trace st
 
 A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame. You establish it at your root with the merged `rf/frame-provider`, which takes one of two config shapes (see [EP-0024](../../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent)): scope an already-registered frame into the React tree with `[rf/frame-provider {:frame :app} …]` (or, for non-React lexical regions, `(rf/with-frame :app …)`), or let `[rf/frame-provider {:id :app …} …]` **ensure** the frame — it creates it on first mount, reuses it without re-seeding on remount, and provides its id to descendants (no destroy-on-unmount). `init!` does **not** create one for you — frame identity is carried, not synthesised from absence (see [EP-0002](../../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)). Apps that need isolation between subsystems — embedded widgets, multi-tab pair tools, the SSR per-request runtime — register additional frames and dispatch / subscribe against them via `{:frame :other}` (the frame **id** is the public routing address).
 
-`reg-frame` and `make-frame` are rowed in **Registration** above. The two read-side surfaces:
-
-### `frame-ids`
-
-- **Signature**:
-  ```clojure
-  (frame-ids)
-  (frame-ids ns-prefix)
-  ```
-- **Description**: "What frames currently exist?" Returns the set of registered ids. The optional prefix filters by namespace — `(rf/frame-ids :rf.story/)` for tool-owned frames.
-
-### `frame-meta`
-
-- **Signature**:
-  ```clojure
-  (frame-meta frame-id)
-  ```
-- **Description**: "What did the frame declare at registration?" Returns the metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings.
-
-See [12 — Registrar](12-registrar.md) for the rest of the registrar-query surface.
+`reg-frame` and `make-frame` are rowed in **Registration** above. The two read-side surfaces — `frame-ids` and `frame-meta` — are defined in [12 — Registrar](12-registrar.md) alongside the rest of the registrar-query surface (`registrations`, `handler-meta`).
 
 ## Runtime configuration: `configure`
 

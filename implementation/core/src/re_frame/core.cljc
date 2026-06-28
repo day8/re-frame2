@@ -273,7 +273,7 @@
 ;; throws identically on JVM and CLJS. `^:no-doc` drops them from the API
 ;; manifest generator + the CLJS publics probe: they carry no manifest row and
 ;; are not part of the documented public surface. See spec/001-Registration.md
-;; §The retired event-registration names + docs/core/api/15-removed.md.
+;; §The retired event-registration names + migration/from-re-frame-v1/README.md.
 (def ^{:no-doc true
        :doc "REMOVED in EP-0018 (no alias). Calling `reg-event-db` raises
   `:rf.error/reg-event-db-removed`, naming `reg-event` as the replacement.
@@ -994,7 +994,7 @@
 ;; an always-on catalogue error naming `:rf.cofx/requires`), but a removed
 ;; surface no longer occupies the canonical public API — no facade var, no
 ;; api-manifest row. See spec/001-Registration.md §`inject-cofx` is removed
-;; and docs/core/api/15-removed.md.
+;; and migration/from-re-frame-v1/README.md.
 
 #?(:clj
    (defmacro dispatch
@@ -2079,7 +2079,7 @@
 ;; the `[:rf.interceptor/path …]` ref as the replacement. `^:no-doc` drops it
 ;; from the API manifest generator + the CLJS publics probe: it carries no
 ;; manifest row and is not part of the documented public surface. See
-;; spec/API.md §Standard interceptors and docs/core/api/15-removed.md.
+;; spec/API.md §Standard interceptors and migration/from-re-frame-v1/README.md.
 (def ^{:no-doc true
        :doc "REMOVED in EP-0022 (no alias). Calling `path` raises the hard
   error `:rf.error/path-removed`, naming the framework-registered ref
@@ -2105,7 +2105,7 @@
 ;; replacement. `^:no-doc` drops it from the API manifest generator + the CLJS
 ;; publics probe: it carries no manifest row and is not part of the documented
 ;; public surface. See spec/API.md §Standard interceptors and
-;; docs/core/api/15-removed.md.
+;; migration/from-re-frame-v1/README.md.
 (def ^{:no-doc true
        :doc "REMOVED in EP-0022 (no alias). Referencing `unwrap-interceptor`
   raises the hard error `:rf.error/unwrap-removed`, naming the replacement:
