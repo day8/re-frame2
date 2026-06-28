@@ -50,7 +50,7 @@ Now the map itself. Every public surface gets one row below. The API page gives 
 | Registrar queries | `registrations`, `handler-meta` — the read-side query API tools build on | [12 — Registrar](api/12-registrar.md) | [001-Registration](../../spec/001-Registration.md) |
 | Lifecycle | `init!` adapter selection at boot, adapter inspection, teardown | [13 — Lifecycle](api/13-lifecycle.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
 | Adapters | The Reagent / UIx / Helix / reagent-slim substrate surfaces, `use-subscribe`, `frame-provider` | [14 — Adapters](api/14-adapters.md) | [006-ReactiveSubstrate](../../spec/006-ReactiveSubstrate.md) |
-| Removed / not shipped | What's gone since v1 and what replaced it | [15 — Removed](api/15-removed.md) | [Migration rules](../../migration/from-re-frame-v1/README.md) |
+| Removed / not shipped | What's gone since v1 and what replaced it | [From re-frame v1](25-from-re-frame-v1.md) | [Migration rules](../../migration/from-re-frame-v1/README.md) |
 | Resources | `reg-resource` / `reg-mutation` — declarative server state and the invalidate-then-refetch loop | [16 — Resources](../resources/api.md) | [016-Resources](../../spec/016-Resources.md) |
 
 Want the same surface on *one* page — every signature, status, and tier in a single `Ctrl-F` target? That's [spec/API.md](../../spec/API.md). Think of the table above as the domain-by-domain reading and `API.md` as the flat search index over the very same rows.
@@ -90,7 +90,7 @@ One model carries the whole composition story: **`image → frame → event stre
 
 The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration), and the composition rules — image order, the `rf/frame-shadows` report, collisions — are owned by [002-Frames](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent). The everyday rule that there's no enclosing container to address — you target a frame by its id — is [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found), taught in [Frames](concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found).
 
-> **From re-frame v1.** The older app / realm / module composition vocabulary — `rf/app`, `rf/module`, `rf/realm`, `install!`, and their inspectors — has left the public facade; the image/frame model replaced it. [15 — Removed](api/15-removed.md) lists what's gone and what took its place.
+> **From re-frame v1.** The older app / realm / module composition vocabulary — `rf/app`, `rf/module`, `rf/realm`, `install!`, and their inspectors — has left the public facade; the image/frame model replaced it. The [migration reference](../../migration/from-re-frame-v1/README.md) lists what's gone and what took its place.
 
 ## The worked examples
 
@@ -114,4 +114,4 @@ The [skills](../skills/index.md) are Claude Code skills for putting an agent to 
 
 ## Coming from re-frame v1
 
-[From re-frame v1](25-from-re-frame-v1.md) is the narrative delta — what carries over (almost everything), what changed and why. The mechanical rule set is the [migration reference](../../migration/from-re-frame-v1/README.md), and for any real port the [`re-frame-migration`](../../skills/re-frame-migration) skill is the recommended driver — it knows the rule set so you don't have to memorise it. When a name you remember has simply *vanished*, [15 — Removed](api/15-removed.md) is where to look: it lists what's gone and what replaced it, so a missing symbol turns into a one-line lookup rather than a mystery.
+[From re-frame v1](25-from-re-frame-v1.md) is the narrative delta — what carries over (almost everything), what changed and why. The mechanical rule set is the [migration reference](../../migration/from-re-frame-v1/README.md), and for any real port the [`re-frame-migration`](../../skills/re-frame-migration) skill is the recommended driver — it knows the rule set so you don't have to memorise it. When a name you remember has simply *vanished*, that same rule set lists what's gone and what replaced it, so a missing symbol turns into a one-line lookup rather than a mystery.

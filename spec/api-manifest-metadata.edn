@@ -368,7 +368,7 @@
  ;; call-position reference to the name OUTSIDE those files is RED (it leaked
  ;; into live reference prose).
  ;;
- ;; EMPTY TODAY. docs/core/api/15-removed.md — the tombstone register — names
+ ;; EMPTY TODAY. migration/from-re-frame-v1/README.md — the tombstone register — names
  ;; removed surfaces as bare back-ticked identifiers (`add-marks`,
  ;; `reg-sub-raw`, `path`), NOT as call-position `(rf/<var>` forms, so the
  ;; call-position scope already excludes them with no allowlist entry needed.
@@ -634,7 +634,7 @@
   ;; private (non-facade, un-rowed) hard-error thrower `re-frame.cofx/inject-cofx`:
   ;; a stale call to that namespace-internal var still raises the always-on
   ;; catalogue error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`.
-  ;; Migration docs live in docs/core/api/15-removed.md.
+  ;; Migration docs live in migration/from-re-frame-v1/README.md.
   ;; Interceptor CONTEXT ACCESSORS REMOVED from the façade: `get-coeffect`,
   ;; `assoc-coeffect`, `get-effect`, `assoc-effect` no longer re-export from
   ;; `re-frame.core`. Post-EP-0017/EP-0022 they lost their audience (the setters
@@ -654,7 +654,7 @@
   ;; doc` stub carries NO manifest row (the generator drops `^:no-doc` vars; a
   ;; `:deprecated`/preserved row would still read as supported public API). The
   ;; migration alarm is the always-loud throw itself. Migration docs live in
-  ;; docs/core/api/15-removed.md.
+  ;; migration/from-re-frame-v1/README.md.
   ;; EP-0022 + rf2-3qeu38 (the `rf/path` twin): the public
   ;; `re-frame.core/unwrap-interceptor` VALUE is REMOVED — the framework ships
   ;; NO standard unwrap (EP-0022:53-55/555-578/881/932; spec/API.md +
@@ -668,7 +668,7 @@
   ;; stub carries NO manifest row (the generator drops `^:no-doc` vars; a
   ;; preserved row would still read as supported public API). The migration
   ;; alarm is the always-loud throw itself. Migration docs live in
-  ;; docs/core/api/15-removed.md.
+  ;; migration/from-re-frame-v1/README.md.
   ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"}
   ;; EP-0015 §7 + bead item 2 (rf2-mngp4o): `redact-interceptor` is removed
   ;; from the public API — registration-owned `:sensitive` payload

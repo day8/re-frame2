@@ -27,7 +27,7 @@
   #{"reg-event" "reg-sub" "dispatch" "configure!" "reg-story" "machine-meta"})
 
 (def ^:private scoped-allow
-  {"reg-sub-raw" #{"docs/core/api/15-removed.md"}})
+  {"reg-sub-raw" #{"migration/from-re-frame-v1/README.md"}})
 
 (defn- problems-for [references]
   (c/reconcile {:references references
@@ -60,7 +60,7 @@
   (testing "a scoped removed name is silenced in its approved tombstone file"
     (is (empty? (problems-for
                   [{:var "reg-sub-raw" :line 26 :raw "rf/reg-sub-raw"
-                    :file "docs/core/api/15-removed.md"}]))))
+                    :file "migration/from-re-frame-v1/README.md"}]))))
   (testing "the SAME scoped removed name in a NON-approved live reference file
             is RED — it leaked into live reference prose"
     (let [probs (problems-for

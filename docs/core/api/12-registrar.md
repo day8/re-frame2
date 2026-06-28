@@ -125,14 +125,7 @@ The schema-introspection surfaces are rowed in [08 — Schemas](08-schemas.md). 
 
 ### `compute-sub`
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (compute-sub query-v db)
-  ```
-- Pure sub computation against an `app-db` value — full contract in [10 — Testing](10-testing.md).
-
-(Cross-rowed in [10 — Testing](10-testing.md).)
+Defined in [10 — Testing](10-testing.md#compute-sub) — the cache-bypassing pure sub evaluator.
 
 ## Behaviour against destroyed frames
 

@@ -62,12 +62,7 @@ For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` 
 
 ### `with-fx-overrides`
 
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (with-fx-overrides {fx-id -> override, …} body+)
-  ```
-- **Description**: Lexical-scope fx override (`re-frame.core`) — the common "stub THIS fx within THIS block" test surface. Full contract + precedence in [03 — Effects and interceptors](03-effects.md).
+Defined in [03 — Effects and interceptors](03-effects.md#with-fx-overrides) — the fx-override mechanism. Tests use it to swap fx behaviour per the override surface.
 
 ### `compute-sub`
 

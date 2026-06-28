@@ -223,7 +223,6 @@ nav:
       - "12 — Registrar": core/api/12-registrar.md
       - "13 — Lifecycle": core/api/13-lifecycle.md
       - "14 — Adapters": core/api/14-adapters.md
-      - "15 — Removed": core/api/15-removed.md
       - "Normative reference": spec/API.md
 
   - Machines:
