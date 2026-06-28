@@ -142,11 +142,11 @@ The entry ns is named `core`. It:
    `re-frame.routing`, `re-frame.schemas`, `re-frame.http.managed`,
    `re-frame.ssr`) — the requires publish the late-bind hooks
    (`realworld/core.cljs:31-63`).
-3. Defines `:app/initialise` (the boot event, dispatched under `with-frame`)
+3. Defines `:app/initialise` (the boot event, run via the frame's `:initial-events`)
    and fans out to per-feature initialisers (`realworld/core.cljs:69-83`).
 4. Defines the root view and the React root.
 5. Exports a `run` fn that calls `rf/init!` with the substrate
-   adapter, dispatch-syncs `:app/initialise`, and renders.
+   adapter, then renders a `frame-provider {:id …}` whose `:initial-events` seed the frame (including `:app/initialise`).
 
 If the app server-renders, `core.cljc` (not `.cljs`) and the `run`
 body sits inside `#?(:cljs ...)`; the JVM-side `handle-request` lives
@@ -173,8 +173,8 @@ from a missing frame, and is only worth picking for a tiny app or a v1
 migration). Apps with several frames (server-render per request, stories
 shell, embedded widget) name each frame and configure it in `core`. Per-frame
 configuration — `:fx-overrides`, `:initial-events`, request interceptors — goes
-through `reg-frame` calls at the bottom of `core.cljs`
-(`realworld/core.cljs:298-306`). Feature files do not configure frames; they
+through the render-root `frame-provider {:id …}` config props (or `reg-frame` for a frame created outside React)
+(`realworld/core.cljs:575-586`). Feature files do not configure frames; they
 register events/subs against no particular frame and let the entry ns own the
 frame wiring, talking to a frame only through `dispatch` / `subscribe`.
 
