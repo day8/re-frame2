@@ -44,6 +44,22 @@ The injected `dispatch` / `subscribe` are why a `reg-view` body needs no frame t
 
 `(rf/view :id)` returns the **wrapped** (frame-aware) fn `reg-view` produced, re-resolved on every call (so hot-reload swaps are picked up). Reach for it when the id is computed at runtime, the Var isn't in scope, or you want hot-reload re-resolution at the call site. A `view` miss returns `nil` (no error). **Bare `[:counter "Count"]`** — a keyword tag Reagent would interpret as a registered view — is **not supported in v1**; use the Var or `(rf/view …)`.
 
+### The call site MUST be hiccup, never a bare function call
+
+Every call site of a registered view must be **hiccup** — `[counter …]` (the Var in the bracket head) or `[(rf/view :counter) …]` (the id-lookup in the bracket head). **Never call it in function position as `(counter …)`.** The two differ at the React boundary, not just stylistically:
+
+```clojure
+[counter "Count"]            ;; hiccup — Reagent MOUNTS the wrapper as a component
+[(rf/view :counter) "Count"] ;; also hiccup — id-lookup in the bracket head, also mounts
+(counter "Count")            ;; WRONG — a bare function call, no component is minted
+```
+
+`reg-view`'s frame wiring rides the component's `:contextType`, which is attached **only when the substrate mounts the wrapper as a component** — i.e. when the view appears as the head of a hiccup vector. The wrapped fn resolves its frame from the mounted component's React context. A bare `(counter "Count")` invokes the render fn inline on the calling stack: no component is minted, no `:contextType` attaches, so the body's injected `subscribe` / `dispatch` carry no frame and raise `:rf.error/no-frame-context` the moment they run.
+
+**Distinguish the bracket-head function-position form, which is supported.** `[(rf/view :counter) "Count"]` *looks* like a call but it is still inside the hiccup brackets — the `(rf/view :counter)` evaluates to the wrapped fn and Reagent mounts it as the vector head, so the component (and its `:contextType`) is minted normally. The footgun is only the **bare** `(counter "Count")` with no enclosing brackets.
+
+The canonical bite is at a render root: `[rf/frame-provider {:frame :app/main} (app-root)]` evaluates `(app-root)` *outside* the provider's React subtree (it runs while building the provider's argument vector, before the provider mounts) — so it throws. Defer the render *inside* the subtree by keeping it in hiccup: `[rf/frame-provider {:frame :app/main} [app-root]]`.
+
 ## `reg-view*` — the plain-fn escape hatch
 
 ```clojure
