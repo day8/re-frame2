@@ -382,6 +382,8 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (The frame already exists from `reg-frame`, so you scope it with `{:frame …}` rather than ensure it; `frame-provider`'s other shape, `{:id …}`, would *ensure* a named frame — create-if-absent, reuse-no-reseed — which the app root doesn't need.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
 
+> **The boot kick is the SYNCHRONOUS sibling of a larger no-frame-context class — the async one needs a DIFFERENT fix.** Wrapping the synchronous boot dispatch in `with-frame` works only because the dispatch runs *while the binding is live*. A bare `dispatch` / `subscribe` that runs **after** boot from an async callback registered outside any view — a module-level `addEventListener` (popstate / hashchange), a `setTimeout` / `setInterval` / `requestAnimationFrame` timer, a `window 'error'` handler, a JS-lib lifecycle callback — raises the same `:rf.error/no-frame-context`, but a registration-time `with-frame` does **not** survive into the callback; the frame must be re-established **inside** it. See [`guided-handlers-state.md` §The async listener timer and error-handler class](guided-handlers-state.md#the-async-listener-timer-and-error-handler-class).
+
 ---
 
 ## Per-feature artefact adds (M-27 through M-33)

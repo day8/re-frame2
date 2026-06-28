@@ -23,6 +23,7 @@ Per-file confirmation is not required — the author has already invoked the mig
 ## Contents
 
 - Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25 — incl. the async-test recipe `run-test-async` / `wait-for-event`, M-50, M-52)
+- reg-sub flat-sub sugar removed (`:->` / `:=>` desugaring — no `M-N` id)
 - Effect-map consolidation (M-8)
 - Dispatch-shape rewrites (M-4, M-9, M-16)
 - Event-registration collapse (M-73 — the `reg-event` codemod)
@@ -245,6 +246,55 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 ```
 
 Mechanical name-rename only. The macro's `binding` over `re-frame.router/*fx-overrides*`, the override-map shape, precedence rules, and composition with `with-frame` are unchanged — three names (macro / `:fx-overrides` opt key / `*fx-overrides*` dynvar) now share the `fx-overrides` stem. See [MIGRATION.md §M-50](../../../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
+
+---
+
+## reg-sub flat-sub sugar removed
+
+A sibling mechanical (Type A) rewrite to M-23, for a v1 surface that carries **no `M-N` id** — cite it by name (a `reg-sub` `:->` / `:=>` desugaring), not a phantom `M-NN`.
+
+re-frame **v1.3+** `reg-sub` accepts two **flat-sub sugar** markers — `:->` and `:=>` — that let the computation fn be written as a plain function of the input value(s):
+
+- `(reg-sub :id :-> f)` — **no** `:<-`, so the input is **app-db**; `f` is applied to it.
+- `(reg-sub :id :<- [:a] :-> f)` — `f` is applied to the single upstream value.
+- `(reg-sub :id :<- [:a] :<- [:b] :-> f)` — `f` is applied to the **vector** of upstream values `[a b]`.
+- `:=>` is the same family but **also passes the query vector** (spread) into `f`.
+
+**re-frame2's `reg-sub` DROPPED both markers.** The sub parser (`implementation/core/src/re_frame/subs.cljc`) recognises **only** `:<-` chains, the two-trailing-fn parametric form, and a single trailing computation fn — there is no `:->` / `:=>` handling and no desugaring macro. So a `:->` / `:=>` registration falls through the parser's `:else` arm and throws **`:rf.error/reg-sub-bad-args`** (`:recovery :fix-registration`) at **registration / ns-load**. This is **loud-at-registration, not loud-at-compile** and not a silent miss: like the retired event registrars (M-73) and the bad interceptor-chain shapes (M-70), the throw **aborts the rest of that namespace's load** — every later `reg-event` / `reg-frame` / `reg-machine` in the same ns never registers, so a boot that depends on them hangs. `:->` / `:=>` are high-frequency in v1.3+ / alpha apps, so expect many sites; grep them up front (see [`inventory-and-plan.md`](inventory-and-plan.md) Phase 0a) rather than marching the wall.
+
+**The rewrite — desugar to the explicit computation fn**, matching re-frame v1's documented sugar semantics. The v2 computation fn shape is `(fn [input query-v] …)`, where `input` is exactly what the sugar's `f` was fed: app-db with no `:<-`, the single value with one `:<-`, the vector with several.
+
+**`:->` — drop the query vector.** `:->` applies `f` to the input(s) **only**; the query vector is discarded. The wrapper is uniform — ignore the query arg, pass the input straight to `f`:
+
+```clojure
+;; SEARCH
+(reg-sub :id :-> f)                       ; input = app-db (no :<-)
+(reg-sub :id :<- [:a] :-> f)              ; input = the single upstream value
+(reg-sub :id :<- [:a] :<- [:b] :-> f)     ; input = the vector [a b]
+
+;; REWRITE — wrap f as a 2-arg computation fn that ignores the query vector
+(reg-sub :id (fn [db _] (f db)))
+(reg-sub :id :<- [:a] (fn [in _] (f in)))
+(reg-sub :id :<- [:a] :<- [:b] (fn [in _] (f in)))
+```
+
+**`:=>` — pass the query vector, spread.** v1's `:=>` feeds `f` the input(s) as the **first** argument, then **spreads the query vector's positional args** (everything *after* the query-id) as the remaining arguments; a **map-shaped** query is passed through whole. (Note: it is the *query vector* that spreads, not the input — the input stays a single first arg.) Desugar faithfully:
+
+```clojure
+;; SEARCH
+(reg-sub :id :<- [:a] :=> f)
+
+;; REWRITE — input first, then the query args after the query-id, spread
+(reg-sub :id :<- [:a]
+  (fn [in q]
+    (if (map? q)
+      (f in q)                                ; map query → passed whole
+      (let [[_ & qs] q] (apply f in qs)))))   ; vector query → drop the id, spread the rest
+```
+
+For the dominant case — a query vector `[:id arg1 arg2]` — this reduces to `(f in arg1 arg2)`: the input value, then the positional query args. `:=>` is rarer than `:->`; verify each site's intended `f` arity against the v1 `:=>` definition before applying.
+
+> **Don't cross-port the two markers.** `:->` drops the query vector; `:=>` keeps it. A `:->` handler that secretly read a query arg was already broken under v1 — preserve the v1 behaviour and flag any site whose `f` arity doesn't match its marker, rather than silently switching it to the other shape.
 
 ---
 

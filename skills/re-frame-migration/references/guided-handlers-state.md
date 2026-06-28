@@ -9,7 +9,7 @@ For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, s
 - M-3 — run-to-completion drain
 - M-5 — Var-aliased `reg-*`
 - M-10 — reserved-namespace collision
-- M-11 — plain Reagent fns under any frame (including the default/single frame)
+- M-11 — plain Reagent fns under any frame (including the default/single frame) — incl. the async listener / timer / error-handler class
 - M-12 — render-count test re-baseline
 - M-13 — `reg-event-error-handler`
 - M-14 — `:rf.route/not-found` requirement (only if adopting Spec 012)
@@ -189,6 +189,58 @@ The spec prefers Form-1 + an explicit setup event over Form-2 (see [`spec/004-Vi
 **After converting — fix any function-position call site of a converted view.** A `reg-view`'s frame wiring rides the component's `:contextType`, which the substrate attaches **only when it mounts the view as a component** — i.e. when the view appears as the head of a hiccup vector, `[my-view props]`. A v1 codebase that called the old plain render fn in **function position**, `(my-view props)`, still compiles after the conversion but bypasses the mount: no component is minted, no `:contextType` attaches, and the converted body's injected `subscribe` / `dispatch` raise `:rf.error/no-frame-context` when they run. So add one identify/verify step to the sweep: after converting the view symbols, grep each converted symbol used in call position — `(my-view …)` — and rewrite it to hiccup, `[my-view …]`. (The bracket-head lookup form `[(rf/view :my-view) …]` is also hiccup and mounts normally; only the **bare** `(my-view …)` call is the footgun.)
 
 > **Not M-11 — an in-handler `@(rf/subscribe …)` deref.** M-11 is the no-frame-context footgun for a *view* (or an escaped callback) that has no surrounding scope to read a sub from. An `@(rf/subscribe …)` deref **inside a `reg-event` handler** is a different shape: the handler already holds app-db as the `:db` coeffect, so recompute the value from `:db` — it needs no `reg-view` / `(rf/capture-frame)` / `with-frame`. Triage it by source, not by context: see [`causal-world-inputs.md` §source triage](causal-world-inputs.md#triage-in-handler-reads-by-source).
+
+### The async listener timer and error-handler class
+
+M-11 above operationalises the no-frame-context footgun for **views**; M-40 ([`auto-cross-cutting.md` §Boot-sequence invariant](auto-cross-cutting.md#boot-sequence-invariant--init-must-run-before-the-first-dispatch-and-the-first-render)) operationalises it for the **synchronous boot kick**. Both are instances of one general rule:
+
+> **Under EP-0002, ANY bare `rf/dispatch` / `rf/subscribe` reachable OUTSIDE a render AND OUTSIDE an explicit frame scope (a `with-frame` body or a captured `(rf/capture-frame)`) raises `:rf.error/no-frame-context`.** Frame identity is carried, not found; there is no ambient `:rf/default` the runtime synthesises in its place.
+
+The instance the skill did not yet name is the **async / non-render class** — code that registers a callback *outside any view* and bare-dispatches when it **later fires**:
+
+- a module-level `(.addEventListener js/window "popstate" …)` / `"hashchange"` routing listener;
+- a `js/setTimeout` / `js/setInterval` / `js/requestAnimationFrame` timer;
+- a `js/window` `'error'` / `.-onerror` global error handler;
+- a third-party JS-lib lifecycle callback (a map's `moveend`, a chart's `onClick`, a socket's `onmessage`).
+
+Each is registered outside any `frame-provider` and fires **after** boot, so there is no render around the callback body to read a frame from — its bare `dispatch` / `subscribe` raises `:rf.error/no-frame-context` at first fire.
+
+**CRUCIAL — the remedy differs from the M-40 boot kick.** The boot kick is fixed by a `with-frame` *around the synchronous boot dispatch*. That does **not** carry here: a `with-frame` (or a `frame-provider`) established at **registration time** is a dynamic binding that is **already unwound by the time the async callback fires** — wrapping the `addEventListener` / `setTimeout` call itself in `with-frame` leaves the callback *body* running under no scope, and it still raises `:rf.error/no-frame-context`. Re-establish the frame **inside the callback**, two ways:
+
+1. **Wrap the dispatch in `(rf/with-frame app-frame …)` at FIRE time** — inside the callback body, not around its registration.
+2. **Close the callback over a `(rf/capture-frame)` taken where a frame IS in scope** — capture the frame api under an existing scope, then call its `:dispatch` / `:subscribe` from the callback. The captured handle, unlike the ambient dynamic binding, **survives the async boundary** (the property M-11 decision-shape 2 above relies on).
+
+```clojure
+;; v1 — a module-level routing listener bare-dispatches. In v1 the global
+;; app-db ratom + ambient registry made this fine.
+(defn init-router! []
+  (.addEventListener js/window "popstate"
+    (fn [_] (rf/dispatch [:route/changed (-> js/window .-location .-pathname)]))))
+
+;; v2 WRONG — with-frame around REGISTRATION does not reach the callback. By the
+;; time popstate fires the dynamic binding is gone, so the bare dispatch in the
+;; listener body raises :rf.error/no-frame-context.
+(defn init-router! []
+  (rf/with-frame app-frame                              ; unwound before the listener fires
+    (.addEventListener js/window "popstate"
+      (fn [_] (rf/dispatch [:route/changed (-> js/window .-location .-pathname)])))))
+
+;; v2 RIGHT (1) — re-establish the frame INSIDE the callback, at fire time.
+(defn init-router! []
+  (.addEventListener js/window "popstate"
+    (fn [_]
+      (rf/with-frame app-frame
+        (rf/dispatch [:route/changed (-> js/window .-location .-pathname)])))))
+
+;; v2 RIGHT (2) — capture the frame api where a frame IS in scope, then close
+;; the callback over it; the captured dispatch survives async.
+(rf/with-frame app-frame
+  (let [{:keys [dispatch]} (rf/capture-frame)]          ; captured under the scope
+    (.addEventListener js/window "popstate"
+      (fn [_] (dispatch [:route/changed (-> js/window .-location .-pathname)])))))
+```
+
+The same two remedies cover `setTimeout` / `setInterval` / `requestAnimationFrame` callbacks, a `js/window` `'error'` handler, and any JS-lib lifecycle callback that dispatches. **Phase-0a grep these** (`addEventListener`, `set(Timeout|Interval)`, `requestAnimationFrame`, `onerror` / `'error'`, JS-lib callbacks that bare-dispatch — see [`inventory-and-plan.md`](inventory-and-plan.md)); and the boot smoke-test must **exercise** each one (fire the listener / let the timer elapse / raise the error), because the throw lands only at first fire, not at boot — a boot-without-firing scan misses it ([`runtime-smoke-test.md`](runtime-smoke-test.md)).
 
 ---
 
