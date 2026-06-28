@@ -6,7 +6,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 ## 1. Primary input — `implementation/**`
 
-Path: `implementation/core/src/re_frame/**`, `implementation/reagent/src/re_frame/**`, plus per-feature artefacts (`implementation/machines/`, `implementation/routing/`, `implementation/flows/`, `implementation/http/`, `implementation/ssr/`, `implementation/schemas/`, `implementation/epoch/`).
+Path: `implementation/core/src/re_frame/**`, `implementation/adapters/reagent/src/re_frame/**`, plus per-feature artefacts (`implementation/machines/`, `implementation/routing/`, `implementation/flows/`, `implementation/http/`, `implementation/ssr/`, `implementation/schemas/`, `implementation/epoch/`).
 
 **This is the source of truth.** Every code snippet in `references/` and `patterns/` is verified against the implementation — the function signatures, the macro shapes, the keyword option sets, the late-bind hook contracts. When the spec disagrees with the implementation, the implementation wins and a `bd` bead is filed against the spec.
 
@@ -19,7 +19,7 @@ Specific files the leaves lean on:
 - `implementation/core/src/re_frame/subs.cljc` — sub graph, layered subs, dynamic args.
 - `implementation/core/src/re_frame/test_support.cljc` — `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals` / `assert-db-equals`, `compute-sub`, `subscribe-once`.
 - `implementation/core/src/re_frame/substrate/plain_atom.cljc` — JVM-side adapter.
-- `implementation/reagent/src/re_frame/adapter/reagent.cljs` — `frame-provider`, plain-Reagent-fn warning.
+- `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs` — `frame-provider`, plain-Reagent-fn warning.
 - `implementation/machines/src/re_frame/machines.cljc` — `reg-machine`, `:spawn`, parallel regions, tags.
 - `implementation/http/src/re_frame/http.cljc` — `:rf.http/managed`, failure categories, request stubs.
 
