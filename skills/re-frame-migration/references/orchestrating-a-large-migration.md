@@ -24,6 +24,26 @@ A silent fix is an out-of-bounds edit waiting to happen — the surface may belo
 
 Make it an explicit line in every unit's deliverable: **"no un-inventoried trigger surfaces left unreported in my files."** A unit isn't done when its listed rules are applied — it's done when its files carry no v1 surface the orchestrator hasn't been told about.
 
+## Wave 0.5 — the mechanical global pre-pass
+
+The completeness gate hands you the **whole** changed surface up front. Before you partition it (§1), front-load the part of the sweep that is **dominantly mechanical**: run the high-frequency, context-independent global renames across the **entire tree first**, as one reviewable, low-risk commit. The file-partitioned fan-out (§1, §4) then rebases off that commit and does the judgment-heavy per-area work on top. This is ordinary large-refactor practice — mechanical codemods first, judgment work second — and it is exactly what the dep-coord swap ([M-0](breaking-changes.md#required-m-rules-by-trigger-surface)) and the off-contract-require rewrite ([M-1](auto-call-site-rewrites.md#m-1--off-contract-re-frame-namespace-requires)) already do ahead of everything else.
+
+**The pre-pass is sequential — it is NOT a concurrent rule-family worker, so it does not contradict §1.** §1 correctly forbids concurrent rule-family workers: M-70 and M-8 sites co-habit `events.cljs`, so a "one worker per rule" split collides there. The pre-pass is the opposite shape — it commits **once**, and the fan-out rebases off that single commit exactly as it already rebases off M-0 / M-1. One commit lands tree-wide, then the file-partition runs on top; no two workers ever hold the same file at the same time. The pre-pass composes with one-file-one-owner — it does not weaken it.
+
+**The selection criterion.** A rule belongs in the pre-pass when it is **dominantly mechanical** (a closed rename / codemod, not a judgment call), **high-frequency** (it fires at many sites across many files), and **context-independent** (the rewrite is the same everywhere — it does not turn on what the surrounding code means). Classify any rule against those three; for a typical v1 app the qualifiers are:
+
+- **[M-73](auto-call-site-rewrites.md#m-73--one-event-registration-form-reg-event)** — the `reg-event-db` / `reg-event-fx` → `reg-event` consolidation. The most pervasive call-site rule of all, universal to every v1 app: everything registers events. The pure `reg-event-fx` → `reg-event` rename and the simple `reg-event-db` → `{:db BODY}` reshape are the deterministic codemod.
+- **[M-23](auto-call-site-rewrites.md#m-23--re-framealpha-removal-mechanical-half)** — for alpha-namespace apps, `re-frame.alpha`'s `sub` → `subscribe` (and the per-kind `reg` → `reg-*` rewrites).
+- **[M-20](breaking-changes.md#required-m-rules-by-trigger-surface)** — the closed framework-keyword rename table (`:re-frame/*` / `:machine/*` / … collapse onto the single `:rf/*` root).
+- **[M-51](breaking-changes.md#required-m-rules-by-trigger-surface)** — the unary → binary `reg-fx` handler arity bump (`(fn [args] …)` → `(fn [_ args] …)`).
+
+**Carve out the context-dependent halves, or the pre-pass manufactures anti-shapes.** Two of these rules ride a judgment call; the pre-pass takes only the mechanical bulk and leaves the carve-out **flagged for the owning unit**:
+
+- **M-23's signal-fn carve-out → [M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns).** A `sub` at an ordinary call site becomes `subscribe`, but a `sub` **inside a `reg-sub` signal/input fn** becomes a bare query **vector** (`[:x id]`), not a `subscribe` call — swapping it to `subscribe` registers clean and then throws at first materialization. The pre-pass leaves those for M-71's reshape (the unit that owns the subs file). Both halves are written up in [`auto-call-site-rewrites.md` §M-23](auto-call-site-rewrites.md#m-23--re-framealpha-removal-mechanical-half).
+- **M-73's non-mechanical half.** The pure rename and the simple `reg-event-db` reshape are codemod-able; a `reg-event-db` body that can evaluate to `nil`, a complex / multi-arity `reg-event-db`, and every `reg-event-ctx` are **not** — the codemod flags them rather than rewriting (see [`auto-call-site-rewrites.md` §M-73](auto-call-site-rewrites.md#m-73--one-event-registration-form-reg-event)). The pre-pass runs the codemod and carries those flags to the owning unit; it never guesses the intended reading.
+
+Front-loading these **shrinks the convergence gate.** Distributed across the fan-out instead, a high-frequency rename leaks: a site one unit misses — or a whole rename a feature/view epic never thinks about (dozens of scattered alpha `sub` → `subscribe` sites, plus the M-71 signal-fn carve-out, all living in subs files split from the running view epic) — surfaces **late and all together** at the single all-or-nothing compile gate (§5), enlarging exactly the gate the partition exists to keep small. Run as a pre-pass, the fan-out starts from a tree already globally consistent on the mechanical axis, so the gate carries only the judgment-heavy residue, not a long tail of mechanical leftovers.
+
 Five parts, in the order you apply them.
 
 ## 1. One-file-one-owner — the collision-free partition
