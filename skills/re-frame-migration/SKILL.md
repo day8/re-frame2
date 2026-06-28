@@ -100,6 +100,10 @@ If any step fails, find the rule, apply it, ask the author to re-verify. The ski
 
 **Phase 6 — Report.** Produce the migration report per `MIGRATION.md` Part 2 §"Output format for your report". → [`references/output-format.md`](references/output-format.md) — the format restated with one filled-in example.
 
+## Scaling to a large migration (opt-in — parallel, collision-free workers)
+
+The phases above assume **one session** walks them. That is the right default — most migrations are small enough that a single agent applying the per-rule recipes in order is the fastest, safest path. But a genuinely **large** migration (the Phase-0a inventory comes back with ~30 source files, several rule-families colliding inside the same files, and a want to fan the work out across multiple workers) needs a scheduling layer on top, or the parallel workers merge-conflict and silently revert each other. That methodology — the one-file-one-owner partition, the Wave-0 id-contract, the bridge-handler idiom as a cross-file coordination tool, wave sequencing, and the single all-or-nothing post-sweep compile gate — lives in [`references/orchestrating-a-large-migration.md`](references/orchestrating-a-large-migration.md). It composes with cardinal rule 4 (the partition + wave plan **is** the "announce before a mass rewrite") and the orchestrated-execution mode of cardinal rule 5 (each worker owns disjoint files in its own worktree, runs the consolidated gate in its sandbox, and posts to the PR). It does not replace the phases — it parallelises the Phase-3 sweep. Route here only when the migration is large; otherwise the single-session walk above is the path.
+
 ## Boot & init (the one topic that crosses every phase)
 
 Boot is where a real migration hits the most friction, because v2 changes app boot *structurally* — so the guidance that's spread across the phases above is gathered here as one coherent topic. Every non-trivial app boots; get these four facts right together and you prevent an entire class of silent runtime breakage. (Each links to the leaf that owns the detail; this is the map, not a restatement.)
@@ -142,6 +146,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - [`references/async-flow-to-machines.md`](references/async-flow-to-machines.md) — O-16 translation guide: `async-flow-fx` async sequences → `reg-machine` state machines, with a worked boot/login before→after.
 - [`references/http-fx-to-managed-http.md`](references/http-fx-to-managed-http.md) — O-17 translation guide: `http-fx` (`:http-xhrio`) → managed HTTP (`:rf.http/managed`), with a worked GET-with-JSON before→after.
 - [`references/sequencing.md`](references/sequencing.md) — recommended walk order.
+- [`references/orchestrating-a-large-migration.md`](references/orchestrating-a-large-migration.md) — opt-in methodology for parallelising a large migration across collision-free workers: one-file-one-owner partition, the Wave-0 id-contract, the bridge-handler idiom, wave sequencing, and the single post-sweep compile gate.
 - [`references/auto-call-site-rewrites.md`](references/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites.
 - [`references/auto-cross-cutting.md`](references/auto-cross-cutting.md) — Type A: cross-cutting renames, view / hiccup, init, per-feature artefacts.
 - [`references/guided-handlers-state.md`](references/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs.
