@@ -162,13 +162,13 @@ nav:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
     - guide/README.md
-    # Human-first structure: quickstart (a taste) -> Core concepts (the loop,
+    # Human-first structure: quickstart (a taste) -> the loop (the model,
     # on the counter) -> the RealWorld tutorial (build something real) -> the
     # deeper/feature concepts -> how-to recipes -> explanation shelf -> v1
     # migration -> a thin index into spec/. The fundamentals come BEFORE the
     # tutorial so the reader meets the one-way loop before a real domain.
     - "Quickstart": guide/quickstart.md
-    - "Core concepts: the loop":
+    - "The loop":
       - guide/concepts/index.md
       - "Events and the cascade": guide/concepts/events-and-the-cascade.md
       - "app-db": guide/concepts/app-db.md
@@ -212,18 +212,18 @@ nav:
     - "Reference index": guide/reference.md
     - "Glossary": guide/glossary.md
     - "API":
-      - api/README.md
-      - "01 — Core": api/01-core.md
-      - "02 — Views": api/02-views.md
-      - "03 — Effects": api/03-effects.md
-      - "05 — Flows": api/05-flows.md
-      - "08 — Schemas": api/08-schemas.md
-      - "10 — Testing": api/10-testing.md
-      - "11 — Instrumentation": api/11-instrumentation.md
-      - "12 — Registrar": api/12-registrar.md
-      - "13 — Lifecycle": api/13-lifecycle.md
-      - "14 — Adapters": api/14-adapters.md
-      - "15 — Removed": api/15-removed.md
+      - guide/api/README.md
+      - "01 — Core": guide/api/01-core.md
+      - "02 — Views": guide/api/02-views.md
+      - "03 — Effects": guide/api/03-effects.md
+      - "05 — Flows": guide/api/05-flows.md
+      - "08 — Schemas": guide/api/08-schemas.md
+      - "10 — Testing": guide/api/10-testing.md
+      - "11 — Instrumentation": guide/api/11-instrumentation.md
+      - "12 — Registrar": guide/api/12-registrar.md
+      - "13 — Lifecycle": guide/api/13-lifecycle.md
+      - "14 — Adapters": guide/api/14-adapters.md
+      - "15 — Removed": guide/api/15-removed.md
       - "Normative reference": spec/API.md
 
   - Machines:

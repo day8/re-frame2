@@ -176,7 +176,7 @@ project advanced."
 worktree still holds the branch. Use `gh pr merge --squash --admin` (no
 `--delete-branch`), then `git push origin --delete <branch>`, then leave
 local cleanup until the worker is closed and the worktree is verifiably
-clean. Full sequence in [`bootstrap.md`](./bootstrap.md) (the PR-merge
+clean. Full sequence in [`bootstrap.md`](bootstrap.md) (the PR-merge
 `/loop` block).
 
 ## Cross-review
@@ -229,7 +229,7 @@ Different lenses find different issues.
 ## Standing prompts
 
 The cron prompts I register with the scheduler are defined in
-[`bootstrap.md`](./bootstrap.md). Five `/loop` blocks: bead dispatch,
+[`bootstrap.md`](bootstrap.md). Five `/loop` blocks: bead dispatch,
 clustering review, worktree hygiene, PR merge, and dashboard.md upkeep. Each
 carries its own operating manual inline (short-circuit rules,
 phase-transition behaviour, `--admin` discipline, the Windows-worktree
@@ -241,7 +241,7 @@ scheduler; let the cadence carry the loop.
 ## Ready to run it
 
 If you've read this far and want to actually try the method, the
-pasteable prompt is [`bootstrap.md`](./bootstrap.md). It's terse —
+pasteable prompt is [`bootstrap.md`](bootstrap.md). It's terse —
 deliberately — and it expects you've absorbed the philosophy above
 first. Paste it into a fresh AI session as your opening message;
 the mayor takes it from there.
@@ -249,11 +249,11 @@ the mayor takes it from there.
 Two siblings carry the operational detail you'll need once the mayor
 is running:
 
-- [`dispatch-prompt-template.md`](./dispatch-prompt-template.md) — the
+- [`dispatch-prompt-template.md`](dispatch-prompt-template.md) — the
   canonical worker-prompt shapes (solo / cluster / audit /
   cluster-reviewer / CI-fix) and the worktree-boundary block that must
   go into every editing dispatch verbatim.
-- [`bootstrap.md`](./bootstrap.md) — re-read on cadence; it carries
+- [`bootstrap.md`](bootstrap.md) — re-read on cadence; it carries
   the five `/loop` blocks the mayor registers with its scheduler,
   each with its own inline operating manual.
 

@@ -128,7 +128,7 @@ The failure handler is unchanged from the form recipe. Notice login does **not**
 
 > **Gotcha — keep the credential out of the trace on the way *in*, too.** The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value ([Spec 015 — Data classification](../../../spec/015-Data-Classification.md)).
 
-> **Going deeper — when to reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../../machines/glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/real-apps/realworld_http/)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
+> **Going deeper — when to reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../../machines/glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/real-apps/realworld_http)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
 
 ## 3. Decorate requests once, at the frame seam
 

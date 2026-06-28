@@ -75,7 +75,7 @@ on:
       # the spec/ entries the classifier already lights; the push filter
       # names it explicitly for the same reason API.md is named above.)
       - 'spec/Privacy.md'
-      - 'docs/api/**'
+      - 'docs/guide/api/**'
       - 'docs/story/api/**'
       # Per-capability API docs (rf2-earvtz): the #4961 reorg moved each
       # capability's API reference to docs/<cap>/api.md; doc-api-check now scans
@@ -163,7 +163,7 @@ jobs:
               # A pure-doc PR touching them must still run the drift-check. The
               # per-capability API docs (docs/<cap>/api.md from the #4961 reorg)
               # are scanned by doc-api-check now too (rf2-earvtz).
-              spec/Privacy.md|docs/api/*|docs/story/api/*|docs/*/api.md)
+              spec/Privacy.md|docs/guide/api/*|docs/story/api/*|docs/*/api.md)
                 lint_surface=true ;;
             esac
           done <<< "$files"
@@ -390,11 +390,11 @@ jobs:
       # Human-doc API-reference projection drift-check (rf2-vzupmg). Extends
       # the call-position discipline to the three human-facing API-reference
       # trees the keystone + the checks above left uncovered:
-      # spec/Privacy.md + docs/api/** + docs/story/api/**. Goes RED on a
+      # spec/Privacy.md + docs/guide/api/** + docs/story/api/**. Goes RED on a
       # call-position `(rf/<var>` / `(story/<var>` reference to a renamed /
       # removed / never-manifested public surface (the EP-graduation
       # doc-drift class that previously passed every CI check).
-      - name: Assert spec/Privacy + docs/api + docs/story/api projection matches the manifest
+      - name: Assert spec/Privacy + docs/guide/api + docs/story/api projection matches the manifest
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.doc-api-check
 

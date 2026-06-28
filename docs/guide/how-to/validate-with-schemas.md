@@ -135,7 +135,7 @@ A single feature usually owns several slices. `reg-app-schemas` (plural) takes a
     [:articles :data]   [:vector Article]}))
 ```
 
-Paths nest and overlap freely, which is more useful than it first sounds: a write under `[:auth :login-form]` is checked against *that* schema **and** the surrounding `[:auth]` one. The empty path `[]` schemas the whole map. [The Conduit example](../../../examples/real-apps/realworld_http/) registers nineteen paths this way — every slice that holds server data, every form draft.
+Paths nest and overlap freely, which is more useful than it first sounds: a write under `[:auth :login-form]` is checked against *that* schema **and** the surrounding `[:auth]` one. The empty path `[]` schemas the whole map. [The Conduit example](../../../examples/real-apps/realworld_http) registers nineteen paths this way — every slice that holds server data, every form draft.
 
 `reg-app-schemas` is last-write-wins on a duplicate path and returns the vector of paths it registered. It's the right shape for a feature module declaring 5–20 slices under a shared prefix. Reach for the singular `reg-app-schema` instead when a feature spans only a path or two, or when you need a *guaranteed* registration order. (The plural form registers in the order it iterates the map you hand it. A small map literal like the one above iterates in source order, but Clojure promotes large maps to hash-maps, whose iteration order isn't insertion order — so for a big batch where order matters, register the ordered paths one at a time.)
 

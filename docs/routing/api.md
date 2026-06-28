@@ -142,7 +142,7 @@ The nav-token wrapper is what makes "user navigates away mid-load" safe: the old
 
 ## See also
 
-- [01 — Core](../api/01-core.md) — `reg-route` rowed in registration.
+- [01 — Core](../guide/api/01-core.md) — `reg-route` rowed in registration.
 - [SSR API](../ssr/api.md) — routes participate in SSR; the active route's `:head` registration is what `render-head` looks up.
 - [Guide ch.18 — Routing](concepts.md) and [Guide ch.19 — Routing reference](concepts.md) — narrative coverage including nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing.
 - [Spec 012 — Routing](../../spec/012-Routing.md) — the normative source.

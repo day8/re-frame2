@@ -2,7 +2,7 @@
 
 The effect map is what an event handler returns. The interceptor chain is what runs before and after the handler. Together they're the load-bearing trick that makes re-frame2 a *pattern* — handlers stay pure (they return descriptions of effects, not the effects themselves), and the runtime actions those descriptions against the real world at exactly one point. That separation is why the trace bus, time-travel, and effect-overrides all work; if handlers fired effects directly, none of those would compose.
 
-This chapter covers what an `:fx` map can carry (`:db`, `:fx`, the standard fx-ids), what an interceptor is and the public authoring surface (`reg-interceptor`), the one framework-standard interceptor reference (`[:rf.interceptor/path <path-vector>]`), the pre-built `validate-at-boundary-interceptor`, and the override surfaces that let tests and tools swap fx behaviour at runtime (`with-fx-overrides`, the per-call `:fx-overrides` opt). Coeffects are *not* delivered by an interceptor in v2 — a handler declares the world facts it needs with `:rf.cofx/requires` registration metadata and the runtime supplies them (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [Guide — Effects and coeffects](../guide/concepts/effects-and-coeffects.md)). v1's `inject-cofx` interceptor is removed; so are the v1 `path` / `unwrap` value constructors (see [15 — Removed](15-removed.md)).
+This chapter covers what an `:fx` map can carry (`:db`, `:fx`, the standard fx-ids), what an interceptor is and the public authoring surface (`reg-interceptor`), the one framework-standard interceptor reference (`[:rf.interceptor/path <path-vector>]`), the pre-built `validate-at-boundary-interceptor`, and the override surfaces that let tests and tools swap fx behaviour at runtime (`with-fx-overrides`, the per-call `:fx-overrides` opt). Coeffects are *not* delivered by an interceptor in v2 — a handler declares the world facts it needs with `:rf.cofx/requires` registration metadata and the runtime supplies them (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [Guide — Effects and coeffects](../concepts/effects-and-coeffects.md)). v1's `inject-cofx` interceptor is removed; so are the v1 `path` / `unwrap` value constructors (see [15 — Removed](15-removed.md)).
 
 ## The effect map: closed shape
 
@@ -13,9 +13,9 @@ Closed: **`:db` + `:fx` only**. That's the entire effect-map vocabulary in v2.
 | `:db` | The new `app-db` value. Replaces the current value in the cascade's commit phase. |
 | `:fx` | A vector of `[fx-id args]` pairs. Each is run by the runtime's fx walker against the registered `reg-fx` handler. |
 
-If you remember v1's `:dispatch` / `:dispatch-later` / `:dispatch-n` at the top level of the effect map, those don't exist any more — they're inside `:fx`. The migration is mechanical; see [MIGRATION §M-8](../../migration/from-re-frame-v1/README.md). The closed shape is what lets the conformance harness validate handler outputs across implementations.
+If you remember v1's `:dispatch` / `:dispatch-later` / `:dispatch-n` at the top level of the effect map, those don't exist any more — they're inside `:fx`. The migration is mechanical; see [MIGRATION §M-8](../../../migration/from-re-frame-v1/README.md). The closed shape is what lets the conformance harness validate handler outputs across implementations.
 
-Full schema: [Spec-Schemas §`:rf/effect-map`](../../spec/Spec-Schemas.md#rfeffect-map).
+Full schema: [Spec-Schemas §`:rf/effect-map`](../../../spec/Spec-Schemas.md#rfeffect-map).
 
 ## Standard `:fx` entries
 
@@ -25,22 +25,22 @@ Anything in `:fx` is a `[fx-id args]` pair. The runtime looks up `fx-id` in the 
 |---|---|---|---|---|
 | `[:dispatch event-vec]` | event vector | v1 | 002 | "Schedule this event on the same queue." Async — runs after the current cascade completes. |
 | `[:dispatch-later {:ms ms :event event-vec}]` | options map | v1 | 002 | "Schedule this event after N ms." |
-| `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | 014 | The canonical managed-HTTP fx. See [07 — HTTP](../resources/http-api.md). |
-| `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](../routing/api.md). |
+| `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | 014 | The canonical managed-HTTP fx. See [07 — HTTP](../../resources/http-api.md). |
+| `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](../../routing/api.md). |
 | `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
-| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic actor instance whose snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` (in runtime-db). See [04 — Machines](../machines/api.md). |
+| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic actor instance whose snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` (in runtime-db). See [04 — Machines](../../machines/api.md). |
 | `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | Symmetric counterpart to `:rf.machine/spawn`. Runs the actor's `:exit` action, dissociates `[:rf.runtime/machines :snapshots <id>]` (in runtime-db), clears its event-handler registration. |
 | `[:rf.fx/reg-flow flow-map]` | flow map | v1 | 013 | Register a flow at runtime via `:fx`. See [05 — Flows](05-flows.md). |
 | `[:rf.fx/clear-flow id]` | id | v1 | 013 | Clear a registered flow at runtime via `:fx`. |
 | `[:http args]` | impl-specific | — | — | User-registered via `reg-fx`. The legacy un-managed shape; new code uses `:rf.http/managed`. |
 
-SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/redirect`, etc.) are rowed in [09 — SSR](../ssr/api.md). Their `:platforms` metadata gates them off the client.
+SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/redirect`, etc.) are rowed in [09 — SSR](../../ssr/api.md). Their `:platforms` metadata gates them off the client.
 
 ## Standard interceptors
 
 The interceptor chain wraps the handler. Every interceptor has a `:before` (runs before the handler) and / or `:after` (runs after the handler). The runtime threads a context map — the **ctx** — through the chain, and the chain composes deterministically. Interceptors are how you add cross-cutting behaviour (validation, focus-on-path, logging) without writing it into every handler.
 
-The public interceptor-authoring surface is **`reg-interceptor`**, and event / frame `:interceptors` chains carry interceptor **references** (a bare keyword id, or `[id arg]` for a parameterised factory) — never inline interceptor values (see [EP-0022](../EP/EP-0022-registered-interceptors.md)). The framework ships exactly **one** standard interceptor — `[:rf.interceptor/path <path-vector>]` — referenced, not constructed. There is **no** public `path` value constructor and **no** standard `unwrap`: a stale `rf/path` call raises the always-loud `:rf.error/path-removed`, and a stale `rf/unwrap-interceptor` reference raises `:rf.error/unwrap-removed`; the replacements are the `:rf.interceptor/path` reference and handler-payload destructuring (the map-payload form). The interceptors `debug`, `trim-v`, `on-changes`, `enrich`, and `after` do not exist; neither does `inject-cofx` — coeffect delivery is declared with `:rf.cofx/requires`, not injected by an interceptor (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [15 — Removed](15-removed.md)).
+The public interceptor-authoring surface is **`reg-interceptor`**, and event / frame `:interceptors` chains carry interceptor **references** (a bare keyword id, or `[id arg]` for a parameterised factory) — never inline interceptor values (see [EP-0022](../../EP/EP-0022-registered-interceptors.md)). The framework ships exactly **one** standard interceptor — `[:rf.interceptor/path <path-vector>]` — referenced, not constructed. There is **no** public `path` value constructor and **no** standard `unwrap`: a stale `rf/path` call raises the always-loud `:rf.error/path-removed`, and a stale `rf/unwrap-interceptor` reference raises `:rf.error/unwrap-removed`; the replacements are the `:rf.interceptor/path` reference and handler-payload destructuring (the map-payload form). The interceptors `debug`, `trim-v`, `on-changes`, `enrich`, and `after` do not exist; neither does `inject-cofx` — coeffect delivery is declared with `:rf.cofx/requires`, not injected by an interceptor (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [15 — Removed](15-removed.md)).
 
 ### `[:rf.interceptor/path <path-vector>]`
 
@@ -92,7 +92,7 @@ There is no standard `unwrap` interceptor in v2 (the v1 value is removed; a stal
 ;; You wrote: (rf/dispatch [:foo/update {:id 1 :new-value "x"}])
 ```
 
-The handler's second argument is the payload map directly — no interceptor required (per [MIGRATION §M-19](../../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). For genuine chain-wide event reshaping, register a project-specific interceptor with `reg-interceptor` and reference it by id.
+The handler's second argument is the payload map directly — no interceptor required (per [MIGRATION §M-19](../../../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). For genuine chain-wide event reshaping, register a project-specific interceptor with `reg-interceptor` and reference it by id.
 
 ### Building custom interceptors with `reg-interceptor`
 
@@ -151,10 +151,10 @@ Most tests reach for `with-fx-overrides` because it scopes the swap to the test 
 
 ### `:fx-overrides` asymmetry
 
-At the pattern level (`(rf/dispatch event {:fx-overrides {:my/fx :other-fx-id}})`) the override value is an **id** — the registry name of another fx handler. The CLJS reference implementation **also** accepts a **fn** value (`{:my/fx (fn [args] ...)}`) for ergonomic test wiring. The asymmetry is documented: ports that don't ship fn-valued overrides remain pattern-conformant. See [002 §`:fx-overrides`](../../spec/002-Frames.md#fx-overrides--replace-fx-handlers).
+At the pattern level (`(rf/dispatch event {:fx-overrides {:my/fx :other-fx-id}})`) the override value is an **id** — the registry name of another fx handler. The CLJS reference implementation **also** accepts a **fn** value (`{:my/fx (fn [args] ...)}`) for ergonomic test wiring. The asymmetry is documented: ports that don't ship fn-valued overrides remain pattern-conformant. See [002 §`:fx-overrides`](../../../spec/002-Frames.md#fx-overrides--replace-fx-handlers).
 
 ## See also
 
 - [01 — Core](01-core.md) — `reg-event`, `reg-fx`, `reg-cofx`, `dispatch` rowed in the registration and dispatch sections.
 - [10 — Testing](10-testing.md) — `with-fx-overrides` and the testing fixtures that use it.
-- [09 — SSR](../ssr/api.md) — `:platforms` metadata on `reg-fx` for client vs server gating.
+- [09 — SSR](../../ssr/api.md) — `:platforms` metadata on `reg-fx` for client vs server gating.

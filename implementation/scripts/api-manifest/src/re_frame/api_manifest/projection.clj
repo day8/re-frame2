@@ -130,8 +130,8 @@
    glob (`docs/machines/concepts.md`, `docs/routing/api.md`, …).
 
    THE SHAPE (rf2-earvtz). The #4961 docs reorg moved each capability's
-   CONCEPT and API reference out of the flat `docs/guide/` and `docs/api/`
-   trees into per-capability directories `docs/<cap>/{concepts,api}.md`. The
+   CONCEPT and API reference out of the flat `docs/guide/` and top-level
+   API trees into per-capability directories `docs/<cap>/{concepts,api}.md`. The
    doc-guide / doc-api projection gates scanned only the old flat trees, so
    the moved files went UNSCANNED — a broken `(rf/<var>` reference in them
    would slip through CI. This resolves the moved files by glob so the gates
@@ -141,7 +141,7 @@
    SCOPE DISCIPLINE. The glob is anchored on a SINGLE path segment between
    `docs/` and the filename, so it matches ONLY immediate-child capability
    files. It never sweeps in the flat trees the gates already own
-   (`docs/guide/` / `docs/api/` are directories, not `docs/api.md` files) nor
+   (`docs/guide/` / `docs/guide/api/` are directories, not `docs/api.md` files) nor
    nested API trees (`docs/story/api/` is a directory; `docs/story/api.md`
    does not exist). The match excludes directories defensively.
 

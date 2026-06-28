@@ -34,13 +34,13 @@ Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:even
 
 Sibling of the event-emit surface above. Runs through the always-on error-emit substrate. Survives `:advanced` + `goog.DEBUG=false`. Intended consumers are hosted error monitors (Sentry, Honeybadger, Rollbar).
 
-This corpus-wide listener delivers one record per **every catalogued production-reachable runtime `:rf.error/*`** — handler / interceptor / cofx exceptions, flow exceptions, fx / reserved-fx exceptions, reactive- and `compute-sub`-resolution exceptions, the invalid-operation categories `:rf.error/frame-destroyed`, `:rf.error/no-such-handler`, `:rf.error/no-such-sub`, the bounded `:rf.error/frame-teardown-failed` report, **and** the six promoted SSR non-event categories (the frameless-tolerant `dispatch-error-record!` path). (Registration-time / dev-only-validation categories stay dev-trace-only — see [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue).) It is the single error-observability surface; recovery is the framework's typed per-category default, not app-steerable — there is no per-frame `:on-error` recovery policy.
+This corpus-wide listener delivers one record per **every catalogued production-reachable runtime `:rf.error/*`** — handler / interceptor / cofx exceptions, flow exceptions, fx / reserved-fx exceptions, reactive- and `compute-sub`-resolution exceptions, the invalid-operation categories `:rf.error/frame-destroyed`, `:rf.error/no-such-handler`, `:rf.error/no-such-sub`, the bounded `:rf.error/frame-teardown-failed` report, **and** the six promoted SSR non-event categories (the frameless-tolerant `dispatch-error-record!` path). (Registration-time / dev-only-validation categories stay dev-trace-only — see [009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).) It is the single error-observability surface; recovery is the framework's typed per-category default, not app-steerable — there is no per-frame `:on-error` recovery policy.
 
 The listener payload is a **union of three record shapes** — the per-event record, plus two non-event records that ride the general `dispatch-error-record!` helper (the non-event sibling of `dispatch-on-error!`):
 
 1. **Per-event error record** — `{:error :event :event-id :frame :time :exception :elapsed-ms}` (plus `:source-coord` when the failing handler was registered via the public macro path). One per production-reachable per-event `:rf.error/*` (handler / interceptor / cofx / sub / fx / flow failures). Fanned out by `dispatch-on-error!`. The `:event` slot is passed through `elide-wire-value` once before fan-out (same redaction posture as event-emit).
-2. **Frame-teardown report** — `{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`. One bounded record per frame destroy whose best-effort cleanup hooks threw (see [009 §Observability channels and the promotion criterion](../../spec/009-Instrumentation.md#observability-channels-and-the-promotion-criterion)). It is frame-keyed and carries a `:hook-failures` vector **instead of** the per-event `:event` / `:event-id` / `:exception` / `:elapsed-ms` slots.
-3. **Promoted SSR non-event records** — the six SSR categories on the always-on axis: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload` (incl. the pre-frame **frameless** parse sub-path, which carries `:frame nil`), `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, and `:rf.error/ssr-ring-error-view-failed`. Each is a flat union record `{:error :frame :time …category keys…}` carrying its own slots (`:exception` / `:phase` / `:reason` / `:projector-id` / `:ex-class` / …) and either a server `:frame` or `:frame nil` (the frameless hydration-parse path). Production-reachable on a long-lived JVM SSR host where the dev trace is `-Dre-frame.debug=false`-elided. The recoverable-degradation and post-commit members are **non-projecting** — they affect what off-box shippers see, never the wire outcome. See [009 §What IS available in production](../../spec/009-Instrumentation.md#what-is-available-in-production) for the full enumeration and the projecting/non-projecting caveats.
+2. **Frame-teardown report** — `{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`. One bounded record per frame destroy whose best-effort cleanup hooks threw (see [009 §Observability channels and the promotion criterion](../../../spec/009-Instrumentation.md#observability-channels-and-the-promotion-criterion)). It is frame-keyed and carries a `:hook-failures` vector **instead of** the per-event `:event` / `:event-id` / `:exception` / `:elapsed-ms` slots.
+3. **Promoted SSR non-event records** — the six SSR categories on the always-on axis: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload` (incl. the pre-frame **frameless** parse sub-path, which carries `:frame nil`), `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, and `:rf.error/ssr-ring-error-view-failed`. Each is a flat union record `{:error :frame :time …category keys…}` carrying its own slots (`:exception` / `:phase` / `:reason` / `:projector-id` / `:ex-class` / …) and either a server `:frame` or `:frame nil` (the frameless hydration-parse path). Production-reachable on a long-lived JVM SSR host where the dev trace is `-Dre-frame.debug=false`-elided. The recoverable-degradation and post-commit members are **non-projecting** — they affect what off-box shippers see, never the wire outcome. See [009 §What IS available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production) for the full enumeration and the projecting/non-projecting caveats.
 
 Listener bodies MUST branch on `(:error record)` (or otherwise tolerate a record with no top-level `:event` / `:event-id` / `:exception`) rather than assuming the per-event shape — a generic shipper that maps `(:error record)` to the alert name and forwards the rest handles every arm. Per-listener exceptions are isolated — a buggy listener cannot block siblings or the cascade.
 
@@ -64,7 +64,7 @@ Listener bodies MUST branch on `(:error record)` (or otherwise tolerate a record
 
 ## Tracing (dev-only)
 
-The rich-detail trace surface. **Dev-only — elided in production via Closure DCE under `:advanced` + `goog.DEBUG=false`.** See [009 §Tracing](../../spec/009-Instrumentation.md) for emit semantics and synchronous listener delivery.
+The rich-detail trace surface. **Dev-only — elided in production via Closure DCE under `:advanced` + `goog.DEBUG=false`.** See [009 §Tracing](../../../spec/009-Instrumentation.md) for emit semantics and synchronous listener delivery.
 
 ### `register-listener!`
 
@@ -157,7 +157,7 @@ Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. Wh
 |---|---|---|---|---|
 | `:rf.trace/no-emit?` | `reg-event` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. |
 
-Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned (per [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)).
+Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned (per [Conventions §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned)).
 
 ## Epoch history (Tool-Pair)
 
@@ -249,7 +249,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 
 > **No value-match or schema-prop elision surfaces.** `redact-derived-slots`, `populate-elision-from-schemas!`, and `populate-sensitive-from-schemas!` are not on the facade or in `re-frame.elision`. Use the path-based surfaces: classify durable `app-db` paths with the commit-plane effects (a `reg-event` returning `:sensitive` / `:large` alongside `:db`), and project a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body) with **`project-egress`** under a `:rf.observe/derived-tree` record — it path-walks each tree slot through `elide-wire-value` against the frame's registry.
 
-`elide-wire-value` is the low-level *value* walker. The public, record-level boundary primitive is **`project-egress`**: real egress surfaces (handled-event records, error records, epoch records, MCP snapshots, HTTP diagnostics) emit *records*, and `project-egress` projects a whole record under the owning frame's classification and a named `:rf.egress/*` profile — delegating to `elide-wire-value` for each tree-shaped slot. Sinks and tools call `project-egress`; they rarely call the walker directly. See [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md) for the full projection model and the closed `:rf.egress/*` profile enum.
+`elide-wire-value` is the low-level *value* walker. The public, record-level boundary primitive is **`project-egress`**: real egress surfaces (handled-event records, error records, epoch records, MCP snapshots, HTTP diagnostics) emit *records*, and `project-egress` projects a whole record under the owning frame's classification and a named `:rf.egress/*` profile — delegating to `elide-wire-value` for each tree-shaped slot. Sinks and tools call `project-egress`; they rarely call the walker directly. See [Guide ch.23 — Privacy and large things](../how-to/keep-secrets-out-of-traces.md) for the full projection model and the closed `:rf.egress/*` profile enum.
 
 ### `project-egress`
 
@@ -324,19 +324,19 @@ See [08 — Schemas §Data classification](08-schemas.md#data-classification) fo
 
 ## DOM source-coord annotations
 
-Every adapter whose host has a DOM-attribute concept (Reagent / UIx / Helix on the browser) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions live in [Spec 006 §Source-coord annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory).
+Every adapter whose host has a DOM-attribute concept (Reagent / UIx / Helix on the browser) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions live in [Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory).
 
-The annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the contract per [Spec 011 §Source-coord annotation under SSR](../../spec/011-SSR.md#source-coord-annotation-under-ssr).
+The annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the contract per [Spec 011 §Source-coord annotation under SSR](../../../spec/011-SSR.md#source-coord-annotation-under-ssr).
 
 ## The error contract
 
-Errors are emitted as structured trace events with `:op-type :error` (or `:warning` / `:info` / `:fx` / `:flow` / `:frame`) and a per-category `:operation` keyword. The complete normative catalogue — every `:rf.error/*`, `:rf.warning/*`, `:rf.fx/*`, `:rf.cofx/*`, `:rf.ssr/*`, `:rf.epoch/*`, `:rf.flow/*`, `:rf.http/*`, `:rf.http.interceptor/*`, `:rf.frame/*`, and `:rf.route.nav-token/*` event the runtime emits — lives at [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (single source of truth for category names, `:op-type` discriminator, trigger conditions, default `:recovery`, and `:tags` payload keys).
+Errors are emitted as structured trace events with `:op-type :error` (or `:warning` / `:info` / `:fx` / `:flow` / `:frame`) and a per-category `:operation` keyword. The complete normative catalogue — every `:rf.error/*`, `:rf.warning/*`, `:rf.fx/*`, `:rf.cofx/*`, `:rf.ssr/*`, `:rf.epoch/*`, `:rf.flow/*`, `:rf.http/*`, `:rf.http.interceptor/*`, `:rf.frame/*`, and `:rf.route.nav-token/*` event the runtime emits — lives at [009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) (single source of truth for category names, `:op-type` discriminator, trigger conditions, default `:recovery`, and `:tags` payload keys).
 
-Per-category Malli `:tags` schemas are canonicalised at [Spec-Schemas §Per-category `:tags` schemas](../../spec/Spec-Schemas.md#per-category-tags-schemas) — one schema per catalogue row.
+Per-category Malli `:tags` schemas are canonicalised at [Spec-Schemas §Per-category `:tags` schemas](../../../spec/Spec-Schemas.md#per-category-tags-schemas) — one schema per catalogue row.
 
 ## See also
 
 - [01 — Core](01-core.md) — the `:trace-buffer`, `:epoch-history`, `:elision` configure keys.
 - [08 — Schemas](08-schemas.md) — the registration side of the elision posture.
-- [Spec 009 — Instrumentation](../../spec/009-Instrumentation.md) — the normative source.
-- [Tool-Pair](../../spec/Tool-Pair.md) — how the epoch buffer, trace bus, and source-coord annotations compose into the pair-shaped tools.
+- [Spec 009 — Instrumentation](../../../spec/009-Instrumentation.md) — the normative source.
+- [Tool-Pair](../../../spec/Tool-Pair.md) — how the epoch buffer, trace bus, and source-coord annotations compose into the pair-shaped tools.

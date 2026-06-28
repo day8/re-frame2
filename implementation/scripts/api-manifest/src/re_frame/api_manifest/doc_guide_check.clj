@@ -41,7 +41,8 @@
   the negative check the bead asks for: live guide chapters cannot call
   removed EP-0017 (or EP-0015/EP-0018) APIs outside approved migration
   contexts."
-  (:require [re-frame.api-manifest.gen :as gen]
+  (:require [clojure.string :as str]
+            [re-frame.api-manifest.gen :as gen]
             [re-frame.api-manifest.projection :as proj]))
 
 (def ^:private core-ns "re-frame.core")
@@ -96,7 +97,21 @@
         dir          (proj/repo-file "docs" "guide")
         ;; require-markdown-files (rf2-utvst): fail loudly if docs/guide/
         ;; moves or is renamed, rather than silently checking zero files.
-        guide-files  (proj/require-markdown-files "docs/guide/" dir)
+        ;;
+        ;; EXCLUDE docs/guide/api/** — the framework API REFERENCE tree. It
+        ;; lives under docs/guide/ (Core's API section) but is the
+        ;; doc-api-check surface, not guide teaching prose. doc-api-check
+        ;; resolves its call-position `(rf/<var>` references with
+        ;; CROSS-NAMESPACE bare-name latitude — the reference legitimately
+        ;; names re-frame.core, re-frame.machines, … vars under the one `rf`
+        ;; alias. doc-guide-check resolves only against re-frame.core, so
+        ;; scanning the API reference here would false-positive on every
+        ;; non-core surface it names (e.g. `rf/machine-meta`). doc-api-check
+        ;; already covers this subtree for BOTH var-resolution and
+        ;; keyword-drift, so the exclusion loses no coverage.
+        guide-files  (->> (proj/require-markdown-files "docs/guide/" dir)
+                          (remove #(str/starts-with? (proj/repo-relative %)
+                                                     "docs/guide/api/")))
         ;; Per-capability CONCEPT docs (rf2-earvtz). The #4961 docs reorg moved
         ;; each capability's concept doc out of the flat docs/guide/ tree into
         ;; docs/<cap>/concepts.md (machines/resources/routing/ssr). The

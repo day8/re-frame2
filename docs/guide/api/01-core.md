@@ -49,7 +49,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-sub id ?metadata input-fn? computation-fn)
   ```
-- **Description**: "Computed view over `app-db` and other subs." `reg-sub` supports **three input-production modes** — every subscription has an *input query-vector producer*: a layer-1 app-db reader has no producer, `:<-` is the literal producer, and a parametric `input-fn` is the query-parametric producer. The optional first fn is a v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**; it is **not** a v1 reaction-returning signal fn (it must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and it must not return live reactions). The runtime resolves each returned query vector in the *same frame* as the outer subscription. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance). Full contract, input grammar, and error ids: [spec API §`reg-sub` input-production modes](../../spec/API.md#reg-sub-input-production-modes) and [spec 006 — Reactive Substrate](../../spec/006-ReactiveSubstrate.md). The teaching walkthrough is [Guide ch.05 §Three ways a sub names its inputs](../guide/concepts/subscriptions.md).
+- **Description**: "Computed view over `app-db` and other subs." `reg-sub` supports **three input-production modes** — every subscription has an *input query-vector producer*: a layer-1 app-db reader has no producer, `:<-` is the literal producer, and a parametric `input-fn` is the query-parametric producer. The optional first fn is a v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**; it is **not** a v1 reaction-returning signal fn (it must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and it must not return live reactions). The runtime resolves each returned query vector in the *same frame* as the outer subscription. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance). Full contract, input grammar, and error ids: [spec API §`reg-sub` input-production modes](../../../spec/API.md#reg-sub-input-production-modes) and [spec 006 — Reactive Substrate](../../../spec/006-ReactiveSubstrate.md). The teaching walkthrough is [Guide ch.05 §Three ways a sub names its inputs](../concepts/subscriptions.md).
 
 | Mode | Form | Where the inputs come from |
 |---|---|---|
@@ -104,7 +104,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-cofx id ?metadata supplier)
   ```
-- **Description**: "Register a named supplier for a world fact a handler can ask for." The supplier is a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the call site — *not* a context-mutating fn. The runtime calls it and puts the result into the coeffects map under the cofx's id. A handler opts in with `:rf.cofx/requires` registration metadata; v2 has **no `inject-cofx` interceptor**. The middle slot carries the fact's grade: `{:recordable? true}` for a replayable fact, `{:recordable? true :provided? true}` for a recordable fact stamped by an owner boundary (no generator), a bare registration for an ambient (unrecorded) read. Reading a sub from a handler is done the same way — wrap `subscribe-once` in a cofx and declare it (see [Guide — Reading a subscription from a handler](../guide/concepts/effects-and-coeffects.md)). Full model: [Guide — Effects and coeffects](../guide/concepts/effects-and-coeffects.md).
+- **Description**: "Register a named supplier for a world fact a handler can ask for." The supplier is a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the call site — *not* a context-mutating fn. The runtime calls it and puts the result into the coeffects map under the cofx's id. A handler opts in with `:rf.cofx/requires` registration metadata; v2 has **no `inject-cofx` interceptor**. The middle slot carries the fact's grade: `{:recordable? true}` for a replayable fact, `{:recordable? true :provided? true}` for a recordable fact stamped by an owner boundary (no generator), a bare registration for an ambient (unrecorded) read. Reading a sub from a handler is done the same way — wrap `subscribe-once` in a cofx and declare it (see [Guide — Reading a subscription from a handler](../concepts/effects-and-coeffects.md)). Full model: [Guide — Effects and coeffects](../concepts/effects-and-coeffects.md).
 - **Example**:
   ```clojure
   ;; A value-returning supplier — quarantines an impure read behind a named id.
@@ -128,7 +128,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-frame id metadata)
   ```
-- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` mints it with metadata you can later read via `frame-meta`. The frame owns the `:observability` sink policy. Durable `app-db` data classification is **not** a frame annotation: a `reg-frame` config carrying `:sensitive` / `:large` **fails loud at registration**. Classify durable `app-db` paths by returning the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events`. See [07 — HTTP §Privacy](../resources/http-api.md), [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
+- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` mints it with metadata you can later read via `frame-meta`. The frame owns the `:observability` sink policy. Durable `app-db` data classification is **not** a frame annotation: a `reg-frame` config carrying `:sensitive` / `:large` **fails loud at registration**. Classify durable `app-db` paths by returning the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events`. See [07 — HTTP §Privacy](../../resources/http-api.md), [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../how-to/keep-secrets-out-of-traces.md).
 - **Example**:
   ```clojure
   ;; User-defined fxs sit under a user-feature prefix per
@@ -157,7 +157,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (make-frame opts) ; → live frame value
   ```
-- **Description**: The **single public constructor** for a live frame. It accepts image-selection options *and* frame-configuration options in **one** call and **returns the live frame value** — one frame value backed by one registry. Useful for per-mount lifecycles — devcards, modal stacks, multiple live instances of a widget, dynamic tabs, tests, and the SSR per-request frame pattern. The `reg-frame` named path is the front-porch surface; `make-frame` is the advanced per-instance one. Opts: the image-selection keys `:images` (always a vector — the assembled registration set the frame resolves against), `:id` (optional — registers the frame in the one process-local live-frame registry; a duplicate live id is **idempotent replacement** that preserves durable state on re-mount, not a blanket fail-loud — irreconcilable conflicts still fail loud), `:capabilities`, `:adapter` — **and**, in the same call, the frame-configuration keys `:initial-events` (a vector of event vectors dispatched into the new frame at creation — seed `app-db` with `[[:rf/set-db {…}]]`), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`. A frame created **without** an `:id` bypasses the registry — a direct local reference for tests and harnesses. **Route by id, not by value:** the frame value's representation is not an app-facing contract — read its id via the one accessor `rf/frame-value->id` and pass the **id** to `dispatch` / `subscribe` / providers / tools. Lifecycle is the caller's responsibility — pair a direct `make-frame` with a `destroy-frame!` in the `:finally` of `r/with-let`, or use the UI-owned `rf/frame-provider` boundary (below) for view-owned lifetimes. See [spec/002 §Per-instance frames](../../spec/002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md).
+- **Description**: The **single public constructor** for a live frame. It accepts image-selection options *and* frame-configuration options in **one** call and **returns the live frame value** — one frame value backed by one registry. Useful for per-mount lifecycles — devcards, modal stacks, multiple live instances of a widget, dynamic tabs, tests, and the SSR per-request frame pattern. The `reg-frame` named path is the front-porch surface; `make-frame` is the advanced per-instance one. Opts: the image-selection keys `:images` (always a vector — the assembled registration set the frame resolves against), `:id` (optional — registers the frame in the one process-local live-frame registry; a duplicate live id is **idempotent replacement** that preserves durable state on re-mount, not a blanket fail-loud — irreconcilable conflicts still fail loud), `:capabilities`, `:adapter` — **and**, in the same call, the frame-configuration keys `:initial-events` (a vector of event vectors dispatched into the new frame at creation — seed `app-db` with `[[:rf/set-db {…}]]`), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`. A frame created **without** an `:id` bypasses the registry — a direct local reference for tests and harnesses. **Route by id, not by value:** the frame value's representation is not an app-facing contract — read its id via the one accessor `rf/frame-value->id` and pass the **id** to `dispatch` / `subscribe` / providers / tools. Lifecycle is the caller's responsibility — pair a direct `make-frame` with a `destroy-frame!` in the `:finally` of `r/with-let`, or use the UI-owned `rf/frame-provider` boundary (below) for view-owned lifetimes. See [spec/002 §Per-instance frames](../../../spec/002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0024](../../EP/EP-0024-unified-frame-identity-and-lifecycle.md).
 - **Example**:
   ```clojure
   ;; A component that OWNS a frame lifetime uses the UI-owned provider,
@@ -205,7 +205,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-machine machine-id machine-spec)
   ```
-- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](../machines/api.md).
+- **Description**: Registers a state machine as an event handler (the machine *is* the handler — the body comes from `make-machine-handler`). Walks the literal spec form at expansion time and stamps per-element source coords for click-to-source navigation. See [04 — Machines](../../machines/api.md).
 - **Example**:
   ```clojure
   (rf/reg-machine :auth.login/flow
@@ -216,7 +216,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/capabilities/machines/state_machine_walkthrough)
 
-> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core`. Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](../machines/api.md#re-framemachinesreg-machine).
+> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core`. Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](../../machines/api.md#re-framemachinesreg-machine).
 
 ### `reg-app-schema`
 
@@ -276,7 +276,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-route id metadata path)
   ```
-- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](../routing/api.md).
+- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](../../routing/api.md).
 - **Example**:
   ```clojure
   (rf/reg-route :route/home
@@ -292,7 +292,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-head id ?metadata head-fn)
   ```
-- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](../ssr/api.md).
+- **Description**: SSR: register a `(fn [db route] head-model)` keyed by id; routes opt-in via `:head` metadata. See [09 — SSR](../../ssr/api.md).
 - **Example**:
   ```clojure
   (rf/reg-head :app/head
@@ -383,7 +383,7 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
 
 These are the two verbs that drive the cascade. `dispatch` says "an event happened, run it through the cascade"; `subscribe` says "give me a reactive handle on this query's value." Every other surface in re-frame2 either composes them or sits beside them.
 
-`dispatch` and `dispatch-sync` come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, `subscribe`) captures the call-site source coords so tools like re-frame-10x and Xray can navigate from a trace event back to the originating expression. The **`*` fn** form (`dispatch*`, `dispatch-sync*`) skips the stamping — needed when you compose dispatch through a higher-order function (`(map dispatch* events)`) where a macro can't sit. Both route through the same dispatcher; only the trace stamping differs. (There is no app-facing `subscribe*` twin: the `subscribe`-with-explicit-frame fn form is internal — subscribe with `{:frame …}` opts instead. See [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md).)
+`dispatch` and `dispatch-sync` come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, `subscribe`) captures the call-site source coords so tools like re-frame-10x and Xray can navigate from a trace event back to the originating expression. The **`*` fn** form (`dispatch*`, `dispatch-sync*`) skips the stamping — needed when you compose dispatch through a higher-order function (`(map dispatch* events)`) where a macro can't sit. Both route through the same dispatcher; only the trace stamping differs. (There is no app-facing `subscribe*` twin: the `subscribe`-with-explicit-frame fn form is internal — subscribe with `{:frame …}` opts instead. See [EP-0024](../../EP/EP-0024-unified-frame-identity-and-lifecycle.md).)
 
 ### `dispatch`
 
@@ -443,7 +443,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   (subscribe query-v)
   (subscribe query-v opts)
   ```
-- **Description**: The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Use inside views, inside other subs, and (carefully) inside event handlers via the cofx wrapper. Target a non-ambient frame via the `{:frame …}` opt — `(rf/subscribe [:counter/value] {:frame :other})`; the frame **id** is the public routing address (see [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md)). The frame-first `(subscribe frame-id query-v)` arity and the `subscribe*` fn form are **internal**, not app-facing.
+- **Description**: The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Use inside views, inside other subs, and (carefully) inside event handlers via the cofx wrapper. Target a non-ambient frame via the `{:frame …}` opt — `(rf/subscribe [:counter/value] {:frame :other})`; the frame **id** is the public routing address (see [EP-0024](../../EP/EP-0024-unified-frame-identity-and-lifecycle.md)). The frame-first `(subscribe frame-id query-v)` arity and the `subscribe*` fn form are **internal**, not app-facing.
 - **Example**:
   ```clojure
   [:span @(rf/subscribe [:counter/value])]
@@ -472,9 +472,9 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
 
 ### Reading a machine's snapshot
 
-To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](../machines/api.md).
+To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](../../machines/api.md).
 
-**The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics live in [002 §Routing: the dispatch envelope](../../spec/002-Frames.md#routing-the-dispatch-envelope). The most common pattern is `(rf/dispatch [::save x] {:frame :todo})` to target a non-default frame.
+**The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics live in [002 §Routing: the dispatch envelope](../../../spec/002-Frames.md#routing-the-dispatch-envelope). The most common pattern is `(rf/dispatch [::save x] {:frame :todo})` to target a non-default frame.
 
 ### Canonical event-vector shape
 
@@ -484,11 +484,11 @@ The runtime tolerates several shapes; the linter nudges new code toward one:
 - `[<id> <single-scalar>]` — single-arg events
 - `[<id> {<k> <v>}]` — multi-arg events as a single map payload (the canonical form for two-or-more args)
 
-Variadic `[<id> a b c]` is tolerated, but the map form is the one to reach for in new code — it survives field-additions without breaking callers and reads at the call site. See [Conventions §Canonical event-vector shape](../../spec/Conventions.md#canonical-event-vector-shape-best-practice).
+Variadic `[<id> a b c]` is tolerated, but the map form is the one to reach for in new code — it survives field-additions without breaking callers and reads at the call site. See [Conventions §Canonical event-vector shape](../../../spec/Conventions.md#canonical-event-vector-shape-best-practice).
 
 ### Standard events
 
-The framework ships a small, fixed set of standard `:rf/*` events you can dispatch like any other. They are framework-owned: the `:rf/*` single-root namespace is reserved ([Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)), so re-registering one with `reg-event` is a loud reserved-id collision (`:rf.error/reserved-event-id`) rather than a silent shadow.
+The framework ships a small, fixed set of standard `:rf/*` events you can dispatch like any other. They are framework-owned: the `:rf/*` single-root namespace is reserved ([Conventions §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned)), so re-registering one with `reg-event` is a loud reserved-id collision (`:rf.error/reserved-event-id`) rather than a silent shadow.
 
 #### `:rf/set-db`
 
@@ -517,7 +517,7 @@ The family has two sub-shapes that look alike on first read but answer different
 
 **Stamping pair** (`dispatch` / `dispatch*` and `dispatch-sync` / `dispatch-sync*`). The pair-shape question is "do you want call-site stamping or not?" The macro captures source coords for `:rf.trace/call-site`; the `*` fn-form skips the stamping for HoF composition. Both route through the same dispatcher.
 
-**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](../machines/api.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
+**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](../../machines/api.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
 
 The two compose: the named-target fx ultimately dispatches, so the same trace stamping fires on the resulting event.
 
@@ -528,7 +528,7 @@ The two compose: the named-target fx ultimately dispatches, so the same trace st
 
 ## Frames: the scoping primitive
 
-A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame. You establish it at your root with the merged `rf/frame-provider`, which takes one of two config shapes (see [EP-0024](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent)): scope an already-registered frame into the React tree with `[rf/frame-provider {:frame :app} …]` (or, for non-React lexical regions, `(rf/with-frame :app …)`), or let `[rf/frame-provider {:id :app …} …]` **ensure** the frame — it creates it on first mount, reuses it without re-seeding on remount, and provides its id to descendants (no destroy-on-unmount). `init!` does **not** create one for you — frame identity is carried, not synthesised from absence (see [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)). Apps that need isolation between subsystems — embedded widgets, multi-tab pair tools, the SSR per-request runtime — register additional frames and dispatch / subscribe against them via `{:frame :other}` (the frame **id** is the public routing address).
+A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame. You establish it at your root with the merged `rf/frame-provider`, which takes one of two config shapes (see [EP-0024](../../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent)): scope an already-registered frame into the React tree with `[rf/frame-provider {:frame :app} …]` (or, for non-React lexical regions, `(rf/with-frame :app …)`), or let `[rf/frame-provider {:id :app …} …]` **ensure** the frame — it creates it on first mount, reuses it without re-seeding on remount, and provides its id to descendants (no destroy-on-unmount). `init!` does **not** create one for you — frame identity is carried, not synthesised from absence (see [EP-0002](../../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)). Apps that need isolation between subsystems — embedded widgets, multi-tab pair tools, the SSR per-request runtime — register additional frames and dispatch / subscribe against them via `{:frame :other}` (the frame **id** is the public routing address).
 
 `reg-frame` and `make-frame` are rowed in **Registration** above. The two read-side surfaces:
 
@@ -561,7 +561,7 @@ Process-level data knobs live behind `(rf/configure! {<key> <opts>})`. The vocab
 | `:trace-buffer` | `{:cascades-retained N}` | `{:cascades-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's cascade-slot count. 0 disables retention (the surface stays live). An opts map without a usable `:cascades-retained` (e.g. the retired `{:depth N}` shape) is a no-op that emits a `:rf.warning/trace-buffer-unrecognised-opts` trace. |
 | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` substitutes a `:rf.size/large-elided` marker. 0 disables runtime auto-detect (only declared / schema entries elide). See [11 — Instrumentation](11-instrumentation.md). |
 
-> **No `:sub-cache` knob.** There is no `:sub-cache {:grace-period-ms N}` key — sub-cache disposal is synchronous on derefer-count → 0 (see [Spec 006 §Reference counting and disposal](../../spec/006-ReactiveSubstrate.md#reference-counting-and-disposal)).
+> **No `:sub-cache` knob.** There is no `:sub-cache {:grace-period-ms N}` key — sub-cache disposal is synchronous on derefer-count → 0 (see [Spec 006 §Reference counting and disposal](../../../spec/006-ReactiveSubstrate.md#reference-counting-and-disposal)).
 
 SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure` key — it's per-frame metadata on the frame's `:ssr` map, because different frames in the same process can carry different projector settings.
 

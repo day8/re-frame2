@@ -2,9 +2,9 @@
 
 Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You register them with `reg-app-schema` (path-keyed, not id-keyed — the only `reg-*` that breaks that pattern); the runtime validates `app-db` writes against the matching schemas in dev; production builds elide the validation at the call sites.
 
-Schemas describe **shape and validation**. Durable `app-db` data classification is *not* a schema concern (see [EP-0025](../EP/EP-0025-data-classification.md)): a schema must not be a second route to classify an `app-db` path the **event** already owns (the event is `app-db`'s definition site — see below). Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (commit-plane classification effects for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
+Schemas describe **shape and validation**. Durable `app-db` data classification is *not* a schema concern (see [EP-0025](../../EP/EP-0025-data-classification.md)): a schema must not be a second route to classify an `app-db` path the **event** already owns (the event is `app-db`'s definition site — see below). Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (commit-plane classification effects for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../how-to/keep-secrets-out-of-traces.md).
 
-This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the canonical contracts, see [010-Schemas.md](../../spec/010-Schemas.md), [015-Data-Classification.md](../../spec/015-Data-Classification.md), and [Privacy.md](../../spec/Privacy.md).
+This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the canonical contracts, see [010-Schemas.md](../../../spec/010-Schemas.md), [015-Data-Classification.md](../../../spec/015-Data-Classification.md), and [Privacy.md](../../../spec/Privacy.md).
 
 ## Registration
 
@@ -42,7 +42,7 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
 
 The path-keyed-not-id-keyed asymmetry is principled. Paths are first-class in `get-in` / `assoc-in` / `update-in`; schemas-at-paths matches the dataflow grain; the lookup site (`app-schema-at [:user]`) reads the same way the write site (`(assoc-in db [:user] ...)`) reads. Spelling it as `(reg-app-schema :user/schema {:schema schema})` would have shifted the registration's id away from the dataflow grain.
 
-See [Conventions §`reg-*` return-value rule](../../spec/Conventions.md#reg--return-value-convention) for the wider convention this row participates in.
+See [Conventions §`reg-*` return-value rule](../../../spec/Conventions.md#reg--return-value-convention) for the wider convention this row participates in.
 
 ## Introspection
 
@@ -174,17 +174,17 @@ Schemas describe shape; **classification of durable `app-db` data is event-owned
   re-frame.http.managed/managed-handler)
 ```
 
-A `reg-frame` / `make-frame` config carrying `:sensitive` or `:large` **fails loud at registration**. There is likewise **no** schema-attached or imperative-mark route to classify a durable `app-db` path; the event is `app-db`'s definition site, and that is the one route. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](../machines/api.md), [16 — Resources](../resources/api.md), [07 — HTTP](../resources/http-api.md).) Transient payloads (event args, sub/flow outputs, the `:rf.http/managed` `:carriers` block) are classified by the registration that introduces the shape.
+A `reg-frame` / `make-frame` config carrying `:sensitive` or `:large` **fails loud at registration**. There is likewise **no** schema-attached or imperative-mark route to classify a durable `app-db` path; the event is `app-db`'s definition site, and that is the one route. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](../../machines/api.md), [16 — Resources](../../resources/api.md), [07 — HTTP](../../resources/http-api.md).) Transient payloads (event args, sub/flow outputs, the `:rf.http/managed` `:carriers` block) are classified by the registration that introduces the shape.
 
-The full teaching of the three owners, the two projection primitives, and the egress profiles lives in [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md). For the framework-internal egress primitives (`project-egress`, `elide-wire-value`) consumed by tools and sinks, see [11 — Instrumentation](11-instrumentation.md).
+The full teaching of the three owners, the two projection primitives, and the egress profiles lives in [Guide ch.23 — Privacy and large things](../how-to/keep-secrets-out-of-traces.md). For the framework-internal egress primitives (`project-egress`, `elide-wire-value`) consumed by tools and sinks, see [11 — Instrumentation](11-instrumentation.md).
 
 ### Composition rule
 
-When both classifications match the same slot (`:sensitive?` AND `:large?`), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` information from a sensitive slot. The composition rule is normative; per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces) and [015 §Projection](../../spec/015-Data-Classification.md).
+When both classifications match the same slot (`:sensitive?` AND `:large?`), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` information from a sensitive slot. The composition rule is normative; per [009 §Size elision in traces](../../../spec/009-Instrumentation.md#size-elision-in-traces) and [015 §Projection](../../../spec/015-Data-Classification.md).
 
 ## See also
 
 - [01 — Core](01-core.md) — `reg-app-schema` / `reg-app-schemas` rowed in registration.
 - [03 — Effects and interceptors](03-effects.md) — `validate-at-boundary-interceptor` rowed in the interceptor table.
 - [11 — Instrumentation](11-instrumentation.md) — `project-egress` / `elide-wire-value` and the trace-surface privacy posture.
-- [Spec 010 — Schemas](../../spec/010-Schemas.md), [015-Data-Classification.md](../../spec/015-Data-Classification.md), [Privacy.md](../../spec/Privacy.md), [Security.md](../../spec/Security.md).
+- [Spec 010 — Schemas](../../../spec/010-Schemas.md), [015-Data-Classification.md](../../../spec/015-Data-Classification.md), [Privacy.md](../../../spec/Privacy.md), [Security.md](../../../spec/Security.md).

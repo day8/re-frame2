@@ -367,7 +367,7 @@ Run this list on any form before you call it done (the normative card in [Patter
 - Submit button disabled when `:can-submit?` is false.
 - Server-side validation mirrors the client schema where it applies.
 
-Want a worked audit target? Read `auth.cljs` in the [RealWorld example](../../../examples/real-apps/realworld_http/). Its login and register forms follow this recipe, with submit handed off to an auth state [machine](../../machines/glossary.md#machine).
+Want a worked audit target? Read `auth.cljs` in the [RealWorld example](../../../examples/real-apps/realworld_http). Its login and register forms follow this recipe, with submit handed off to an auth state [machine](../../machines/glossary.md#machine).
 
 ## Advanced
 

@@ -16,7 +16,7 @@ The runtime throws on both, and `cofx_cljs_test.cljc` pins the throws. But the
 EP landing wave left STALE current-surface teaching examples behind — a
 copy-pasteable `[(rf/inject-cofx :rf.server/request)]` interceptor entry in
 spec/Pattern-SSR-Loaders.md / spec/Pattern-FormAction.md, prose in
-docs/api/03-effects.md (rf2-d8mvke.3 finding 2). No residue test scanned the
+docs/guide/api/03-effects.md (rf2-d8mvke.3 finding 2). No residue test scanned the
 human-facing surface for the retired API as *live recommended* code, so the
 migration-breaking examples survived. This gate is that scan.
 
@@ -74,7 +74,7 @@ allowlist touched.
 
 SCAN SURFACE
 
-`docs/api/`, `docs/guide/`, `spec/`, and `skills/` markdown (`.md`). Generated
+`docs/guide/`, `spec/`, and `skills/` markdown (`.md`). Generated
 mirrors (`docs/spec/` — CI does `rm -rf docs/spec && cp -r spec docs/spec`)
 and vendor/build dirs are excluded; the tracked `spec/` source is the
 authoritative copy.
@@ -101,7 +101,7 @@ from typing import Iterable, NamedTuple
 
 # The human-facing + AI-facing doc surface EP-0017 finding 2 names: the API
 # reference, the guide, the spec, and the skills docs.
-DEFAULT_SCAN_DIRS = ("docs/api", "docs/guide", "spec", "skills")
+DEFAULT_SCAN_DIRS = ("docs/guide", "spec", "skills")
 
 _DOC_SUFFIXES = (".md",)
 
