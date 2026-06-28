@@ -44,6 +44,22 @@ The injected `dispatch` / `subscribe` are why a `reg-view` body needs no frame t
 
 `(rf/view :id)` returns the **wrapped** (frame-aware) fn `reg-view` produced, re-resolved on every call (so hot-reload swaps are picked up). Reach for it when the id is computed at runtime, the Var isn't in scope, or you want hot-reload re-resolution at the call site. A `view` miss returns `nil` (no error). **Bare `[:counter "Count"]`** — a keyword tag Reagent would interpret as a registered view — is **not supported in v1**; use the Var or `(rf/view …)`.
 
+### The call site MUST be hiccup, never a bare function call
+
+Every call site of a registered view must be **hiccup** — `[counter …]` (the Var in the bracket head) or `[(rf/view :counter) …]` (the id-lookup in the bracket head). **Never call it in function position as `(counter …)`.** The two differ at the React boundary, not just stylistically:
+
+```clojure
+[counter "Count"]            ;; hiccup — Reagent MOUNTS the wrapper as a component
+[(rf/view :counter) "Count"] ;; also hiccup — id-lookup in the bracket head, also mounts
+(counter "Count")            ;; WRONG — a bare function call, no component is minted
+```
+
+`reg-view`'s frame wiring rides the component's `:contextType`, which is attached **only when the substrate mounts the wrapper as a component** — i.e. when the view appears as the head of a hiccup vector. The wrapped fn resolves its frame from the mounted component's React context. A bare `(counter "Count")` invokes the render fn inline on the calling stack: no component is minted, no `:contextType` attaches, so the body's injected `subscribe` / `dispatch` carry no frame and raise `:rf.error/no-frame-context` the moment they run.
+
+**Distinguish the bracket-head function-position form, which is supported.** `[(rf/view :counter) "Count"]` *looks* like a call but it is still inside the hiccup brackets — the `(rf/view :counter)` evaluates to the wrapped fn and Reagent mounts it as the vector head, so the component (and its `:contextType`) is minted normally. The footgun is only the **bare** `(counter "Count")` with no enclosing brackets.
+
+The canonical bite is at a render root: `[rf/frame-provider {:frame :app/main} (app-root)]` evaluates `(app-root)` *outside* the provider's React subtree (it runs while building the provider's argument vector, before the provider mounts) — so it throws. Defer the render *inside* the subtree by keeping it in hiccup: `[rf/frame-provider {:frame :app/main} [app-root]]`.
+
 ## `reg-view*` — the plain-fn escape hatch
 
 ```clojure
@@ -78,6 +94,7 @@ UIx / Helix read a parameterised sub through the adapter's `use-subscribe` hook 
 
 - **A plain `(defn …)` view raises `:rf.error/no-frame-context` under a non-default frame.** A plain Reagent fn carries no `:contextType`, so it **cannot read the surrounding `frame-provider`'s frame** — its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and fail loud (EP-0002 — no `:rf/default` fall-through; `:recovery :supply-frame`). The fix is `reg-view` (picks up the frame via the injected wiring) or capturing a `(rf/capture-frame)` at render time. See [frames.md §The merged `frame-provider` in views](frames.md#the-merged-frame-provider-in-views-ep-0024).
 - **`reg-view` rejects non-defn-shape bodies at macroexpand.** The second arg (after an optional docstring) MUST be the args vector. A Var reference (`(reg-view foo my-render)`), a Form-3 `create-class` list, or a computed body throws a stable compile-time error pointing at `reg-view*` — register those through `reg-view*` instead.
+- **A `defmulti` / `defmethod` view is non-defn-shape too — it can't be `reg-view`-wrapped.** A `defmethod` body is a list, not an args vector, so the macro rejects it the same way it rejects Form-3; and the multimethod is dispatched in function position, so a subscribing method body runs inline with no component mount → `:rf.error/no-frame-context`. Use the same recipe as Form-3 route 1: extract each method's subscribing hiccup into its own `reg-view` child and reduce each `defmethod` to a thin dispatcher that returns `[child-view props]` in hiccup position (the child mounts as a component carrying its own `:contextType`).
 - **Don't `(def sym (reg-view …))`.** The macro already defs the symbol; `reg-view` *returns the id*, so wrapping it in a `def` binds the symbol to the id string, not the view fn. Just `(rf/reg-view sym [args] …)`.
 - **`reg-view` injects `dispatch` / `subscribe` — drop the `rf/` prefix inside the body.** The injected locals are frame-aware; a `rf/subscribe` (the ambient global) inside a `reg-view` body bypasses the injection and falls back to the frame-resolution chain. Inside `reg-view*` there is no injection — capture a `capture-frame`.
 - **Views are pure; no `app-db` writes, no instance handles.** State writes live in `reg-event` handlers reached via `dispatch`. A view that wraps a stateful JS library keeps the instance in a per-mount closure cell, never in `app-db` — see [`../../patterns/stateful-components.md`](../../patterns/stateful-components.md).
