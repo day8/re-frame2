@@ -232,7 +232,7 @@ If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` co
 
 **Never invent a version; never silently pick `latest`** — newly published packages may be broken or malicious, and unpinned coords make the migration non-reproducible. Record the chosen `<v2-version>` in the migration report.
 
-**If no released v2 version exists yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the report — the author must update the coord manually once a release lands, then re-run the migration.
+**If nothing is published to Clojars yet** (pre-publication): the migration is still fully doable — a first release is **not** a precondition. When no `:mvn/version` resolves, the author consumes re-frame2 via a **`:local/root`** sibling-checkout coord ([`deps-versions.md` §The `:local/root` sibling-checkout dev route](../../re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish)) or a **`:git/url` + `:git/sha`** coord, and the migration proceeds normally — apply every M/O-rule exactly as you would against a published target. Do **not** leave the dep alone, and do **not** stop and wait for a release. The guardrails are unchanged: never invent a version, never silently pick `latest`, and the author still supplies the pin or route — the skill never picks it for them. "Stop and ask" applies only when the author has supplied **no consumption route at all** (no `:mvn/version`, no `:git/sha`, no `:local/root`), *not* merely because nothing is on Clojars yet. Record the chosen route — the sibling-checkout path or the pinned SHA — in the migration report, exactly as a `<v2-version>` would be recorded.
 
 ## The pay-as-you-go artefact split (M-27 through M-32)
 
