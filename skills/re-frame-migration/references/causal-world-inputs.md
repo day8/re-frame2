@@ -2,11 +2,24 @@
 
 **The rule (EP-0010 recording semantics + EP-0017 authoring surface):** if a host fact can affect a *durable write*, the transition MUST read that fact from a **causal token** (the dispatch / reply / restore envelope's `:rf.cofx` map) or from a **declared recordable coeffect** captured in that token — never by reading the host *ambiently* at the durable-write site. The whole discipline in one sentence: **durable state folds facts, never reads.** It is the one v2 rule the v1 *"stub the clock in tests"* habit does not satisfy — stubbing reduces flakes but the event log still can't explain why a state value has the timestamps, ids, locations, and random choices it has.
 
+> **Scope — host facts, not db-derived reads.** This reference owns the durable-read judgment for **host facts** (clock, URL, window, storage, random). An in-handler read whose value is **derived from app-db** — an `@(rf/subscribe …)` deref, or any recompute of derived state inside the handler body — is *not* a host read and does *not* route through the host-fact buckets below; it is answered by the [source triage](#triage-in-handler-reads-by-source): read it from the `:db` coeffect the handler already holds. **db is a coeffect.**
+
 > **EP-0017 changed the authoring surface, not the rule.** The recorded map was renamed `:rf.world/inputs` → **`:rf.cofx`** (flat, one fact per owner-qualified key); `reg-cofx` is now **value-returning**; coeffect delivery is the **`:rf.cofx/requires`** registration declaration; and **`inject-cofx` is removed**. A migrating app touches all four — see [M-72](../../../migration/from-re-frame-v1/README.md#m-72-inject-cofx-removed--rfworldinputs--rfcofx-rename) for the mechanical reshape; this reference owns the **durable-read judgment** (which bucket each host read falls into).
 
 Normative home: [`spec/002-Frames.md` §Recordable coeffects](../../../spec/002-Frames.md#recordable-coeffects) (the `:rf.cofx` envelope field + the satisfaction algorithm), [`spec/001-Registration.md` §Coeffects](../../../spec/001-Registration.md) (the `reg-cofx` grades + `:rf.cofx/requires`), and [`spec/Spec-Schemas.md`](../../../spec/Spec-Schemas.md) (`:rf.cofx`). The recording rationale is in [`docs/EP/EP-0010-causal-world-inputs.md`](../../../docs/EP/EP-0010-causal-world-inputs.md); the authoring surface in [`docs/EP/EP-0017-recordable-coeffects.md`](../../../docs/EP/EP-0017-recordable-coeffects.md).
 
 > **Why this matters for a migration.** Most of this skill's rules are loud-or-mechanical. This one is **silent**: an ambient host read in a handler *compiles clean, boots fine, and passes its own live-session tests* — it only betrays itself under replay, restore, SSR hydration, or a fixture re-run, where the same token now folds a different value. So it does not surface on the Phase-4 boot smoke-test the way a dropped dispatch does. Treat it as a **structural up-front grep** (below), and surface durable ambient reads as a report line even when the app runs correctly today.
+
+<a id="triage-in-handler-reads-by-source"></a>
+
+## Triage — split an in-handler ambient read by source
+
+Before routing a host fact below, classify an ambient read found **inside a `reg-event` handler** by its **source** — the two sources take different routes, and only one of them touches this reference's host-fact buckets:
+
+- **DB-derived** — an `@(rf/subscribe …)` deref, or any value recomputed from app-db, sitting in the handler body. The handler already receives app-db as the **`:db` coeffect** (`(fn [{:keys [db]} _] …)`), so **read the slice / recompute the derived value from `:db`**. This is the trivial first answer — no coeffect, no causal token, no payload rewrite. Do **not** reach for a recordable `reg-cofx` (a value-returning supplier sees only its own arg and **cannot read app-db**) or an event-payload rewrite (it forces editing the dispatch site in another file); both fail for a db-derived value. **db is a coeffect** — that is where a derived read belongs.
+- **Host fact** — clock / URL / window / storage / random. These have no app-db source; route them through the host-fact buckets below (a recordable `reg-cofx`, a causal token, or the event payload).
+
+The split mirrors the cofx doctrine: production host-reads come from a recordable `reg-cofx`; db-derived reads come from the `:db` coeffect the handler already holds. The rest of this reference is the **host-fact** half — a db-derived in-handler read is handled by the triage above, never by the host-fact routes.
 
 ## The classification — three buckets, only one is forced
 
