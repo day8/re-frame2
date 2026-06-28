@@ -56,7 +56,7 @@ The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`,
 
 **Pre-publish reality (today): re-frame2 is NOT on Clojars/npm yet.** The repo's [`README.md`](../../../README.md) §Status confirms this and tells early users to add re-frame2 as a `:git/sha` coordinate. The `day8/re-frame2*` Maven coordinates **do not resolve** — a project that writes `{:mvn/version "<VERSION>"}` for the framework artefacts fails dependency resolution before it compiles. So the coordinate *shape* branches on publication state:
 
-- **Before the first Clojars release (now):** use a **`:git/url` + `:git/sha`** coordinate for each `day8/re-frame2*` artefact, OR a **`:local/root`** coordinate against a reviewed checkout of the monorepo. This is the **only** working manual route today.
+- **Before the first Clojars release (now):** use a **`:git/url` + `:git/sha`** coordinate for each `day8/re-frame2*` artefact, OR a **`:local/root`** coordinate against a reviewed checkout of the monorepo (worked recipe: [The `:local/root` sibling-checkout dev route](#the-localroot-sibling-checkout-dev-route-pre-publish)). This is the **only** working manual route today.
 - **After publication (forward-correct):** switch each artefact to `{:mvn/version "<VERSION>"}`. The `:mvn/version` shape below is the post-publish destination; it is not usable until the coordinates resolve on Clojars.
 
 **Two different "versions" — don't conflate them.** The repo `VERSION` / next-release string is what release *tags* are cut from; the *latest published Maven version* is whatever has actually shipped to Clojars (currently: none). Version discovery distinguishes them: a repo `VERSION` of `0.0.1.alpha` does **not** mean `{:mvn/version "0.0.1.alpha"}` resolves.
@@ -104,7 +104,39 @@ A minimal `deps.edn` for a greenfield re-frame2 project. **Today (pre-publish), 
    :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}
 ```
 
-Replace `<SHA>` with the reviewed commit the author pinned (**every `day8/re-frame2-*` line gets the same `<SHA>`** — that is how lockstep is held with git coords; confirm the `:deps/root` for each artefact against the monorepo layout) and `<shadow-version>` with the `shadow-cljs` version from the pinned `implementation/package.json` (the same version you write into `package.json` below — keep them in lockstep). A `:local/root` checkout (each `:deps/root` pointing at a local re-frame2 clone) is the equivalent dev-route alternative.
+Replace `<SHA>` with the reviewed commit the author pinned (**every `day8/re-frame2-*` line gets the same `<SHA>`** — that is how lockstep is held with git coords; confirm the `:deps/root` for each artefact against the monorepo layout) and `<shadow-version>` with the `shadow-cljs` version from the pinned `implementation/package.json` (the same version you write into `package.json` below — keep them in lockstep). Consuming an unpublished re-frame2 from a **sibling checkout** via `:local/root` is the equivalent pre-publish dev route — see [The `:local/root` sibling-checkout dev route](#the-localroot-sibling-checkout-dev-route-pre-publish) below for the copy-pasteable recipe and the per-artefact paths.
+
+### The `:local/root` sibling-checkout dev route (pre-publish)
+
+The second pre-publish route — **the same status as the `:git/sha` shape above**, a working manual route today but not a published-coord scaffold — points each `day8/re-frame2*` coordinate at a **reviewed re-frame2 checkout sitting beside your project**. Reach for it when you develop against an unpublished re-frame2 (often one you are also editing) instead of a pinned commit: edits in the sibling checkout are picked up on the next build with no re-pin.
+
+`:local/root` takes a path **straight to the artefact's own directory** — the directory that holds *that artefact's* `deps.edn`. There is **no `:deps/root` sub-path navigation for `:local/root`** (unlike the `:git/sha` route, where `:deps/root` selects the artefact within the cloned repo), so each coordinate spells out the full monorepo sub-path itself. Assuming the re-frame2 monorepo is checked out next to your project as `../re-frame2`, only the four framework coordinates change from the `:git/sha` shape — swap each `{:git/url … :git/sha … :deps/root …}` for one `:local/root`:
+
+```clojure
+;; Pre-publish dev route — replaces the four :git/sha framework coords above.
+;; Everything else in the deps.edn (:paths, the reagent pin, the :shadow alias)
+;; is unchanged. Lockstep is automatic: all four resolve from ONE sibling
+;; checkout, so they are always the same commit.
+day8/re-frame2         {:local/root "../re-frame2/implementation/core"}
+day8/re-frame2-reagent {:local/root "../re-frame2/implementation/adapters/reagent"}
+day8/re-frame2-schemas {:local/root "../re-frame2/implementation/schemas"}
+day8/re-frame2-xray    {:local/root "../re-frame2/tools/xray"}
+```
+
+Those four are the day-one set (core + adapter + schemas + xray). The **pay-as-you-go per-feature artefacts** (and the alternate substrate adapters) take the same `:local/root` shape pointed at their own directory — add each one only when you call into it (see [When to add the optional per-feature artefacts](#when-to-add-the-optional-per-feature-artefacts)):
+
+| Artefact | `:local/root` path (sibling checkout) |
+|---|---|
+| `day8/re-frame2-uix` (adapter; instead of `-reagent`) | `../re-frame2/implementation/adapters/uix` |
+| `day8/re-frame2-helix` (adapter; instead of `-reagent`) | `../re-frame2/implementation/adapters/helix` |
+| `day8/re-frame2-machines` | `../re-frame2/implementation/machines` |
+| `day8/re-frame2-routing` | `../re-frame2/implementation/routing` |
+| `day8/re-frame2-flows` | `../re-frame2/implementation/flows` |
+| `day8/re-frame2-http` | `../re-frame2/implementation/http` |
+| `day8/re-frame2-ssr` | `../re-frame2/implementation/ssr` |
+| `day8/re-frame2-epoch` | `../re-frame2/implementation/epoch` |
+
+Keep the route **in lockstep**: pull every `day8/re-frame2*` coordinate from the *same* sibling checkout so they share one commit — never mix one artefact from `../re-frame2` with another from a second clone. And like the `:git/sha` route this is a pre-publish dev shape, not a published-coord scaffold; the same [pre-split / pre-release caveat](../README.md#relationship-to-the-generator-template) applies.
 
 **Post-publish shape (NOT usable until the coordinates resolve on Clojars).** Once `day8/re-frame2*` is published, each framework artefact switches to a single shared `:mvn/version`:
 

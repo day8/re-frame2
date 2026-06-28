@@ -228,7 +228,7 @@ For the author's reference (so they can pick), three sources of authoritative ve
 2. **`CHANGELOG.md`** in the pinned checkout — released versions with summaries; the most recent non-Unreleased entry is the latest released version.
 3. **GitHub releases page** (`https://github.com/day8/re-frame2/releases`) — for cross-referencing tags, but the local pinned checkout is the authoritative source for *this* migration.
 
-If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` coord instead of `:mvn/version` — but they still type the SHA into the kickoff prompt; the skill does not pick. Niche; default to released `:mvn/version`.
+If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` coord instead of `:mvn/version` — but they still type the SHA into the kickoff prompt; the skill does not pick. Niche; default to released `:mvn/version`. If the author is migrating against an **unpublished** re-frame2 from a **sibling checkout** (a `:local/root` coord per artefact), the re-frame2-setup skill carries the copy-pasteable recipe with the verified per-artefact paths: [`deps-versions.md` §The `:local/root` sibling-checkout dev route](../../re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish).
 
 **Never invent a version; never silently pick `latest`** — newly published packages may be broken or malicious, and unpinned coords make the migration non-reproducible. Record the chosen `<v2-version>` in the migration report.
 
