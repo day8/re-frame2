@@ -13,6 +13,7 @@ Operational detail for two early steps: the **React-19 / Reagent-2 floor gate** 
 - Discovering the current VERSION
 - The pay-as-you-go artefact split (M-27 through M-32)
 - Edge cases
+- The optimized / release compile gate (`-Xss` for the StackOverflow class)
 
 ---
 
@@ -300,6 +301,23 @@ Excluding the *named* add-ons and re-compiling, only to still see `re-frame.core
 Only once the check shows a single source of `re-frame.core` (v2) is it safe to compile. A surviving v1 jar means `re-frame.core` may resolve to v1 at compile/load time regardless of which coords you *think* you swapped.
 
 **Per-feature artefact not yet published.** Same shape as M-0's "no v2 version" edge case: leave the dep alone, flag in the report, the author updates manually when the artefact lands.
+
+---
+
+## The optimized / release compile gate — raise `-Xss` for the StackOverflow class
+
+The post-M-0 compile gate and the Phase-4 done-bar are **two compiles, not one**: the dev (`:none`) build that every other gate runs (the convergence compile, the `watch` the boot smoke-test boots under, the unit suite), and the **optimized / release compile** (`:simple` / `:advanced` — `shadow-cljs release`, or whatever command CI runs). Only the optimized compile runs Closure's whole-program passes, so it is a **separate done-bar gate** — see [`runtime-smoke-test.md` §The dev compile is NOT the optimized compile](runtime-smoke-test.md#the-dev-compile-is-not-the-optimized-compile--the-fourth-done-bar-gate) for why a migration is the build most likely to fail it (the artefact-split + `reg-view` enlargement deepens the AST until a recursive Closure pass like `RemoveUnusedCode` overruns the JVM compile thread's stack and throws `StackOverflowError`).
+
+**The remedy: raise the compile JVM's thread stack.** Give the JVM that runs the optimized compile a larger `-Xss` (thread stack size) — start at `8m`, go to `16m` if it still overruns. That buys headroom for the deeper recursion the enlarged AST drives; it changes not a byte of the emitted output.
+
+**The shadow-cljs `:jvm-opts` placement gotcha — get this exactly right, or the `-Xss` silently does not apply.** *Where* you set `-Xss` decides whether it reaches the compile JVM at all, because shadow-cljs compiles via two different JVM-launch paths:
+
+- **`shadow-cljs.edn`'s `:jvm-opts`** applies **only** when the **node launcher** (`npx shadow-cljs …`) starts the JVM.
+- It does **not** apply when the compile runs through the **Clojure CLI** (`clojure -M… -m shadow.cljs.devtools.cli compile|release`): there the JVM is launched by `clojure`, which reads its `-Xss` from the **`deps.edn` alias `:jvm-opts`** instead (or from `JAVA_TOOL_OPTIONS`, or a `-J-Xss…` flag on the command line).
+
+**CI commonly drives the optimized compile through the Clojure-CLI path**, so an `-Xss` set only in `shadow-cljs.edn` silently has no effect there — the optimized compile keeps overflowing while the config *looks* correct. Set `-Xss` on **whichever launcher actually starts the compile**: the `shadow-cljs.edn` `:jvm-opts` for the `npx shadow-cljs` path, the consuming alias's `deps.edn` `:jvm-opts` (or `JAVA_TOOL_OPTIONS` / a `-J-Xss…` flag) for the `clojure -M` path. When unsure which path CI uses, set both.
+
+(This is a stack-**depth** `StackOverflowError` in the **optimized** compile of the migrated *app's own* code, cured by `-Xss` headroom — a distinct failure from any dev-build transpile-down error, which `-Xss` would not touch.)
 
 ---
 
