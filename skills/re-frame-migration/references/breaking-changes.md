@@ -9,6 +9,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 - Required rules (M-N) by trigger surface
 - v1 add-on libraries fail to COMPILE on v2 (forced removal/replacement)
 - Compile-only façade removals (public `re-frame.core` symbols that no longer resolve)
+- Compile-silent façade retirements (public symbols that resolve but throw at registration)
 - Opt-in modernisations (O-N) by trigger surface
 - Type A vs Type B at a glance
 - Failure-visibility axis — loud-fail vs silent-fail (orthogonal to Type A/B)
@@ -122,6 +123,35 @@ A short register of **public v1 `re-frame.core` symbols that simply do not exist
 | public `->interceptor` (and any inline interceptor **value** in a chain) | No public authoring form — `->interceptor` is internal-only, and EP-0022 chains are reference-only, so an inline value is also rejected. | Author the before/after work with `(rf/reg-interceptor id descriptor)` and reference it by **id** in the event/frame `:interceptors` chain. | **M-21** |
 
 **These accessors are removed, NOT relocated — do not chase a public successor namespace.** The owning-namespace fns (`re-frame.interceptor/get-coeffect`, `…/assoc-effect`, the internal `->interceptor` constructor) **remain framework-internal**. They are off-contract, so a `(:require [re-frame.interceptor …])` reaching for them is itself an **M-1** off-contract-namespace break, not a fix. The supported destination is the direct `get-in` / `assoc-in` context-map access shown above (for the accessors) or a registered interceptor referenced by id (for `->interceptor`). The interceptor-surface shrink that retires `->interceptor` and inline chain values is [M-21](../../../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors); the `clear-subscription-cache!` rename rides [M-1](../../../migration/from-re-frame-v1/README.md) (the private-namespace rule, which folds in this one public rename because every codebase that uses it trips the same mechanical rewrite).
+
+## Compile-silent façade retirements — public symbols that resolve but throw at registration
+
+The register above is **compile-CAUGHT**: a deleted public symbol no longer resolves, so the call site is an unresolved-symbol error the compiler names — march-the-wall finds it. There is a **complementary, opposite-visibility** class: public v1 symbols that re-frame2 **retired but kept as facade-exported `^:no-doc` throwing stubs**. The var still *resolves* (the compiler stays silent — no undeclared-var), and it throws its always-on hard error **only when called at registration (boot)**. The compile passes clean; the failure is a runtime throw at first namespace load. The two classes are a **pair** — same "removed v1 API", opposite detector:
+
+| Class | The retired var… | Compiler | Detector |
+|---|---|---|---|
+| **Compile-CAUGHT** (deleted symbol) | does **not** resolve | names the unresolved symbol | march-the-wall (compile *is* the to-do list) |
+| **Compile-SILENT** (throwing stub) | resolves, then throws when called | says **nothing** | static pre-boot grep **+** the boot smoke-test |
+
+The headline members are the **retired event registrars** — `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, collapsed into the one `reg-event` under EP-0018 ([M-73](#required-m-rules-by-trigger-surface)). Each survives as a `^:no-doc` facade stub that throws its always-on naming hard error the instant it is **called at registration**:
+
+| Retired symbol (v1) | Throws at registration | Replacement |
+|---|---|---|
+| `reg-event-db` | `:rf.error/reg-event-db-removed` (names `reg-event`; shows the two-line conversion — destructure `:db` from the coeffects map, wrap the return `{:db …}`) | `reg-event` |
+| `reg-event-fx` | `:rf.error/reg-event-fx-removed` (`reg-event` is the identical shape under the bare name) | `reg-event` |
+| `reg-event-ctx` | `:rf.error/reg-event-ctx-removed` (names `reg-interceptor` — register a `context -> context` interceptor, reference it by id from a `reg-event` chain) | `reg-interceptor` (referenced by id) |
+
+The throw is **`:no-recovery`** — the call is rejected, the handler is **not** registered, and (like M-70's chain-shape throws) it **aborts the rest of that namespace's load**, so a boot machine's `reg-machine` after it never registers and the app hangs at boot. Because a v1 app calls these at the top of nearly **every** event namespace, this is the compile-silent class with the **widest blast radius** — an app can compile 0-error / 0-warning and then throw in many namespaces at first load.
+
+**Find them WITHOUT a runtime — the static pre-boot grep:**
+
+```bash
+# Every retired-registrar call site. A hit that is still reg-event-(db|fx|ctx),
+# not yet reg-event, is a boot-time :rf.error/reg-event-*-removed throw.
+rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
+```
+
+The grep is the cheap up-front detector (the same shape M-70 uses for interceptor-chain shapes); the [boot smoke-test](runtime-smoke-test.md) is the runtime backstop that surfaces any survivor's throw on the console. Both are needed because the compile gate, by construction, sees neither. This is the **loud-at-runtime / not-loud-at-compile** shape — the same family as **M-70** and **M-15b** in the failure-visibility axis below; it is *not* a silent-fail row (it throws), but the compile is silent about it just the same.
 
 ## Opt-in modernisations (O-rules) by trigger surface
 
