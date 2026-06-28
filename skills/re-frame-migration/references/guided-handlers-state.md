@@ -100,6 +100,53 @@ There is **no ambient-default shortcut**, and there is **no "one root `reg-view`
 
 For a bare-`dispatch`/`subscribe` plain-fn tree this conversion is **FORCED, not optional** — it is the boots-or-not floor (M-11), not the opt-in modernisation O-2. O-2 is a *clean* view that already works being made multi-frame-ready; here the app **does not boot** until the tree is converted (or each fn captures a frame). Name the extent honestly: it is a **whole-tree sweep**, potentially every view file in the app. **Size it in the Phase-0a inventory** — count the unregistered frame-dependent plain fns up front — rather than discovering the extent when boot throws `:rf.error/no-frame-context`.
 
+### Executing the conversion: subscribing views from defn to reg-view
+
+The decision and single-frame sweep above answer *which* components convert and *how big* the pass is; this is the **execution mechanics** — the per-component rewrite, form by form. For a single/default-frame app the disposition is overwhelmingly "convert," so the bulk of M-11 is one mechanical-but-large `defn` → `reg-view` sweep across the view layer (a single real app commonly carries dozens of subscribing components across its view files — one field migration converted 30+ across 22 files, the largest single rewrite of that migration). Verify each form against [`spec/004-Views.md` §Form-1, Form-2, Form-3](../../../spec/004-Views.md#form-1-form-2-form-3-components) before applying.
+
+**The require — usually nothing to add.** A subscribing view ns already requires `re-frame.core` (it calls `subscribe` / `dispatch`), and `reg-view` is reached the same way, as `rf/reg-view`. `re-frame.core` self-requires its own macros (`:require-macros [re-frame.core … :refer [reg-view …]]`), so the single M-1 import — `(:require [re-frame.core :as rf])` — already carries the `reg-view` macro with **no** separate `:refer-macros [reg-view]`. The explicit-refer idiom (`[re-frame.core :as rf :refer-macros [reg-view]]`) is only needed by a ns that subscribes yet somehow omits the `re-frame.core` require — rare, since subscribing already requires it.
+
+**Form-1 (canonical render fn) — the 80% case.** A render fn becomes a `reg-view` of the same symbol and arg-vector; the body is unchanged except that any hand-rolled frame-capture in it is dropped — `dispatch` / `subscribe` arrive as auto-injected, frame-aware lexical locals (`reg-view` auto-defs the symbol and auto-derives the id from `(keyword *ns* sym)`).
+
+```clojure
+;; before — subscribes in render but unregistered: throws :rf.error/no-frame-context
+(defn account-summary [label]
+  [:div label ": " @(rf/subscribe [:account/balance])])
+
+;; after — registered, frame-aware (dispatch / subscribe injected)
+(rf/reg-view account-summary [label]
+  [:div label ": " @(subscribe [:account/balance])])
+```
+
+**Form-2 (closure — setup work in an outer fn).** `reg-view` supports the inner render fn: a body that *returns a fn* keeps that shape. The injected `dispatch` / `subscribe` locals are visible to **both** the outer (once-per-mount) body and the inner render fn through ordinary Clojure lexical closure, so the closure converts intact.
+
+```clojure
+;; before
+(defn counter-with-init [label]
+  (rf/dispatch [:counter/init label])
+  (fn [label]
+    [:button {:on-click #(rf/dispatch [:counter/inc])}
+     (str label ": " @(rf/subscribe [:counter/value]))]))
+
+;; after — same closure, injected ops
+(rf/reg-view counter-with-init [label]
+  (dispatch [:counter/init label])
+  (fn [label]
+    [:button {:on-click #(dispatch [:counter/inc])}
+     (str label ": " @(subscribe [:counter/value]))]))
+```
+
+The spec prefers Form-1 + an explicit setup event over Form-2 (see [`spec/004-Views.md` §Form-2](../../../spec/004-Views.md#form-2-closure--supported-prefer-form-1--explicit-setup-event)), but a migration preserves behaviour — convert the closure as-is and leave the Form-2 → Form-1 modernisation to the author.
+
+**Form-3 (`reagent.core/create-class` — lifecycle).** The `reg-view` macro **rejects** a `create-class` body at macroexpand (Form-3 is not defn-shape; the error points the author at `reg-view*`), so you cannot wrap the class in `reg-view` and have it pick up `:contextType` the way a function component does. Two routes, both spec-supported:
+
+1. **Extract the subscribing content into a `reg-view` child (preferred).** Keep the class for its lifecycle, but move the part that derefs subs / dispatches into a small `reg-view`-registered child the class renders. The child carries its own `:contextType` and reads the frame; the class manages its DOM/lifecycle and subscribes nothing.
+2. **Register the class through `reg-view*` and capture the frame explicitly.** Per [`spec/004-Views.md` §Form-3](../../../spec/004-Views.md#form-3-class--out-of-scope-for-the-macro), the class ships through `re-frame.core/reg-view*` (the plain-fn surface — no auto-inject), and inside its render / lifecycle hooks you bind `{:keys [dispatch subscribe]}` from `(rf/capture-frame)` and route through those ops. The captured handle locks to the render frame and survives the lifecycle callbacks' async boundary.
+
+**Scope — convert subscribers only; do not over-convert.** The conversion is keyed on *frame-dependence*, not on being a view. Convert a component **iff** it derefs a sub or dispatches in its render (the calls that raise `:rf.error/no-frame-context`). **Leave as `defn`** every non-subscribing helper and every pure value-taking presentational component (one that renders only its args) — these depend on no frame, so converting them is churn. This is option 3 of the decision table applied at conversion time.
+
+**Compile-silent — only the boot-smoke catches a miss.** A `defn` view is valid ClojureScript: the unconverted component compiles **0 errors / 0 warnings** and is invisible in the build log. The gap surfaces only at runtime, when the component first renders and throws `:rf.error/no-frame-context`. Because it throws on *render* (not at ns-load), it is precisely the silent class the Phase-4 [boot smoke-test](runtime-smoke-test.md) exists to catch: boot the dev build, exercise each first-screen surface, and watch the console for `:rf.error/no-frame-context`. Treat the sweep as unverified until a clean boot renders the screens — which is why Phase-0a **sizes** it (see the single-frame case above) rather than discovering the extent one render-crash at a time.
+
 > **Not M-11 — an in-handler `@(rf/subscribe …)` deref.** M-11 is the no-frame-context footgun for a *view* (or an escaped callback) that has no surrounding scope to read a sub from. An `@(rf/subscribe …)` deref **inside a `reg-event` handler** is a different shape: the handler already holds app-db as the `:db` coeffect, so recompute the value from `:db` — it needs no `reg-view` / `(rf/capture-frame)` / `with-frame`. Triage it by source, not by context: see [`causal-world-inputs.md` §source triage](causal-world-inputs.md#triage-in-handler-reads-by-source).
 
 ---

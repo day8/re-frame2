@@ -84,6 +84,7 @@ Separately from the add-ons, grep the **app's own source** for the v1 feature su
 | `re-frame.test` / `day8.re-frame.test` requires | **M-25** |
 | `reg-event-error-handler` | **M-13** |
 | `(rf/init!)` with no adapter — or no `init!` at all | **M-40** |
+| Reagent view components that `subscribe` / `dispatch` **in their render** but are registered as plain `(defn …)`, not `reg-view` — **count them to SIZE the M-11 `defn` → `reg-view` sweep**, often the largest single conversion in the app (one per subscribing component). COMPILE-SILENT: each compiles 0/0 and throws `:rf.error/no-frame-context` at first render, so only the [boot smoke-test](runtime-smoke-test.md) catches a miss. Cross-reference `(rf/registrations :view)` to find the unregistered subscribers; leave non-subscribing helpers / pure presentational fns alone | **M-11** |
 
 This list is illustrative; the authoritative index is [`breaking-changes.md`](breaking-changes.md) — grep it for any surface you find. The inventory's job is to run that scan **once, comprehensively**, not to re-derive the rules.
 
