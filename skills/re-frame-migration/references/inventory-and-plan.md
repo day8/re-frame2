@@ -66,6 +66,7 @@ Separately from the add-ons, grep the **app's own source** for the v1 feature su
 
 | v1 feature surface in the app | Rule |
 |---|---|
+| `reg-event-db` / `reg-event-fx` registrations — **the single most pervasive call-site rule** (typically the highest-count hit in any v1 app: every event registration). Both collapse to the one `reg-event` form and `reg-event-ctx` is demoted off the public surface (EP-0018). Grep `reg-event-db` / `reg-event-fx` (and `reg-event-ctx`) | **M-73** |
 | Direct `re-frame.db` / `re-frame.utils` / other off-contract `re-frame.*` requires; `@re-frame.db/app-db` | **M-1** |
 | `reg-global-interceptor` / `clear-global-interceptor` | **M-17** |
 | `reg-sub-raw` | **M-18** |
