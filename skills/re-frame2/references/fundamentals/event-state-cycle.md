@@ -104,7 +104,7 @@ Every `:rf.error/*` trace event emitted from inside a running handler — event,
                                            :column 3}}}
 ```
 
-`:kind` is the registry kind (`:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:interceptor` / `:late-bind`); `:id` is the registered id; `:source-coord` comes from the `reg-*` macro's capture. The field is **present** whenever a handler is currently executing and **absent** for dispatch-time errors like `:rf.error/no-such-event`, where no handler is yet in scope.
+`:kind` is the registry kind (`:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:interceptor` / `:late-bind`); `:id` is the registered id; `:source-coord` comes from the `reg-*` macro's capture. The field is **present** whenever a handler is currently executing and **absent** for dispatch-time errors like `:rf.error/no-such-handler`, where no handler is yet in scope.
 
 **`:rf.trace/trigger-handler` rides the trace surface, so it is production-elided** — the whole trace emit (and every `*handler-scope*` read with it) compiles out under `:advanced` + `goog.DEBUG=false`. Production-surviving source coordinates come from a **separate, always-on channel**: the error-emit record carries a tight `:source-coord` looked up from the always-on `error-coords-by-id` registry (per `register-error-listener!` — see `cross-cutting/production-observability.md`). So in dev you read the coord off `:rf.trace/trigger-handler`; in a production build you read it off the error-emit record's `:source-coord` (macro-registered handlers only). Do not expect the trace field in production. (Spec 009 §What is NOT available in production / §`:rf.trace/trigger-handler`.)
 
