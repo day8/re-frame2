@@ -1,26 +1,17 @@
 # 15 — Removed / not shipped
 
-This chapter is the tombstone register. It exists so v1 migrators and readers cross-checking against blog posts can find out, in one place, **what's gone**, **what was proposed but not shipped**, and **what to use instead**.
-
-If a row says "(proposed earlier)," that means the surface was named in an early draft of the v2 spec and dropped before ship. The replacement is canonical; the proposed name never existed at run-time.
+This chapter is the tombstone register. It exists so re-frame v1 migrators can find out, in one place, **what's gone** and **what to use instead**.
 
 | Removed / not shipped | What to do instead | Reference |
 |---|---|---|
 | `dispatch-with` (master) | `(dispatch event {:fx-overrides {...}})` | MIGRATION M-4 |
 | `dispatch-sync-with` (master) | `(dispatch-sync event {:fx-overrides {...}})` | MIGRATION M-4 |
-| `dispatch-to` (proposed earlier) | `(dispatch event {:frame :todo})` | 002 |
-| `subscribe-to` (proposed earlier) | `(subscribe query-v {:frame :todo})` | 002 |
-| `frame-dispatcher` / `bound-dispatcher` / `bound-subscriber` (proposed earlier) | `(rf/capture-frame)` — the keystone operation bundle; captures the frame at creation time and is safe to call during render and from async callbacks. | 002 |
 | `dispatcher` | `(:dispatch (rf/capture-frame))` *or* the `dispatch` injected in a `reg-view` body. | 002 |
 | `subscriber` | `(:subscribe (rf/capture-frame))` *or* the `subscribe` injected in a `reg-view` body. | 002 |
 | `bound-fn` (CLJS macro) | `(rf/capture-frame)` — the keystone operation bundle. (`bound-fn` was first renamed `frame-bound-fn`, then EP-0024 Open Issue #8 retiered the `frame-bound-fn` / `frame-bound-fn*` closures to internal — `capture-frame`, or an explicit `{:frame …}` opt, expresses the real use cases.) | 002 |
 | `current-frame` | Renamed to `current-frame-id` — returns a frame-id keyword. | 002 |
 | `get-frame-db` | Renamed to `app-db-value` — returns the `app-db` VALUE (a plain map), `nil` for an unregistered / destroyed frame. The container accessor is the internal `re-frame.frame/app-db-container`. | 002 |
-| `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle. See [11 — Instrumentation](11-instrumentation.md). | 009 |
-| `add-trace-listener` / `remove-trace-listener` (proposed earlier) | `register-listener!` / `unregister-listener!` | 009 |
-| `register-trace-listener` / `unregister-trace-listener` (no-bang, proposed earlier) | Renamed to `register-listener!` / `unregister-listener!` — the bang form matches the side-effecting nature of listener registration. | 009 |
 | Bare `[:my-view "args"]` keyword-tagged hiccup | Var form `[my-view "args"]` (canonical) or `[(rf/view :my-view) "args"]` for late-binding by id. | 004 |
-| `h` macro (proposed earlier) | Removed. Use the Var form `[my-view "args"]` or `[(rf/view :my-view) "args"]`. | 004 |
 | `reg-frame` / `make-frame` / `frame-provider` `:on-create` construction key | `:initial-events` — an ordered vector of setup events dispatched synchronously at frame creation: `:initial-events [[:checkout/open] …]`. Construction is now events-only. Supplying `:on-create` **fails loud at `reg-frame`** with `:rf.error/on-create-retired` (never a silent ignore). | EP-0027 |
 | `reg-frame` / `make-frame` / `frame-provider` `:initial-db` construction key | There is no separate `app-db`-seeding data key — seeding `app-db` is itself an event, `[:rf/set-db {…}]` (see [01 — Core §Standard events](01-core.md#standard-events)), placed in `:initial-events`: `:initial-events [[:rf/set-db {:n 0}]]`. Supplying `:initial-db` **fails loud** with `:rf.error/initial-db-retired`. | EP-0027 |
 | `reg-global-interceptor` | `reg-frame :interceptors` — frame-level is the canonical "global within this frame." For cross-frame observation, use `register-listener!`. | MIGRATION M-17 |
