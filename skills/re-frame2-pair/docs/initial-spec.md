@@ -153,7 +153,7 @@ Structured `{:ok? false :reason ...}` — every script. Recognised reasons:
 | `:nrepl-port-not-found` | shadow-cljs not running, or port file in an unexpected location |
 | `:debug-disabled` | `interop/debug-enabled?` is false (production build) |
 | `:ns-not-loaded` | `:missing :re-frame2` — re-frame2 isn't loaded into the runtime |
-| `:no-frames-registered` | App hasn't called `(rf/init!)` yet |
+| `:no-frames-registered` | App hasn't established its app frame yet (`init!` installs only the adapter — it creates no frame under EP-0002) |
 | `:ambiguous-frame` | Multiple app frames, none selected; both reads and writes refuse rather than default to `:rf/default` — pin one or pass `frame` |
 | `:eval-error`, `:cljs-eval-error` | nREPL or CLJS-eval surfaced an exception |
 | `:no-epoch-recorded` | `dispatch-sync` returned but no record landed; recording disabled or frame destroyed |
