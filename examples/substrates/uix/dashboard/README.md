@@ -5,18 +5,18 @@ metric cards, a row of filter chips along the top, and a time-range
 picker; each card carries a small hand-drawn SVG sparkline. Click a
 chip to show or hide a category of metric; pick a range to set how
 much history each sparkline draws — everything redraws the instant you
-click. That's the whole app: a [view](../../../../docs/guide/glossary.md#view)
-tree reading a [subscription](../../../../docs/guide/glossary.md#subscription)
+click. That's the whole app: a [view](../../../../docs/core/glossary.md#view)
+tree reading a [subscription](../../../../docs/core/glossary.md#subscription)
 graph, on the [UIx](https://github.com/pitch-io/uix)
-[substrate](../../../../docs/guide/glossary.md#substrate). No chart
+[substrate](../../../../docs/core/glossary.md#substrate). No chart
 library, no HTTP, and no
 [state machine](../../../../docs/machines/glossary.md#machine).
 
 The point: re-frame2's core is substrate-agnostic. Swap Reagent for UIx
-and your [events](../../../../docs/guide/glossary.md#event),
-[subscriptions](../../../../docs/guide/glossary.md#subscription), and
-[app-db](../../../../docs/guide/glossary.md#app-db) stay exactly the same.
-Only the way [hiccup](../../../../docs/guide/glossary.md#hiccup) reaches
+and your [events](../../../../docs/core/glossary.md#event),
+[subscriptions](../../../../docs/core/glossary.md#subscription), and
+[app-db](../../../../docs/core/glossary.md#app-db) stay exactly the same.
+Only the way [hiccup](../../../../docs/core/glossary.md#hiccup) reaches
 React changes.
 
 ## What this demonstrates
@@ -26,11 +26,11 @@ data and the pixels. Three ideas carry the example.
 
 **Two separate controls feed one subscription.** The chips pick which
 categories of metric to show. The range picker picks how much history to
-show. In the [app-db](../../../../docs/guide/glossary.md#app-db) they're
+show. In the [app-db](../../../../docs/core/glossary.md#app-db) they're
 unrelated — a `:dashboard/active-tags` set and a `:dashboard/range`
 keyword, written by two small
-[event handlers](../../../../docs/guide/glossary.md#event-handler). But both
-feed a single derived [subscription](../../../../docs/guide/glossary.md#subscription),
+[event handlers](../../../../docs/core/glossary.md#event-handler). But both
+feed a single derived [subscription](../../../../docs/core/glossary.md#subscription),
 `:dashboard/visible-metrics`, which filters the cards by tag *and* trims
 each metric's series to the last N points:
 
@@ -49,21 +49,21 @@ Toggle a chip or change the range, and the framework re-runs just this
 one function — and only if one of its three inputs actually changed (by
 `=`). The view never sees two events. It asks for the visible metrics
 and gets one settled answer. That's the
-[derivation graph](../../../../docs/guide/glossary.md#the-derivation-graph)
+[derivation graph](../../../../docs/core/glossary.md#the-derivation-graph)
 doing the bookkeeping you'd otherwise do by hand.
 
 **You read state through a React hook.** UIx components are `defui`
 functions, and inside one you call
 `(uix-adapter/use-subscribe [:dashboard/visible-metrics])` at the top of
 the body — instead of dereferencing a
-[`subscribe`](../../../../docs/guide/glossary.md#subscribe--derive) the way
+[`subscribe`](../../../../docs/core/glossary.md#subscribe--derive) the way
 you would in Reagent. It's the same subscription and the same cached
-value. The [adapter](../../../../docs/guide/glossary.md#adapter) just hands
+value. The [adapter](../../../../docs/core/glossary.md#adapter) just hands
 it to you in the shape React's rules-of-hooks expect.
 
-To [dispatch](../../../../docs/guide/glossary.md#dispatch) on a click, the
+To [dispatch](../../../../docs/core/glossary.md#dispatch) on a click, the
 chips read the frame's `:dispatch` from
-[`(rf/capture-frame)`](../../../../docs/guide/glossary.md#capture-frame) at
+[`(rf/capture-frame)`](../../../../docs/core/glossary.md#capture-frame) at
 render time. That's the idiomatic way to dispatch from inside a UIx
 event callback.
 
@@ -79,7 +79,7 @@ every sparkline for free. There's nothing extra to wire.
 
 This is the UIx member of a design-led trio. Each member is a different,
 substantial UI built on a different
-[substrate](../../../../docs/guide/glossary.md#substrate). Together they
+[substrate](../../../../docs/core/glossary.md#substrate). Together they
 make one point: the substrate is a swappable back end, not the
 framework.
 
@@ -99,19 +99,19 @@ interaction hold up on its substrate. It skips the platform features
 the dataflow stays the star.
 
 The mount is the ordinary re-frame2 boot.
-[`init!`](../../../../docs/guide/glossary.md#init) installs the UIx adapter.
+[`init!`](../../../../docs/core/glossary.md#init) installs the UIx adapter.
 Then the tree renders inside a
-[`frame-provider`](../../../../docs/guide/glossary.md#frame-provider) given
+[`frame-provider`](../../../../docs/core/glossary.md#frame-provider) given
 `{:id app-frame :initial-events [[:dashboard/initialise]]}`: the `:id`
-stands the app [frame](../../../../docs/guide/glossary.md#frame) up —
+stands the app [frame](../../../../docs/core/glossary.md#frame) up —
 creating it on the first mount, reusing it untouched on a hot reload — and
 `:initial-events` fires once on creation to seed the
-[app-db](../../../../docs/guide/glossary.md#app-db) before the first paint.
+[app-db](../../../../docs/core/glossary.md#app-db) before the first paint.
 With the tree inside the provider, every `use-subscribe` and
 `capture-frame` resolves to that frame through React context; render with
 *no* provider and the hooks raise `:rf.error/no-frame-context` —
 [identity is carried, not
-found](../../../../docs/guide/glossary.md#frame-identity-is-carried-not-found),
+found](../../../../docs/core/glossary.md#frame-identity-is-carried-not-found),
 even here.
 
 ## Files

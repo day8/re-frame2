@@ -68,11 +68,11 @@
 (deftest keyword-drift-flags-bare-stale-mention
   (testing "a fresh :rf.world/inputs mention with no retirement marker is flagged"
     (let [probs (proj/ep0017-keyword-drift-problems
-                  "docs/guide/x.md"
+                  "docs/core/x.md"
                   [[10 "Supply recordable facts under :rf.world/inputs on dispatch."]])]
       (is (= 1 (count probs)))
       (is (= 10 (:line (first probs))))
-      (is (= "docs/guide/x.md" (:file (first probs))))
+      (is (= "docs/core/x.md" (:file (first probs))))
       (is (re-find #"renamed to the flat :rf.cofx" (:detail (first probs)))))))
 
 (deftest keyword-drift-allows-rename-mention-naming-replacement
@@ -103,13 +103,13 @@
   (testing "the file-driver scans committed surfaces and flags zero on the
             live tree (every committed :rf.world/inputs mention is a
             retirement/rename reference)"
-    ;; The committed docs/guide/ + skills/ surfaces carry only
+    ;; The committed docs/core/ + skills/ surfaces carry only
     ;; retirement/rename mentions, so the live scan must be clean — a
     ;; regression catches a fresh reintroduction.
-    (let [guide-files (proj/markdown-files (proj/repo-file "docs" "guide"))]
+    (let [guide-files (proj/markdown-files (proj/repo-file "docs" "core"))]
       (is (pos? (count guide-files)))
       (is (empty? (proj/keyword-drift-problems-over-files guide-files))
-          "live drift: a docs/guide file reintroduced stale :rf.world/inputs"))))
+          "live drift: a docs/core file reintroduced stale :rf.world/inputs"))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0011 reply-envelope vocabulary-drift guard (rf2-uhew69).
@@ -132,7 +132,7 @@
 (deftest ep0011-flags-fresh-bare-work-id
   (testing "a fresh bare :work-id (hyphen) mention with no marker is flagged"
     (let [probs (proj/ep0011-reply-vocab-drift-problems
-                  "docs/guide/x.md"
+                  "docs/core/x.md"
                   [[3 "The reply map carries a `:work-id` attempt identity."]])]
       (is (= 1 (count probs)))
       (is (= ":work-id" (:raw (first probs)))))))
@@ -163,7 +163,7 @@
 (deftest ep0015-flags-retired-profile-form
   (testing "a fresh retired :rf.egress/on-box-hidden-sensitive form is flagged"
     (let [probs (proj/ep0015-privacy-vocab-drift-problems
-                  "docs/guide/x.md"
+                  "docs/core/x.md"
                   [[9 "Set the profile to :rf.egress/on-box-hidden-sensitive for dev."]])]
       (is (= 1 (count probs)))
       (is (= ":rf.egress/on-box-hidden-sensitive" (:raw (first probs))))
@@ -189,10 +189,10 @@
                    [2 "A trusted-local operator on-box may opt into raw."]])))))
 
 (deftest keyword-drift-over-files-folds-all-three-guards-clean-on-live
-  (testing "the live docs/guide surface carries no EP-0011/EP-0015 stale
-            vocabulary either (the folded driver stays clean). docs/guide has
+  (testing "the live docs/core surface carries no EP-0011/EP-0015 stale
+            vocabulary either (the folded driver stays clean). docs/core has
             no migration-skill exclusion, so the whole tree must be clean."
-    (let [guide (proj/markdown-files (proj/repo-file "docs" "guide"))]
+    (let [guide (proj/markdown-files (proj/repo-file "docs" "core"))]
       (is (pos? (count guide)))
       (is (empty? (proj/keyword-drift-problems-over-files guide))
-          "live drift: a docs/guide file reintroduced stale reply/egress vocabulary"))))
+          "live drift: a docs/core file reintroduced stale reply/egress vocabulary"))))

@@ -66,7 +66,7 @@
 
    Kick the boot once at startup with `[:app/boot [:rf.machine/start]]`.
    That creation marker runs the initial-entry cascade and seeds the
-   snapshot in runtime-db (docs/guide/glossary.md#runtime-db)."
+   snapshot in runtime-db (docs/core/glossary.md#runtime-db)."
   (:require [re-frame.core :as rf]
             ;; State machines and managed HTTP each ship as their own
             ;; artefact. These two requires register what the boot needs:
@@ -334,7 +334,7 @@
          :hydrating to :ready."}
   ;; The app slices go to app-db (`:db`). The snapshot mirror below is a
   ;; separate `:rf.db/runtime` effect, because a machine snapshot lives in
-  ;; runtime-db, not app-db (docs/guide/glossary.md#runtime-db).
+  ;; runtime-db, not app-db (docs/core/glossary.md#runtime-db).
   ;;
   ;; ADVANCED — and genuinely rare. This is the *only* handler in the whole
   ;; examples tree that writes a `:rf.db/runtime` effect, and it's here to

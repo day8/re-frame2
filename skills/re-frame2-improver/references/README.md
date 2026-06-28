@@ -33,10 +33,10 @@ When a new anti-pattern surfaces across 3+ review sessions, add it as a new leaf
 
 ## Shared retro protocol
 
-- [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md) — seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol. Shared into `skills/shared/`; consumed by both this skill and [`re-frame2-pair-retro`](../../re-frame2-pair-retro/). The SKILL.md loads it; per-leaf detection rules below assume the protocol is already in scope.
+- [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md) — seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol. Shared into `skills/shared/`; consumed by both this skill and [`re-frame2-pair-retro`](../../re-frame2-pair-retro). The SKILL.md loads it; per-leaf detection rules below assume the protocol is already in scope.
 
 ## Cross-references
 
 - [`../SKILL.md`](../SKILL.md) — the skill's top-level entry; describes when this catalogue is consulted.
-- [`skills/re-frame2/patterns/`](../../re-frame2/patterns/) — the canonical-idiom leaves each anti-pattern routes to.
+- [`skills/re-frame2/patterns/`](../../re-frame2/patterns) — the canonical-idiom leaves each anti-pattern routes to.
 - [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, the five-section leaf format, the shared-protocol extraction, deferred candidates).

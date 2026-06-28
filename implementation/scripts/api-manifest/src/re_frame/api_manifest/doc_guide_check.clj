@@ -1,17 +1,17 @@
 (ns re-frame.api-manifest.doc-guide-check
   "Doc-guide projection check (rf2-gkp0t).
 
-  The human guide (`docs/guide/**/*.md`) teaches re-frame2 through worked
+  The human guide (`docs/core/**/*.md`) teaches re-frame2 through worked
   code. Every code sample names front-porch / advanced vars through the
   `rf` alias. A sample naming a renamed / removed var teaches a call that
   no longer resolves. This check extracts every call-position `(rf/<var>`
   reference and asserts each resolves to a manifest `re-frame.core` row.
 
   CAPABILITY CONCEPT DOCS (rf2-earvtz). The #4961 docs reorg moved each
-  capability's CONCEPT doc out of the flat `docs/guide/` tree into
+  capability's CONCEPT doc out of the flat `docs/core/` tree into
   per-capability `docs/<cap>/concepts.md` files (machines / resources /
   routing / ssr). Those concept docs teach the same worked code and so are
-  scanned by this gate alongside `docs/guide/` — the `docs/*/concepts.md`
+  scanned by this gate alongside `docs/core/` — the `docs/*/concepts.md`
   glob folds them in (and auto-covers a future capability dir). Without this,
   a broken `(rf/<var>` reference in a moved concept doc would slip through CI.
 
@@ -19,7 +19,7 @@
   leading `(` so the `:rf/*` reserved keyword namespace is excluded, not
   swept in as bogus var references).
 
-  V1-MIGRATION CHAPTER. `docs/guide/25-from-re-frame-v1.md` names removed
+  V1-MIGRATION CHAPTER. `docs/core/25-from-re-frame-v1.md` names removed
   re-frame v1 APIs (`on-changes`, …) as the left-hand side of migration
   guidance, exactly as the migration SKILL does. Its old-name mentions are
   carried on the `:doc-guide-known-unmanifested-scoped` allowlist rather
@@ -94,12 +94,12 @@
   (let [rows         (proj/manifest-rows)
         core-vars    (set (map :var (proj/rows-in-ns rows core-ns)))
         scoped-allow (:doc-guide-known-unmanifested-scoped (gen/read-sidecar))
-        dir          (proj/repo-file "docs" "guide")
-        ;; require-markdown-files (rf2-utvst): fail loudly if docs/guide/
+        dir          (proj/repo-file "docs" "core")
+        ;; require-markdown-files (rf2-utvst): fail loudly if docs/core/
         ;; moves or is renamed, rather than silently checking zero files.
         ;;
-        ;; EXCLUDE docs/guide/api/** — the framework API REFERENCE tree. It
-        ;; lives under docs/guide/ (Core's API section) but is the
+        ;; EXCLUDE docs/core/api/** — the framework API REFERENCE tree. It
+        ;; lives under docs/core/ (Core's API section) but is the
         ;; doc-api-check surface, not guide teaching prose. doc-api-check
         ;; resolves its call-position `(rf/<var>` references with
         ;; CROSS-NAMESPACE bare-name latitude — the reference legitimately
@@ -109,11 +109,11 @@
         ;; non-core surface it names (e.g. `rf/machine-meta`). doc-api-check
         ;; already covers this subtree for BOTH var-resolution and
         ;; keyword-drift, so the exclusion loses no coverage.
-        guide-files  (->> (proj/require-markdown-files "docs/guide/" dir)
+        guide-files  (->> (proj/require-markdown-files "docs/core/" dir)
                           (remove #(str/starts-with? (proj/repo-relative %)
-                                                     "docs/guide/api/")))
+                                                     "docs/core/api/")))
         ;; Per-capability CONCEPT docs (rf2-earvtz). The #4961 docs reorg moved
-        ;; each capability's concept doc out of the flat docs/guide/ tree into
+        ;; each capability's concept doc out of the flat docs/core/ tree into
         ;; docs/<cap>/concepts.md (machines/resources/routing/ssr). The
         ;; docs/*/concepts.md glob folds those moved files back under this
         ;; gate's scan so a broken `(rf/<var>` reference in them goes RED; it
@@ -136,7 +136,7 @@
         ;; reintroduction goes RED here too.
         kw-problems  (proj/keyword-drift-problems-over-files files)
         problems     (concat var-problems kw-problems)]
-    (proj/report-with-floor! "docs/guide/ + docs/*/concepts.md"
+    (proj/report-with-floor! "docs/core/ + docs/*/concepts.md"
                              (count references) min-references problems)))
 
 (defn -main [& _]

@@ -11,7 +11,7 @@ heading (H1-H6) using the exact same slugifier the MkDocs build uses
 
 Target-file validation was added under rf2-unge8 after the cross-link
 audit on 2026-05-12 surfaced a stale `[text](file.md)` (no anchor) ref
-the anchor-only validator could not see (docs/guide/17a → 19-where-next
+the anchor-only validator could not see (docs/core/17a → 19-where-next
 after #483 renamed it to 20-where-next).
 
 Hook this into CI and the build fails before such drift ships.
@@ -103,7 +103,7 @@ EXCLUDE_DIR_REL = frozenset({Path("docs/spec"), Path("docs/migration")})
 # the MkDocs build) renders a heading *inside* a blockquote — `> #### Foo` —
 # as a real `<h4 id="...">` and mints the same slug anchor it would for a
 # top-level heading.  Authors use blockquoted headings for "callout" teaching
-# boxes (e.g. docs/guide/10-http.md has ~7), and committed links target those
+# boxes (e.g. docs/core/10-http.md has ~7), and committed links target those
 # anchors.  Without this prefix the indexer never saw them and every such link
 # false-positived as a BROKEN ANCHOR (rf2-869k9m).  The prefix mirrors the
 # block-quote tokeniser: leading whitespace, then one or more `>` markers each

@@ -16,7 +16,7 @@ Type: standards-track
 > **BUILD status (updated 2026-06-12):** complete. The post-graduation consumer
 > propagation has shipped — `/skills` and `/examples`
 > (a considered no-op: the algebra is a view, not an authoring
-> surface) via PR #3971, `/docs/guide` via PR #3983, and the
+> surface) via PR #3971, `/docs/core` via PR #3983, and the
 > Xray derivation-graph panel (plus the
 > redact-keep-structure coverage test) via the `feat(xray): EP-0014
 > derivation-graph panel + off-box redaction` merge — all closed and on

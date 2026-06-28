@@ -1,6 +1,6 @@
 (ns boot.schema
   "Malli schemas for the boot example. New to schemas? The guide has the
-   tour (docs/guide/glossary.md#schema).
+   tour (docs/core/glossary.md#schema).
 
    These schemas cover three things: the wire shape each mocked endpoint
    returns, the boot machine's snapshot `:data`, and the child loader's
@@ -14,7 +14,7 @@
      `[:routes]`). Those attach with `rf/reg-app-schema` on the path; an
      app schema validates the app-db partition only.
    - **Machine `:data`** can't go through `reg-app-schema`, because a
-     snapshot lives in runtime-db, not app-db (docs/guide/glossary.md#runtime-db).
+     snapshot lives in runtime-db, not app-db (docs/core/glossary.md#runtime-db).
      Instead, each machine carries its own `[:schemas :data]` slot on
      `reg-machine` (see `boot.cljs`). `BootData` validates the `:app/boot`
      machine's `:data`; `LoaderData` validates each spawned loader's

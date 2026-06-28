@@ -1,6 +1,6 @@
 # The same counter, on a leaner substrate
 
-This is a counter: a number on screen, an increment button, a decrement button. Click them and the number goes up and down. It is the *same* counter as [`examples/core/counter/`](../../../core/counter/) — same buttons, same behaviour — running on a different [substrate](../../../../docs/guide/how-to/use-uix-helix-or-slim.md) underneath.
+This is a counter: a number on screen, an increment button, a decrement button. Click them and the number goes up and down. It is the *same* counter as [`examples/core/counter/`](../../../core/counter/) — same buttons, same behaviour — running on a different [substrate](../../../../docs/core/how-to/use-uix-helix-or-slim.md) underneath.
 
 Every event, subscription, and view stays exactly as it was. Only the substrate underneath changes.
 
@@ -12,7 +12,7 @@ re-frame2's core is substrate-agnostic: your events, subscriptions, and app-db n
 
 ## What changes (and how little it is)
 
-You wire a substrate to re-frame2 with an [adapter](../../../../docs/guide/how-to/use-uix-helix-or-slim.md): a small value you hand to `init!` once at boot. Switching substrate is a one-line change. So the whole diff against the canonical counter is just two things:
+You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to/use-uix-helix-or-slim.md): a small value you hand to `init!` once at boot. Switching substrate is a one-line change. So the whole diff against the canonical counter is just two things:
 
 1. **The imports point at `reagent2.*`** instead of stock `reagent.*`, so the views render through the slim substrate.
 2. **`(rf/init!)` gets the slim adapter Var** instead of the stock one.
@@ -27,7 +27,7 @@ The `re-frame.adapter.reagent-slim` require in `core.cljs` is an **in-tree** spe
 
 That is not the spelling an adopter uses. The published `day8/reagent-slim` jar ships its adapter Var at the canonical `re-frame.adapter.reagent` — the same name as stock Reagent (renamed at publication). In a real app you write `(rf/init! re-frame.adapter.reagent/adapter)`, the exact same line as for stock Reagent. You **pick slim by dependency coordinate, not by import line.** That's the payoff: adopting the fast substrate costs you a `deps.edn` change and nothing in your source.
 
-So don't copy the in-tree `-slim` namespace into published code. See [`docs/guide/how-to/use-uix-helix-or-slim.md`](../../../../docs/guide/how-to/use-uix-helix-or-slim.md) and [`DESIGN-RATIONALE.md`](../../../../implementation/adapters/reagent-slim/DESIGN-RATIONALE.md) §7.
+So don't copy the in-tree `-slim` namespace into published code. See [`docs/core/how-to/use-uix-helix-or-slim.md`](../../../../docs/core/how-to/use-uix-helix-or-slim.md) and [`DESIGN-RATIONALE.md`](../../../../implementation/adapters/reagent-slim/DESIGN-RATIONALE.md) §7.
 
 ## Why the `:counter/*` ids are shared
 

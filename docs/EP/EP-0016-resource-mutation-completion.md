@@ -20,7 +20,7 @@ Type: standards-track
 > action epic is ready to close: all implementation slices, both
 > wave-end review passes (correctness and a clean repeat),
 > and all four propagation beads (`/skills`, `/examples`,
-> `/tools`, `/docs/guide`) are closed and
+> `/tools`, `/docs/core`) are closed and
 > merged. The items this EP lists as deferred — optimistic rollback,
 > tag-addressed patching, and the GraphQL transport — remain intentional
 > future-EP non-goals, not outstanding action-epic work (see [§Non-Goals](#non-goals)).

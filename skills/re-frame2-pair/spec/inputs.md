@@ -52,7 +52,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 ## 6. What the skill does NOT consume
 
-- **`docs/guide/**`** — the narrative human guide. The skill is for AI-augmented developer sessions; the guide is for learners.
+- **`docs/core/**`** — the narrative human guide. The skill is for AI-augmented developer sessions; the guide is for learners.
 - **`spec/Pattern-*.md`** — application-authoring patterns. The pair tool operates on running apps; pattern selection is the `re-frame2` skill's concern.
 - **`re-frame-10x`** — explicitly excluded per L2. The pair tool consumes re-frame2's native Tool-Pair surfaces, not 10x's projection.
 - **`implementation/<feature>/**` per-feature artefacts** — except where they install Tool-Pair hooks (most don't; the Tool-Pair surface lives in `implementation/core/`).

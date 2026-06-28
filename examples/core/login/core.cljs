@@ -28,12 +28,12 @@
    - Form slice — the email/password draft is an app-db slice at
      [:auth :login-form]. The slice owns the draft (controlled inputs, no
      view-local atom); the machine owns submit/auth status. That division
-     of labour is the form recipe in docs/guide/how-to/build-a-form.md.
+     of labour is the form recipe in docs/core/how-to/build-a-form.md.
    - Managed HTTP — `:rf.http/managed`, plus a small per-app demo stub
      that answers the request locally so the example runs with no backend
      to point it at (docs/resources/http.md).
    - Schemas, events, subscriptions, registered views — the everyday
-     building blocks (docs/guide/glossary.md).
+     building blocks (docs/core/glossary.md).
 
    In a real codebase you'd split this across login/schema.cljc,
    events.cljs, subs.cljs, views.cljs, and machines.cljs. It lives in one
@@ -65,7 +65,7 @@
             ;; doing nothing — which is exactly what you want.
             [re-frame.http.managed]
             ;; Turns on the canned-success / canned-failure stub fxs our
-            ;; demo stub leans on (docs/guide/how-to/test-a-cascade.md).
+            ;; demo stub leans on (docs/core/how-to/test-a-cascade.md).
             [re-frame.http.test-support]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -76,7 +76,7 @@
 ;;
 ;; Schemas describe the shape of data. re-frame2's are open by default:
 ;; they say what must be present, not what must be absent, so extra keys
-;; are fine. See docs/guide/how-to/validate-with-schemas.md.
+;; are fine. See docs/core/how-to/validate-with-schemas.md.
 
 ;; The credentials the form collects — and the payload the submit event
 ;; carries. The regex and min-length aren't decoration: they're the
@@ -387,7 +387,7 @@
 ;; and events can write it. So the inputs are *controlled*: `:value` reads
 ;; the draft sub, `:on-change` dispatches `:auth.login/edit-field`, and the
 ;; round trip through app-db is the only way a character gets on screen.
-;; That's the form recipe in docs/guide/how-to/build-a-form.md.
+;; That's the form recipe in docs/core/how-to/build-a-form.md.
 ;;
 ;; One nice consequence: this whole block — slice defaults, the form
 ;; events, and the draft/slice subs further down — is substrate-agnostic.
@@ -445,7 +445,7 @@
 ;; next snapshot or recording. So we don't let it linger. Its only sanctioned
 ;; trip off the box is the HTTP request body (and `:sensitive? true` scrubs
 ;; even that from the trace); it never touches `:submitted` or the machine
-;; `:data`. See docs/guide/how-to/add-auth.md.
+;; `:data`. See docs/core/how-to/add-auth.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: read the draft from the slice, dispatch it
          into the :auth.login/flow machine's :submit sub-event, and clear the
@@ -521,7 +521,7 @@
 (rf/reg-sub :auth.login/field-error
   {:doc "Per-field validation error for the login form. Reveal a field's
          error once it is :touched OR once the form has had its first
-         submit click (docs/guide/how-to/build-a-form.md)."}
+         submit click (docs/core/how-to/build-a-form.md)."}
   :<- [:auth.login/form-slice]
   (fn sub-auth-login-field-error [slice [_ field]]
     (when (or (:submit-attempted? slice)
@@ -536,7 +536,7 @@
 ;; `subscribe` are already in scope, pre-bound to whichever frame the view
 ;; is rendering under. No threading a frame argument through every call.
 ;; That's also what lets the very same view mount in several isolated frames
-;; at once (docs/guide/concepts/views.md).
+;; at once (docs/core/concepts/views.md).
 
 ;; The login form. Read it and notice the absence — there is no
 ;; `reagent.core/atom`, no local state hiding anywhere. Each input's
@@ -624,7 +624,7 @@
     ;; creates `:rf/default`, applies the config below, runs
     ;; `:initial-events` once, and scopes the frame into React. On hot reload
     ;; it finds the frame already there and leaves it alone — no double-seed.
-    ;; See docs/guide/concepts/frames.md.
+    ;; See docs/core/concepts/frames.md.
     ;;
     ;; - `:fx-overrides` is where we swap in our fake backend: it points
     ;;   `:rf.http/managed` at the in-process stub above, so the example

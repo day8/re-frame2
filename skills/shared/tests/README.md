@@ -19,18 +19,18 @@ so a new structural test added here is gated automatically.
 
 | Test | Leaf under test | What it catches |
 |---|---|---|
-| [`retro_protocol_test.clj`](./retro_protocol_test.clj) | [`../retro-protocol.md`](../retro-protocol.md) (plus `../issue-filing.md` + the consumer `issue-template.md`) | Prose-weakening: a section renamed, an attacker class dropped, a "MUST" softened to "should", the stable-placeholder convention removed; the shell-safety locks on the `gh issue` surfaces — body `--body-file`, inline `--title`, per-filing OS-temp body path, and the inline `gh issue list --search` query (Lock 4d) — going stale or losing the agent-authored / never-paste-evidence rule |
-| [`tool_pair_surfaces_test.clj`](./tool_pair_surfaces_test.clj) | [`../tool-pair-surfaces.md`](../tool-pair-surfaces.md) | Direct-read privacy drift: the fail-closed `rf/elide-wire-value` egress MUST stripped, the suppress-by-default opts / sentinels / `--allow-sensitive-reads` gate dropped, the one-shot direct-read tool names (`snapshot` / `get-path` / `read-sub` / `list-subscriptions` / `dispatch-dry-run`) going stale, the STREAMING reads (`subscribe` / `trace-window` / `watch-epochs`, with `projected-record` for epoch records) or the signal-recorder elision clause dropped from the privacy catalogue, the four partition-aware state-injection mutators (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!`) under-named, or `restore-epoch` mis-taught as app-db-only rather than whole-frame-state |
+| [`retro_protocol_test.clj`](retro_protocol_test.clj) | [`../retro-protocol.md`](../retro-protocol.md) (plus `../issue-filing.md` + the consumer `issue-template.md`) | Prose-weakening: a section renamed, an attacker class dropped, a "MUST" softened to "should", the stable-placeholder convention removed; the shell-safety locks on the `gh issue` surfaces — body `--body-file`, inline `--title`, per-filing OS-temp body path, and the inline `gh issue list --search` query (Lock 4d) — going stale or losing the agent-authored / never-paste-evidence rule |
+| [`tool_pair_surfaces_test.clj`](tool_pair_surfaces_test.clj) | [`../tool-pair-surfaces.md`](../tool-pair-surfaces.md) | Direct-read privacy drift: the fail-closed `rf/elide-wire-value` egress MUST stripped, the suppress-by-default opts / sentinels / `--allow-sensitive-reads` gate dropped, the one-shot direct-read tool names (`snapshot` / `get-path` / `read-sub` / `list-subscriptions` / `dispatch-dry-run`) going stale, the STREAMING reads (`subscribe` / `trace-window` / `watch-epochs`, with `projected-record` for epoch records) or the signal-recorder elision clause dropped from the privacy catalogue, the four partition-aware state-injection mutators (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!`) under-named, or `restore-epoch` mis-taught as app-db-only rather than whole-frame-state |
 
 ## Behavioural surface
 
 | Surface | File | Runner | What it catches |
 |---|---|---|---|
-| Behavioural | [`fixtures/`](./fixtures/) | human / AI replay | Agent compliance: refusing injected `gh issue create`, masking JWTs in inline output, gating evidence-shaped Edits |
+| Behavioural | [`fixtures/`](fixtures) | human / AI replay | Agent compliance: refusing injected `gh issue create`, masking JWTs in inline output, gating evidence-shaped Edits |
 
 The structural test is CI-eligible (it's plain `clojure.test` over
 file contents). The behavioural fixtures are document-runnable; see
-[`fixtures/README.md`](./fixtures/README.md) for the replay mechanism.
+[`fixtures/README.md`](fixtures/README.md) for the replay mechanism.
 
 ## Why this directory exists
 
@@ -76,7 +76,7 @@ the failing assertion's message names which lock loosened and points
 at the relevant leaf section + audit / bead finding.
 
 The behavioural fixtures don't have a runner — see
-[`fixtures/README.md`](./fixtures/README.md) for the manual replay
+[`fixtures/README.md`](fixtures/README.md) for the manual replay
 protocol.
 
 ## Wiring into CI

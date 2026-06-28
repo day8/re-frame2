@@ -2,7 +2,7 @@
   "Entry point for the boot example — mount, trigger, and the fake backend.
 
    `run` installs the Reagent adapter and renders the app under a
-   frame-provider (docs/guide/glossary.md#frame-provider). The provider
+   frame-provider (docs/core/glossary.md#frame-provider). The provider
    does two jobs: it points HTTP at a per-URL canned stub (so the example
    runs on its own, with no server behind it) and it seeds the boot
    machine on first mount. Until that machine reaches `:ready`, the root

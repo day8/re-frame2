@@ -304,6 +304,6 @@ Every call carries an `:origin` tag (the tool client's identifier rebound for th
 
 - [Mount control](mount-control.md) — the host-facing facade `open!` / `close!` / `toggle!` / `popout!` the runtime seam is parallel to.
 - [Configuration keys](config-keys.md) — `:rf.xray/keybinding-enabled?` and the boot-time gate the `attach!` lifecycle pair reads.
-- [Framework API — Instrumentation](../../guide/api/11-instrumentation.md) — the trace bus, the epoch buffer, and `elide-wire-value` the runtime accessors consume.
-- [Framework API — Registrar](../../guide/api/12-registrar.md) — `rf/registrations` and `rf/handler-meta`, the framework primitives `get-handlers` and `get-source-coord` project over.
+- [Framework API — Instrumentation](../../core/api/11-instrumentation.md) — the trace bus, the epoch buffer, and `elide-wire-value` the runtime accessors consume.
+- [Framework API — Registrar](../../core/api/12-registrar.md) — `rf/registrations` and `rf/handler-meta`, the framework primitives `get-handlers` and `get-source-coord` project over.
 - [Tool-Pair spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the normative contract for the framework / Xray emit, tool consume discipline.

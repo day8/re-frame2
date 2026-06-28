@@ -1,9 +1,9 @@
 # MkDocs build-time hooks (rf2-qvlf, rf2-jtkc, rf2-wjfzn).
 #
-# The narrative guide lives at docs/guide/*.md. Many guide pages cross-link
+# The narrative guide lives at docs/core/*.md. Many guide pages cross-link
 # to the normative spec under spec/*.md using the path ../../spec/ — that
 # is correct when the guide is browsed via the GitHub source tree (where
-# spec/ lives at the repo root, two levels up from docs/guide/).
+# spec/ lives at the repo root, two levels up from docs/core/).
 #
 # At MkDocs build time the spec tree is staged under docs/spec/ (see the
 # `Stage spec/ into docs/spec/` step in .github/workflows/docs.yml, and
@@ -110,7 +110,7 @@ _GUIDE_TO_SPEC = re.compile(r'\]\(\.\./\.\./spec/')
 # rule as Case 1a, against the migration tree instead of the spec tree.
 _GUIDE_TO_MIGRATION = re.compile(r'\]\(\.\./\.\./migration/')
 
-# Case 1a-deep: chapter sub-pages live at docs/guide/<chapter-dir>/X.md (depth
+# Case 1a-deep: chapter sub-pages live at docs/core/<chapter-dir>/X.md (depth
 # 3 below repo root). From the source tree the correct ref to spec/ is
 # ../../../spec/; in the staged docs_dir (docs/spec/) the correct ref is
 # ../../spec/. The rewrite collapses one level, same as the depth-2 case.
@@ -144,7 +144,7 @@ _DOCSROOT_TO_MIGRATION = re.compile(r'\]\(\.\./migration/')
 _SPEC_TO_DOCSROOT = re.compile(r'\]\(\.\./docs/')
 
 # Case 3a: directory-style ../../skills/X/ from guide pages — rewrite to the
-# in-tree summary page ../skills/X.md (one level up from docs/guide/X.md is
+# in-tree summary page ../skills/X.md (one level up from docs/core/X.md is
 # docs/, and docs/skills/X.md is the published nav entry). Only the bare
 # directory form is matched; sub-paths fall through to the GitHub-URL rewrite.
 _GUIDE_SKILL_DIR = re.compile(r'\]\(\.\./\.\./skills/([A-Za-z0-9._-]+)/\)')
@@ -167,7 +167,7 @@ _SPEC_CONFORMANCE_DIR = re.compile(r'\]\(conformance/\)')
 # README.md, .github/, CHANGELOG.md, VERSION, and implementation/ from
 # its own depth in the source layout.
 #
-# From guide/ source (docs/guide/X.md),                path to repo-root: ../../
+# From guide/ source (docs/core/X.md),                path to repo-root: ../../
 # From spec/  source (spec/X.md, staged at docs/spec/X.md):               ../
 # From docs/  source (docs/X.md, e.g. release-process.md):                ../
 #
@@ -249,14 +249,14 @@ def on_page_markdown(markdown, page, config, files):
     """
     src = page.file.src_path.replace('\\', '/')
 
-    if (src.startswith('guide/') or src.startswith('skills/')
+    if (src.startswith('core/') or src.startswith('skills/')
             or src.startswith('api/') or src.startswith('EP/')
             or src.startswith('machines/') or src.startswith('resources/')
             or src.startswith('routing/') or src.startswith('ssr/')):
         # Choose by source depth. A guide sub-chapter at
-        # docs/guide/<chapter-dir>/X.md is depth 3; its source spec ref is
+        # docs/core/<chapter-dir>/X.md is depth 3; its source spec ref is
         # ../../../spec/ and the staged path is ../../spec/. Plain
-        # docs/guide/X.md (and docs/EP/X.md) is depth 2;
+        # docs/core/X.md (and docs/EP/X.md) is depth 2;
         # ../../spec/ -> ../spec/.
         # Applying both rules unconditionally would let the depth-2 rule
         # re-rewrite the depth-3 rule's output ../../spec/ down to ../spec/,

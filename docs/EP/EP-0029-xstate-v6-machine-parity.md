@@ -8,7 +8,7 @@ Type: standards-track
 > This EP proposes how re-frame2 should retarget its state-machine comparison
 > from XState v5 to the XState v6 alpha direction. If accepted, the normative
 > homes are `spec/005-StateMachines.md`, the machine implementation docs, and
-> the machine guide material under `docs/guide`. The proposal is not "copy
+> the machine guide material under `docs/core`. The proposal is not "copy
 > XState v6". It classifies each known v6 change into: things re-frame2 should
 > embrace, things to leave for later consideration but probably not, and things
 > re-frame2 should ignore or reject.
@@ -86,7 +86,7 @@ Non-goals:
   belongs outside the machine grammar.
 - **`spec/005-StateMachines.md`** is the primary normative home for accepted
   machine grammar and runtime semantics.
-- **`docs/guide/concepts/machines.md`** is the main guide page that currently
+- **`docs/core/concepts/machines.md`** is the main guide page that currently
   teaches the XState comparison.
 
 Research basis:
@@ -872,7 +872,7 @@ If accepted, implementation should update:
 - `spec/005-StateMachines.md` for the accepted grammar and semantics;
 - machine implementation docs/docstrings for timeout, choice, internal-events,
   schemas, and spawn-order behavior;
-- `docs/guide/concepts/machines.md` for the XState comparison;
+- `docs/core/concepts/machines.md` for the XState comparison;
 - conformance fixtures for choice states, internal events, timeout behavior,
   spawn ordering, and completion payload schema behavior where applicable.
 
@@ -940,7 +940,7 @@ implementation, and each is tracked by a bead.
 2. **Retire XState v5 parity terminology.** Remove "v5 is the live parity target"
    wording and v5 helper-creator terminology, and reframe the machine docs to the
    v6 direction with explicit divergences (A1). Surfaces:
-   `spec/005-StateMachines.md`, `docs/guide/concepts/machines.md`, the
+   `spec/005-StateMachines.md`, `docs/core/concepts/machines.md`, the
    `reg-machine` skill, the Xray Machine-Inspector spec, machines-viz, and the
    EP-0005 framing note.
 
@@ -965,7 +965,7 @@ run the full matrix).
 
 ### Wave 1 — Docs alignment
 
-- Rewrite `docs/guide/concepts/machines.md` so the XState comparison tracks the
+- Rewrite `docs/core/concepts/machines.md` so the XState comparison tracks the
   v6-alpha direction, not v5; keep a short, explicit "where re-frame2 diverges"
   list (function-valued transitions rejected, frame/runtime-db instead of actor
   objects, event-shaped completion).
@@ -1043,7 +1043,7 @@ considered done:
 
 Guide-impact assessment:
 
-- `docs/guide/concepts/machines.md` changes immediately on acceptance (Wave 1).
+- `docs/core/concepts/machines.md` changes immediately on acceptance (Wave 1).
 - Tutorials comparing `context`, `assign`, `setup`, actor sending, or output
   snapshots to re-frame2 should be revised.
 - Choice-state and timeout examples should land with those features (Wave 3).

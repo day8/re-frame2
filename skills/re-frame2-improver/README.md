@@ -1,10 +1,10 @@
 # re-frame2-improver
 
-> ↑ [`skills/`](../) — index of all re-frame2 skills.
+> ↑ [`skills/`](..) — index of all re-frame2 skills.
 
 `re-frame2-improver` is a Claude Code **critique-mode skill** for **existing** re-frame2 ClojureScript code. It reviews a body of source files (or a user-supplied snippet) against a small catalogue of re-frame2 anti-patterns, surfaces concrete findings cross-linked to canonical idioms under `skills/re-frame2/patterns/`, and — subject to the Edit-gate split — may propose or apply inline fixes.
 
-This skill is the on-demand **complement** to [`re-frame2`](../re-frame2/): re-frame2 authors new code from canonical idioms; re-frame2-improver retrospectively critiques existing code against the same idioms. Activates only on explicit pull — *"review my re-frame2 code"*, *"any anti-patterns?"*, *"audit against best practices"* — and only when a body of re-frame2 source is in scope.
+This skill is the on-demand **complement** to [`re-frame2`](../re-frame2): re-frame2 authors new code from canonical idioms; re-frame2-improver retrospectively critiques existing code against the same idioms. Activates only on explicit pull — *"review my re-frame2 code"*, *"any anti-patterns?"*, *"audit against best practices"* — and only when a body of re-frame2 source is in scope.
 
 ## Three filters must hold to trigger
 
@@ -26,9 +26,9 @@ If 1 holds but 2 doesn't — vocabulary with no file, snippet, or named path —
 
 ## Relationship to other skills
 
-- [`re-frame2`](../re-frame2/) — authors new application code. The improver leans on its `patterns/` and `spec/` leaves as the canonical-idiom source-of-truth for every cross-link.
-- [`re-frame2-pair`](../re-frame2-pair/) — pair-programs with a **running** re-frame2 application. The improver is **static** — it never attaches to a runtime; if the user wants live inspection, route to re-frame2-pair.
-- [`re-frame2-pair-retro`](../re-frame2-pair-retro/) — retros on a re-frame2-pair session. Shares the `../shared/retro-protocol.md` leaf with this skill (diagnosis-first discipline, untrusted-evidence boundary, Edit-gate split).
+- [`re-frame2`](../re-frame2) — authors new application code. The improver leans on its `patterns/` and `spec/` leaves as the canonical-idiom source-of-truth for every cross-link.
+- [`re-frame2-pair`](../re-frame2-pair) — pair-programs with a **running** re-frame2 application. The improver is **static** — it never attaches to a runtime; if the user wants live inspection, route to re-frame2-pair.
+- [`re-frame2-pair-retro`](../re-frame2-pair-retro) — retros on a re-frame2-pair session. Shares the `../shared/retro-protocol.md` leaf with this skill (diagnosis-first discipline, untrusted-evidence boundary, Edit-gate split).
 
 ## Edit-gate split
 

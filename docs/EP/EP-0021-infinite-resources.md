@@ -635,7 +635,7 @@ guide-impact assessment.
    acceptance test).
 6. **Tooling**: emit the four new trace ops; Xray panel spec update
    (`tools/xray/spec/024-Resources-Panel.md`) in the same PR per the standing rule.
-7. **Guide + dogfood**: rewrite `docs/guide/how-to/paginate-a-feed.md` to teach
+7. **Guide + dogfood**: rewrite `docs/core/how-to/paginate-a-feed.md` to teach
    numbered-vs-infinite and the new primitive; add a flagship example feed; add
    conformance + small synthetic tests (not Playwright — per the standing
    Causa/Story CLJS-unit-test default).

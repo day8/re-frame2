@@ -22,34 +22,34 @@ as the UI starts moving on its own. Four things carry it — and the live
 tick loop, third below, is where the real care went.
 
 - **Helix views read state through a hook.** Each pane is a `defnc`
-  component that reads its slice of state from a [subscription](../../../../docs/guide/glossary.md#subscription)
+  component that reads its slice of state from a [subscription](../../../../docs/core/glossary.md#subscription)
   at the top of its body — `(helix-adapter/use-subscribe [:process-monitor/totals])`
   in `tiles`, `[:process-monitor/visible-logs]` in `log-stream`, and so
   on. That's the React-hooks idiom throughout: a sub recomputes, the
   hook re-renders that component, nothing else moves. No `reg-view`, no
-  Reagent-style reactive deref — Helix satisfies the [view](../../../../docs/guide/glossary.md#view)
+  Reagent-style reactive deref — Helix satisfies the [view](../../../../docs/core/glossary.md#view)
   contract on its own terms.
 
-- **Two controls feed one projection.** The interesting [subscription](../../../../docs/guide/glossary.md#subscription)
+- **Two controls feed one projection.** The interesting [subscription](../../../../docs/core/glossary.md#subscription)
   is `:process-monitor/visible-logs`. It folds three things into the one
   slice the log pane renders: the raw log list, the set of active
   levels, and the selected process. Clicking a filter chip changes which
   levels pass. Clicking a process row narrows the feed to that process's
   pid. Two independent inputs, one re-derived projection — this is the
-  [derivation graph](../../../../docs/guide/glossary.md#the-derivation-graph)
+  [derivation graph](../../../../docs/core/glossary.md#the-derivation-graph)
   earning its keep. The view just reads the answer; it never filters
   anything itself.
 
 - **A live tick loop, owned by lifecycle.** A recurring
-  [event](../../../../docs/guide/glossary.md#event),
+  [event](../../../../docs/core/glossary.md#event),
   `:process-monitor/tick`, appends a synthetic log line and reschedules
-  itself with the [`:dispatch-later`](../../../../docs/guide/glossary.md#effect)
+  itself with the [`:dispatch-later`](../../../../docs/core/glossary.md#effect)
   effect. So the pane keeps moving with no interaction — proof this is a
   real reactive loop, not a screenshot. Here's the catch.
   `:dispatch-later` has *no cancel API*, so a naive self-rescheduling
   chain has no off switch. Re-init the app — a hot reload, a re-mount —
   and the old chain doesn't stop. It just gains a sibling, and now two
-  chains append lines forever into a [frame](../../../../docs/guide/glossary.md#frame)
+  chains append lines forever into a [frame](../../../../docs/core/glossary.md#frame)
   that may not even be on screen. The fix is a **generation guard**, and
   it's pleasingly small. Every scheduled tick carries the
   `:process-monitor/tick-gen` it was armed under. A tick from a retired
@@ -66,9 +66,9 @@ tick loop, third below, is where the real care went.
 
 - **Per-row dispatch, captured across the hook boundary.** Each process
   row and each filter chip is a `defnc` that grabs `dispatch` off a
-  [`capture-frame`](../../../../docs/guide/glossary.md#capture-frame) —
+  [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) —
   `(:dispatch (rf/capture-frame))` — and closes over it. So clicking a
-  row [dispatches](../../../../docs/guide/glossary.md#dispatch)
+  row [dispatches](../../../../docs/core/glossary.md#dispatch)
   `[:process-monitor/select-process id]` into the right frame. The
   `monitor` `use-effect` uses the same trick to carry the frame into its
   mount/unmount callbacks: grab the frame api while the frame is in scope,
@@ -77,13 +77,13 @@ tick loop, third below, is where the real care went.
 ## Why this shape
 
 `core.cljs` has a `SUBSTRATE BOUNDARY` divider. Everything above it —
-the seed data, the [events](../../../../docs/guide/glossary.md#event) (tick
-loop included), and the [subscriptions](../../../../docs/guide/glossary.md#subscription)
-— never mentions Helix. It's plain [app-db](../../../../docs/guide/glossary.md#app-db),
+the seed data, the [events](../../../../docs/core/glossary.md#event) (tick
+loop included), and the [subscriptions](../../../../docs/core/glossary.md#subscription)
+— never mentions Helix. It's plain [app-db](../../../../docs/core/glossary.md#app-db),
 events, and subs, and it would run unchanged on any substrate. Only the
 `defnc` views and the mount below the divider are Helix-specific. That's
 the lesson the divider teaches: in re-frame2 the
-[substrate](../../../../docs/guide/glossary.md#substrate) is a thin
+[substrate](../../../../docs/core/glossary.md#substrate) is a thin
 rendering choice at the edge, and the interesting machinery lives in the
 substrate-agnostic core.
 

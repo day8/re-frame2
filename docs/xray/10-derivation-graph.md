@@ -2,7 +2,7 @@
 
 The other Xray tabs answer "what just happened?" The derivation graph answers a quieter, structural question: **"where does this value come from?"** A page reads a dozen subscriptions, a couple of resources, a route param, and a machine selector, and you cannot see how they relate. Which fact feeds which? Is this value durable app-db state, a server-owned cache entry, or an ephemeral reaction? When does it re-evaluate? Which owner keeps it alive?
 
-The derivation graph draws all of that as **one picture**. Every subscription, flow, resource, route fact, and machine selector is a node in a single dependency graph rooted at your state — the same unified view [One graph: derivations and algebra views](../guide/derivations-and-algebra-views.md) describes in the guide, here rendered for your running app. ([`spec/Derivations.md`](https://github.com/day8/re-frame2/blob/main/spec/Derivations.md) is the normative model.)
+The derivation graph draws all of that as **one picture**. Every subscription, flow, resource, route fact, and machine selector is a node in a single dependency graph rooted at your state — the same unified view [One graph: derivations and algebra views](../core/derivations-and-algebra-views.md) describes in the guide, here rendered for your running app. ([`spec/Derivations.md`](https://github.com/day8/re-frame2/blob/main/spec/Derivations.md) is the normative model.)
 
 ## The two superkinds
 

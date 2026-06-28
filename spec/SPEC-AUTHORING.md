@@ -10,7 +10,7 @@ The per-Spec documents (000–016, the Pattern docs, MIGRATION, Spec-Schemas, et
 This document binds two different audiences:
 
 - **Spec authors** — the people writing the per-Spec docs themselves. Their obligations are about what the spec corpus *as a corpus* must contain or avoid.
-- **Conformance-harness authors** — the people building [conformance/](conformance/) and the runners that grade implementations against capability-declared fixture sets. Their obligations are about what the harness must and must not do when grading.
+- **Conformance-harness authors** — the people building [conformance/](conformance) and the runners that grade implementations against capability-declared fixture sets. Their obligations are about what the harness must and must not do when grading.
 
 The clauses below are addressed to those two roles; an implementor never acts on them directly. They live in their own document, separate from 000-Vision's implementor-facing Contract block.
 

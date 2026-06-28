@@ -89,4 +89,4 @@ See:
 
 - [Spec 006 — Reactive substrate](../../spec/006-ReactiveSubstrate.md) for the contract.
 - [Conventions §Packaging conventions](../../spec/Conventions.md) for the multi-artefact model.
-- [Guide how-to — Use UIx, Helix, or reagent-slim](../../docs/guide/how-to/use-uix-helix-or-slim.md) for the "choose your adapter" walkthrough.
+- [Guide how-to — Use UIx, Helix, or reagent-slim](../../docs/core/how-to/use-uix-helix-or-slim.md) for the "choose your adapter" walkthrough.

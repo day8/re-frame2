@@ -60,7 +60,7 @@
 ;; supplier reads localStorage; that supplier runs once, its value is recorded
 ;; onto the causal token, and from then on replay hands back the captured token
 ;; verbatim. See the coeffects guide on the two grades:
-;; ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
+;; ../../../docs/core/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
 ;;
 ;; It's also why `ssr.cljc` can happily redact [:auth :token] from the
 ;; hydration payload: the client doesn't need the server to ship it the token,
@@ -103,7 +103,7 @@
          and we'd have forgotten one. Views and subs read `:auth/user` for
          who-you-are (username, bio, image); the bearer-auth interceptor reads
          the token from `[:auth :token]`. See the keep-secrets how-to:
-         ../../../docs/guide/how-to/keep-secrets-out-of-traces.md"}
+         ../../../docs/core/how-to/keep-secrets-out-of-traces.md"}
   (fn [{:keys [db]} [_ user]]
     {:db (-> db
         (assoc-in [:auth :user] (dissoc user :token))
@@ -369,7 +369,7 @@
   {:doc "The validation error for one login-form field — or nil while we're
          keeping quiet. The rule of politeness: don't nag about a field until
          the user has either touched it or hit submit at least once. See the
-         forms how-to: ../../../docs/guide/how-to/build-a-form.md"}
+         forms how-to: ../../../docs/core/how-to/build-a-form.md"}
   :<- [:auth.login-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)
@@ -386,7 +386,7 @@
   {:doc "The validation error for one register-form field, or nil while we
          hold our tongue. Same rule as the login form: stay quiet until the
          field is touched or the user has tried to submit. See the forms
-         how-to: ../../../docs/guide/how-to/build-a-form.md"}
+         how-to: ../../../docs/core/how-to/build-a-form.md"}
   :<- [:auth.register-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)

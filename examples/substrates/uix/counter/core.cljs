@@ -18,7 +18,7 @@
        so `use-subscribe` and `capture-frame` resolve to it
 
    For the full substrate tour see
-   `docs/guide/how-to/use-uix-helix-or-slim.md`."
+   `docs/core/how-to/use-uix-helix-or-slim.md`."
   (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]
@@ -32,7 +32,7 @@
 ;; means "replace app-db with this value", and the runtime commits it
 ;; atomically at the end of the cascade. Not a word about React in here — so
 ;; this block is byte-for-byte the same on every substrate. See
-;; `docs/guide/glossary.md#event-handler`.
+;; `docs/core/glossary.md#event-handler`.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -55,7 +55,7 @@
 ;; into a value, so the `dispatch` we close over still knows which frame to
 ;; target when a click fires much later — by which point we're deep in an
 ;; event handler with no frame in scope to ask. So grab it at render time,
-;; while the frame is still around. See `docs/guide/glossary.md#capture-frame`.
+;; while the frame is still around. See `docs/core/glossary.md#capture-frame`.
 
 (defui counter-buttons []
   (let [count    (uix-adapter/use-subscribe [:counter/value])
@@ -87,20 +87,20 @@
 ;; holds onto whatever you'd clicked it up to. Forget the provider entirely
 ;; and `use-subscribe` / `capture-frame` raise `:rf.error/no-frame-context`:
 ;; the runtime won't conjure a frame for you, so the app has to stand one up.
-;; See `docs/guide/concepts/frames.md`.
+;; See `docs/core/concepts/frames.md`.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` looks special but
 ;; isn't — it's an ordinary frame id like any other. The runtime never
 ;; guesses which frame you mean, so we name one here and hand it to the
 ;; provider. See
-;; `docs/guide/glossary.md#frame-identity-is-carried-not-found`.
+;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
 (defn run []
   ;; `init!` tells the runtime which reactive substrate to render through —
   ;; once, for the whole process. Every adapter ns exports an `adapter` var;
   ;; require the ns and hand that var over. Call it once at startup and
-  ;; forget about it. See `docs/guide/glossary.md#init`.
+  ;; forget about it. See `docs/core/glossary.md#init`.
   (rf/init! uix-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

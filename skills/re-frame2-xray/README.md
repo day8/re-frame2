@@ -1,6 +1,6 @@
 # re-frame2-xray
 
-> ↑ [`skills/`](../) — index of all re-frame2 skills.
+> ↑ [`skills/`](..) — index of all re-frame2 skills.
 
 `re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers three questions, and only three:
 
@@ -14,7 +14,7 @@ Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction
 
 An in-app true-inline devtools panel for re-frame2 applications, preloaded into dev builds via shadow-cljs `:preloads`. Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus, Tool-Pair epoch history, the registrar query API) — it adds nothing the framework didn't already expose. Production builds elide the entire surface through the universal `interop/debug-enabled?` gate.
 
-Xray is the **human-facing** panel; for an AI agent surface against the running app, see [`re-frame2-pair`](../re-frame2-pair/) (the raw nREPL pair-programming companion).
+Xray is the **human-facing** panel; for an AI agent surface against the running app, see [`re-frame2-pair`](../re-frame2-pair) (the raw nREPL pair-programming companion).
 
 ## Repo contents
 
@@ -30,9 +30,9 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 
 ## Relationship to other skills
 
-- [`re-frame2-pair`](../re-frame2-pair/) — drives Xray programmatically from a live REPL. Xray owns the *seeing*; re-frame2-pair owns the *driving*.
-- [`re-frame2`](../re-frame2/) — authors host application code. The host app provides the `[data-rf-xray-host]` column Xray mounts into.
-- [`re-frame2-setup`](../re-frame2-setup/) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Xray's `:preloads` entry can mount on first run.
+- [`re-frame2-pair`](../re-frame2-pair) — drives Xray programmatically from a live REPL. Xray owns the *seeing*; re-frame2-pair owns the *driving*.
+- [`re-frame2`](../re-frame2) — authors host application code. The host app provides the `[data-rf-xray-host]` column Xray mounts into.
+- [`re-frame2-setup`](../re-frame2-setup) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Xray's `:preloads` entry can mount on first run.
 
 This skill does **not** depend on or reference `re-frame-10x` — Xray is its structural successor (re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely). The surface enumeration + "supersedes re-frame-10x" claim live once in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (§Supersedes re-frame-10x); cite it rather than restating here.
 

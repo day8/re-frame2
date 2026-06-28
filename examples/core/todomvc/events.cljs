@@ -8,7 +8,7 @@
   handler that actually performs the localStorage write the event handlers only
   *describe* as data. And `reg-route`: the URL treated as an input — `/`,
   `/active`, `/completed`, plus the not-found fallback.
-  See docs/guide/glossary.md (event)."
+  See docs/core/glossary.md (event)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; Pulling in re-frame.routing registers the routing subscriptions

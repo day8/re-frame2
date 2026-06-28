@@ -18,7 +18,7 @@
    non-interactive locked-account panel.
 
    The machines guide (docs/machines/concepts.md) and the form recipe
-   (docs/guide/how-to/build-a-form.md) cover the two big ideas at
+   (docs/core/how-to/build-a-form.md) cover the two big ideas at
    length."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
@@ -60,7 +60,7 @@
 ;; and the HTTP body, and that's it — it never lands in app-db. So there's no
 ;; app-db path to tag `:sensitive`; the only thing to scrub is the request on
 ;; the wire, which the HTTP call below handles with `:sensitive? true`. See
-;; docs/guide/how-to/keep-secrets-out-of-traces.md.
+;; docs/core/how-to/keep-secrets-out-of-traces.md.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
@@ -89,7 +89,7 @@
 ;; three top-level elements, not two. Leave the optional slot out and the
 ;; `:cat` rejects every reply, validation fails, and the flow sits in
 ;; `:submitting` forever, wondering where its answer went. See
-;; docs/guide/how-to/validate-with-schemas.md.
+;; docs/core/how-to/validate-with-schemas.md.
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
    [:or
@@ -188,7 +188,7 @@
       {:fx [[:rf.http/managed
              ;; `:sensitive? true` is the per-request wire scrub: it keeps the
              ;; request body — and the `:password` inside it — out of every HTTP
-             ;; trace event. See docs/guide/how-to/keep-secrets-out-of-traces.md.
+             ;; trace event. See docs/core/how-to/keep-secrets-out-of-traces.md.
              {:request    {:method :post
                            :url    "/api/login"
                            :body   creds
@@ -285,7 +285,7 @@
 ;; in app-db (read through subs, written through events), not in a view-local
 ;; hook. That makes every input CONTROLLED: `:value` reads the draft sub, and
 ;; `:on-change` dispatches `:auth.login/edit-field`. See
-;; docs/guide/how-to/build-a-form.md.
+;; docs/core/how-to/build-a-form.md.
 ;;
 ;; Like the machine above, this whole block — the defaults, the events, and the
 ;; draft/slice subs further down — is shared verbatim across the three login
@@ -336,7 +336,7 @@
 ;; don't leave it lounging in app-db where the next snapshot or recording could
 ;; scoop it up. Its only trip off the box is inside the HTTP body (scrubbed by
 ;; `:sensitive? true`); it never touches `:submitted` or the machine's `:data`.
-;; See docs/guide/how-to/keep-secrets-out-of-traces.md.
+;; See docs/core/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: read the draft from the slice, dispatch it
          into the :auth.login/flow machine's :submit sub-event, and clear the
@@ -386,7 +386,7 @@
 ;; through `:auth.login/draft` and ties each input's `:value` to it — that's
 ;; what makes them controlled. The per-field-error sub plays by the usual form
 ;; rule: don't show a field's error until the user has touched that field or
-;; tried to submit at least once. See docs/guide/how-to/build-a-form.md.
+;; tried to submit at least once. See docs/core/how-to/build-a-form.md.
 
 (rf/reg-sub :auth.login/form-slice
   {:doc "The whole login-form slice at [:auth :login-form]."}

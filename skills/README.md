@@ -37,7 +37,7 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
 
 ### Authoring on the CLJS reference
 
-- **[`re-frame2/`](./re-frame2/)** — author re-frame2 ClojureScript
+- **[`re-frame2/`](re-frame2)** — author re-frame2 ClojureScript
   application code. Events, subscriptions, effects, frames, state machines,
   schemas, stories, routing, and the canonical patterns (RemoteData, Forms,
   Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork,
@@ -46,11 +46,11 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   `patterns/`, and `decision-trees/`, and the integration pass have all
   landed — the skill is alpha-ready.
 
-- **[`re-frame2-setup/`](./re-frame2-setup/)** — scaffold a fresh
+- **[`re-frame2-setup/`](re-frame2-setup)** — scaffold a fresh
   re-frame2 ClojureScript project by hand. Walks the author from an empty
   directory to a working `shadow-cljs watch` counter via the canonical
   seven-step path. Complementary to the generator template under
-  [`tools/template/`](../tools/template/): use the template when you want a
+  [`tools/template/`](../tools/template): use the template when you want a
   one-shot scaffold. **Pre-split caveat:** the dedicated
   `github.com/day8/re-frame2-template` repo isn't published yet (the template
   still lives in-monorepo under `tools/template/`), so the published
@@ -64,9 +64,9 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — or when
   you want to understand each step the template performs. Adding re-frame2
   to a **non-trivial** existing app is an authoring task — route to
-  [`re-frame2/`](./re-frame2/) (see the disqualifier below).
+  [`re-frame2/`](re-frame2) (see the disqualifier below).
 
-- **[`re-frame-migration/`](./re-frame-migration/)** — migrate an existing
+- **[`re-frame-migration/`](re-frame-migration)** — migrate an existing
   re-frame v1.x ClojureScript codebase to re-frame2. Drives the
   six-phase migration workflow from [`migration/from-re-frame-v1/README.md`](../migration/from-re-frame-v1/README.md):
   applies Type A (mechanical) M-rules without asking, flags Type B
@@ -74,7 +74,7 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   is the authoritative breaking-change list; the skill routes and
   sequences but never duplicates it.
 
-- **[`re-frame2-improver/`](./re-frame2-improver/)** — critique-mode for
+- **[`re-frame2-improver/`](re-frame2-improver)** — critique-mode for
   **existing** re-frame2 ClojureScript code. Reviews a body of source
   files (or a user-supplied snippet) against a small catalogue of
   re-frame2 anti-patterns, surfaces concrete findings cross-linked to
@@ -85,7 +85,7 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
 
 ### Implementing the framework
 
-- **[`re-frame2-implementor/`](./re-frame2-implementor/)** — guide an
+- **[`re-frame2-implementor/`](re-frame2-implementor)** — guide an
   engineer **building a new re-frame2 implementation** — a port to a
   different host language or substrate, not an application built on the
   CLJS reference. Two-phase workflow: Phase 1 locks the host-language,
@@ -94,7 +94,7 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
 
 ### Live-runtime devtools & pair programming
 
-- **[`re-frame2-xray/`](./re-frame2-xray/)** — read-only tour of
+- **[`re-frame2-xray/`](re-frame2-xray)** — read-only tour of
   **Xray**, the re-frame2 in-app devtools panel. Answers how to *launch*
   Xray (true-inline panel, pop-out, programmatic `init!`, wired hotkeys,
   the Dynamic ↔ Static mode toggle) and *which tab shows X* — across the
@@ -107,7 +107,7 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   Issues tab — issues surface inline. Xray owns
   the *seeing*; `re-frame2-pair` owns the *driving*.
 
-- **[`re-frame2-pair/`](./re-frame2-pair/)** — pair-program with a live
+- **[`re-frame2-pair/`](re-frame2-pair)** — pair-program with a live
   re-frame2 application. Attach to a running shadow-cljs build via nREPL,
   inspect `app-db`, dispatch events, hot-swap handlers, trace the six
   dominoes, walk the per-frame epoch history, time-travel via
@@ -116,7 +116,7 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   consumer apps via shadow-cljs `:devtools :preloads`; there is no
   per-session cljs-eval inject step.
 
-- **[`re-frame2-pair-retro/`](./re-frame2-pair-retro/)** — meta-skill
+- **[`re-frame2-pair-retro/`](re-frame2-pair-retro)** — meta-skill
   for `re-frame2-pair`. Retrospects on a pair-programming session,
   identifies friction and wasted effort, and proposes improvements to
   `re-frame2-pair` itself (or routes a GitHub issue upstream to
@@ -128,7 +128,7 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
 ## Picking the right one
 
 - **Starting from nothing?** → `re-frame2-setup` (or the
-  [`tools/template/`](../tools/template/) generator if you want one
+  [`tools/template/`](../tools/template) generator if you want one
   command). When the counter mounts, switch to `re-frame2`.
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration
   report is signed off, switch to `re-frame2`.
@@ -155,14 +155,14 @@ of duplicating.
 
 | Author / engineer intent | Trigger phrasing / surface | Route to |
 |---|---|---|
-| Bootstrap a brand-new re-frame2 ClojureScript project from nothing (or an empty CLJS project with shadow-cljs/Clojure but zero re-frame2 wiring) | "start a re-frame2 project", "scaffold re-frame2", "hello-world re-frame2 app", "new re-frame2 app", build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring | [`re-frame2-setup/`](./re-frame2-setup/) |
-| Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](./re-frame2/) |
-| Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](./re-frame-migration/) |
-| Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user wants to *read* the panel, not drive a runtime | [`re-frame2-xray/`](./re-frame2-xray/) |
-| Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](./re-frame2-pair/) |
-| Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](./re-frame2-pair-retro/) |
-| Build a **new re-frame2 implementation** in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason — plus ClojureScript, the reference) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](./re-frame2-implementor/) |
-| Critique **existing** re-frame2 ClojureScript code on explicit pull — review a body of source files (or a user-supplied snippet) against the re-frame2 anti-pattern catalogue, surface findings cross-linked to canonical idioms, and optionally propose inline fixes | "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`" — **and** a body of re-frame2 source is in scope: read or edited in the conversation, supplied as a snippet, **or** named as a concrete, resolvable `.cljs` / `.cljc` file or directory path the skill can read (the skill reads the named path before critiquing). A path that doesn't resolve does not establish scope — the skill says so and asks for a snippet rather than fabricate. | [`re-frame2-improver/`](./re-frame2-improver/) |
+| Bootstrap a brand-new re-frame2 ClojureScript project from nothing (or an empty CLJS project with shadow-cljs/Clojure but zero re-frame2 wiring) | "start a re-frame2 project", "scaffold re-frame2", "hello-world re-frame2 app", "new re-frame2 app", build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring | [`re-frame2-setup/`](re-frame2-setup) |
+| Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](re-frame2) |
+| Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](re-frame-migration) |
+| Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user wants to *read* the panel, not drive a runtime | [`re-frame2-xray/`](re-frame2-xray) |
+| Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](re-frame2-pair) |
+| Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
+| Build a **new re-frame2 implementation** in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason — plus ClojureScript, the reference) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](re-frame2-implementor) |
+| Critique **existing** re-frame2 ClojureScript code on explicit pull — review a body of source files (or a user-supplied snippet) against the re-frame2 anti-pattern catalogue, surface findings cross-linked to canonical idioms, and optionally propose inline fixes | "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`" — **and** a body of re-frame2 source is in scope: read or edited in the conversation, supplied as a snippet, **or** named as a concrete, resolvable `.cljs` / `.cljc` file or directory path the skill can read (the skill reads the named path before critiquing). A path that doesn't resolve does not establish scope — the skill says so and asks for a snippet rather than fabricate. | [`re-frame2-improver/`](re-frame2-improver) |
 | Read re-frame2's full API reference, EP design rationale, principles, conventions, or spec corpus | spec / architecture / design discussion without a running app or active authoring task | [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) |
 
 ### Disqualifiers (vocabulary alone is not enough)
@@ -185,9 +185,9 @@ Both kinds of friction target the same repo and carry the tool-vs-framework
 distinction in the **title + body**:
 
 - **Pair-tool friction** — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior.
-- **Framework / Tool-Pair contract friction** — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`./shared/tool-pair-surfaces.md`](./shared/tool-pair-surfaces.md).
+- **Framework / Tool-Pair contract friction** — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`./shared/tool-pair-surfaces.md`](shared/tool-pair-surfaces.md).
 
-**Labels are optional taxonomy, not a filing precondition.** A `--label` (e.g. `pair-mcp`) is added only after confirming the target repo defines it (detect with `gh label list`); on a repo/fork without that label, `gh issue create --label` fails the whole command, so filing falls back to a no-label `gh issue create` and lands regardless. The operational label/filing rules live in [`re-frame2-pair-retro/SKILL.md` §Filing improvements](./re-frame2-pair-retro/SKILL.md#filing-improvements) — this index points there rather than restating them.
+**Labels are optional taxonomy, not a filing precondition.** A `--label` (e.g. `pair-mcp`) is added only after confirming the target repo defines it (detect with `gh label list`); on a repo/fork without that label, `gh issue create --label` fails the whole command, so filing falls back to a no-label `gh issue create` and lands regardless. The operational label/filing rules live in [`re-frame2-pair-retro/SKILL.md` §Filing improvements](re-frame2-pair-retro/SKILL.md#filing-improvements) — this index points there rather than restating them.
 
 ## Verification posture — follows role, by design
 
@@ -342,13 +342,13 @@ rather than theoretical attacks.
 ### Test-fixture discipline — which skills ship tests
 
 Of the skills in this corpus, **three ship a `tests/` directory**:
-[`re-frame2-pair/`](./re-frame2-pair/), [`shared/`](./shared/), and
-[`re-frame2-setup/`](./re-frame2-setup/) (see
-[`re-frame2-pair/tests/`](./re-frame2-pair/tests/) —
+[`re-frame2-pair/`](re-frame2-pair), [`shared/`](shared), and
+[`re-frame2-setup/`](re-frame2-setup) (see
+[`re-frame2-pair/tests/`](re-frame2-pair/tests) —
 `e2e/`, `fixture/`, `prompts/`, `runtime/`, `shim/` —
-[`shared/tests/`](./shared/tests/) —
+[`shared/tests/`](shared/tests) —
 `retro_protocol_test.clj` + `fixtures/` — and
-[`re-frame2-setup/tests/`](./re-frame2-setup/tests/) —
+[`re-frame2-setup/tests/`](re-frame2-setup/tests) —
 `setup_drift_test.clj`). Each earns its tests under the Rule of thumb
 below; the rest of the corpus does not. The asymmetry is intentional,
 not an oversight. Future skill-authors: do not add a `tests/` dir to a
@@ -376,9 +376,9 @@ is a **security boundary**, not just a doc leaf. A prior audit found
 four issues there; the prose-only fixes landed, and a regression suite
 backstops them so a future silent weakening of the prose doesn't
 re-open the boundary. The structural test
-([`shared/tests/retro_protocol_test.clj`](./shared/tests/retro_protocol_test.clj))
+([`shared/tests/retro_protocol_test.clj`](shared/tests/retro_protocol_test.clj))
 pins load-bearing phrasings; the document-runnable fixtures
-([`shared/tests/fixtures/`](./shared/tests/fixtures/)) cover the
+([`shared/tests/fixtures/`](shared/tests/fixtures)) cover the
 behavioural axis.
 
 **Why `re-frame2-setup/` is the third exception.** The setup skill is
@@ -389,7 +389,7 @@ schema-missing-is-loud contract, the canonical `shadow-cljs.edn` block,
 and so on) that must stay in lockstep with the generator template and the
 spec. A silent drift in any of those phrasings would teach a setup that
 no longer matches the framework. The structural drift guard
-([`re-frame2-setup/tests/setup_drift_test.clj`](./re-frame2-setup/tests/setup_drift_test.clj))
+([`re-frame2-setup/tests/setup_drift_test.clj`](re-frame2-setup/tests/setup_drift_test.clj))
 pins those coordinates so the drift surfaces as a test failure instead of
 shipped misinformation. This is the same Rule-of-thumb clause (b) backstop
 as `shared/` — a contract boundary whose prose locks justify a regression

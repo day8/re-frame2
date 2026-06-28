@@ -148,7 +148,7 @@ test('Spec-only .md change skips jvm-core + cljs (implementation_jvm + cljs_node
 });
 
 test('Docs-only change skips jvm-core + cljs (rf2-f79t8)', () => {
-  const result = classify('docs/guide/intro.md');
+  const result = classify('docs/core/intro.md');
   assert.equal(result.implementation_jvm, 'false');
   assert.equal(result.cljs_node_test, 'false');
 });

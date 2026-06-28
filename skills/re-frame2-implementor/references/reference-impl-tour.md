@@ -179,4 +179,4 @@ EP 011 implementation. Pure hiccup → HTML emitter (~200 lines) for the server 
 
 - **As a contract.** Never. The contract is `spec/`. The tour is "one worked example."
 - **As a copy-paste source.** Translating Clojure macros into TS classes line-by-line produces brittle code. Read the contract, design from the contract, then *maybe* peek at the reference for an awkward edge case.
-- **As a teaching resource.** The narrative guide at [`docs/guide/`](https://day8.github.io/re-frame2/guide/README/) is the teaching resource. The tour assumes you've read the spec.
+- **As a teaching resource.** The narrative guide at [`docs/core/`](https://day8.github.io/re-frame2/guide/README/) is the teaching resource. The tour assumes you've read the spec.

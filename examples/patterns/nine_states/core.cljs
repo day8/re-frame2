@@ -59,7 +59,7 @@
    - **A form slice** — `{:draft :errors :touched}` holds the form's
      working state in app-db; the form region's state tracks where it is
      in the validate/submit lifecycle. See [Build a form]
-     (../../../docs/guide/how-to/build-a-form.md).
+     (../../../docs/core/how-to/build-a-form.md).
    - **Inspectability** — guards and actions worth a name get one, as
      entries in the machine's `:guards` / `:actions` maps. Only the truly
      trivial transitions stay inline. Future-you, reading a trace, will
@@ -139,7 +139,7 @@
 ;; `:rf.error/no-frame-context`. This example lives in `:rf/default` (the
 ;; same id `run`'s `frame-provider {:id …}` sets up), so we name it here.
 ;; Frame identity is carried, not magically found; see the frames glossary:
-;; ../../../docs/guide/glossary.md#frame-identity-is-carried-not-found
+;; ../../../docs/core/glossary.md#frame-identity-is-carried-not-found
 (with-frame :rf/default
   (rf/reg-app-schema [:new-todo] {:schema NewTodoSlice}))
 
@@ -161,7 +161,7 @@
 ;; one. `:new-todo/submit` asks for it via `:rf.cofx/requires` and reads it
 ;; out of the coeffects map — pure, and replayable. See the
 ;; recordable-vs-ambient coeffects entry:
-;; ../../../docs/guide/glossary.md#recordable-vs-ambient-coeffects
+;; ../../../docs/core/glossary.md#recordable-vs-ambient-coeffects
 (rf/reg-cofx :new-todo/todo-id
   {:recordable? true
    :doc "Replayable fresh id for a newly-submitted todo."}

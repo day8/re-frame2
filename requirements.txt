@@ -1,7 +1,7 @@
 # Python dependencies for building the re-frame2 docs site (rf2-h09k).
 #
 # Pinned for reproducibility. Bump deliberately and verify the build still
-# resolves the cross-tree nav (docs/guide + spec/) cleanly.
+# resolves the cross-tree nav (docs/core + spec/) cleanly.
 mkdocs==1.6.1
 # The [imaging] extra pulls in Pillow + CairoSVG, which the Material `social`
 # plugin (mkdocs.yml) needs to render OpenGraph/Twitter cards (rf2-orxjj).

@@ -92,7 +92,7 @@
 ;; hydration lands. A bare `[:vector …]` would call that intermediate nil a
 ;; violation and roll the commit back — so we tell the schema, up front, that
 ;; nil is a fine place to pass through. See
-;; ../../../docs/guide/glossary.md#schema.
+;; ../../../docs/core/glossary.md#schema.
 (def ArticlesSchema
   [:maybe [:vector [:map
                     [:id    :string]
@@ -216,7 +216,7 @@
 ;; the current value and returns. On the client, the very same deref registers
 ;; a reaction, so the view re-renders whenever app-db changes underneath it.
 ;; Same code, two behaviours, picked up from the context. See
-;; ../../../docs/guide/glossary.md#view.
+;; ../../../docs/core/glossary.md#view.
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
   (let [arts         @(subscribe [:articles/slice])
         show-bodies? @(subscribe [:articles/show-bodies?])]

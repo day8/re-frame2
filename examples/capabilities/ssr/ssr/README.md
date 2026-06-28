@@ -16,9 +16,9 @@ it.
 > string on the server, a live DOM in the browser.**
 
 The same [event
-handlers](../../../../docs/guide/glossary.md#event-handler),
-[subscriptions](../../../../docs/guide/glossary.md#subscription), and
-[views](../../../../docs/guide/glossary.md#view) run on the JVM and in the
+handlers](../../../../docs/core/glossary.md#event-handler),
+[subscriptions](../../../../docs/core/glossary.md#subscription), and
+[views](../../../../docs/core/glossary.md#view) run on the JVM and in the
 browser.
 
 This is the smallest end-to-end example of every contract surface in
@@ -34,8 +34,8 @@ There is no separate "server code" to keep in sync with the client. The
 server and client both live in one `core.cljc`, and reader conditionals
 pick the side. A `:clj` `handle-request` returns the HTML-plus-payload
 on the JVM. A `:cljs` `run` boots the browser from the baked payload.
-The [views](../../../../docs/guide/glossary.md#view) and
-[event handlers](../../../../docs/guide/glossary.md#event-handler) in
+The [views](../../../../docs/core/glossary.md#view) and
+[event handlers](../../../../docs/core/glossary.md#event-handler) in
 between carry no reader conditionals at all — they're pure, so "does
 this run on the server?" never comes up for them. Where it *does* come
 up — a `localStorage` write the JVM has never heard of — you declare it
@@ -46,20 +46,20 @@ once with `:platforms`, rather than branch at the call site.
 Read top to bottom, the example narrates a single request and the
 client picking it up:
 
-- **A [frame](../../../../docs/guide/glossary.md#frame) per request, on
+- **A [frame](../../../../docs/core/glossary.md#frame) per request, on
   the server.** `handle-request` mints a fresh frame for each call,
   drains it, renders it, and tears it down. A hundred concurrent
   requests are a hundred isolated
-  [app-dbs](../../../../docs/guide/glossary.md#app-db) that can't see or
+  [app-dbs](../../../../docs/core/glossary.md#app-db) that can't see or
   race one another. The same frame isolation that's good for testing N
   apps in one process gives you request isolation for free.
 - **`:rf/server-init`, gated to the server.** It carries `:platforms
   #{:server}` and declares `:rf.cofx/requires [:rf.server/request]`, so
   the request map arrives as a
-  [coeffect](../../../../docs/guide/glossary.md#coeffect) rather than a
+  [coeffect](../../../../docs/core/glossary.md#coeffect) rather than a
   global the handler reaches for. Its job here is small: start the
   article fetch.
-- **Server-only [effects](../../../../docs/guide/glossary.md#effect) via
+- **Server-only [effects](../../../../docs/core/glossary.md#effect) via
   `:platforms`.** The session-store fx is `#{:client}`, so a server
   drain skips it. The handler that returned it never learns which
   runtime it's on. No `typeof window` anywhere.
@@ -67,9 +67,9 @@ client picking it up:
   render.** `:rf/server-init` dispatches `:rf.http/managed`. The JVM
   smoke redirects it to a canned-success stub through the
   `:fx-overrides` seam, so the render exercises the full
-  [cascade](../../../../docs/guide/glossary.md#event-cascade) without real
+  [cascade](../../../../docs/core/glossary.md#event-cascade) without real
   network traffic.
-- **Pure [hiccup](../../../../docs/guide/glossary.md#hiccup) → HTML.**
+- **Pure [hiccup](../../../../docs/core/glossary.md#hiccup) → HTML.**
   `rf/render-to-string` is a pure function from the registered views to
   an HTML string — no React server-render dependency, no DOM,
   JVM-runnable.
@@ -81,7 +81,7 @@ client picking it up:
   `:rf/hydrate` (a framework-owned event the app must not re-register)
   installs the payload in one atomic step under the locked
   `:replace-frame-state` policy. It replaces both
-  [partitions](../../../../docs/guide/glossary.md#the-two-partitions) at
+  [partitions](../../../../docs/core/glossary.md#the-two-partitions) at
   once: the `:rf/app-db` slice replaces app-db, and the `:rf/runtime-db`
   slice replaces the serialisable runtime-db projection (machine
   snapshots, route). The server is authoritative for the initial client
@@ -107,7 +107,7 @@ exercising the load-bearing subtleties, not just the happy path:
 - **Two frame families, one schema.** SSR has a per-request *server*
   frame (in `handle-request`) and a fixed *client* hydration frame
   (`:rf/default`, in `run`). Because
-  [`reg-app-schema`](../../../../docs/guide/glossary.md#schema) is
+  [`reg-app-schema`](../../../../docs/core/glossary.md#schema) is
   frame-local, the `[:articles]` schema is held as a plain value and
   registered explicitly against *each* frame at its entry point — so
   the server commit and the client commit validate against the same

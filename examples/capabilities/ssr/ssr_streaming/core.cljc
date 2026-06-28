@@ -48,7 +48,7 @@
 ;; seeds it (`:rf/server-init`) or the client hydrates it. A bare
 ;; `[:map-of …]` would reject that perfectly legal nil and roll the commit
 ;; back on you.
-;; See the [schemas guide](../../../docs/guide/how-to/validate-with-schemas.md).
+;; See the [schemas guide](../../../docs/core/how-to/validate-with-schemas.md).
 (def CardsSchema
   [:maybe [:map-of :keyword [:map [:title :string] [:value [:maybe :int]]]]])
 
@@ -279,7 +279,7 @@
 ;; `:rf/frame-id`, and that's deliberate: the server rendered under a
 ;; per-request gensym, the client hydrates this fixed frame, so an absent
 ;; frame-id is exactly right — the explicit `:frame` says where to land. See
-;; [frames](../../../docs/guide/glossary.md#frame-identity-is-carried-not-found).
+;; [frames](../../../docs/core/glossary.md#frame-identity-is-carried-not-found).
 #?(:cljs (def app-frame :rf/default))
 
 #?(:cljs

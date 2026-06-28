@@ -497,7 +497,7 @@ Classification declarations are projected at the **six observation boundaries** 
 | `(throw (ex-info (str "User " email " failed login") {:user/email email :reason :invalid-credentials}))` — leaks email into `:exception-message` and `:exception-data` | `(throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))` — name the category in the message; correlate via `:dispatch-id` against the (correctly redacted) `:db-before` snapshot |
 | Author-named `ex-data` keys carrying the sensitive value | Substitute `:rf/redacted` at the assembly site, or omit the key entirely |
 
-The framework does NOT ship a `safe-throw` helper — *which ex-data keys correspond to sensitive paths in this specific app* is app-level knowledge. A twelve-line per-app `safe-throw` helper is the recommended shape; worked example at [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/how-to/configure-dev-and-prod.md).
+The framework does NOT ship a `safe-throw` helper — *which ex-data keys correspond to sensitive paths in this specific app* is app-level knowledge. A twelve-line per-app `safe-throw` helper is the recommended shape; worked example at [docs/core §24.08 — Exceptions under `:sensitive?`](../docs/core/how-to/configure-dev-and-prod.md).
 
 ---
 
@@ -515,7 +515,7 @@ Surfaces removed from this matrix. Listed here so readers don't search for them 
 | `inject-cofx` (public cofx-injection interceptor) | Coeffect dependencies are declared with `:rf.cofx/requires` registration metadata; `reg-cofx` is value-returning + graded. `inject-cofx` is removed (calling it is the hard error `:rf.error/inject-cofx-removed`). Named here because cofx values are a classification surface. |
 | Handler-meta `:sensitive?` registration flag | Use Spec 015 per-path declarations. A handler that is the unit of sensitivity (the rare "this whole cascade is sensitive" case) re-expresses by declaring the path-marks that the handler reads / writes. |
 | `:rf.fx/sensitive-mode` configure key | Use per-call `{:sensitive? true}` on `:rf.http/managed` args. The name `set-trace-redaction-policy` is not in `re-frame.core`. |
-| `rf/safe-throw` framework helper | Author-level concern; per-app helpers fit the local convention better than a framework default. Worked-example shape lives in the docs/guide. |
+| `rf/safe-throw` framework helper | Author-level concern; per-app helpers fit the local convention better than a framework default. Worked-example shape lives in the docs/core. |
 
 ---
 
@@ -553,7 +553,7 @@ Surfaces removed from this matrix. Listed here so readers don't search for them 
 
 ### Author-side guide
 
-- [docs/guide §23a — Privacy: keeping secrets out of traces](../docs/guide/how-to/keep-secrets-out-of-traces.md) — guide-side worked-example tour for declaring `:sensitive?` on schema slots.
-- [docs/guide §23b — Large blobs](../docs/guide/how-to/keep-secrets-out-of-traces.md) — guide-side companion for `:large?` declarations.
-- [docs/guide §24.07 — Privacy and elision in practice](../docs/guide/how-to/configure-dev-and-prod.md) — operational config walkthrough.
-- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/how-to/configure-dev-and-prod.md) — the per-app `safe-throw` convention and the three patterns for the exception-path residual.
+- [docs/core §23a — Privacy: keeping secrets out of traces](../docs/core/how-to/keep-secrets-out-of-traces.md) — guide-side worked-example tour for declaring `:sensitive?` on schema slots.
+- [docs/core §23b — Large blobs](../docs/core/how-to/keep-secrets-out-of-traces.md) — guide-side companion for `:large?` declarations.
+- [docs/core §24.07 — Privacy and elision in practice](../docs/core/how-to/configure-dev-and-prod.md) — operational config walkthrough.
+- [docs/core §24.08 — Exceptions under `:sensitive?`](../docs/core/how-to/configure-dev-and-prod.md) — the per-app `safe-throw` convention and the three patterns for the exception-path residual.

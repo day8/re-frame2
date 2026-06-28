@@ -7,7 +7,7 @@ repo_name: day8/re-frame2
 repo_url: https://github.com/day8/re-frame2
 
 # All published markdown lives under docs/ at build time. The narrative
-# guide already lives under docs/guide/. The normative spec lives at the
+# guide already lives under docs/core/. The normative spec lives at the
 # repo root in spec/ — the docs.yml CI step copies spec/ into docs/spec/
 # (and migration/ into docs/migration/) before `mkdocs build` runs. The
 # staged copies are ignored by git (see .gitignore).
@@ -26,10 +26,10 @@ site_dir: site
 # node_modules/ READMEs out of the published site.
 exclude_docs: |
   tools/playground/
-  guide/OUTLINE.md
+  core/OUTLINE.md
   migration/from-re-frame-v1/codemod/
 
-# Build-time hooks. mkdocs_hooks.py rewrites guide/* cross-references
+# Build-time hooks. mkdocs_hooks.py rewrites core/* cross-references
 # from ../../spec/ (correct for GitHub source-tree browsing, where spec/
 # lives at the repo root) to ../spec/ (correct for the staged docs tree
 # this build sees, where spec/ has been copied to docs/spec/). See the
@@ -161,69 +161,69 @@ nav:
   - Core:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
-    - guide/README.md
+    - core/README.md
     # Human-first structure: quickstart (a taste) -> the loop (the model,
     # on the counter) -> the RealWorld tutorial (build something real) -> the
     # deeper/feature concepts -> how-to recipes -> explanation shelf -> v1
     # migration -> a thin index into spec/. The fundamentals come BEFORE the
     # tutorial so the reader meets the one-way loop before a real domain.
-    - "Quickstart": guide/quickstart.md
+    - "Quickstart": core/quickstart.md
     - "The loop":
-      - guide/concepts/index.md
-      - "Events and the cascade": guide/concepts/events-and-the-cascade.md
-      - "app-db": guide/concepts/app-db.md
-      - "Subscriptions": guide/concepts/subscriptions.md
-      - "Views": guide/concepts/views.md
-      - "Effects and coeffects": guide/concepts/effects-and-coeffects.md
+      - core/concepts/index.md
+      - "Events and the cascade": core/concepts/events-and-the-cascade.md
+      - "app-db": core/concepts/app-db.md
+      - "Subscriptions": core/concepts/subscriptions.md
+      - "Views": core/concepts/views.md
+      - "Effects and coeffects": core/concepts/effects-and-coeffects.md
     - "More concepts":
-      - "Interceptors": guide/concepts/interceptors.md
-      - "Frames": guide/concepts/frames.md
-      - "Images": guide/concepts/images.md
-      - "Flows": guide/concepts/flows.md
-      - "Errors": guide/concepts/errors.md
-      - "Observability": guide/concepts/observability.md
+      - "Interceptors": core/concepts/interceptors.md
+      - "Frames": core/concepts/frames.md
+      - "Images": core/concepts/images.md
+      - "Flows": core/concepts/flows.md
+      - "Errors": core/concepts/errors.md
+      - "Observability": core/concepts/observability.md
     - "How-to":
-      - guide/how-to/index.md
-      - "Boot and mount an app": guide/how-to/boot-and-mount-an-app.md
-      - "Add auth": guide/how-to/add-auth.md
-      - "Build a form": guide/how-to/build-a-form.md
-      - "Validate with schemas": guide/how-to/validate-with-schemas.md
-      - "Test an event handler": guide/how-to/test-an-event-handler.md
-      - "Test a cascade": guide/how-to/test-a-cascade.md
-      - "Debug with Xray": guide/how-to/debug-with-xray.md
-      - "Fix a slow view": guide/how-to/fix-a-slow-view.md
-      - "Keep secrets out of traces": guide/how-to/keep-secrets-out-of-traces.md
-      - "Report errors in production": guide/how-to/report-errors-in-production.md
-      - "Configure dev and prod": guide/how-to/configure-dev-and-prod.md
-      - "Use UIx, Helix, or slim": guide/how-to/use-uix-helix-or-slim.md
+      - core/how-to/index.md
+      - "Boot and mount an app": core/how-to/boot-and-mount-an-app.md
+      - "Add auth": core/how-to/add-auth.md
+      - "Build a form": core/how-to/build-a-form.md
+      - "Validate with schemas": core/how-to/validate-with-schemas.md
+      - "Test an event handler": core/how-to/test-an-event-handler.md
+      - "Test a cascade": core/how-to/test-a-cascade.md
+      - "Debug with Xray": core/how-to/debug-with-xray.md
+      - "Fix a slow view": core/how-to/fix-a-slow-view.md
+      - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md
+      - "Report errors in production": core/how-to/report-errors-in-production.md
+      - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
+      - "Use UIx, Helix, or slim": core/how-to/use-uix-helix-or-slim.md
     - "Explanation":
-      - "Inside-out: why it's built this way": guide/explanation/inside-out.md
-      - "Continuations are data": guide/explanation/continuations-are-data.md
-      - "One graph: derivations and algebra views": guide/derivations-and-algebra-views.md
-      - "Where should this value live?": guide/where-state-lives.md
+      - "Inside-out: why it's built this way": core/explanation/inside-out.md
+      - "Continuations are data": core/explanation/continuations-are-data.md
+      - "One graph: derivations and algebra views": core/derivations-and-algebra-views.md
+      - "Where should this value live?": core/where-state-lives.md
     - "From re-frame v1":
-      - guide/25-from-re-frame-v1.md
+      - core/25-from-re-frame-v1.md
       - "Migration rules": migration/from-re-frame-v1/README.md
       - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
       - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
       - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
       - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
       - "clj-new → deps-new template": migration/from-clj-new-template/README.md
-    - "Reference index": guide/reference.md
-    - "Glossary": guide/glossary.md
+    - "Reference index": core/reference.md
+    - "Glossary": core/glossary.md
     - "API":
-      - guide/api/README.md
-      - "01 — Core": guide/api/01-core.md
-      - "02 — Views": guide/api/02-views.md
-      - "03 — Effects": guide/api/03-effects.md
-      - "05 — Flows": guide/api/05-flows.md
-      - "08 — Schemas": guide/api/08-schemas.md
-      - "10 — Testing": guide/api/10-testing.md
-      - "11 — Instrumentation": guide/api/11-instrumentation.md
-      - "12 — Registrar": guide/api/12-registrar.md
-      - "13 — Lifecycle": guide/api/13-lifecycle.md
-      - "14 — Adapters": guide/api/14-adapters.md
-      - "15 — Removed": guide/api/15-removed.md
+      - core/api/README.md
+      - "01 — Core": core/api/01-core.md
+      - "02 — Views": core/api/02-views.md
+      - "03 — Effects": core/api/03-effects.md
+      - "05 — Flows": core/api/05-flows.md
+      - "08 — Schemas": core/api/08-schemas.md
+      - "10 — Testing": core/api/10-testing.md
+      - "11 — Instrumentation": core/api/11-instrumentation.md
+      - "12 — Registrar": core/api/12-registrar.md
+      - "13 — Lifecycle": core/api/13-lifecycle.md
+      - "14 — Adapters": core/api/14-adapters.md
+      - "15 — Removed": core/api/15-removed.md
       - "Normative reference": spec/API.md
 
   - Machines:

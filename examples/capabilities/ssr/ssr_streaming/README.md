@@ -12,7 +12,7 @@ That's *streaming SSR*: the page stops waiting on its slowest part. It's
 the React-18 / Next.js `loading.js` move — ship the shell first, fill the
 holes as the data lands. In re-frame2 it's *one marker*, not a component
 API. You wrap every slow region of the
-[view](../../../../docs/guide/glossary.md#view) in a
+[view](../../../../docs/core/glossary.md#view) in a
 [`:rf/suspense-boundary`](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)
 and name a `:fallback` to show in the meantime:
 
@@ -35,16 +35,16 @@ replayable, no live streaming host needed. It's the worked companion to
 - **The whole streaming API is one marker.** Wrap a subtree with
   `:rf/suspense-boundary`, name a `:fallback`, and give it a stable
   `:id`. The streaming walker emits the fallback
-  [hiccup](../../../../docs/guide/glossary.md#hiccup) into the shell and
+  [hiccup](../../../../docs/core/glossary.md#hiccup) into the shell and
   flushes it on the first byte, then renders the real subtree and streams
   it in as its own chunk. There's no streaming-render mode and no
   per-host API — the marker *is* the contract.
 
 - **Each chunk carries its own slice of state.** A streamed-in card is no
-  use if its [subscriptions](../../../../docs/guide/glossary.md#subscription)
+  use if its [subscriptions](../../../../docs/core/glossary.md#subscription)
   can't see the data. So each resolved chunk ships a
   `<script data-rf2-suspense-hydrate>` carrying that card's
-  [app-db](../../../../docs/guide/glossary.md#app-db) delta. The client-side
+  [app-db](../../../../docs/core/glossary.md#app-db) delta. The client-side
   streaming runtime (`ssr/streaming-install!`, wired up in `run`) swaps
   the fallback for the resolved content and merges the delta into app-db
   — chunk by chunk, before the final payload arrives.
@@ -55,7 +55,7 @@ replayable, no live streaming host needed. It's the worked companion to
   throw inside that one boundary, ships its fallback HTML in the
   resolved-chunk slot (marked `data-rf2-suspense-failed`) with no hydrate
   delta, and emits a `:rf.ssr/suspense-boundary-failed`
-  [trace event](../../../../docs/guide/glossary.md#trace-event). The other
+  [trace event](../../../../docs/core/glossary.md#trace-event). The other
   three cards stream on as if nothing happened. A thrown render takes down
   exactly one boundary — never the whole page.
 
@@ -77,7 +77,7 @@ replayable, no live streaming host needed. It's the worked companion to
 
 Notice what *isn't* here: no second, server-flavoured copy of the app.
 Streaming SSR falls straight out of the per-request
-[frame](../../../../docs/guide/glossary.md#frame) model. The server runs
+[frame](../../../../docs/core/glossary.md#frame) model. The server runs
 your real views against an isolated frame for the request, and
 `:rf/suspense-boundary` is just the marker that says "this region is
 allowed to arrive late."
@@ -87,7 +87,7 @@ One subtlety the source is careful about (worth a glance if you read
 The server renders under a fresh per-request frame (a gensym, in
 `handle-request`); the client hydrates a fixed app-frame (`:rf/default`,
 in `run`). The same
-[schema](../../../../docs/guide/glossary.md#schema) is registered explicitly
+[schema](../../../../docs/core/glossary.md#schema) is registered explicitly
 against *each* with a `{:frame …}` override, because that's where the
 `:cards` commit actually validates on either side. The server then drops
 its per-request frame-id from the payload, so the client's explicit

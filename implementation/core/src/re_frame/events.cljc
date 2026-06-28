@@ -397,7 +397,7 @@
 ;; So the per-handler-return checks DO NOT cover effects that arrive at the
 ;; commit boundary by another route: a framework / user `:after` interceptor
 ;; mutates `[:effects …]` after the handler-return checks have already run
-;; (docs/guide §09 documents `:after` interceptors adding/modifying
+;; (docs/core §09 documents `:after` interceptors adding/modifying
 ;; `:effects`/`:fx`).
 ;;
 ;; The router consumes the FINAL `(:effects final-ctx)` after the whole chain

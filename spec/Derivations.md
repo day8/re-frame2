@@ -461,7 +461,7 @@ Their algebra views differ only in output, storage, evaluation, and lifecycle:
 
 ## Side-by-side catalogue — every source form and its algebra view
 
-This section is **illustrative, not normative** — the binding rules are the per-member sections below and the [§Conformance](#conformance) list. It collects, in one scannable place, the source form an author writes next to the algebra view it lowers to, for every member of the algebra. Read it as the worked companion to the [node shape](#the-node-shape): each pair shows which axes are *fixed* for that member (the member's identity in the algebra) and which *vary* per registration (its declared `:inputs` and `:output`). A reader-first walkthrough of the same mapping, anchored to the four-homes mental model, lives in the guide chapter [One graph: derivations and algebra views](../docs/guide/derivations-and-algebra-views.md).
+This section is **illustrative, not normative** — the binding rules are the per-member sections below and the [§Conformance](#conformance) list. It collects, in one scannable place, the source form an author writes next to the algebra view it lowers to, for every member of the algebra. Read it as the worked companion to the [node shape](#the-node-shape): each pair shows which axes are *fixed* for that member (the member's identity in the algebra) and which *vary* per registration (its declared `:inputs` and `:output`). A reader-first walkthrough of the same mapping, anchored to the four-homes mental model, lives in the guide chapter [One graph: derivations and algebra views](../docs/core/derivations-and-algebra-views.md).
 
 ### Subscription (static `:<-`) → ephemeral derivation
 

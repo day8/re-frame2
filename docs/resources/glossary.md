@@ -43,7 +43,7 @@ A structured label like `[:article slug]` a [resource](#resource) attaches to it
 
 ### **resource status**
 
-The lifecycle a cached read reports to a [view](../guide/glossary.md#view): `:idle` → `:loading` → `:loaded` | `:error`, plus `:fetching` for a background refresh that keeps the old value on screen. `:error` is reserved for a *first*-load failure; a failed refresh stays `:loaded` and records the error separately, so a hiccup never blanks the page.
+The lifecycle a cached read reports to a [view](../core/glossary.md#view): `:idle` → `:loading` → `:loaded` | `:error`, plus `:fetching` for a background refresh that keeps the old value on screen. `:error` is reserved for a *first*-load failure; a failed refresh stays `:loaded` and records the error separately, so a hiccup never blanks the page.
 
 ### **owner & cause**
 
@@ -55,8 +55,8 @@ Writing a [mutation](#mutation)'s expected result into the cache *before* the se
 
 ### **managed HTTP**
 
-The `:rf.http/managed` [effect](../guide/glossary.md#effect): you describe a request as data and the runtime owns its whole lifecycle — encode, send, decode, classify failures, retry-with-backoff, abort — then [dispatches](../guide/glossary.md#dispatch) the result back as an ordinary [event](../guide/glossary.md#event). You never touch `js/fetch`. (A `:request-id` lets a re-issue supersede an in-flight call; reads retry, writes don't.)
+The `:rf.http/managed` [effect](../core/glossary.md#effect): you describe a request as data and the runtime owns its whole lifecycle — encode, send, decode, classify failures, retry-with-backoff, abort — then [dispatches](../core/glossary.md#dispatch) the result back as an ordinary [event](../core/glossary.md#event). You never touch `js/fetch`. (A `:request-id` lets a re-issue supersede an in-flight call; reads retry, writes don't.)
 
 ### **reply map**
 
-The map every managed async result arrives in — `{:kind :success :value …}` / `{:kind :failure :failure …}` for HTTP, the five-status view-model (`:ok`/`:partial`/`:error`/`:cancelled`/`:stale`) for resources. It rides as the last argument of the reply [event](../guide/glossary.md#event); branch on `:kind`/`:status`, never on a stringified message. (The concrete shape of [the uniform reply](../guide/glossary.md#the-uniform-reply).)
+The map every managed async result arrives in — `{:kind :success :value …}` / `{:kind :failure :failure …}` for HTTP, the five-status view-model (`:ok`/`:partial`/`:error`/`:cancelled`/`:stale`) for resources. It rides as the last argument of the reply [event](../core/glossary.md#event); branch on `:kind`/`:status`, never on a stringified message. (The concrete shape of [the uniform reply](../core/glossary.md#the-uniform-reply).)

@@ -1,6 +1,6 @@
 # Guide authoring contract
 
-> **Who this is for.** Contributors writing or revising pages under `docs/guide/`. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every guide page is held to, and the gates that enforce it.
+> **Who this is for.** Contributors writing or revising pages under `docs/core/`. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every guide page is held to, and the gates that enforce it.
 
 The guide is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate divergences. First, **reference is not a guide mode at all**: the normative reference lives in `spec/` (AI-targeted, exhaustive, boring on purpose); the guide carries only [a thin map](reference.md) pointing down into it. A guide page that starts accumulating option tables and precedence rules is absorbing weight the spec already owns — move the weight, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
 
@@ -89,7 +89,7 @@ A spec link is wrong when it's a "see the spec for the full story" dodge replaci
 **Link form** — write the GitHub-correct relative path; the build hook rewrites it for the staged site, so never hand-write the staged path:
 
 - From a **depth-3** page (`tutorial/`, `concepts/`, `how-to/`, `explanation/`), a spec link's target is `../../../spec/008-Testing.md`.
-- From a **depth-2** page (`docs/guide/X.md`), it's `../../spec/API.md`.
+- From a **depth-2** page (`docs/core/X.md`), it's `../../spec/API.md`.
 - Same rule for `migration/` and `examples/` targets at the matching depth (examples links become GitHub blob URLs — examples are not staged into the site).
 - Guide → guide links are plain sibling-relative and encouraged.
 
@@ -148,7 +148,7 @@ Four gates keep the contract from rotting — the guide is maintained like produ
 
 ## Mechanics
 
-Write Markdown for MkDocs Material. Pages live under `docs/guide/`; the nav is explicit in `mkdocs.yml` and a new page must be added there by hand, next to its siblings (this page stays out of the nav). Build locally with `mkdocs build --strict` before opening a PR; if the page has live cells, load it and click them.
+Write Markdown for MkDocs Material. Pages live under `docs/core/`; the nav is explicit in `mkdocs.yml` and a new page must be added there by hand, next to its siblings (this page stays out of the nav). Build locally with `mkdocs build --strict` before opening a PR; if the page has live cells, load it and click them.
 
 ---
 

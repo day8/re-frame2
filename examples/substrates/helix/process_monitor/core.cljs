@@ -162,7 +162,7 @@
 ;; `:<-` names its inputs, and the runtime only recomputes when one of them
 ;; changes by `=`. So the tiles sit still while unrelated keys move underneath
 ;; — caching you get for free by saying what you depend on. The glossary has
-;; the full picture: docs/guide/glossary.md#the-derivation-graph
+;; the full picture: docs/core/glossary.md#the-derivation-graph
 (rf/reg-sub :process-monitor/totals
   :<- [:process-monitor/processes]
   (fn [processes _]
@@ -226,7 +226,7 @@
 ;; To dispatch from a view, grab `dispatch` off a frame api.
 ;; `(rf/capture-frame)` captures the current frame as a value, so the click
 ;; handler we close over below still lands in this app's frame when it fires.
-;; See docs/guide/glossary.md#capture-frame
+;; See docs/core/glossary.md#capture-frame
 (defnc level-chips []
   (let [active   (helix-adapter/use-subscribe [:process-monitor/level-filter])
         dispatch (:dispatch (rf/capture-frame))]

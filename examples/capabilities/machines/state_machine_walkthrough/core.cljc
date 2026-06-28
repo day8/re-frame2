@@ -26,7 +26,7 @@
             [re-frame.machines]
             ;; Registers `:rf.http/managed`, the fx our `:issue-request`
             ;; action fires to make the login call. Tests intercept it via
-            ;; :fx-overrides; see docs/guide/glossary.md#effect.
+            ;; :fx-overrides; see docs/core/glossary.md#effect.
             [re-frame.http.managed]
             ;; Brings in the canned `:rf.http/managed-canned-*` fxs — the
             ;; pre-baked replies our stubs below delegate to.
@@ -72,7 +72,7 @@
 
     :issue-request
     ;; An action describes effects; it never performs side-effects itself
-    ;; (docs/guide/glossary.md#effect). Here it asks for the `:rf.http/managed`
+    ;; (docs/core/glossary.md#effect). Here it asks for the `:rf.http/managed`
     ;; fx, which makes the request and then dispatches `:on-success` /
     ;; `:on-failure` with the reply appended as the last arg — looping the
     ;; result right back into this machine as the next event.
@@ -189,7 +189,7 @@
 (rf/reg-machine :auth.login/flow login-flow)
 
 ;; ============================================================================
-;; FORM DRAFT SLICE — docs/guide/how-to/build-a-form.md
+;; FORM DRAFT SLICE — docs/core/how-to/build-a-form.md
 ;; ============================================================================
 ;;
 ;; Notice the clean division of labour: the machine owns the submit/auth STATUS,
@@ -202,7 +202,7 @@
 ;;
 ;; We keep this slice deliberately tiny — one teaching point, the draft itself.
 ;; The fuller seven-key form slice (touched / errors / submit-attempted? / …) is
-;; built up in docs/guide/how-to/build-a-form.md and in
+;; built up in docs/core/how-to/build-a-form.md and in
 ;; examples/real-apps/realworld_http/auth.cljs once you want the real thing.
 
 (def login-form-defaults {:email "" :password ""})

@@ -101,7 +101,7 @@ of the action epic.
   recordable leaves; Story and pair-MCP fixtures carry the `:rf.cofx` key
   rename and the declared-diet display. (The `:rf.cofx/generated` trace op is
   Slice B — it describes the generation step, which does not yet exist.)
-- **Guide coeffects rewrite — SHIPPED.** `docs/guide/concepts/effects-and-coeffects.md`
+- **Guide coeffects rewrite — SHIPPED.** `docs/core/concepts/effects-and-coeffects.md`
   was rewritten around the two grades + `requires` (the `inject-cofx` section
   deleted, not revised), with the supply-not-stub testing idiom carried into the
   testing how-tos (`how-to/test-an-event-handler.md`, `how-to/test-a-cascade.md`);
@@ -858,7 +858,7 @@ Pre-alpha: direct breaking change, full sweep, no aliases, no shims.
 | `re-frame.core` facade | `inject-cofx` removed (hard error naming the replacement); `reg-cofx` contract change |
 | `implementation/` (~39 files) | mechanical rename + flat reshape (slice A); generation/validation/policies (slice B) |
 | consumer code | `[(rf/inject-cofx :local-store "k")]` interceptor entries → `:rf.cofx/requires [[:local-store "k"]]` metadata; cofx handlers drop the ctx wrapper (`(fn [ctx k] (assoc-in ctx [:coeffects :k] v))` → `(fn [k] v)`); handler destructures gain declarations; `{:rf.world/keys [inputs]}` reads → declared flat leaves |
-| `docs/guide/` (topical tree) | `concepts/effects-and-coeffects.md` rewritten around the two grades + `requires` (the `inject-cofx` section deleted, not revised); concept-page context examples; the testing how-tos (`how-to/test-an-event-handler.md`, `how-to/test-a-cascade.md`) use strict fixtures in place of clock/RNG monkey-patching; "causal world inputs" survives as explanatory prose — "recordable coeffects" is the taught term |
+| `docs/core/` (topical tree) | `concepts/effects-and-coeffects.md` rewritten around the two grades + `requires` (the `inject-cofx` section deleted, not revised); concept-page context examples; the testing how-tos (`how-to/test-an-event-handler.md`, `how-to/test-a-cascade.md`) use strict fixtures in place of clock/RNG monkey-patching; "causal world inputs" survives as explanatory prose — "recordable coeffects" is the taught term |
 | Xray / Story / pair-MCP | lens rule, declared-diet display, fixture key rename |
 | EP-0010 | untouched as historical record; one supersession line in its errata ledger (the deferred recordable slice activates here; its optimistic-mutations gate lapses) |
 
@@ -895,7 +895,7 @@ Slice B (gated on the first generator consumer):
 9. Machine consumer attachment: entry-map `requires`, derived ensure-sets
    (incl. `:always` closure), inline-fn restriction, lint.
 10. Wave-end correctness/completeness review against this EP; the standard
-    propagation tails (/skills, /examples, /tools, /docs/guide).
+    propagation tails (/skills, /examples, /tools, /docs/core).
 
 ## Open Issues
 

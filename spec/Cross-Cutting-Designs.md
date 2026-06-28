@@ -37,8 +37,8 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [`skills/shared/retro-protocol.md`](../skills/shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules (consuming tool / upstream re-frame2 / the author's code / both), opt-in bead protocol, and output shape (seven slots: `Goal/Scope`, `Observed`, `Causes`, `Improvements`, `Bolder ideas`, `Bead candidates`, `Other possibilities`).
 
 **Consumers.**
-- [`skills/re-frame2-pair-retro/`](../skills/re-frame2-pair-retro/) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
-- [`skills/re-frame2-improver/`](../skills/re-frame2-improver/) — code-shaped consumer; supplies its own catalogue under `references/`.
+- [`skills/re-frame2-pair-retro/`](../skills/re-frame2-pair-retro) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
+- [`skills/re-frame2-improver/`](../skills/re-frame2-improver) — code-shaped consumer; supplies its own catalogue under `references/`.
 
 **The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free.
 
@@ -66,7 +66,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Consumers.**
 - `tools/re-frame2-pair-mcp/` — 14 tools, audited as fully conformant.
 - `tools/story-mcp/` — 19 tools, audited; two named deviations (`variant->edn`, `snapshot-identity`) catalogued as accepted exceptions.
-- [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/) — sibling harness that pins the *payload* vocabulary (`:rf.mcp/*` keys). NAMING.md covers the catalogue surface; wire-vocab covers the wire shape.
+- [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab) — sibling harness that pins the *payload* vocabulary (`:rf.mcp/*` keys). NAMING.md covers the catalogue surface; wire-vocab covers the wire shape.
 
 **The result.** Verb drift is detected at PR review, not at agent runtime. New tools land against an existing verb; novel verbs require a Lock entry in the server's `DESIGN-RATIONALE.md` and a return-trip to NAMING.md to extend the table. Cross-server, the same verb means the same thing — `get-` is single-entity read, `list-` is enumeration, `subscribe` is streaming pair, `dispatch` is the bare event-fire — so an agent that knows one server's grammar reads the others.
 

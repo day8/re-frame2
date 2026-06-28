@@ -109,7 +109,7 @@
 ;; login / register password drafts at [:auth :login-form] /
 ;; [:auth :register-form] are throwaway form state that never leaves app-db,
 ;; so there's nothing there to protect. See the keep-secrets how-to:
-;; ../../../docs/guide/how-to/keep-secrets-out-of-traces.md
+;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
 (rf/reg-event :auth/classify-token
   {:doc "Mark the durable JWT path [:auth :token] sensitive, at frame
          creation."}

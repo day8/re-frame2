@@ -11,7 +11,7 @@ click.
 > **The view reads a list and renders it. Everything else lives in the runtime.**
 
 That's the one idea to carry away — **the view does almost nothing.** Clicking
-"Load more" dispatches a single [event](../../../../docs/guide/glossary.md#event)
+"Load more" dispatches a single [event](../../../../docs/core/glossary.md#event)
 that carries no page number. The view holds no cursor, no `:loading-more?` flag,
 no list slice to append to, and no append reducer. All of that — the accumulated
 pages, the cursor for the next page, the in-flight tracking, the end-of-feed
@@ -20,9 +20,9 @@ the runtime owns. The feed is one cache entry that grows; the view just watches
 it grow. That inversion is the whole point of the primitive.
 
 It's plain re-frame2: a `reg-resource` with `:infinite true`, owned by the route,
-read through the **passive** infinite [subscription](../../../../docs/guide/glossary.md#subscription)
+read through the **passive** infinite [subscription](../../../../docs/core/glossary.md#subscription)
 family, with growth driven by a **causal** `:rf.resource/load-more`
-[event](../../../../docs/guide/glossary.md#event). It's the worked companion to the
+[event](../../../../docs/core/glossary.md#event). It's the worked companion to the
 guide's load-more half,
 [docs/resources/how-to/paginate-a-feed.md](../../../../docs/resources/how-to/paginate-a-feed.md).
 
@@ -48,7 +48,7 @@ all of them.
 - **One feed, many pages.** `:infinite true` plus a `:next-page-param`
   derivation turns the resource into a growing, ordered sequence of pages held
   as **one** cache entry — one owner set, one freshness clock, one GC clock, one
-  [Xray](../../../../docs/guide/glossary.md#xray) row. The timeline route's
+  [Xray](../../../../docs/core/glossary.md#xray) row. The timeline route's
   `:resources` metadata fetches **page 0** on entry, under an owner keyed
   `[:route route-id nav-token]`. The view reads the merged list and never knows
   there was paging involved.
@@ -112,7 +112,7 @@ can see it. A per-user feed would carry a scope resolver instead, and one
 principal's feed could never surface in another's cache.
 
 **No backend ships with the example.** Rather than mock `js/fetch`, it overrides
-the `:rf.http/managed` [effect](../../../../docs/guide/glossary.md#effect) with a
+the `:rf.http/managed` [effect](../../../../docs/core/glossary.md#effect) with a
 **per-cursor** canned stub. The stub reads the `:cursor` request param, slices a
 26-row demo dataset, and returns a `{:items [...] :page-info {:next-cursor …}}`
 envelope — the *same* shape a real cursor-paginated server would produce. The

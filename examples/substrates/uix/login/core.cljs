@@ -16,7 +16,7 @@
 
    For the boundary mechanics — `use-subscribe`, `capture-frame`,
    `frame-provider`, and what stays put across React wrappers — see
-   docs/guide/how-to/use-uix-helix-or-slim.md."
+   docs/core/how-to/use-uix-helix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
@@ -38,7 +38,7 @@
 ;; characters. The password is a careful little traveller — it rides only this
 ;; schema and the HTTP body, and is never written to app-db. The request body
 ;; that carries it gets scrubbed from traces by `:sensitive? true` on the
-;; managed-HTTP request below (docs/guide/how-to/keep-secrets-out-of-traces.md).
+;; managed-HTTP request below (docs/core/how-to/keep-secrets-out-of-traces.md).
 ;; The same schema guards reagent/login and helix.
 (def Credentials
   [:map
@@ -57,7 +57,7 @@
 ;; `Credentials` had already failed — exactly the leak we're trying to plug.
 ;; With the strict `:tuple`, a short password or a bad email bounces off the
 ;; `:where :event` boundary before the machine transitions or fires off the
-;; login request (docs/guide/how-to/validate-with-schemas.md, §"Put a schema
+;; login request (docs/core/how-to/validate-with-schemas.md, §"Put a schema
 ;; on the event too").
 ;;
 ;; The trailing `[:? :any]` is there to catch the managed-HTTP reply. The
@@ -67,7 +67,7 @@
 ;; `[:auth.login/flow [:auth.login/success] <payload>]` — three top-level
 ;; elements, not two. Leave off that optional slot and the `:cat` rejects every
 ;; reply, failing validation before the handler ever runs. See
-;; docs/guide/glossary.md#the-uniform-reply.
+;; docs/core/glossary.md#the-uniform-reply.
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
    [:or
@@ -84,7 +84,7 @@
 ;; `:rf.error/schema-validation-failure :where :machine-data` and rolls the
 ;; macrostep back, so a bad `:data` value never sticks. The `:state` slot looks
 ;; after itself — an unknown target state fails at registration — so it's not
-;; this schema's concern. See docs/guide/how-to/validate-with-schemas.md (the
+;; this schema's concern. See docs/core/how-to/validate-with-schemas.md (the
 ;; machine `:data` schema).
 (def AuthLoginData
   [:map
@@ -168,7 +168,7 @@
              ;; `:sensitive? true` is the per-request wire scrub: it redacts
              ;; this request body — which is carrying the `:password` — from
              ;; every `:rf.http/*` trace event, so the secret never lands in the
-             ;; tape. See docs/guide/how-to/keep-secrets-out-of-traces.md.
+             ;; tape. See docs/core/how-to/keep-secrets-out-of-traces.md.
              {:request    {:method :post
                            :url    "/api/login"
                            :body   creds
@@ -272,7 +272,7 @@
 ;; atom or hook. The inputs are controlled: each `:value` reads the draft sub,
 ;; each `:on-change` dispatches `:auth.login/edit-field`. The full recipe (slice
 ;; shape, the seven standard form events, the touched-or-submitted rule for when
-;; to show errors) lives in docs/guide/how-to/build-a-form.md.
+;; to show errors) lives in docs/core/how-to/build-a-form.md.
 ;;
 ;; Everything from here down to the subs — slice defaults, form events, the
 ;; draft/slice subs — is the substrate-agnostic layer. It's identical across
@@ -326,7 +326,7 @@
 ;; sitting in app-db where the next snapshot or recording would scoop it up. Its
 ;; only trip off the box is inside the HTTP request body (scrubbed by that
 ;; `:sensitive? true` flag), and it's never written to `:submitted` or the
-;; machine's `:data`. See docs/guide/how-to/keep-secrets-out-of-traces.md.
+;; machine's `:data`. See docs/core/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: read the draft from the slice, hand it to the
          :auth.login/flow machine's :submit sub-event, and clear the password
@@ -397,7 +397,7 @@
 (rf/reg-sub :auth.login/field-error
   {:doc "A field's validation error — but only when it's polite to show one:
          once the field has been touched, or once the user has taken their first
-         run at submitting. See docs/guide/how-to/build-a-form.md, step 3."}
+         run at submitting. See docs/core/how-to/build-a-form.md, step 3."}
   :<- [:auth.login/form-slice]
   (fn sub-auth-login-field-error [slice [_ field]]
     (when (or (:submit-attempted? slice)
@@ -414,7 +414,7 @@
 ;; same views with `reg-view` and is simply handed `dispatch`/`subscribe`. The
 ;; subscription vectors and event vectors don't change one character between
 ;; them; all that differs is how a React component reaches the wires. See
-;; docs/guide/how-to/use-uix-helix-or-slim.md.
+;; docs/core/how-to/use-uix-helix-or-slim.md.
 ;;
 ;; The inputs are controlled: each `:value` reads the draft from
 ;; `:auth.login/draft`, and `:on-change` dispatches `:auth.login/edit-field`.

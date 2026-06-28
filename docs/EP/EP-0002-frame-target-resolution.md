@@ -1044,17 +1044,17 @@ Update skills:
 
 Update:
 
-- `docs/guide/concepts/frames.md`;
-- the topical `docs/guide/concepts/*` pages and
-  `docs/guide/25-from-re-frame-v1.md` where they teach default frame
+- `docs/core/concepts/frames.md`;
+- the topical `docs/core/concepts/*` pages and
+  `docs/core/25-from-re-frame-v1.md` where they teach default frame
   convenience;
 - `docs/xray/api/mount-control.md`;
 - `docs/xray/api/config-keys.md`, `docs/xray/api/reference.md`, and
   `docs/xray/api/runtime-seam.md`;
-- `docs/guide/api/01-core.md`, `docs/guide/api/04-machines.md`,
-  `docs/guide/api/05-flows.md`, `docs/guide/api/07-http.md`,
-  `docs/guide/api/09-ssr.md`, `docs/guide/api/13-lifecycle.md`, and
-  `docs/guide/api/14-adapters.md`;
+- `docs/core/api/01-core.md`, `docs/core/api/04-machines.md`,
+  `docs/core/api/05-flows.md`, `docs/core/api/07-http.md`,
+  `docs/core/api/09-ssr.md`, `docs/core/api/13-lifecycle.md`, and
+  `docs/core/api/14-adapters.md`;
 - `docs/migration/from-re-frame-v1/README.md`;
 - `spec/002-Frames.md`;
 - `spec/004-Views.md`;
@@ -1182,7 +1182,7 @@ The contract is authored as the appendix argues — *one carried invariant*, the
   only as migration mechanics, not as the statement of the rule.
 - **R2 — Reuse scope/hold/override (appendix B), not a bespoke six-source list.**
   The §Frame Target Invariant six-source list is **superseded** by the published
-  [`docs/guide/api/02-views.md`](../guide/api/02-views.md) triad — **scope** (`with-frame` /
+  [`docs/core/api/02-views.md`](../core/api/02-views.md) triad — **scope** (`with-frame` /
   `with-new-frame` / `frame-provider`), **hold** (`capture-frame` /
   `frame-bound-fn` / `frame-bound-fn*` / captured envelope), **override** (the
   per-call `{:frame …}`). The six sources are instances of these three. The triad
@@ -1328,7 +1328,7 @@ Implementation must reconcile `:rf.error/no-frame-context`,
 The EP overrides a stated design goal:
 
 - `spec/002-Frames.md:21`: frame plurality is invisible to single-frame apps;
-- `docs/guide/concepts/frames.md` §"A default frame would hide cross-frame
+- `docs/core/concepts/frames.md` §"A default frame would hide cross-frame
   leaks": most users never type `frame` and `:rf/default` costs nothing.
 
 This revocation should be explicit. The strongest principled support is
@@ -1432,10 +1432,10 @@ Tooling surfaces to enumerate:
 
 Docs and skills to update beyond the obvious specs:
 
-- `docs/guide/concepts/frames.md`;
-- the topical `docs/guide/concepts/*` pages and
-  `docs/guide/25-from-re-frame-v1.md`;
-- `docs/guide/api/01-core.md`, `04-machines.md`, `05-flows.md`, `07-http.md`,
+- `docs/core/concepts/frames.md`;
+- the topical `docs/core/concepts/*` pages and
+  `docs/core/25-from-re-frame-v1.md`;
+- `docs/core/api/01-core.md`, `04-machines.md`, `05-flows.md`, `07-http.md`,
   `09-ssr.md`, `13-lifecycle.md`, and `14-adapters.md`;
 - `docs/xray/api/mount-control.md`;
 - `docs/xray/api/config-keys.md`, `reference.md`, and `runtime-seam.md`;
@@ -1487,9 +1487,9 @@ reauthored.
 - Local source: `skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs`
 - Local source: `skills/re-frame2-pair/scripts/ops.clj`
 - Local source: `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/eval_cljs.cljs`
-- Local docs: `docs/guide/api/01-core.md`
-- Local docs: `docs/guide/api/07-http.md`
-- Local docs: `docs/guide/api/13-lifecycle.md`
+- Local docs: `docs/core/api/01-core.md`
+- Local docs: `docs/core/api/07-http.md`
+- Local docs: `docs/core/api/13-lifecycle.md`
 - Local docs: `docs/xray/api/mount-control.md`
 - Local docs: `skills/re-frame-migration/SKILL.md`
 - [TanStack Query: QueryClientProvider](https://tanstack.com/query/latest/docs/framework/react/reference/QueryClientProvider)
@@ -1513,7 +1513,7 @@ The EP is written subtractively — "remove the `:rf/default` fallback," "delete
 
 ### B. Don't invent a sixth-source list — reuse the published *scope / hold / override* taxonomy
 
-§Frame Target Invariant introduces six resolution sources. That is still a *fallback chain* — the old four-tier chain with its worst rung amputated; the architecture of "search a priority list of ambient places" survived the surgery. It is also a *new* vocabulary, when [`docs/guide/api/02-views.md`](../guide/api/02-views.md) already organises the multi-frame surface into three intents:
+§Frame Target Invariant introduces six resolution sources. That is still a *fallback chain* — the old four-tier chain with its worst rung amputated; the architecture of "search a priority list of ambient places" survived the surgery. It is also a *new* vocabulary, when [`docs/core/api/02-views.md`](../core/api/02-views.md) already organises the multi-frame surface into three intents:
 
 - **scope** — `frame-provider`, `with-frame` / `with-new-frame`;
 - **hold** — `capture-frame`, `frame-bound-fn` / `frame-bound-fn*`;

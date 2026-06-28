@@ -47,7 +47,7 @@ spell out the shape to look for.
 How an example *boots and mounts* — `boot!` installs the adapter, `mount!`
 creates the frame via the `frame-provider` ensure form, the `defonce` root plus
 `^:dev/after-load` give hot reload — is the canonical app-startup shape, covered
-in [Boot and mount an app](../docs/guide/how-to/boot-and-mount-an-app.md). The
+in [Boot and mount an app](../docs/core/how-to/boot-and-mount-an-app.md). The
 only part that's *test-specific* is this one rule:
 
 > Example `core` namespaces are co-required by their `cljs-test` wrappers under

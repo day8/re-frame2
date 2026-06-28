@@ -27,7 +27,7 @@
             [re-frame.core :as rf]
             ;; Pulling in `re-frame.schemas` switches on schema validation, which
             ;; is what makes `rf/reg-app-schema` below mean anything. Guide:
-            ;; docs/guide/how-to/validate-with-schemas.md.
+            ;; docs/core/how-to/validate-with-schemas.md.
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -44,7 +44,7 @@
 ;; fresh random number every time is the opposite of reproducible). So we count
 ;; instead: a monotonic `:int` handed out from a `:next-id` counter that lives in
 ;; the db, where replay can see it.
-;; See docs/guide/glossary.md#recordable-vs-ambient-coeffects.
+;; See docs/core/glossary.md#recordable-vs-ambient-coeffects.
 (def Person
   [:map
    [:id      :int]
@@ -66,7 +66,7 @@
 ;; `frame-provider` will create, and the one whose commits this schema then
 ;; checks. Note we register against the frame before it exists — the name is all
 ;; the machinery needs to hang the schema on.
-;; See docs/guide/how-to/validate-with-schemas.md.
+;; See docs/core/how-to/validate-with-schemas.md.
 (with-frame :rf/default
   (rf/reg-app-schema [:crud] {:schema CrudState}))
 
@@ -241,7 +241,7 @@
 ;; From then on, every `dispatch` and `subscribe` in the tree below it lands in
 ;; that frame. Hot-reload is the nice part: the provider finds the frame already
 ;; there, reuses it, and skips the seed — so your list keeps its rows (and your
-;; edits) across a save. See docs/guide/glossary.md#frame-provider.
+;; edits) across a save. See docs/core/glossary.md#frame-provider.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` sounds special but isn't —
 ;; it's an ordinary frame id with no privileges. The runtime never conjures a

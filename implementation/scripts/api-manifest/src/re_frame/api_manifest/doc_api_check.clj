@@ -4,12 +4,12 @@
   THE GAP THIS CLOSES. The keystone manifest drift-check (rf2-3nbl5.2) and
   its `spec/API.md` projection (`api-md-check`) plus the four secondary
   projection checks (`doc-guide-check`, `story-spec-check`, `xray-spec-check`,
-  `skills-check`) between them scan `spec/API.md`, `docs/guide/**`, the two
+  `skills-check`) between them scan `spec/API.md`, `docs/core/**`, the two
   tool API specs, and `skills/`. They do NOT scan the three human-facing API
   REFERENCE trees:
 
     * `spec/Privacy.md`   — the EP-0015 cross-artefact privacy inventory;
-    * `docs/guide/api/**` — the per-chapter human API reference;
+    * `docs/core/api/**` — the per-chapter human API reference;
     * `docs/story/api/**` — the Story human API reference.
 
   EP-0025 stale prose slipped into exactly those trees and passed EVERY CI
@@ -50,7 +50,7 @@
 
   REMOVAL-NOTE / TOMBSTONE TOLERANCE. Mirroring how `api-md-check` tolerates
   `spec/API.md` removal notes and how `doc-guide-check` file-scopes removed
-  names, the `docs/guide/api/15-removed.md` tombstone register names removed
+  names, the `docs/core/api/15-removed.md` tombstone register names removed
   surfaces by design. Its removed names appear as bare back-ticked
   identifiers (`` `add-marks` ``, `` `reg-sub-raw` ``), NOT as call-position
   `(rf/<var>` forms, so the call-position scope already excludes them. The
@@ -74,14 +74,14 @@
 ;; separately below (a `require`-style existence assertion).
 (def ^:private dir-surfaces
   "[[label repo-relative-dir-segs] ...] — directory reference trees."
-  [["docs/guide/api/" ["docs" "guide" "api"]]
+  [["docs/core/api/" ["docs" "core" "api"]]
    ["docs/story/api/" ["docs" "story" "api"]]])
 
 (def ^:private privacy-file-segs ["spec" "Privacy.md"])
 
 (def ^:private min-references
   "Non-vacuous floor (rf2-utvst-style). The three trees together carry ~50
-   call-position references today (docs/guide/api ~35, spec/Privacy ~22,
+   call-position references today (docs/core/api ~35, spec/Privacy ~22,
    docs/story/api ~15). This floor sits well below that combined live count,
    so it trips only on a near-total collapse (a tree moved/renamed, the
    `(alias/<var>` extraction broke, the alias convention changed) — never on
@@ -172,7 +172,7 @@
         kw-problems   (proj/keyword-drift-problems-over-files files)
         problems      (concat var-problems kw-problems)]
     (proj/report-with-floor!
-      "spec/Privacy.md + docs/guide/api/ + docs/story/api/ + docs/*/api.md"
+      "spec/Privacy.md + docs/core/api/ + docs/story/api/ + docs/*/api.md"
       (count references) min-references problems)))
 
 (defn -main [& _]

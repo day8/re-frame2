@@ -7,7 +7,7 @@
    returns a new app-db, the subscription re-derives, and the view
    re-renders — round and round. That loop is the entire idea of re-frame2;
    every bigger app is this same shape with more parts bolted on. The guide
-   walks it slowly in `docs/guide/concepts/events-and-the-cascade.md`.
+   walks it slowly in `docs/core/concepts/events-and-the-cascade.md`.
 
    The frame is stood up in exactly one place: the `frame-provider` at the
    render root in `run` below. It names the frame and seeds it once.
@@ -29,7 +29,7 @@
 ;; for you atomically — all at once, no half-applied state. Notice the
 ;; handler never reaches out and pokes app-db — it only computes a value
 ;; and hands it back. Pure all the way down. See
-;; `docs/guide/glossary.md#event-handler`.
+;; `docs/core/glossary.md#event-handler`.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
@@ -57,7 +57,7 @@
 ;; wired to the frame in scope at render time — the `frame-provider` in
 ;; `run` below is what puts this tree in a frame. `reg-view` also def's a
 ;; Var named for the symbol, which is how `counter-app` can name
-;; `counter-buttons` just below. See `docs/guide/concepts/views.md`.
+;; `counter-buttons` just below. See `docs/core/concepts/views.md`.
 
 (reg-view counter-buttons []
   [:div
@@ -90,13 +90,13 @@
 ;; Mount again under the same `:id` — a hot reload, say — and the provider
 ;; hands back the frame that's already alive instead of re-seeding, so your
 ;; counter doesn't snap back to 5 every time you save. See
-;; `docs/guide/concepts/frames.md`.
+;; `docs/core/concepts/frames.md`.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` looks special but
 ;; isn't — it's an ordinary frame id like any other. The runtime never
 ;; guesses which frame you mean, so we name one here and hand it over
 ;; explicitly. See
-;; `docs/guide/glossary.md#frame-identity-is-carried-not-found`.
+;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
 (defn run []
@@ -104,7 +104,7 @@
   ;; here, Reagent. Each adapter ns exports an `adapter` var; you require the
   ;; ns and pass that var. One call, at startup, and you're done. Note it
   ;; installs the adapter for the whole process, not a frame — frames come
-  ;; later, via the provider. See `docs/guide/glossary.md#init`.
+  ;; later, via the provider. See `docs/core/glossary.md#init`.
   (rf/init! reagent-adapter/adapter)
   (when (exists? js/document)
     (when-not @react-root

@@ -111,7 +111,7 @@ Top-level layout:
 - `implementation/` — CLJS reference: `core/` + per-substrate `adapters/` (Reagent, UIx, Helix) + per-feature artefacts (machines, schemas, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
 - `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`template/`, `story/`, `story-mcp/`, `re-frame2-pair-mcp/`, `xray/`, `machines-viz/`, `testbed-support/`, `mcp-base/`, `mcp-conformance/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
 - `examples/` — worked examples per substrate.
-- `docs/` — human-facing guide (`docs/guide/`) and operational docs.
+- `docs/` — human-facing guide (`docs/core/`) and operational docs.
 - `skills/` — Claude Code skills for re-frame2 workflows.
 
 ## Conventions & Patterns

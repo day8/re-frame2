@@ -456,7 +456,7 @@ section-by-section map.
    the `spec/conformance/` EDN corpus; the relevant `Pattern-*` docs (esp. RemoteData /
    Forms); `Cross-Spec-Interactions` / `Cross-Cutting-Designs` edge cases; and an
    `AI-Audit` re-score.
-9. **Update `/docs/guide`** — rewrite the privacy/security guide pages (esp. the
+9. **Update `/docs/core`** — rewrite the privacy/security guide pages (esp. the
    "keep secrets out of traces" how-to) to teach the four classification effects +
    subsystem declarations, and **remove all old-surface teaching** (durable app-db
    frame annotations, schema-prop classification, imperative marks).
@@ -473,7 +473,7 @@ section-by-section map.
 ### Repo-wide propagation — one bead per area (be exhaustive)
 
 Cross-cutting change (every egress boundary; removes "marks"). Sweep, beyond the
-specs (8), `/docs/guide` (9), and `/skills` (10):
+specs (8), `/docs/core` (9), and `/skills` (10):
 
 - **`/tools` — the consumer / egress side (the half that delivers the value):**
   - **`mcp-base`** — the shared redaction lives here: read the new registry; project

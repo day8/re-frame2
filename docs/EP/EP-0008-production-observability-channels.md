@@ -46,7 +46,7 @@ are kept here as a closed record and no longer reopen any ruling:
   every emitted category appears in the Spec 009 catalogue with a channel, and every
   always-on category is exercised through the error-emit listener in at least one
   test (so promotion is real, not documentary).
-- **Fixed (PR #3857, docs/guide)** — extended the
+- **Fixed (PR #3857, docs/core)** — extended the
   production-observability guide material with the three-channel model, the JVM
   `re-frame.debug` default-on caveat, the promotion criterion, and the
   teardown-report example.

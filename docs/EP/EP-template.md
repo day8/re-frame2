@@ -124,7 +124,7 @@ the migration mechanics, if any, here — not as the headline rule. -->
 
 <!-- The waves that carry this EP into its normative home + implementation.
 Each graduation wave includes a guide-impact assessment: name which
-`docs/guide` chapters change and which payoffs become newly teachable, or
+`docs/core` chapters change and which payoffs become newly teachable, or
 record "no human-facing guide change yet" and why. Ledger rows cite live
 bead ids and are struck as they close. -->
 

@@ -19,7 +19,7 @@
    subscription layer `=`-dedups every result, so a cell whose value didn't
    actually move doesn't re-render. We trade a little recompute (cheap) for
    zero bookkeeping (priceless). The
-   [derivation graph](../../../../docs/guide/glossary.md#the-derivation-graph)
+   [derivation graph](../../../../docs/core/glossary.md#the-derivation-graph)
    has the full story.
 
    What this example shows off:
@@ -454,7 +454,7 @@
 ;; `subscribe` in the tree finds *this* frame. On hot reload the provider reuses
 ;; the frame it already made and skips the seeding, so your grid keeps the
 ;; values you typed. (`init!` below doesn't make the frame — the provider does.)
-;; The [frame-provider](../../../../docs/guide/glossary.md#frame-provider)
+;; The [frame-provider](../../../../docs/core/glossary.md#frame-provider)
 ;; glossary entry has the longer version.
 ;;
 ;; `app-frame` is just an id we chose. `:rf/default` is an ordinary frame id —

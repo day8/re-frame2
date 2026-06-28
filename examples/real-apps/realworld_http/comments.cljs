@@ -52,7 +52,7 @@
 ;; the very same string. `:comment-form/submit` asks for it via
 ;; `:rf.cofx/requires` and reads it flat, staying pure and replayable. See the
 ;; coeffects guide:
-;; ../../../docs/guide/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
+;; ../../../docs/core/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
 (rf/reg-cofx :realworld/temp-comment-id
   {:recordable? true
    :doc "A replay-safe temp-id for an optimistically-posted comment."}
@@ -416,7 +416,7 @@
   {:doc "The validation error for one comment-form field, or nil while we stay
          quiet. Same courtesy as the other forms: no error shown until the
          field is touched or the user has tried to submit. See the forms
-         how-to: ../../../docs/guide/how-to/build-a-form.md"}
+         how-to: ../../../docs/core/how-to/build-a-form.md"}
   :<- [:comment-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)

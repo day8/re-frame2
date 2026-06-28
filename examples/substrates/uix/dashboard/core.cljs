@@ -23,7 +23,7 @@
 
    The derivation graph is the concept worth slowing down for; the
    guide glossary has the full picture
-   (../../../docs/guide/glossary.md#the-derivation-graph).
+   (../../../docs/core/glossary.md#the-derivation-graph).
 
    The shared visual identity comes from examples/_shared/css/style.css."
   (:require [uix.core :refer [$ defui]]
@@ -346,7 +346,7 @@
 ;; The id of the frame this app lives in. The `frame-provider` down in `run`
 ;; creates it, seeds its app-db, and scopes it into React context — which is
 ;; how `use-subscribe` and `(rf/capture-frame)` find it. The guide glossary
-;; covers frame-provider (../../../docs/guide/glossary.md#frame-provider).
+;; covers frame-provider (../../../docs/core/glossary.md#frame-provider).
 (def app-frame :rf/default)
 
 (defn run []

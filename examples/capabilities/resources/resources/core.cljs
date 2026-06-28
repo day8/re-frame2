@@ -328,7 +328,7 @@
 ;; The input-fn is a pure `(fn [query-v])` returning a vector of query vectors
 ;; (never a deref'd subscribe), and the compute fn then gets the resolved inputs
 ;; back positionally: `[[articles] _]`.
-;; See ../../../docs/guide/glossary.md#subscription
+;; See ../../../docs/core/glossary.md#subscription
 (rf/reg-sub :resources.app/first-slug
   (fn [_query-v]
     [[:rf.resource/data {:resource :articles/list :params {}}]])
@@ -507,7 +507,7 @@
 ;; reload reuses it rather than spinning up a fresh one.
 ;; `install-history-listener!` is what syncs the initial URL and wires up the
 ;; browser back/forward buttons. See the frame glossary entry:
-;; ../../../docs/guide/glossary.md#frame
+;; ../../../docs/core/glossary.md#frame
 
 (defonce react-root (atom nil))
 

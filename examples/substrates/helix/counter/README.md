@@ -11,30 +11,30 @@ And that's the idea worth taking away:
 
 > **The view layer is the only part that knows it's Helix.**
 
-The [events](../../../../docs/guide/glossary.md#event) and the
-[subscription](../../../../docs/guide/glossary.md#subscription) in this file
+The [events](../../../../docs/core/glossary.md#event) and the
+[subscription](../../../../docs/core/glossary.md#subscription) in this file
 are identical — character for character — to the ones in the Reagent and
 UIx counters. Not similar. The same characters on disk. Only the view, at
 the bottom of the file, changes.
 
-That is re-frame2's [substrate](../../../../docs/guide/glossary.md#substrate)
+That is re-frame2's [substrate](../../../../docs/core/glossary.md#substrate)
 story in miniature. Your events, your subscriptions, and your
-[app-db](../../../../docs/guide/glossary.md#app-db) don't know which
+[app-db](../../../../docs/core/glossary.md#app-db) don't know which
 React-family library renders them. Swap the
-[adapter](../../../../docs/guide/glossary.md#adapter) and the same state
+[adapter](../../../../docs/core/glossary.md#adapter) and the same state
 model drives a different renderer.
 
 ## What this demonstrates
 
 - **Installing the Helix adapter** — `(rf/init! helix-adapter/adapter)`.
-  An [adapter](../../../../docs/guide/glossary.md#adapter) is a *value*: the
+  An [adapter](../../../../docs/core/glossary.md#adapter) is a *value*: the
   small map of glue that binds re-frame2 to a rendering library. You pass
   it in by hand; there is no registry doing it for you. (`init!` installs
   the adapter; it does **not** create a
-  [frame](../../../../docs/guide/glossary.md#frame) — see the mount below.)
+  [frame](../../../../docs/core/glossary.md#frame) — see the mount below.)
 - **`reg-event` / `reg-sub`, substrate-agnostic** — the `:counter/*`
-  [event handlers](../../../../docs/guide/glossary.md#event-handler) and the
-  `:counter/value` [subscription](../../../../docs/guide/glossary.md#subscription)
+  [event handlers](../../../../docs/core/glossary.md#event-handler) and the
+  `:counter/value` [subscription](../../../../docs/core/glossary.md#subscription)
   are exactly the registrations the Reagent and UIx counters use. The code
   that decides *what your app does* has no idea what renders below it.
 - **Reading state with the `use-subscribe` hook** — Helix is hooks all the
@@ -42,7 +42,7 @@ model drives a different renderer.
   `(helix-adapter/use-subscribe [:counter/value])` directly and gets back
   the live value.
 - **Dispatching off a frame api** — the click handlers take `dispatch`
-  off a [`(rf/capture-frame)`](../../../../docs/guide/glossary.md#capture-frame)
+  off a [`(rf/capture-frame)`](../../../../docs/core/glossary.md#capture-frame)
   and close over it. A frame api is a frame captured *as a value*. It
   pins the render-time frame, so the closed-over `dispatch` still aims at
   the right frame when an async callback fires it later. Helix has no

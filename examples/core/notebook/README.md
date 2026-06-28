@@ -5,15 +5,15 @@ preview on the right. Pick a document from the tree on the left to edit
 it, or start a new one. That's the whole app: three panes — a documents
 tree, a markdown editor, a live preview — built on the
 [Reagent](https://github.com/reagent-project/reagent)
-[substrate](../../../docs/guide/glossary.md#substrate).
+[substrate](../../../docs/core/glossary.md#substrate).
 
 It shows two things. First, re-frame2 and Reagent scale past the
 counter — a whole editor is just a tree of registered
-[views](../../../docs/guide/glossary.md#view) reading a
-[subscription](../../../docs/guide/glossary.md#subscription) graph.
+[views](../../../docs/core/glossary.md#view) reading a
+[subscription](../../../docs/core/glossary.md#subscription) graph.
 Second, the fiddly part of any editor — rendering user-controlled
 markdown — turns out simple when you treat markup as
-[data](../../../docs/guide/glossary.md#hiccup) instead of strings.
+[data](../../../docs/core/glossary.md#hiccup) instead of strings.
 
 ## What this demonstrates
 
@@ -24,7 +24,7 @@ carry it.
 
 **Every pane is a registered view.** No top-level "render the app"
 function juggles the three panes by hand. The shell is a
-[view](../../../docs/guide/glossary.md#view); so are the sidebar, the
+[view](../../../docs/core/glossary.md#view); so are the sidebar, the
 editor, and the preview. Each is its own `reg-view` Var, and the whole
 UI is just those Vars composed. (The document rows inside the sidebar
 are plain inline hiccup, not their own registration.)
@@ -44,12 +44,12 @@ skips anything downstream of an input that didn't change. So editing
 the body re-derives the preview without touching the sidebar — the
 panes stay decoupled, and you wire up no listeners at all.
 
-**One edit, one turn of [the cascade](../../../docs/guide/glossary.md#event-cascade).**
+**One edit, one turn of [the cascade](../../../docs/core/glossary.md#event-cascade).**
 Typing in the editor dispatches `[:notebook/edit-body text]`. Clicking
 a document dispatches `[:notebook/select id]`. From there it's the same
 loop re-frame2 runs for everything. The
-[event handler](../../../docs/guide/glossary.md#event-handler) writes
-the new [app-db](../../../docs/guide/glossary.md#app-db). The
+[event handler](../../../docs/core/glossary.md#event-handler) writes
+the new [app-db](../../../docs/core/glossary.md#app-db). The
 subscriptions re-derive. The views render once from the committed
 state. The preview is a derived subscription that runs the selected
 body through the markdown parser:
@@ -63,14 +63,14 @@ body through the markdown parser:
 The preview view subscribes to `:notebook/selected-hiccup` and splices
 the result straight into the DOM. Parsing happens once per edit, not on
 every render. It runs in one cached node of the
-[derivation graph](../../../docs/guide/glossary.md#the-derivation-graph),
+[derivation graph](../../../docs/core/glossary.md#the-derivation-graph),
 so the view just asks for the parsed blocks and gets a settled answer.
 
 **The markdown parser emits hiccup, and that's the whole safety story.**
 This is the key trick. `markdown->hiccup` is a tiny pure-CLJS parser. It
 handles headings, bold, italic, inline code, links, paragraphs, and
 ordered and unordered lists. It produces
-[hiccup](../../../docs/guide/glossary.md#hiccup) (`[:h1 "…"]`,
+[hiccup](../../../docs/core/glossary.md#hiccup) (`[:h1 "…"]`,
 `[:strong "…"]`), not an HTML string. That one choice buys two things.
 There's no extra npm dependency, so the bundle stays small. And because
 Reagent renders hiccup natively, there's no `dangerouslySetInnerHTML`
@@ -111,7 +111,7 @@ other examples already cover. No state machines, no HTTP, no routing
 here — the dataflow and the rendering get to be the star. This is the
 Reagent member of a three-substrate design-led trio. Each is a
 substantial, genuinely different UI on a different
-[substrate](../../../docs/guide/glossary.md#substrate):
+[substrate](../../../docs/core/glossary.md#substrate):
 
 | Substrate | Example | Shape |
 |---|---|---|
@@ -131,18 +131,18 @@ One note on the substrate choice: this is **stock Reagent**
 That keeps the trio on the reference substrate for each adapter.
 
 The mount is the ordinary re-frame2 boot, in two steps.
-[`init!`](../../../docs/guide/glossary.md#init) installs the Reagent
-[adapter](../../../docs/guide/glossary.md#adapter). Then the tree renders
-inside a [`frame-provider`](../../../docs/guide/glossary.md#frame-provider)
+[`init!`](../../../docs/core/glossary.md#init) installs the Reagent
+[adapter](../../../docs/core/glossary.md#adapter). Then the tree renders
+inside a [`frame-provider`](../../../docs/core/glossary.md#frame-provider)
 given `{:id app-frame :initial-events [[:notebook/initialise]]}`: the
-`:id` stands the app [frame](../../../docs/guide/glossary.md#frame) up —
+`:id` stands the app [frame](../../../docs/core/glossary.md#frame) up —
 creating it on the first mount, reusing it untouched on a hot reload — and
 `:initial-events` fires once on creation to seed the
-[app-db](../../../docs/guide/glossary.md#app-db) before the first paint.
+[app-db](../../../docs/core/glossary.md#app-db) before the first paint.
 With the tree inside the provider, every `dispatch`/`subscribe` resolves
 to that frame; render with no provider and those calls raise
 `:rf.error/no-frame-context` —
-[identity is carried, not found](../../../docs/guide/glossary.md#frame-identity-is-carried-not-found),
+[identity is carried, not found](../../../docs/core/glossary.md#frame-identity-is-carried-not-found),
 even for a three-pane toy.
 
 ## Files

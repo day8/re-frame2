@@ -1357,7 +1357,7 @@
    :asset-path "."
    :modules    {:main {:init-fn boot.core/run}}}
 
-  ;; State-machines walkthrough (rf2-vq2s) — companion to docs/guide/05.
+  ;; State-machines walkthrough (rf2-vq2s) — companion to docs/core/05.
   ;; The pure machine + headless tests live in core.cljc; views.cljs is
   ;; the browser entry-point that registers the views and `run`.
   :examples/state-machine-walkthrough

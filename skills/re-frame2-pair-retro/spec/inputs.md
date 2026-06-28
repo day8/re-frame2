@@ -75,7 +75,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 - **The live re-frame2 app's state.** That's the `re-frame2-pair` skill's domain. The skill works on session transcripts, not on `app-db` snapshots.
 - **The re-frame2 spec corpus.** The skill doesn't need to teach the framework; it just needs to know which surface is missing.
 - **`implementation/**`** — same reasoning.
-- **`docs/guide/**`** — the narrative guide is for application authors learning re-frame2. The skill works one level up.
+- **`docs/core/**`** — the narrative guide is for application authors learning re-frame2. The skill works one level up.
 - **The user's source repo.** The skill works on the pair-session itself, not on the app under inspection.
 
 ## 8. Update procedure

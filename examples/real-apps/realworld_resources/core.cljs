@@ -77,7 +77,7 @@
 ;; such. We return it alongside `:db` from an event the frame runs at creation
 ;; (`:initial-events`, before anything leaves the box), so the raw token is
 ;; redacted from any capture, SSR payload, or trace. See data classification:
-;; ../../../docs/guide/glossary.md#data-classification.
+;; ../../../docs/core/glossary.md#data-classification.
 (rf/reg-event :auth/classify-token
   {:doc "Marks the durable JWT path [:auth :token] as sensitive, at frame
          creation."}
@@ -238,7 +238,7 @@
 ;;   - `:auth/classify-token` goes first. The JWT at [:auth :token] is a durable
 ;;     secret, so we mark it sensitive before anything (an Xray capture, an SSR
 ;;     payload) could lay eyes on the raw value. See data classification:
-;;     ../../../docs/guide/glossary.md#data-classification.
+;;     ../../../docs/core/glossary.md#data-classification.
 ;;   - `:auth/initialise` runs before `:app/initialise`. Session restore reads
 ;;     the saved JWT from a recordable coeffect (auth.cljs) and folds it into
 ;;     durable [:auth :token]. It rides its own dispatch — the `:app/initialise`

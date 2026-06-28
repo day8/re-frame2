@@ -5,7 +5,7 @@
 
 Patterns compose: most real screens combine two or three of them. This tree picks the *primary* pattern — the one whose shape the feature is built around. Secondary patterns get loaded in their own pass after the primary one is in place.
 
-Each leaf below names the file under [`patterns/`](../patterns/) (the pattern leaf) and the worked example under `examples/` (when one exists).
+Each leaf below names the file under [`patterns/`](../patterns) (the pattern leaf) and the worked example under `examples/` (when one exists).
 
 ## Step 1 — name the shape
 
@@ -137,11 +137,11 @@ Load at most two pattern leaves at a time. If three or more seem necessary, the 
 
 ## Step 5 — the state-shape question (separate decision)
 
-After picking the pattern, a second question applies independently: *should the state behind this pattern live as a slice in `app-db`, as a region inside an existing machine, or as a top-level `reg-machine`?* That question is its own decision tree — see [`slice-or-machine.md`](./slice-or-machine.md). Pattern choice and state-shape choice are orthogonal: WebSocket is always a machine; AsyncEffect is usually a slice; RemoteData is a slice unless its retry policy needs a machine.
+After picking the pattern, a second question applies independently: *should the state behind this pattern live as a slice in `app-db`, as a region inside an existing machine, or as a top-level `reg-machine`?* That question is its own decision tree — see [`slice-or-machine.md`](slice-or-machine.md). Pattern choice and state-shape choice are orthogonal: WebSocket is always a machine; AsyncEffect is usually a slice; RemoteData is a slice unless its retry policy needs a machine.
 
 ## Cross-references
 
-- [`slice-or-machine.md`](./slice-or-machine.md) — when to lift state into a machine.
+- [`slice-or-machine.md`](slice-or-machine.md) — when to lift state into a machine.
 - [`../examples-map.md`](../examples-map.md) — one-paragraph index of every worked example.
 - [`../SKILL.md`](../SKILL.md) §Decision: which pattern fits? — the same matrix, in the router's own voice.
 

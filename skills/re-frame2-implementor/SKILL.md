@@ -27,7 +27,7 @@ allowed-tools:
 
 # re-frame2-implementor
 
-This skill is **workflow + guidance** layered on the spec corpus at [`spec/`](../../spec/). The spec is the contract; the reference impl under `implementation/` is one worked example, not normative.
+This skill is **workflow + guidance** layered on the spec corpus at [`spec/`](../../spec). The spec is the contract; the reference impl under `implementation/` is one worked example, not normative.
 
 Two phases:
 
@@ -42,7 +42,7 @@ Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single
 
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
-1. **Spec is the contract — pinned before reading.** When `implementation/` and [`spec/`](../../spec/) disagree, the spec wins. The kickoff prompt names a `day8/re-frame2` commit/tag; verify the checkout's HEAD and origin before reading the spec and record the pin in `DECISIONS.md` (preamble before D1). An unverified checkout is not the contract.
+1. **Spec is the contract — pinned before reading.** When `implementation/` and [`spec/`](../../spec) disagree, the spec wins. The kickoff prompt names a `day8/re-frame2` commit/tag; verify the checkout's HEAD and origin before reading the spec and record the pin in `DECISIONS.md` (preamble before D1). An unverified checkout is not the contract.
 2. **Phase 1 before Phase 2.** Lock decisions in writing before writing code.
 3. **Dependency order.** EP 001 → 002 → 006 → 004 → 009 → 015 are the foundation; optional EPs sit downstream. (Spec 015 Data Classification is v1-required — it rides the 009 emission boundary, so it lands right after instrumentation.)
 4. **Substrate-agnostic phrasing.** Write to "the identity primitive", "the render-tree", "the reactive container" — not to hiccup / Reagent / keywords.
@@ -70,7 +70,7 @@ Dependency order is fixed: **EP 001 Registration → 002 Frames → 006 Reactive
 
 Three tiers, in priority order:
 
-1. **[`spec/`](../../spec/)** — the contract. Read in numeric order.
+1. **[`spec/`](../../spec)** — the contract. Read in numeric order.
 2. **[`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md)** — the decision-ordered companion.
 3. **`implementation/`** — a worked example. Useful for "how did *someone* solve X?" Never useful as a contract claim.
 
@@ -78,7 +78,7 @@ If `implementation/` and `spec/` disagree, the spec wins.
 
 ## Conformance
 
-The corpus at [`spec/conformance/`](../../spec/conformance/) is host-agnostic data — the acceptance test for [Goal 2 — AI-implementable from the spec alone](https://day8.github.io/re-frame2/spec/000-Vision/#ai-implementable-from-the-spec-alone). Harness shape, the EDN-handler-body DSL, capability tagging, scoring, and the spec-gap-vs-implementation-bug distinction: [`references/conformance.md`](references/conformance.md).
+The corpus at [`spec/conformance/`](../../spec/conformance) is host-agnostic data — the acceptance test for [Goal 2 — AI-implementable from the spec alone](https://day8.github.io/re-frame2/spec/000-Vision/#ai-implementable-from-the-spec-alone). Harness shape, the EDN-handler-body DSL, capability tagging, scoring, and the spec-gap-vs-implementation-bug distinction: [`references/conformance.md`](references/conformance.md).
 
 ## Kickoff and output
 
@@ -111,4 +111,4 @@ The corpus at [`spec/conformance/`](../../spec/conformance/) is host-agnostic da
 
 ---
 
-*Authoritative contract: [`spec/`](../../spec/). Decision companion: [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md). Conformance: [`spec/conformance/`](../../spec/conformance/). CLJS reference (worked example): `implementation/`. Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*
+*Authoritative contract: [`spec/`](../../spec). Decision companion: [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md). Conformance: [`spec/conformance/`](../../spec/conformance). CLJS reference (worked example): `implementation/`. Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*

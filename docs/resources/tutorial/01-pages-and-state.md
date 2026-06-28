@@ -1,6 +1,6 @@
 # Part 1: pages, state, and the first feed
 
-You left [the setup page](index.md) with an empty Conduit shell. By the end of this part it has two real pages — the home feed and the article page — and the URL decides which one you see. Type `/article/welcome-to-conduit` into the address bar and that article renders; press Back and the feed returns. Along the way you'll write your first [event](../../guide/glossary.md#event), your first [subscriptions](../../guide/glossary.md#subscription), and your first [views](../../guide/glossary.md#view).
+You left [the setup page](index.md) with an empty Conduit shell. By the end of this part it has two real pages — the home feed and the article page — and the URL decides which one you see. Type `/article/welcome-to-conduit` into the address bar and that article renders; press Back and the feed returns. Along the way you'll write your first [event](../../core/glossary.md#event), your first [subscriptions](../../core/glossary.md#subscription), and your first [views](../../core/glossary.md#view).
 
 That trio — events write, subs read, views render — is the loop everything else in re-frame2 builds on. Get comfortable with it here and the rest of the guide is variations on a theme.
 
@@ -8,7 +8,7 @@ Real server data arrives in [Part 2](02-server-data.md). This part is offline: n
 
 **The takeaway: the URL is a sub, and a page is just a view of it.**
 
-> **Coming from React Router?** There is no `<Routes>` tree, no router context, no `useParams` hook. A route is a registry entry, navigating is dispatching an event, and the current route is an ordinary [subscription](../../guide/glossary.md#subscription) your root view reads like any other piece of state. Everything this part teaches about "state in, hiccup out" applies to pages *unchanged* — and that's the whole point.
+> **Coming from React Router?** There is no `<Routes>` tree, no router context, no `useParams` hook. A route is a registry entry, navigating is dispatching an event, and the current route is an ordinary [subscription](../../core/glossary.md#subscription) your root view reads like any other piece of state. Everything this part teaches about "state in, hiccup out" applies to pages *unchanged* — and that's the whole point.
 
 You'll touch two files:
 
@@ -19,9 +19,9 @@ src/conduit/core.cljs       ; routes, the root view, boot
 
 ## Step 1 — canned articles into app-db
 
-All of your app's state lives in one place: [**app-db**](../../guide/glossary.md#app-db), a single immutable map. One map, one source of truth. A feature claims one top-level key and keeps everything it owns underneath. We call that corner a **slice** — one feature's patch of the state map. Articles get the `:articles` key.
+All of your app's state lives in one place: [**app-db**](../../core/glossary.md#app-db), a single immutable map. One map, one source of truth. A feature claims one top-level key and keeps everything it owns underneath. We call that corner a **slice** — one feature's patch of the state map. Articles get the `:articles` key.
 
-State only ever changes one way around here, and it's worth saying out loud because it's the rule the whole framework rests on. An [**event**](../../guide/glossary.md#event) is a small piece of data announcing that something happened — at its simplest a vector like `[:app/initialise]`: a keyword id, plus any payload. You [**dispatch**](../../guide/glossary.md#dispatch) it, and the registered [**event handler**](../../guide/glossary.md#event-handler) computes the next value of app-db. Views dispatch events; handlers compute new state. That's it.
+State only ever changes one way around here, and it's worth saying out loud because it's the rule the whole framework rests on. An [**event**](../../core/glossary.md#event) is a small piece of data announcing that something happened — at its simplest a vector like `[:app/initialise]`: a keyword id, plus any payload. You [**dispatch**](../../core/glossary.md#dispatch) it, and the registered [**event handler**](../../core/glossary.md#event-handler) computes the next value of app-db. Views dispatch events; handlers compute new state. That's it.
 
 So even seeding canned data is an event — there's no back door for "the first state":
 
@@ -63,24 +63,24 @@ So even seeding canned data is an event — there's no back door for "the first 
                      :error  nil}}}))
 ```
 
-`reg-event` registers an [event handler](../../guide/glossary.md#event-handler): a pure function, two arguments in, one map out. Let's take both sides in turn, because they're the load-bearing shape you'll write a hundred times.
+`reg-event` registers an [event handler](../../core/glossary.md#event-handler): a pure function, two arguments in, one map out. Let's take both sides in turn, because they're the load-bearing shape you'll write a hundred times.
 
-**The two arguments in** are the [**coeffects**](../../guide/glossary.md#coeffect) and the event. Coeffects are the facts the handler is *handed* so it can stay pure — it never reaches out to the world itself; the world is delivered to it. The one you'll reach for constantly is `:db`, the current app-db. (This particular handler ignores both arguments, written `_cofx` and `_event`. The leading underscore is the Clojure convention for "yes, I know this parameter is here; no, I'm not using it" — it keeps the linter quiet and signals intent to the next reader.)
+**The two arguments in** are the [**coeffects**](../../core/glossary.md#coeffect) and the event. Coeffects are the facts the handler is *handed* so it can stay pure — it never reaches out to the world itself; the world is delivered to it. The one you'll reach for constantly is `:db`, the current app-db. (This particular handler ignores both arguments, written `_cofx` and `_event`. The leading underscore is the Clojure convention for "yes, I know this parameter is here; no, I'm not using it" — it keeps the linter quiet and signals intent to the next reader.)
 
-**The one map out** is the [**effect map**](../../guide/glossary.md#effect-map): a description of what should happen next. Read it as *"the next state, plus anything else to do."* Its `:db` key is the new app-db — and since seeding canned data touches nothing else, this handler returns `{:db …}` and hands back the whole initial map. That's all an initialise event really is: a function that ignores the world and returns the starting state.
+**The one map out** is the [**effect map**](../../core/glossary.md#effect-map): a description of what should happen next. Read it as *"the next state, plus anything else to do."* Its `:db` key is the new app-db — and since seeding canned data touches nothing else, this handler returns `{:db …}` and hands back the whole initial map. That's all an initialise event really is: a function that ignores the world and returns the starting state.
 
 The effect map is a small, **closed** vocabulary — exactly two keys:
 
 - `:db` — the next app-db.
-- `:fx` — a vector of [effects](../../guide/glossary.md#effect) to run: dispatches, HTTP, navigation, anything that reaches the outside world.
+- `:fx` — a vector of [effects](../../core/glossary.md#effect) to run: dispatches, HTTP, navigation, anything that reaches the outside world.
 
-This handler uses only `:db`, because seeding canned data touches nothing outside the map — no DOM, no network, no clock. You'll meet `:fx` in Part 2, when the feed starts loading from a server and the handler genuinely needs the outside world. Crucially, the vocabulary is *closed*: return a third key and you get a [fail-loud](../../guide/glossary.md#fail-loud-not-silent) error, not a silent no-op. A typo in an effect key surfaces the instant the handler runs, instead of vanishing into a feature that mysteriously never happens.
+This handler uses only `:db`, because seeding canned data touches nothing outside the map — no DOM, no network, no clock. You'll meet `:fx` in Part 2, when the feed starts loading from a server and the handler genuinely needs the outside world. Crucially, the vocabulary is *closed*: return a third key and you get a [fail-loud](../../core/glossary.md#fail-loud-not-silent) error, not a silent no-op. A typo in an effect key surfaces the instant the handler runs, instead of vanishing into a feature that mysteriously never happens.
 
 This replaces the placeholder `:app/initialise` that setup dropped into `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
 
 > **From re-frame v1.** If you've used re-frame v1 you'll reach for `reg-event-db` or `reg-event-fx` out of muscle memory. There's just `reg-event` now: the same shape — coeffects in, an effect map out — under the bare name. A pure state change returns `{:db …}`; one that reaches the outside world adds `:fx`. The old names aren't quiet aliases that'll lull you into thinking nothing changed — calling `reg-event-db` raises a loud `:rf.error/reg-event-db-removed` that names `reg-event` as the replacement. The migration is a rename, not a guessing game.
 
-> **Gotcha — re-registering an id replaces it.** [Registries](../../guide/glossary.md#registrar) are last-write-wins. If both `core.cljs` and `articles.cljs` register `:app/initialise`, whichever namespace loads last silently wins, and the other body never runs. That's why you *delete* the placeholder rather than leaving it: a duplicate id doesn't error, it just quietly shadows. (The dev build does emit a `:rf.registry/handler-replaced` trace, so a tool like [Xray](../../guide/glossary.md#xray) can show you the swap — but your eyes won't catch it in the source.)
+> **Gotcha — re-registering an id replaces it.** [Registries](../../core/glossary.md#registrar) are last-write-wins. If both `core.cljs` and `articles.cljs` register `:app/initialise`, whichever namespace loads last silently wins, and the other body never runs. That's why you *delete* the placeholder rather than leaving it: a duplicate id doesn't error, it just quietly shadows. (The dev build does emit a `:rf.registry/handler-replaced` trace, so a tool like [Xray](../../core/glossary.md#xray) can show you the swap — but your eyes won't catch it in the source.)
 
 Now look at the slice's shape. It isn't a bare vector of articles; it's a map that carries the data *and its lifecycle*:
 
@@ -96,11 +96,11 @@ With canned data the slice is born `:loaded` and never moves, so today this shap
 
 ??? note "The deeper story of the one-map design"
 
-    The full rationale for keeping all state in a single map lives in [app-db: the one place](../../guide/concepts/app-db.md).
+    The full rationale for keeping all state in a single map lives in [app-db: the one place](../../core/concepts/app-db.md).
 
 ## Step 2 — subscriptions: named, derived reads
 
-Views never reach into app-db directly. (If they did, every view would need to know the exact shape of the map, and reshaping a slice would mean hunting down every reader — the coupling re-frame2 exists to avoid.) Instead, views read [**subscriptions**](../../guide/glossary.md#subscription): named, registered, pure derivations that read state *for* you, and cache the result. Add three to `articles.cljs`:
+Views never reach into app-db directly. (If they did, every view would need to know the exact shape of the map, and reshaping a slice would mean hunting down every reader — the coupling re-frame2 exists to avoid.) Instead, views read [**subscriptions**](../../core/glossary.md#subscription): named, registered, pure derivations that read state *for* you, and cache the result. Add three to `articles.cljs`:
 
 ```clojure
 (rf/reg-sub :articles/slice
@@ -116,9 +116,9 @@ Views never reach into app-db directly. (If they did, every view would need to k
     (first (filter #(= slug (:slug %)) articles))))
 ```
 
-The first reads straight from app-db. The other two use `:<-` to declare an *input subscription*: `:articles/data` derives from `:articles/slice`, and `:articles/by-slug` derives from `:articles/data`. Subscriptions form a graph — [the derivation graph](../../guide/glossary.md#the-derivation-graph) — and that graph is exactly what makes them cheap. A sub recomputes only when an input it actually reads produces a *new* value (compared by `=`), and a view re-renders only when the sub it reads produces a new value. Nothing recomputes "just in case."
+The first reads straight from app-db. The other two use `:<-` to declare an *input subscription*: `:articles/data` derives from `:articles/slice`, and `:articles/by-slug` derives from `:articles/data`. Subscriptions form a graph — [the derivation graph](../../core/glossary.md#the-derivation-graph) — and that graph is exactly what makes them cheap. A sub recomputes only when an input it actually reads produces a *new* value (compared by `=`), and a view re-renders only when the sub it reads produces a new value. Nothing recomputes "just in case."
 
-`:articles/by-slug` takes an argument. A view asks for a subscription with a [**query vector**](../../guide/glossary.md#query-vector) — a sub-id followed by any arguments, the very same shape an event has — so to ask for one article it writes `[:articles/by-slug "welcome-to-conduit"]`. The computation function receives that whole vector, destructured here as `[_ slug]`: the first element is the sub-id itself (`:articles/by-slug`), discarded as `_` because the function already knows which sub it is, and everything after it is your argument.
+`:articles/by-slug` takes an argument. A view asks for a subscription with a [**query vector**](../../core/glossary.md#query-vector) — a sub-id followed by any arguments, the very same shape an event has — so to ask for one article it writes `[:articles/by-slug "welcome-to-conduit"]`. The computation function receives that whole vector, destructured here as `[_ slug]`: the first element is the sub-id itself (`:articles/by-slug`), discarded as `_` because the function already knows which sub it is, and everything after it is your argument.
 
 The two-layer split is a habit worth forming early. The top sub (`:articles/slice`) reads the raw slice; the layers below (`:articles/data`, `:articles/by-slug`) shape that slice into exactly what one view needs. Keeping the raw read in its own sub means the lifecycle fields (`:status`, `:error`) are one cheap subscription away when Part 2 needs them — and the derived subs never re-run just because some *unrelated* corner of app-db changed.
 
@@ -126,11 +126,11 @@ The two-layer split is a habit worth forming early. The top sub (`:articles/slic
 
 ??? note "The full derivation-graph story"
 
-    For how the graph recomputes and stays cheap, see [Subscriptions: the derivation graph](../../guide/concepts/subscriptions.md).
+    For how the graph recomputes and stays cheap, see [Subscriptions: the derivation graph](../../core/concepts/subscriptions.md).
 
 ## Step 3 — views: the feed, rendered
 
-A [**view**](../../guide/glossary.md#view) is a pure function from subscription values to [**hiccup**](../../guide/glossary.md#hiccup) — the plain Clojure data that describes your UI. Hiccup is just nested vectors: a vector whose first element is a keyword is one DOM element, and it reads like the tag it builds:
+A [**view**](../../core/glossary.md#view) is a pure function from subscription values to [**hiccup**](../../core/glossary.md#hiccup) — the plain Clojure data that describes your UI. Hiccup is just nested vectors: a vector whose first element is a keyword is one DOM element, and it reads like the tag it builds:
 
 ```clojure
 [:h1.logo-font "conduit"]
@@ -205,7 +205,7 @@ Those `rf/route-link`s point at a route id that doesn't exist yet. We add it nex
 
 ??? note "Why views stay pure"
 
-    What purity buys you, and where the line is drawn, is covered in [Views: pure functions of data](../../guide/concepts/views.md).
+    What purity buys you, and where the line is drawn, is covered in [Views: pure functions of data](../../core/concepts/views.md).
 
 ## Step 4 — the routing skeleton
 
@@ -256,7 +256,7 @@ A route is a registry entry, exactly like an event or a sub: data, not component
 
 > **Gotcha — `:path` is not a metadata key, and unknown keys throw.** Two adjacent mistakes both fail loud at registration, which is exactly when you want to hear about them. The first: tucking the path *inside* the metadata map — `(reg-route :conduit/home {:path "/"})` — raises `:rf.error/invalid-route-metadata`, because the path is the third value, not a key. The second: a typo in a reserved metadata key, like `:querey` for `:query` or `:on-matched` for `:on-match`. `reg-route` carries the largest metadata shape in the framework, so a misspelled key could otherwise sit silently until it failed at navigation time, far from the cause. To stop that, any *bare* (unqualified) key outside the reserved set is rejected right at registration with the same `:rf.error/invalid-route-metadata`, naming the offending key and listing the valid vocabulary. Your own namespaced keys (`:myapp/layout`) are always welcome; it's only bare typos that get caught.
 
-The `:params` schema names the capture's shape. Enforcement is opt-in: once the [schemas](../../guide/glossary.md#schema) artefact joins the classpath ([Validate with schemas](../../guide/how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as *unmatched* instead of limping through your views half-parsed. Until then the schema is checked-later documentation — and a single `:string` slug has nothing to fail anyway.
+The `:params` schema names the capture's shape. Enforcement is opt-in: once the [schemas](../../core/glossary.md#schema) artefact joins the classpath ([Validate with schemas](../../core/how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as *unmatched* instead of limping through your views half-parsed. Until then the schema is checked-later documentation — and a single `:string` slug has nothing to fail anyway.
 
 `:rf.route/not-found` is the one route id the framework reserves. Whenever a URL matches nothing, the runtime routes to it with the offending URL in `:rf.route/params`. Every app should register it — it's an ordinary route, and you own its page. (Skip it and the app still works: the runtime falls back to a built-in `<h1>Not Found</h1>` placeholder and emits a `:rf.warning/no-not-found-route` trace, nudging you to register your own.)
 
@@ -295,9 +295,9 @@ Three route subscriptions cover most needs:
 | `:rf.route/params` | The path params the URL captured, e.g. `{:slug "welcome-to-conduit"}`. The not-found route puts the unmatched URL here under `:url`. |
 | `:rf/route` | The whole route slice — `:route-id`, `:params`, `:query`, `:fragment`, plus `:transition` (`:idle` / `:loading` / `:error`) and an `:error` slot. You'll reach for the transition and error fields once data loading enters the picture in Part 2. |
 
-There are finer-grained subs too — `:rf.route/query` for the `?key=value` portion, `:rf.route/fragment` for the `#anchor`, and `:rf.route/transition` / `:rf.route/error` for the loading lifecycle — but the three above are all this part needs. Each is an ordinary subscription, so a view reads the route exactly the way it reads any other piece of state. The route lives in [runtime-db](../../guide/glossary.md#runtime-db) (the framework's half of the frame), but you'd never know it from the call site — a sub is a sub.
+There are finer-grained subs too — `:rf.route/query` for the `?key=value` portion, `:rf.route/fragment` for the `#anchor`, and `:rf.route/transition` / `:rf.route/error` for the loading lifecycle — but the three above are all this part needs. Each is an ordinary subscription, so a view reads the route exactly the way it reads any other piece of state. The route lives in [runtime-db](../../core/glossary.md#runtime-db) (the framework's half of the frame), but you'd never know it from the call site — a sub is a sub.
 
-And navigation? `rf/route-link` renders a real `<a href="...">` and turns a plain click into a [dispatched](../../guide/glossary.md#dispatch) event. Cmd-click, middle-click, and shift-click fall through to the browser, so open-in-new-tab and open-in-new-window keep working exactly as a user expects — you get a real anchor, not a div pretending to be one. Its props map takes `:to` (the target route id, required), `:params` (the path params, when the route has any), `:query` and `:fragment` (folded into the synthesised href when present), and **any other attribute passes straight through to the underlying `<a>`** — `:class`, `:id`, `:data-testid`, and so on. That's why `[rf/route-link {:to :conduit/home :class "navbar-brand"} "conduit"]` styles the anchor exactly as if you'd written the `:a` by hand.
+And navigation? `rf/route-link` renders a real `<a href="...">` and turns a plain click into a [dispatched](../../core/glossary.md#dispatch) event. Cmd-click, middle-click, and shift-click fall through to the browser, so open-in-new-tab and open-in-new-window keep working exactly as a user expects — you get a real anchor, not a div pretending to be one. Its props map takes `:to` (the target route id, required), `:params` (the path params, when the route has any), `:query` and `:fragment` (folded into the synthesised href when present), and **any other attribute passes straight through to the underlying `<a>`** — `:class`, `:id`, `:data-testid`, and so on. That's why `[rf/route-link {:to :conduit/home :class "navbar-brand"} "conduit"]` styles the anchor exactly as if you'd written the `:a` by hand.
 
 > **Gotcha — anchors that should behave like anchors aren't intercepted.** Two attributes opt a `route-link` *out* of SPA interception even on a plain left-click, because the DOM already promises something the framework must not override: `:target` set to anything but `"_self"` (e.g. `{:target "_blank"}`) and `:download`. A link carrying either looks like an ordinary anchor to the user — they expect a new tab, or a saved file — so the click falls through to the browser instead of dispatching `:rf/url-requested`. You rarely want `:target "_blank"` on an *internal* route, but it's worth knowing the rule exists the day you reach for it.
 
@@ -355,13 +355,13 @@ Finish `core.cljs` with the boot function your build invokes:
 
 Reading it top to bottom:
 
-1. `rf/init!` installs the Reagent [adapter](../../guide/glossary.md#adapter) — the bridge between re-frame2 and your rendering [substrate](../../guide/glossary.md#substrate). One line; swap it for `re-frame.adapter.uix` or `helix` and nothing else in the app moves.
-2. `rf/reg-frame` creates the [**frame**](../../guide/glossary.md#frame) your app runs in: one isolated instance with its own app-db, event queue, and subscription cache ([Frames](../../guide/concepts/frames.md)). (Registrations aren't part of that isolation — they live in a process-global [registrar](../../guide/glossary.md#registrar) every frame shares; a frame isolates *state*, not behaviour.) What matters today is `:url-bound? true` — the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that flag the address bar would never change. (Only one frame may claim it; register a second `:url-bound? true` frame and the runtime emits a `:rf.error/duplicate-url-binding` error to your error listeners. It doesn't throw — the first claimant keeps the URL and the late-comer's navigation effects quietly no-op — but the error names both frames so the clash is visible rather than a mystery about why the address bar won't move.)
+1. `rf/init!` installs the Reagent [adapter](../../core/glossary.md#adapter) — the bridge between re-frame2 and your rendering [substrate](../../core/glossary.md#substrate). One line; swap it for `re-frame.adapter.uix` or `helix` and nothing else in the app moves.
+2. `rf/reg-frame` creates the [**frame**](../../core/glossary.md#frame) your app runs in: one isolated instance with its own app-db, event queue, and subscription cache ([Frames](../../core/concepts/frames.md)). (Registrations aren't part of that isolation — they live in a process-global [registrar](../../core/glossary.md#registrar) every frame shares; a frame isolates *state*, not behaviour.) What matters today is `:url-bound? true` — the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that flag the address bar would never change. (Only one frame may claim it; register a second `:url-bound? true` frame and the runtime emits a `:rf.error/duplicate-url-binding` error to your error listeners. It doesn't throw — the first claimant keeps the URL and the late-comer's navigation effects quietly no-op — but the error names both frames so the clash is visible rather than a mystery about why the address bar won't move.)
 3. `dispatch-sync` runs the seed event *synchronously*, before the first render, so the feed never paints against an empty db. `with-frame` says which frame the dispatch targets. (Plain `dispatch` queues for the next tick — fine everywhere else, but at boot you want the state committed *now*.)
 4. `rf/install-history-listener!` does the initial URL→state sync, so deep links work from the very first paint. It also turns the browser's Back/Forward into the same kind of route-change event a link click produces — Back is not a special case, it's just another event.
-5. `frame-provider {:frame :rf/default}` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it. ([Frame identity is carried, not found](../../guide/glossary.md#frame-identity-is-carried-not-found) — the scope hands the frame down through React; the runtime never guesses one.)
+5. `frame-provider {:frame :rf/default}` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it. ([Frame identity is carried, not found](../../core/glossary.md#frame-identity-is-carried-not-found) — the scope hands the frame down through React; the runtime never guesses one.)
 
-> **From re-frame v1.** In re-frame v1 there was no frame: app-db was one global atom, and `re-frame.core/dispatch` always hit it. re-frame2 wraps app-db, the event queue, and the subscription cache into a [**frame**](../../guide/glossary.md#frame) — a named, isolated instance — so you can run two independent apps on one page, or mount the same app twice without them sharing state. (Registrations stay process-global, shared across frames; it's the *state* that's isolated.) A single-app boot like this one declares one frame, names it `:rf/default`, and scopes the tree to it; for everyday code that mostly means an explicit `with-frame` at boot and a `frame-provider {:frame :rf/default}` around your root view. The everything-is-global model is gone, and with it the whole class of bugs where two parts of a page quietly clobbered each other's state.
+> **From re-frame v1.** In re-frame v1 there was no frame: app-db was one global atom, and `re-frame.core/dispatch` always hit it. re-frame2 wraps app-db, the event queue, and the subscription cache into a [**frame**](../../core/glossary.md#frame) — a named, isolated instance — so you can run two independent apps on one page, or mount the same app twice without them sharing state. (Registrations stay process-global, shared across frames; it's the *state* that's isolated.) A single-app boot like this one declares one frame, names it `:rf/default`, and scopes the tree to it; for everyday code that mostly means an explicit `with-frame` at boot and a `frame-provider {:frame :rf/default}` around your root view. The everything-is-global model is gone, and with it the whole class of bugs where two parts of a page quietly clobbered each other's state.
 
 > **An equivalent shape: `:initial-events`.** This boot seeds app-db with a `dispatch-sync` *after* `reg-frame`, which keeps the two steps visible side by side. A frame can also carry its setup *declaratively*, as an ordered `:initial-events` vector the runtime dispatches synchronously the moment the frame is created:
 >
@@ -371,7 +371,7 @@ Reading it top to bottom:
 >                            :initial-events [[:app/initialise]]})
 > ```
 >
-> Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses, because watching the seed dispatch happen is part of learning the loop. Note there's no `:db` config key — a frame *always* starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same [event cascade](../../guide/glossary.md#event-cascade) as every later state change. There's no second mechanism for "the first state" — it's events all the way down.
+> Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses, because watching the seed dispatch happen is part of learning the loop. Note there's no `:db` config key — a frame *always* starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same [event cascade](../../core/glossary.md#event-cascade) as every later state change. There's no second mechanism for "the first state" — it's events all the way down.
 
 ## See it move
 

@@ -6,9 +6,9 @@ The connection is modelled as a [machine](../../../docs/machines/glossary.md#mac
 
 > **A connection is a situation you're in, not a value you hold.**
 
-You rarely care what's "in the connection variable". You care which state you're in — connecting, authenticating, connected, dropped, reconnecting, or given up — and which [events](../../../docs/guide/glossary.md#event) move you from one to the next. A [machine](../../../docs/machines/glossary.md#machine) describes exactly that, so that's what the connection is here.
+You rarely care what's "in the connection variable". You care which state you're in — connecting, authenticating, connected, dropped, reconnecting, or given up — and which [events](../../../docs/core/glossary.md#event) move you from one to the next. A [machine](../../../docs/machines/glossary.md#machine) describes exactly that, so that's what the connection is here.
 
-This is the runnable companion to [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md), which describes the same state machine in spec form. Here it's wired up so the [views](../../../docs/guide/glossary.md#view) can drive it.
+This is the runnable companion to [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md), which describes the same state machine in spec form. Here it's wired up so the [views](../../../docs/core/glossary.md#view) can drive it.
 
 A real connection is harder than the textbook on/off examples, in three specific ways. Each one has a clean answer, and those three answers are the heart of the example. (New to machines? Read the [machines guide](../../../docs/machines/concepts.md) first — this example assumes the basics.)
 
@@ -16,7 +16,7 @@ A real connection is harder than the textbook on/off examples, in three specific
 
 **1. The connecting steps belong together.** The happy path has three steps: `:connecting`, then `:authenticating`, then `:connected`. All three live inside one parent [state](../../../docs/machines/glossary.md#state) called `:active`. Why group them? Because they're the *same* connection at different stages — they share one socket, one offline queue, one set of in-flight requests (a single `:data` map). Nesting them says exactly that. The siblings of `:active` — `:disconnected`, `:reconnecting`, `:failed` — are the connection *not* up. (When stages don't share data, you'd use parallel regions instead, as [`nine_states`](../nine_states/) does. Here they share, so nesting is the right shape.)
 
-**2. The real socket can't live in app-db, so a helper holds it.** A live `WebSocket` is a browser object, not a value. It won't serialise, and storing it in [app-db](../../../docs/guide/glossary.md#app-db) would break time-travel replay. So a child machine holds it instead. When `:active` begins, it [`:spawn`](../../../docs/machines/glossary.md#spawn)s a `:websocket/socket` actor, and that actor keeps the real socket in a private table, off to the side. The connection itself only ever remembers the socket's **id**, never the socket. The actor lives as long as `:active` does, so it carries across all three steps above; leave `:active` and the runtime tears it down, then re-entering spawns a fresh one.
+**2. The real socket can't live in app-db, so a helper holds it.** A live `WebSocket` is a browser object, not a value. It won't serialise, and storing it in [app-db](../../../docs/core/glossary.md#app-db) would break time-travel replay. So a child machine holds it instead. When `:active` begins, it [`:spawn`](../../../docs/machines/glossary.md#spawn)s a `:websocket/socket` actor, and that actor keeps the real socket in a private table, off to the side. The connection itself only ever remembers the socket's **id**, never the socket. The actor lives as long as `:active` does, so it carries across all three steps above; leave `:active` and the runtime tears it down, then re-entering spawns a fresh one.
 
 **3. A late message from an old socket must be ignored.** After a reconnect, a slow message from the socket you just replaced can still arrive — and acting on it would be a bug. The fix is cheap: every incoming message carries the id of the socket it came from, and a [guard](../../../docs/machines/glossary.md#guard) called `:current-socket?` drops it unless that id is the one currently live. The live socket id *is* the connection's version number — no separate counter to keep. (That's [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md), reusing a value you already had.)
 
@@ -65,12 +65,12 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   request-id; `:register-request` stamps the id onto the outgoing body, schedules
   a `:dispatch-later` timeout, and routes the body to the actor. The matching
   inbound `:ws/received` clears the slot and dispatches the registered reply
-  [event](../../../docs/guide/glossary.md#event). The correlation id is a folded
-  fact from a *recordable* [coeffect](../../../docs/guide/glossary.md#coeffect)
+  [event](../../../docs/core/glossary.md#event). The correlation id is a folded
+  fact from a *recordable* [coeffect](../../../docs/core/glossary.md#coeffect)
   (`:ws.app/request-id`), not an ambient `(random-uuid)` — so a replay re-presents
   the same id and the reply still matches the recorded request. (This is
   deliberately the app-level Pattern-WebSocket convention, **not** the framework's
-  [uniform reply](../../../docs/guide/glossary.md#the-uniform-reply) envelope —
+  [uniform reply](../../../docs/core/glossary.md#the-uniform-reply) envelope —
   re-frame2 ships no managed WebSocket, so per-message correlation over the open
   socket is the app's to own.)
 
@@ -91,11 +91,11 @@ Everything below builds on those three. The rest is ordinary machine grammar —
 
 | File | Notes |
 |---|---|
-| `core.cljs` | Entry point — installs the adapter, registers the [frame](../../../docs/guide/glossary.md#frame), mounts the React root, runs `:ws.app/initialise`. |
+| `core.cljs` | Entry point — installs the adapter, registers the [frame](../../../docs/core/glossary.md#frame), mounts the React root, runs `:ws.app/initialise`. |
 | `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example; the shapes are identical. |
 | `messages.cljs` | The `:websocket/socket` actor (the spawned child) + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
-| `schema.cljs` | Malli [schemas](../../../docs/guide/glossary.md#schema) for the connection machine's `:data` slice and the `[:messages]` app-db slice. |
+| `schema.cljs` | Malli [schemas](../../../docs/core/glossary.md#schema) for the connection machine's `:data` slice and the `[:messages]` app-db slice. |
 | `index.html` | Minimal harness. |
 
 ## Mock WebSocket server

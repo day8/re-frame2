@@ -139,7 +139,7 @@ esac
 cases='implementation/core/src/re_frame/core.cljc
 tools/xray/src/foo.cljs
 spec/009-Instrumentation.md
-docs/guide/index.md
+docs/core/index.md
 examples/core/counter/main.cljs
 skills/re-frame2-pair/SKILL.md
 scripts/install-git-hooks.sh
@@ -153,7 +153,7 @@ case "$out" in
     for p in implementation/core/src/re_frame/core.cljc \
              tools/xray/src/foo.cljs \
              spec/009-Instrumentation.md \
-             docs/guide/index.md \
+             docs/core/index.md \
              examples/core/counter/main.cljs \
              skills/re-frame2-pair/SKILL.md \
              scripts/install-git-hooks.sh \

@@ -1,8 +1,8 @@
 # re-frame2-pair
 
-> ↑ [`skills/`](../) — index of all eight re-frame2 skills.
+> ↑ [`skills/`](..) — index of all eight re-frame2 skills.
 
-> **Delivery path.** This skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/) (npm: `@day8/re-frame2-pair-mcp`) — **30 tools** catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). All 30 are reachable from the skill's `allowed-tools:`; the two write tools (`restore-epoch` + `replace-app-db`) are the canonical path for named state rewrites and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write-authority boundary. The MCP server is the **only** skill-facing transport. The bash-shim transport that originally fronted these ops has been retired from `allowed-tools:`; the shim scripts under `scripts/` remain on disk only for the project's own e2e test harness and ad-hoc shell use.
+> **Delivery path.** This skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp) (npm: `@day8/re-frame2-pair-mcp`) — **30 tools** catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). All 30 are reachable from the skill's `allowed-tools:`; the two write tools (`restore-epoch` + `replace-app-db`) are the canonical path for named state rewrites and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write-authority boundary. The MCP server is the **only** skill-facing transport. The bash-shim transport that originally fronted these ops has been retired from `allowed-tools:`; the shim scripts under `scripts/` remain on disk only for the project's own e2e test harness and ad-hoc shell use.
 
 A `Skill` which makes `Claude Code` a better pair programmer by allowing it to **interact with your running [re-frame2](https://github.com/day8/re-frame2) application**.
 
@@ -22,7 +22,7 @@ With these capabilities, Claude Code can iteratively perform experiments by patc
 
 ## Status
 
-**Pre-alpha — MCP-server-primary; push-mode streaming and the fixture app have landed.** The repository contains the SKILL.md, the `preload/re_frame2_pair/runtime.cljs` helper namespace (shipped into consumer apps via shadow-cljs `:devtools :preloads`), the MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/) (the only skill-facing transport), the plugin manifest, the npm package manifest, and a GitHub Actions workflow that publishes to npm on tag. The bash-shim dispatcher (`scripts/ops.clj` + the `*.sh` wrappers) is retired from the skill surface — kept on disk only for the project's own e2e harness and ad-hoc shell use.
+**Pre-alpha — MCP-server-primary; push-mode streaming and the fixture app have landed.** The repository contains the SKILL.md, the `preload/re_frame2_pair/runtime.cljs` helper namespace (shipped into consumer apps via shadow-cljs `:devtools :preloads`), the MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp) (the only skill-facing transport), the plugin manifest, the npm package manifest, and a GitHub Actions workflow that publishes to npm on tag. The bash-shim dispatcher (`scripts/ops.clj` + the `*.sh` wrappers) is retired from the skill surface — kept on disk only for the project's own e2e harness and ad-hoc shell use.
 
 Still ground-truthing the *Known unknowns* against the live fixture (`tests/fixture/`) before graduating out of pre-alpha. See [`STATUS.md`](STATUS.md) for the per-surface implementation state and the remaining spike deliverables.
 

@@ -21,7 +21,7 @@
    - Subscriptions layered to derive the progress percentage
    - A controlled slider that dispatches on every drag
 
-   Terms: events, subscriptions, app-db, frames — docs/guide/glossary.md."
+   Terms: events, subscriptions, app-db, frames — docs/core/glossary.md."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Pulling this in registers the hooks that teach the frame how to
@@ -54,7 +54,7 @@
 ;; `with-frame` names one. We use `:rf/default` — the same id the render root's
 ;; `frame-provider` picks (see `run`) — so the schema guards the very frame
 ;; whose commits it's meant to validate. If you want the why and the how of
-;; schemas, that's docs/guide/how-to/validate-with-schemas.md.
+;; schemas, that's docs/core/how-to/validate-with-schemas.md.
 (with-frame :rf/default
   (rf/reg-app-schema [:timer] {:schema TimerState}))
 
@@ -147,7 +147,7 @@
 ;; build on those — seconds and percentage are *derived*, never stored. The
 ;; `:<-` arrows wire each sub to its inputs, so it recomputes only when an
 ;; input actually changes. The view asks for the polished values and stays out
-;; of the arithmetic. Subscriptions: docs/guide/concepts/subscriptions.md.
+;; of the arithmetic. Subscriptions: docs/core/concepts/subscriptions.md.
 
 (rf/reg-sub :timer/elapsed-ms  (fn [db _] (get-in db [:timer :elapsed-ms])))
 (rf/reg-sub :timer/duration-ms (fn [db _] (get-in db [:timer :duration-ms])))
@@ -210,7 +210,7 @@
 ;; `:initial-events` once to seed app-db. After that, every `dispatch` and
 ;; `subscribe` in the tree resolves to this frame. On hot reload it reuses the
 ;; frame it already has and skips re-seeding, so the timer keeps right on ticking
-;; while you edit. Frames: docs/guide/concepts/frames.md.
+;; while you edit. Frames: docs/core/concepts/frames.md.
 ;;
 ;; `app-frame` is just an id we chose — `:rf/default`, the same one the schema
 ;; block up top binds to.

@@ -1,21 +1,21 @@
 # re-frame2-setup
 
-> ↑ [`skills/`](../) — index of all re-frame2 skills.
+> ↑ [`skills/`](..) — index of all re-frame2 skills.
 
 A `Skill` that helps `Claude Code` **scaffold a fresh [re-frame2](https://github.com/day8/re-frame2) ClojureScript project** — from an empty directory to a working, mounted counter.
 
-This is the **greenfield bootstrap** companion to the main [`re-frame2`](../re-frame2/) skill. The two split the work:
+This is the **greenfield bootstrap** companion to the main [`re-frame2`](../re-frame2) skill. The two split the work:
 
 - The main `re-frame2` skill teaches the re-frame2 **API** — events, subs, machines, schemas, frames, fx, flows, routing, SSR.
 - `re-frame2-setup` owns the bootstrap and the version-sensitive wiring — the artefact, shadow-cljs, and React pins that move release to release.
 
-Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame2-pair`](../re-frame2-pair/) (for live-runtime pair-programming).
+Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame2-pair`](../re-frame2-pair) (for live-runtime pair-programming).
 
 ## Relationship to the generator template
 
 re-frame2 also ships a one-command project generator —
 `day8/re-frame2-template`, a [deps-new](https://github.com/seancorfield/deps-new)
-template living under [`tools/template/`](../../tools/template/) in
+template living under [`tools/template/`](../../tools/template) in
 the monorepo today (planned external home
 `github.com/day8/re-frame2-template` — see
 [`tools/template/spec/005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md)).
@@ -38,7 +38,7 @@ The two routes are complementary, not redundant — and they are run by differen
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|
-| You're starting from an empty directory and want a working app in one command. | You're starting greenfield — a brand-new app, or an **empty** CLJS project (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — and want each step explained. (Adding re-frame2 to a **non-trivial** existing app — one with its own state management or substantial code — is an authoring task: route to [`re-frame2`](../re-frame2/), not here. See [`skills/README.md` §Skill routing](../README.md#disqualifiers-vocabulary-alone-is-not-enough).) |
+| You're starting from an empty directory and want a working app in one command. | You're starting greenfield — a brand-new app, or an **empty** CLJS project (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — and want each step explained. (Adding re-frame2 to a **non-trivial** existing app — one with its own state management or substantial code — is an authoring task: route to [`re-frame2`](../re-frame2), not here. See [`skills/README.md` §Skill routing](../README.md#disqualifiers-vocabulary-alone-is-not-enough).) |
 | You want canonical defaults baked in (Reagent + shadow-cljs + counter sample). | You want to understand each step the template performs, or deviate from it. |
 | You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
 
@@ -136,7 +136,7 @@ The skill's description auto-matches when you talk about starting a new re-frame
 >
 > Scaffold the smallest working re-frame2 app I can extend.
 
-(Adding re-frame2 to a **non-trivial** existing app — one that already has substantial code or other state management — is authoring, not greenfield setup: that routes to the [`re-frame2`](../re-frame2/) skill.)
+(Adding re-frame2 to a **non-trivial** existing app — one that already has substantial code or other state management — is authoring, not greenfield setup: that routes to the [`re-frame2`](../re-frame2) skill.)
 
 ### Explicit — slash command
 

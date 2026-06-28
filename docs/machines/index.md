@@ -2,7 +2,7 @@
 
 Some features aren't a value — they're a *lifecycle*. A login flow runs `idle → submitting → authed | error`; a checkout is a chain of gates; a long-running job spawns workers, collects results, and tears itself down. Model that lifecycle with scattered boolean flags (`:loading?`, `:submitting?`, `:error?`) and it drifts out of sync and sprouts impossible states ("submitting *and* error"). A **machine** makes the lifecycle explicit: named states, named transitions, exactly one state at a time.
 
-re-frame2 machines are statechart-capable — the XState v6 feature set (guards, actions, entry/exit, timeouts, parallel regions, spawned children) — and registered like everything else, with `reg-machine`. A machine's live value is a [snapshot](glossary.md#snapshot) held in the framework's [runtime-db](../guide/glossary.md#runtime-db); you read it through an ordinary subscription and drive it with ordinary dispatched events.
+re-frame2 machines are statechart-capable — the XState v6 feature set (guards, actions, entry/exit, timeouts, parallel regions, spawned children) — and registered like everything else, with `reg-machine`. A machine's live value is a [snapshot](glossary.md#snapshot) held in the framework's [runtime-db](../core/glossary.md#runtime-db); you read it through an ordinary subscription and drive it with ordinary dispatched events.
 
 ```clojure
 (rf/reg-machine :auth/login

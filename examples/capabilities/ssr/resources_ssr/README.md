@@ -22,7 +22,7 @@ paint **and** knows not to re-fetch something it was just handed fresh.
 
 That's the load-bearing idea. A hydrated resource isn't a snapshot pasted
 into app-db. It's the runtime's resource cache rebuilt on the client, so
-the [view](../../../../docs/guide/glossary.md#view) reads it passively — no
+the [view](../../../../docs/core/glossary.md#view) reads it passively — no
 fetch, no flicker — just as if the client had fetched it a moment ago.
 Everything below is the discipline that makes that handoff safe.
 
@@ -43,9 +43,9 @@ per-request, and the wire payload stays minimal.
 
 - **A frame per request — because the cache is shared state.** SSR
   resources run in a per-request
-  [frame](../../../../docs/guide/glossary.md#frame), never a process-global
+  [frame](../../../../docs/core/glossary.md#frame), never a process-global
   one. The cache lives in that frame's
-  [runtime-db](../../../../docs/guide/glossary.md#runtime-db), so two
+  [runtime-db](../../../../docs/core/glossary.md#runtime-db), so two
   concurrent renders are two isolated caches that can't see each other.
   It's the same frame isolation that powers tests and stories — here it
   buys the privacy you most need when rendering many users' pages in one
@@ -65,9 +65,9 @@ per-request, and the wire payload stays minimal.
   `ssr/drain-blocking-resources!` to **wait** for that ensure to settle —
   reach `:loaded`, or time out into a structured first-load failure —
   before the render runs. The
-  [view](../../../../docs/guide/glossary.md#view) reads through the passive
+  [view](../../../../docs/core/glossary.md#view) reads through the passive
   `[:rf.resource/state …]`
-  [subscription](../../../../docs/guide/glossary.md#subscription), and by the
+  [subscription](../../../../docs/core/glossary.md#subscription), and by the
   time it runs the data is simply *there*. No hung `:loading` skeleton
   reaches the HTML.
 
@@ -78,13 +78,13 @@ per-request, and the wire payload stays minimal.
   `payload-policy/project-runtime-db`, which ships **only** the durable
   resource `:entries` onto the payload's `:rf/runtime-db`. Per entry it
   honours [data
-  classification](../../../../docs/guide/glossary.md#data-classification): a
+  classification](../../../../docs/core/glossary.md#data-classification): a
   `:sensitive?` value is **redacted**, a `:large?` value is **omitted**.
   The reverse indexes (`:tag-index` / `:owner-index`) are **excluded** —
   the client recomputes them from `:entries` the moment it installs them,
   so shipping them would just be sending data you're about to rebuild.
   Host handles never serialize. The
-  [app-db](../../../../docs/guide/glossary.md#app-db) slice rides the same
+  [app-db](../../../../docs/core/glossary.md#app-db) slice rides the same
   fail-closed allowlist (`apply-policy`) the real Ring host uses — empty
   here, because on this page *the resource is the state* and app-db
   carries nothing of its own.
