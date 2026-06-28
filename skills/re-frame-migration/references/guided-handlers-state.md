@@ -150,6 +150,36 @@ The spec prefers Form-1 + an explicit setup event over Form-2 (see [`spec/004-Vi
 1. **Extract the subscribing content into a `reg-view` child (preferred).** Keep the class for its lifecycle, but move the part that derefs subs / dispatches into a small `reg-view`-registered child the class renders. The child carries its own `:contextType` and reads the frame; the class manages its DOM/lifecycle and subscribes nothing.
 2. **Register the class through `reg-view*` and capture the frame explicitly.** Per [`spec/004-Views.md` §Form-3](../../../spec/004-Views.md#form-3-class--out-of-scope-for-the-macro), the class ships through `re-frame.core/reg-view*` (the plain-fn surface — no auto-inject), and inside its render / lifecycle hooks you bind `{:keys [dispatch subscribe]}` from `(rf/capture-frame)` and route through those ops. The captured handle locks to the render frame and survives the lifecycle callbacks' async boundary.
 
+**What you register through `reg-view*` is the *outer closure fn*, not a bare singleton `(create-class …)`.** The singleton form — `(reg-view* ::id (reagent.core/create-class {…}))` — is only the simplest case. The dominant real Form-3 (charts, maps, editors: per-instance JS state + lifecycle + props) wraps the class in an **outer fn** that closes over per-mount `r/atom`s + props and *returns* the `create-class`. `reg-view*`'s render-fn argument is **any callable** (per [`spec/004-Views.md` §`reg-view*`](../../../spec/004-Views.md#reg-view--the-plain-fn-escape-hatch): "a plain function … the body can be any callable"), and that outer fn is a callable, so you register **it** — `(reg-view* ::id my-outer-fn)`, optionally `(def my-view (rf/view ::id))` for a hiccup handle. The per-mount state stays in the closure exactly as the v1 source had it; capture the frame in the render / lifecycle hooks as in route 2 above. A behaviour-preserving migration **keeps the outer-fn closure** — do not rewrite it into a Reagent `get-initial-state`/`reagent-state` shape.
+
+```clojure
+;; v1 Form-3 — the dominant shape: an OUTER fn closes over per-mount instance
+;; state + props and RETURNS the class.
+(defn chart [series]
+  (let [!inst (r/atom nil)]                          ; per-MOUNT state — one atom per instance
+    (reagent.core/create-class
+      {:reagent-render         (fn [series] [:div.chart])
+       :component-did-mount    (fn [this] (reset! !inst (mk-chart! this series)))
+       :component-will-unmount (fn [_] (destroy! @!inst))})))
+
+;; v2 — register the OUTER fn through reg-view* (any callable). The per-mount
+;; !inst and props stay in the closure; capture the frame in the render hook.
+(re-frame.core/reg-view* ::chart
+  (fn [series]
+    (let [!inst (r/atom nil)]                        ; still per-MOUNT — unchanged
+      (reagent.core/create-class
+        {:reagent-render
+         (fn [series]
+           (let [{:keys [dispatch]} (rf/capture-frame)]   ; frame captured at render
+             [:div.chart {:on-click #(dispatch [:chart/clicked])}]))
+         :component-did-mount    (fn [this] (reset! !inst (mk-chart! this series)))
+         :component-will-unmount (fn [_] (destroy! @!inst))}))))
+;; optional hiccup handle for call sites — [chart series]:
+(def chart (rf/view ::chart))
+```
+
+**Do not hoist the per-mount `r/atom` to module scope to fit a bare-singleton example.** A module-level atom is created once and *shared across every mount*, silently fusing all instances' state — a per-instance-state bug that compiles clean and surfaces only when a second instance mounts. The per-mount atom must stay inside the outer fn so each mount gets its own; that is exactly why you register the outer fn rather than a singleton `(create-class …)` value.
+
 **A fourth body shape — `defmulti` / `defmethod`-dispatched views.** A large app commonly renders a polymorphic view as a `defmulti` plus one `defmethod` per variant, each method returning subscribing hiccup. This shape maps to none of Form-1/2/3, and (like Form-3) it cannot be `reg-view`-wrapped: a `defmethod` body is a list, not an args vector, so the macro rejects it at macroexpand the same way it rejects a `create-class` list. The multimethod is also invoked in function position, so a subscribing method body runs inline with no React boundary and throws `:rf.error/no-frame-context` when it derefs a sub or dispatches. The fix is exactly the Form-3 route-1 recipe, named for the `defmethod` shape: **extract each method's subscribing hiccup into its own `reg-view` child, and reduce each `defmethod` to a thin dispatcher that returns `[child-view props]` in *hiccup* position** — so the child mounts as a component carrying its own `:contextType` and resolves the frame. The `defmethod` itself then subscribes nothing; it only selects and returns the child in brackets. (The `defmulti` declaration is unchanged.)
 
 **Scope — convert subscribers only; do not over-convert.** The conversion is keyed on *frame-dependence*, not on being a view. Convert a component **iff** it derefs a sub or dispatches in its render (the calls that raise `:rf.error/no-frame-context`). **Leave as `defn`** every non-subscribing helper and every pure value-taking presentational component (one that renders only its args) — these depend on no frame, so converting them is churn. This is option 3 of the decision table applied at conversion time.
