@@ -29,7 +29,7 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact). The `reg-machine` / `defmachine` **macros** are re-exported on the `re-frame.core` façade (they capture call-site source-coords); the plain-fn `reg-machine*` is **not** re-exported — reach it through `re-frame.machines/reg-machine*` (front-porch shrink: the non-registration / plain-fn machine surface stays in its owning namespace). See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
 
-The older `reg-event + make-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
+The `reg-event + make-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
 
 ## The inline-fn escape hatch
 
@@ -97,11 +97,11 @@ Hierarchical compound states, eventless `:always`, delayed `:after`, declarative
 
 ## Substitutes for skipped features
 
-> Heading retained for stable cross-references (Spec 005 and Spec-Schemas link this anchor). Nothing below is a substitute for a *skipped* feature: parallel regions and history states are both **first-class, shipped capabilities** (✓ claimed in the [Spec 005 §Capability matrix](005-StateMachines.md#capability-matrix)). The "N separate machines" pattern is a deliberate **design choice** for the conceptually-independent-features case — not a workaround for something the runtime can't do.
+> Heading retained for stable cross-references (Spec 005 and Spec-Schemas link this anchor). Nothing below is a substitute for a *skipped* feature: parallel regions and history states are both **first-class, shipped capabilities** (✓ claimed in the [Spec 005 §Capability matrix](005-StateMachines.md#capability-matrix)). The "N separate machines" pattern is for the conceptually-independent-features case — not a workaround for something the runtime can't do.
 
 Per (Nine States Stage 2), **parallel regions** are a **first-class capability** (`:fsm/parallel-regions`; see [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions)). The N-machines-per-region pattern documented in this section is the right answer when the regions are **conceptually independent features** that don't share data — multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event. Parallel regions inside one machine (`:type :parallel`) are the right answer when the regions are **orthogonal axes of one feature** that share a single `:data` blob — one form with three independent axes (data / form / mode), one widget with display + interaction state, one page whose render-mode is a function of three independent inputs. Both patterns ship together; choose by domain shape.
 
-**History states** are likewise a first-class capability now (`:fsm/history`; see [Spec 005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target)) — declare a `:type :history` pseudo-state under the compound and the runtime records and restores its last-active configuration. There is no substitute pattern to reach for: "remember where the user was" is one node in the transition table, not hand-rolled capture/restore wiring. The first-class grammar is summarised in §History states below.
+**History states** are likewise a first-class capability (`:fsm/history`; see [Spec 005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target)) — declare a `:type :history` pseudo-state under the compound and the runtime records and restores its last-active configuration. There is no substitute pattern to reach for: "remember where the user was" is one node in the transition table, not hand-rolled capture/restore wiring. The first-class grammar is summarised in §History states below.
 
 ### Parallel regions → separate machines per region (independent-features case)
 

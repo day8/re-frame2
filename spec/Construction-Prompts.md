@@ -762,7 +762,7 @@ Routing is *state plus events*. The URL is a derivable view of `app-db`; navigat
 **Template — register routes (declarative; the runtime owns dispatch):**
 
 The canonical 3-slot grammar puts the URL `:path` pattern in the third VALUE
-slot (rf2-wvh95f F1):
+slot:
 
 ```clojure
 (rf/reg-route :route/home
@@ -935,7 +935,7 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
 - **Open by default.** Don't add `:closed true` unless the data crosses a process boundary.
 - **Don't model object hierarchies.** A schema describes the *shape* of an open map. There are no classes.
 - **Schemas grow additively.** Once a schema ships, you can add new optional keys; you cannot remove or rename existing keys without bumping a version (Spec-ulation).
-- **Validation runs in dev, elides in prod** by default. Reference the `:rf.schema/at-boundary` interceptor by id (`{:interceptors [:rf.schema/at-boundary]}`, EP-0022 ref form — the `rf/validate-at-boundary-interceptor` Var is the registration-boundary input, not a chain entry) for runtime validation in prod at system boundaries.
+- **Validation runs in dev, elides in prod** by default. Reference the `:rf.schema/at-boundary` interceptor by id (`{:interceptors [:rf.schema/at-boundary]}` — the `rf/validate-at-boundary-interceptor` Var is the registration-boundary input, not a chain entry) for runtime validation in prod at system boundaries.
 
 **AI-first checklist:**
 
@@ -1048,7 +1048,7 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 ### CP-11. Register an interceptor
 
-**When to use this prompt:** the user wants a piece of **full-context program behaviour** that runs around event handlers — an auth gate, an audit log, trace-payload redaction, a coeffect injection, an effect rewrite, a focus on an `app-db` sub-slice. Since [EP-0018](../docs/EP/EP-0018-one-event-registration.md) collapsed event registration to one `reg-event` form and moved `context -> context` work to interceptors, an interceptor is **load-bearing program structure** — and per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) it is a first-class **registered** member, authored once with `reg-interceptor` and referenced from event/frame `:interceptors` chains by id. Reach for this whenever a behaviour must wrap *more than one* handler, or must be named, addressable, override-able, and visible in tooling. A one-off transform that belongs to a single handler stays inside that handler's body — interceptors are for cross-cutting, reusable behaviour.
+**When to use this prompt:** the user wants a piece of **full-context program behaviour** that runs around event handlers — an auth gate, an audit log, trace-payload redaction, a coeffect injection, an effect rewrite, a focus on an `app-db` sub-slice. Event registration is one `reg-event` form, with `context -> context` work expressed as interceptors ([EP-0018](../docs/EP/EP-0018-one-event-registration.md)); an interceptor is **load-bearing program structure** — a first-class **registered** member, authored once with `reg-interceptor` and referenced from event/frame `:interceptors` chains by id ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md)). Reach for this whenever a behaviour must wrap *more than one* handler, or must be named, addressable, override-able, and visible in tooling. A one-off transform that belongs to a single handler stays inside that handler's body — interceptors are for cross-cutting, reusable behaviour.
 
 **Pre-flight delta (in addition to the shared preamble above):**
 

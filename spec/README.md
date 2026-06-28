@@ -59,7 +59,7 @@ External canonical homes (per §[Canonical homes outside `/spec`](#canonical-hom
 |---|---|---|
 | 000 | [Vision](000-Vision.md) | Canonical owner of goals, hard constraints, the pattern's minimal core, scope, retained-from-re-frame. Every other doc consumes this. |
 | 001 | [Registration](001-Registration.md) | The metadata-map shape that every `reg-*` accepts. Standard keys; two-form middle slot; source-coord capture via macros (CLJS reference); query API; hot-reload semantics. |
-| 002 | [Frames](002-Frames.md) | Frame as isolated runtime boundary. Pattern contract: explicit-frame addressing. CLJS reference: React context as an optimisation. Keyword identity, the carried-frame invariant (EP-0002 — frame identity travels with the causal token; absence is `:rf.error/no-frame-context`; no ambient `:rf/default`), run-to-completion drain, machines-as-event-handlers foundation hooks, id-valued override seam. |
+| 002 | [Frames](002-Frames.md) | Frame as isolated runtime boundary. Pattern contract: explicit-frame addressing. CLJS reference: React context as an optimisation. Keyword identity, the carried-frame invariant (frame identity travels with the causal token; absence is `:rf.error/no-frame-context`; no ambient `:rf/default`), run-to-completion drain, machines-as-event-handlers foundation hooks, id-valued override seam. |
 
 ### Capability layer (per-area normative Specs)
 

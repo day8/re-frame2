@@ -16,11 +16,11 @@ Per-adapter spec is intentionally absent — no adapter ships its own hierarchy-
 - Resolving each Fiber's `elementType` to a re-frame2 view-id where the adapter has tagged the fn at registration time (the `__rf2_view_id__` property below); falling back to `displayName` / `name` / a `"<host>"` label otherwise.
 - Surfacing the captured tree to the host tool (Xray) for the Views panel's Group-by-tree toggle, parent-cascade attribution, and future Static Views surfaces.
 
-**Explicitly out of scope (REJECTED per Views Q1; STAYS REJECTED per Comment 6 lock-in):**
+**Explicitly out of scope:**
 
 - Reading per-component Fiber metadata — memo status, hook state (`memoizedState`), lane priority, scheduler internals, work-in-progress slots. These are version-coupled to React internals that change every major release; the payoff is narrow (per-component drilldown only); the maintenance cost is high. Any tool that needs this data should ship its own React Profiler integration, NOT this contract.
 
-The split mirrors the original Views Q1 decision: parent/child are the *most stable* Fiber slots (React DevTools relies on them; deliberately exposed via `__REACT_DEVTOOLS_GLOBAL_HOOK__`); everything else is volatile.
+Parent/child are the *most stable* Fiber slots (React DevTools relies on them; exposed via `__REACT_DEVTOOLS_GLOBAL_HOOK__`); everything else is volatile.
 
 ## Read paths
 
@@ -90,7 +90,7 @@ In document order. `:fiber-key` is used as the React key for tree-row rendering 
 
 ## What this unlocks
 
-Per the findings §12 lock-in:
+This capability unlocks:
 
 1. **Group-by-tree toggle** in the Xray Views panel — third toggle alongside Group-by-component and Group-by-sub. Parent ⊃ children indentation; collapsible "X (47 descendants re-rendered)" rollup rows.
 2. **Mount/unmount cascade attribution** — single row per cascade instead of N rows.

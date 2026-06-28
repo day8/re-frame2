@@ -16,7 +16,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Canonical homes.**
 - [009-Instrumentation.md §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the `rf/elide-wire-value` walker, the `:rf.size/large-elided` marker shape, the per-call `:rf.size/elision-policy` map, the predicate cascade with sensitivity precedence, and the `:rf.warning/large-value-unschema'd` dev-mode advisory.
 - [010-Schemas.md §`:large?`](010-Schemas.md) and [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md) — schema-driven nominations: per-slot Malli props that feed the unified elision registry at `runtime-db [:rf.runtime/elision :declarations]` / `runtime-db [:rf.runtime/elision :sensitive-declarations]`.
-- [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction) + [015 §Frame-owned durable classification](015-Data-Classification.md) — registration-owned `:sensitive` payload classification (declared on `reg-event` / `reg-sub` / `reg-flow`) and schema-installed redaction for `:rf.interceptor/path`-scoped handlers; the router's internal redaction plumbing drops sensitive event-payload keys on the trace surface while the handler body still receives the raw value. (The positional public `redact-interceptor` was removed from the façade per EP-0015 §7; the underlying fn survives as internal router plumbing only.)
+- [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction) + [015 §Frame-owned durable classification](015-Data-Classification.md) — registration-owned `:sensitive` payload classification (declared on `reg-event` / `reg-sub` / `reg-flow`) and schema-installed redaction for `:rf.interceptor/path`-scoped handlers; the router's internal redaction plumbing drops sensitive event-payload keys on the trace surface while the handler body still receives the raw value. (There is no positional public `redact-interceptor` on the façade; the underlying fn is internal router plumbing only.)
 - [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.size/*` and `:rf.elision/*` reserved-namespace rows.
 - [Spec-Schemas.md §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker) — the marker's Malli shape.
 
@@ -40,7 +40,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [`skills/re-frame2-pair-retro/`](../skills/re-frame2-pair-retro/) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
 - [`skills/re-frame2-improver/`](../skills/re-frame2-improver/) — code-shaped consumer; supplies its own catalogue under `references/`.
 
-**The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free. Extracted from the locked decisions originally embedded in `re-frame2-pair-retro/spec/design.md`.
+**The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free.
 
 ## 3. Token budgets
 
@@ -88,7 +88,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 ## Process
 
-When a new cross-cutting concern appears — a sixth recurring shape across artefacts, or an extension to one of the five above — file a `meta` bead to extend this inventory. Before designing a new local implementation of a cross-cutting concern, consult this file: if the design exists, cite the home; if it doesn't, the bead writes both the home and the inventory entry.
+When a new cross-cutting concern appears — a sixth recurring shape across artefacts, or an extension to one of the five above — extend this inventory. Before designing a new local implementation of a cross-cutting concern, consult this file: if the design exists, cite the home; if it doesn't, record both the home and the inventory entry here.
 
 ## Cross-references
 

@@ -3,7 +3,7 @@
 > **Type:** Reference
 > The unifying conceptual frame for every **declared fact and process over the frame fold** in re-frame2 — subscriptions, runtime subscriptions, flows, resources, route facts, and machine selectors. Names the one vocabulary those five plural source forms lower to: declared inputs, an output fact, a storage class, an evaluation policy, and a lifecycle/owner. This is the **derivation/process analogue of [Managed-Effects.md](Managed-Effects.md) (effect surfaces) and [Runtime-Subsystems.md](Runtime-Subsystems.md) (durable-state surfaces)** — Managed-Effects names the shape every framework-owned *effect* satisfies, Runtime-Subsystems names the shape every framework-owned *durable-state subtree* satisfies, and this doc names the shape every *declared derived value or stateful process* satisfies.
 >
-> Graduated from [EP-0014](../docs/EP/EP-0014-derivation-and-process-algebra.md) (accepted 2026-06-11). **Slice-1 scope: vocabulary, the spec model, and internal registration metadata — no new public authoring or accessor primitive.** The graph-inspection contract here is the *shape* an internal accessor produces; the public name is deferred (see [§Graph inspection — internal but structured](#graph-inspection--internal-but-structured)).
+> Specified by [EP-0014](../docs/EP/EP-0014-derivation-and-process-algebra.md). **Slice-1 scope: vocabulary, the spec model, and internal registration metadata — no new public authoring or accessor primitive.** The graph-inspection contract here is the *shape* an internal accessor produces; the public name is deferred (see [§Graph inspection — internal but structured](#graph-inspection--internal-but-structured)).
 
 ## Why this doc exists
 
@@ -113,7 +113,7 @@ Inputs are written as data forms. The following are the normative vocabulary; sp
 [:timer timer-id]           ;; a scheduled trigger (process inputs)
 ```
 
-`[:db path]` reads the app-db partition; `[:runtime path]` reads the runtime-db partition. `[:frame-state path]` is **reserved for framework internals** that deliberately read across the product value; application source forms SHOULD prefer the partition-specific inputs.
+`[:db path]` reads the app-db partition; `[:runtime path]` reads the runtime-db partition. `[:frame-state path]` is **reserved for framework internals** that read across the product value; application source forms SHOULD prefer the partition-specific inputs.
 
 A declared input is either **static** (known from registration alone) or **parametric** (its realized edges require a concrete query vector, route match, resource params, or machine instance before they are known). See [§Static and live graphs](#static-and-live-graphs).
 
@@ -155,7 +155,7 @@ Rules:
 
 The storage classes align with — and do not replace — the [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) runtime-subsystem projection tiers: a `:runtime-db` output is still graded durable-serialized or local-subscribable per key by its owning subsystem's projection policy, and `:host-transient` here is the same tier EP-0006 names. `:ephemeral` values have no subsystem row because they are not durable state.
 
-> **The split (EP-0014 issue-2 disposition).** `:remote` is **not** a storage class. The EP's `§Definitions` originally listed five classes; the ruling split `:remote` into two facts: `:storage` always names the *local* representation home (one of the four above), and `:authority` is a separate axis (next section). The four-class table here is the swept result. "Remote" survives only as prose shorthand for "a fact whose authority is external"; it never names where a value is stored.
+> **`:remote` is not a storage class.** `:storage` always names the *local* representation home (one of the four above), and `:authority` is a separate axis (next section). "Remote" is only prose shorthand for "a fact whose authority is external"; it never names where a value is stored.
 
 ### Authority — the remote axis
 
@@ -311,7 +311,7 @@ The resolver's declared inputs ([016 §Named resource-scope resolvers](016-Resou
 
 Slice-1 ships **no public graph-accessor name**. It ships a *structured shape* an internal accessor produces, so [Xray](../tools/xray/spec/README.md) and the conformance fixtures can consume it from day one and the public name can be stabilized only after the shape survives real use (the *project-before-primitive* discipline applied to accessors).
 
-The shape (EP-0014 issue-1 disposition) carries:
+The shape carries:
 
 - `:mode` — `:static` or `:live`;
 - **canonical node ids** under the [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) identity rules;
@@ -409,7 +409,7 @@ apply-output-delta(derive(inputs, context),
                    step-delta(derive(inputs, context), delta-in, context))
 ```
 
-**Slice-1 states this law and ships no executable delta protocol** (EP-0014 issue-5 disposition). Whole-value derivation *is* the contract; the delta representation is deliberately deferred until a real performance use case needs it. The rule that survives now: **any mechanism that later supports deltas MUST satisfy this law.** If the delta path is absent, disabled, or rejected by conformance, whole-value derivation remains correct. The home for the law is here, cited by [006](006-ReactiveSubstrate.md) and [013](013-Flows.md); the law is about derivation *semantics*, not about any one mechanism or about inspection.
+**Slice-1 states this law and ships no executable delta protocol.** Whole-value derivation *is* the contract; the delta representation is deferred. The rule: **any mechanism that later supports deltas MUST satisfy this law.** If the delta path is absent, disabled, or rejected by conformance, whole-value derivation remains correct. The home for the law is here, cited by [006](006-ReactiveSubstrate.md) and [013](013-Flows.md); the law is about derivation *semantics*, not about any one mechanism or about inspection.
 
 ## Errors and diagnostics
 
