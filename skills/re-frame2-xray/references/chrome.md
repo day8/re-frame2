@@ -28,7 +28,7 @@ whether you're in Dynamic or Static).
   reload.** The pin is written to localStorage within a session but
   `mount.cljs/::reset-transient-filters` clears it on load, so every
   session starts at the head-frame default (per spec/007 §Frame slot
-  contract / rf2-swclw). Don't tell a user their frame choice survives a
+  contract). Don't tell a user their frame choice survives a
   refresh — it doesn't.
 - **Tool frames are hidden by default.** `:rf/xray` (and other tool frames)
   are filtered out of the picker — invariant **I1**: Xray observes ANOTHER
@@ -110,14 +110,14 @@ popup controls are:
 - **Keybindings** — a read-only chord catalogue + the master "Handle
   keys?" switch.
 
-**Density is NOT a popup control** — the density radio was removed
-(2026-05-27); density stays a config / `init!` / `configure!` concern (the
+**Density is NOT a popup control** — density is a config / `init!` /
+`configure!` concern (the
 `:general :density` slot + `:rf.xray/density` sub read the boot default).
-**Panel width is NOT a popup control** — the width numeric input + reset
-were removed; width is driven by the **drag handle** on the panel's outer
+**Panel width is NOT a popup control** — width is driven by the **drag
+handle** on the panel's outer
 edge (double-click to reset), persisted via `:general :panel-width-px`.
-(The Theme tab was removed — the ribbon theme icon is canonical;
-the Filters tab was removed — filter UI lives on the L1.5 events
+(There is no Theme tab — the ribbon theme icon is canonical;
+there is no Filters tab — filter UI lives on the L1.5 events
 ribbon.)
 
 For the layered config story: `init!` / `configure!` set the **boot-time
@@ -129,14 +129,13 @@ user-mutable override** layer. Merge order is `defaults < configure! <
 Settings`. Source
 [`settings/view.cljs`](../../../tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
 
-## Snapshot app-db (the surviving on-box share helper)
+## Snapshot app-db (the on-box share helper)
 
-The Share-URL affordance (button + modal + `share.cljs` infra) and the
-per-cascade EDN export were **removed** (2026-06-04 —
-`share.cljs` and `export/cascade.cljc` are deleted). The surviving on-box
-helper is the **Snapshot app-db** command-palette verb (`Cmd/Ctrl+K` →
+The on-box share helper is the **Snapshot app-db** command-palette verb
+(`Cmd/Ctrl+K` →
 "Snapshot app-db"): it puts the focused frame's `app-db` on the JS console +
-clipboard so a developer can capture the state they're looking at.
+clipboard so a developer can capture the state they're looking at. There is
+no Share-URL affordance and no per-cascade EDN export.
 
 **The console and the clipboard are off-box egress sinks** — the same trust
 boundary the rest of the Xray / tool egress story treats as sensitive — so
@@ -162,9 +161,6 @@ command's default. Source
 [`palette/sources.cljc`](../../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
 (`:snapshot-app-db` command).
 
-*(Status: shipped (PR #3155) — the contract above is what the path honours
-today, not an in-flight target.)*
-
 ## Wired hotkeys
 
 The same four globally/focus-gated hotkey families are catalogued in
@@ -172,7 +168,7 @@ The same four globally/focus-gated hotkey families are catalogued in
 single home for the keydown contract). In one line: `Ctrl+Shift+C` toggles
 the shell, `Cmd/Ctrl+Shift+M` toggles mode, `Cmd/Ctrl+K` opens the palette,
 and the focus-gated bare keys `Space`/`L`/`j`/`k`/`G`/`,`/`s` drive the
-spine + Settings. `Cmd/Ctrl+K` **is** wired (not struck); `Esc` is
+spine + Settings. `Cmd/Ctrl+K` **is** wired; `Esc` is
 modal-local, not a wired spine key; there are no wired `r`/`R`/`*` rewind
 keys. Source of truth
 [`keybinding.cljs`](../../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs).

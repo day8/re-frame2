@@ -493,7 +493,7 @@
   Rendered DOM text / attribute values that sit AT a classified path within
   `tree` redact; values RE-KEYED to a non-app-db position the path walker can
   never reach ship RAW. The framework boundary `re-frame.core/project-egress`
-  — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — walks
+  — the `:rf.observe/derived-tree` record kind (EP-0025 B4) — walks
   the tree through `elide-wire-value` against the frame's classification (the
   SAME per-frame registry the `:app-db` path walker reads: frame- /
   EP-0025-commit-plane-effect- / flow-sourced declarations, unioned).
@@ -2326,8 +2326,8 @@
 (defn- redact-sensitive-event-vector
   "Egress guard for the cascade-summary `:event-vector` slot — the
   fail-closed projection the framework's `projected-record` applies to a
-  record's `:trigger-event` slot (rf2-nm611o,
-  `epoch/tool_pair.cljc` §`elide-trigger-event-slot`), reproduced here
+  record's `:trigger-event` slot (`epoch/tool_pair.cljc`
+  §`elide-trigger-event-slot`), reproduced here
   because the cascade-summary rides OUTSIDE the wire-path projection.
 
   The `:event-vector` slot copies the epoch's RAW `:trigger-event` — the
@@ -2341,7 +2341,7 @@
   declared `:rf.epoch/sensitive?`: the old guard keyed redaction to the
   `:rf.epoch/sensitive?` rollup ALONE, so a NON-declared trigger-event
   (`[:login \"topsecret\"]` with no declared-sensitive db slot) leaked
-  the password off-box (rf2-6klf02). `cascade-summary` is the ONE place
+  the password off-box. `cascade-summary` is the ONE place
   the trigger-event leaves the runtime, and the consuming MCP tools
   (`restore-epoch` passes the runtime map through verbatim;
   `dispatch-dry-run` deliberately does NOT walk `:cascade-summary`,
@@ -2423,7 +2423,7 @@
         ;; epoch — the event args are registration-owned transient
         ;; payloads the app-db classification walker cannot prove safe,
         ;; so a secret carried IN the vector redacts whether or not the
-        ;; epoch is declared sensitive (rf2-nm611o / rf2-6klf02). Raw only
+        ;; epoch is declared sensitive. Raw only
         ;; on the operator's `--allow-sensitive-reads` opt-in. See
         ;; `redact-sensitive-event-vector`.
         trigger-event (assoc :event-vector

@@ -25,7 +25,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 
 ## Canonical declaration (state-machine form)
 
-`make-machine-handler` lives on `re-frame.machines` (`(:require [re-frame.machines :as machines])`) — it is no longer re-exported from `re-frame.core` (front-porch shrink). The `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.
+`make-machine-handler` lives on `re-frame.machines` (`(:require [re-frame.machines :as machines])`) — it is not on the `re-frame.core` façade. The `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.
 
 ```clojure
 (rf/reg-event :app/boot

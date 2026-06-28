@@ -33,7 +33,7 @@ A `reg-event` handler returns a **closed-shape** map — the next state and what
       ...]}
 ```
 
-Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after the state partitions commit (`fx.cljc:4-9`). Any top-level key **outside** the closed set — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`police-effect-map-shape!` + `closed-effect-map-keys` in `events.cljc`). v2 deliberately removed v1's auto-routed top-level effect keys.
+Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after the state partitions commit (`fx.cljc:4-9`). Any top-level key **outside** the closed set — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`police-effect-map-shape!` + `closed-effect-map-keys` in `events.cljc`). There are no auto-routed top-level effect keys; every effect rides `:fx` (or the closed set).
 
 **`:rf.db/runtime` is the one new state-bearing key (EP-0001).** Ordinary app handlers write app data via `:db` and almost never touch it — it targets the runtime-db partition (machine snapshots, route slice, SSR metadata) and is reserved **by convention** for framework-authority writers (SSR hydrate, machines, routing, flows). It is **not** a shape error: a non-framework handler that emits it gets the `:rf.warning/app-handler-runtime-effect` dev diagnostic (it is not dropped). Don't flag a framework/SSR/machine handler's legitimate `:rf.db/runtime` write as illegal.
 

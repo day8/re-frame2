@@ -2,7 +2,7 @@
 
 ## When to load
 
-Authoring `reg-sub`: a layer-1 reader of `app-db`, a layer-2/3 derived sub composed from other subs (static `:<-` inputs), or a parametric sub whose inputs depend on the query vector (the EP-0004 input fn — the v2 replacement for the v1 "signal fn").
+Authoring `reg-sub`: a layer-1 reader of `app-db`, a layer-2/3 derived sub composed from other subs (static `:<-` inputs), or a parametric sub whose inputs depend on the query vector (the EP-0004 input fn).
 
 ## Canonical signature
 
@@ -31,9 +31,9 @@ Authoring `reg-sub`: a layer-1 reader of `app-db`, a layer-2/3 derived sub compo
 (rf/reg-sub :id {:doc "..." :schema ...} <chain> handler)
 ```
 
-Verified in `implementation/core/src/re_frame/subs.cljc` (the `reg-sub` fn and the `parse-reg-sub-args` helper). There is **one** registration form in v2 — `reg-sub-raw` is removed.
+Verified in `implementation/core/src/re_frame/subs.cljc` (the `reg-sub` fn and the `parse-reg-sub-args` helper). There is **one** registration form — there is no `reg-sub-raw`.
 
-**The parametric input fn (EP-0004) is the v2 replacement for v1's "signal fn".** When the inputs depend on the query vector (e.g. an entity id rides in `[:my-sub id]`), prefer `:<-` only for *static* inputs; for query-dependent inputs supply a two-arg `reg-sub` whose **first fn is an input fn** taking the query vector and returning a **vector of query vectors** (plain data — `[[:other arg] [:another]]`). The runtime resolves each in the **outer sub's frame** and hands the compute fn the resolved values, in the same order, as a vector. Three breaks from the v1 signal fn: the input fn (a) takes **only** the query vector (no second arg); (b) returns **query vectors, not** `rf/subscribe` reactions; (c) the compute fn destructures the **input vector** (`[[other another] _]`), not scalars. A v1 signal fn that returns live reactions registers cleanly but throws `:rf.error/sub-input-fn-bad-return` at first materialization.
+**Query-dependent inputs use the parametric input fn (EP-0004).** When the inputs depend on the query vector (e.g. an entity id rides in `[:my-sub id]`), prefer `:<-` only for *static* inputs; for query-dependent inputs supply a two-arg `reg-sub` whose **first fn is an input fn** taking the query vector and returning a **vector of query vectors** (plain data — `[[:other arg] [:another]]`). The runtime resolves each in the **outer sub's frame** and hands the compute fn the resolved values, in the same order, as a vector. If you carry v1 "signal fn" habits, note three differences: the input fn (a) takes **only** the query vector (no second arg); (b) returns **query vectors, not** `rf/subscribe` reactions; (c) the compute fn destructures the **input vector** (`[[other another] _]`), not scalars. An input fn that returns live reactions registers cleanly but throws `:rf.error/sub-input-fn-bad-return` at first materialization.
 
 Lookup is via `rf/subscribe`:
 
@@ -75,7 +75,7 @@ A layer-1 sub touches `app-db` and recomputes when the value it reads changes by
 
 ## Cache behaviour
 
-Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-counting (dispose on derefer-count → 0)** (`subs/cache.cljc`). When the last subscriber drops, the cache entry is evicted in-tick: the reaction is disposed, the on-dispose cascade releases input ref-counts, and the slot is dissoc'd. A subscribe arriving after the disposal is treated as a fresh cache miss (the recomputed value `=` the disposed one). This is the **only** disposal algorithm — v1's `:safe` / `:no-cache` / `:reactive` / `:forever` lifecycles are gone, and v2 carries no deferred-grace-period timer either.
+Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-counting (dispose on derefer-count → 0)** (`subs/cache.cljc`). When the last subscriber drops, the cache entry is evicted in-tick: the reaction is disposed, the on-dispose cascade releases input ref-counts, and the slot is dissoc'd. A subscribe arriving after the disposal is treated as a fresh cache miss (the recomputed value `=` the disposed one). This is the **only** disposal algorithm — there are no `:safe` / `:no-cache` / `:reactive` / `:forever` lifecycle options, and no deferred-grace-period timer.
 
 ## Common gotchas
 

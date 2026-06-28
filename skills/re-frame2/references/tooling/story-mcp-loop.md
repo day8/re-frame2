@@ -72,7 +72,7 @@ The agent reports the registered body + preview result back, and names the run-s
 ## Gates and prerequisites (authoring side)
 
 - **Write surface is gated.** `register-variant` / `unregister-variant` require `re-frame.story-mcp.config/allow-writes?` truthy — set via `--allow-writes` flag, `RF_STORY_MCP_ALLOW_WRITES=true` env, or `-Drf.story-mcp.allow-writes=true` JVM property. Without it, authoring is read-only (`preview-variant` + the enumerations still work against existing variants).
-- **`register-variant`'s parent story must already exist.** v1.1 omits `register-story` deliberately. The agent fails into a documented error when the `:story.<path>` parent isn't registered; the user lands the parent inline.
+- **`register-variant`'s parent story must already exist.** There is no `register-story` tool. The agent fails into a documented error when the `:story.<path>` parent isn't registered; the user lands the parent inline.
 - **Source-coord stamping survives MCP registration.** `register-variant` stamps `{:file <agent-supplied> :line <n>}` if provided in the body; without it, `:source` is omitted and downstream failure records carry no jump-to-line affordance. Agents that want clickable failures (on the run side) supply `:source` from the file they'll write the variant back into.
 
 ## Common gotchas

@@ -8,7 +8,7 @@ Authoring `reg-flow` / `clear-flow`, or deciding whether a derived value should 
 
 ## Mental-model anchor
 
-re-frame2 flows are the v2 incarnation of **re-frame v1's `on-changes` interceptor** — same compute-on-input-change semantics. Two deliberate differences map cleanly:
+re-frame2 flows carry the **same compute-on-input-change semantics as re-frame v1's `on-changes` interceptor**. If you know `on-changes`, two differences map cleanly:
 
 | v1 `on-changes` | re-frame2 flow |
 |---|---|
@@ -49,7 +49,7 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
 (flows/clear-flow :rectangle/area {:frame :scratch})
 ```
 
-`:inputs` order matches the positional args to `:derive`. `reg-flow` returns the flow's `:id` (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`); the `clear-flow` **lifecycle helper** lives on `re-frame.flows` — it is no longer re-exported from `re-frame.core` (front-porch shrink).
+`:inputs` order matches the positional args to `:derive`. `reg-flow` returns the flow's `:id` (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`); the `clear-flow` **lifecycle helper** lives on `re-frame.flows` — it is not on the `re-frame.core` façade.
 
 ## Input partition — bare = app-db, `[:rf.db/runtime …]` = runtime-db
 
@@ -65,7 +65,7 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 **Any** flow (user or framework) may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :route-id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:output-path` and its `:derive` always write **app-db only** — a flow never writes runtime-db. A runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the dirty-check keys on both partitions.
 
-Never read a retired `[:rf.runtime/…]` *app-db* path — runtime state never lived in app-db under that scheme; the shipped syntax is the `[:rf.db/runtime …]` partition-qualified input above.
+Never read a `[:rf.runtime/…]` *app-db* path — there is no such path; runtime state is not in app-db. The syntax is the `[:rf.db/runtime …]` partition-qualified input above.
 
 ## Canonical mini-example
 

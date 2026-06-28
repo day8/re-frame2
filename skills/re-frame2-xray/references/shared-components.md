@@ -49,8 +49,8 @@ the component is pure (no global keydown listener), and `keybinding.cljs`
 wires **no** `ArrowLeft` / `ArrowRight` spine handler. Do not document
 arrow-key navigation until `keybinding.cljs` actually implements it.
 
-Per-panel stretch filters (e.g. "next epoch with ⚠" — now driven off the
-issues-ribbon signal rather than an Issues tab — "next route activity"
+Per-panel stretch filters (e.g. "next epoch with ⚠" — driven off the
+issues-ribbon signal — "next route activity"
 for Routes, "next epoch that touched THIS machine" for the Machine tab)
 slot into the header's filter slot.
 
@@ -93,14 +93,15 @@ slot; **Resources** `:order 7`, **Graph** `:order 8`, and **Modules**
 `:order 9` are the three cross-feature lenses, each self-registered
 through `reg-l4-tab!`; the **Modules** and **Graph** tabs are L4-only —
 focusable, no standalone mount facade). There is **no Issues tab** and
-**no Event tab** (replaced by Epoch) — issues surface inline in the Epoch
+**no Event tab** — the Epoch tab is the "what happened" surface, and issues
+surface inline in the Epoch
 cascade, the L2 pink-wash, and the issues-ribbon signal.
 
 L2 row badges (live impl `l2_timeline.cljc`): `⚠` issue · `◆` machine
 transition · `🌐` HTTP activity · `⚡` fx-emit child dispatch · `⏲` timer
 dispatch. **L2 issue pink-wash**: a cascade carrying an issue
 washes its whole L2 row pink (`:bg-issue-row`) — the per-row "this epoch
-is broken" signal that replaced the dedicated Issues tab.
+is broken" signal. There is no dedicated Issues tab.
 
 Cross-panel arrows: `⤴` jump-to-panel from popover (`:accent-violet`,
 12px) · `↳` cause-attribution chip (`:text-tertiary`, 11px) · `→`

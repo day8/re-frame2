@@ -4,7 +4,7 @@
 
 ## Mental model: think in Storybook, map onto Story
 
-**Standing advice for all Story work: think about how you'd do it in Storybook JS, then map those ideas onto Story.** Storybook is the widely-known component-playground mental model and it's in your training data — sketch the shape there first ("which story, which args, which controls, which play step?"), then translate to re-frame2's `reg-*` declarations. The primitives line up cleanly, with a few deliberate divergences that are themselves the interesting part.
+**Standing advice for all Story work: think about how you'd do it in Storybook JS, then map those ideas onto Story.** Storybook is the widely-known component-playground mental model and it's in your training data — sketch the shape there first ("which story, which args, which controls, which play step?"), then translate to re-frame2's `reg-*` declarations. The primitives line up cleanly, with a few divergences that are themselves the interesting part.
 
 | Storybook concept | Story equivalent | Notes |
 |---|---|---|
@@ -16,11 +16,11 @@
 | **decorators** (project / component / story) | `reg-decorator` + `:decorators` | Three kinds — `:hiccup` (wrapper), `:frame-setup` (seed app-db / fire init events), `:fx-override` (stub an fx). Project-wide decorators go in the one-arg map `configure!` under `{:rf.story/global-decorators […]}` — the `preview.ts` `decorators: […]` parity. Compose order is global → story → variant, same as Storybook. |
 | **globals / globalTypes toolbar** (theme · viewport · locale · backgrounds) **+ Chromatic Modes** | `reg-mode` (saved arg tuples) | One primitive collapses all four Storybook toolbar addons. `(reg-mode :Mode.theme/dark {:axis :theme :args {:theme :dark}})` is the theme switcher; `:viewport` / `:locale` / `:background` axes cover the rest. Each `(variant × mode)` cell is independently snapshot-able — that's the Chromatic-Modes combinatorial-matrix idea, native. |
 | **tags** (`autodocs` / `test` / `dev`, `!`-removal) | `:tags` + `reg-tag` | Same inclusion-and-filter role; same `!`-prefix removal (`:!dev` drops an inherited tag). The seven canonical tags auto-register. |
-| **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:script` | EDN out, not Testing-Library code — no DOM-event translation layer. (The codegen emits the PUBLIC `:script` slot directly; the registrar still lowers `:play-script` if hand-written, but the recorder no longer emits it.) See `story-recorder.md`. |
+| **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:script` | EDN out, not Testing-Library code — no DOM-event translation layer. (The codegen emits the PUBLIC `:script` slot directly; the registrar still lowers `:play-script` if hand-written.) See `story-recorder.md`. |
 
-**Where Story deliberately has NO Storybook equivalent (read these as the payoff, not a gap):**
+**Where Story has NO Storybook equivalent (read these as the payoff, not a gap):**
 
-- **CSF itself / the default-export + named-export file format.** Story is EDN-first: the seven `reg-*` macros, pure data, no `:render` fn-slot. The combined Form-B `(reg-story id {:variants {…}})` is the closest *shape* to CSF's default-export-plus-named-exports, but a variant body round-trips as data (over the wire, into the MCP pipeline, to a visual-regression server) in a way CSF's inline-JSX bodies cannot. This restriction is the design centre, not a missing feature.
+- **CSF itself / the default-export + named-export file format.** Story is EDN-first: the seven `reg-*` macros, pure data, no `:render` fn-slot. The combined Form-B `(reg-story id {:variants {…}})` is the closest *shape* to CSF's default-export-plus-named-exports, but a variant body round-trips as data (over the wire, into the MCP pipeline, to a visual-regression server) in a way CSF's inline-JSX bodies cannot.
 - **The render fn / `useArgs()` / `useState()`** — and the hooks-inside-stories re-render gotcha that comes with them. Every variant IS its own re-frame frame with its own `app-db`; stateful stories are the default, driven by `:setup` (preconditions) and `:script` (post-render behaviour) and read with subs. No render fn means no place for a hook to break.
 - **A first-party visual-regression service** (Chromatic / Percy). Story ships the `snapshot-identity` hook for downstream services to consume; it is not in the pixel-capture/baseline-storage business.
 
@@ -185,7 +185,7 @@ The dev shell's Test pane and recorder ship ergonomic affordances that consume w
 - Worked example, every macro at least once → `tools/story/testbeds/counter_with_stories/`.
 - The seven `:rf.assert/*` events, semantics + source-stamping → `SKILL-REDIRECT.md` → *EP — Stories (007)* §Assertions.
 - Render shell, panel placement, multi-substrate pane → `tools/story/spec/003-Render-Shell.md` §UI shell substrate, §Workspace layouts, §Multi-substrate side-by-side rendering.
-- Test Codegen (record canvas interactions into a `:script` body; the codegen emits the PUBLIC `:script` slot — the recorder no longer emits the transitional `:play-script` spelling) → `story-recorder.md` (sibling leaf).
+- Test Codegen (record canvas interactions into a `:script` body; the codegen emits the PUBLIC `:script` slot) → `story-recorder.md` (sibling leaf).
 - Story-MCP author/refine side (write/preview/read-back a variant body with the tools this skill owns) + the handoff to `re-frame2-pair` for the run/self-heal loop (`run-variant` → assert → `read-failures` → refine) → `story-mcp-loop.md` (sibling leaf).
 - MCP write surface (programmatic registration via `reg-*` helpers) → `SKILL-REDIRECT.md` → *EP — Stories (007)* §MCP Surface.
 

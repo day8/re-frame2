@@ -42,8 +42,6 @@ Tiny apps that don't carve into features (counter, login) collapse to a single `
 
 In a consumer app, tests live in a sibling `test/` directory rooted at the same namespace. Each `src/myapp/foo.cljs` has a peer `test/myapp/foo_test.cljs` (the `_test` suffix is the convention; the test ns matches — `(ns myapp.foo-test ...)`). A `test_helpers.cljs` at the root owns shared fixture helpers (canned-stub wrappers, frame builders); per-test files require it as `[myapp.test-helpers :as th]`.
 
-(This dev repo's own `examples/` tree is deliberately *test-free* — the examples' headless fixtures live in the framework test tree. A repo-internal convention; a normal consumer app keeps the sibling `test/` tree above.)
-
 ## Stories — co-located with the feature
 
 Stories ship in the same `src/myapp/` tree as the code they exercise, in `<feature>_stories.cljs` (or a `stories/` subdirectory when many share a feature). The ns is `<app>.stories.<feature>` or `<app>.<feature>.stories` (`tools/story/spec/001-Authoring.md:228-230`) — either works as long as the path tracks the ns. The stories file requires its feature's events / subs / views so registrations fire before the variant bodies are read (`tools/story/testbeds/counter_with_stories/stories.cljs:1-40`).

@@ -23,7 +23,7 @@ Greppable signals — flag when **any** match AND no production gate is wired:
 - A handler bound to `:*/loaded`, `:*/received`, `:*/decoded`, `:*/synced`, `:*/rehydrated`, `:*/restored` whose `:db` write is `(assoc db :foo/bar payload)` where `payload` originated outside the application's own dispatches.
 - An unstructured second arg — `(fn [{:keys [db]} [_ data]] {:db (assoc db :remote data)})` — where `data` is the raw boundary payload.
 - A handler that reads `js/window.location.search`, `js/localStorage`, `js/sessionStorage`, `js/postMessage`, or IndexedDB results in its body (often via fx) and writes the result to `app-db`.
-- New handlers whose `app-db` writes use paths absent from `(re-frame.schemas/app-schemas)` (the `app-schemas` query lives on `re-frame.schemas` — no longer re-exported from `re-frame.core`).
+- New handlers whose `app-db` writes use paths absent from `(re-frame.schemas/app-schemas)` (the `app-schemas` query lives on `re-frame.schemas`, not `re-frame.core`).
 
 Structural signal: the boundary between **untrusted input** and **trusted `app-db`** is crossed without a Malli schema gate **that runs in production**.
 

@@ -8,7 +8,7 @@
 2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 9 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules) and the 5 Static registry-browse tabs. The **Graph** tab is Xray's UI over the EP-0014 derivation/process graph; the **Modules** tab (rendered in the tab bar as **Frames**) is its EP-0023 `image -> frame -> event stream` lens (which image loaded which frame, how a frame resolves its registrations — no realm / app / module browse dimension; an L4-only tab — focusable, no standalone mount facade). The underlying graph accessor stays internal (no `re-frame.core` facade export).
 3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
 
-Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
+Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope — see `SKILL.md` §Out of scope for what to do when one of those comes up.
 
 ## What Xray is
 
@@ -20,7 +20,7 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 
 - `SKILL.md` — the compact tour/router (launch quick-reference, mode/tab chooser, chrome one-liners, and the leaf-loading guide)
 - `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, the `open-overlay!` no-layout-host fallback, pop-out lifecycle, wired hotkeys)
-- `references/panels.md` — the full tab tour in depth (9 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance, the retired-panel content-home mapping)
+- `references/panels.md` — the full tab tour in depth (9 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance, the panel → content-home mapping for surfaces that are not their own tab)
 - `references/chrome.md` — the first-screen chrome inventory in depth (LIVE/RETRO, time-travel rewind, filter pills, command-palette sources, the Settings-popup tabs, the Snapshot app-db redaction contract)
 - `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
 - `evals/evals.json` — eval fixtures (trigger accuracy + answer-quality assertions for the high-drift launch / chrome / tab-routing prompts)
@@ -40,7 +40,7 @@ This skill does **not** depend on or reference `re-frame-10x` — Xray is its st
 
 Pre-alpha. Some tabs are partial: the Machines tab renders through the shared xyflow styling under `panels/machines/` (still stabilising); Schemas / Hydration only render when the relevant feature is wired into the host; the Static Machines Sim engine is still stabilising. The Static catalogues themselves are full registry browsers, not stubs. The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
 
-A future `re-frame2-xray-implementor` sibling skill is deferred to post-alpha until the Xray surface stabilises.
+There is no `re-frame2-xray-implementor` sibling skill; for implementing Xray itself, the spec is the answer.
 
 ## Install
 

@@ -23,8 +23,8 @@ description: >
  **Do not use** for: driving Xray
  programmatically from a live REPL (that's `re-frame2-pair`), authoring
  the host app (`re-frame2`), bootstrapping a new project
- (`re-frame2-setup`), or implementing Xray itself (no skill yet — the
- `xray-implementor` sibling is deferred to post-alpha). This skill cites
+ (`re-frame2-setup`), or implementing Xray itself (no implementor skill
+ exists). This skill cites
  `tools/xray/spec/*` as the source of truth; where a spec doc has
  an open question, hedge with "see spec/0NN" rather than freezing
  prose.
@@ -75,8 +75,8 @@ This skill answers three questions, and only three:
  filter-pill cluster, the command palette, the Settings popup.
 
 Deep workflow recipes (find-wrong-sub, redaction-marker grammar,
-click-to-source / open-in-editor internals) are **out of scope** this
-iteration — see *Out of scope* below.
+click-to-source / open-in-editor internals) are **out of scope** —
+see *Out of scope* below.
 
 ### Which reference leaf to load
 
@@ -193,7 +193,8 @@ catalogues a richer map; these are what is actually wired:
 | `Cmd/Ctrl+K` | global | Open the command palette (`:rf.xray/palette-toggle`); opens the shell first if hidden. |
 | `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts — fire only when the shell is visible and focused (non-editable, non-modal). Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event · `G` = fast-forward to head · `,`/`s` = Settings popup. |
 
-`Cmd/Ctrl+K` **is** wired — do not say it was struck. `Esc` is modal-local,
+`Cmd/Ctrl+K` **is** wired — don't tell users the K-binding is unavailable.
+`Esc` is modal-local,
 not a wired spine key. The **pop-out has no hotkey** — its canonical path is
 the visible **`⛶` pop-out button** (above), with `(xray/popout!)` as the
 secondary programmatic path. Source of truth:
@@ -224,15 +225,14 @@ cross-epoch signal lives on the L2 timeline above (badges + stripes). To
 browse a machine's full topology cold (spine-INDEPENDENT — picker + zoom /
 pan / fit), flip to **Static mode** and open its Machines tab.
 
-There is **no Issues tab** — Mike ruled it out (Option
-(c), 2026-05-31; `panels/issues_ribbon.cljs` deleted). Issues now surface
+There is **no Issues tab**. Issues surface
 inline (see *Where issues surface now* below).
 
 | Tab | Mnem · Icon · Stripe | One-line purpose | When you'd open it |
 |---|---|---|---|
-| **Epoch** *(hero, default landing · `:order -1`)* | `e` · `⚡` · violet | The focused dispatch's full computational timeline as a **numbered vertical cascade**: DISPATCH → COEFFECT(s) → INTERCEPTOR (conditional) → EVENT HANDLER → FLOW(s) → EFFECT HANDLERS → SUBSCRIPTIONS → VIEWS (the rendered step labels, per `epoch/badge.cljc`). Only present steps render; each step carries a per-step ✓ / ✗ / ⊘ status glyph; exceptions render UNDER the step where they occurred. Supersedes the retired Event panel. | Default landing view. "What did this event do?" / "What fx fired?" / "Where did the cascade fail?" / "Did the flow recompute?" |
-| **app-db** | `a` · `◐` · cyan | Sectioned-by-reserved-area: APP STATE (db minus `:rf/*` reserved keys) + one section per machine + per spawned instance + ROUTE + SYSTEM-IDS + PENDING-NAVIGATION + ELISION; each section is a collapsible lazy-tree inspector widget with diff annotations **inline** (`← was X`). Hover any changed path for the downstream-subs popover. (Display label is lowercase **app-db** to match the library's app-db naming; internal tab id `:app-db`.) | "What just changed in app-db?" / "What's downstream of `[:cart :items]`?" |
-| **Views** | `v` · `◉` · cyan | The reactive cascade as a depth-first DAG: subs recomputed (SUBSCRIPTIONS) + views re-rendered (VIEWS) with **render-cause chips** on every re-render leaf — `← :sub-id` when a deref'd sub changed value, `← props` when none of the view's own subs changed (the props channel); a first mount carries no cause. (Display label is **Views** — the all-plural-domain-noun convention, Mike-direction 2026-05-21, after a `Reactive → View → Views` rename chain; the internal tab id stays `:views`.) | "Why didn't my view update?" / "Why did this view re-render?" / "Was it a sub or props?" / "Which views re-rendered this epoch?" |
+| **Epoch** *(hero, default landing · `:order -1`)* | `e` · `⚡` · violet | The focused dispatch's full computational timeline as a **numbered vertical cascade**: DISPATCH → COEFFECT(s) → INTERCEPTOR (conditional) → EVENT HANDLER → FLOW(s) → EFFECT HANDLERS → SUBSCRIPTIONS → VIEWS (the rendered step labels, per `epoch/badge.cljc`). Only present steps render; each step carries a per-step ✓ / ✗ / ⊘ status glyph; exceptions render UNDER the step where they occurred. | Default landing view. "What did this event do?" / "What fx fired?" / "Where did the cascade fail?" / "Did the flow recompute?" |
+| **app-db** | `a` · `◐` · cyan | Sectioned-by-reserved-area: APP STATE (db minus `:rf/*` reserved keys) + one section per machine + per spawned instance + ROUTE + SYSTEM-IDS + PENDING-NAVIGATION + ELISION; each section is a collapsible lazy-tree inspector widget with diff annotations **inline** (`← was X`). Hover any changed path for the downstream-subs popover. (Display label is lowercase **app-db**; internal tab id `:app-db`.) | "What just changed in app-db?" / "What's downstream of `[:cart :items]`?" |
+| **Views** | `v` · `◉` · cyan | The reactive cascade as a depth-first DAG: subs recomputed (SUBSCRIPTIONS) + views re-rendered (VIEWS) with **render-cause chips** on every re-render leaf — `← :sub-id` when a deref'd sub changed value, `← props` when none of the view's own subs changed (the props channel); a first mount carries no cause. (Display label is **Views**; the internal tab id is `:views`.) | "Why didn't my view update?" / "Why did this view re-render?" / "Was it a sub or props?" / "Which views re-rendered this epoch?" |
 | **Trace** | `t` · `⬢` · orange | Raw Spec 009 trace events for the focused epoch — a single **flat oldest-first row list** (no bands/envelope), each row carrying a **stage column** (DISPATCH·COEFFECT·HANDLER·FLOW·SIDE EFFECTS·SUBSCRIPTIONS·VIEWS) + a **colour-coded left edge** reusing the Epoch badge taxonomy; the focused epoch IS the scope (no filter chips), click any row to expand its payload inline. | "Show me every raw op in this epoch." / "Is `:rf.fx/*` firing as expected?" |
 | **Machine** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation cascade for the focused event. BLANK when the focused event had no machine activity; per-machine prev/next walks the spine. (Display label is singular **Machine** — the focused-epoch lens is on one machine; internal tab id `:machines`.) To browse a machine's full topology cold (picker + zoom / pan / fit, spine-INDEPENDENT), use **Static mode**'s Machines tab. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event overlay markers `◉ TO` (destination) / `◇ FROM` (origin); the current matched route is marked `◀ current` (folded into the row highlight, not a painted glyph). Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
@@ -262,8 +262,8 @@ Two Graph-tab caveats (stated in full in their owning home,
  truth", never as app-db/runtime-db placement.
 - **The underlying graph accessor is internal, not a public API.** The tab
  consumes EP-0014's internal `re-frame.derivation.graph` composer — not a
- `re-frame.core` facade export, no public accessor name (deferred until a
- third consumer needs it). Tell users to **open the Graph tab**; do **not**
+ `re-frame.core` facade export, with no public accessor name. Tell users to
+ **open the Graph tab**; do **not**
  tell them to call a public graph API from app code.
 
 > **Modules + Graph are L4-only registry tabs.** Both `:module-view`
@@ -276,11 +276,9 @@ Two Graph-tab caveats (stated in full in their owning home,
 
 #### Where issues surface now (no Issues tab)
 
-The dedicated Issues TAB was ruled out (Option (c), 2026-05-31):
-`panels/issues_ribbon.cljs` + its aggregate panel deleted, the
-session-wide triage list dropped. Issues now surface through **three**
-always-on inline channels (per `panels/issues_ribbon_helpers.cljc`, the
-surviving `.cljc` algebra):
+There is **no dedicated Issues tab** and no session-wide triage list.
+Issues surface through **three** always-on inline channels (the algebra
+lives in `panels/issues_ribbon_helpers.cljc`):
 
 - **Inline in the Epoch cascade** — per-step ✓ / ✗ status glyphs, and the
  shared **"Exception Thrown"** card rendered under the step where the
@@ -295,8 +293,7 @@ surviving `.cljc` algebra):
 So "where are the errors?" routes to the **Epoch tab** (this epoch) + the
 **L2 wash** (which epochs) — not a tab.
 
-> **Note — there is no Chrome A11y tab either.** Earlier drafts of this
-> skill listed a "Chrome A11y" Dynamic tab. It no longer exists — a11y
+> **Note — there is no Chrome A11y tab either.** A11y
 > dogfooding is Story's domain (`re-frame.story.ui.chrome-a11y`). Do not
 > route a11y questions to a Xray tab.
 
@@ -327,11 +324,11 @@ When a user asks "where do I see **all** my registered machines / routes /
 schemas / flows / interceptors?" the answer is **Static mode** — Dynamic
 tabs only ever show the focused event.
 
-### Retired pre-rebuild panels — where their content lives now
+### Where familiar panels' content lives (these are not separate tabs)
 
-Several pre-rebuild panels (Subscriptions, Effects, Flows, Performance,
-Schemas, Hydration, and the old standalone Issues tab) are **not** separate
-Dynamic tabs. The four high-drift routes worth keeping in the body:
+Subscriptions, Effects, Flows, Performance, Schemas, Hydration, and Issues
+are **not** separate Dynamic tabs. The four high-drift routes worth keeping
+in the body:
 
 - **Schemas** (violations) → **Epoch** inline + the L2 pink-wash; the
   *registry* catalogue → **Static → Schemas**.
@@ -340,7 +337,7 @@ Dynamic tabs. The four high-drift routes worth keeping in the body:
 - **Flows** → **Epoch** FLOW step; the registry → **Static → Flows**.
 - **Effects** (`fx`) → **Epoch** EFFECT HANDLERS step + **Trace** raw ops.
 
-For the full retired-panel → content-home mapping (Subscriptions,
+For the full panel → content-home mapping (Subscriptions,
 Performance, the rest), see
 [`references/panels.md` §What's deliberately NOT here](references/panels.md#whats-deliberately-not-here)
 (the single maintained home; + spec/021 §15). The hero on first open is
@@ -392,16 +389,17 @@ the one-liner.
  density is a boot/`configure!` concern; width is the drag handle. Merge
  order is `defaults < configure! < Settings`. (chrome.md §Settings popup —
  for the per-tab control inventory + the layered-config story.)
-- **Snapshot app-db (the on-box share helper).** Share-URL + EDN export were
- removed; the surviving helper is the **Snapshot app-db**
+- **Snapshot app-db (the on-box share helper).** The on-box share helper is
+ the **Snapshot app-db**
  palette verb — and it is **redacted by default** (sensitive ⇒
  `:rf/redacted`, large ⇒ `:rf.size/large-elided`, via
- `runtime/egress-value`). Do **not** present it as a raw-`app-db` /
+ `runtime/egress-value`). There is no Share-URL or EDN-export affordance; do
+ **not** present Snapshot app-db as a raw-`app-db` /
  secret-egress path. (chrome.md §Snapshot app-db — for the egress contract.)
 
 ---
 
-## Out of scope (this iteration)
+## Out of scope
 
 For the following, this skill does not have the answer — point at the spec
 doc or pair-tool surface, don't improvise.
@@ -410,8 +408,8 @@ doc or pair-tool surface, don't improvise.
  grammar, click-to-source / "open in editor" internals, pop-out lifecycle
  gotchas, branch-and-explore). Source of truth:
  [`tools/xray/spec/007-UX-IA.md`](../../tools/xray/spec/007-UX-IA.md)
- and the per-panel specs (`tools/xray/spec/00N-*.md`). A future
- iteration may codify these as recipes; today the spec is the answer.
+ and the per-panel specs (`tools/xray/spec/00N-*.md`) — the spec is the
+ answer.
  (First-screen chrome — time-travel inspect / `Reset`-rewind, filter
  pills, the command palette, Settings — is **in scope**: §The chrome
  around the tabs above is the router; load
@@ -424,8 +422,8 @@ doc or pair-tool surface, don't improvise.
  internals, `frame-provider {:frame :rf/xray}` isolation, the epoch pump's contract).
  Source of truth:
  [`tools/xray/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/xray/spec/011-Launch-Modes.md)
- and the per-panel implementation specs. A `xray-implementor` sibling
- skill is **deferred to post-alpha** until the Xray surface stabilises.
+ and the per-panel implementation specs. There is no Xray-implementor
+ skill — the spec is the answer.
 - **Deep derivation-graph workflow recipes** (reading large cross-family
  graphs, the static↔live diffing workflow, the off-box egress/redaction
  grammar). The **Graph** Dynamic tab itself is **in scope** (it ships;
@@ -457,7 +455,7 @@ doc or pair-tool surface, don't improvise.
  `Cmd/Ctrl+K` palette, focus-gated `Space`/`L`/`j`/`k`/`G`/`,`/`s`.
  Guardrails: **no** `Ctrl+Shift+/`; **no** wired `r`/`R`/`*` rewind/pin
  keys (spec-only — the `Reset` button is the live rewind); `Esc` is
- modal-local, not a wired spine key; `Cmd/Ctrl+K` was **not** struck.
+ modal-local, not a wired spine key; `Cmd/Ctrl+K` **is** wired (palette).
  Everything else in
  [`spec/007-UX-IA.md` §Keyboard](../../tools/xray/spec/007-UX-IA.md#keyboard)
  is normative for the future, not what works in your build now. Cite

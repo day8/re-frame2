@@ -33,7 +33,7 @@ Classification attaches to **whoever owns the data's shape**, and you always cla
 
 Hold this one line in your head: *durable app-db → classification effects from the writing event; subsystem instance data → projection-relative declaration on the subsystem; transient payloads → registration metadata.* Three owners, three surfaces, no overlap, and **each classifies a path it owns** — the same secret crossing two surfaces (an HTTP reply *and* its durable app-db copy) is two declarations, because there is no propagation between them.
 
-**`:sensitive` (no `?`) vs `:sensitive?` (with `?`) is deliberate.** `:sensitive` names a *collection of paths* (a set → plural, bare) — the classification effects, registration marks, subsystem declaration. `:sensitive?` answers a *yes/no question about one schema slot* (boolean → predicate `?`) and survives **only** for a schema's validation-failure-trace redaction and the schema-owned *transient* products (HTTP `:decode` body, resource params). Same for `:large` / `:large?`. There is no `:sensitive false` and no declassification key, because nothing propagates (see [no propagation](#no-propagation-no-taint)).
+**`:sensitive` (no `?`) vs `:sensitive?` (with `?`).** `:sensitive` names a *collection of paths* (a set → plural, bare) — the classification effects, registration marks, subsystem declaration. `:sensitive?` answers a *yes/no question about one schema slot* (boolean → predicate `?`) and applies **only** to a schema's validation-failure-trace redaction and the schema-owned *transient* products (HTTP `:decode` body, resource params). Same for `:large` / `:large?`. There is no `:sensitive false` and no declassification key — nothing propagates (see [no propagation](#no-propagation-no-taint)).
 
 ## 1 — Event-owned: durable app-db state
 
@@ -78,9 +78,9 @@ There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop
 A runtime subsystem owns its storage, so you never name an absolute runtime path. You declare `:sensitive` / `:large` **projection-relative to the instance's shape** on the subsystem definition, and the framework lowers it into the registry per instance (at spawn / fetch) and drops it on teardown:
 
 ```clojure
-;; the [:schemas :data] schema still VALIDATES :data; the :sensitive declaration
-;; below is what classifies :data for SNAPSHOT egress (EP-0025 reverses the old
-;; schema-prop → snapshot-redaction bridge).
+;; the [:schemas :data] schema VALIDATES :data; the :sensitive declaration
+;; below is what classifies :data for SNAPSHOT egress (a schema prop does not
+;; classify for snapshot egress).
 (rf/reg-machine :checkout/payment
   {:sensitive [[:data :payment :token]]      ;; projection-relative to one actor's :data
    :large     [[:data :payment :receipt-pdf]]
@@ -212,7 +212,7 @@ Beneath it, **`rf/elide-wire-value`** is the single low-level walker for *tree-s
   (fn [db _] (get-in db [:tenant :partner-api-key])))
 ```
 
-A deliberate scope decision: propagation is machinery for an unusual case already covered by classifying the output path. The egress rules over the paths you *do* classify are unchanged — **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant redacts rather than showing a size preview; large auto-elides an oversized value even at an undeclared path (the size backstop). The audit question for a consumer app is simply *"is every path a secret reaches classified?"* — no inheritance to reason about.
+Propagation is machinery for an unusual case already covered by classifying the output path. The egress rules over the paths you *do* classify are unchanged — **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant redacts rather than showing a size preview; large auto-elides an oversized value even at an undeclared path (the size backstop). The audit question for a consumer app is simply *"is every path a secret reaches classified?"* — no inheritance to reason about.
 
 ## The display contract: three sentinels
 
@@ -224,23 +224,23 @@ Projection substitutes one of three framework-reserved sentinel forms (your app 
 
 The rendering rule is uniform and load-bearing: a **large marker is drillable** (click-to-expand, subject to a size confirmation), but **`:rf/redacted` MUST NOT be expandable, ever** — a "show original" affordance against `:rf/redacted` is the exact leak the contract exists to prevent.
 
-## Retired surfaces → flip to the model
+## Surfaces that do not exist → use the model
 
-Several older escape hatches have been removed. If you see these in older code or older guidance, they teach a broken or no-op call:
+These names are not part of the API. Reaching for any of them is a wrong turn — use the replacement:
 
-| Retired surface | Replacement | Why |
-|---|---|---|
-| `add-marks` / `set-marks` / `clear-app-db-marks!` — imperative post-creation app-db marks | the `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` **classification effects** a handler returns | durable app-db classification is declared from the writing event (its definition site); there is no imperative mark API |
-| frame `:sensitive` / `:large` keys (durable `:app-db` annotation + the `:sensitive {:http …}` HTTP carrier block) | the four classification effects (durable app-db) + the `:rf.http/managed` `:carriers` block (HTTP carriers) | the *frame* is not app-db's definition site, and carriers are the transient-payload case; a `reg-frame` carrying `:sensitive` or `:large` is rejected fail-loud. (The frame still owns the `:observability` sink policy — a different surface.) |
-| schema-attached `{:sensitive? true}` on an **app-db** `reg-app-schema` slot | the `:sensitive` classification effect | schemas describe shape/validation, not durable app-db egress policy. (The same `:sensitive?` prop on an **HTTP `:decode`-body** schema is *correct and live* — the transient-payload route; on a **machine / resource `:data-schema`** it drives only validation-failure-trace redaction, not snapshot egress — see [the subsystem row](#2--subsystem-owned-machine-and-resource-instance-data).) |
-| schema-prop → machine `:data` snapshot redaction | projection-relative `:sensitive` / `:large` on the `reg-machine` definition | machine `:data` durable classification travels with the machine definition, lowered per actor instance — not its `:data-schema` |
-| **all sensitivity propagation** — input → output inheritance through subs / flows, and the `:rf.egress/output-sensitivity` declassification claim | classify the output path directly | nothing propagates; a derived secret is just a classified db path (see [no propagation](#no-propagation-no-taint)) |
-| `redact-interceptor` — positional payload scrubber on the handler | registration `:sensitive [[:path]]` metadata | privacy is a property of the *value at a path*, owned by the registration — not of an interceptor's stack position |
-| `declare-sensitive-header!` / `declare-sensitive-query-param!` — process-global carrier mutation (and the frame `:sensitive {:http …}` block) | the `:rf.http/managed` `reg-fx` registration's `:carriers {:headers [...] :query-params [...]}` block | carrier policy rides the managed-HTTP registration (the transient-payload case), unioning onto the immutable built-in denylists — not a process-wide mutable fact and not a frame annotation |
-| the epoch-history `:redact-fn` storage hook | frame/profile projection at *export* (`project-egress`) | epoch records are causal-replay material; mutating them at rest corrupts the replay contract. Project at export, never at rest. |
-| handler-meta `{:sensitive? true}` as a whole-handler switch | registration `:sensitive` paths | **removed from the runtime — does nothing.** Marking a handler `{:sensitive? true}` ships the payload unredacted. |
+| Surface that does not exist | Use instead |
+|---|---|
+| `add-marks` / `set-marks` / `clear-app-db-marks!` — imperative post-creation app-db marks | the `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` **classification effects** a handler returns. Durable app-db classification is declared from the writing event; there is no imperative mark API |
+| frame `:sensitive` / `:large` keys (durable `:app-db` annotation + the `:sensitive {:http …}` HTTP carrier block) | the four classification effects (durable app-db) + the `:rf.http/managed` `:carriers` block (HTTP carriers). A `reg-frame` carrying `:sensitive` or `:large` is rejected fail-loud. (The frame still owns the `:observability` sink policy — a different surface.) |
+| schema-attached `{:sensitive? true}` on an **app-db** `reg-app-schema` slot | the `:sensitive` classification effect. (The same `:sensitive?` prop on an **HTTP `:decode`-body** schema is *correct and live* — the transient-payload route; on a **machine / resource `:data-schema`** it drives only validation-failure-trace redaction, not snapshot egress — see [the subsystem row](#2--subsystem-owned-machine-and-resource-instance-data).) |
+| schema-prop driving machine `:data` snapshot redaction | projection-relative `:sensitive` / `:large` on the `reg-machine` definition. Machine `:data` durable classification travels with the machine definition, lowered per actor instance — not its `:data-schema` |
+| **any sensitivity propagation** — input → output inheritance through subs / flows, and an `:rf.egress/output-sensitivity` declassification claim | classify the output path directly. Nothing propagates; a derived secret is just a classified db path (see [no propagation](#no-propagation-no-taint)) |
+| `redact-interceptor` — positional payload scrubber on the handler | registration `:sensitive [[:path]]` metadata. Privacy is a property of the *value at a path*, owned by the registration — not of an interceptor's stack position |
+| `declare-sensitive-header!` / `declare-sensitive-query-param!` — process-global carrier mutation (and the frame `:sensitive {:http …}` block) | the `:rf.http/managed` `reg-fx` registration's `:carriers {:headers [...] :query-params [...]}` block. Carrier policy rides the managed-HTTP registration, unioning onto the immutable built-in denylists — not a process-wide mutable fact and not a frame annotation |
+| an epoch-history `:redact-fn` storage hook | frame/profile projection at *export* (`project-egress`). Epoch records are causal-replay material; project at export, never at rest |
+| handler-meta `{:sensitive? true}` as a whole-handler switch | registration `:sensitive` paths. Marking a handler `{:sensitive? true}` **does nothing** — it ships the payload unredacted |
 
-Calling any of these retired names fails the skills projection gate (it no longer resolves to a `re-frame.core` manifest row) — that loud error is the point.
+Calling any of these names fails the skills projection gate (it does not resolve to a `re-frame.core` manifest row) — that loud error is the point.
 
 ## Cross-references
 

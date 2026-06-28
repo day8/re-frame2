@@ -21,7 +21,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 ### L1 — Implementation is ground truth
 
-For every code snippet in a leaf, the surface (function name, arity, options keyword set) is verified against `implementation/**`. If the spec says X and `implementation/<feature>/src/...` says Y, the implementation wins and a `bd` bead gets filed against the spec.
+For every code snippet in a leaf, the surface (function name, arity, options keyword set) is verified against `implementation/**`. If the spec says X and `implementation/<feature>/src/...` says Y, the implementation wins.
 
 ### L2 — Examples in `examples/**` are canonical
 
@@ -55,9 +55,9 @@ Code talks to a frame — an explicitly registered, descriptively-named one (EP-
 
 `reg-app-schema` is registered for the paths that cross trust boundaries (incoming HTTP payloads, persisted state on restore, machine snapshot restores). Internal slices are not schema-fenced by default.
 
-### L10 — No bead-ids in user-facing skill content
+### L10 — No issue-tracker ids in user-facing skill content
 
-`SKILL.md` and the `references/` / `patterns/` / `decision-trees/` leaves carry no `rf2-XXXX` references. Bead ids are workflow-tracking and would distract the agent using the skill. This `spec/` folder may reference beads; user-facing leaves do not.
+`SKILL.md` and the `references/` / `patterns/` / `decision-trees/` leaves carry no issue-tracker ids — they would distract the agent using the skill, and mean nothing on a consumer codebase.
 
 ### L11 — Findings stay local
 
@@ -138,17 +138,17 @@ A growing `evals/` set of input/output pairs would let the skill be regression-t
 
 Some patterns (state machines, managed HTTP) are growing. A future split into `re-frame2-machines/` or `re-frame2-http/` is possible. Status: not until any single leaf exceeds ~400 LoC consistently.
 
-## 10. Decision — EP-0014 derivation/process algebra propagation (2026-06-12)
+## 10. Derivation/process algebra — how the skill handles it
 
-EP-0014 (`spec/Derivations.md`) names the one *inspection/specification* view subscriptions, flows, resources, route facts, and machine selectors lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`). It mints **no new authoring API**. The propagation question for an *authoring-only* skill: does the fundamentals layer benefit from the unified frame as an orienting paragraph?
+The derivation/process algebra (`spec/Derivations.md`) is the one *inspection/specification* view that subscriptions, flows, resources, route facts, and machine selectors lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`). It mints **no authoring API** — an author never writes against this shape; it's a view, not an API.
 
-**Decision: no top-level orienting paragraph; two targeted cross-links only.** A SKILL.md paragraph asserting "subs, flows, resources, and machine views are all declared derivations over the frame fold" is **wrong altitude for authoring guidance** — it's an inspection/specification frame, not a how-to, and the router file (cardinal rules + decision shortcuts) must stay decision-oriented. Folding it in would teach the *theory* the skill's Pillar 4 ("assume training knowledge; teach the binding, not the theory") and "recipes over explanations" cardinal rules explicitly resist. The genuine authoring payoff is narrow and lands at two leaves, not the router:
+The skill therefore carries **no top-level orienting paragraph** in SKILL.md (the router stays decision-oriented, and Pillar 4 says teach the binding, not the theory). The narrow authoring payoff lands at two leaves:
 
-- `references/fundamentals/flows.md` — the flow-vs-subscription decision already turns on storage / durability / lifecycle. A one-paragraph "same function, different policy" anchor names *why* the decision feels subtle (both are derivations; you're choosing policy, not math) and cross-links the algebra. Highest-value landing spot.
-- `references/fundamentals/frames.md` — the where-state-lives material (two durable partitions + the ephemeral sub-cache) is exactly the four **storage classes** (`:app-db` / `:runtime-db` / `:ephemeral` / `:host-transient`). A cross-link names the vocabulary an author meets in tooling and pins the EP-0014 ruled split: a *remote* fact still has a **local** storage class — "remote" is its `:authority`, never where it's stored.
+- `references/fundamentals/flows.md` — the flow-vs-subscription decision turns on storage / durability / lifecycle. A "same function, different policy" anchor names why the decision is subtle (both are derivations; you choose policy, not math) and cross-links the algebra.
+- `references/fundamentals/frames.md` — the where-state-lives material (two durable partitions + the ephemeral sub-cache) is the four **storage classes** (`:app-db` / `:runtime-db` / `:ephemeral` / `:host-transient`). The cross-link names the vocabulary and pins the split: a *remote* fact still has a **local** storage class — "remote" is its `:authority`, never where it's stored.
 
-Both cross-links route through `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* and explicitly flag the divergence ("you don't author against this shape — it's a view, not an API"). Tool-facing siblings (`re-frame2-xray`, `re-frame2-pair`) and the implementor skill carry the heavier vocabulary; this authoring skill stays light. The graph accessor's **internal-only** status (no public accessor name, no `re-frame.core` facade export in this slice) is made explicit in those tool-facing skills so none leaks a public-name assumption.
+Both cross-links route through `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* and flag the divergence ("you don't author against this shape — it's a view, not an API"). Tool-facing siblings (`re-frame2-xray`, `re-frame2-pair`) and the implementor skill carry the heavier vocabulary; this authoring skill stays light. The graph accessor is **internal-only** (no public accessor name, no `re-frame.core` facade export in this slice).
 
-## 11. Decision — composition vocabulary in the authoring skill (superseded record)
+## 11. Composition vocabulary in the authoring skill
 
-> **Superseded by EP-0023 (graduated 2026-06-16).** An earlier 2026-06-12 decision-record here weighed how much of the EP-0013 realm/app-value surface (then a callable public facade) the authoring skill should teach. EP-0023 collapsed that question: the public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`), and there is **no public realm / app / module composition vocabulary** for an author to learn. So the authoring skill teaches only the positive current model — construct image values, create/own frames, target frames, reload images — with frame isolation as the whole isolation story. A single-frame author spells none of it; a multi-frame author reaches for explicit `rf/image` values. The full historical EP-0013 design rationale (and its EP-0023 supersession) lives under `docs/EP/`, not this skill surface; the shipped leaf content (`references/fundamentals/frames.md`, `references/cross-cutting/testing.md`, `references/cross-cutting/api-cheatsheet.md`) reflects EP-0023.
+The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`). There is **no public realm / app / module composition vocabulary** for an author to learn. The skill teaches only the positive current model — construct image values, create/own frames, target frames, reload images — with frame isolation as the whole isolation story. A single-frame author spells none of it; a multi-frame author reaches for explicit `rf/image` values. The leaf content (`references/fundamentals/frames.md`, `references/cross-cutting/testing.md`, `references/cross-cutting/api-cheatsheet.md`) carries this model.

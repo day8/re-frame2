@@ -1,6 +1,6 @@
 # MCP transport — the skill's only transport
 
-re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC server holding one nREPL socket open for the whole session (per-op latency ~5–50ms). This is the **only** transport the skill exposes (no shell tool in `allowed-tools:`); treat the MCP tools as the complete operating surface. The `scripts/` shell shims exist only for the project's e2e harness and are out of scope here.
+re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC server holding one nREPL socket open for the whole session (per-op latency ~5–50ms). This is the **only** transport the skill exposes (no shell tool in `allowed-tools:`); treat the MCP tools as the complete operating surface.
 
 ## Contents
 
@@ -40,7 +40,7 @@ via a **five-step cascade** (per `tools/re-frame2-pair-mcp/spec/002-nREPL-Transp
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
 3. **MCP `roots/list` walk** (the zero-config primary path) — ask the agent host for its open workspace roots, walk each (bounded, skipping `node_modules` / `.git` / `target`) for `shadow-cljs.edn` paired with the adjacent `.shadow-cljs/nrepl.port`. One match → silent attach; multiple → an `elicitation/create` prompt so the user picks the project; zero → step 4.
 4. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info` returns the consumer build's `:project-home`, against which the server reads `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` (in that order). HTTP port overridable via `--http-port <n>` (default 9630). Fallback for hosts that don't expose `roots`.
-5. CWD-relative scan of the same three port-file candidates — legacy fallback for environments without shadow's web server.
+5. CWD-relative scan of the same three port-file candidates — fallback for environments without shadow's web server.
 
 The `--port-file` and `$SHADOW_CLJS_NREPL_PORT` escape hatches (steps 1-2) win the cascade — pass one when discovery misses (no running shadow, non-default `:http :port`, exotic setup). Shadow restarts are absorbed transparently: each subsequent tool call re-reads the cached `<project-home>/.shadow-cljs/nrepl.port` and reconnects if the port changed.
 
@@ -67,7 +67,7 @@ The server exposes **30 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-de
 | MCP tool       | Args |
 |----------------|------|
 | `discover-app` | `{}` (optional `build` / `port`) — connect + health probe. Carries a `:freshness` token (`:liveness :fresh\|:stale-build\|:no-runtime\|:unknown`) — check it before trusting reads. See §Connect-first in SKILL.md. |
-| `orient` | `{}` — **app-shape orientation summary in ONE round-trip**. Composes discover-app + snapshot-top-keys + list-handlers + list-subscriptions + machines for first contact on an unfamiliar app. Returns `:liveness` / `:frames {:all :app :operating}` / `:app-db-top-keys` / `:registry {:counts :events :subs :fx}` / `:machines`. Compact by design; reserved `:rf/*` tool frames excluded from `:app-db-top-keys`. Drill via the reads below. |
+| `orient` | `{}` — **app-shape orientation summary in ONE round-trip**. Composes discover-app + snapshot-top-keys + list-handlers + list-subscriptions + machines for first contact on an unfamiliar app. Returns `:liveness` / `:frames {:all :app :operating}` / `:app-db-top-keys` / `:registry {:counts :events :subs :fx}` / `:machines`. Compact by construction; reserved `:rf/*` tool frames excluded from `:app-db-top-keys`. Drill via the reads below. |
 | `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming semantics, wire pipeline). No nREPL round-trip. Optionally call at session start. |
 | `list-handlers` | `{kind: "event"}` — discovery: every id registered under one kind. `{:ok? true :kind :event :ids [...] :count n}`, ids sorted. Kinds: `event` / `sub` / `fx` / `cofx` / `interceptor` / `view` / `frame` / `route` / `flow` / `head` / `error-projector` / `resource` / `mutation` / `resource-scope` / `machine`. The `interceptor` kind (EP-0022) lists the ids registered with `reg-interceptor` — empty on an app that registers no named interceptors. The `resource` / `mutation` / `resource-scope` kinds are the resources-artefact server-state registrars — they appear only on an app that loaded the resources artefact (`day8/re-frame2-resources`); on a non-resources app those kinds list empty. See [`ops.md` §Read](ops.md#read) for what each surfaces. |
 | `handler-meta` | `{kind: "event", id: ":user/login"}` — drill: registration metadata for one id (source-coord + `:doc` + `:tags` + an `:rf.source/uri` clickable jump-to-editor link). `{:ok? false :reason :not-registered ...}` on a miss. Composite sub ids pass as the vector-string form. Add `frame: ":app/main"` for the **frame-targeted** arity (API §Public registrar query API) — resolves the id through that frame's sealed image generation with per-frame provenance, the per-`(kind, id)` drill for `describe-image`. For `resource` / `mutation` / `resource-scope` metadata (scope policy, declared `:inputs`, the `:whole-db?` flag), see [`ops.md` §Read](ops.md#read). Prefer over a `registrar-describe` eval. |
@@ -108,7 +108,7 @@ The server exposes **30 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-de
 | `watch-until`  | `{signals: "[{:app-db [:upload :status]}]", pred: {:signal 0 :equals :done}, timeout-ms: 30000}` — **block until a predicate over a signal holds**, the blocking counterpart to `record`. Server polls a cheap runtime read (~100ms cadence) until the condition trips or `timeout-ms` elapses. `{:ok? true :held? true :elapsed-ms :sample :t}` or `{:ok? false :reason :watch-timeout :last-sample {...}}`. SIGNAL / PRED vocab shared with `record`. Read-only. |
 | `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error"\|"frameless", filter: {...}, max-events: 0, max-ms: 0}` — push-mode; emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
 | `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
-| `list-streams` | `{}` (or `{topic: "epoch"}` / `{sub-id: "<uuid>"}`) — list active **streaming-tap** subscriptions with `:queue-depth`, `:dropped-events`, `:overflow-reason` without draining queues. Diagnostic for "is my probe still alive?". (The streaming diagnostic `list-subscriptions` formerly carried.) |
+| `list-streams` | `{}` (or `{topic: "epoch"}` / `{sub-id: "<uuid>"}`) — list active **streaming-tap** subscriptions with `:queue-depth`, `:dropped-events`, `:overflow-reason` without draining queues. Diagnostic for "is my probe still alive?". Distinct from `list-subscriptions`, which reads the live reactive sub-cache. |
 | `get-stream-controls` | `{}` — the **server-side** streaming resource-control state (effective caps, active slots vs limit, token-bucket pressure, abuse-window count vs threshold). The "why was my stream **denied / quiet / terminated**?" diagnostic, the complement to `list-streams` (which reads the *runtime* tap registry). Reads the server's control atoms **in-process — no nREPL round-trip**, so it answers **even when the runtime is down**. Control state only (no payloads) → **ungated** by `--allow-sensitive-reads`. `{:ok? true :config {…} :concurrent-streams {:active :limit :at-capacity?} :rate-limit {:throttling? …} :abuse-window {:tripped? …} :cross-check …}`. See [`streaming-subscriptions.md` §get-stream-controls](streaming-subscriptions.md#get-stream-controls--why-was-my-stream-denied--quiet--terminated). |
 | `record`       | `{signals: "[{:focus true} {:dom \"#count\"}]", stop: {:ms 15000}, max-entries: N}` — **first-class signal recorder**: install a READ-ONLY observer over one-or-more SIGNALS with a STOP condition, let the human interact, then read the change-log with `read-recording`. The canonical move for intermittent / human-in-the-loop bugs (render-timing races under real mouse input). Returns IMMEDIATELY with a `:recording-id`; samples once per animation frame, records each CHANGE, dedups, tears itself down at the stop condition. SIGNAL shapes: `{:app-db [path]}` / `{:sub [query-v]}` / `{:dom "sel" :attr "name"}` / `{:focus true}`. STOP: `{:ms N}` / `{:changes N}` / `{:pred {:signal i :equals v}}`. Read-only. |
 | `read-recording` | `{recording-id: "rec-abc", drain: true, stop: true}` — read back a recording's change-log: `{:ok? true :recording-id :status :stopped-reason :frames-sampled :count :entries [{:i :signal :value :t :frame}...]}`. Each entry is one CHANGE. `drain true` consumes buffered entries + keeps recording (live-watch idiom); `stop true` reads-and-closes. |
@@ -126,7 +126,7 @@ The three operating-frame tools surface tier 2 of the frame-resolution cascade d
 
 The `subscribe` / `unsubscribe` pair is the **push-mode** counterpart to `watch-epochs`. Each batch of matching events arrives as a `notifications/progress` notification correlated by the call's `progressToken`; the tool's final result is a summary. Use `subscribe` whenever you want a live narration; use `watch-epochs` (pull-mode, polled in a loop) when the agent host doesn't surface progress notifications to the model.
 
-(`inject-runtime` is gone — the runtime ships into the app via
+(There is no `inject-runtime` tool — the runtime ships into the app via
 shadow-cljs `:devtools :preloads`. See `SKILL.md` §Setup.)
 
 ## When to use `snapshot` vs the per-op reads
@@ -149,11 +149,11 @@ Use the per-op reads when:
 
 `snapshot` accepts `include` to subset slices (`{include: ["app-db","epochs"]}`) and `frames` to pick frame-ids (`{frames: [":stories"]}`).
 
-**`:app-db` slice modes.** The `:app-db` slice no longer defaults to the full value. Two modes:
+**`:app-db` slice modes.** The `:app-db` slice defaults to a summary, not the full value. Two modes:
 
 - **`:summary` (default, no `path`)** — the `:app-db` slot is a `{:rf.mcp/summary {:type :map :keys [...] :count ... :bytes ...}}` marker carrying the top-level shape without committing the token budget. Map-key lists over 64 entries get truncated and flagged `:keys-truncated? true` so the marker itself can never blow the wire cap.
 - **`:path-sliced` (with `path`)** — the slot is `(get-in db path)`. Out-of-range paths surface per-frame in a top-level `:path-not-found` map with `:deepest-valid-prefix` so the agent can re-aim without a binary search.
-- **Root path `path: "[]"`** — explicit request for the full `:app-db`, equivalent to the legacy default. A **last resort** (large on any real app frame; refused against a reserved `:rf/*` tool frame). Orient first, then slice. The wire cap is the backstop.
+- **Root path `path: "[]"`** — explicit request for the full `:app-db`. A **last resort** (large on any real app frame; refused against a reserved `:rf/*` tool frame). Orient first, then slice. The wire cap is the backstop.
 
 The other slices (`:sub-cache`, `:machines`, `:epochs`) pass through unchanged. The `:traces` slice now ships **cascade bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per cascade — the framework's `(re-frame.trace.tooling/trace-buffer frame-id)` shape and the same wire format the `subscribe` streaming surface emits on cascade-bundle topics).
 
@@ -165,12 +165,10 @@ Every op needing the in-browser runtime first probes `js/globalThis.__re_frame2_
 
 ### `eval-cljs`: build resolution + fail-loud preflight
 
-`eval-cljs` resolves which shadow-cljs build to evaluate against and preflights the runtime sentinel *before* eval'ing, so a runtime-absent build can never return a misleading `{:ok? true :value nil}` (the old footgun: shadow's `cljs-eval` against a non-running build yields a blank value indistinguishable from a genuine `nil`).
+`eval-cljs` resolves which shadow-cljs build to evaluate against and preflights the runtime sentinel *before* eval'ing, so a runtime-absent build can never return a misleading `{:ok? true :value nil}` — shadow's `cljs-eval` against a non-running build yields a blank value indistinguishable from a genuine `nil`, and the preflight guards against it.
 
 - **Auto-detect:** with no `build` arg, `eval-cljs` detects the running shadow build (`shadow.cljs.devtools.api/active-builds`). Exactly one running ⇒ used; the resolved id is echoed as `:build`.
 - **Fail loud:** a runtime-absent build (or zero/many running builds with no explicit `build`) returns `{:ok? false :reason :no-runtime-for-build :build <id> :running-builds [...] :hint "..."}` — never `:ok? true :value nil`. `:running-builds` shows which build to target via `build: "<id>"`.
-
-The same resolution + preflight logic backs the legacy `scripts/` bash shim's `eval` op.
 
 ## Build-id resolution
 

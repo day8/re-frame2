@@ -89,7 +89,7 @@ Every form POST MUST carry a CSRF token; the server MUST reject a mismatch *befo
   (fn [_ [_ {:keys [form-params]}]] ,,,)) ;; handler body still sees the real value
 ```
 
-The scrub is per-named-path, owned by the registration, not a whole-action toggle (there is no handler-meta `{:sensitive? true}` switch — that was removed, so a marked action would ship its `:form-params` verbatim). Mixed sensitive + non-sensitive fields → name the sensitive payload paths in the `:sensitive` vector, or split into two POSTs.
+The scrub is per-named-path, owned by the registration, not a whole-action toggle (there is no handler-meta `{:sensitive? true}` switch — a marked action would ship its `:form-params` verbatim). Mixed sensitive + non-sensitive fields → name the sensitive payload paths in the `:sensitive` vector, or split into two POSTs.
 
 ## Anti-patterns
 

@@ -119,7 +119,7 @@ If the example contradicts the leaf, **the example wins** (implementation is gro
 | Primary pattern | Leaf to load | Worked example |
 |---|---|---|
 | RemoteData | [`patterns/remote-data.md`](../patterns/remote-data.md) | (inline mini-example) |
-| Resources | [`patterns/resources.md`](../patterns/resources.md) | `examples/capabilities/resources/resources/` (read-side) · `examples/real-apps/realworld_resources/` (the EP-0016 mutation dogfood) |
+| Resources | [`patterns/resources.md`](../patterns/resources.md) | `examples/capabilities/resources/resources/` (read-side) · `examples/real-apps/realworld_resources/` (the write-side mutation example) |
 | Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/core/login/` |
 | Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/patterns/boot/` |
 | WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | `examples/patterns/websocket/` |

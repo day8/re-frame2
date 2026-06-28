@@ -74,7 +74,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/` (including the Flows leaf), `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the fourteen canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The loading map is reconciled and the derived-from-implementation footers are pinned at main `89bd9c3`. All worked examples the leaves cite — including `examples/patterns/{websocket,long_running_work}/` and `examples/core/flows/` — have shipped, and the evals harness has landed under `evals/` (`README.md` + `evals.json`) as a **repo-maintenance artifact** (it is deliberately not in the published package — see [`evals/README.md` §Repo-maintenance artifact](evals/README.md), and `package.json`'s `files` list omits it; run the harness from a monorepo clone). No in-flight items remain.
+**Alpha.** The skill covers `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the fourteen canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The `evals/` harness is a **repo-maintenance artifact** — not in the published package (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` list omits it; run the harness from a monorepo clone).
 
 ## License
 
