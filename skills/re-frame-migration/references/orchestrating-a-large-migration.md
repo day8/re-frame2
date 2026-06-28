@@ -6,6 +6,24 @@ When is it big enough? When the [Phase-0a inventory](inventory-and-plan.md) come
 
 It does not replace the phases — it **schedules** them. You still run Phase 0a/0b first (the inventory and the floor gate are inherently up-front and single-threaded), you still cite a rule id per rewrite, and you still finish with the Phase-4 boot smoke-test. What changes is the middle: the Phase-3 sweep becomes a planned set of parallel worker-units instead of one agent marching the wall.
 
+## Gate the fan-out on inventory completeness
+
+The entire fan-out is *derived* from the Phase-0a inventory — the partition (§1), the id-contract (§2), and the waves (§4) all read off the `file → rules` map it produced. That makes the inventory a **single point of failure**: a file or rule the inventory missed simply falls **outside the partition** — no unit owns it, no worker rewrites it, and because the partition forbids any worker from reaching into a file it doesn't own, nothing inside the fan-out ever picks it up. **The partition inherits the inventory's blind spots.**
+
+So gate the fan-out on the inventory being **provably complete**, not merely drafted:
+
+- **Before Wave 1 starts, the Phase-0a per-rule completeness check must have PASSED** — [`inventory-and-plan.md` §Step 5 — The per-rule completeness gate](inventory-and-plan.md#step-5--the-per-rule-completeness-gate), which iterates the full `breaking-changes.md` `M-`/`O-` rule index, greps each rule's trigger across every git-tracked file, and surfaces every 0-site rule for explicit confirmation. An incomplete inventory must be **closed before the fan-out, not during it**: once units are partitioned and workers are running, a late-discovered surface has no owner and no clean way in. Closing it after the fact means re-partitioning mid-flight — exactly the collision the one-file-one-owner rule exists to avoid.
+
+### Worker expect-and-report — the residual-leak backstop
+
+The completeness gate closes the *known* blind spots up front. The backstop for anything that still slips through is the worker itself. Instruct every worker, as part of its unit brief:
+
+> While applying your unit's rules, if you find a v1 trigger surface in **your** files that is **not** in your assigned rule-list, do **not** silently fix it and do **not** silently skip it. **Stop and report it to the orchestrator.**
+
+A silent fix is an out-of-bounds edit waiting to happen — the surface may belong to a rule another unit owns, or need an id from the Wave-0 contract you weren't handed — and a silent skip re-creates the exact silent miss the inventory gate exists to eliminate. Reporting it back lets the orchestrator **reconcile the surface into the inventory** and re-partition if the new work crosses a unit boundary. That turns an incomplete inventory from a silent gap into a **caught-and-fed-back signal**.
+
+Make it an explicit line in every unit's deliverable: **"no un-inventoried trigger surfaces left unreported in my files."** A unit isn't done when its listed rules are applied — it's done when its files carry no v1 surface the orchestrator hasn't been told about.
+
 Five parts, in the order you apply them.
 
 ## 1. One-file-one-owner — the collision-free partition
@@ -64,7 +82,7 @@ Set expectations honestly, because this is the part that surprises workers: **th
 
 Two consequences for how you run the fan-out:
 
-- **Workers produce diffs, not green builds.** A unit's deliverable is its file-set rewritten per its rules, cited and self-consistent — not a passing compile. Judge a unit on whether it applied every rule its files trip (the inventory says which), not on a build it structurally cannot run yet.
+- **Workers produce diffs, not green builds.** A unit's deliverable is its file-set rewritten per its rules, cited and self-consistent, **with no un-inventoried trigger surface left unreported** (per the [worker expect-and-report contract](#worker-expect-and-report--the-residual-leak-backstop) above) — not a passing compile. Judge a unit on whether it applied every rule its files trip (the inventory says which) and whether it surfaced anything its rule-list didn't cover, not on a build it structurally cannot run yet.
 - **Green comes at ONE post-sweep gate.** Once all waves have landed and the broken add-ons are gone, you run the **first** real compile of the whole tree — and debug it as a single consolidated pass, not per-file. Errors surface together; trace each to its unit, fix, recompile the whole tree. Budget for this gate explicitly: it is where the migration actually turns green, and it is one focused debugging session, not N small ones. Then run the Phase-4 boot smoke-test ([`runtime-smoke-test.md`](runtime-smoke-test.md)) — because "compiles" is still not the done-bar.
 
 Plan for this from the start: the partition and waves are organised to converge on a single compile gate, so do not promise per-unit green and do not let a worker spin trying to compile a tree that cannot yet compile.
