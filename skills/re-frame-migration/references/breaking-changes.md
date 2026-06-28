@@ -8,6 +8,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 
 - Required rules (M-N) by trigger surface
 - v1 add-on libraries fail to COMPILE on v2 (forced removal/replacement)
+- Compile-only façade removals (public `re-frame.core` symbols that no longer resolve)
 - Opt-in modernisations (O-N) by trigger surface
 - Type A vs Type B at a glance
 - Failure-visibility axis — loud-fail vs silent-fail (orthogonal to Type A/B)
@@ -108,6 +109,19 @@ Confirmed-broken v1 add-ons (each references the removed `re-frame.core/console`
 (Distinct from the **classpath-collision** failure mode in [`setup.md` §Edge cases](setup.md) — a v1-built add-on can also root a transitive `re-frame/re-frame` coord. That is a *separate* breakage; an add-on can hit both. The `console` break here is a **compile error inside the add-on's own source**, not a coord conflict.)
 
 This surface is keyed off dep-/application-level triggers (Maven coords + fx ids), so it pairs with the O-16 / O-17 detection — but the removal/replacement is required, not gated behind the opt-in question.
+
+## Compile-only façade removals — public `re-frame.core` symbols that no longer resolve
+
+A short register of **public v1 `re-frame.core` symbols that simply do not exist on the v2 façade**. They are a pure **compile-only** class: the var does not resolve, so the call site is an *unresolved-symbol compile error* — never a runtime surprise. This is the **loud-fail / march-the-wall** shape (the compiler names the missing symbol; swap it, recompile, repeat — the opposite of the silent-fail register further down). They get their own register because each is a *public* surface an author would not expect to have moved — unlike the off-contract **private**-namespace requires of M-1 — and because the M-rule table is keyed by trigger *surface*, so grepping it does not surface the bare symbol names below.
+
+| Removed public symbol (v1) | What happens in v2 | Replacement | Rule |
+|---|---|---|---|
+| `clear-subscription-cache!` (the no-arg public form) | Gone from `re-frame.core` — unresolved symbol at compile. | `(rf/clear-sub-cache! :rf/default)` — the v2 name takes a **required frame-id** (the v1 zero-arg form is gone; every frame now has its own sub-cache). `:rf/default` is the like-for-like target for code that never addressed frames. Per [`spec/API.md`](../../../spec/API.md#dispatch-and-subscribe) §`clear-sub-cache!`. | **M-1** |
+| `get-coeffect` / `get-effect` | Removed from the `re-frame.core` façade — unresolved symbol at compile. | Inside a `reg-interceptor` `:before`/`:after` fn, **read the context map directly**: `(get-in ctx [:coeffects k])` / `(get-in ctx [:effects k])`. | [`spec/API.md`](../../../spec/API.md) §Removed |
+| `assoc-coeffect` / `assoc-effect` | Removed from the façade — unresolved symbol at compile. | Inside a `reg-interceptor` `:before`/`:after` fn, **write the context map directly**: `(assoc-in ctx [:coeffects k] v)` / `(assoc-in ctx [:effects k] v)`. | [`spec/API.md`](../../../spec/API.md) §Removed |
+| public `->interceptor` (and any inline interceptor **value** in a chain) | No public authoring form — `->interceptor` is internal-only, and EP-0022 chains are reference-only, so an inline value is also rejected. | Author the before/after work with `(rf/reg-interceptor id descriptor)` and reference it by **id** in the event/frame `:interceptors` chain. | **M-21** |
+
+**These accessors are removed, NOT relocated — do not chase a public successor namespace.** The owning-namespace fns (`re-frame.interceptor/get-coeffect`, `…/assoc-effect`, the internal `->interceptor` constructor) **remain framework-internal**. They are off-contract, so a `(:require [re-frame.interceptor …])` reaching for them is itself an **M-1** off-contract-namespace break, not a fix. The supported destination is the direct `get-in` / `assoc-in` context-map access shown above (for the accessors) or a registered interceptor referenced by id (for `->interceptor`). The interceptor-surface shrink that retires `->interceptor` and inline chain values is [M-21](../../../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors); the `clear-subscription-cache!` rename rides [M-1](../../../migration/from-re-frame-v1/README.md) (the private-namespace rule, which folds in this one public rename because every codebase that uses it trips the same mechanical rewrite).
 
 ## Opt-in modernisations (O-rules) by trigger surface
 
