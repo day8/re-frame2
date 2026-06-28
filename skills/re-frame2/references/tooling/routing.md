@@ -96,15 +96,14 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
     :rf.route/not-found   [not-found-page]
     [not-found-page]))
 
-;; Boot: register a URL-owning frame, then install the framework popstate
-;; listener. `:url-bound? true` declares this frame owns the URL.
+;; Boot: install the adapter, wire the framework popstate listener, then
+;; render an ENSURE-shape provider that creates and seeds the URL-owning
+;; frame. `init!` installs the adapter but does NOT create a frame;
+;; `:url-bound? true` declares this frame owns the URL.
 (def app-frame :rf/default)
 
 (defn run []
   (rf/init! adapter)
-  (rf/reg-frame app-frame {:doc "Routing demo frame." :url-bound? true})
-  (rf/with-frame app-frame
-    (rf/dispatch-sync [:app/initialise]))
   ;; Framework popstate listener + initial URL→slice sync, targeted at the URL
   ;; owner. It resolves the URL-owner frame AT POP TIME and dispatches the
   ;; URL-change to THAT frame, so Back/Forward restores the owner's :rf/route
@@ -112,7 +111,13 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
   ;; (rf/dispatch [:rf.route/handle-url-change ...]) would raise
   ;; :rf.error/no-frame-context — the no-ambient-frame contract (EP-0002).
   (rf/install-history-listener!)
-  (render [rf/frame-provider {:frame app-frame} [root-view]]))
+  ;; ENSURE shape: first mount creates the frame, flips on :url-bound?, and
+  ;; fires :initial-events once to seed app-db; hot reload reuses it (no reseed).
+  (render [rf/frame-provider {:id app-frame
+                              :doc "Routing demo frame."
+                              :url-bound? true
+                              :initial-events [[:app/initialise]]}
+           [root-view]]))
 ```
 
 ## `:can-leave` — the pending-nav protocol
