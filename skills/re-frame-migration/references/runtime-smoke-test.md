@@ -68,6 +68,12 @@ The M-rule sweep targets the application's `src/`; the boot smoke verifies the *
 
 Neither gate covers the test layer. It surfaces only when the **suite RUNS**: the first fixture `:before` throws on the undefined v1 var, and the runner reports **"No test results found"** — a runner crash with zero results, not a failed assertion. So **running the test suite on a clean checkout is a required third gate, after the compile and the boot smoke.** The v1 test-API → v2 mapping — `re-frame.test` → `re-frame.test-support` (M-25); `make-restore-fn` → the per-test `make-reset-runtime-fixture {:adapter …}` plus an app-db snapshot/restore (M-26 + M-64); in-fixture `reg-event-db` → `reg-event` (M-73); async `add` / `remove-post-event-callback` → a one-shot `:rf.event/run-end` `:trace` listener (M-26) — lives in one place: [`auto-call-site-rewrites.md` §Test-layer v1 API to v2 mapping](auto-call-site-rewrites.md#test-layer-v1-api-to-v2-mapping).
 
+### CI green on a clean checkout is the real done-signal
+
+The three gates above are all **local** — they run on the author's machine. The actual done-signal is off-machine: **CI green on a clean checkout.** The gap is the consumption coordinates. A migration that consumes pre-publish re-frame2 (the monorepo modules + Xray) and a forked upstream through `:local/root` **absolute local paths** can compile 0/0, boot, and pass the boot smoke **locally** — looking "done" — while every CI run is red from the first step, because the runner has no such paths (`Error building classpath. Local lib day8/re-frame2-reagent not found`). `:local/root` resolves **only on the author's disk**; it is a dev convenience, not a shippable coord.
+
+So before "done", repin every re-frame2 (and forked-upstream) dep to a **clean-runner-resolvable** coordinate: `:git/url` + `:git/sha` to a **PUSHED** commit (one `:deps/root` per monorepo module), or `:mvn/version` once published. **Pre-publish upstreams make the git-SHA the pragmatic coord — no Maven publish is required.** Any forked / extended upstream MUST be **pushed**, so its SHA is fetchable — CI cannot fetch an unpushed SHA. The migration-side done-gate and the per-coordinate repin recipe live in [`setup.md` §The consumability done-gate](setup.md#the-consumability-done-gate).
+
 ## Why a compile can't catch these
 
 | v1 mechanism | v2 mechanism | Consequence for the migrator |
