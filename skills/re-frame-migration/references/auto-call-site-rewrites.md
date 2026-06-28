@@ -116,9 +116,11 @@ Same for `uix` / `helix` variants.
 (reg :fx :id ...)                    → (reg-fx :id ...)
 (reg :cofx :id ...)                  → (reg-cofx :id ...)
 (reg :flow :id ...)                  → (reg-flow ...)
-(sub <vector>)                       → (subscribe <vector>)
+(sub <vector>)                       → (subscribe <vector>)   ; EXCEPT inside a reg-sub signal/input fn, per M-71 (below)
 (sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
 ```
+
+**Signal-fn carve-out → M-71** (mirrors the M-73 cross-refs on the `:event-*` rows above): the `(sub <vector>) → (subscribe <vector>)` row holds at ordinary call sites, but **not inside a `reg-sub` signal/input fn** — the two-trailing-fns form with no `:<-` between them, `(reg-sub :id (fn [q] …) (fn [inputs q] …))`. In that first fn a v2 `input-fn` must **return a vector of query vectors** (`[[:x id] [:y]]`), not call `subscribe`; there the alpha `(sub [:x id])` becomes the bare query **vector** `[:x id]` (inside the returned vector), not a `(subscribe [:x id])` call. A `subscribe`-bearing input-fn registers clean and then throws `:rf.error/sub-input-fn-bad-return` at first materialization. Reshape per **M-71** — see [`guided-interceptors-subs.md` §M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns). (A v1 `reg-sub` that used alpha-`sub` in its signal fn lands here: the alpha namespace removal is M-23, but the signal-fn body is M-71's reshape, not a uniform `subscribe` swap.)
 
 **Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation; if the user explicitly wanted non-default lifecycle, flag it (and, with their approval, file a GitHub issue against `day8/re-frame2` per the shared [`issue-filing.md`](../../shared/issue-filing.md) recipe). See [`guided-interceptors-subs.md` §M-23](guided-interceptors-subs.md#m-23--re-framelifecycle-annotation-drop).
 

@@ -123,6 +123,16 @@ is the v1 signal fn. (A single trailing fn is the unchanged layer-1
 `(fn [db q] …)` app-db reader; a `:<- [q] :<- [q]` chain is the unchanged
 static form — neither trips M-71.)
 
+> **A signal fn coming from `re-frame.alpha` lands here too.** An alpha-namespace
+> `reg-sub` whose signal fn called `(sub [:x id])` is removed by **M-23** at the
+> namespace level (`re-frame.alpha` → `re-frame.core`), but its signal-fn body is
+> **M-71's** reshape, **not** the uniform `(sub <vector>) → (subscribe <vector>)`
+> rewrite in [`auto-call-site-rewrites.md` §M-23](auto-call-site-rewrites.md#m-23--re-framealpha-removal-mechanical-half).
+> Inside the signal fn, `(sub [:x id])` becomes the bare query **vector** `[:x id]`
+> (returned inside the input-fn's vector), never a `(subscribe [:x id])` call —
+> that would throw `:rf.error/sub-input-fn-bad-return`. Classify and reshape per
+> the cases below.
+
 **Why it is silent at compile — and where it actually fails.** The two-function
 shape *parses* fine, so the compiler says nothing. It also **registers** fine:
 the v2 runtime reads `(reg-sub :id (fn …) (fn …))` (two trailing fns, no `:<-`)
