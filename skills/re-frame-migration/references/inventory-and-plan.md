@@ -67,7 +67,7 @@ Separately from the add-ons, grep the **app's own source** for the v1 feature su
 
 | v1 feature surface in the app | Rule |
 |---|---|
-| `reg-event-db` / `reg-event-fx` registrations — **the single most pervasive call-site rule** (typically the highest-count hit in any v1 app: every event registration). Both collapse to the one `reg-event` form and `reg-event-ctx` is demoted off the public surface (EP-0018). Grep `reg-event-db` / `reg-event-fx` (and `reg-event-ctx`) | **M-73** |
+| `reg-event-db` / `reg-event-fx` registrations — **the single most pervasive call-site rule, and the widest-blast-radius COMPILE-SILENT one** (typically the highest-count hit in any v1 app: every event registration). Both collapse to the one `reg-event` form and `reg-event-ctx` is demoted off the public surface (EP-0018). The three retired names survive as **facade-exported `^:no-doc` throwing stubs**: the var resolves (compiler silent — no undeclared-var), then throws its always-on hard error `:rf.error/reg-event-db-removed` / `:rf.error/reg-event-fx-removed` / `:rf.error/reg-event-ctx-removed` at **registration (boot)**. So this is the **#1 sweep-and-verify item** — a static up-front grep `reg-event-(db\|fx\|ctx)` finds every site without a runtime, and the [boot smoke-test](runtime-smoke-test.md) confirms a clean boot console; **never march-the-wall** (the compile passes). Grep `reg-event-db` / `reg-event-fx` (and `reg-event-ctx`) | **M-73** |
 | Direct `re-frame.db` / `re-frame.utils` / other off-contract `re-frame.*` requires; `@re-frame.db/app-db` | **M-1** |
 | `reg-global-interceptor` / `clear-global-interceptor` | **M-17** |
 | `reg-sub-raw` | **M-18** |
