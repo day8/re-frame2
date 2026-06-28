@@ -4,6 +4,12 @@ The effect map is what an event handler returns. The interceptor chain is what r
 
 This chapter covers what an `:fx` map can carry (`:db`, `:fx`, the standard fx-ids), what an interceptor is and the public authoring surface (`reg-interceptor`), the one framework-standard interceptor reference (`[:rf.interceptor/path <path-vector>]`), the pre-built `validate-at-boundary-interceptor`, and the override surfaces that let tests and tools swap fx behaviour at runtime (`with-fx-overrides`, the per-call `:fx-overrides` opt). Coeffects are *not* delivered by an interceptor in v2 — a handler declares the world facts it needs with `:rf.cofx/requires` registration metadata and the runtime supplies them (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [Guide — Effects and coeffects](../concepts/effects-and-coeffects.md)). v1's `inject-cofx` interceptor is removed; so are the v1 `path` / `unwrap` value constructors (see [15 — Removed](15-removed.md)).
 
+The surfaces in this chapter live in `re-frame.core`:
+
+```clojure
+(:require [re-frame.core :as rf])
+```
+
 ## The effect map: closed shape
 
 Closed: **`:db` + `:fx` only**. That's the entire effect-map vocabulary in v2.
@@ -28,8 +34,8 @@ Anything in `:fx` is a `[fx-id args]` pair. The runtime looks up `fx-id` in the 
 | `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | 014 | The canonical managed-HTTP fx. See [07 — HTTP](../../resources/http-api.md). |
 | `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](../../routing/api.md). |
 | `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
-| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic actor instance whose snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` (in runtime-db). See [04 — Machines](../../machines/api.md). |
-| `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | Symmetric counterpart to `:rf.machine/spawn`. Runs the actor's `:exit` action, dissociates `[:rf.runtime/machines :snapshots <id>]` (in runtime-db), clears its event-handler registration. |
+| `[:rf.machine/spawn spawn-spec]` | per `:rf.fx/spawn-args` | v1 | 005 | Spawn a dynamic machine actor — see [04 — Machines](../../machines/api.md). |
+| `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | Destroy a dynamic machine actor — see [04 — Machines](../../machines/api.md). |
 | `[:rf.fx/reg-flow flow-map]` | flow map | v1 | 013 | Register a flow at runtime via `:fx`. See [05 — Flows](05-flows.md). |
 | `[:rf.fx/clear-flow id]` | id | v1 | 013 | Clear a registered flow at runtime via `:fx`. |
 | `[:http args]` | impl-specific | — | — | User-registered via `reg-fx`. The legacy un-managed shape; new code uses `:rf.http/managed`. |
@@ -67,7 +73,7 @@ The public interceptor-authoring surface is **`reg-interceptor`**, and event / f
   ```clojure
   validate-at-boundary-interceptor
   ```
-- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event` metadata map's `:interceptors` vector for production-boundary schema validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
+- Pre-built schema-validation interceptor value for the production boundary — full contract in [08 — Schemas](08-schemas.md).
 
 ### The `:rf.interceptor/path` reference: focus on a slice
 

@@ -6,6 +6,14 @@ This chapter is the per-substrate surface reference. The substrate-agnostic ergo
 
 Architecturally, the dependency direction is one-way: the adapter artefacts depend on `re-frame.core`; `re-frame.core` does not depend on any adapter. That's why UIx and Helix surfaces live in `re-frame.adapter.uix` / `re-frame.adapter.helix` rather than being re-exported from core — apps require the adapter they want and pass its `adapter` Var into `init!`.
 
+Each substrate has its own adapter namespace — require the one for your substrate:
+
+```clojure
+(:require [re-frame.adapter.uix    :as uix-adapter]    ; UIx
+          [re-frame.adapter.helix  :as helix-adapter]  ; Helix
+          [re-frame.adapter.reagent :as reagent-adapter]) ; Reagent (the inline default)
+```
+
 ## The Reagent adapter
 
 The CLJS reference's default substrate. Reagent ships in `re-frame.adapter.reagent` (full) and `re-frame.adapter.reagent-slim` (without the React server-rendering tax, for SSR pipelines that don't want to ship `react-dom/server`).
@@ -200,9 +208,7 @@ The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the **
 
 ## DOM source-coord annotations
 
-Every adapter whose host has a DOM-attribute concept (all three — Reagent / UIx / Helix on the browser) injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in [Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory).
-
-Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the contract per [Spec 011 §Source-coord annotation under SSR](../../../spec/011-SSR.md#source-coord-annotation-under-ssr).
+Adapters inject `data-rf2-source-coord` on every registered view's root element; the contract is documented in [02 — Views §DOM source-coord annotations](02-views.md#dom-source-coord-annotations).
 
 ## The Plain Atom adapter
 

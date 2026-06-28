@@ -4,11 +4,17 @@ The testing surface is structured around one premise: **the framework's discipli
 
 The surface lives across **three namespaces** because the three concerns separate cleanly:
 
-- `re-frame.core` — the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`).
+- `re-frame.core` — the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `compute-sub`, `sub-topology`).
 - `re-frame.test-support` — the test-only fixture machinery and test-flavoured helpers. **Runtime-state axis**: registrar, frames, `app-db`, drain.
 - `re-frame.test-helpers` — the view-assertion helpers (hiccup-walk + the `testid` authoring helper). **View-tree axis**: hiccup data, testids, attached handlers.
 
 `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. The seam between the three namespaces is deliberate: production code never picks up test-flavoured assertion machinery by accident.
+
+```clojure
+(:require [re-frame.core         :as rf]
+          [re-frame.test-support :as ts]
+          [re-frame.test-helpers :as th])
+```
 
 For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` compatibility), see [008-Testing.md](../../../spec/008-Testing.md).
 
@@ -61,7 +67,7 @@ For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` 
   ```clojure
   (with-fx-overrides {fx-id -> override, …} body+)
   ```
-- **Description**: Rowed in [03 — Effects and interceptors](03-effects.md). Lexical-scope fx override; the most common test surface for "stub THIS fx within THIS block." Lives in `re-frame.core` but is rowed here for discoverability.
+- **Description**: Lexical-scope fx override (`re-frame.core`) — the common "stub THIS fx within THIS block" test surface. Full contract + precedence in [03 — Effects and interceptors](03-effects.md).
 
 ### `compute-sub`
 
@@ -251,18 +257,9 @@ The view-assertion surface treats a view as what it is — a function that retur
 
 No JSDOM; no `act()`; no JSON serialisation; no DOM walk. The hiccup is data; the assertions walk data.
 
-## Multi-frame and machine testing
+## Multi-frame testing
 
-Tests targeting multiple frames or machines reach for the same surfaces with explicit frame opts. `dispatch-sync` accepts a frame in its envelope; `subscribe-once` accepts a frame in its second arity; `compute-sub` works against any `app-db` value (so you can drive a machine through `machine-transition` and assert on the resulting snapshot directly).
-
-```clojure
-(let [definition (rf/machine-meta :session)
-      snapshot   {:state :anonymous :data {}}
-      [next-snap effects] (rf/machine-transition definition snapshot [:login {:user "alice"}])]
-  (is (= :authenticating (:state next-snap)))
-  (is (= "alice" (get-in next-snap [:data :credentials :user])))
-  (is (= [[:rf.http/managed ...]] (:fx effects))))
-```
+Tests targeting multiple frames reach for the same surfaces with explicit frame opts: `dispatch-sync` accepts a frame in its envelope, `subscribe-once` accepts a frame in its second arity, and `compute-sub` works against any `app-db` value. For driving a machine through `machine-transition` and asserting on the resulting snapshot, see [04 — Machines](../../machines/api.md) (the `re-frame.machines/machine-transition` worked example).
 
 ## See also
 

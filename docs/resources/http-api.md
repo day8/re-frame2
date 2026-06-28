@@ -6,6 +6,13 @@ You don't get this for free — Spec 014 is an **optional capability**. Implemen
 
 This chapter covers the canonical fx, the verb helpers, the test stubs, the request-interceptor surface, and the closed failure taxonomy. The normative source — args map, decode pipeline, retry semantics, reply addressing — lives at [014-HTTPRequests.md](../../spec/014-HTTPRequests.md).
 
+The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-addressed (used in an event's `:fx`):
+
+```clojure
+(:require [re-frame.http :as rf.http]
+          [re-frame.core :as rf])
+```
+
 ## The canonical fx
 
 ### `[:rf.http/managed args-map]`

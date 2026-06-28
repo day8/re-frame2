@@ -6,6 +6,13 @@ Flows replace v1's `on-changes` interceptor — same compute-on-input-change sem
 
 The normative source is [013-Flows.md](../../../spec/013-Flows.md).
 
+This chapter spans `re-frame.core` (the `reg-flow` macro) and `re-frame.flows` (`clear-flow`):
+
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.flows :as flows])
+```
+
 ## The flow surface
 
 ### `reg-flow`

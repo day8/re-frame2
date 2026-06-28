@@ -30,6 +30,7 @@ The core surfaces live in `re-frame.core`. Per-feature artefacts ship their own 
 | `re-frame.schemas` | `day8/re-frame2-schemas` | Schema introspection (the registration macros live in `re-frame.core`). |
 | `re-frame.http` | `day8/re-frame2-http` | HTTP verb helpers `get` / `post` / `put` / `delete` / `patch` / `head` / `options`. |
 | `re-frame.machines` | `day8/re-frame2-machines` | Direct machine surface (the `reg-machine` macro is re-exported through `re-frame.core`). |
+| `re-frame.routing` | `day8/re-frame2-routing` | Routing — `reg-route` (re-exported through `re-frame.core`), navigation, URL helpers, the `:rf/route` slice, `:can-leave`. |
 | `re-frame.ssr` | `day8/re-frame2-ssr` | Server-side rendering — `render-to-string`, streaming, head model, error projection. |
 | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | Ring host-adapter for SSR. |
 | `re-frame.epoch` | `day8/re-frame2-epoch` | Time-travel surfaces — `epoch-history`, `restore-epoch!`, `replace-app-db!`. Re-exported through `re-frame.core` via late-bind. |

@@ -6,6 +6,12 @@ This chapter is the read-side surface. The write-side surface is `reg-*` / `clea
 
 Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reaction` objects in CLJS).
 
+The registrar-query surface lives in `re-frame.core`:
+
+```clojure
+(:require [re-frame.core :as rf])
+```
+
 ## Handlers
 
 ### `registrations`
@@ -40,27 +46,7 @@ Everything here is **JVM-runnable** except `sub-cache` (which holds live `Reacti
 
 ## Machines
 
-These are derived views over the event registrar — a machine is registered as an event handler with `:rf/machine? true`, so `(machines)` is just `(registrations :event)` filtered by that flag. They're rowed here separately because tools reach for them often enough that the convenience is worth it.
-
-### `machines`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (machines) → seq of machine-ids
-  ```
-- **Description**: Enumerate registered machines.
-
-### `machine-meta`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (machine-meta machine-id) → registration-metadata map
-  ```
-- **Description**: Transition table, doc, schemas. Equivalent to `(handler-meta :event machine-id)`.
-
-See [04 — Machines](../../machines/api.md) for the rest of the machine surface (subscription helpers, system-id reverse lookup, etc).
+Machine registrar queries (`machines`, `machine-meta`) live in `re-frame.machines` — see [04 — Machines](../../machines/api.md).
 
 ## Frames
 
@@ -144,7 +130,7 @@ The schema-introspection surfaces are rowed in [08 — Schemas](08-schemas.md). 
   ```clojure
   (compute-sub query-v db)
   ```
-- **Description**: Pure sub computation against an `app-db` value. Use in tests; use in agent tooling that wants to evaluate subs against an artificial state.
+- Pure sub computation against an `app-db` value — full contract in [10 — Testing](10-testing.md).
 
 (Cross-rowed in [10 — Testing](10-testing.md).)
 

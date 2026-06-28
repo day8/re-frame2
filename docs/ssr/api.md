@@ -6,7 +6,15 @@ This works because the framework was designed around immutable data and an expli
 
 This chapter covers the rendering primitives (`render-to-string`, the streaming triple, the structural-hash), the head model (`reg-head`, `active-head`, `render-head`), the per-request response accumulator and its server-only fx, the error-projection seam (`reg-error-projector`, `project-error`), and the `:platforms` metadata that gates fx execution by active platform.
 
-The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); the Ring host-adapter lives in `re-frame.ssr.ring`. The implementation ships in a separate artefact — you add `day8/re-frame2-ssr` to your deps and require the namespace to get the full surface. For convenience, a curated set of the rendering and head primitives is **re-exported from `re-frame.core` as late-bound wrappers** (`render-to-string`, `render-tree-hash`, `project-error`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`): these resolve to the `re-frame.ssr` implementation at call time when the artefact is on the classpath, and throw a clear "SSR not loaded" error otherwise. So apps that already `(:require [re-frame.core :as rf])` can call `rf/render-to-string` directly; the host-adapter surface (`re-frame.ssr.ring`) and the per-request `:rf.server/*` fx are **not** re-exported — require `re-frame.ssr` / `re-frame.ssr.ring` for those.
+The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); the Ring host-adapter lives in `re-frame.ssr.ring`. The implementation ships in a separate artefact — you add `day8/re-frame2-ssr` to your deps and require the namespace to get the full surface. For convenience, a curated set of the rendering and head primitives is **re-exported from `re-frame.core` as late-bound wrappers** (`render-to-string`, `render-tree-hash`, `project-error`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`): these resolve to the `re-frame.ssr` implementation at call time when the artefact is on the classpath, and throw a clear "SSR not loaded" error otherwise. So apps that already `(:require [re-frame.core :as rf])` can call `rf/render-to-string` directly; the host-adapter surface (`re-frame.ssr.ring`) and the per-request `:rf.server/*` fx are **not** re-exported — require `re-frame.ssr` / `re-frame.ssr.ring` for those. The two registration macros `reg-head` and `reg-error-projector` are also `re-frame.core` facade exports (rowed in [01 — Core](../core/api/01-core.md)).
+
+The render/head primitives are re-exported on the `re-frame.core` facade; the full SSR surface and the Ring host adapter live in their own namespaces:
+
+```clojure
+(:require [re-frame.core    :as rf]
+          [re-frame.ssr     :as ssr]
+          [re-frame.ssr.ring :as ssr.ring])
+```
 
 ## Rendering primitives
 
