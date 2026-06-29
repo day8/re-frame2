@@ -4,8 +4,6 @@ Some lifecycles aren't *one* question — they're several, all live at once. A t
 
 Model that as one flat machine and the states multiply — three axes of three states each is `3 × 3 × 3 = 27` cross-product states, most of them named things like `:loading-and-invalid-and-active`. **Parallel regions** keep the axes apart. One machine declares `:type :parallel` and a `:regions` map; each region is a full little state-tree minding one axis; all regions are active simultaneously. Three axes of three states becomes **nine states across three regions**, not twenty-seven flat ones.
 
-> **Coming from XState?** This is XState's `type: 'parallel'` state (and SCXML's `<parallel>`). Same concept, idiomatic spelling: `:type :parallel` plus a `:regions` map keyed by region name. The behaviour is the contract re-frame2 tracks — see [Coming from XState](coming-from-xstate.md) for the full delta, and [the machines guide](concepts.md#when-the-machine-grows) for where this sits among the other grammar extensions.
-
 ## When to reach for parallel regions
 
 Reach for them when you have **multiple orthogonal axes of one feature** that share a domain: one form with data / validity / display-mode axes, one connection with auth + lifecycle + request-queue, one widget with display + interaction state. The giveaway is a single conceptual thing whose state is naturally a *tuple* of independent sub-states.
@@ -76,7 +74,7 @@ Three things to read off that snapshot:
 - **`:data`** is **shared** — one map, seen and written by every region. There is no per-region `:data` slot, on the region body or in the snapshot.
 - **`:tags`** is the **union** of every active state's tags across every region (covered [below](#tags-compose-across-regions)).
 
-> **Coming from XState?** XState's parallel state value is a nested object, `{ data: 'loading', form: 'neutral', mode: 'active' }`. re-frame2's `:state` map is the same idea in Clojure data, and you read it through one ordinary subscription — `@(rf/subscribe [:rf/machine :ui/nine-states])` — not an `actor.getSnapshot()`. The [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) sub returns the whole snapshot; named projections chain off it like any other [subscription](../core/concepts/subscriptions.md).
+You read the `:state` map through one ordinary subscription — `@(rf/subscribe [:rf/machine :ui/nine-states])`. The [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) sub returns the whole snapshot; named projections chain off it like any other [subscription](../core/concepts/subscriptions.md).
 
 ## Each region has its own `:initial`
 
@@ -139,7 +137,7 @@ When *several* regions handle the same event, each one's action runs against the
 
 If you wanted that event to count *once*, you'd register the coordinating action at the parent-machine level, or shape the regions so only one handles it.
 
-> **A subtle, load-bearing rule — selection is order-independent.** The broadcast is **select-then-apply**: every region's enabled transition is *selected* against **one frozen pre-broadcast snapshot** of the configuration, and only *then* are the selected transitions *applied* in declaration order. Declaration order governs only the apply order (action / `:fx` order, `:data` accumulation) — **never** which transitions are selected. Reorder the regions and you get the *same* selected set, and the new configuration is computed **atomically** old→new: no region ever observes an intermediate state where some siblings have moved and others haven't. This matches XState v5 / SCXML, where a parallel macrostep selects against the pre-event configuration. (It matters most for the next section.)
+> **A subtle, load-bearing rule — selection is order-independent.** The broadcast is **select-then-apply**: every region's enabled transition is *selected* against **one frozen pre-broadcast snapshot** of the configuration, and only *then* are the selected transitions *applied* in declaration order. Declaration order governs only the apply order (action / `:fx` order, `:data` accumulation) — **never** which transitions are selected. Reorder the regions and you get the *same* selected set, and the new configuration is computed **atomically** old→new: no region ever observes an intermediate state where some siblings have moved and others haven't. This matches SCXML, where a parallel macrostep selects against the pre-event configuration. (It matters most for the next section.)
 
 ## The root `:on`: an ancestor fallback
 
@@ -187,22 +185,20 @@ That last result is the **non-decomposable** case. A naive broadcast decompositi
 
 A `:type :parallel` root may also declare its own **`:after`** — the timer-driven twin of the root `:on`. It's scheduled at machine birth, owned by the root (alive for the machine's whole life rather than tied to any one region's lifecycle), and uses the very same region-qualified target grammar.
 
-> **Coming from XState?** This is XState's "[multiple transitions in parallel states](https://stately.ai/docs/state-machines-and-statecharts)" — a transition on the `<parallel>` node targeting one or several regions, `target: ['.a.x', '.b.y']`, which re-frame2 spells `:target [[:a :x] [:b :y]]`. The atomic suppression-when-a-region-competes is XState v5 / SCXML behaviour.
-
 ## Coordinating regions: tags as `stateIn`
 
 Orthogonal regions are independent — but sometimes one region's transition should depend on *where a sibling is*. The classic case: a `:checkout` region's `:submit` should only fire when the `:form` region is `:valid`.
 
-In XState you'd write a `stateIn({ form: 'valid' })` guard (SCXML's `In()` predicate). re-frame2 ships the same **behaviour** without a separate combinator (behavioural parity, not API mimicry). When a guard or action runs **inside a region** of a parallel machine, its context map carries two extra cross-region keys alongside the usual `:data` / `:event` / `:state` / `:meta`:
+re-frame2 lets one region's guard or action read where a sibling sits — no separate combinator needed. When a guard or action runs **inside a region** of a parallel machine, its context map carries two extra cross-region keys alongside the usual `:data` / `:event` / `:state` / `:meta`:
 
 | ctx key | value | use |
 |---|---|---|
 | **`:tags`** | the machine-wide active-configuration tag union | the **coarse** read — a sibling advertises a tag, you ask `(contains? tags :form/valid)`. The idiomatic choice: a tag is a *named* render-state that survives a sibling renaming its internal states. |
-| **`:all-state`** | the full region → active-state map, e.g. `{:form :valid :checkout :idle}` | the **precise** read — `(= :valid (:form all-state))` matches a sibling's discrete state value directly, the literal analog of `stateIn({form: 'valid'})`. |
+| **`:all-state`** | the full region → active-state map, e.g. `{:form :valid :checkout :idle}` | the **precise** read — `(= :valid (:form all-state))` matches a sibling's discrete state value directly. |
 
 ```clojure
-;; xstate stateIn({form: 'valid'}), as re-frame2's tag substitute: :checkout's
-;; :submit fires only while the :form region advertises :form/valid.
+;; :checkout's :submit fires only while the :form region
+;; advertises :form/valid — read via the cross-region :tags key.
 (rf/reg-machine :ui/checkout
   {:type   :parallel
    :data   {}
@@ -234,7 +230,7 @@ The precise variant reads the sibling's state value directly:
 
 Prefer the **tag** query: a tag is a named, tool-legible render-state, and it holds up when a sibling region refactors its internal state names.
 
-> **Both keys are frozen.** `:tags` and `:all-state` reflect the **frozen pre-broadcast snapshot** — the sibling configuration as of the *start* of the macrostep. A region's guard never sees a sibling's *same-event* move during selection (regions are genuinely simultaneous), which is exactly why selection is declaration-order-independent. A region reading its *own* state uses `:state` (which does evolve through its own `:always` loop); `:tags` / `:all-state` are the mechanism for reading *siblings*, and they're frozen. These two keys appear **only** for region guards/actions — a flat / compound machine's ctx stays exactly `{:data :event :state :meta}`, because its own `:state` is its `stateIn` substitute.
+> **Both keys are frozen.** `:tags` and `:all-state` reflect the **frozen pre-broadcast snapshot** — the sibling configuration as of the *start* of the macrostep. A region's guard never sees a sibling's *same-event* move during selection (regions are genuinely simultaneous), which is exactly why selection is declaration-order-independent. A region reading its *own* state uses `:state` (which does evolve through its own `:always` loop); `:tags` / `:all-state` are the mechanism for reading *siblings*, and they're frozen. These two keys appear **only** for region guards/actions — a flat / compound machine's ctx stays exactly `{:data :event :state :meta}`, because it has no siblings to read; its own `:state` already answers *where am I?*.
 
 The two `dispatch-sync` calls above are **separate events**, which is why each `:submit` reads the prior committed config. If you need a *single* event to flip `:form` to `:valid` **and** advance `:checkout` in the same breath, two statechart-idiomatic paths re-couple them — they differ in *when* convergence lands:
 
@@ -252,7 +248,7 @@ Each region's state-node keys are **scoped to that region**:
 - **`:spawn`** — a region's [`:spawn`](glossary.md#spawn)-bearing state starts and tears down child actors bound to *that region's* state; siblings never see the spawn / destroy cascade.
 - **`:entry` / `:exit`** — fire on the region's own transitions, never on a sibling's.
 
-> **`:raise` is the exception — it BROADCASTS.** A `[:raise [:event]]` emitted by any region's action does **not** stay local. It re-enters the parallel machine's single internal-event queue and re-broadcasts across **every** region — exactly as XState / SCXML deliver a `raise`d internal event to the whole machine, every active parallel state included. Each re-broadcast is its own microstep (a fresh frozen sibling view that already reflects the prior microstep's moves, while the in-flight `:data` flows through), the queue drains FIFO, and the whole macrostep — external event + every raised event + every region's `:always` settling — commits **once, atomically**, bounded by the `:raise-depth-limit`.
+> **`:raise` is the exception — it BROADCASTS.** A `[:raise [:event]]` emitted by any region's action does **not** stay local. It re-enters the parallel machine's single internal-event queue and re-broadcasts across **every** region — exactly as SCXML delivers a `raise`d internal event to the whole machine, every active parallel state included. Each re-broadcast is its own microstep (a fresh frozen sibling view that already reflects the prior microstep's moves, while the in-flight `:data` flows through), the queue drains FIFO, and the whole macrostep — external event + every raised event + every region's `:always` settling — commits **once, atomically**, bounded by the `:raise-depth-limit`.
 
 ## Tags compose across regions
 
@@ -285,4 +281,4 @@ The root view then branches with a single `case` over `@(rf/subscribe [:ui/rende
 
 ## A divergence to know: no nested parallel regions
 
-**Nested parallel regions are not supported in v1.** A region whose own tree declares `:type :parallel` is rejected at registration with `:rf.error/machine-parallel-nested-not-supported`. XState permits arbitrary nesting; re-frame2 does not (yet). Model a would-be two-level cross-product as a flatter set of regions, or — more idiomatically — as multiple top-level parallel-region machines. A region *may* still be a compound (hierarchical) state-tree; it just can't itself be parallel.
+**Nested parallel regions are not supported in v1.** A region whose own tree declares `:type :parallel` is rejected at registration with `:rf.error/machine-parallel-nested-not-supported`. Model a would-be two-level cross-product as a flatter set of regions, or — more idiomatically — as multiple top-level parallel-region machines. A region *may* still be a compound (hierarchical) state-tree; it just can't itself be parallel.

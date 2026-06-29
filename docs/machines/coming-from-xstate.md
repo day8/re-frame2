@@ -49,7 +49,7 @@ Skim this, then read the worked build-up in [The grammar, concept by concept](#t
 | **`createActor(m).start()` → `actor.send(ev)`** | **the machine is an event handler → `(rf/dispatch [machine-id [event]])`** | **The big one.** No actor object; one [`dispatch`](../core/glossary.md#dispatch), one [cascade](../core/glossary.md#event-cascade). |
 | `actor.getSnapshot()` | [`@(rf/subscribe [:rf/machine id])`](#reading-the-snapshot) | The [snapshot](glossary.md#snapshot) is a value in [runtime-db](../core/glossary.md#runtime-db), read like any other derived state. |
 
-A condensed five-row version of this lives at the foot of the [machines concepts page](concepts.md#coming-from-xstate-the-five-row-delta); this one is the long form, and the two sections below — the worked build-up and the *why* essays — are the part worth your attention.
+This table is the long form; the worked build-up and the *why* essays below are the part worth your attention.
 
 ## The grammar, concept by concept
 
@@ -210,7 +210,7 @@ loading: { after: { 5000: 'timeout', 30000: { guard: 'stillLoading', target: 'ha
           :on    {:loaded :ready :failed :error}}
 ```
 
-`:after`'s value uses the same transition grammar as an `:on` clause, and the delay can be a literal `pos-int?` ms, a subscription vector (app-state-derived), or `(fn [{:keys [snapshot]}] ms)` (computed from this machine's `:data`). XState's named/delayed-actor `timeout` maps to `:timeout` + `:on-timeout`, a named deadline that lowers onto the same `:after` machinery. **Divergence:** durations are integer ms **or** an ISO-8601 string (`"PT5S"`); XState's readable `"5s"` / `"10ms"` shorthand is **rejected** at registration. (Recurring timers and pause/resume are out of scope for v1.)
+`:after`'s value uses the same transition grammar as an `:on` clause, and the delay can be a literal `pos-int?` ms, a subscription vector (app-state-derived), or `(fn [{:keys [snapshot]}] ms)` (computed from this machine's `:data`). XState's named/delayed-actor `timeout` maps to `:timeout` + `:on-timeout`, a named deadline that lowers onto the same `:after` machinery. **Divergence:** durations are integer ms **or** an ISO-8601 string (`"PT5S"`); XState's readable `"5s"` / `"10ms"` shorthand is **rejected** at registration. And when two `:after` timers fire in the same scheduler tick, ordering follows host-clock arrival, not XState/SCXML document order — re-frame2 timers are real deferred events (first valid timer to arrive wins; the rest go stale), so don't lean on declaration order to break a same-tick tie. (Recurring timers and pause/resume are out of scope for v1.)
 
 ### Compound (nested) states
 
@@ -317,7 +317,7 @@ Starting a child actor on state entry and tearing it down on exit is XState's `i
  :on    {:auth/cancelled :idle}}
 ```
 
-The job is identical; the **name diverges on purpose** — "invoke" reads like a synchronous call, whereas the thing created is a spawned child actor's worth of lifecycle, so the declarative key aligns with the imperative fx `[:rf.machine/spawn …]`. **Divergences to know:** one `:spawn` per state (fan-out is the separate `:spawn-all`, with named children, a `:join` condition, and a `:cancel-on-decision?` policy); no `:onSnapshot` (subscribe to `[:rf/machine <child-id>]` instead); no per-actor mailbox (events route through the one queue); no `autoForward` (forward explicitly via `:fx [[:dispatch [child-id ev]]]`). To address a spawned child from a machine action, emit `[:rf.machine/dispatch-to-system [:auth-actor [:event]]]` — see the [API reference](../api/re-frame.machines.md).
+The job is identical; the **name diverges on purpose** — "invoke" reads like a synchronous call, whereas the thing created is a spawned child actor's worth of lifecycle, so the declarative key aligns with the imperative fx `[:rf.machine/spawn …]`. **Divergences to know:** one `:spawn` per state (fan-out is the separate `:spawn-all`, with named children, a `:join` condition, and a `:cancel-on-decision?` policy); no `:onSnapshot` (subscribe to `[:rf/machine <child-id>]` instead); no per-actor mailbox (events route through the one queue); no `autoForward` (forward explicitly via `:fx [[:dispatch [child-id ev]]]`). To address a spawned child from a machine action, emit `[:rf.machine/dispatch-to-system [:auth-actor [:event]]]`. Where XState splits child/parent messaging into four primitives (`sendTo`, `sendParent`, the returned child ref, `system.get`), re-frame2 folds them into `dispatch`-by-id: `:rf.machine/dispatch-to-system` resolves a `:system-id`-named child (the `system.get` analog), and a child reaches its parent through the runtime-stamped `:rf/parent-id` (XState's `sendParent`). See the [API reference](../api/re-frame.machines.md).
 
 ### Choice states
 

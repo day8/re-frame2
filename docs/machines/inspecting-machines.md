@@ -33,8 +33,8 @@ The canonical window onto a machine is the framework-registered subscription `[:
 
 The three keys are the whole user-facing shape:
 
-- **`:state`** — the discrete FSM keyword (`:idle`, `:submitting`, …). For a hierarchical machine it's a path vector (`[:authenticated :cart :browsing]`); for a parallel machine, a region map. This is what XState calls `state.value`.
-- **`:data`** — the machine's extended state: a plain map, distinct from app-db. XState calls this slot `context`; re-frame2 calls it `:data` to avoid the already-overloaded word "context". Read the fields a view needs by destructuring (above) or through a named projection sub (below).
+- **`:state`** — the discrete FSM keyword (`:idle`, `:submitting`, …). For a hierarchical machine it's a path vector (`[:authenticated :cart :browsing]`); for a parallel machine, a region map.
+- **`:data`** — the machine's extended state: a plain map, distinct from app-db; it's named `:data` to avoid the already-overloaded word "context". Read the fields a view needs by destructuring (above) or through a named projection sub (below).
 - **`:tags`** — the runtime-projected union of every active state's `:tags`. Ask membership questions against it rather than hard-coding state names (see below).
 
 > **The snapshot is `nil` until the first event.** A machine bootstraps itself on the first event addressed to it, so `[:rf/machine id]` reads `nil` before then. A view that renders pre-bootstrap should fall back to the definition's `:initial`:
@@ -72,7 +72,7 @@ Once a machine has several "loading-ish" states, views stop asking *which exact 
 
 This sub re-renders only when *this* tag's membership bit flips, so adding a fifth busy state later is one `:tags` entry on the new node — zero view changes.
 
-> **Coming from XState.** There you'd call `actor.getSnapshot()` on a live actor object. In re-frame2 there is no actor object — the snapshot is a value living at `[:rf.runtime/machines :snapshots :auth.login/flow]` in runtime-db, read through the ordinary subscription graph. The payoff is that time-travel, undo, persistence, and SSR hydration all extend to machines *for free*, because the snapshot rides the frame like any other state.
+> **The snapshot is a value, not a live object.** It lives at `[:rf.runtime/machines :snapshots :auth.login/flow]` in runtime-db and is read through the ordinary subscription graph. The payoff is that time-travel, undo, persistence, and SSR hydration all extend to machines *for free*, because the snapshot rides the frame like any other state.
 
 See [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) and [`machine-has-tag?`](../api/re-frame.machines.md) in the API reference.
 
@@ -96,7 +96,7 @@ A reliable machine-debugging loop:
 
 That loop keeps you out of the commonest machine trap: staring at the *current* state while forgetting the *event* that moved it there. Because a machine has a small, named state space, Xray can say something a generic logger never could — not "something updated a map" but "this event moved `:door/main` from `:closed` to `:opening`, ran this guard, scheduled this timer, and cancelled that prior branch." That's the difference between seeing state and seeing behavior.
 
-> **Coming from XState.** Stately's inspector and `@statelyai/inspect` attach an observer to a running actor. Xray's Machine Inspector is the re-frame2 counterpart — but it reads the **same trace bus every event handler already uses**, not a machine-special channel. (A note on scope: there is *no* framework-level `machine->xstate-json` or Mermaid export — visualisation exporters live in the separate `re-frame2-machines-viz` library, not the framework.)
+> **Xray's Machine Inspector reads the same trace bus every event handler already uses**, not a machine-special channel. (A note on scope: there is *no* framework-level chart or JSON export — visualisation exporters live in the separate `re-frame2-machines-viz` library, not the framework.)
 
 The full tour is in [Xray — Machine Inspector](../xray/08-machine-inspector.md).
 
@@ -163,7 +163,7 @@ When you've found the guard that blocked a transition and want to *read it*, ask
 
 This is the surface Xray's focused-transition lens and the re-frame2 pair MCP use to render guard/action source inline under their declared id. (`reg-machine` captures that source at macro-expansion time; the `:source`-bearing slots are dev-only and elide under `:advanced` + `goog.DEBUG=false`.) See [`handler-meta`](../api/re-frame.core.md#handler-meta) for the general contract.
 
-> **Divergence the spec calls out — a guard that throws aborts the macrostep.** This matches XState (which throws on a guard exception): re-frame2 emits one `:rf.machine/guard-evaluated` with `:outcome :threw`, then aborts transition selection — no candidate falls through to a sibling, no transition fires, and the snapshot rolls back **atomically** (nothing reaches runtime-db). A thrown *action* and a runaway `:always`/`:raise` depth-abort converge on the same failed-macrostep semantics. The runtime does not silently demote a thrown guard to a lower-priority candidate — and neither does XState.
+> **A guard that throws aborts the macrostep — the spec calls this out.** re-frame2 emits one `:rf.machine/guard-evaluated` with `:outcome :threw`, then aborts transition selection — no candidate falls through to a sibling, no transition fires, and the snapshot rolls back **atomically** (nothing reaches runtime-db). A thrown *action* and a runaway `:always`/`:raise` depth-abort converge on the same failed-macrostep semantics. The runtime does not silently demote a thrown guard to a lower-priority candidate.
 
 ---
 
@@ -225,7 +225,7 @@ The `login-flow` table above is plain data, so the very same value that renders 
 
 Most logic lives at Level 1. Reach for Level 3 only for spawned-actor patterns, where the whole point is that a handler gets registered dynamically and the parent can `dispatch` to it. The contracts for all three are in [Spec 005 §Testing](../../spec/005-StateMachines.md).
 
-> **Coming from XState.** Driving an XState machine in a test means standing up the interpreter (`createActor(machine).start()`, then `actor.send(…)`) or reaching for `@xstate/test`'s model-based harness. re-frame2's `machine-transition` needs neither — it's a bare pure function, so the unit test *is* `(fn definition snapshot event)`. The behavioural contract is identical: *(state, event) → next state + effects*; only the actor object disappears.
+> **The test *is* the transition function.** A `machine-transition` test is literally `(fn definition snapshot event)` — nothing to instantiate, you assert the behavioural contract *(state, event) → next state + effects* directly.
 
 See [`machine-transition`](../api/re-frame.machines.md#re-framemachinesmachine-transition) and [`machine-meta`](../api/re-frame.machines.md#re-framemachinesmachine-meta) in the API reference, and the narrative in [Concepts §Testing](concepts.md#testing-transitions-are-pure-function-calls).
 

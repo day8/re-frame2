@@ -79,8 +79,6 @@ Both are referenced from the table *by id*; their implementations sit once, up t
 
 > **Build it by hand.** The [tutorial](tutorial.md) constructs exactly this machine step by step — turn machines on, add a guard, an action, a real server call, a view per state, and a pure-function test — one idea at a time.
 
-> **Coming from XState?** This table will look familiar — re-frame2's machine grammar borrows XState's vocabulary: transition tables, guards, actions, tags, `:after`, run-to-completion. The big shift: a machine isn't an actor you `send` to — it's an [event handler](../core/glossary.md#event-handler). re-frame2 tracks the direction of **XState v6**; where the two differ this page flags it, and there's a full delta table [at the end](#coming-from-xstate-the-five-row-delta).
-
 ## Registering and running it
 
 Registering the table is one line — and there's no new runtime concept under it. **A machine *is* an event handler.** [`reg-machine`](../core/glossary.md#registration) is sugar over a `reg-event` whose body interprets the table: look up the current **[snapshot](glossary.md#snapshot)** (its live `{:state :data}` value), compute the transition, write the new snapshot back, return the action's [effects](../core/glossary.md#effect).
@@ -149,7 +147,7 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 
 If the current state has no transition for an event, it's a **silent no-op** — nothing throws, the snapshot doesn't move. Try it in the turnstile: dispatch `[:turnstile/flow [:wat]]`, an event no state handles, and the machine simply ignores it. (This is different from the `:push`-while-`:locked` case earlier: that state *does* declare a `:push` transition, so its action ran — here there's no transition at all.) The runtime still emits a benign `:rf.machine.event/unhandled-no-op` trace, so a debugger can show the event arrived and was dropped.
 
-> **Coming from XState?** This matches XState, which dropped strict mode in v5 and keeps it dropped in the v6 direction: an unknown event is a no-op, not a crash. Almost everything *else* that's wrong (a guard referencing an undefined name, a target naming a missing state) [fails loud](../core/glossary.md#fail-loud-not-silent) — but at *registration* time, not on the unlucky dispatch. More on that fail-loud / silent-no-op split below.
+> **Fail-loud is the rule elsewhere.** The unhandled event is the one silent no-op. Almost everything *else* that's wrong (a guard referencing an undefined name, a target naming a missing state) [fails loud](../core/glossary.md#fail-loud-not-silent) — but at *registration* time, not on the unlucky dispatch. More on that fail-loud / silent-no-op split below.
 
 ## Guards and actions
 
@@ -165,8 +163,6 @@ The arrows in the table named two kinds of helper — `:under-retry-limit` (a gu
 ```
 
 Pull out the keys you want and ignore the rest. `data` is already the `:data` slot — you read `(:attempts data)`, never `(get-in snapshot [:data :attempts])`. Note what is *not* in that map: there is no `:db`. A machine callback cannot see [app-db](../core/glossary.md#app-db) at all — only its own data plus the event that woke it. That boundary is load-bearing; **Strict encapsulation** below is the why.
-
-> **Coming from XState?** This is XState's action/guard argument — `context`, `event` — under re-frame2 spellings: `context` is `:data` (the name "context" is already taken twice over here, by the interceptor context and React context). One uniform map across every slot means there's no positional `(data event)`-vs-`(data id)` shape to mix up — the keys say what they carry.
 
 ### A guard is a yes/no gate
 
@@ -186,8 +182,6 @@ You reference it from an arrow by id — `:guard :under-retry-limit` — and the
  (fn [{:keys [data]}]
    (and (email-valid? data) (under-quota? data)))}
 ```
-
-> **Coming from XState?** XState ships `and` / `or` / `not` / `stateIn` guard combinators (`guard: and(['isAuthed', 'hasQuota'])`). re-frame2 has none — you write the boolean in a fn, and the fn's *name* is what a visualiser or an AI reads off the arrow. This is where XState v6 is heading anyway: it drops the helper creators in favour of plain functions. For `stateIn` specifically, the guard already gets `:state` in its context map (your own machine's active state); the cross-region case is covered in [parallel-states.md](parallel-states.md).
 
 ### An action returns effects
 
@@ -257,8 +251,6 @@ One sharp edge: an explicit `nil` **sets** a key to `nil` (the key stays present
 
 When several slots fire in one transition (`:exit` → the transition's `:action` → `:entry`), their `:data` updates merge in that order — a later slot sees the earlier writes — and the `:fx` vectors concatenate left to right.
 
-> **Coming from XState?** A `:data` write *is* XState's `assign` — there's no separate `assign` primitive to call and no array of actions to order. Because an action returns one atomic `{:data :fx}` map, XState v5's "assigns run in declared order, not hoisted ahead" correctness rule is automatic here rather than something the engine must enforce. (v6 removes the `assign` helper creator outright — re-frame2 never had it.)
-
 ## Strict encapsulation — a machine sees only its own `:data`
 
 This is the rule hovering over that context map: a guard or action gets `{:data :event :state :meta}` and **never app-db**. It cannot read app-db, and it cannot write it.
@@ -284,7 +276,7 @@ So how does a machine read or write things outside itself? Two disciplined moves
 Two guard-rails enforce the boundary:
 
 - **Returning `:db` is a hard error.** A `:db` key in an action's effect map surfaces `:rf.error/machine-action-wrote-db` and the `:db` key is dropped (the rest of the effects still flow). Fail loud, don't silently let a machine scribble on app-db.
-- **The next state isn't in the return shape either.** An action returns `:data` and `:fx` — never a state keyword. Only the transition's `:target` moves the machine. Callbacks update working memory; they can't nudge the machine into a state the table didn't declare. (This is exactly XState's `assign` invariant.)
+- **The next state isn't in the return shape either.** An action returns `:data` and `:fx` — never a state keyword. Only the transition's `:target` moves the machine. Callbacks update working memory; they can't nudge the machine into a state the table didn't declare.
 
 > **Gotcha — facts from the world are *declared*, not grabbed.** A guard or action that needs the time (or a random draw) must not call `(js/Date.now)` or `(rand)`: that buries nondeterminism where replay can't reach it, and replay is what makes time-travel and SSR hydration work. Instead, declare the fact as a [coeffect](../core/glossary.md#coeffect) on a *named* entry with `:rf.cofx/requires`, and the framework threads it into the context map:
 >
@@ -325,8 +317,6 @@ You read the snapshot through the framework's `[:rf/machine <id>]` [subscription
 
 Because the snapshot is *just a value* — no functions, no atoms, nothing unprintable in `:data` — it `pr-str` / `read-string` round-trips; and because it lives in [runtime-db](../core/glossary.md#runtime-db) it inherits [time-travel](../core/glossary.md#time-travel), undo, persistence, and SSR hydration for free, exactly as app-db does. That is the quiet dividend of "a machine is just an event handler whose state rides the frame."
 
-> **Coming from XState?** This is `actor.getSnapshot()` — but a *value in your store that you subscribe to*, not a field you pull off a live actor object. There's no actor instance to hold a reference to; the id plus the subscription is the whole handle.
-
 ## Tags and timers
 
 Two keys round out the everyday kit, and each has earned a page of its own rather than a paragraph here:
@@ -352,7 +342,7 @@ Look again at the turnstile. Pushing while `:locked` is a *self-transition* — 
 
 Here the `:after` self-transition is **external** (`:reenter? true`), so re-entering `:polling` re-runs `:start-fetch` and rearms the 30-second timer — a self-rescheduling poll in two keys. The `:got-data` transition is **internal** (no target), so a reply landing mid-window merges into `:data` without resetting the clock. Picking internal vs external per transition is exactly the control this rule buys you.
 
-> **Coming from XState v4 / SCXML?** re-frame2's internal-by-default matches XState v5+ (and the v6 direction), where `:reenter? true` is XState's `reenter: true` spelled with a Clojure `?`. But if you trained on XState v4 or hand-wrote SCXML, you expect a *targeted* self-transition to re-enter by default — re-frame2 does **not**. A self-target you *meant* to re-fire `:entry` on needs `:reenter? true`; without it, only the transition `:action` runs. Full mechanics, including ancestor restarts and the one `:always` restriction (an eventless `:always` may never self-target), are in [Spec 005 §Self-transitions](../../spec/005-StateMachines.md#self-transitions--internal-default-vs-external-reenter).
+> **The self-target subtlety.** A *targeted* self-transition does **not** re-enter by default. A self-target you *meant* to re-fire `:entry` on needs `:reenter? true`; without it, only the transition `:action` runs. Full mechanics, including ancestor restarts and the one `:always` restriction (an eventless `:always` may never self-target), are in [Spec 005 §Self-transitions](../../spec/005-StateMachines.md#self-transitions--internal-default-vs-external-reenter).
 
 ## Wildcard transitions: handle a whole class of events
 
@@ -371,7 +361,7 @@ Sometimes a state should react to *any* event in a family rather than enumerate 
 
 One subtlety worth knowing: a guard-**blocked** exact match falls through to the coarser tiers (it wasn't *handled*), but a deliberate **forbidden block** — `{:on {:E {}}}` or `{:on {:E nil}}` — is itself a handler that *consumes* the event and stops the search. That distinction is how a child state opts out of an event its parent would otherwise handle. Full precedence rules in [Spec 005 §Wildcard transitions](../../spec/005-StateMachines.md#wildcard-transitions).
 
-> **Coming from XState?** The namespace tier is re-frame2's idiom for XState v5's prefix descriptor (`mouse.*`) — same behaviour (one prefix level between exact and catch-all), expressed on the keyword's `/` boundary instead of a dotted string. A bare, non-namespaced id like `:go` has no `:ns/*` tier; only its exact key or `:*` can catch it.
+> **A non-namespaced id has no wildcard tier.** A bare id like `:go` has no `:ns/*` tier — only its exact key or `:*` can catch it. The `:ns/*` tier lives on the keyword's `/` boundary: one prefix level between the exact id and the catch-all `:*`.
 
 ## Final states: when a machine is *done*
 
@@ -436,7 +426,7 @@ To *also* validate the inbound event vector, use the three-argument `reg-machine
 
 The `:schemas` map's sub-keys are a closed set. Two of them — `:data` and `:output` — are wired up to actually run a check (you've now seen both). The other three — `:events`, `:tags`, and `:meta` — are accepted so you can declare them today, but they don't validate anything yet; they're reserved for future wiring. Either way, a sub-key *outside* the set (a typo, or one you hoped was live but isn't) fails loud at registration rather than silently validating nothing.
 
-> **Coming from TypeScript?** The `:schemas` map follows the XState v6 direction, which replaces v5's `types` with a broader `schemas` section. But there's a runtime guarantee TypeScript's typed context *can't* give you: TS types are erased before the machine ever runs, whereas `[:schemas :data]` is an *actually-running* validation in dev that rolls a bad transition back. Same declaration, plus the runtime check the type-erased layer leaves out.
+> **Coming from TypeScript?** There's a runtime guarantee TypeScript's typed context *can't* give you: TS types are erased before the machine ever runs, whereas `[:schemas :data]` is an *actually-running* validation in dev that rolls a bad transition back. Same declaration, plus the runtime check the type-erased layer leaves out.
 
 > **Fail-loud guard.** Because the schema only does its job through `reg-machine`'s registration stamp, hand-rolling `(reg-event id meta (machines/make-machine-handler spec))` around a `[:schemas :data]`-bearing spec is rejected with `:rf.error/machine-schema-requires-reg-machine` — the framework refuses to let your schema sit there validating nothing. A schema-less spec is fine through either path.
 
@@ -492,35 +482,19 @@ The return value is a result map. Destructure `::result/snap` and `::result/fx`,
 
 The flat grammar above carries most machines. When a flow gets richer, the grammar grows *without changing the model* — each of these is the same transition-table data, one more key. You only need to recognise them here; the contracts live in [Spec 005](../../spec/005-StateMachines.md):
 
-- **`:raise` loops an event back into this machine.** An action can return `:fx [[:raise [:some-event …]]]` to fire an event *at its own machine*, atomically, before the transition commits — useful when one transition's outcome should immediately drive another (a wizard step that completes and re-asks "is the whole form done?"). It's the in-machine equivalent of XState's `raise`. `:raise` is a reserved fx-id, alongside `[:rf.machine/spawn …]` and `[:rf.machine/destroy …]`, the actor-lifecycle pair behind the `:spawn` sugar. Everything else in `:fx` — `:dispatch`, `:rf.http/managed`, your own effects — flows to the ordinary effects machinery untouched.
-- **`:internal-events` makes an event private.** Some events are machine *plumbing* — a `:check-complete` the machine raises at itself, not for a view or test to dispatch. Declare those in a top-level `:internal-events` **set** (`#{:check-complete}`); an internal `:raise` is handled normally, but an *external* dispatch is **refused** at the machine's boundary (no transition; a `:rf.error/machine-internal-event-external-dispatch` trace fires). It's XState v6's `internalEvents`, spelled as a Clojure set because membership is what you're declaring, not order. [§Public / private `:internal-events`](../../spec/005-StateMachines.md#public--private-internal-events).
-- **`:type :choice` is a decision node.** A choice state is a *transient* routing node: enter it and it resolves immediately — same step, no event — to the first guarded candidate whose `:guard` passes. It's `:always`'s decision pattern with a name, so diagrams render an explicit fork. The `:choice` value is a **declarative candidate array** (re-frame2 keeps the routing as *data*, rejecting XState v6's `choice`-*function* form); it must include an unguarded default and must not declare ordinary state keys. [§`:type :choice`](../../spec/005-StateMachines.md#type-choice-transient--choice-states).
-- **`:timeout` / `:on-timeout` names a deadline.** Where `:after` is the general timer table, `:timeout` is the named-intent spelling of "this state — or its spawned child — must finish before this time," pairing a duration with an `:on-timeout` transition (it lowers onto the same `:after` timer). A duration is a positive-integer millisecond count (`5000`) or an ISO-8601 string (`"PT5S"`, `"PT1H30M"`) — re-frame2 rejects XState's `"5s"` shorthand, failing loud at registration. [§`:timeout` / `:on-timeout`](../../spec/005-StateMachines.md#timeout--on-timeout-state--spawn).
+- **`:raise` loops an event back into this machine.** An action can return `:fx [[:raise [:some-event …]]]` to fire an event *at its own machine*, atomically, before the transition commits — useful when one transition's outcome should immediately drive another (a wizard step that completes and re-asks "is the whole form done?"). `:raise` is a reserved fx-id, alongside `[:rf.machine/spawn …]` and `[:rf.machine/destroy …]`, the actor-lifecycle pair behind the `:spawn` sugar. Everything else in `:fx` — `:dispatch`, `:rf.http/managed`, your own effects — flows to the ordinary effects machinery untouched.
+- **`:internal-events` makes an event private.** Some events are machine *plumbing* — a `:check-complete` the machine raises at itself, not for a view or test to dispatch. Declare those in a top-level `:internal-events` **set** (`#{:check-complete}`); an internal `:raise` is handled normally, but an *external* dispatch is **refused** at the machine's boundary (no transition; a `:rf.error/machine-internal-event-external-dispatch` trace fires). It's a set because membership is what you're declaring, not order. [§Public / private `:internal-events`](../../spec/005-StateMachines.md#public--private-internal-events).
+- **`:type :choice` is a decision node.** A choice state is a *transient* routing node: enter it and it resolves immediately — same step, no event — to the first guarded candidate whose `:guard` passes. It's `:always`'s decision pattern with a name, so diagrams render an explicit fork. The `:choice` value is a **declarative candidate array** — the routing stays *data*, not a function — and it must include an unguarded default and must not declare ordinary state keys. [§`:type :choice`](../../spec/005-StateMachines.md#type-choice-transient--choice-states).
+- **`:timeout` / `:on-timeout` names a deadline.** Where `:after` is the general timer table, `:timeout` is the named-intent spelling of "this state — or its spawned child — must finish before this time," pairing a duration with an `:on-timeout` transition (it lowers onto the same `:after` timer). A duration is a positive-integer millisecond count (`5000`) or an ISO-8601 string (`"PT5S"`, `"PT1H30M"`) — a `"5s"`-style shorthand is rejected, failing loud at registration. [§`:timeout` / `:on-timeout`](../../spec/005-StateMachines.md#timeout--on-timeout-state--spawn).
 - **Hierarchical states** — a compound state contains sub-states; entering the parent cascades to its `:initial` child (an `:authenticated` super-state over `:browsing` / `:checkout`). [§Hierarchical compound states](../../spec/005-StateMachines.md#hierarchical-compound-states).
 - **Eventless `:always`** — fires when a guard becomes true, no event needed. [§Eventless `:always` transitions](../../spec/005-StateMachines.md#eventless-always-transitions).
 - **Parallel regions** — one machine, several orthogonal axes active at once (`:type :parallel` + `:regions`) sharing one `:data`; the snapshot's `:state` becomes a map of region → state, tags union across regions. Three axes of 3 states each is 3 regions, not 27 cross-product states. [§Parallel regions](../../spec/005-StateMachines.md#parallel-regions); when the axes *don't* share data, prefer N separate machines — the trade-off is worked in the [CP-5 guide](../../spec/CP-5-MachineGuide.md).
 - **History states** — re-enter a compound at the substate it was in when you left (a paused player resumes mid-track), via a `:type :history` pseudo-state. The recording rides the snapshot, so it survives undo and hydration for free. [§History states](../../spec/005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
-- **Spawned actors** — machines that aren't long-lived singletons: a per-request protocol machine, a wizard's per-step subprocess. The declarative [`:spawn`](glossary.md#spawn) key starts a child on state entry and destroys it on exit (XState's `invoke`). [§Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn).
+- **Spawned actors** — machines that aren't long-lived singletons: a per-request protocol machine, a wizard's per-step subprocess. The declarative [`:spawn`](glossary.md#spawn) key starts a child on state entry and destroys it on exit. [§Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn).
 
-> **Gotcha — a runaway `:always` / `:raise` cycle is a *failed* macrostep, not a hang.** Eventless transitions and `:raise` both re-enter the transition machinery within the same macrostep, so a non-converging loop (`:a` `:always`-targets `:b`, `:b` `:always`-targets `:a`, both guards true) could spin forever. It can't: each is bounded by a depth limit (default **16**, set per-frame via `:always-depth-limit` / `:raise-depth-limit`). Trip it and the macrostep **aborts atomically** — the snapshot stays at its pre-event value, no observer sees the partial path — and a single `:rf.error/machine-always-depth-exceeded` (or `:rf.error/machine-raise-depth-exceeded`) [error record](../core/glossary.md#error-record) fires. This matches XState (which *throws* on such a cycle), and it is **distinct** from the silent no-op of an unhandled event: a runaway loop is a bug you want surfaced, not swallowed. There's no automatic recovery.
+> **Gotcha — a runaway `:always` / `:raise` cycle is a *failed* macrostep, not a hang.** Eventless transitions and `:raise` both re-enter the transition machinery within the same macrostep, so a non-converging loop (`:a` `:always`-targets `:b`, `:b` `:always`-targets `:a`, both guards true) could spin forever. It can't: each is bounded by a depth limit (default **16**, set per-frame via `:always-depth-limit` / `:raise-depth-limit`). Trip it and the macrostep **aborts atomically** — the snapshot stays at its pre-event value, no observer sees the partial path — and a single `:rf.error/machine-always-depth-exceeded` (or `:rf.error/machine-raise-depth-exceeded`) [error record](../core/glossary.md#error-record) fires. It is **distinct** from the silent no-op of an unhandled event: a runaway loop is a bug you want surfaced, not swallowed. There's no automatic recovery.
 
 > **Gotcha — an `:always` may not target itself.** `{:checking {:always {:target :checking}}}` is rejected at *registration* with `:rf.error/machine-always-self-loop`: re-entering a state to re-test the same guard either spins to the depth limit (guard stays true) or no-ops (guard flips) — neither is what you meant. The fixed-point loop you actually want is a **targetless** guarded `:always` with an `:action` that flips the guard — `{:always {:guard :more? :action :bump}}` — which runs and settles; or an intermediate distinct state if you genuinely need entry/exit to re-fire.
-
-## Coming from XState? The five-row delta
-
-XState's *behaviour* is the reference re-frame2 matches; the *expression* is re-frame-native. The rows below hold across XState versions, and several are exactly where the **v6 direction** is heading anyway — v6 removes the `assign` helper and the `setup()` implementation registry, leaning toward plain functions, which is the shape re-frame2 already has:
-
-| XState | re-frame2 | The difference, and why |
-|---|---|---|
-| `context` (extended state) | `:data` | Same idea; "context" is already overloaded in re-frame2 (interceptor context, React context). |
-| `createActor(machine).start()`, then `actor.send({type: ...})` | the machine **is an event handler**; `(rf/dispatch [machine-id [event]])` | **The big one.** No actor object, no separate send mechanism — one router queue, one cascade. (v6 replaces v5's `interpret` with `createActor`; re-frame2 has neither — machines are event handlers.) |
-| actions that imperatively `assign(...)` / fire effects | actions **return** `{:data ... :fx ...}` | The same data-shaped return as any `reg-event` handler; effects are data, actioned by the runtime. v6 removes the `assign` helper creator — re-frame2 never had it. |
-| state lives in the actor; `actor.getSnapshot()` | the snapshot is a value in runtime-db, read via `@(rf/subscribe [:rf/machine id])` | Time-travel, undo, persistence, and SSR hydration extend to machines for free. |
-| `setup({guards, actions})` | machine-local `:guards` / `:actions` maps inside the spec | Each machine carries its own, validated at registration; cross-machine reuse is ordinary Clojure vars, not a string registry. v6 already simplifies `setup()` away from implementation registration. |
-
-The matches go deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and internal-by-default self-transitions. An XState author ports their intuitions directly. The full divergence ledger is in the [machine construction guide](../../spec/CP-5-MachineGuide.md).
-
-> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. Several v6-direction features that motivate new grammar have already landed: the broader `:schemas` map, explicit `:timeout` / `:on-timeout`, `:type :choice` transient states, and private `:internal-events`.
 
 ## When to reach for a machine — and when not
 

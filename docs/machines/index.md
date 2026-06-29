@@ -4,7 +4,7 @@ Finite state machines are hiding in plain sight, everywhere in your app. Your ap
 
 Model one of those lifecycles with scattered boolean flags — `:loading?`, `:submitting?`, `:error?` — and it drifts out of sync and sprouts impossible states ("submitting *and* error" at once). A **machine** makes the lifecycle explicit: named states, named transitions, exactly one state at a time. The illegal combinations simply can't be represented.
 
-re-frame2 has first-class, **hierarchical** state machines — nested states, parallel regions, spawned children, guards, delayed transitions: the full XState v6 feature set. And they're wired right into the re-frame2 substrate, **not bolted on as a side-car**. A machine *is* an event handler. Its live value is a [snapshot](glossary.md#snapshot) you read with an ordinary subscription and move with an ordinary dispatched event — same cascade, same `app-db`, same Xray, same tests. There's no second runtime to learn.
+re-frame2 has first-class, **hierarchical** state machines — nested states, parallel regions, spawned children, guards, delayed transitions. And they're wired right into the re-frame2 substrate, **not bolted on as a side-car**. A machine *is* an event handler. Its live value is a [snapshot](glossary.md#snapshot) you read with an ordinary subscription and move with an ordinary dispatched event — same cascade, same `app-db`, same Xray, same tests. There's no second runtime to learn.
 
 ```clojure
 (rf/reg-machine :auth/login

@@ -6,12 +6,12 @@ These are the statechart features that let a machine *drive itself*: a form that
 
 There are four authoring grammars, and underneath them just **two engines**:
 
-| You want… | Reach for | Fires when | In XState |
-|---|---|---|---|
-| "the instant condition X holds, go to Y" | `:always` | a guard turns true, re-checked after every transition into the state | `always` (SCXML calls it *transient*) |
-| "a decision node that routes on entry and never lingers" | `:type :choice` | entry — first guard-passing candidate wins | a *choice* / transient state |
-| "after N ms in this state, do Z" | `:after` | a wall-clock delay measured from state entry elapses | `after` (delayed transitions) |
-| "this state (or its child) must finish in time" | `:timeout` / `:on-timeout` | a fixed deadline from entry passes | an `after` transition, named |
+| You want… | Reach for | Fires when |
+|---|---|---|
+| "the instant condition X holds, go to Y" | `:always` | a guard turns true, re-checked after every transition into the state |
+| "a decision node that routes on entry and never lingers" | `:type :choice` | entry — first guard-passing candidate wins |
+| "after N ms in this state, do Z" | `:after` | a wall-clock delay measured from state entry elapses |
+| "this state (or its child) must finish in time" | `:timeout` / `:on-timeout` | a fixed deadline from entry passes |
 
 > **Four grammars, two engines.** `:type :choice` is sugar that **desugars to `:always`**; `:timeout` / `:on-timeout` is sugar that **desugars to `:after`**. So everything on this page runs on one of two mechanisms: the **guard-driven microstep loop** (`:always`, `:choice`) and the **wall-clock timer** (`:after`, `:timeout`). One fact, one mechanism — the extra grammars exist only to *name the author's intent* so tools and diagrams can read it.
 
@@ -57,7 +57,7 @@ This is classic statechart **macrostep** semantics: the externally-observable tr
 
 A few rules keep the loop well-behaved — and keep your typos loud at registration time, not on the unlucky dispatch:
 
-- **`:always` settles before the next raised event.** If an action both `:raise`s an event `R` and lands in a state whose `:always` is enabled, the `:always` is taken **first**; `R` is then handled in the post-`:always` state. Raised events otherwise drain FIFO. (This matches XState v5/SCXML exactly.)
+- **`:always` settles before the next raised event.** If an action both `:raise`s an event `R` and lands in a state whose `:always` is enabled, the `:always` is taken **first**; `R` is then handled in the post-`:always` state. Raised events otherwise drain FIFO. (This matches SCXML exactly.)
 - **Bounded depth.** The loop is capped (default **16** microsteps, configurable per machine via `:always-depth-limit`). A non-converging cycle trips `:rf.error/machine-always-depth-exceeded` and **fails the whole macrostep** — the snapshot is never written, so the transition rolls back atomically. It is a failure, not a silent no-op, so a runaway cycle is distinguishable from an ordinary guard-blocked decline.
 - **No self-target.** An `:always` whose `:target` resolves to its own declaring state is **rejected at `reg-machine` time** (`:rf.error/machine-always-self-loop`) — guarded or not. An eventless transition back into the state you just entered either loops to the depth limit or is a no-op; either way the author meant something else.
 
@@ -81,7 +81,7 @@ The [WebSocket example](../../examples/patterns/websocket/README.md) uses `:alwa
 
 `:reconnecting` carries **both** `:always` and `:after` — they're independent state-node slots and coexist freely. And `:connected`'s `:always` is the targetless-action form: its `:flush-queue` action clears the queue, the guard goes false, and the microstep loop settles — no extra state needed.
 
-> **Coming from XState.** XState calls these `always` transitions (SCXML's *transient* transitions); re-frame2 keeps the name `:always`. Same idea, same first-match-wins ordering. `:always` is **not** a substitute for `:after`: `:always` fires on guard *truth*, `:after` fires on elapsed *time*.
+`:always` is **not** a substitute for `:after`: `:always` fires on guard *truth*, `:after` fires on elapsed *time*.
 
 ## `:type :choice` — a decision node that never lingers
 
@@ -107,7 +107,7 @@ Under the hood, `:type :choice` / `:choice` **desugars to an ordinary state with
 
 ### Divergence: a declarative array, not a `choice` function
 
-> **This is a deliberate departure from XState.** XState lets a choice/transient state's routing be expressed as a `choice` **function**. re-frame2 **rejects that**: a function may never be the edge. `:choice` is a **declarative guarded-candidate array** `[{:guard … :target …}]` — the edge topology stays *data*, so diagrams, model tests, conformance fixtures, and AI tools can read the routing without executing it. A function-valued `:choice` fails loud at registration with `:rf.error/machine-bad-choice`. This is behavioural parity (an immediate routing node) without API-mimicry (the JS function form) — see [Where it diverges](coming-from-xstate.md#where-it-diverges--and-why).
+re-frame2 requires a choice node's routing to be a **declarative guarded-candidate array** `[{:guard … :target …}]`, never a function — a function may never be the edge. The edge topology stays *data*, so diagrams, model tests, conformance fixtures, and AI tools can read the routing without executing it. A function-valued `:choice` fails loud at registration with `:rf.error/machine-bad-choice`.
 
 ### What the runtime checks
 
@@ -167,7 +167,7 @@ Every `:after` timer counts independently from the moment the machine **enters t
 
 A state can have several triggers racing at once — multiple `:after` timers, the state's `:on` events, an `:always`, a [spawned](glossary.md#spawn) child completing. **Whichever fires first wins**; the resulting state exit cancels the rest as part of the normal exit cascade.
 
-> **A same-tick tie diverges from XState.** When two `:after` timers with different delays happen to fire in the same scheduler tick, the order they reach the router is the *host scheduler's* order — not document order. XState/SCXML resolve simultaneously-enabled transitions by document order; re-frame2 `:after` timers are real host-clock deferred events, so it's "first valid timer to arrive wins; the transition makes the rest stale." Don't rely on declaration order to break a same-tick `:after` tie.
+> **A same-tick tie has no document-order guarantee.** When two `:after` timers with different delays happen to fire in the same scheduler tick, the order they reach the router is the *host scheduler's* order — not document order. SCXML resolves simultaneously-enabled transitions by document order; re-frame2 `:after` timers are real host-clock deferred events, so it's "first valid timer to arrive wins; the transition makes the rest stale." Don't rely on declaration order to break a same-tick `:after` tie.
 
 ### No cancel flag: epoch-based staleness
 
@@ -210,8 +210,6 @@ Each visit to `:reconnecting` reads the *current* `:retries` and waits longer th
 
 `:after` deliberately does **not** include: recurring timers (re-enter the state to re-arm), calendar/wall-clock-time scheduling (it's relative to *entry*, not "9 AM tomorrow"), or pause/resume (transition out and back in).
 
-> **Coming from XState.** XState calls these `after` (delayed) transitions; re-frame2 keeps the name. XState also accepts named-delay maps and a `"5s"` shorthand string — re-frame2's `:after` keys are integer-ms / subscription-vector / fn instead (see the duration note below).
-
 ## `:timeout` / `:on-timeout` — a named deadline
 
 A state — or a [`:spawn`](glossary.md#spawn) spec — may declare a `:timeout` duration plus an `:on-timeout` transition. It names a single fact: "this state (or its spawned child) must finish before this time." It reads more clearly than a bare `:after` entry when the intent really is a deadline.
@@ -223,7 +221,7 @@ A state — or a [`:spawn`](glossary.md#spawn) spec — may declare a `:timeout`
    :on-timeout {:target :timed-out}}
 
   :loading
-  {:spawn {:machine-id :fetch-user          ;; XState's `invoke` is re-frame2's `:spawn`
+  {:spawn {:machine-id :fetch-user          ;; spawn a child machine
            :timeout    "PT10S"              ;; the child must finish within 10 s…
            :on-timeout {:target :timed-out}}}}}  ;; …or we bail
 ```
@@ -239,4 +237,4 @@ A `:timeout` duration is **exactly one of**:
 - a **positive integer** — literal milliseconds (`5000`); or
 - an **ISO-8601 duration string** — `"PT5S"`, `"PT2M"`, `"PT1H30M"`, `"PT0.5S"`, `"P1D"`, … (the `PnYnMnWnDTnHnMnS` form; case-insensitive; fractional seconds allowed).
 
-> **Divergence from XState.** XState v6 also accepts a readable shorthand like `"10ms"` / `"5s"`. re-frame2 **rejects** it: a `"5s"` / `"10ms"` string — or any other malformed duration (a non-positive integer, a fn, a vector, the bare `"P"`) — fails **loud** at registration with `:rf.error/machine-bad-timeout-duration`. And unlike `:after`, a `:timeout` admits **no** subscription-vector or fn dynamic delays — a timeout is a fixed wall-clock deadline. The integer-ms-or-ISO-8601 rule is the single duration grammar; the shorthand string is gone on purpose.
+A readable shorthand like `"5s"` / `"10ms"` is **not** accepted: such a string — or any other malformed duration (a non-positive integer, a fn, a vector, the bare `"P"`) — fails **loud** at registration with `:rf.error/machine-bad-timeout-duration`. And unlike `:after`, a `:timeout` admits **no** subscription-vector or fn dynamic delays — a timeout is a fixed wall-clock deadline. The integer-ms-or-ISO-8601 rule is the single duration grammar; the shorthand string is rejected on purpose.

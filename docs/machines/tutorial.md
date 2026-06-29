@@ -2,7 +2,7 @@
 
 The fastest way to understand a re-frame2 state machine is to build one and watch each piece arrive on its own. We'll make a **login flow** — idle, then submitting, then either signed-in or showing an error, and locked out after too many tries — adding one idea at a time: a guard, an action, a real server call, a view, and a test.
 
-This page assumes you've done the [core Quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-cascade.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md); if you're arriving from XState, [the mapping](coming-from-xstate.md) may be the faster door.
+This page assumes you've done the [core Quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-cascade.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md).
 
 > **One idea to carry through.** A machine is just an event handler. You *read* its current state — a small map called the [snapshot](glossary.md#snapshot) — through a subscription, and you *move* it by dispatching an event. There's no actor object to hold and no second runtime to learn. Keep that in mind and every step below is a small variation on the `dispatch` / `subscribe` loop you already know.
 
