@@ -2,7 +2,7 @@
 
 Some compound states have a memory. A media player you stop and restart should resume *mid-track*, not jump back to the first second. A wizard you step away from and return to should land on the step you left, not step one. A tabbed settings panel should remember which tab — and how far down each tab was scrolled — across a close/reopen. That "resume where I last was" behaviour is what a **history state** gives you, declaratively, for any [compound state](concepts.md#when-the-machine-grows).
 
-Without it you reach for the obvious workaround — stash the last substate in `:data` on the way out, read it back on the way in, and write the wiring to restore it. History states make that pattern a single node in the transition table, and (because the record/restore lives *inside the snapshot*) they ride undo, time-travel, persistence, and SSR for free. This is xstate's history-state concept, shipped first-class in re-frame2 as a `:type :history` node — same idea, idiomatic spelling.
+Without it you reach for the obvious workaround — stash the last substate in `:data` on the way out, read it back on the way in, and write the wiring to restore it. History states make that pattern a single node in the transition table — a first-class `:type :history` node — and (because the record/restore lives *inside the snapshot*) they ride undo, time-travel, persistence, and SSR for free.
 
 > History only applies to a **compound** state — a state with its own `:states` and `:initial`. If "which tab" or "which step" is a single flat value, just keep it in [`:data`](concepts.md#the-same-flow-as-a-transition-table) like any other state; that is ordinary modelling, not a feature you need to name. History earns its keep when a *non-trivial nested* configuration is worth remembering across a leave/return.
 
@@ -42,7 +42,7 @@ Here is a player with a `:tray` (no disc) and a `:player` compound (disc inserte
       :paused  {:on {:resume [:player :playing]}}}}}})
 ```
 
-A machine **is an event handler** ([this is the load-bearing difference from xstate](coming-from-xstate.md) — there is no actor to `send` to), so you drive it with ordinary dispatched events and read it with an ordinary subscription:
+A machine **is an event handler** — there is no actor to `send` to — so you drive it with ordinary dispatched events and read it with an ordinary subscription:
 
 ```clojure
 (rf/dispatch [:media-player [:insert]])  ;; :tray → nothing recorded yet → :default-target → [:player :stopped]
@@ -95,7 +95,7 @@ Reach for **deep** when the precise nested position matters (resume the exact tr
 
 Recording is automatic and happens on the way **out**: whenever the exit cascade *leaves* a compound that owns a history pseudo-state, the runtime writes that compound's last-active configuration into the snapshot. You never write capture code.
 
-The owning compound must be **genuinely exited** to record. This is the [W3C SCXML](https://www.w3.org/TR/scxml/#history) / xstate exit-set rule: a `<history>` value is written only for states in the exit set. A transition that merely moves *between two children* of the compound keeps the compound as the [least-common ancestor](concepts.md#when-the-machine-grows) — the compound **survives**, was never left, and so records nothing (there is no "last config" to remember; it is still in one).
+The owning compound must be **genuinely exited** to record. This is the [W3C SCXML](https://www.w3.org/TR/scxml/#history) exit-set rule: a `<history>` value is written only for states in the exit set. A transition that merely moves *between two children* of the compound keeps the compound as the [least-common ancestor](concepts.md#when-the-machine-grows) — the compound **survives**, was never left, and so records nothing (there is no "last config" to remember; it is still in one).
 
 That is exactly why `:eject` targets `:tray` (a *sibling of* `:player`, outside it) rather than some inner state: only leaving `:player` puts it in the exit set. A common first mistake is to put the history node on a compound that nothing ever exits — then it silently never records and "restore" always falls to the default. If your history isn't sticking, check that *something leaves the owning compound.*
 
@@ -143,28 +143,14 @@ Under a [parallel](concepts.md#when-the-machine-grows) machine each region runs 
 
 Restoring history in one region leaves the others untouched — the same per-region scoping that `:spawn`, `:after`, and `:always` follow under parallel.
 
-## Coming from XState
-
-If you've drawn history states in xstate, the concepts port one-for-one; only the spelling changes (re-frame2 prefers `?`-suffixed booleans and keyword targets). re-frame2 tracks **behavioural parity** with [xstate v6](coming-from-xstate.md), not API mimicry:
-
-| XState (v5 / v6) | re-frame2 | Note |
-|---|---|---|
-| `{ type: 'history' }` | `{:type :history}` | Same pseudo-state. |
-| `history: 'deep'` (default `'shallow'`) | `:deep? true` (default shallow) | A boolean rather than a string; default is shallow in both. |
-| `target: 'someState'` (default when no history) | `:default-target :some-state` | Where the first entry lands before anything is recorded; absent ⇒ the compound's `:initial`. |
-| internal `historyValue` on the actor | the `:rf/history` slot **inside the snapshot** | **The deliberate divergence.** xstate keeps history as internal actor state; re-frame2 keeps it as a revertible value in the frame, which is why undo / time-travel / SSR get history for free. |
-| records on `statesToExit` (SCXML Appendix D) | records only when the owning compound is in the **exit set** | Identical semantic — history means "where this compound was when we *left* it," so the compound must actually be left. |
-
-The one thing to unlearn is *where the memory lives*: there is no actor object holding `historyValue`. The memory is a value in the snapshot, and the snapshot is just data on the frame.
-
 ## Why history is first-class, not a snapshot you stash yourself
 
 You *could* hand-roll the equivalent: an `:exit` action that copies the current sub-path into `:data`, an entry that reads it back, plus the bookkeeping to know *which* compound (and, under parallel, *which region*). re-frame2 ships the declarative node instead, for four reasons:
 
 - **Declarative beats hand-rolled.** `{:type :history :deep? true}` is one node an AI agent (or a teammate) reads and writes confidently; the stash-and-restore version is bespoke per machine.
 - **Composition you'd otherwise re-derive.** Per-region history under parallel, deep nesting, and shallow-vs-deep depth all fall out of the grammar plus the existing cascade machinery — the hand-rolled form has to re-implement each, correctly, every time.
-- **Tooling legibility.** A `:type :history` node is visible to the machine inspector, the diagram exporter, and the SCXML / xstate corpus; hand-rolled `:data` shuffling is invisible to all of them.
-- **Parity.** Both SCXML (`<history>`) and xstate (`{type:'history'}`) ship first-class history; matching the shape keeps the conformance corpus and the AI-trained-on-xstate path aligned.
+- **Tooling legibility.** A `:type :history` node is visible to the machine inspector, the diagram exporter, and the SCXML corpus; hand-rolled `:data` shuffling is invisible to all of them.
+- **Parity.** SCXML (`<history>`) ships first-class history; matching that shape keeps the conformance corpus aligned.
 
 Revertibility is what makes history *cheap* (the recording rides the snapshot), but it's the foundation history is built on, not a reason to skip the feature.
 

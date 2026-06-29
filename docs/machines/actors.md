@@ -4,7 +4,7 @@ A machine doesn't have to be a singleton. When a state needs to run some self-co
 
 The pattern earns its keep when an activity has a *lifetime that should match a state's lifetime*: start it when you enter the state, and — this is the part that's easy to get wrong by hand — tear it down on **every** way out of the state, including the ones you forgot about. Declare the binding once and the runtime enforces it.
 
-> **Coming from XState?** This is `invoke` (a state-bound child) and `spawn` (a dynamically-created actor) — re-frame2 spells both as **`:spawn`**. The deeper shift: in XState an actor is a living object you `createActor(machine).start()` and hold a reference to, then `.send()` messages. In re-frame2 there is **no actor object**. A spawned actor's *liveness is its snapshot* — a plain value at `[:rf.runtime/machines :snapshots <actor-id>]` in the [frame's runtime-db](glossary.md#snapshot). You address it by `dispatch`-ing to its id, exactly like any other handler, and it reverts with the frame on time-travel. See [Coming from XState](coming-from-xstate.md) for the full delta.
+A spawned child can be **state-bound** — alive for exactly as long as a state is active — or **dynamically created**; re-frame2 spells both as **`:spawn`**. There is **no actor object**: a spawned actor's *liveness is its snapshot* — a plain value at `[:rf.runtime/machines :snapshots <actor-id>]` in the [frame's runtime-db](glossary.md#snapshot). You address it by `dispatch`-ing to its id, exactly like any other handler, and it reverts with the frame on time-travel.
 
 This page assumes you've met the [transition table, guards, actions, tags, and `:after`](concepts.md#guards-and-actions). If not, read [Concepts](concepts.md) first.
 
@@ -39,8 +39,6 @@ Here's the heart of the [websocket example](../../examples/patterns/websocket/):
 
 Enter `:active` → the runtime spawns a `:websocket/socket` actor. Leave `:active` by *any* door — `:ws/closed`, `:ws/fatal`, a frame teardown — and the runtime destroys it. The parent never wrote "spawn" or "destroy"; `:spawn` is **registration-time sugar** that rewrites the state's `:entry`/`:exit` into the imperative spawn/destroy effects you'll meet below. From the outside it's indistinguishable from a machine that wired those slots by hand.
 
-> **Mental model.** `:spawn` is XState's `invoke`. The child's lifetime is the state's lifetime. Renamed because "invoke" reads like a synchronous call, when what you create is a child actor with its own lifecycle.
-
 ### The spawn-spec keys
 
 The map under `:spawn` accepts:
@@ -59,7 +57,7 @@ The map under `:spawn` accepts:
 
 `:on-done` / `:on-error` are the completion story — they pair with the child declaring a `:final?` leaf. That's covered under [Final states](concepts.md#final-states-when-a-machine-is-done); the [API reference](../api/re-frame.machines.md) lists the exact shapes. Here we focus on the lifecycle: spawn, address, message, and tear down.
 
-> **Divergence to know.** XState lets `invoke` take a vector of children per state; re-frame2 allows **one `:spawn` per state** (use a compound state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all) for parallelism). XState's `autoForward` is omitted — forward events explicitly with `:fx [[:dispatch [child-id ev]]]`. And there's no `:onSnapshot` — read the child with the `[:rf/machine actor-id]` subscription.
+> **One `:spawn` per state.** A state node carries at most one `:spawn` — for multiple children, use a compound state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all) for parallelism. Events aren't auto-forwarded to children — forward them explicitly with `:fx [[:dispatch [child-id ev]]]`. To observe a child's snapshot, read it with the `[:rf/machine actor-id]` subscription.
 
 ---
 
@@ -94,7 +92,7 @@ The child reads these as ordinary `:data` lookups inside its actions. Here's the
     :open    {:on {:send {:action :send-via-socket}}}}})
 ```
 
-> **This is XState's `sendParent`.** In XState a child can address its parent without being told who it is; here the runtime stamps `:rf/parent-id` and the child reads it. **Caveat:** the stamp is written **only on the declarative `:spawn` / `:spawn-all` path**. A *hand-emitted* `[:rf.machine/spawn …]` (next section) records only `:rf/self-id` — there's no structural parent — so a hand-spawned child must be handed a correspondent address through its `:data`.
+> **Addressing the parent.** A child can address its parent without being told who it is — the runtime stamps `:rf/parent-id` and the child reads it. **Caveat:** the stamp is written **only on the declarative `:spawn` / `:spawn-all` path**. A *hand-emitted* `[:rf.machine/spawn …]` (next section) records only `:rf/self-id` — there's no structural parent — so a hand-spawned child must be handed a correspondent address through its `:data`.
 
 ---
 
@@ -123,7 +121,7 @@ You will reach for `:on-spawn` to "capture the child's id into `:data`" — and 
 When you *do* need the id addressable by name, the first-class mechanisms (in order of preference):
 
 1. **`:system-id`** — give the spawn a stable name; resolve and message it by that name (see [below](#cross-machine-messaging)). Best when you want a *role* rather than a gensym.
-2. **The `:rf/spawned` `:data` slot** — on every declarative `:spawn`, the runtime binds the new id into the *spawning* machine's own `:data` under `{:rf/spawned {<invoke-id> <actor-id>}}`. A later action reads it: `(get-in data [:rf/spawned [:active]])`. This is the re-frame2 spelling of XState's `const ref = spawn(child)` captured into `context` — except the id rides the revertible snapshot, not a live object.
+2. **The `:rf/spawned` `:data` slot** — on every declarative `:spawn`, the runtime binds the new id into the *spawning* machine's own `:data` under `{:rf/spawned {<invoke-id> <actor-id>}}`. A later action reads it: `(get-in data [:rf/spawned [:active]])`. The id rides the revertible snapshot, not a live object reference.
 3. **Self-dispatch from `:on-spawn`** — since `:on-spawn` *can* fire a side-effecting dispatch (just not return data), have it dispatch a self-event whose ordinary `:action` writes the id. This is the verified [websocket](../../examples/patterns/websocket/) pattern:
 
 ```clojure
@@ -153,8 +151,6 @@ There is **one** mechanism: `dispatch` by id. A spawned actor's id is a handler 
 ;; parent → child, or child → parent: same primitive.
 {:fx [[:dispatch [some-machine-id [:some-event payload]]]]}
 ```
-
-> **XState splits this into four primitives** — `sendTo(ref, ev)`, `sendParent(ev)`, the implicit reply via the returned child ref, and `system.get(id)`. re-frame2 subsumes all four under `dispatch`-by-id, with `:system-id` supplying the `system.get` analog.
 
 ### Addressing by name with `:system-id`
 
@@ -226,7 +222,7 @@ The runtime knows how to release exactly **three** framework-managed resource ki
 - **Armed `:after` timers** the actor scheduled — cancelled, so a killed worker won't wake up later.
 - **`:rf.resource/*` owner leases** the actor holds.
 
-> **Divergence from XState.** XState's stop-on-exit is total and substrate-agnostic — it cancels *whatever* the actor was doing. re-frame2's auto-cancel is narrower: the three kinds above, the ones the framework manages and so knows how to release. **Anything else** the child holds — a raw `setInterval`, a `js/WebSocket`, a Web Worker, a third-party SDK subscription — you release yourself, in the child's **`:exit` action**. It runs on every destroy cascade, so one line covers all five triggers:
+> **Auto-cancel covers three resource kinds.** re-frame2 auto-cancels exactly the three kinds above — the ones the framework manages, and so knows how to release. **Anything else** the child holds — a raw `setInterval`, a `js/WebSocket`, a Web Worker, a third-party SDK subscription — you release yourself, in the child's **`:exit` action**. It runs on every destroy cascade, so one line covers all five triggers:
 
 ```clojure
 {:connected
@@ -256,7 +252,7 @@ The [long-running-work example](../../examples/patterns/long_running_work/) show
 
 The timer is anchored to `:authenticating`'s **entry**, so it bounds the child's whole lifetime no matter how many times the child retries internally. When it fires, the state exits and the standard cancellation cascade destroys the in-flight child (aborting its HTTP). Three independent triggers — the user cancels, 30s elapses, or the frame is torn down — all route through the *same* teardown.
 
-> The same guard has a named-intent spelling, `:timeout "PT30S"` + `:on-timeout {:target :auth-failed}` (ISO-8601 durations), which **lowers onto the same `:after` timer**. Use whichever reads better; they're one mechanism. (XState's `"5s"` shorthand isn't accepted — ISO-8601 or integer milliseconds.)
+> The same guard has a named-intent spelling, `:timeout "PT30S"` + `:on-timeout {:target :auth-failed}` (ISO-8601 durations), which **lowers onto the same `:after` timer**. Use whichever reads better; they're one mechanism. (Durations are ISO-8601 or integer milliseconds; a bare `"5s"` shorthand isn't accepted.)
 
 ---
 
@@ -314,6 +310,6 @@ A few rules worth knowing:
 - **An unregistered child type fails the whole join closed** before any join-state is seeded — a child that can never run can never deadlock an `:all` join.
 - **Wall-clock timeout:** same as single `:spawn` — an `:after` on the `:spawn-all`-bearing state. When it fires, the exit cascade cancels every surviving child.
 
-> **Coming from XState:** there's no single XState primitive for this — you'd `invoke` several actors and coordinate `onDone` by hand, or model an explicit parallel region. `:spawn-all` packages the fan-out, the join condition, and the cancel-on-resolution cascade into one declaration.
+`:spawn-all` packages the fan-out, the join condition, and the cancel-on-resolution cascade into one declaration.
 
 ---

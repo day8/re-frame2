@@ -27,12 +27,6 @@ The grammar recurses and stays additive: a substate is either a **leaf** (no
 `:initial`). Flat machines stay flat — you only pay for hierarchy where you use
 it.
 
-> **In XState** this is a [compound (nested) state](https://stately.ai/docs/parent-states);
-> the behaviour re-frame2 matches is XState v6's, expressed as Clojure data
-> rather than a `createMachine` object. `:data` is XState's `context`; `:spawn`
-> is XState's `invoke`/`spawn`; the snapshot's `{:state :data :tags}` is XState's
-> `snapshot.value` / `.context` / `.tags`.
-
 The canonical worked example is the connection machine in
 [`../../examples/patterns/websocket/`](../../examples/patterns/websocket) — its
 `:active` state parents the three happy-path leaves. The snippets on this page
@@ -166,7 +160,7 @@ A compound state *without* `:initial` is a registration error
 > life — a singleton on its first dispatched event, or a spawned actor — the
 > whole `:initial` chain's `:entry` actions fire once, shallowest-first, as part
 > of bringing it into existence — *every* level along the chain, not just the
-> leaf. (In XState this is `xstate.init` entering the initial state cascade.)
+> leaf.
 
 ---
 
@@ -203,11 +197,6 @@ Flat-machine targets you've already written (`{:target :editing}`) are keyword
 form, root-relative — unchanged, because in a flat machine the declaring state's
 parent *is* the root.
 
-> **In XState** an absolute target is written by id —
-> `target: '#connection.failed'`; re-frame2's `[:failed]` vector is the same
-> "absolute from the root" idea. A relative XState target like `target: 'authenticating'`
-> maps to re-frame2's keyword `:authenticating`.
-
 ---
 
 ## Transition resolution: deepest-wins with parent fallthrough
@@ -236,12 +225,6 @@ Two consequences make hierarchy pay off:
 ;; Dispatching :ws/send instead resolves at :connected (override → :send-now).
 ```
 
-> **In XState** this is the v5/v6 transition-selection order: a descendant state
-> handles an event in preference to its ancestors, and an ancestor handles what
-> the descendant doesn't. The descriptor tiers (exact, `mouse.*` prefix,
-> catch-all `*`) are XState's too — re-frame2 spells the prefix tier on the
-> keyword's `/` boundary (`:mouse/*`) instead of a dotted string.
-
 ### Opting a child OUT of an inherited transition
 
 Sometimes a child needs the *inverse* of inheritance — to **block** a
@@ -264,21 +247,13 @@ The block turns entirely on the key being **present**. A child with *no*
 `:logout` entry keeps falling through (absence means "I don't handle this");
 a deliberately-`nil` key blocks (presence means "I consume this here").
 
-> **In XState** this is `on: { LOGOUT: undefined }` — a forbidden transition.
-> `nil` is the natural Clojure analogue of `undefined`.
-
 ### Unhandled events are a benign no-op
 
 If *no* level enables a transition for an unknown event, the snapshot is
 unchanged and the runtime emits a benign `:rf.machine.event/unhandled-no-op`
-trace. Nothing throws.
-
-> **In XState** an unhandled event is silently ignored (v5 dropped `strict`
-> mode, and the v6 direction keeps it dropped). re-frame2 matches that runtime
-> behaviour — but **deliberately diverges** on one point: where XState emits
-> *nothing*, re-frame2 keeps the observability trace so a debugger can report
-> that an event arrived and was ignored. Benign is not invisible. To "fail loud
-> on unknown," declare a `:*` wildcard whose action throws.
+trace. Nothing throws — but benign is not invisible: the trace lets a debugger
+report that an event arrived and was ignored. To "fail loud on unknown," declare
+a `:*` wildcard whose action throws.
 
 ---
 
@@ -334,10 +309,8 @@ Take this auth-flow machine (a compound `:authenticated` over a `:dashboard` /
 | `:checkout` | `[:authenticated :cart :browsing]` | `[:authenticated :cart :paying]` | Sibling hop inside `:cart`. LCA `:cart`: exit `:browsing`; enter `:paying`. |
 | `:logout` | `[:authenticated :cart :paying]` | `[:unauthenticated]` | Deepest-wins walks `:paying` (no match), `:cart` (no), `:authenticated` (match). LCA is the root: exit `:paying → :cart → :authenticated` (deepest-first); enter `:unauthenticated`. |
 
-> **In XState/SCXML** this is the LCCA / `findLCCA` rule (re-frame2 keeps the
-> historical "LCA" name for the section). The generalisation of the flat
-> `exit → action → entry` rule: in a flat machine the path length is 1 and the
-> LCA is always the root.
+> This generalises the flat `exit → action → entry` rule: in a flat machine the
+> path length is 1 and the LCA is always the root.
 
 Actions are **pure returns**, not imperative writes: an `:entry` /
 `:exit` / transition `:action` is `(fn [{:keys [data event state]}] effects)`
@@ -376,12 +349,9 @@ a vector path, or a full `{:target :guard :action}` / candidate vector), and a
 keyword target resolves as a **sibling of the compound** — the natural "advance
 the outer flow" placement.
 
-> **In XState** `:on-done` on a compound is `onDone`, and re-frame2's
-> `[:rf.machine/done <path>]` is XState's `done.state.<id>` / SCXML's
-> `done.state.id` — the node id rides as the event's single argument so the
-> `:on` table stays keyed on one reserved keyword. The raise lands in the same
-> internal FIFO queue an action's `[:raise …]` uses, drained before the
-> macrostep settles.
+> The node id rides as the raised event's single argument so the `:on` table
+> stays keyed on one reserved keyword. The raise lands in the same internal FIFO
+> queue an action's `[:raise …]` uses, drained before the macrostep settles.
 
 There's also a lower-level escape hatch: if the done node declares no `:on-done`,
 the raised `[:rf.machine/done <path>]` walks the active path leaf→root like any
@@ -403,12 +373,11 @@ So you do **not** have to *avoid* `:final?` to keep a machine alive after a
 sub-flow completes — you put the final leaf *inside* the compound. A final leaf
 at the root, by contrast, ends the actor.
 
-> **Deliberate divergence — "final means final."** A *singleton* (top-level,
-> un-spawned) machine that reaches a **root-level** `:final?` leaf
-> auto-destroys. If you want a state the machine rests in indefinitely (an
-> `:authed` end-screen), use an ordinary leaf and **omit `:final?`**. `:final?`
-> is for "this run is over," not "this is the last screen." (XState's top-level
-> final simply stops the actor; re-frame2 tears it down — the snapshot is gone.)
+> **Final means final.** A *singleton* (top-level, un-spawned) machine that
+> reaches a **root-level** `:final?` leaf auto-destroys — the snapshot is gone.
+> If you want a state the machine rests in indefinitely (an `:authed`
+> end-screen), use an ordinary leaf and **omit `:final?`**. `:final?` is for
+> "this run is over," not "this is the last screen."
 
 ### Reporting a result to a spawning parent: `:output-key`
 
@@ -450,11 +419,9 @@ the same idea at two scopes:
   `(fn [{:keys [data result]}] new-data)` a parent gets when a spawned child
   reaches a root-level `:final?` and is then destroyed.
 
-> **In XState** `:final?` is `type: 'final'` and `:output-key` is the final
-> state's `output`. re-frame2 keeps exactly **one** output primitive — there's
-> no `:output-fn` escape hatch. Want a *computed* output? Write a transition
-> `:action` *into* the final state that stashes the computed value at the
-> `:output-key` slot.
+> re-frame2 keeps exactly **one** output primitive — there's no `:output-fn`
+> escape hatch. Want a *computed* output? Write a transition `:action` *into* the
+> final state that stashes the computed value at the `:output-key` slot.
 
 ### `:final?` constraints
 

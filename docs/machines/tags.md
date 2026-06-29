@@ -10,7 +10,7 @@ Reach for tags when:
 
 If a label would only ever match exactly one state, skip it — query the state directly with `(= :loading (:state snap))`. Tags earn their keep by matching *many* states with one shared intent.
 
-> **Coming from XState.** re-frame2's `:tags` *are* XState's state `tags` — same name, same concept, a clean convergence. `tags: ['busy']` becomes `:tags #{:busy}` (a Clojure set, not a JS array), and the union rule is identical: any active state carrying the tag puts it in the snapshot's tag set. The one shift to learn is the *query* side. XState reads `state.hasTag('busy')` off a living actor; in re-frame2 a machine is an [event handler](../core/glossary.md#event-handler) with no actor object, so the membership question is a **[subscription](../core/concepts/subscriptions.md)** — `@(rf/machine-has-tag? id :busy)`. The full row-by-row map is in [Coming from XState](coming-from-xstate.md#the-mapping). This page assumes the [machine grammar](concepts.md) — `reg-machine`, the transition table, the `{:state :data}` snapshot — from the concepts chapter.
+This page assumes the [machine grammar](concepts.md) — `reg-machine`, the transition table, the `{:state :data}` snapshot — from the concepts chapter.
 
 ## Declaring tags on a state
 
@@ -154,13 +154,13 @@ And the controls disable themselves the same ask-don't-tell way — they ask for
 
 Notice what the form *doesn't* ask: "is the `:mode` region in `:done`?" It asks "is this read-only?" Move `:mode/read-only` onto a different state tomorrow and this view doesn't change a line.
 
-## Tags as a cross-region signal (`stateIn`)
+## Tags as a cross-region signal
 
-In a parallel machine the tag union spans *all* regions, which makes it the channel one region uses to read what a sibling is doing. This is the classic statechart coordination primitive: a guard in region A predicates on region B's state. XState spells it `stateIn({ form: 'valid' })` (and W3C SCXML has `In(...)`); re-frame2 ships the *behaviour* without a separate `stateIn` operator — a deliberate divergence for behavioural parity, not API mimicry. **A sibling region advertises a tag, and any region's guard reads the tag union off its context map.**
+In a parallel machine the tag union spans *all* regions, which makes it the channel one region uses to read what a sibling is doing. This is the classic statechart coordination primitive: a guard in region A predicates on region B's state. re-frame2 ships this without a dedicated operator: **a sibling region advertises a tag, and any region's guard reads the tag union off its context map.**
 
 A guard or action running *inside a parallel region* gets two extra keys in its context map, alongside the usual `:data` / `:event` / `:state` / `:meta`:
 
-- **`:tags`** — the machine-wide tag union (the **coarse**, idiomatic `stateIn` substitute);
+- **`:tags`** — the machine-wide tag union (the **coarse**, idiomatic read);
 - **`:all-state`** — the full `{region → active-state}` map (the **precise** read).
 
 ```clojure
@@ -190,7 +190,7 @@ Prefer the **tag** form: a tag is a named, tool-legible render-state, and it sur
 Two things to hold onto:
 
 - **A tag is a guard *input*, not a *trigger*.** A tag flipping on does not *fire* anything — there is no "on this tag appearing" transition. The dependent region still moves on its next event (or an eventless `:always`); the guard merely *reads* the sibling's advertised tag when it runs.
-- **These keys are parallel-only, and frozen.** A flat or compound machine's guard/action context is exactly `{:data :event :state :meta}` — no `:tags` / `:all-state`, because a flat machine has no sibling to coordinate with (its own `:state` is its `stateIn`). In a parallel machine both keys reflect the configuration *as of the start of the macrostep*, so every region selects against the same frozen sibling view, independent of region declaration order. The exact same-event convergence paths — `:raise` for same-macrostep coupling, a guarded `:always` for next-event coupling — are spelled out in the spec.
+- **These keys are parallel-only, and frozen.** A flat or compound machine's guard/action context is exactly `{:data :event :state :meta}` — no `:tags` / `:all-state`, because a flat machine has no sibling to coordinate with (its own `:state` is all there is to read). In a parallel machine both keys reflect the configuration *as of the start of the macrostep*, so every region selects against the same frozen sibling view, independent of region declaration order. The exact same-event convergence paths — `:raise` for same-macrostep coupling, a guarded `:always` for next-event coupling — are spelled out in the spec.
 
 ## What tags are *not*
 
