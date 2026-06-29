@@ -31,8 +31,8 @@
        panel chrome.
 
     3. **Active state** — read off `[:rf/machine <id>]` (Spec 005
-       §Subscribing to machines via sub-machine), surfaced on the
-       picker row + in the placeholder's prop summary.
+       §Subscribing to machines via the :rf/machine sub), surfaced on
+       the picker row + in the placeholder's prop summary.
 
     4. **Transition history ribbon** — filter the Xray trace buffer
        to `:rf.machine/transition` events for the selected machine and
