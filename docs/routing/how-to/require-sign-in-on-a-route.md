@@ -86,14 +86,4 @@ Register the guard once, then name it by id in the frame's `:interceptors`. It s
    :interceptors [:app/auth-guard]})    ;; reference the registered guard by id
 ```
 
-That's the routing half done: protected routes are tagged, all three entry points are gated, and a logged-out reader is bounced to `/login`.
-
-## Where to go from here
-
-This page deliberately stops at the route boundary. The full recipe — the login form, persisting the token, decorating requests with it, **bouncing the reader back to where they were headed** after login, and a logout that clears the departing session's cached data — is [Add authentication](../../core/how-to/add-auth.md) (its step 4 is this guard, with the return-to bounce-back wired in). For the auth state machine once login/restore start coordinating, see [Machines](../../machines/concepts.md).
-
-## See also
-
-- [Concepts → Routes are queryable data](../concepts.md#routes-are-queryable-data) — the tag-and-read pattern this recipe is built on.
-- [Guard against unsaved changes](guard-unsaved-changes.md) — the other navigation-control recipe: blocking the way *out* of a route.
-- [Add authentication](../../core/how-to/add-auth.md) — the complete auth flow this guard slots into.
+That's the routing half done: protected routes are tagged, all three entry points are gated, and a logged-out reader is bounced to `/login`. The rest of the auth flow — the login form, the token, logout — is [Add authentication](../../core/how-to/add-auth.md), whose route guard is exactly this one.

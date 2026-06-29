@@ -90,9 +90,3 @@ Because the whole flow is events and a subscription, the test needs no browser, 
 That's the payoff of a guard that's *state*, not a side effect: every branch — blocked, confirmed, cancelled, bypassed — is a dispatch and an assertion.
 
 > **For JavaScript developers.** This replaces React Router's `useBlocker` / `usePrompt` and the old `beforeunload` hack, with two upgrades: the guard is a *subscription* (declarative, derived from state), and the pending navigation is *state you render from*, so your confirm dialog is a normal view rather than an imperative blocker object you drive by hand.
-
-## See also
-
-- [Concepts → Blocking a navigation](../concepts.md#blocking-a-navigation) — the same flow in the reference narrative, plus the `:rf.route/navigation-blocked` trace.
-- [Require sign-in on a route](require-sign-in-on-a-route.md) — the other navigation-control recipe: redirecting *into* a route instead of blocking the way *out*.
-- [Build a form](../../core/how-to/build-a-form.md) — where the draft/saved slice this guard checks comes from.
