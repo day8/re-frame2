@@ -38,7 +38,7 @@ The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when 
 
 ```clojure
 (rf/reg-view leave-guard-dialog []
-  (when-let [pending @(subscribe [:rf/pending-navigation])]
+  (when-let [pending @(routing/sub-pending-navigation)]
     [:div.modal
      [:p "You have unsaved changes. Leave anyway?"]
      [:button {:on-click #(dispatch [:rf.route/cancel])}   "Stay"]
@@ -79,12 +79,12 @@ Because the whole flow is events and a subscription, the test needs no browser, 
 ;; Try to leave — it should be blocked and parked, not committed.
 (rf/dispatch-sync [:rf.route/navigate :app/home])
 (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))     ;; still here
-(is (some?                  @(rf/subscribe [:rf/pending-navigation])))  ;; parked
+(is (some?                  @(routing/sub-pending-navigation)))  ;; parked
 
 ;; The reader confirms — now it goes through.
 (rf/dispatch-sync [:rf.route/continue])
 (is (= :app/home @(rf/subscribe [:rf.route/id])))
-(is (nil?        @(rf/subscribe [:rf/pending-navigation])))
+(is (nil?        @(routing/sub-pending-navigation)))
 ```
 
 That's the payoff of a guard that's *state*, not a side effect: every branch — blocked, confirmed, cancelled, bypassed — is a dispatch and an assertion.
