@@ -343,8 +343,8 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 
 **Procedure** (sweep first, then per-handler rewrite):
 
-1. Discover the project's user-fx ids: `rg "\(rf/reg-fx\s+:" src/` (the skill's only shell verb is `rg` — see SKILL.md `allowed-tools`).
-2. Add the built-ins: `:dispatch`, `:dispatch-later`, `:dispatch-n`.
+1. **Enumerate the app's OWN `reg-fx` ids first — this is what makes the sweep complete.** `rg "\(rf/reg-fx\s+:" src/` (the skill's only shell verb is `rg` — see SKILL.md `allowed-tools`) and collect the full custom fx-id set — `:datadog/log`, a toast fx, an analytics ping, an rAF helper like `::dispatch-after-paint`, anything the app ever returned as a top-level effect. These project-specific ids are the easy-to-miss half of the rule: M-8 folds **every** non-`:db`/`:fx` top-level key, not just the framework keys.
+2. Add the built-ins to that set: `:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects.
 3. For each `reg-event-fx` body, walk the returned effect map literal.
 4. For each top-level key other than `:db`:
    - In the discovered set → rewrite per the rules above.
@@ -352,6 +352,8 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 5. If `:fx` already exists, concatenate: existing `:fx` first, new entries after.
 
 **Edge case → flag**: an unknown top-level key. Could be a destructure or a typo'd fx-id.
+
+**Why a missed custom fx is a silent break** — a registered fx left as a *top-level* key (instead of inside `:fx`) is not part of v2's closed `{:db … :fx …}` effect map; the runtime drops that one key at the commit boundary and emits a **dev-only** `:rf.error/effect-map-shape` trace entry. `:db` and `:fx` still commit and the cascade runs — but the dropped fx's side-effect (and any cascade it would have triggered) silently never happens. It does **not throw** and prints **no console warning**, and in a production build the trace emit is dead-code-eliminated, so there is zero diagnostic. The shape is valid, so the compile is clean, and a boot smoke-test misses it unless that fx fires on the boot path. The only catch is a `dispatch-sync`-then-observe test that asserts the fx's *own* effect occurred (e.g. read the `app-db` value its downstream event writes) — note that re-reading only the `:db` write passes, because `:db` commits regardless. This is why step 1 enumerates the app's own fx ids: an unrecognised custom top-level key is exactly this silent miss.
 
 ---
 
