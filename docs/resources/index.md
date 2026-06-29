@@ -15,9 +15,3 @@ re-frame2's **resources** capability makes server state declarative. You registe
 ```
 
 Underneath sits [**managed HTTP**](../async/index.md) (`:rf.http/managed`) — you describe a request as data and the runtime drives its whole lifecycle, dispatching the result back as an ordinary event. Resources are the high-level cache; managed HTTP — now its own section, [Async (HTTP)](../async/index.md) — is the transport they ride on, and it's there for the requests that aren't cached reads.
-
-## In this section
-
-- **[Concepts](concepts.md)** — resources, mutations, the cache, scope, invalidation, optimistic updates: how server state works.- **[Tutorial: Build RealWorld](tutorial/index.md)** — build a real, server-backed app (Conduit) end to end. This is the capability's worked example.
-- **[How-to](how-to/paginate-a-feed.md)** — task recipes: paginate a feed, invalidate after a mutation.
-- **[API](../api/re-frame.resources.md)** — `reg-resource`, `reg-mutation`, the `:rf/resource` subscription, the cache/invalidation surface.- **[Glossary](glossary.md)** — the server-state vocabulary in one place.

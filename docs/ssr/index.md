@@ -11,9 +11,3 @@ On the server, [`render-to-string`](glossary.md#render-to-string) runs your real
 ;; client: adopt the server's HTML instead of re-rendering it
 (rf/dispatch [:rf/hydrate payload])
 ```
-
-## In this section
-
-- **[Concepts](concepts.md)** — one app runs twice, `:platforms`, render-to-string, hydration, and locating mismatches.
-- **[API](../api/re-frame.ssr.md)** — `render-to-string`, the hydration payload contract, `:rf/hydrate`, strict-mode config.
-- **[Glossary](glossary.md)** — the SSR vocabulary in one place.

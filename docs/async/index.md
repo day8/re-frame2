@@ -15,9 +15,4 @@ That pattern is a **managed effect**: you *describe* the side effect, the runtim
 
 > **Separate artefact.** Managed HTTP ships as `day8/re-frame2-http`, so apps that never issue a request build clean of it. Require `re-frame.http.managed` once at boot and the `:rf.http/managed` effect is wired up.
 
-## In this section
-
-- **[Managed HTTP](http.md)** — the `:rf.http/managed` effect end to end: the smallest request that works, reading the reply, the closed set of failure categories, retries, decoding, and curing the search-box race for free.
-- **[API reference](../api/re-frame.http.md)** — the `:rf.http/managed` args map, the reply contract, request interceptors, and failure categories, with signatures.
-
 For the *cache* over server reads — staleness, invalidation, scope — that's [Resources](../resources/index.md), which rides on managed HTTP underneath.
