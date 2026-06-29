@@ -229,3 +229,33 @@
   [machine-id tag]
   (subs/subscribe [:rf/machine-has-tag? machine-id tag]))
 
+(defn sub-machine
+  "Subscribe to a machine's snapshot. Sugar over `(subscribe [:rf/machine
+  machine-id])`. Returns a reaction whose value is the snapshot map
+  `{:state <kw> :data <map> :tags <set>}`, or nil before the machine's
+  first event (not yet initialised).
+
+  The `sub-` prefix is re-frame's subscription-family verb (sibling of
+  `subscribe` / `subscribe-once`); it does NOT denote a child-machine
+  relationship — declarative child-machine binding uses `:spawn`.
+
+  The 1-arity primary form resolves the ambient frame through the carried
+  scope/hold chain, exactly like the bare `(subscribe [:rf/machine
+  machine-id])`. The 2-arity `opts` map carries the same `{:frame
+  <target>}` capability the underlying subscription vector accepts —
+  `<target>` is a frame-id keyword or a live frame object — so a read can
+  target an explicit frame from outside an established scope (async
+  callbacks, tools, tests).
+
+  The `[:rf/machine machine-id]` vector form remains the canonical
+  registered sub; this is ergonomic read sugar over it. Composable with
+  the rest of the sub graph and elides on production builds the same way
+  every framework sub does — the underlying registration is a standard
+  runtime-db `reg-sub`, no new registry. Per Spec 005 §Subscribing to
+  machines via the :rf/machine sub."
+  ([machine-id] (subs/subscribe [:rf/machine machine-id]))
+  ([machine-id opts]
+   (if-let [frame (:frame opts)]
+     (subs/subscribe frame [:rf/machine machine-id])
+     (subs/subscribe [:rf/machine machine-id]))))
+
