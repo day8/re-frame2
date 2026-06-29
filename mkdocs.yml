@@ -233,6 +233,7 @@ nav:
 
   - Machines:
     - machines/index.md
+    - "Tutorial: build a login machine": machines/tutorial.md
     - "Concepts": machines/concepts.md
     - "Hierarchical states": machines/hierarchical-states.md
     - "Parallel states": machines/parallel-states.md

@@ -2,54 +2,17 @@
 
 Some state isn't a value you read — it's a *question*: what state are we even **in**? A login is idle, then submitting, then authed, error-shown, or locked-out. A websocket is connecting, connected, dropped, reconnecting. For flows like those the interesting fact isn't what sits in [app-db](../core/glossary.md#app-db) — it's which of a fixed set of **named states** you occupy, and which [events](../core/glossary.md#event) move you between them.
 
-A **[machine](glossary.md#machine)** makes that shape first-class, so you stop reconstructing it from code scattered across handlers. This page builds up to it one idea at a time: first we spot the machine already hiding in code you write, then rewrite it as data, register it, run it live in your browser, and finally grow the grammar as flows get richer.
+A **[machine](glossary.md#machine)** makes that shape first-class, so you stop reconstructing it from code scattered across handlers. This page lays out the whole model at once. To *build* a machine step by step instead — turning it on, then adding a guard, an action, an async call, a view, and a test — start with the [tutorial](tutorial.md).
 
 > **Deciding where a value should live?** A machine is the right home when a value has a *lifecycle* — named states, timers, retries, cancellation — not just a value you read. [Where should this value live?](../core/where-state-lives.md) has the full decision procedure, and machine is the last of [the four homes](../core/glossary.md#the-four-homes-where-state-lives) you reach for.
 
-## The machine hiding in your `cond`s
+## A machine at a glance
 
-You already write state machines. You just call them other things. The keyword you stuffed into app-db — `:idle`, `:submitting`, `:authed` — plus the rules in your head about which states can legally follow which: that's a machine, written informally. Here's a login flow the way most people write it first:
+You already write state machines — you just call them other things. A `:state` keyword in app-db (`:idle`, `:submitting`, `:authed`) plus the rules in your head about which states may legally follow which: that's a machine, written informally and scattered across handlers. A machine writes that shape down as *one value*, so the rules live in one place you can read, draw, test, and hand to an AI whole.
 
-```clojure
-(rf/reg-event :auth/submit
-  (fn [{:keys [db]} [_ creds]]
-    (cond
-      (= :submitting (:auth/state db))
-      {}                                          ;; ignore — already submitting
+Here's a login flow as that one value — five states in a single map. Read it top to bottom; it tells the whole story.
 
-      (>= (:auth/attempts db) 3)
-      {:db (assoc db :auth/state :locked-out)}
-
-      :else
-      {:db (-> db (assoc :auth/state :submitting) (update :auth/attempts inc))
-       :fx [[:rf.http/managed
-             {:request    {:method :post :url "/api/login" :body creds
-                           :request-content-type :json}
-              :on-success [:auth/login-success]
-              :on-failure [:auth/login-error]}]]})))
-
-(rf/reg-event :auth/login-error
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    {:db (if (>= (:auth/attempts db) 3)
-           (assoc db :auth/state :locked-out)
-           (-> db (assoc :auth/state :error-shown) (assoc :auth/error failure)))}))
-
-;; ... plus :auth/login-success, :auth/dismiss, :auth/reset ...
-```
-
-This works. It also has three problems, and each one *spreads* as the flow grows:
-
-1. **The transition rules are scattered.** `:submitting` is reachable from `:idle` but not from `:locked-out`. That rule lives buried in cond clauses. To see the whole state graph you'd have to read every handler that touches `:auth/state`.
-2. **Shared logic duplicates.** "3 attempts" appears in two handlers. Change it to 5 and you'd better remember both, because nothing connects them.
-3. **Adding a state is a chore.** A `:two-factor` step between `:submitting` and `:authed` means a new keyword, a new handler, *and* edits to every handler that assumed which states were valid where.
-
-The fix isn't better `cond` clauses. It's spotting the shape and writing it down as data.
-
-> **Coming from re-frame v1?** Machines don't exist in v1 — the keyword-in-app-db + `cond` pattern above *is* the v1 shape this replaces. There's nothing to unlearn; you're promoting an informal pattern to first-class data. See [From re-frame v1](../core/25-from-re-frame-v1.md).
-
-## The same flow as a transition table
-
-Here's that exact flow, written as one piece of data. Read it top to bottom — it tells you the whole story.
+<a id="the-same-flow-as-a-transition-table"></a>
 
 ```clojure
 ;; Adapted from examples/capabilities/machines/state_machine_walkthrough/core.cljc
@@ -107,64 +70,43 @@ Here's that exact flow, written as one piece of data. Read it top to bottom — 
     :locked-out {:meta {:terminal? true}}}})
 ```
 
-Five states. `:idle` starts. Submit takes `:idle` to `:submitting`. From there, success goes to `:authed`; failure goes to `:error-shown` *if* the `:under-retry-limit` guard passes, and otherwise to `:locked-out`.
+Five states. `:idle` starts. Submit takes it to `:submitting`; from there success goes to `:authed`, and a failure goes to `:error-shown` *if* the `:under-retry-limit` guard passes, otherwise to `:locked-out`. Two words carry the behaviour, both in the [glossary](glossary.md):
 
-Two new words there, both of them in the [glossary](glossary.md):
+- A **[guard](glossary.md#guard)** is a yes/no test that gates a [transition](glossary.md#transition) — `:under-retry-limit` answers "attempts left?".
+- An **[action](glossary.md#action)** is the side work a transition performs — `:issue-request` asks for the HTTP call.
 
-- A **[guard](glossary.md#guard)** is a yes/no test that gates a [transition](glossary.md#transition). `:under-retry-limit` answers "have we still got attempts left?"
-- An **[action](glossary.md#action)** is the side work a transition performs. `:issue-request` fires the HTTP call.
+Both are referenced from the table *by id*; their implementations sit once, up top, in the `:guards` / `:actions` maps. Because the whole flow is one value, you can pretty-print it, render it as a diagram, or add a `:two-factor` state with one new node and its arrows — the existing nodes don't move.
 
-Both are referenced from the table *by id*, and their implementations live once, up top in the `:guards` and `:actions` maps. The arrows name them; the functions sit in one place.
+> **Build it by hand.** The [tutorial](tutorial.md) constructs exactly this machine step by step — turn machines on, add a guard, an action, a real server call, a view per state, and a pure-function test — one idea at a time.
 
-Now watch the three problems vanish. The transition rules are all in one place. The retry limit lives in exactly one guard. Adding `:two-factor` is one new state node plus the arrows in and out — the existing nodes don't move. And because the whole flow is *one value*, you can pretty-print it, render it as a diagram, or hand it to an AI with "add a two-factor state" and the AI gets the entire context in one form, instead of chasing logic across files.
-
-> **Coming from XState?** This table will look deeply familiar — re-frame2's machine grammar borrows XState's vocabulary: transition tables, guards, actions, tags, `:after`, run-to-completion. Two shifts are coming. The big one: a machine isn't an actor you `send` to — it's an [event handler](../core/glossary.md#event-handler). The small one: idiomatic spelling (a Clojure `?` instead of a JS boolean name, a set instead of an array). re-frame2 tracks the direction of **XState v6**; where the two differ, this page flags it, and there's a full delta table [at the end](#coming-from-xstate-the-five-row-delta).
+> **Coming from XState?** This table will look familiar — re-frame2's machine grammar borrows XState's vocabulary: transition tables, guards, actions, tags, `:after`, run-to-completion. The big shift: a machine isn't an actor you `send` to — it's an [event handler](../core/glossary.md#event-handler). re-frame2 tracks the direction of **XState v6**; where the two differ this page flags it, and there's a full delta table [at the end](#coming-from-xstate-the-five-row-delta).
 
 ## Registering and running it
 
-Registering the table is one line:
+Registering the table is one line — and there's no new runtime concept under it. **A machine *is* an event handler.** [`reg-machine`](../core/glossary.md#registration) is sugar over a `reg-event` whose body interprets the table: look up the current **[snapshot](glossary.md#snapshot)** (its live `{:state :data}` value), compute the transition, write the new snapshot back, return the action's [effects](../core/glossary.md#effect).
 
 ```clojure
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-And here's where people brace for a new runtime concept. There isn't one. **A machine *is* an event handler.** Its live value at any moment — which state it's in, plus its `:data` — is one small map called its **[snapshot](glossary.md#snapshot)**. [`reg-machine`](../core/glossary.md#registration) is sugar over `reg-event` whose body interprets the table: look up the current snapshot, compute the transition, write the new snapshot back, return the action's [effects](../core/glossary.md#effect). Under the sugar it's an ordinary event handler whose body comes from `make-machine-handler` (plus the registration metadata that lets tooling recognise it as a machine):
-
-```clojure
-;; make-machine-handler lives in re-frame.machines
-(rf/reg-event :auth.login/flow (machines/make-machine-handler login-flow))
-```
-
-Every event reaches the machine through the same `dispatch` and the same [event cascade](../core/glossary.md#event-cascade) as everything else. No actor object, no second messaging system — one mechanism, used everywhere.
-
-Dispatching routes through the machine's id, wrapping an inner event vector:
+So every event reaches the machine through the same `dispatch` and the same [event cascade](../core/glossary.md#event-cascade) as everything else — no actor object, no second messaging system. Dispatching routes through the machine's id, wrapping an inner event vector; you read the snapshot through a [subscription](../core/glossary.md#subscription) addressed by that id:
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
-```
 
-And you read the machine's snapshot through a [subscription](../core/glossary.md#subscription), addressed by the machine's id:
-
-```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])
-;; => {:state :submitting :data {:attempts 1 :error nil}}  (nil before the first event)
+;; => {:state :submitting :data {:attempts 1 :error nil}}   (nil before the first event)
 ```
 
-That's the whole loop: register the table, dispatch wrapped events into it, subscribe to read the snapshot. `[:rf/machine <id>]` is an ordinary [query vector](../core/glossary.md#query-vector) — the same shape you'd write for any registered sub — so it's traceable and introspectable like the rest of your [derivation graph](../core/glossary.md#the-derivation-graph). Named projections chain off it — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](../core/concepts/subscriptions.md).
+`[:rf/machine <id>]` is an ordinary [query vector](../core/glossary.md#query-vector), so it's traceable like the rest of your [derivation graph](../core/glossary.md#the-derivation-graph), and named projections chain off it — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](../core/concepts/subscriptions.md).
 
-> **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so an app without machines builds a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot — that registers the hooks through which `rf/reg-machine` and the framework `:rf/machine` / `:rf/machine-has-tag?` subs resolve. Forget it and `reg-machine` throws `:rf.error/machines-artefact-missing`, naming the artefact to add — one more named failure mode rather than a silent dud.
+> **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so an app without machines builds a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot; forget it and `reg-machine` throws `:rf.error/machines-artefact-missing`, naming the artefact to add. (`reg-machine` is the source-stamping macro; the plain-fn `reg-machine*` and the `def`-shaped `defmachine` are in [`re-frame.machines`](../api/re-frame.machines.md).)
 
-> **Where the snapshot lives.** The snapshot — `{:state :submitting :data {:attempts 1 :error nil}}` — lives in the [frame](../core/glossary.md#frame)'s **[runtime-db](../core/glossary.md#runtime-db)** at `[:rf.runtime/machines :snapshots :auth.login/flow]`, the framework's half of [the two partitions](../core/glossary.md#the-two-partitions), kept apart from the app data you own. The snapshot is just a value riding the frame — so [undo, time-travel](../core/glossary.md#time-travel), persistence, and SSR [hydration](../ssr/glossary.md#hydration) all work on machines for free.
+> **Where the snapshot lives.** The snapshot lives in the [frame](../core/glossary.md#frame)'s **[runtime-db](../core/glossary.md#runtime-db)** — the framework's half of [the two partitions](../core/glossary.md#the-two-partitions), kept apart from the app data you own. Because it's just a value riding the frame, [undo, time-travel](../core/glossary.md#time-travel), persistence, and SSR [hydration](../ssr/glossary.md#hydration) all work on machines for free.
 
-> **`reg-machine` vs `reg-machine*` / `defmachine`.** This splits exactly like Clojure's `fn` / `fn*`. The `reg-machine` **macro** is what you reach for in source — it walks the literal spec at compile time and stamps source coordinates onto every guard, action, and transition, so a tool can jump from a diagram arrow back to the line of code (production builds [elide](../core/glossary.md#elide) them). `reg-machine*` is the plain **function** underneath, for cases a macro can't serve — a REPL session, a code-gen pipeline building specs at runtime, a conformance harness loading machines from EDN. The macro lives on the `rf/` facade; the plain fn stays home as `re-frame.machines/reg-machine*`. There's also `defmachine`, a `def`-shaped macro for the "define the spec as a Var, register it elsewhere" pattern — `(rf/defmachine login-flow {…})` then `(rf/reg-machine :auth.login/flow login-flow)` — which stamps source at the *definition* site so a value-registered machine keeps its tool legibility.
+> **Async composes for free.** `:issue-request` names its reply events machine-wrapped — `:on-success [:auth.login/flow [:auth.login/success]]`, written one element short on purpose. When the request returns, [managed HTTP](../resources/http.md) *appends* its reply to that inner event, so it lands back *inside* the machine as `[:auth.login/success {:kind :success :value v}]` — exactly the event `:store-session` destructures. A machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
 
-### Composing with async effects
-
-The async wiring in `:issue-request` shows off something quietly excellent: an HTTP reply lands back *inside* the machine as just another event, no glue code in between.
-
-Look at the `:on-success` value: `[:auth.login/flow [:auth.login/success]]`. That's the same wrapped shape you dispatch by hand — the machine id `:auth.login/flow` outside, the inner event `[:auth.login/success]` inside — but written one element short on purpose. When the request returns, [managed HTTP](../resources/http.md) *appends* its reply payload to that inner event, so what actually arrives is `[:auth.login/success {:kind :success :value v}]` — exactly the event `:store-session` destructures. That's [the uniform reply](../resources/http.md) at work: a managed async surface completes by dispatching an event, so a machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
-
-> **Do, then observe.** Dispatch one event with [Xray](../core/glossary.md#xray) open. The transition shows up as an ordinary event row — snapshot before and after — riding the same [trace stream](../core/glossary.md#trace-stream) as everything else. See [Debug with Xray](../core/how-to/debug-with-xray.md).
+> **Coming from re-frame v1?** Machines don't exist in v1 — the keyword-in-app-db + `cond` pattern *is* the v1 shape this replaces. There's nothing to unlearn; you're promoting an informal pattern to first-class data. See [From re-frame v1](../core/25-from-re-frame-v1.md).
 
 ## See one run
 
