@@ -17,28 +17,4 @@ You register routes (`reg-route`) as a table mapping URL patterns to what they n
 
 Because a route's [loader](glossary.md#loader) runs on the server too, routing and [SSR](../ssr/index.md) share one data-fetch story — there's no separate server fetch to keep in sync.
 
-## In this section
-
-These pages are the **guide** — read top to bottom to learn routing, or dip in to understand one part. Every signature, event, subscription, and keyword has its canonical home in the separate **[API reference](../api/re-frame.routing.md)**: the guide teaches, the reference is where you look things up.
-
-**Start here**
-
-- **[Tutorial: build a routed app](tutorial.md)** — build a small three-page app one piece at a time: routes, links, dynamic segments, loaders, the 404, the Back button, and a shared layout.
-
-**Understand the model**
-
-- **[Concepts](concepts.md)** — the whole model in three moves, then everything a growing app reaches for: query strings, the loading/error transition, nested layouts, navigation blocking, data classification, and routing on the server.
-- **[Coming from React Router](coming-from-react-router.md)** — the mapping from `createBrowserRouter`, loaders, and the hooks, and where re-frame2 deliberately diverges.
-
-**Do a task**
-
-- **[Guard against unsaved changes](how-to/guard-unsaved-changes.md)** and **[Require sign-in on a route](how-to/require-sign-in-on-a-route.md)** — focused recipes for the two common navigation-control jobs.
-
-**Look it up**
-
-- **[API reference](../api/re-frame.routing.md)** — `reg-route`, every `:rf.route/*` event and subscription, the URL helpers, and the guard contract, with signatures.
-- **[Glossary](glossary.md)** — the routing vocabulary in one place.
-
-**See it running**
-
-- **[Examples](examples.md)** — worked routing apps you can read end to end.
+The routing docs are a **guide** — read top to bottom to learn routing, or dip in to understand one part. Every signature, event, subscription, and keyword has its canonical home in the separate **[API reference](../api/re-frame.routing.md)**: the guide teaches, the reference is where you look things up.
