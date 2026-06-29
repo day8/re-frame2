@@ -234,6 +234,13 @@ nav:
   - Machines:
     - machines/index.md
     - "Concepts": machines/concepts.md
+    - "Hierarchical states": machines/hierarchical-states.md
+    - "Parallel states": machines/parallel-states.md
+    - "Automatic transitions": machines/automatic-transitions.md
+    - "Actors": machines/actors.md
+    - "Tags": machines/tags.md
+    - "History": machines/history.md
+    - "Inspecting and testing": machines/inspecting-machines.md
     - "Coming from XState": machines/coming-from-xstate.md
     - "Glossary": machines/glossary.md
     - "Examples": machines/examples.md

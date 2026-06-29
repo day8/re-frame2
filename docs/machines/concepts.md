@@ -209,37 +209,142 @@ If the current state has no transition for an event, it's a **silent no-op** —
 
 > **Coming from XState?** This matches XState, which dropped strict mode in v5 and keeps it dropped in the v6 direction: an unknown event is a no-op, not a crash. Almost everything *else* that's wrong (a guard referencing an undefined name, a target naming a missing state) [fails loud](../core/glossary.md#fail-loud-not-silent) — but at *registration* time, not on the unlucky dispatch. More on that fail-loud / silent-no-op split below.
 
-## Guards, actions, tags, and `:after` — the recognition kit
+## Guards and actions
 
-You've seen the core loop. The next four keys are the day-to-day grammar.
+The arrows in the table named two kinds of helper — `:under-retry-limit` (a guard) and `:issue-request` (an action) — and pointed at implementations sitting up top in the `:guards` and `:actions` maps. Those two maps *are* the machine's behaviour. Here's the contract they follow.
 
-**Guards and actions both receive one context map** — `{:data :event :state :meta}` — and destructure whichever keys they need. Note what's *not* in that map: there is no `:db`. (The next section covers why it matters.)
-
-A guard returns a boolean: take this transition, or don't. An action returns the same data-shaped [effect map](../core/glossary.md#effect-map) a `reg-event` handler returns — `{:data ...}`, `:fx`, both, or `nil` (do nothing). The `:data` you return is *merged* into the snapshot's data slot, key by key, last write wins; returning a key as an explicit `nil` *sets* it to `nil` rather than removing it.
-
-A transition's `:guard` and `:action` slot each take exactly one thing: a keyword referencing the machine's own `:guards` / `:actions` map (the usual form), or a bare inline fn. There's no `{:and ...}` combinator DSL for stringing guards together — compound logic goes in one named function instead, so the *name* is what a visualiser or an AI reads off the arrow.
-
-**Tags answer the any-of-many question.** Once a machine has several "loading-ish" states, views stop asking "which exact state?" and start asking a predicate: *is it busy?* A state declares `:tags #{:auth/busy}` (as `:submitting` does above), and at every transition the runtime stamps the union of active states' tags onto the snapshot. The framework ships a derived predicate sub for the containment question — `[:rf/machine-has-tag? <machine-id> <tag>]` — that re-renders only when *this* tag's membership bit flips:
+**Every callback receives one context map and destructures what it needs.** A guard, an action, an `:entry`, an `:exit` — all of them get the *same* single-map argument:
 
 ```clojure
-(when @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])
-  [spinner])
+{:data  {:attempts 1 :error nil}      ;; the snapshot's :data slot — a plain map
+ :event [:auth.login/failure {...}]   ;; the inbound event vector
+ :state :submitting                   ;; the discrete state keyword
+ :meta  {...}}                        ;; any user :meta on the snapshot
 ```
 
-Add a fifth busy state later and it's one `:tags` entry on the new node — zero view changes. (*Ask, don't tell* — see [state tag](glossary.md#state-tag).) Reach for a plain `case` on `:state` when the question really is "which exact state?".
+Pull out the keys you want and ignore the rest. `data` is already the `:data` slot — you read `(:attempts data)`, never `(get-in snapshot [:data :attempts])`. Note what is *not* in that map: there is no `:db`. A machine callback cannot see [app-db](../core/glossary.md#app-db) at all — only its own data plus the event that woke it. That boundary is load-bearing; **Strict encapsulation** below is the why.
 
-**`:after` is the declarative timer.** A state-node key maps a delay to a transition: enter the state, the timer arms; leave it, the timer cancels. (And if a timer from an earlier visit fires late — after you've already left and come back — the runtime tags each visit and ignores the stale one, so you never get a ghost transition from a previous trip through the state.) No `dispatch-later` to wire, no cancellation flag to remember:
+> **Coming from XState?** This is XState's action/guard argument — `context`, `event` — under re-frame2 spellings: `context` is `:data` (the name "context" is already taken twice over here, by the interceptor context and React context). One uniform map across every slot means there's no positional `(data event)`-vs-`(data id)` shape to mix up — the keys say what they carry.
+
+### A guard is a yes/no gate
+
+A guard returns truthy or falsey: take this transition, or fall through to the next candidate. `:under-retry-limit` answers "attempts left?":
 
 ```clojure
-:reconnecting {:after {5000 {:target :connecting}}     ;; retry in 5s
-               :on    {:net/give-up :failed}}
+:guards
+{:under-retry-limit
+ (fn [{data :data}] (< (:attempts data) 3))}
 ```
 
-That one key replaces the `setTimeout`-plus-cancel-flag pattern behind most reconnect/timeout/debounce bugs. Full grammar in [Spec 005 §Delayed `:after` transitions](../../spec/005-StateMachines.md#delayed-after-transitions).
+You reference it from an arrow by id — `:guard :under-retry-limit` — and the runtime resolves it against this machine's `:guards` map. There is deliberately **no combinator DSL**: no `{:and [...]}`, `{:or [...]}`, `{:not ...}`. Compound logic goes in one ordinary Clojure fn, and if it's worth a name, a named entry in `:guards`:
 
-> **A machine sees only its own `:data`.** Strict encapsulation is locked: actions and guards get `{:state :data :event :meta}` and **never app-db**. That's exactly what lets a machine's whole state ride the frame and roll back with it. Returning `:db` from an action is a hard error (`:rf.error/machine-action-wrote-db` — the offending `:db` key is dropped). To touch a sibling slice, dispatch a named event: `{:fx [[:dispatch [:drawer/apply-radius id radius]]]}`. The reach is forced to be a traced, reusable event rather than a quiet write into someone else's data.
+```clojure
+:guards
+{:ready-to-submit?
+ (fn [{:keys [data]}]
+   (and (email-valid? data) (under-quota? data)))}
+```
 
-> **Gotcha — facts from the world are *declared*, not grabbed.** A guard or action that needs the time (or a random draw) must not call `(js/Date.now)`, because that buries nondeterminism where replay can't reach it — and replay is what makes time-travel and SSR hydration work. Instead, declare the fact as a [coeffect](../core/glossary.md#coeffect) on a *named* entry and destructure it from the context map:
+> **Coming from XState?** XState ships `and` / `or` / `not` / `stateIn` guard combinators (`guard: and(['isAuthed', 'hasQuota'])`). re-frame2 has none — you write the boolean in a fn, and the fn's *name* is what a visualiser or an AI reads off the arrow. This is where XState v6 is heading anyway: it drops the helper creators in favour of plain functions. For `stateIn` specifically, the guard already gets `:state` in its context map (your own machine's active state); the cross-region case is covered in [parallel-states.md](parallel-states.md).
+
+### An action returns effects
+
+An action does the side work a transition performs — but it doesn't *perform* it. It **returns a description of effects**, exactly the way a `reg-event` handler does, and the runtime actions them. `:issue-request` never calls the HTTP client; it returns an `:fx` asking for one. Two small actions from the login flow:
+
+```clojure
+:actions
+{:clear-error  (fn [_] {:data {:error nil}})
+
+ :record-error (fn [{data :data [_ {:keys [failure]}] :event}]
+                 {:data (-> data
+                            (update :attempts inc)
+                            (assoc  :error (or (:message failure) "Login failed.")))})}
+```
+
+The return shape — that `{:data ...}` map — gets a section of its own just below. Like guards, actions are referenced by id (`:action :clear-error`) against the machine's `:actions` map, or written inline.
+
+### Name them, or inline them
+
+Both `:guard` and `:action` accept **either** a keyword (resolved through the `:guards` / `:actions` map) **or** a bare inline fn:
+
+```clojure
+{:on {:auth.login/submit {:guard  (fn [{:keys [data]}] (some? (:email data)))  ;; inline
+                          :target :submitting}}}
+
+{:on {:auth.login/submit {:guard  :ready-to-submit?                            ;; by id — the default
+                          :target :submitting}}}
+```
+
+**Reach for the keyword by default; inline only for a one-line triviality.** The id is a *name* — a stable, reusable handle that trace rows print, that a diagram arrow is labelled with, that a test can stub, that an AI can address and jump to source for. An anonymous closure has none of that. (Inline fns aren't second-class for *tooling* — in dev the `reg-machine` macro co-locates their source text, so a visualiser still renders the body — they're just unnamed.) Compound or reused logic always earns a name.
+
+> **Fail-loud, not silent.** Reference a `:guard` / `:action` keyword the machine's maps don't define and registration throws (`:rf.error/machine-unresolved-guard` / `…-unresolved-action`); a `:target` naming a state not in `:states` is `:rf.error/machine-unresolved-target`. These are caught at `reg-machine` time, not on the unlucky dispatch that first hits the bad arrow — a [fail-loud](../core/glossary.md#fail-loud-not-silent), not silent, posture. The one thing that is genuinely *not* an error is an event the current state has no transition for — that's the silent no-op you met just above.
+
+## The action effect map — `{:data :fx}`
+
+An action returns a two-key map — and **it's the same shape a `reg-event` handler returns**, just scoped to the machine instead of to app-db:
+
+```clojure
+{:data {<updates to the machine's own data>}   ;; cf. reg-event's :db
+ :fx   [[<fx-id> <args>] ...]}                  ;; the standard re-frame fx vector
+```
+
+Both keys are optional; returning `nil` (or `{}`) means "no effects." That symmetry is the point — you already know this shape from [event handlers](../core/glossary.md#event-handler).
+
+**`:data` is a merge, not a replace.** What you return is merged into the snapshot's current `:data`, key by key, last-write-wins. You mention only the keys you're changing:
+
+```clojure
+;; current :data is {:attempts 1 :error nil}
+(fn [{data :data}] {:data {:error "Login failed."}})
+;; → :data becomes {:attempts 1 :error "Login failed."}  — :attempts untouched
+```
+
+One sharp edge: an explicit `nil` **sets** a key to `nil` (the key stays present) — the merge never *removes* keys. `{:data {:error nil}}` leaves `:error` present-and-`nil`; it doesn't drop it. There is no key-removal idiom in a `:data` write.
+
+**`:fx` is the ordinary effects vector** — `:dispatch`, `:rf.http/managed`, your own registered effects, all flow to the normal machinery untouched. Three fx-ids are *machine-only* and intercepted before they get there: `[:raise [...]]` loops an event back into this same machine (atomically, before the transition commits), and `[:rf.machine/spawn ...]` / `[:rf.machine/destroy ...]` are the actor-lifecycle pair. You'll meet all three under [When the machine grows](#when-the-machine-grows); the reference is [`re-frame.machines`](../api/re-frame.machines.md).
+
+> **Gotcha — `:fx` can't read this action's own `:data` write.** The two keys are returned *together*, so at the moment the runtime reads your `:fx` vector the `:data` merge hasn't happened. To act on a freshly-computed value, bind it in a `let` and use the local in both keys:
+>
+> ```clojure
+> (fn [{data :data}]
+>   (let [next-id (inc (:last-id data))]
+>     {:data {:last-id next-id}
+>      :fx   [[:dispatch [:thing/created next-id]]]}))   ;; the local, not (:last-id data)
+> ```
+>
+> Or split the work across two slots — write in the transition `:action`, read in the target state's `:entry`.
+
+When several slots fire in one transition (`:exit` → the transition's `:action` → `:entry`), their `:data` updates merge in that order — a later slot sees the earlier writes — and the `:fx` vectors concatenate left to right.
+
+> **Coming from XState?** A `:data` write *is* XState's `assign` — there's no separate `assign` primitive to call and no array of actions to order. Because an action returns one atomic `{:data :fx}` map, XState v5's "assigns run in declared order, not hoisted ahead" correctness rule is automatic here rather than something the engine must enforce. (v6 removes the `assign` helper creator outright — re-frame2 never had it.)
+
+## Strict encapsulation — a machine sees only its own `:data`
+
+This is the rule hovering over that context map: a guard or action gets `{:data :event :state :meta}` and **never app-db**. It cannot read app-db, and it cannot write it.
+
+> **Why it's locked.** A machine's whole state — its `:state` and its `:data` — lives in one place, the [runtime-db](../core/glossary.md#runtime-db), so it reverts, time-travels, persists, and SSR-hydrates as a single value along with the rest of the [frame](../core/glossary.md#frame). If an action could quietly write some *other* slice of app-db, that change wouldn't live in the snapshot and wouldn't roll back with it. Encapsulation is what keeps a machine's state *all* inside the snapshot.
+
+So how does a machine read or write things outside itself? Two disciplined moves:
+
+**A fact from outside arrives in the event.** Whoever dispatches has the data; they pass it in. The view that knows a circle's current radius puts it in the dispatch, and the action reads it from `:event`:
+
+```clojure
+(rf/dispatch [:drawer/editor [:right-click-circle id radius]])
+```
+
+**A write to a sibling slice goes out as a named event.** An action that needs to touch app-db emits a `:dispatch` fx — so the write becomes a real, traced, reusable event *with a name*, not a quiet reach into someone else's data:
+
+```clojure
+:action (fn [{:keys [data]}]
+          {:fx   [[:dispatch [:drawer/apply-radius (:circle-id data) (:preview-radius data)]]]
+           :data {:circle-id nil :preview-radius nil}})
+```
+
+Two guard-rails enforce the boundary:
+
+- **Returning `:db` is a hard error.** A `:db` key in an action's effect map surfaces `:rf.error/machine-action-wrote-db` and the `:db` key is dropped (the rest of the effects still flow). Fail loud, don't silently let a machine scribble on app-db.
+- **The next state isn't in the return shape either.** An action returns `:data` and `:fx` — never a state keyword. Only the transition's `:target` moves the machine. Callbacks update working memory; they can't nudge the machine into a state the table didn't declare. (This is exactly XState's `assign` invariant.)
+
+> **Gotcha — facts from the world are *declared*, not grabbed.** A guard or action that needs the time (or a random draw) must not call `(js/Date.now)` or `(rand)`: that buries nondeterminism where replay can't reach it, and replay is what makes time-travel and SSR hydration work. Instead, declare the fact as a [coeffect](../core/glossary.md#coeffect) on a *named* entry and read it from the context map's `:rf.cofx` record:
 >
 > ```clojure
 > :guards
@@ -249,9 +354,43 @@ That one key replaces the `setTimeout`-plus-cancel-flag pattern behind most reco
 >         (< (- time-ms (:first-attempt-at data)) 60000))}}
 > ```
 >
-> The fact arrives recorded on the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision replays identically under time-travel and SSR hydration. [Effects & coeffects](../core/concepts/effects-and-coeffects.md) has the general mechanism — a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
+> The fact rides the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision — and any `:data` it folds in — replays identically. [Effects & coeffects](../core/concepts/effects-and-coeffects.md) has the general mechanism: a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
 
-> **Fail-loud, not silent.** Reference a `:guard`/`:action` keyword the machine's maps don't define and registration throws (`:rf.error/machine-unresolved-guard` / `…-unresolved-action`); a `:target` naming a state that isn't in `:states` is `:rf.error/machine-unresolved-target`. These are caught at `reg-machine` time, not on the unlucky dispatch that first hits the bad arrow. The one thing that's *not* an error is an event the current state has no transition for — that's the **silent no-op** above.
+## The snapshot — `{:state :data :tags}`
+
+A machine's entire live value at any instant is one small map, its [snapshot](glossary.md#snapshot):
+
+```clojure
+{:state :submitting               ;; where we are
+ :data  {:attempts 1 :error nil}  ;; the machine's private memory
+ :tags  #{:auth/busy}}            ;; the active state's tags, projected on (optional)
+```
+
+Three slots do the work:
+
+- **`:state`** — the discrete state. For the flat machines on this page it's a single keyword (`:idle`, `:submitting`). It grows two more shapes as machines do: a **vector path** from root to active leaf once states nest (`[:authenticated :cart :browsing]`), and a **region→state map** for parallel machines (`{:data :loading :form :neutral}`). One slot, read three ways.
+- **`:data`** — the machine's working memory: a plain map, yours to shape, private to this machine (the encapsulation rule above). Optionally schema-checked — see [Validating a machine's `:data`](#validating-a-machines-data).
+- **`:tags`** — a set the runtime *projects* onto the snapshot: the union of every active state's declared `:tags`. `:submitting` declares `:tags #{:auth/busy}`, so while you're there the snapshot carries it. It's how a view asks "is it busy?" rather than "which exact state?".
+
+(A `:meta` slot carries any user metadata; the runtime additionally stamps a closed set of framework-owned `:rf/*` bookkeeping slots inside the snapshot, which you never write to.)
+
+You read the snapshot through the framework's `[:rf/machine <id>]` [subscription](../api/re-frame.machines.md) — it returns the `{:state :data}` value (plus `:tags`), or `nil` before the first event:
+
+```clojure
+@(rf/subscribe [:rf/machine :auth.login/flow])
+;; => {:state :submitting :data {:attempts 1 :error nil} :tags #{:auth/busy}}
+```
+
+Because the snapshot is *just a value* — no functions, no atoms, nothing unprintable in `:data` — it `pr-str` / `read-string` round-trips; and because it lives in [runtime-db](../core/glossary.md#runtime-db) it inherits [time-travel](../core/glossary.md#time-travel), undo, persistence, and SSR hydration for free, exactly as app-db does. That is the quiet dividend of "a machine is just an event handler whose state rides the frame."
+
+> **Coming from XState?** This is `actor.getSnapshot()` — but a *value in your store that you subscribe to*, not a field you pull off a live actor object. There's no actor instance to hold a reference to; the id plus the subscription is the whole handle.
+
+## Tags and timers
+
+Two keys round out the everyday kit, and each has earned a page of its own rather than a paragraph here:
+
+- **Tags** — `:tags #{:auth/busy}` on a state node, read with `@(rf/machine-has-tag? :auth.login/flow :auth/busy)`. This is the *ask-don't-tell* pattern: a view tracks "is it busy?" across any number of states without hard-coding state names, and adding a sixth busy state later is one `:tags` entry with zero view changes. (See [state tag](glossary.md#state-tag).) The deep treatment is in [tags.md](tags.md).
+- **Automatic transitions** — `:after` (a declarative timer: arm on entry, cancel on exit, no `setTimeout` or cancel-flag to wire) and `:always` (an eventless transition that fires the moment a guard turns true). The machine's *automatic* moves — the ones no event drives. See [automatic-transitions.md](automatic-transitions.md).
 
 ## Self-transitions: internal by default, external on demand
 
@@ -448,3 +587,10 @@ The matches go deeper than the renames: run-to-completion, transition tables as 
 **Don't reach for one when:** the "state" is just data (a counter, a list); there are only two stages (a `:loading?` boolean is fine); the lifecycle belongs to server data — fetching, caching, invalidation is what [resources](../resources/concepts.md) already manage, and hand-building that machine re-implements the framework; or you're enforcing a *sequence of operations* rather than a set of states — chained events handle the simple cases.
 
 **Reach for machines when named states are the load-bearing concept — not when named operations are.** [Part 3 of the tutorial](../resources/tutorial/03-auth-and-forms.md) puts a login machine to work in a real app, and [Server state: resources](../resources/concepts.md) covers the one lifecycle you should *not* hand-build as a machine — the framework already runs it for you.
+
+## Further reading
+
+- **The worked example.** Every snippet on this page lives as compiling code in [`examples/capabilities/machines/state_machine_walkthrough/`](../../examples/capabilities/machines/state_machine_walkthrough/) — the full login flow, the canned-HTTP stubs, and the headless pure-transition tests.
+- **The API.** [`re-frame.machines`](../api/re-frame.machines.md) — every fn and keyword surface (`reg-machine`, `machine-transition`, the `[:rf/machine …]` / `[:rf/machine-has-tag? …]` subs, the reserved `:rf.machine/*` fx-ids).
+- **The normative contract.** [Spec 005 — State Machines](../../spec/005-StateMachines.md) is the exhaustive grammar behind everything here: the full transition-table keys, the guard / action context map, the `{:data :fx}` effect map, schema validation, and the snapshot stability invariants.
+- **The wider statechart tradition.** re-frame2's machines realise the same statechart concepts as the [XState statecharts docs](https://stately.ai/docs/state-machines-and-statecharts) (the parity reference — behavioural, not API-level) and [Fulcro statecharts](https://fulcrologic.github.io/statecharts/) in the Clojure world. Both are good background on states, transitions, guards, and hierarchy.
