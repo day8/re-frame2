@@ -271,6 +271,7 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 | `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :validation-failed?}` or `nil` | v1 | advanced | 012 |
 | `route-url` | Fn | `(route-url route-id path-params [query-params [fragment]])` → URL string (2-/3-/4-arity; the 4-arity emits a `#fragment`) | v1 | advanced | 012 |
 | `route-link` | Fn (registered view at `:route/link`) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..." & html-attrs} & children]` | v1 | advanced | 012 |
+| `sub-route` | Fn | `(sub-route)` / `(sub-route opts)` → reaction over the current route slice (or `nil` before the first navigation). Named read sugar over the canonical `(subscribe [:rf/route])` vector; zero-arity primary (the route is a per-frame singleton), `opts` carries `{:frame <target>}`. Exported on the `re-frame.routing` façade — **not** `re-frame.core` — for routing bundle isolation. The vector form stays canonical; the sugar coexists. Per [012 §Reading the route is a sub](012-Routing.md#reading-the-route-is-a-sub). | v1 | advanced | 012 |
 
 `reg-route` metadata reserved keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:can-leave`, `:scroll`. The URL `:path` pattern is the third VALUE slot, not a metadata key. Canonical detail in [012-Routing.md](012-Routing.md); shape in [Spec-Schemas §`:rf/route-metadata`](Spec-Schemas.md#rfroute-metadata).
 
@@ -301,6 +302,8 @@ Standard route-related subs:
 | `:rf.route/fragment` | Current URL fragment (string or nil) | 012 |
 | `:rf.route/chain` | Vector of route ids from parent-most to current (per `:parent` links) | 012 |
 | `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise | 012 |
+
+The `sub-route` fn (rowed above) is named read sugar over the `[:rf/route]` vector — `@(rf/sub-route)` is `@(rf/subscribe [:rf/route])`. It lives on the `re-frame.routing` façade (not `re-frame.core`) for routing bundle isolation; the vector form stays canonical and the sugar coexists.
 
 Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md)):
 
@@ -917,6 +920,7 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 | `machine-by-system-id` | Fn | `(machine-by-system-id system-id)` / `(machine-by-system-id system-id frame-id)` → spawned-machine id bound to `system-id` in the frame's `[:rf.runtime/machines :system-ids]` reverse index (or `nil`). Per [005 §Named addressing via `:system-id`](005-StateMachines.md). | v1 | advanced | 005 |
 | `dispatch-to-system` | Fn | `(dispatch-to-system system-id event)` / `(dispatch-to-system system-id event frame-id)` — implementation-tier helper in `re-frame.machines` (demoted off the `re-frame.core` facade). Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`; no-op when the system-id is unbound. The **canonical** action-side surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple. Per [005 §Cross-machine messaging by name](005-StateMachines.md). | v1 | implementation | 005 |
 | `machine-has-tag?` | Fn | `(machine-has-tag? machine-id tag)` → reaction whose value is `true` iff the machine's snapshot's `:tags` set contains `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Per [005 §State tags](005-StateMachines.md). | v1 | advanced | 005 |
+| `sub-machine` | Fn | `(sub-machine machine-id)` / `(sub-machine machine-id opts)` → reaction over the snapshot map `{:state :data :tags}` (or `nil` before the machine's first event). Named read sugar over the canonical `(subscribe [:rf/machine machine-id])` vector; `opts` carries `{:frame <target>}`. The vector form stays canonical (`:<-` chains name it); the sugar coexists. Per [005 §The `sub-machine` named read sugar](005-StateMachines.md#the-sub-machine-named-read-sugar). | v1 | advanced | 005 |
 | `:rf.machine/spawn` (fx) | — | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`). Args per `:rf.fx/spawn-args`. | v1 | — (fx-id) | 005 |
 | `:rf.machine/destroy` (fx) | — | Canonical actor-destroy fx (registered globally by `re-frame.machines`). Args: an actor id. | v1 | — (fx-id) | 005 |
 | `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx` (machine-internal, routed pre-commit). Args: an event vector. | v1 | — (fx-id) | 005 |
@@ -936,7 +940,7 @@ v1 transition-table grammar subset is enumerated in [005 §Capability matrix](00
 |---|---|---|
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data}` (or `nil` if not yet initialised) | 005 |
 
-The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
+The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub). The `sub-machine` fn (above) is named read sugar over it; the vector form stays canonical (`:<-` chains name it) and the sugar coexists.
 
 ---
 

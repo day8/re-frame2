@@ -3935,6 +3935,28 @@ The `:rf/machine` sub is in `(registrations :sub)`, traceable and introspectable
 
 > **Reading a machine's snapshot is not the same as a child machine.** A subscription on `[:rf/machine <id>]` is a **reactive read** of the named machine's state. Declarative child-machine binding — spawning a child actor of a state — uses `:spawn`, an entirely separate surface. If you're looking for "spawn a child actor of this state," see [§Declarative `:spawn`](#declarative-spawn); if you're looking for "read this machine's snapshot reactively from a view," subscribe to `[:rf/machine <id>]`.
 
+### The `sub-machine` named read sugar
+
+For the common top-level read — a view or handler that wants the whole snapshot — the framework ships **`sub-machine`** on the `re-frame.core` façade (re-exported from `re-frame.core-machines`) as thin sugar over the canonical vector:
+
+```clojure
+;; these two are equivalent:
+@(rf/sub-machine :drawer/editor)
+@(rf/subscribe [:rf/machine :drawer/editor])
+;; → {:state :idle :data {...} :tags #{...}}   (or nil before the machine's first event)
+```
+
+`sub-machine` returns a reaction over the snapshot map `{:state :data :tags}` — it *is* `(subscribe [:rf/machine machine-id])`, with nothing added to the read path. Two arities:
+
+- `(sub-machine machine-id)` — the primary form; resolves the ambient frame through the carried scope/hold chain, exactly like the bare subscription.
+- `(sub-machine machine-id opts)` — the `opts` map carries `{:frame <target>}` (a frame-id keyword or a live frame object), lowered to `subscribe`'s frame-first 2-arity, so a read can target an explicit frame from outside an established scope (async callbacks, tools, tests).
+
+**The vector form stays canonical.** `[:rf/machine <machine-id>]` remains the registered sub; `sub-machine` is ergonomic read sugar that *coexists* with it. The literal vector is what `:<-` chained inputs (per [§Granularity is via derived subs](#granularity-is-via-derived-subs)) and the machine-selector recognizer continue to use — there is no sugar form inside a sub's `:<-` vector. `sub-machine` is for the top-level read in a view or handler body.
+
+**Named sugar is reserved for runtime-db reads.** A machine snapshot lives in the **runtime-db** partition (per [§Where snapshots live](#where-snapshots-live)), and the convention is uniform: runtime-db subs carry named read sugar (`sub-machine`, plus `sub-route` for the route slice), while ordinary app-db content — including flow output — is read with the plain `subscribe`. See [Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids) for the discriminator.
+
+> **`sub-` is the subscription-family verb, not a child-machine relationship.** The `sub-` prefix marks `sub-machine` as a sibling of `subscribe` / `subscribe-once` — it *reads* a machine. It does **not** denote a "sub-machine" (a child actor of a state); declarative child-machine binding uses `:spawn` (see [§Declarative `:spawn`](#declarative-spawn)).
+
 ### The `:rf/machine-has-tag?` predicate sub
 
 Alongside `:rf/machine` the framework ships **`:rf/machine-has-tag?`** — a predicate sub that answers the containment question for one tag without forcing the view to read (and depend on) the whole snapshot:
