@@ -746,6 +746,10 @@
   ;; `re-frame.machines` (already classified below). `machine-has-tag?` (a
   ;; subscription sugar with no owned-ns peer) stays on the façade.
   ["re-frame.core" "machine-has-tag?"]     {:tier :advanced :owner "005" :status "v1"}
+  ;; Named machine-snapshot read sugar over the canonical `[:rf/machine id]`
+  ;; subscription vector — a plain fn over `subscribe`, mirroring
+  ;; `machine-has-tag?` (owner 005, advanced). Re-exported from the façade.
+  ["re-frame.core" "sub-machine"]          {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.core" "frame-ids"]            {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "frame-meta"]           {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"}
@@ -1028,6 +1032,12 @@
   ["re-frame.routing" "route-ids"]              {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "route-meta"]             {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
+  ;; Named route-slice read sugar over the canonical `[:rf/route]`
+  ;; subscription vector. Routing-façade home (NOT re-frame.core) so a
+  ;; non-routing app carries no route keyword strings in its production
+  ;; bundle — the routing bundle-isolation invariant. Advanced tier like its
+  ;; sibling read surfaces (`match-url` / `route-url`).
+  ["re-frame.routing" "sub-route"]              {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "reg-route"]              {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "malformed-url?"]         {:tier :implementation :owner "012" :status "v1"}

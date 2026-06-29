@@ -1468,14 +1468,27 @@
 ;; messaging surface is the reserved `[:rf.machine/dispatch-to-system
 ;; [system-id event]]` fx tuple; the direct-call FN now lives in
 ;; `re-frame.machines` as an implementation-tier helper. The `sub-machine`
-;; snapshot sugar is REMOVED (rf2-wh7xip — zero adopters); the canonical
-;; machine read is the `[:rf/machine machine-id]` subscription vector.
+;; snapshot read sugar layers OVER the canonical `[:rf/machine machine-id]`
+;; subscription vector (which remains the registered sub) — a plain fn over
+;; `subscribe`, mirroring `machine-has-tag?`, with an `opts` passthrough for
+;; the `{:frame …}` capability.
 
 (def ^{:doc "Subscribe to a machine's `:fsm/tags` containment-bit for
   `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`
   — returns a reaction whose value is `true` iff the current snapshot's
   `:tags` set contains `tag`. Per Spec 005 §State tags."}
   machine-has-tag?               rf-machines/machine-has-tag?)
+
+(def ^{:doc "Subscribe to a machine's snapshot. Sugar over
+  `(subscribe [:rf/machine machine-id])` — returns a reaction over the
+  snapshot map `{:state :data :tags}` (nil before the machine's first
+  event). The 2-arity `opts` map carries the `{:frame <target>}`
+  capability the underlying subscription vector accepts. The
+  `[:rf/machine machine-id]` vector form remains the canonical registered
+  sub; this is ergonomic read sugar over it. Per Spec 005 §Subscribing to
+  machines via the :rf/machine sub."
+       :arglists '([machine-id] [machine-id opts])}
+  sub-machine                    rf-machines/sub-machine)
 
 ;; ---- resource helpers (Spec 016) ------------------------------------------
 ;;
