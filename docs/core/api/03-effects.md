@@ -147,6 +147,14 @@ The runtime supports three ways to swap fx behaviour without touching the handle
   (with-fx-overrides {fx-id -> override, …} body+)
   ```
 - **Description**: "For the duration of this body, every `dispatch` / `dispatch-sync` merges this fx-overrides map into its envelope." Lexical scope; composes with `with-frame`.
+- **Example**:
+  ```clojure
+  ;; Swap the real managed-HTTP fx for a canned-failure stub for the test body —
+  ;; every dispatch inside inherits the override; it unwinds when the body exits.
+  (rf/with-fx-overrides {:rf.http/managed :auth.login/canned-failure}
+    (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrong"}])
+    (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrong"}]))
+  ```
 
 The three scopes compose with a clear precedence:
 

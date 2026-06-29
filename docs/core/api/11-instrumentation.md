@@ -47,6 +47,7 @@ Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:even
   (unregister-event-listener! id) → nil
   ```
 - **Description**: The inverse.
+- **Example**: `(rf/unregister-listener! :events :my-app.monitors/datadog)`
 
 ## Error-emit (always-on, production-survivable)
 
@@ -94,6 +95,7 @@ Listener bodies MUST branch on `(:error record)` (or otherwise tolerate a record
   (unregister-error-listener! id) → nil
   ```
 - **Description**: The inverse.
+- **Example**: `(rf/unregister-listener! :errors :my-app.monitors/sentry)`
 
 ## Tracing (dev-only)
 
@@ -108,6 +110,13 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```
 - **Description**: "Receive every trace event the runtime emits." Synchronous delivery; the callback returns before the next trace event is processed.
 
+```clojure
+;; Dev-only: tap every trace event the runtime emits (DCE'd in production).
+(rf/register-listener! :trace :my-app/trace-tap
+  (fn [trace-event]
+    (js/console.log (:op-type trace-event) (:operation trace-event))))
+```
+
 ### `unregister-listener!`
 
 - **Kind**: function
@@ -116,6 +125,7 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   (unregister-listener! key) → nil
   ```
 - **Description**: The inverse.
+- **Example**: `(rf/unregister-listener! :trace :my-app/trace-tap)`
 
 ### `emit-trace-event!`
 
@@ -126,15 +136,32 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```
 - **Description**: "Emit a custom trace event." Use sparingly — the framework emits the load-bearing events; custom emission is for app-specific cross-cutting concerns the framework can't know about.
 
+```clojure
+;; App-specific cross-cutting emission: op-type, operation, tags.
+(rf/emit-trace-event! :event :rf.probe/touched {:source :probe})
+```
+
 ### `re-frame.interop/debug-enabled?`
 
 - **Kind**: Var (`^boolean`)
 - **Description**: **CLJS:** alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM:** a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly.
 
+```clojure
+;; Dev-only diagnostic — the whole branch DCEs under :advanced + goog.DEBUG=false.
+(when re-frame.interop/debug-enabled?
+  (js/console.warn "machine transition rejected"))
+```
+
 ### `re-frame.performance/enabled?`
 
 - **Kind**: Var (`^boolean`)
 - **Description**: `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure! ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op.
+
+```clojure
+;; Compile-time gate — the User-Timing bracket DCEs unless flipped on.
+(when re-frame.performance/enabled?
+  (js/performance.mark "rf:event:start"))
+```
 
 ### `trace-buffer`
 
@@ -146,6 +173,13 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```
 - **Description**: "What's in the ring right now?" Reads the buffer non-destructively. Pair tools and Xray use this for post-mortem inspection.
 
+```clojure
+;; Post-mortem: read a frame's cascade-keyed ring (oldest-first).
+(rf/trace-buffer :app/main)
+;; `{:flat true}` returns raw trace events instead of cascade bundles.
+(rf/trace-buffer :app/main {:flat true})
+```
+
 ### `clear-trace-buffer!`
 
 - **Kind**: function
@@ -154,6 +188,11 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   (clear-trace-buffer!) → nil
   ```
 - **Description**: Empty the ring.
+
+```clojure
+;; Empty one frame's ring (e.g. between tool sessions).
+(rf/clear-trace-buffer! :app/main)
+```
 
 ### `(rf/configure! {:trace-buffer …})`
 
@@ -173,6 +212,11 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```
 - **Description**: Pure data projection of a list of trace events into per-cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. JVM-runnable. Re-exported from `re-frame.trace.projection`.
 
+```clojure
+;; Project a flat trace-event list into per-cascade records.
+(rf/group-cascades (rf/trace-buffer :app/main {:flat true}))
+```
+
 ### `domino-bucket`
 
 - **Kind**: function
@@ -181,6 +225,11 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   (domino-bucket trace-event) → #{:event :handler :fx :effect :sub :render :other}
   ```
 - **Description**: Classify a raw trace event into the six-domino slot used by `group-cascades`. Pure.
+
+```clojure
+;; Classify a raw trace event into its domino slot.
+(rf/domino-bucket {:op-type :rf.view :operation :rf.view/render})  ;; => :render
+```
 
 ### Trace-emission opt-out
 
@@ -191,6 +240,14 @@ Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. Wh
 | `:rf.trace/no-emit?` | `reg-event` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. |
 
 Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned.
+
+```clojure
+;; A high-frequency handler that would otherwise flood the trace stream.
+(rf/reg-event :my-app/pointer-moved
+  {:rf.trace/no-emit? true}
+  (fn [{:keys [db]} [_ x y]]
+    {:db (assoc db :pointer [x y])}))
+```
 
 ## Epoch history (Tool-Pair)
 
@@ -205,6 +262,12 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: Returns `[]` for an unknown / destroyed frame.
 
+```clojure
+;; All recorded epochs for a frame, oldest-first; peek the latest.
+(rf/epoch-history :app/main)
+(last (rf/epoch-history :app/main))
+```
+
 ### `restore-epoch!`
 
 - **Kind**: function
@@ -213,6 +276,12 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   (restore-epoch! frame-id epoch-id) → boolean
   ```
 - **Description**: Restore the frame's whole **frame-state** — both the app-db and runtime-db partitions — to the named epoch's `:frame-state-after`, reinstalled in one atomic write (so machine snapshots, the route slice, and other runtime-db material rewind alongside app-db, not just the application slice). Returns `true` on success; `false` for an unknown / destroyed frame (and emits `:rf.error/no-such-handler` of kind `:frame`).
+
+```clojure
+;; Time-travel: rewind a frame's whole frame-state to a recorded epoch.
+(let [target (last (rf/epoch-history :app/main))]
+  (rf/restore-epoch! :app/main (:epoch-id target)))
+```
 
 ### `replace-app-db!`
 
@@ -223,6 +292,11 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the cascade. Returns `true` on success.
 
+```clojure
+;; State injection — direct app-db write (bypasses the cascade).
+(rf/replace-app-db! :app/main {:counter 0})
+```
+
 ### `register-epoch-listener!`
 
 - **Kind**: function
@@ -232,6 +306,13 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: Process-global assembled-epoch listener. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
 
+```clojure
+;; Observe each assembled epoch as frames settle.
+(rf/register-epoch-listener! :my-app/epoch-watch
+  (fn [record]
+    (js/console.log (:frame record) (:epoch-id record))))
+```
+
 ### `unregister-epoch-listener!`
 
 - **Kind**: function
@@ -240,6 +321,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   (unregister-epoch-listener! key)
   ```
 - **Description**: The inverse.
+- **Example**: `(rf/unregister-epoch-listener! :my-app/epoch-watch)`
 
 ### `(rf/configure! {:epoch-history …})`
 
@@ -279,6 +361,13 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
 - **Description**: Walk `v` consulting `[:rf.runtime/elision :sensitive-declarations]` and `[:rf.runtime/elision :declarations]` of the named frame's **runtime-db** — the per-frame registry written by the commit-plane classification effects. Redaction is strictly **path-based**: substitute `:rf/redacted` at each declared sensitive path and `:rf.size/large-elided` markers at each declared large path. There is **no value-match** arm — a secret re-keyed off its classified path is **not** chased by value; it ships raw, the **fail-open** default (to redact it, classify the destination path). When the frame carries no declarations the value passes through unchanged.
+
+```clojure
+;; Low-level value walker — markers substituted per the frame's classification.
+(rf/elide-wire-value slice {:frame :rf/default})
+;; Path-scoped: walk one query-vector's value against its declared paths.
+(rf/elide-wire-value query-map {:query-v [:rf.route/query] :frame :rf/default})
+```
 
 > **No value-match or schema-prop elision surfaces.** `redact-derived-slots`, `populate-elision-from-schemas!`, and `populate-sensitive-from-schemas!` are not on the facade or in `re-frame.elision`. Use the path-based surfaces: classify durable `app-db` paths with the commit-plane effects (a `reg-event` returning `:sensitive` / `:large` alongside `:db`), and project a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body) with **`project-egress`** under a `:rf.observe/derived-tree` record — it path-walks each tree slot through `elide-wire-value` against the frame's registry.
 
@@ -341,6 +430,7 @@ This is parallel to (and the production-normal home of) the advanced corpus-wide
   (unregister-observability-sink! sink-id) → nil
   ```
 - **Description**: Drop the observability sink registered under `sink-id`. Returns nil.
+- **Example**: `(rf/unregister-observability-sink! :my-app.sinks/datadog)`
 
 See [08 — Schemas §Data classification](08-schemas.md#data-classification) for the declaration side — durable `app-db` classification is event-owned (a `reg-event` returns the commit-plane `:sensitive` / `:large` effects alongside `:db`), and per-slot `:sensitive?` / `:large?` schema props own machine `:data` / resource / HTTP-body classification.
 
@@ -354,6 +444,12 @@ See [08 — Schemas §Data classification](08-schemas.md#data-classification) fo
   (sensitive? trace-event) → boolean
   ```
 - **Description**: True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check.
+
+```clojure
+(rf/sensitive? {:sensitive? true})   ;; => true
+;; Drop sensitive events when forwarding from a flat trace read.
+(remove rf/sensitive? (rf/trace-buffer :app/main {:flat true}))
+```
 
 ## DOM source-coord annotations
 

@@ -42,6 +42,14 @@ The render/head primitives are re-exported on the `re-frame.core` facade; the fu
   (render-tree-hash render-tree) → 32-bit FNV-1a structural hash (lowercase hex)
   ```
 - **Description**: A deterministic structural fingerprint of a render tree. Same canonical-EDN representation produces the same hash on JVM and CLJS. Used by the hydration compatibility check — if the server's hash doesn't match the client's hash, hydration is unsafe.
+- **Example**:
+  ```clojure
+  ;; Capture the hash at render time; it rides the hydration payload as
+  ;; :rf/render-hash and is re-checked client-side after the first render.
+  (let [hiccup      ((rf/view :app/root))
+        render-hash (rf/render-tree-hash hiccup)]
+    {:rf/render-hash render-hash})
+  ```
 
 ### `project-error`
 
@@ -51,6 +59,13 @@ The render/head primitives are re-exported on the `re-frame.core` facade; the fu
   (project-error frame-id trace-event) → :rf/public-error
   ```
 - **Description**: Apply the active error-projector (selected by the frame's `:ssr {:public-error-id ...}` metadata) for the named frame. This is the seam between "internal error trace event with full diagnostic detail" and "client-safe public-error projection."
+- **Example**:
+  ```clojure
+  ;; Turn an internal error-trace event into the frame's client-safe
+  ;; public-error projection (host adapter / error-page render path).
+  (ssr/project-error :rf/default trace-event)
+  ;; => {:status 404 :code :not-found :message "Page not found"}
+  ```
 
 ### Streaming render
 
@@ -65,6 +80,14 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
     → {:shell-html "..." :continuations [{:id :subtree} ...]}
   ```
 - **Description**: Walk the tree once; at each `:rf/suspense-boundary` emit a `<template …suspense-fallback>` placeholder and record a continuation. Returns the shell-html (ready to flush) and the continuations to drain.
+- **Example**:
+  ```clojure
+  ;; Host adapter: render the shell to flush immediately, keep the continuations.
+  (let [{:keys [shell-html continuations]}
+        (rf/with-frame fid (ssr/streaming-render-shell hiccup))]
+    ;; flush shell-html now; drain `continuations` as each subtree settles
+    shell-html)
+  ```
 - **In the wild**: [ssr_streaming](https://github.com/day8/re-frame2/tree/main/examples/capabilities/ssr/ssr_streaming)
 
 ### `streaming-render-continuation`
@@ -76,6 +99,15 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
     → {:id :html :delta :failed?}
   ```
 - **Description**: Drain one continuation against `frame-id`'s app-db. Snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline.
+- **Example**:
+  ```clojure
+  ;; Drain each deferred boundary against fid's app-db, emitting its chunk.
+  (doseq [entry continuations]
+    (let [{:keys [id html delta failed?]}
+          (rf/with-frame fid (ssr/streaming-render-continuation fid entry))]
+      ;; flush this subtree's resolved HTML + hydrate-delta as the next chunk
+      ))
+  ```
 
 ### `streaming-build-final-payload`
 
@@ -86,6 +118,13 @@ Larger pages benefit from streaming — emit the shell-html and continue renderi
     → canonical :rf/hydration-payload
   ```
 - **Description**: Called after all continuations drain to populate the `__rf_payload` final chunk.
+- **Example**:
+  ```clojure
+  ;; After every continuation drains, build the canonical __rf_payload chunk.
+  (rf/with-frame fid
+    (ssr/streaming-build-final-payload
+      fid render-hash {:version 1 :payload :rf.ssr.payload/whole-app-db}))
+  ```
 
 The streaming surface is host-adapter territory — the SSR-aware host (`re-frame.ssr.ring` or equivalent) wires it. Most app code interacts via the host adapter and never touches `streaming-render-*` directly.
 
@@ -117,6 +156,13 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   (render-head head-id opts) → :rf/head-model
   ```
 - **Description**: Evaluate the registered head-fn for `head-id`. Returns a head-model.
+- **Example**:
+  ```clojure
+  ;; Evaluate the head-fn registered under :app/head against frame f's app-db
+  ;; + active route. The long form and frame-id shorthand are equivalent:
+  (rf/render-head :app/head {:frame f})   ;; => {:title "MyApp — …" :meta [...]}
+  (rf/render-head :app/head f)
+  ```
 
 ### `active-head`
 
@@ -126,6 +172,12 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   (active-head frame-id) → :rf/head-model
   ```
 - **Description**: Resolve the head-model for the currently active route in the named frame. Head rendering is a frame-scoped read (it reads the frame's route slice and app-db), so the frame is **carried, not ambient**: the no-arg form is gone, and a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised `:rf/default`. Sub-shape: `[:rf/head]` subscribes to this.
+- **Example**:
+  ```clojure
+  ;; Resolve the head-model for frame f's active route (via the route's :head).
+  ;; The Ring host adapter uses this, then head-model->html, to render <head>.
+  (rf/active-head f)   ;; => {:title "Article 42"}
+  ```
 
 ### `head-model->html`
 
@@ -136,6 +188,14 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   (head-model->html head-model {:wrap? bool}) → inner-head HTML string
   ```
 - **Description**: Render a head-model to its HTML representation. `:wrap?` controls whether `<head>` tags are emitted (default: false, so the result can be composed into a larger shell).
+- **Example**:
+  ```clojure
+  (rf/head-model->html
+    {:title "Hello"
+     :meta  [{:name "description" :content "A summary"}]
+     :link  [{:rel "canonical" :href "https://example.com/x"}]})
+  ;; => "<title>Hello</title><meta name=\"description\" content=\"A summary\"/>…"
+  ```
 
 ### `head-snapshot`
 
@@ -145,6 +205,12 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
   (head-snapshot frame-id) → {head-id → :rf/head-model}
   ```
 - **Description**: Read the per-frame snapshot of last-produced head-models. Returns `{}` for a frame that has never seen a `render-head` call. Useful for tests, introspection, and tools. Re-exported as `rf/head-snapshot`.
+- **Example**:
+  ```clojure
+  ;; After one or more render-head calls, read the per-frame snapshot:
+  (rf/render-head :app/head {:frame f})
+  (rf/head-snapshot f)   ;; => {:app/head {:title "…"}}
+  ```
 
 ## Standard SSR events
 
@@ -152,6 +218,23 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
 |---|---|
 | `:rf/server-init` | Per-request server-side initialisation. Reads request cofx; dispatches setup events. `:platforms #{:server}`. |
 | `:rf/hydrate` | Seed the client-side `app-db` from the server-supplied payload. Runs once on client bootstrap. |
+
+- **Example**:
+  ```clojure
+  ;; :rf/server-init — registered by the app; fired from the per-request frame's
+  ;; :initial-events as it boots, dispatching the setup work the page needs.
+  (rf/reg-event :rf/server-init
+    {:platforms #{:server}}
+    (fn [{:keys [db]} _]
+      {:db db
+       :fx [[:rf.http/managed {:request    {:method :get :url "/api/articles"}
+                               :decode     :json
+                               :on-success [:articles/loaded]}]]}))
+
+  ;; :rf/hydrate — framework-owned; dispatched on the client (usually via
+  ;; ssr/hydrate!) to seed app-db from the payload before the first render.
+  (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+  ```
 
 ## Standard SSR fx (server-only)
 
@@ -167,12 +250,45 @@ All server-only — `:platforms #{:server}`. These build the response accumulato
 | `[:rf.server/redirect {:location ?:status}]` | default `:status 302`; truncates HTML. **Caller-trusted** `:location`. |
 | `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow}]` | The caller-untrusted variant — parses `:location`, rejects `javascript:` / `data:` / `vbscript:` schemes, and enforces `:relative-only?` / `:allow` allowlist before setting `:redirect`. Open-redirect mitigation for attacker-controlled `?next=` strings. |
 
+- **Example**:
+  ```clojure
+  ;; Shape the HTTP response from a server-side handler. Every :rf.server/* fx
+  ;; is :platforms #{:server}, so the client render skips them.
+  (rf/reg-event :app/respond
+    {:platforms #{:server}}
+    (fn [{:keys [db]} _]
+      {:db db
+       :fx [[:rf.server/set-status    200]
+            [:rf.server/set-header    {:name "X-Foo" :value "first"}]
+            [:rf.server/append-header {:name "Set-Cookie" :value "a=1"}]
+            [:rf.server/set-cookie    {:name      "session"
+                                       :value     "abc123"
+                                       :max-age   3600
+                                       :http-only true
+                                       :same-site :lax
+                                       :path      "/"}]
+            [:rf.server/delete-cookie {:name "stale-session" :path "/"}]]}))
+
+  ;; Redirects — caller-trusted vs caller-untrusted (e.g. an attacker-supplied
+  ;; ?next= param). safe-redirect parses + allowlists before setting :redirect.
+  (rf/reg-event :auth/bounce
+    {:platforms #{:server}}
+    (fn [{:keys [db]} _]
+      {:db db
+       :fx [[:rf.server/redirect      {:status 302 :location "/login"}]
+            [:rf.server/safe-redirect {:location "/dashboard" :relative-only? true}]]}))
+  ```
+
 ## Standard SSR subs
 
 | Sub | Returns |
 |---|---|
 | `:rf/head` | The head model for the active route (resolved via `active-head` against the subscribed frame) |
 | `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise |
+
+> **NOT USED** — `:rf/head` is never subscribed (no `[:rf/head]` call sites, and no `reg-sub :rf/head`) in `implementation/`, `examples/`, or `tools/`.
+>
+> **NOT USED** — `:rf/public-error` is never subscribed (no `[:rf/public-error]` call sites, and no `reg-sub :rf/public-error`) in `implementation/`, `examples/`, or `tools/`. The `:rf/public-error` *map shape* is produced by `project-error`; only the **sub** is unused.
 
 The current request's **response accumulator** (status / headers / cookies / redirect) is *not* a registered subscription. It lives in a framework-private side-channel atom keyed by frame-id and is read exclusively by the runtime via `re-frame.ssr/get-response`; the host adapter consumes the resolved value to build the wire response.
 
@@ -181,6 +297,17 @@ The current request's **response accumulator** (status / headers / cookies / red
 | Cofx | Returns |
 |---|---|
 | `:rf.server/request` | The active HTTP request map. |
+
+- **Example**:
+  ```clojure
+  ;; A server handler declares the requirement, then reads the request FLAT
+  ;; under :rf.server/request (Ring-shaped under the bundled adapter).
+  (rf/reg-event :app/server-init
+    {:platforms        #{:server}
+     :rf.cofx/requires [:rf.server/request]}
+    (fn [{:rf.server/keys [request] :keys [db]} _]
+      {:db (assoc db :method (:request-method request))}))
+  ```
 
 ## `:platforms` metadata on `reg-fx`
 

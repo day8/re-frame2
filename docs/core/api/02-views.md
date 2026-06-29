@@ -99,6 +99,23 @@ This is the lane for **tools, dynamic hosts, and library code** — not applicat
     - **You don't want a Var.** Inside a `let` or a closure, or when the view is a one-off built from configuration data.
     - **You're writing a Form-3 component.** Reagent's `create-class` wraps a map of lifecycle methods around a render-fn; the call shape is `(rf/reg-view* :id (r/create-class {...}))`. This is the one app-facing reason to touch the starred form.
     - **You're consumer-side library code.** Libraries that ship registered views (a charting library, a table widget) often want to register without imposing a `def` on the consumer's namespace.
+- **Example**:
+  ```clojure
+  ;; Computed id — the id isn't a literal symbol at the call site
+  ;; (a plugin host or code-gen pipeline that holds the id in data).
+  (defn register-panel! [view-id render-fn]
+    (rf/reg-view* view-id render-fn))
+
+  ;; Form-3 — create-class isn't defn-shaped, so it registers through the
+  ;; starred form. Capture the frame at render so the lifecycle callbacks
+  ;; dispatch to the captured frame.
+  (rf/reg-view* :editor/page
+    (fn [_]
+      (let [{:keys [dispatch]} (rf/capture-frame)]
+        (r/create-class
+          {:component-did-mount (fn [_] (dispatch [:editor/mounted]))
+           :reagent-render      (fn [] [editor-form-view])}))))
+  ```
 - **Note**: The `*` follows Clojure's own `let` / `let*`, `fn` / `fn*` idiom — the un-starred form is the macro shorthand; the starred form is the underlying primitive. Inside a `reg-view*` body there's no auto-injected `dispatch` / `subscribe`; capture a `(rf/capture-frame)` at render and use its ops if the view needs frame-bound dispatch.
 
 ### `view`

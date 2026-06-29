@@ -68,6 +68,12 @@ Everything below is the **adapter-author lane**. An ordinary app never calls the
   (install-adapter! adapter-map)
   ```
 - **Description**: Must be called before any frame is created. **Lower-level than `init!`**; ordinary apps call `init!` instead. Use it when you're writing a custom boot pipeline that has additional steps between adapter-install and first-frame creation.
+- **Example**:
+  ```clojure
+  (rf/install-adapter! reagent/adapter)   ;; seat the substrate (lower-level than init!)
+  ;; …custom boot steps between adapter-install and first-frame creation…
+  (rf/reg-frame :app/main {:initial-events [[:app/boot]]})
+  ```
 
 ### `destroy-adapter!`
 
@@ -77,6 +83,11 @@ Everything below is the **adapter-author lane**. An ordinary app never calls the
   (destroy-adapter!)
   ```
 - **Description**: Tear down the installed adapter. Calls the adapter spec's `:dispose-adapter!` fn (if present), clears the install slot so a new adapter can install, and flips the `adapter-disposed?` breadcrumb. Symmetric with `install-adapter!` and with `destroy-frame!` — same `destroy-` verb-cluster (lifecycle boundary).
+- **Example**:
+  ```clojure
+  (rf/destroy-adapter!)        ;; tear down the current substrate, clear the install slot
+  (rf/init! reagent/adapter)   ;; …then install a fresh adapter (e.g. a test fixture or hot-reload swap)
+  ```
 
 The adapter-spec **map key** `:dispose-adapter!` is an internal contract slot adapters implement; ignore it unless you're authoring an adapter.
 
@@ -104,6 +115,10 @@ These reads answer "what's installed right now?" — for tooling and adapter-aut
   (current-adapter) → discriminator keyword
   ```
 - **Description**: "What substrate am I on?" Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. For predicate / branch code.
+- **Example**:
+  ```clojure
+  (rf/current-adapter)   ;; => :rf.adapter/reagent   (nil when no adapter is installed)
+  ```
 
 #### `current-adapter-spec`
 
@@ -113,6 +128,10 @@ These reads answer "what's installed right now?" — for tooling and adapter-aut
   (current-adapter-spec) → installed adapter spec map
   ```
 - **Description**: "Give me the adapter fns to call." The value passed to `(rf/init! ...)`, or `nil` when no adapter is installed. Use for tools / routing / identity checks across the install / dispose lifecycle. For the discriminator keyword, use `current-adapter`.
+- **Example**:
+  ```clojure
+  (rf/current-adapter-spec)   ;; => the adapter spec map passed to (rf/init! …), or nil when none
+  ```
 
 #### `adapter-disposed?`
 
@@ -122,6 +141,14 @@ These reads answer "what's installed right now?" — for tooling and adapter-aut
   (adapter-disposed?) → boolean
   ```
 - **Description**: "Was the adapter torn down?" Returns `true` iff the most recent lifecycle event was a successful `destroy-adapter!` and no subsequent `install-adapter!` has fired. `false` for never-installed (fresh process) AND after a fresh install. Read-only — the breadcrumb is owned by the install / destroy pair. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down).
+- **Example**:
+  ```clojure
+  (rf/adapter-disposed?)       ;; => false  (fresh process — never installed)
+  (rf/destroy-adapter!)
+  (rf/adapter-disposed?)       ;; => true   (torn down, no reinstall yet)
+  (rf/init! reagent/adapter)
+  (rf/adapter-disposed?)       ;; => false  (a fresh install clears the breadcrumb)
+  ```
 
 The split between `current-adapter` (keyword) and `current-adapter-spec` (map) is principled. The keyword is for switch-like code that branches on substrate identity. The spec map is for code that needs to call adapter fns or compare adapter identity across reinstalls.
 
@@ -145,9 +172,15 @@ Back in the app-author lane: the `configure` fn is application boot's adjacent s
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (configure key opts)
+  (configure! config-map)
   ```
 - **Description**: Runtime config. One of three orthogonal configuration surfaces — `configure` for process-level data knobs; `set-!` / `install-!` for adapter-pluggable hooks; per-frame metadata for frame-scoped overrides. The vocabulary of keys lives in [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
+- **Example**:
+  ```clojure
+  (rf/configure! {:epoch-history {:depth 100}
+                  :trace-buffer  {:cascades-retained 25}
+                  :elision       {:rf.size/threshold-bytes 8192}})
+  ```
 
 The three configuration surfaces — `configure`, the `set-!` / `install-!` setters (`set-schema-validator!`, etc.), and per-frame metadata — are separate. Each answers a different question: `configure` for data knobs (depth, threshold, grace period); the setters for hook-shaped pluggability (which validator to use, which printer); per-frame metadata for frame-scoped overrides (which projector, which `:fx-overrides`).
 

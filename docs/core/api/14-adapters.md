@@ -72,6 +72,8 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ```
 - **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
 
+> **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
+
 ### `uix-adapter/frame-provider`
 
 - **Kind**: UIx component (function — one component, two config shapes)
@@ -81,6 +83,13 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   ($ uix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
   ```
 - **Description**: The UIx-shaped merged frame provider, dispatched on the prop map: `{:frame …}` scopes an already-created frame (fails loud if absent), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts, no destroy-on-unmount). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other UIx component (no `:children` prop-map key).
+- **Example**:
+  ```clojure
+  ;; ENSURE shape at the render root: create the frame on first mount, seed it
+  ;; once via :initial-events, reuse (no re-seed) on hot-reload re-mount.
+  ($ uix-adapter/frame-provider {:id :app :initial-events [[:counter/initialise]]}
+     ($ counter-app))
+  ```
 
 ### `uix-adapter/wrap-view`
 
@@ -90,6 +99,14 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   (wrap-view id metadata user-fn) → wrapped fn
   ```
 - **Description**: Adapter-side source-coord injection. Most users register through `reg-view*`; `wrap-view` is for code-gen and library scaffolding.
+- **Example**:
+  ```clojure
+  ;; Code-gen / scaffolding seam: wrap a component head so its root DOM element
+  ;; carries data-rf2-source-coord (dev only; elided in production builds).
+  (def wrapped-row
+    (uix-adapter/wrap-view ::row {:line 42 :column 7}
+                           (fn [_props] ($ :div "row"))))
+  ```
 
 ### `uix-adapter/flush-views!`
 
@@ -100,6 +117,12 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   (flush-views! f)
   ```
 - **Description**: Wraps React's `act()` for tests.
+- **Example**:
+  ```clojure
+  ;; Test-only: flush pending renders synchronously, returns nil.
+  (uix-adapter/flush-views!)               ;; 0-arity: drain queued renders + effects
+  (uix-adapter/flush-views! (fn [] nil))   ;; 1-arity: run the thunk inside act()
+  ```
 
 ### `uix-adapter/set-hiccup-emitter!`
 
@@ -109,6 +132,13 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
   (set-hiccup-emitter! f)
   ```
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
+- **Example**:
+  ```clojure
+  ;; SSR: install a render-tree → HTML emitter (normally wired for you by
+  ;; requiring re-frame.ssr). Pass nil to reset.
+  (uix-adapter/set-hiccup-emitter! (fn [tree _opts] (str tree)))
+  (uix-adapter/set-hiccup-emitter! nil)
+  ```
 
 UIx users register their views by Var (the React-component idiom) or with `rf/reg-view*` if they want registry-keyed view addressing — `reg-view` (the Reagent macro) does **not** cover UIx.
 
@@ -162,6 +192,8 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ```
 - **Description**: "What frame am I in?"
 
+> **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
+
 ### `helix-adapter/frame-provider`
 
 - **Kind**: Helix component (function — one component, two config shapes)
@@ -171,6 +203,13 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   ($ helix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
   ```
 - **Description**: The Helix-shaped merged frame provider, dispatched on the prop map: `{:frame …}` scopes an already-created frame (fails loud if absent), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts, no destroy-on-unmount). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other Helix component (no `:children` prop-map key).
+- **Example**:
+  ```clojure
+  ;; ENSURE shape at the render root: create the frame on first mount, seed it
+  ;; once via :initial-events, reuse (no re-seed) on hot-reload re-mount.
+  ($ helix-adapter/frame-provider {:id :app :initial-events [[:counter/initialise]]}
+     ($ counter-app))
+  ```
 
 ### `helix-adapter/wrap-view`
 
@@ -180,6 +219,14 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   (wrap-view id metadata user-fn) → wrapped fn
   ```
 - **Description**: Adapter-side source-coord injection.
+- **Example**:
+  ```clojure
+  ;; Code-gen / scaffolding seam: wrap a component head so its root DOM element
+  ;; carries data-rf2-source-coord (dev only; elided in production builds).
+  (def wrapped-row
+    (helix-adapter/wrap-view ::row {:line 42 :column 7}
+                             (fn [_props] (d/div "row"))))
+  ```
 
 ### `helix-adapter/flush-views!`
 
@@ -190,6 +237,12 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   (flush-views! f)
   ```
 - **Description**: Wraps React's `act()` for tests.
+- **Example**:
+  ```clojure
+  ;; Test-only: flush pending renders synchronously, returns nil.
+  (helix-adapter/flush-views!)               ;; 0-arity: drain queued renders + effects
+  (helix-adapter/flush-views! (fn [] nil))   ;; 1-arity: run the thunk inside act()
+  ```
 
 ### `helix-adapter/set-hiccup-emitter!`
 
@@ -199,6 +252,13 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
   (set-hiccup-emitter! f)
   ```
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam.
+- **Example**:
+  ```clojure
+  ;; SSR: install a render-tree → HTML emitter (normally wired for you by
+  ;; requiring re-frame.ssr). Pass nil to reset.
+  (helix-adapter/set-hiccup-emitter! (fn [tree _opts] (str tree)))
+  (helix-adapter/set-hiccup-emitter! nil)
+  ```
 
 ```clojure
 (:require [re-frame.core :as rf]

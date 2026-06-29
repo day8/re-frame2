@@ -82,6 +82,11 @@ There is no `[:rf.scope/global]` fallthrough. Event resolution precedence: paylo
   ```
 - **Description**: Remove a registered resource. A **registration-lifecycle** operation — NOT the normal cache-invalidation API (for data lifecycle use `:rf.resource/invalidate-tags` / `:rf.resource/remove` / `:rf.resource/clear-scope`). Also disposes the resource-runtime state for the id in each affected frame (release owner indexes, cancel timers/host handles, abort in-flight where possible, suppress late replies by generation, remove tag-index rows, emit a trace). Returns `resource-id`.
 
+```clojure
+;; deregister a resource (registration-lifecycle — e.g. on hot-reload / teardown)
+(rf/clear-resource :feed/timeline)
+```
+
 ## Events (map payloads)
 
 Resource events take a **map payload**, not a positional argument vector.
@@ -107,11 +112,27 @@ Resource events take a **map payload**, not a positional argument vector.
 - **Payload**: `{:resource :scope :params :owner :cause}`
 - **Description**: Force a refresh. May force a new generation — a still-in-flight prior request is marked superseded, aborted when possible, otherwise suppressed by work-id + generation. A manual refresh is usually a `:cause`, not an `:owner`.
 
+```clojure
+;; a "Refresh" button — a :cause, pointedly no :owner (the route keeps it alive)
+[:rf.resource/refetch
+ {:resource :articles/list
+  :params   {}
+  :cause    [:manual :resources.app/refresh-articles]}]
+```
+
 ### `[:rf.resource/invalidate-tags {…}]`
 
 - **Kind**: event
 - **Payload**: `{:scope :tags :cause}`
 - **Description**: Mark entries whose tags intersect `:tags` stale; refetch entries with active owners; leave inactive entries stale or GC-eligible. **Scoped by default** — a cross-scope invalidation must opt in explicitly and is visible in Xray. On a successful load an entry's tags are *replaced* with the new data's tags.
+
+```clojure
+;; after a write settles, stale the reads carrying these tags
+[:rf.resource/invalidate-tags
+ {:scope :rf.scope/global
+  :tags  #{[:article "welcome"]}
+  :cause [:follow-author-detail-sync "welcome"]}]
+```
 
 ### `[:rf.resource/release-owner {…}]`
 
@@ -119,11 +140,25 @@ Resource events take a **map payload**, not a positional argument vector.
 - **Payload**: `{:owner …}`
 - **Description**: Release an owner lease. Aborts in-flight work only when no remaining owner needs it. App-minted leases (`[:lease …]`) MUST have a matching release path — an orphaned lease pins an entry alive (Xray lints it).
 
+```clojure
+;; the matching release for an app-minted [:lease …] owner
+[:rf.resource/release-owner
+ {:owner [:lease :preview "welcome"]}]
+```
+
 ### `[:rf.resource/clear-scope {…}]`
 
 - **Kind**: event
 - **Payload**: `{:scope :cause}`
 - **Description**: Causal scope teardown. Removes/marks-unusable every entry in the scope, releases owners, aborts in-flight requests with no owner outside the scope, suppresses late replies by scope + generation, emits explanatory trace rows. Required on logout / account / tenant / permission / locale / impersonation change.
+
+```clojure
+;; logout / tenant-switch — drop a whole scope's cache so the next principal
+;; can never read the last one's data
+[:rf.resource/clear-scope
+ {:scope [:rf.scope/session {:user-id "u-42"}]
+  :cause :logout}]
+```
 
 ### `[:rf.resource/remove {…}]`
 
@@ -131,11 +166,28 @@ Resource events take a **map payload**, not a positional argument vector.
 - **Payload**: `{:resource :scope :params}`
 - **Description**: Remove a single resource instance's cache entry.
 
+```clojure
+;; drop one cached instance, keyed by its scoped resource key
+[:rf.resource/remove
+ {:resource :article/by-slug
+  :scope    :rf.scope/global
+  :params   {:slug "welcome"}}]
+```
+
 ### `[:rf.resource/load-more {…}]`
 
 - **Kind**: event (infinite resources only — see [Infinite resources](#infinite-resources))
 - **Payload**: `{:resource :scope :params :cause}` — **ownerless** (carries a `:cause`, never an `:owner`)
 - **Description**: Extend an `:infinite` feed by one page. Computes the next page param from the entry's tail via `:next-page-param`, fetches that page through the same managed transport, and appends it to the feed's accumulated page vector (the feed stays `:loaded`; the pages stay visible — a load-more in flight is the derived `:fetching-next?` sub, distinct from a whole-feed `:fetching?` refresh). A load-more with no next page (`:next-page-param` → `nil`) is a no-op trace; a load-more while a page fetch is already in flight dedupes. A supplied `:owner` is warn-and-ignored — the route (or whatever first-loaded the feed) already owns the one feed entry, and load-more never changes the active-owner set.
+
+```clojure
+;; the "Load more" button — ownerless; carries a :cause, never an :owner
+[:rf.resource/load-more
+ {:resource :feed/timeline
+  :scope    :rf.scope/global
+  :params   {}
+  :cause    [:user :feed/load-more]}]
+```
 
 ### Focus/reconnect revalidation
 
@@ -146,6 +198,13 @@ Active-stale revalidation is expressed as **resource events**, never subscriptio
 - **Kind**: event (no payload)
 - **Description**: Scan the frame's active-owner stale entries and refetch them by policy. The refetch carries cause `:focus` (window-focused) or `:reconnect` (network-reconnected) — **never an owner** (it creates no liveness); generation + stale-suppression protect any late reply. Dispatch these directly only when driving revalidation yourself; ordinarily the host listeners below dispatch them.
 
+```clojure
+;; no payload — dispatch directly only when driving revalidation yourself
+;; (ordinarily the host listeners below dispatch these for you)
+[:rf.resource/window-focused]
+[:rf.resource/network-reconnected]
+```
+
 #### `install-revalidation-listeners!` / `remove-revalidation-listeners!`
 
 - **Kind**: function (post-v1 lib)
@@ -155,6 +214,14 @@ Active-stale revalidation is expressed as **resource events**, never subscriptio
   (remove-revalidation-listeners!  frame-id)   ;; → nil
   ```
 - **Description**: `install-revalidation-listeners!` wires three host `window` listeners for `frame-id` — `focus` and `visibilitychange`-to-visible → `[:rf.resource/window-focused]`, and `online` → `[:rf.resource/network-reconnected]` — each dispatched at `frame-id`. Idempotent (re-installing replaces, never stacks — hot-reload safe); CLJS-only (the JVM/SSR arm is a no-op). Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook. `remove-revalidation-listeners!` tears them down (useful for test isolation and single-page hosts that rotate which frame owns revalidation); a no-op when none is installed.
+
+```clojure
+;; at boot, after the frame is live: wire focus / visibility / online revalidation
+(rf/install-revalidation-listeners! :rf/default)
+
+;; tear them down (test isolation, or when another frame takes over revalidation)
+(rf/remove-revalidation-listeners! :rf/default)
+```
 
 > **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/aborted` / `…/stale-fired` / `…/gc-fired` / `…/poll-fired` / `…/stale-suppressed` are framework-internal and carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them; success/failure verify frame + work id + generation before writing (the mandatory stale-suppression boundary). (`:rf.resource.internal/stale-fired` is the stale-timer re-check tick — it arms the stale transition, not a fetch; `:rf.resource.internal/poll-fired` is the poll-timer re-check tick — it refetches an active-owner entry by the interval.)
 
@@ -312,6 +379,11 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
   ```
 - **Description**: Remove a registered mutation — a **registration-lifecycle** operation, NOT a form-error reset. For the causal runtime-instance reset use the `[:rf.mutation/clear …]` event. Returns `mutation-id`.
 
+```clojure
+;; deregister a mutation (registration-lifecycle — NOT the runtime-instance reset)
+(rf/clear-mutation :article/save)
+```
+
 ### Events (map payloads)
 
 #### `[:rf.mutation/execute {…}]`
@@ -334,6 +406,11 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
 - **Kind**: event
 - **Payload**: `{:instance …}`
 - **Description**: The **causal** reset of a runtime mutation instance — clears its row and best-effort aborts in-flight work. Distinct from `clear-mutation` (which removes the *registration*).
+
+```clojure
+;; reset one runtime instance's row (e.g. in a completion continuation)
+[:rf.mutation/clear {:instance :form/save-1}]
+```
 
 ### Subscriptions (passive)
 
@@ -366,6 +443,12 @@ These direct functions are the **tool/test projection lane** — not an app-read
   ```
 - **Description**: The registered resource's spec (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords).
 
+```clojure
+;; tool/test lane: read a registered resource's spec back
+(rf/resource-meta :article/by-slug)
+;; => {:scope :rf.scope/global :params-schema [...] :request #fn ... :doc "…"}
+```
+
 ### `resource-state`
 
 - **Kind**: function (post-v1 lib)
@@ -374,6 +457,15 @@ These direct functions are the **tool/test projection lane** — not an app-read
   (resource-state {:resource … :scope … :params … :frame …}) → entry or nil
   ```
 - **Description**: A resource instance's durable runtime entry for an explicit-frame target, resolving the scoped key the same way a subscription does. nil when no entry exists.
+
+```clojure
+;; the live durable entry for one scoped key, at an explicit frame
+(rf/resource-state {:resource :article/by-slug
+                    :scope    :rf.scope/global
+                    :params   {:slug "welcome"}
+                    :frame    :rf/default})
+;; => entry map, or nil when no entry exists
+```
 
 ### `resources`
 
@@ -385,6 +477,11 @@ These direct functions are the **tool/test projection lane** — not an app-read
   ```
 - **Description**: Resource introspection for a frame target — the static registry (every registered id) plus, with `:frame`, the live per-frame resource-instance entries. The `:entries` map is keyed on the CEDN-1 byte `key-id` string (the same key the runtime storage / SSR wire use; it cannot collapse CEDN-distinct sequential-params entries the way an `=`-keyed scoped-key vector would). Each entry carries its kind-preserving scoped-resource-key `[scope resource-id params]` under `:resource/key` for destructure / scope-and-resource filtering.
 
+```clojure
+(rf/resources)                      ;; => {:resource-ids [...] :entries {}}  (static registry only)
+(rf/resources {:frame :rf/default}) ;; => {:resource-ids [...] :entries {<key-id> <entry>}}
+```
+
 ### `mutation-meta`
 
 - **Kind**: function (post-v1 lib)
@@ -393,6 +490,11 @@ These direct functions are the **tool/test projection lane** — not an app-read
   (mutation-meta mutation-id) → spec-map or nil
   ```
 - **Description**: The registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`, source coords), or nil.
+
+```clojure
+(rf/mutation-meta :article/save)
+;; => {:request #fn ... :params-schema :app/article :invalidates #fn ... :scope :rf.scope/global …}
+```
 
 ### `mutation-state`
 
@@ -403,6 +505,12 @@ These direct functions are the **tool/test projection lane** — not an app-read
   ```
 - **Description**: A mutation **instance**'s durable runtime row (`{:status :result :error …}`) for an explicit-frame target, or nil. The frame is carried explicitly (see [EP-0002](../EP/EP-0002-frame-target-resolution.md)).
 
+```clojure
+;; one mutation INSTANCE's runtime row, at an explicit frame
+(rf/mutation-state {:instance :form/save-1 :frame :rf/default})
+;; => {:status … :result … :error …}, or nil
+```
+
 ### `mutations`
 
 - **Kind**: function (post-v1 lib)
@@ -412,6 +520,11 @@ These direct functions are the **tool/test projection lane** — not an app-read
   (mutations {:frame …}) → {:mutation-ids [...] :instances {<instance-id> <row>}}
   ```
 - **Description**: Mutation introspection for a frame target — the registered mutation ids plus, with `:frame`, the live per-frame mutation-instance table (Xray groups instances under their registered mutation id).
+
+```clojure
+(rf/mutations {:frame :rf/default})
+;; => {:mutation-ids [...] :instances {<instance-id> <row>}}
+```
 
 Xray exposes the same shapes plus the tool accessors (`list-resources`, `list-resource-instances`, `get-resource-state`, `get-resource-history`, `list-resource-invalidations`), the route/resource graph, the work-ledger table, and the **scope audit surface** (the standing enumeration of every `:rf.scope/global` resource). Tool accessors prefer summaries over raw values; params/scopes get the same privacy/size elision as data.
 

@@ -29,6 +29,16 @@ For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` 
   (dispatch-sequence events opts)
   ```
 - **Description**: "Run this list of events end-to-end against the current frame." `opts`: `:after-each (fn [db ev] ...)` for between-event assertions, `:frame` for non-default targets. Returns the final `app-db`.
+- **Example**:
+  ```clojure
+  ;; Run a list of events end-to-end; returns the final app-db.
+  (ts/dispatch-sequence [[:counter/inc] [:counter/inc] [:counter/dec]])
+
+  ;; :after-each observes committed state between events.
+  (let [seen (atom [])]
+    (ts/dispatch-sequence [[:counter/inc] [:counter/inc]]
+                          {:after-each (fn [db ev] (swap! seen conj [(:n db) ev]))}))
+  ```
 
 ### `assert-path-equals`
 
@@ -49,6 +59,13 @@ For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` 
   (assert-db-equals expected-db opts)
   ```
 - **Description**: Full-db sync assertion. Mismatch fires a `clojure.test/is`-style failure. Companion to `assert-path-equals`; reach for it when the whole-db identity matters.
+- **Example**:
+  ```clojure
+  (rf/dispatch-sync [:counter/init])
+  (ts/assert-db-equals {:n 0})
+  ;; against a non-default frame:
+  (ts/assert-db-equals {:n 4} {:frame :checkout})
+  ```
 
 ### `poll-until`
 
@@ -59,6 +76,16 @@ For the wider testing philosophy (fixtures, framework adapters, `re-frame-test` 
   (poll-until pred opts)
   ```
 - **Description**: Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` carrying `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator) on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
+- **Example**:
+  ```clojure
+  ;; JVM — synchronous; returns the truthy value (throws on timeout).
+  (ts/poll-until #(= 2 (:n (rf/app-db-value :rf/default)))
+                 {:label "counter reached 2"})
+
+  ;; CLJS — returns a js/Promise; compose with cljs.test/async.
+  (-> (ts/poll-until #(= 3 (:n (rf/app-db-value :rf/default))))
+      (.then (fn [_] (done))))
+  ```
 
 ### `with-fx-overrides`
 
@@ -72,6 +99,11 @@ Defined in [03 — Effects and interceptors](03-effects.md#with-fx-overrides) �
   (compute-sub query-v db)
   ```
 - **Description**: Pure sub computation against an `app-db` *value*. No cache, no reactivity — just walk the sub graph and return the value. JVM-runnable. Use in tests where you want "what would this sub return given this db?" without setting up frames.
+- **Example**:
+  ```clojure
+  ;; What would this sub compute for this db value? No frame, no cache.
+  (rf/compute-sub [:login/state] db)
+  ```
 
 ### Snapshot the registrar; restore after
 
@@ -79,23 +111,53 @@ These are the fixture primitives. The pattern is "snapshot the registrar before 
 
 #### `snapshot-registrar`
 
-- **Signature**: per docstring
+- **Signature**:
+  ```clojure
+  (snapshot-registrar) → snapshot
+  ```
 - **Description**: Capture the current registrar state.
+- **Example**:
+  ```clojure
+  ;; Capture before a test mutates registrations; roll back on the way out.
+  (let [snap (ts/snapshot-registrar)]
+    ;; ... test body registers extra handlers / subs ...
+    (ts/restore-registrar! snap))
+  ```
 
 #### `restore-registrar!`
 
-- **Signature**: per docstring
+- **Signature**:
+  ```clojure
+  (restore-registrar! snapshot) → nil
+  ```
 - **Description**: Restore a previously captured registrar state.
+- **Example**:
+  ```clojure
+  ;; `snap` was captured earlier via `snapshot-registrar`.
+  (ts/restore-registrar! snap)
+  ```
 
 #### `with-fresh-registrar`
 
-- **Signature**: per docstring
+- **Signature**:
+  ```clojure
+  (with-fresh-registrar body-fn) → any
+  ```
 - **Description**: The composed macro — snapshot + body + restore. Most tests reach for this rather than the lower-level primitives.
 
 #### `make-reset-runtime-fixture`
 
-- **Signature**: per docstring
+- **Signature**:
+  ```clojure
+  (make-reset-runtime-fixture)
+  (make-reset-runtime-fixture opts) → fixture-fn
+  ```
 - **Description**: Build a `clojure.test` fixture that resets the runtime between tests. Pair with `use-fixtures :each`.
+- **Example**:
+  ```clojure
+  (use-fixtures :each
+    (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  ```
 
 ### A typical test
 
@@ -130,6 +192,11 @@ The view-assertion surface treats a view as what it is — a function that retur
   (attrs node) → map
   ```
 - **Description**: Return the attrs map of a hiccup node, or `nil`.
+- **Example**:
+  ```clojure
+  (th/attrs [:div {:k 1} "child"])   ; => {:k 1}
+  (th/attrs [:div "child"])          ; => nil
+  ```
 
 ### `children`
 
@@ -139,6 +206,11 @@ The view-assertion surface treats a view as what it is — a function that retur
   (children node) → vector
   ```
 - **Description**: Return everything after the tag (and optional attrs map).
+- **Example**:
+  ```clojure
+  (th/children [:div {:k 1} "a" "b"])  ; => ["a" "b"]
+  (th/children [:div "a" "b"])         ; => ["a" "b"]
+  ```
 
 ### `text-content`
 
@@ -166,6 +238,12 @@ The view-assertion surface treats a view as what it is — a function that retur
   (find-by-attr tree attr val) → node
   ```
 - **Description**: First hiccup node whose attrs map carries `attr == val`, or `nil`. Generic over the attribute keyword — `:data-testid`, `:id`, `:data-test`, custom.
+- **Example**:
+  ```clojure
+  ;; Generic over the attribute keyword.
+  (th/find-by-attr tree :data-test "submit")
+  (th/find-by-attr tree :id        "login")
+  ```
 
 ### `find-all-by-attr`
 
@@ -175,6 +253,10 @@ The view-assertion surface treats a view as what it is — a function that retur
   (find-all-by-attr tree attr val) → vector
   ```
 - **Description**: Every matching node, in depth-first order.
+- **Example**:
+  ```clojure
+  (th/find-all-by-attr tree :data-test "row")  ; => every matching node
+  ```
 
 ### `find-by-attr-prefix`
 
@@ -184,6 +266,11 @@ The view-assertion surface treats a view as what it is — a function that retur
   (find-by-attr-prefix tree attr prefix) → vector
   ```
 - **Description**: Every node whose `attr` value (a string) STARTS with `prefix`. Non-string attr values do not match.
+- **Example**:
+  ```clojure
+  ;; Matches "row-1", "row-2", … — non-string attr values never match.
+  (th/find-by-attr-prefix tree :data-test "row-")
+  ```
 
 ### `find-by-testid`
 
@@ -202,6 +289,10 @@ The view-assertion surface treats a view as what it is — a function that retur
   (find-all-by-testid tree test-id) → vector
   ```
 - **Description**: Convenience over `find-all-by-attr` keyed on `:data-testid`.
+- **Example**:
+  ```clojure
+  (th/find-all-by-testid tree "cart-row")  ; => vector of every match
+  ```
 
 ### `find-by-testid-prefix`
 
@@ -211,6 +302,11 @@ The view-assertion surface treats a view as what it is — a function that retur
   (find-by-testid-prefix tree prefix) → vector
   ```
 - **Description**: Convenience over `find-by-attr-prefix` keyed on `:data-testid`.
+- **Example**:
+  ```clojure
+  ;; Matches "item-1", "item-2", …
+  (th/find-by-testid-prefix tree "item-")
+  ```
 
 ### `invoke-handler`
 
@@ -220,6 +316,11 @@ The view-assertion surface treats a view as what it is — a function that retur
   (invoke-handler node event-key & args) → any
   ```
 - **Description**: Find the handler under `event-key` on `node` and call it with `args`. Returns the handler's return value. **Throws** when the node has no attrs map or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug).
+- **Example**:
+  ```clojure
+  (let [btn (th/find-by-testid tree "counter-inc")]
+    (th/invoke-handler btn :on-click))   ; calls the attached :on-click
+  ```
 
 ### `testid`
 

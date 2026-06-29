@@ -202,6 +202,11 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (clear-event id)
   ```
 - **Description**: "Forget this event-handler." No-arg clears the whole `:event` registry.
+- **Example**:
+  ```clojure
+  (rf/clear-event :counter/inc)   ;; forget one handler
+  (rf/clear-event)                ;; forget every registered :event
+  ```
 
 #### `clear-sub`
 
@@ -211,6 +216,11 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (clear-sub id)
   ```
 - **Description**: "Forget this sub." Note: this is the registrar-side clear (the inverse of `reg-sub`). The runtime cache decrement is `unsubscribe` (see below).
+- **Example**:
+  ```clojure
+  (rf/clear-sub :counter/value)   ;; forget one sub registration
+  (rf/clear-sub)                  ;; forget every registered :sub
+  ```
 
 #### `clear-fx`
 
@@ -220,6 +230,11 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (clear-fx id)
   ```
 - **Description**: "Forget this fx."
+- **Example**:
+  ```clojure
+  (rf/clear-fx :app/scroll-to-top)   ;; forget one fx
+  (rf/clear-fx)                      ;; forget every registered :fx
+  ```
 
 #### `destroy-frame!`
 
@@ -228,6 +243,14 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (destroy-frame! frame-id)
   ```
 - **Description**: The normative teardown boundary. Per-feature artefacts (flows, machines, schemas, SSR, epoch) hang their frame-scoped cleanup off this single call.
+- **Example**:
+  ```clojure
+  ;; SSR per-request frame — torn down in a finally, success or exception.
+  (try
+    (render-request fid)
+    (finally
+      (rf/destroy-frame! fid)))
+  ```
 
 #### `reset-frame!`
 
@@ -236,6 +259,12 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (reset-frame! frame-id)
   ```
 - **Description**: Atomic `destroy-frame!` + `reg-frame` with the **same config** — a full frame replace (opt-in). It tears the frame down through the normative `destroy-frame!` boundary (running `:on-destroy`, releasing per-feature resources) and re-registers it fresh, so machine snapshots, the route slice, flows, and `app-db` are all rebuilt from the registered config. Use sparingly. To wipe just the `app-db` partition while keeping live runtime-db (machines / routes / SSR survive), reach for `reset-app-db!` ([11 — Instrumentation](11-instrumentation.md)) instead. There is **no** `:initial-db` config key to restore from — seeding `app-db` is itself an ordinary, traceable event, `[:rf/set-db {…}]` (see [Standard events](#standard-events) below).
+- **Example**:
+  ```clojure
+  ;; Full frame replace (destroy + re-reg with the SAME config).
+  ;; Must run OUTSIDE any handler cascade — e.g. a restart button's :on-click.
+  (rf/reset-frame! :app/main)
+  ```
 
 #### `clear-sub-cache!`
 
@@ -244,6 +273,11 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (clear-sub-cache! frame-id?)
   ```
 - **Description**: Force-clear the sub-cache for a frame (or all frames). Tests; rarely needed in app code.
+- **Example**:
+  ```clojure
+  (rf/clear-sub-cache! :app/main)   ;; evict one frame's cached subs
+  (rf/clear-sub-cache!)             ;; current frame (test / REPL teardown)
+  ```
 
 ### See also
 
@@ -281,6 +315,11 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   (dispatch* event opts)
   ```
 - **Description**: Fn variant of `dispatch`. Compose through `map` / `comp` / `partial`; skips call-site stamping.
+- **Example**:
+  ```clojure
+  ;; A plain fn value — pass it through a HoF where the dispatch macro can't sit.
+  (run! rf/dispatch* events)
+  ```
 
 ### `dispatch-sync`
 
@@ -306,6 +345,12 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   (dispatch-sync* event opts)
   ```
 - **Description**: Fn variant of `dispatch-sync`.
+- **Example**:
+  ```clojure
+  ;; Fn-form — drive a sequence of events synchronously from runner / test code.
+  (doseq [evec events]
+    (rf/dispatch-sync* evec {:frame :app/main}))
+  ```
 
 ### `subscribe`
 
@@ -331,6 +376,12 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   (subscribe-once query-v opts) → value
   ```
 - **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Use in handler bodies, machine actions, REPL — anywhere you want the *current* value without the reactive plumbing. Not for views. Target a non-ambient frame via `{:frame …}`.
+- **Example**:
+  ```clojure
+  ;; One-shot read of the current value — no reactive handle retained.
+  (let [articles (rf/subscribe-once [:articles])]
+    (count articles))
+  ```
 
 ### `unsubscribe`
 
@@ -341,6 +392,13 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   (unsubscribe query-v opts) → nil
   ```
 - **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** — see [Subscriptions](../concepts/subscriptions.md). Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount. Target a non-ambient frame via `{:frame …}`.
+- **Example**:
+  ```clojure
+  ;; Manual ref-count pairing (tests / REPL) — balances an explicit subscribe.
+  (let [r (rf/subscribe [:counter/value])]
+    @r
+    (rf/unsubscribe [:counter/value]))
+  ```
 
 ### Reading a machine's snapshot
 

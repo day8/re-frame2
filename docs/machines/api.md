@@ -37,6 +37,14 @@ This chapter spans `re-frame.core` (the `reg-machine` / `defmachine` macros) and
   (re-frame.machines/reg-machine* machine-id machine-spec)
   ```
 - **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data.
+- **Example**:
+  ```clojure
+  ;; Same effect as the macro, minus the source-coord walking.
+  (machines/reg-machine* :traffic-light
+    {:initial :red
+     :states  {:red   {:on {:go {:target :green}}}
+               :green {:on {:go {:target :red}}}}})
+  ```
 
 ### `re-frame.machines/make-machine-handler`
 
@@ -46,6 +54,15 @@ This chapter spans `re-frame.core` (the `reg-machine` / `defmachine` macros) and
   (re-frame.machines/make-machine-handler spec) → event-handler fn
   ```
 - **Description**: Compiles a transition table into the event-handler fn that `reg-machine` would register. Useful when you want to inspect the compiled fn or compose it manually.
+- **Example**:
+  ```clojure
+  ;; Build the handler fn without registering it (e.g. to inspect or compose it).
+  (def handler
+    (machines/make-machine-handler
+      {:initial :idle
+       :states  {:idle    {:on {:start {:target :running}}}
+                 :running {}}}))
+  ```
 
 ### `re-frame.machines/machine-transition`
 
@@ -125,6 +142,12 @@ The canonical machine read is the framework-registered subscription vector `[:rf
   (re-frame.machines/machines) → seq of machine-ids
   ```
 - **Description**: "What machines have been registered?" Derived view over `(registrations :event)` filtered by `:rf/machine? true`.
+- **Example**:
+  ```clojure
+  ;; Every registered machine-id (the registry, not a frame's live snapshots).
+  (machines/machines)                              ;; → (:session :auth.login/flow …)
+  (contains? (set (machines/machines)) :session)
+  ```
 
 ### `re-frame.machines/machine-meta`
 
@@ -134,6 +157,13 @@ The canonical machine read is the framework-registered subscription vector `[:rf
   (re-frame.machines/machine-meta machine-id) → registration-metadata map
   ```
 - **Description**: "What did `reg-machine` stamp at this machine's id?" Returns the transition table, doc, schemas, and the per-element source-coords. Equivalent to `(handler-meta :event machine-id)`.
+- **Example**:
+  ```clojure
+  ;; The registered spec back out — table, doc, schemas, source-coords.
+  (machines/machine-meta :session)
+  ;; …or read just the declared :data schema:
+  (get-in (machines/machine-meta :session) [:schemas :data])
+  ```
 
 ### `re-frame.machines/machine-by-system-id`
 
@@ -144,6 +174,12 @@ The canonical machine read is the framework-registered subscription vector `[:rf
   (re-frame.machines/machine-by-system-id system-id frame-id)
   ```
 - **Description**: Reverse-lookup: given a `system-id`, what's the spawned machine bound to it? Returns the spawned-machine id or `nil`.
+- **Example**:
+  ```clojure
+  ;; Resolve a :system-id-bound actor, then address it directly.
+  (when-let [actor (machines/machine-by-system-id :notifier)]
+    (rf/dispatch [actor [:notify "hello"]]))
+  ```
 
 ### `machine-has-tag?`
 
@@ -153,6 +189,12 @@ The canonical machine read is the framework-registered subscription vector `[:rf
   (machine-has-tag? machine-id tag) → reaction
   ```
 - **Description**: Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Reactive predicate over the machine's snapshot's `:tags` set. Use in views to render conditionally on state-tag membership.
+- **Example**:
+  ```clojure
+  ;; Ask by state-tag, not exact state name — disable inputs while a request is in flight.
+  (let [busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)]
+    [:button {:disabled busy?} "Sign in"])
+  ```
 
 ### Standard registered subs (machines)
 
@@ -185,6 +227,11 @@ When a child actor spawns under a parent, the parent's `:data` often gets the ch
   (re-frame.machines/dispatch-to-system system-id event frame-id)
   ```
 - **Description**: The direct-call twin of the fx above — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`, no-op when the `system-id` is unbound. The two-arity form resolves the frame from the carried scope it runs under; the three-arity form names the frame explicitly — there is no `:rf/default` fallback, and looking up under no scope raises `:rf.error/no-frame-context`. This is an implementation-tier helper; new app code should emit the `[:rf.machine/dispatch-to-system [system-id event]]` fx instead.
+- **Example**:
+  ```clojure
+  ;; Implementation-tier direct call (prefer the fx in app code); no-op when unbound.
+  (machines/dispatch-to-system :logger [:logger/flush])
+  ```
 
 ## The actor-lifecycle fx
 
@@ -194,6 +241,12 @@ When a child actor spawns under a parent, the parent's `:data` often gets the ch
 | `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | "Tear down this actor." Runs the actor's `:exit` action, dissociates `[:rf.runtime/machines :snapshots <actor-id>]` (in runtime-db), and clears the actor's event-handler registration. Symmetric counterpart to `:rf.machine/spawn`. |
 | `[:rf.machine/dispatch-to-system [system-id event]]` | 2-element pair `[system-id event-vector]` | v1 | "Message my spawned child actor by name." Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor; no-op when unbound. The action-side counterpart to the `dispatch-to-system` fn. Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair). |
 | `[:raise event-vec]` | event vector | v1 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
+
+**`:raise`** — inside a machine action, route an event back into the same machine (atomic, pre-commit):
+
+```clojure
+{:actions {:kick (fn [_] {:fx [[:raise [:tick]]]})}}
+```
 
 ### Spawn pattern
 
@@ -212,6 +265,14 @@ When a child actor spawns under a parent, the parent's `:data` often gets the ch
 (rf/reg-event :session/logger-spawned
   (fn [{:keys [db]} [_ logger-id]]
     {:db (assoc-in db [:session :logger] logger-id)}))
+```
+
+Tear the actor down with the symmetric `:rf.machine/destroy` — it runs the actor's `:exit`, clears its snapshot, and drops its event-handler registration:
+
+```clojure
+(rf/reg-event :session/stop-logger
+  (fn [{:keys [db]} _]
+    {:fx [[:rf.machine/destroy (get-in db [:session :logger])]]}))
 ```
 
 ## Final states and `:on-done`
@@ -237,18 +298,31 @@ The shipped machine-tooling exports live in `re-frame.machines` and are JVM-only
 - **Kind**: function (owned by `re-frame.machines`, JVM-only — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (re-frame.machines/machine-algebra-view definition) → algebra-view map
+  (re-frame.machines/machine-algebra-view) → {machine-id node}
+  (re-frame.machines/machine-algebra-view machine-id) → node (or nil)
   ```
-- **Description**: The static algebra view over a machine *definition* — the structure Xray's machine inspector and the docs/visualisation lane read. JVM-only.
+- **Description**: The static algebra view over a machine *definition* — the structure Xray's machine inspector and the docs/visualisation lane read. JVM-only. The zero-arity form returns `{machine-id node}` for every registered machine (`{}` when none); the one-arity form returns the single node for `machine-id`, or `nil` if it is not registered.
+- **Example**:
+  ```clojure
+  ;; The whole registry, keyed by machine-id — or one node (nil if unregistered).
+  (machines/machine-algebra-view)
+  (machines/machine-algebra-view :upload/main)
+  ```
 
 ### `re-frame.machines/machine-instance-algebra-view`
 
 - **Kind**: function (owned by `re-frame.machines`, JVM-only — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (re-frame.machines/machine-instance-algebra-view definition snapshot) → algebra-view map
+  (re-frame.machines/machine-instance-algebra-view) → {actor-id node}
+  (re-frame.machines/machine-instance-algebra-view frame-id) → {actor-id node}
   ```
-- **Description**: The algebra view for a live machine *instance* — definition plus current snapshot, so the view can highlight the active state. JVM-only.
+- **Description**: The algebra view for a live machine *instance* — definition plus current snapshot, so the view can highlight the active state. JVM-only. The zero-arity form reads the ambient current frame; the one-arity form names a `frame-id`. Returns `{actor-id node}` (one node per live snapshot — singletons and spawned actors), `{}` for a frame with no live machines, and `nil` for a missing/destroyed frame or in production builds.
+- **Example**:
+  ```clojure
+  ;; Live nodes — one per machine snapshot in the frame (singletons + spawned actors).
+  (machines/machine-instance-algebra-view :rf/default)
+  ```
 
 ### Post-v1 / future surfaces (not shipped)
 
