@@ -286,11 +286,3 @@ The root view then branches with a single `case` over `@(rf/subscribe [:ui/rende
 ## A divergence to know: no nested parallel regions
 
 **Nested parallel regions are not supported in v1.** A region whose own tree declares `:type :parallel` is rejected at registration with `:rf.error/machine-parallel-nested-not-supported`. XState permits arbitrary nesting; re-frame2 does not (yet). Model a would-be two-level cross-product as a flatter set of regions, or — more idiomatically — as multiple top-level parallel-region machines. A region *may* still be a compound (hierarchical) state-tree; it just can't itself be parallel.
-
-## Further reading
-
-- **Normative contract** — [Spec 005 §Parallel regions](../../spec/005-StateMachines.md#parallel-regions) is the exhaustive source: the select-then-apply broadcast model, the root-`:on` / root-`:after` ancestor fallback, the frozen `:tags` / `:all-state` reads, per-region scoping, capability gating, and the registration-error taxonomy.
-- **The machine surface** — the [`re-frame.machines` API](../api/re-frame.machines.md) for `reg-machine`, the [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) subscription, and `machine-has-tag?`.
-- **The other grammar** — [Machines concepts](concepts.md#when-the-machine-grows) (where parallel regions sit among hierarchy, history, `:after`, `:spawn`, and final states) and [Coming from XState](coming-from-xstate.md).
-- **Runnable code** — the full [Nine States of UI example](../../examples/patterns/nine_states), where this exact machine drives a real managed-HTTP fetch, a form slice, and a read-only archive mode.
-- **The broader idea** — parallel regions realise the orthogonal-region concept from the statechart literature: [XState statecharts docs](https://stately.ai/docs/state-machines-and-statecharts) and [Fulcro statecharts](https://fulcrologic.github.io/statecharts/) cover the same `parallel` / `In()` concepts in their own runtimes.

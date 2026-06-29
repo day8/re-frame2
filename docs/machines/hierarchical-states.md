@@ -476,25 +476,3 @@ Parallel regions are a separate axis — they're for orthogonal concerns that
 *don't* share a sub-tree — covered in [Concepts](concepts.md).)
 
 ---
-
-## Further reading
-
-- **Spec** — [Spec 005 §Hierarchical compound states](../../spec/005-StateMachines.md#hierarchical-compound-states)
-  is the normative contract for everything on this page: initial cascading,
-  vector/keyword target resolution, the deepest-wins walk, the LCA cascade, and
-  (in §Final states) the `:final?` / `:on-done` / `:output-key` done-state
-  signal.
-- **API** — [`re-frame.machines`](../api/re-frame.machines.md) for `reg-machine`,
-  the `[:rf/machine …]` / `[:rf/machine-has-tag? …]` subscriptions, and the
-  `:rf.machine/spawn` / `:rf.machine/destroy` effects.
-- **Concepts** — [Machines concepts](concepts.md) for the flat grammar this
-  builds on, and [Coming from XState](coming-from-xstate.md) for the full
-  port-your-intuitions delta.
-- **Example** — the connection machine in
-  [`../../examples/patterns/websocket/`](../../examples/patterns/websocket).
-
-re-frame2's hierarchy realises the classic statechart model: compound states,
-LCA-based entry/exit, and the done-state signal are Harel-statechart concepts
-also realised by [XState's statecharts](https://stately.ai/docs/state-machines-and-statecharts)
-and [Fulcro statecharts](https://fulcrologic.github.io/statecharts/) — the same
-ideas, expressed as re-frame2 data.

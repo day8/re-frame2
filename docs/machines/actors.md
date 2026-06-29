@@ -317,10 +317,3 @@ A few rules worth knowing:
 > **Coming from XState:** there's no single XState primitive for this — you'd `invoke` several actors and coordinate `onDone` by hand, or model an explicit parallel region. `:spawn-all` packages the fan-out, the join condition, and the cancel-on-resolution cascade into one declaration.
 
 ---
-
-## Further reading
-
-- **Normative spec:** [Spec 005 — State Machines](../../spec/005-StateMachines.md), sections *Spawning — dynamic actors*, *Declarative `:spawn`*, *Cancellation cascade*, and *Spawn-and-join via `:spawn-all`* — the exhaustive contract (ordering, error taxonomy, the runtime spawn registry, the uniform reply envelope).
-- **API:** [`re-frame.machines`](../api/re-frame.machines.md) — `reg-machine`, the reserved `:rf.machine/spawn` / `:rf.machine/destroy` / `:rf.machine/dispatch-to-system` effects, and `machine-by-system-id`.
-- **Sibling guides:** [Concepts](concepts.md) for the transition table and [final states](concepts.md#final-states-when-a-machine-is-done) (the `:on-done` / `:on-error` completion story); [Coming from XState](coming-from-xstate.md) for the actor-vs-handler delta; the [Glossary](glossary.md#spawn); and the runnable [Examples](examples.md).
-- **The broader idea:** these features realise concepts from the statechart and actor-model literature — see the [XState statecharts docs](https://stately.ai/docs/state-machines-and-statecharts) (the parity reference re-frame2 maps behaviour from) and [Fulcro statecharts](https://fulcrologic.github.io/statecharts/) (a sibling Clojure statechart implementation).
