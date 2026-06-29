@@ -258,6 +258,7 @@ nav:
 
   - Routing:
     - routing/index.md
+    - "Tutorial: build a routed app": routing/tutorial.md
     - "Concepts": routing/concepts.md
     - "Coming from React Router": routing/coming-from-react-router.md
     - "Glossary": routing/glossary.md

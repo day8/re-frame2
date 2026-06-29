@@ -255,6 +255,32 @@ The default is `:top` for forward navigation and `:restore` for back/forward (po
 (rf/dispatch [:rf.route/navigate :app/article {:id "next"} {:scroll :preserve}])
 ```
 
+## Nested layouts
+
+A real app wraps its pages in shared shells — a site header, a section sidebar — without each page repeating them. re-frame2 has no `<Outlet/>` render slot; instead, **nesting is data**. A child route names a `:parent`, and the `:rf.route/chain` sub hands you the active route's ancestry, so you compose the shells yourself.
+
+```clojure
+(rf/reg-route :app/articles {} "/articles")
+(rf/reg-route :app/article  {:parent :app/articles
+                             :params [:map [:id :string]]} "/articles/:id")
+```
+
+`@(subscribe [:rf.route/chain])` returns the chain **root-most first** — on `/articles/intro`, `[:app/articles :app/article]`; on a route with no `:parent`, a single-element vector. The leaf is the page you're on; each ancestor contributes a wrapping shell. Fold from the leaf outward:
+
+```clojure
+;; page-for: a route id → its page view.  ancestor-shell: an ancestor id → the
+;; shell it wraps around `inner` (returning `inner` unchanged when it adds no chrome).
+(rf/reg-view root-view []
+  (let [chain @(subscribe [:rf.route/chain])]
+    (reduce (fn [inner ancestor] (ancestor-shell ancestor inner))
+            (page-for (last chain))          ;; the leaf page
+            (reverse (butlast chain)))))     ;; its ancestors, innermost first
+```
+
+Truly global chrome — a header on every page — needs no chain at all; render it once in the root view and fold the chain inside it. You only reach for the chain when a shell wraps a *subtree*.
+
+> **Coming from React Router.** This is `<Outlet/>`'s job, done as plain view composition. The cost is one `reduce`; the gain is no routing-specific rendering primitive — the chain is an ordinary subscription, and the layout is the same `case`/`reduce` you'd write for any conditional view. The [tutorial](tutorial.md#step-7--a-shared-layout) builds this up step by step.
+
 ## Loaders: declaring a page's data
 
 A route can declare what data to load when it becomes active, so a page's data-needs live next to its URL instead of scattered through a dozen `componentDidMount`s. The simplest form is `:on-match`: a vector of ordinary event vectors the runtime dispatches, in order, whenever the route activates — *including* when the same route re-activates with **changed** params. Identical params don't re-fire, so you never get accidental double-loads from a no-op navigation.
@@ -458,4 +484,4 @@ This is the payoff of routing having no runtime of its own. During [server-side 
 
 !!! note "Honest edges, pre-alpha"
 
-    Nested layouts are data: a route may declare a `:parent`, and views read the chain through the `:rf.route/chain` sub — so a layout shell can render itself plus its active child by walking the chain. But there are no React-Router-style `<Outlet/>` render slots — you compose layout shells in the root view yourself. And if your app has exactly one page with no shareable URLs, skip the artefact entirely: it's separately packaged precisely so a non-routing app ships zero routing bytes.
+    [Nested layouts](#nested-layouts) are data — a `:parent` link plus the `:rf.route/chain` sub — with no React-Router-style `<Outlet/>` render slot; you compose the layout shells in the root view yourself (worked out in the section above). And if your app has exactly one page with no shareable URLs, skip the artefact entirely: it's separately packaged precisely so a non-routing app ships zero routing bytes.
