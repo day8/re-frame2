@@ -268,6 +268,9 @@ nav:
     - "Tutorial: build a routed app": routing/tutorial.md
     - "Concepts": routing/concepts.md
     - "Coming from React Router": routing/coming-from-react-router.md
+    - "How-to":
+      - "Guard against unsaved changes": routing/how-to/guard-unsaved-changes.md
+      - "Require sign-in on a route": routing/how-to/require-sign-in-on-a-route.md
     - "Glossary": routing/glossary.md
     - "Examples": routing/examples.md
 

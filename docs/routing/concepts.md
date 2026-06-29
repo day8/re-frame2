@@ -101,7 +101,7 @@ Because routes are registry entries, the route table is *queryable data* — and
 ;; (rf/handler-meta :route route-id) returns the metadata, :tags and all.
 ```
 
-[Add authentication](../core/how-to/add-auth.md) walks through it end to end.
+[Require sign-in on a route](how-to/require-sign-in-on-a-route.md) is the routing-focused recipe; [Add authentication](../core/how-to/add-auth.md) walks through the whole auth flow end to end.
 
 > **For JavaScript developers.** This is the inverse of React Router's `<Route>` JSX tree, where each route is a *component* and you read it by being rendered inside it. Here a route is a *data row* you can `get`, `filter`, and `map` over from anywhere — auth guards, breadcrumb generators, sitemap builders, and analytics all just query the same table.
 
@@ -386,7 +386,7 @@ When the guard blocks, the runtime also dispatches `:rf.route/navigation-blocked
 
 > **Gotcha — the guard sub is strict.** `:can-leave` is a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` — it fails closed (deny the leave) and fails loud (raise), never open. Keep the guard sub returning a real `true`/`false`.
 
-The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/real-apps/realworld_resources](../../examples/real-apps/realworld_resources) show the shape.
+The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/real-apps/realworld_resources](../../examples/real-apps/realworld_resources) show the shape, and [Guard against unsaved changes](how-to/guard-unsaved-changes.md) is the step-by-step recipe.
 
 ## Not found is a route you register
 
