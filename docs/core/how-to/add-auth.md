@@ -14,7 +14,7 @@ We'll grow it one step at a time: a tiny token slice in [app-db](../glossary.md#
 
 > **Auth is a slice, a guard, and a teardown — not a library.**
 
-Two add-on artefacts do the heavy lifting: [routing](../../routing/concepts.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../../resources/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../../resources/concepts.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
+Two add-on artefacts do the heavy lifting: [routing](../../routing/concepts.md) (the `day8/re-frame2-routing` dependency) and [managed HTTP](../../async/http.md) (`day8/re-frame2-http`). The last step also reaches for [resources](../../resources/concepts.md) — re-frame2's cached server reads — if you keep server state around, and the login step builds directly on [Build a form](build-a-form.md).
 
 ## 1. The token slice
 

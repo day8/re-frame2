@@ -72,7 +72,7 @@ at it, poke here.
   [effect](../../../../docs/core/glossary.md#effect), not a side effect. It fires
   `:rf.http/managed` and names its `:on-success` / `:on-failure` as
   machine-wrapped events. When the request returns,
-  [managed HTTP](../../../../docs/resources/http.md) appends the reply to that
+  [managed HTTP](../../../../docs/async/http.md) appends the reply to that
   inner event and dispatches it straight back into the machine. That is
   [the uniform reply](../../../../docs/core/glossary.md#the-uniform-reply), and
   it's why the async boundary needs no glue code. The network is swapped out via

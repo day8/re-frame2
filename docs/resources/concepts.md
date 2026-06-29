@@ -6,7 +6,7 @@ This page builds that idea up one step at a time. We'll register a single server
 
 > **Coming from TanStack Query?** You already know the shape: a keyed cache of server reads with staleness, request deduplication, invalidation, and garbage collection. (RTK Query and SWR are the same family.) Keep that mental model — it carries you most of the way. Three deliberate differences are flagged as `> **Coming from TanStack Query?**` callouts as we go: views never fetch, scope is a required key segment, and invalidation is causal rather than an imperative call you remember to make.
 
-> **Resources are optional — don't reach for them on day one.** Resources ship as a separate, opt-in library (the Maven coordinate `day8/re-frame2-resources`; you switch it on by requiring `re-frame.resources` once at boot). An app with one or two reads is perfectly happy with [a managed HTTP request](http.md) and a small [app-db](../core/glossary.md#app-db) slice, and that's the simpler choice. Reach for resources when cached server reads start *multiplying*; [Where should this value live?](../core/where-state-lives.md) has the decision table.
+> **Resources are optional — don't reach for them on day one.** Resources ship as a separate, opt-in library (the Maven coordinate `day8/re-frame2-resources`; you switch it on by requiring `re-frame.resources` once at boot). An app with one or two reads is perfectly happy with [a managed HTTP request](../async/http.md) and a small [app-db](../core/glossary.md#app-db) slice, and that's the simpler choice. Reach for resources when cached server reads start *multiplying*; [Where should this value live?](../core/where-state-lives.md) has the decision table.
 
 ## The cache you don't own
 
@@ -541,7 +541,7 @@ A few load-bearing edges: an `:rf.resource/ensure` (or a blocking route entry) o
 
 Resources earn their keep when cached server reads multiply. When they don't, reach for something simpler — pick the cheapest of [the four homes](../core/glossary.md#the-four-homes-where-state-lives) that fits:
 
-- **A handful of reads, no caching story.** A [managed HTTP request](http.md) plus a small app-db slice is less machinery and entirely idiomatic.
+- **A handful of reads, no caching story.** A [managed HTTP request](../async/http.md) plus a small app-db slice is less machinery and entirely idiomatic.
 - **Login and other commands.** Auth is a [state machine](../machines/glossary.md#machine) driving a write — don't contort it into a cached read.
 - **GraphQL.** The transport is HTTP-only for now; GraphQL is a planned later phase.
 

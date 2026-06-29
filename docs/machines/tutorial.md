@@ -174,7 +174,7 @@ Keep submitting and failing. The first three failures each land in `:error-shown
 
 So far you've moved the machine by hand-dispatching `:auth.login/success` / `:auth.login/failure`. Now make `:submitting` actually call the server and let the reply drive the machine.
 
-Give `:submitting` an `:entry` action — it runs the moment the state is entered — that fires [managed HTTP](../resources/http.md). Name the reply events as *machine-wrapped* events, and the reply loops straight back in. Add a `:record-timeout` action for the deadline case:
+Give `:submitting` an `:entry` action — it runs the moment the state is entered — that fires [managed HTTP](../async/http.md). Name the reply events as *machine-wrapped* events, and the reply loops straight back in. Add a `:record-timeout` action for the deadline case:
 
 ```clojure
 :actions

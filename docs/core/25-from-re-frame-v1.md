@@ -227,7 +227,7 @@ Most of the categories above are mechanical, and the skill handles them while yo
 
 ### HTTP folds onto `:rf.http/managed`
 
-A v1 codebase that registered its own `:http` fx — or leaned on `re-frame-http-fx`, `re-frame-fetch-fx`, or a cousin — migrates onto the [`:rf.http/managed`](../resources/glossary.md#managed-http) effect ([chapter 10 — HTTP](../resources/http.md)). The skill recognises the shape, and the rewrite is mostly mechanical:
+A v1 codebase that registered its own `:http` fx — or leaned on `re-frame-http-fx`, `re-frame-fetch-fx`, or a cousin — migrates onto the [`:rf.http/managed`](../resources/glossary.md#managed-http) effect ([chapter 10 — HTTP](../async/http.md)). The skill recognises the shape, and the rewrite is mostly mechanical:
 
 1. Add the `day8/re-frame2-http` artefact and require it from the namespaces that issue requests.
 2. Replace `[:http {:url ... :on-success ... :on-error ...}]` with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`. Wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) move *inside* `:request`.

@@ -8,7 +8,7 @@
   comes home it arrives as an ordinary event, re-dispatched — via default
   reply addressing — to the very handler that sent the request. So \"send\"
   and \"receive\" are two passes through one pure function, and you never go
-  near js/fetch. The HTTP guide has the full contract: docs/resources/http.md.
+  near js/fetch. The HTTP guide has the full contract: docs/async/http.md.
 
   Five buttons walk the whole surface:
 
@@ -146,7 +146,7 @@
       ;; :body), never :rf.http/decode-failure — even if you'd asked for
       ;; `:decode :json`. We leave :decode at its `:auto` default to show the
       ;; everyday case: a JSON endpoint that 404s with a load-balancer's HTML
-      ;; error page. The classification order is in docs/resources/http.md.
+      ;; error page. The classification order is in docs/async/http.md.
       :else
       {:db (assoc db :counter/status :loading :counter/error nil)
        :fx [(rf.http/get "api/does-not-exist")]})))
@@ -191,7 +191,7 @@
 ;; `:rf.http/managed-abort` fx finds the handle in the framework's in-flight
 ;; registry, fires its `:abort-fn`, and a `:rf.http/aborted` reply comes home
 ;; to the handler that issued the request. The abort section of
-;; docs/resources/http.md has the details.
+;; docs/async/http.md has the details.
 ;;
 ;; Here's the catch worth being honest about: this app serves only static
 ;; assets, so a real GET resolves in a blink and nothing ever lingers

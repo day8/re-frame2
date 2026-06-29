@@ -31,7 +31,7 @@
      of labour is the form recipe in docs/core/how-to/build-a-form.md.
    - Managed HTTP — `:rf.http/managed`, plus a small per-app demo stub
      that answers the request locally so the example runs with no backend
-     to point it at (docs/resources/http.md).
+     to point it at (docs/async/http.md).
    - Schemas, events, subscriptions, registered views — the everyday
      building blocks (docs/core/glossary.md).
 
@@ -87,7 +87,7 @@
 ;; shouldn't. It's never written to app-db or the machine `:data`. Its one
 ;; and only trip off the box is the HTTP request body, and even that is
 ;; redacted from the trace by `:sensitive? true` on the managed-HTTP call
-;; in `:issue-request` below (docs/resources/http.md, "Keeping secrets out
+;; in `:issue-request` below (docs/async/http.md, "Keeping secrets out
 ;; of the trace").
 (def Credentials
   [:map
@@ -148,7 +148,7 @@
 ;; FX  (managed HTTP + a per-app demo stub)
 ;; ============================================================================
 ;;
-;; HTTP goes through `:rf.http/managed` (docs/resources/http.md). In a real
+;; HTTP goes through `:rf.http/managed` (docs/async/http.md). In a real
 ;; app this flow would POST `/api/login` and wait for a server. This
 ;; example has no server — so we fake one, carefully.
 ;;
@@ -270,7 +270,7 @@
                ;; request body (which is carrying the password) and all
                ;; params from every `:rf.http/*` trace event, so the
                ;; password never shows up in Xray or a recording
-               ;; (docs/resources/http.md, "Keeping secrets out of the
+               ;; (docs/async/http.md, "Keeping secrets out of the
                ;; trace").
                {:request    {:method :post
                              :url    "/api/login"

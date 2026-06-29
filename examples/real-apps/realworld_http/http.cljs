@@ -5,7 +5,7 @@
    managed HTTP fx. That's a deliberately good deal: the framework handles
    transport, decoding, status classification, retry-with-backoff, abort, and
    reply addressing, and all this example has to do in return is hand it a
-   request map. See the HTTP guide: ../../../docs/resources/http.md
+   request map. See the HTTP guide: ../../../docs/async/http.md
 
    BACKEND MODES (see this example's README §Running against a real backend):
    - canned demo stub (DEFAULT) — `core.cljs` overrides `:rf.http/managed`
@@ -138,7 +138,7 @@
 
    The only keys you must supply are `:method` and `:path`. Everything else is
    optional and passes straight through to the managed-HTTP args map. See the
-   HTTP guide: ../../../docs/resources/http.md
+   HTTP guide: ../../../docs/async/http.md
 
    You won't find the Bearer header here, and that's by design: the frame-wide
    `:realworld/bearer-auth` interceptor (`core.cljs`) stamps it on every

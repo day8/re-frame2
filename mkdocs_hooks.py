@@ -239,7 +239,7 @@ _REWRITES = (
 
 def on_page_markdown(markdown, page, config, files):
     """Rewrite cross-tree links in guide/*, skills/*, api/*, EP/*, the
-    per-capability sections (machines/, resources/, routing/, ssr/), and spec/* pages.
+    per-capability sections (machines/, resources/, async/, routing/, ssr/), and spec/* pages.
 
     See the module docstring for the full rewrite catalogue. Order matters:
     the in-tree directory-style rewrites (case 3) MUST run before the
@@ -252,7 +252,8 @@ def on_page_markdown(markdown, page, config, files):
     if (src.startswith('core/') or src.startswith('skills/')
             or src.startswith('api/') or src.startswith('EP/')
             or src.startswith('machines/') or src.startswith('resources/')
-            or src.startswith('routing/') or src.startswith('ssr/')):
+            or src.startswith('routing/') or src.startswith('ssr/')
+            or src.startswith('async/')):
         # Choose by source depth. A guide sub-chapter at
         # docs/core/<chapter-dir>/X.md is depth 3; its source spec ref is
         # ../../../spec/ and the staged path is ../../spec/. Plain

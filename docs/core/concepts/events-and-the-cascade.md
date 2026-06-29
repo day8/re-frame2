@@ -141,7 +141,7 @@ Here is the same load, written so the handler stays pure. An [effect](../glossar
 
 The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a [managed HTTP request](../../resources/glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
 
-That reply rides as the event's last argument in [the uniform reply](../glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:failure` — and every managed async surface answers the same way. [Managed HTTP](../../resources/http.md) is its home.
+That reply rides as the event's last argument in [the uniform reply](../glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:failure` — and every managed async surface answers the same way. [Managed HTTP](../../async/http.md) is its home.
 
 Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a *name* instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 
@@ -149,7 +149,7 @@ Read what that bought you. The entire fetch flow is three pure handlers you read
 
 > **Coming from TanStack Query?** A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
 
-The `:rf.http/managed` args map carries far more than the four keys above — `:decode`, `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../resources/http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the cascade point.
+The `:rf.http/managed` args map carries far more than the four keys above — `:decode`, `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../async/http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the cascade point.
 
 Two notes before moving on:
 
