@@ -265,6 +265,8 @@ nav:
   - "Async (HTTP)":
     - async/index.md
     - "Managed HTTP": async/http.md
+    - "Your own async effect": async/custom-effects.md
+    - "Examples": async/examples.md
 
   - Routing:
     - routing/index.md

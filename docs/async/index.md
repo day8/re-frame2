@@ -11,6 +11,8 @@ That pattern is a **managed effect**: you *describe* the side effect, the runtim
                          :on-failure [:article/load-error]}]]}
 ```
 
+> **The idea underneath.** Why *name* a reply event instead of `await`ing the result? That one question — answered once for every async surface (HTTP, resources, mutations, machines) — is [No await: continuations are data](../core/explanation/continuations-are-data.md). Read it for the *why*; this section is the *how* for HTTP.
+
 > **Scope.** This is about *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the cascade are async too, and they live in [Effects and coeffects](../core/concepts/effects-and-coeffects.md).
 
 > **Separate artefact.** Managed HTTP ships as `day8/re-frame2-http`, so apps that never issue a request build clean of it. Require `re-frame.http.managed` once at boot and the `:rf.http/managed` effect is wired up.
