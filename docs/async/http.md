@@ -42,6 +42,8 @@ How does the reply data reach the receive handler? Every re-frame event is a vec
 
 The only required key is `:request` with a `:url`. `:method` defaults to `:get`. Almost everything else has a sane default, which is why the common case stays this short.
 
+That's the **separate-handlers** shape — one of [two equal ways to handle the reply](#two-ways-to-handle-the-reply); the other folds all three roles into a single handler.
+
 > **For JavaScript developers.** The version you'd write by hand the first time is three clean lines:
 >
 > ```clojure
@@ -80,9 +82,31 @@ Two small things in the receive handlers above are load-bearing, and both trip p
 
 > **Do, observe.** Run the request with [Xray](../core/glossary.md#xray) open: the issuing event row, the request issuance on the [trace stream](../core/glossary.md#trace-stream), then the reply arriving as an ordinary event row of its own — two ledger entries, one round trip.
 
-### When request and reply belong together
+## Two ways to handle the reply
 
-Sometimes the request and reply really are two faces of one thing. Omit `:on-success` / `:on-failure` and the reply routes back to the *originating* event, merged into the message under `:rf/reply`. One handler then serves both roles:
+There are two **equal** ways to wire the reply — pick by fit, not correctness.
+
+### Separate handlers
+
+The form shown above: the request handler names `:on-success` and `:on-failure`, and each outcome lands in its own handler — three in all: one to issue the request, one for success, one for failure. Each path reads and tests on its own.
+
+```clojure
+(rf/reg-event :article/load
+  (fn [{:keys [db]} [_ slug]]
+    {:db (assoc-in db [:article :status] :loading)
+     :fx [[:rf.http/managed {:request    {:url (str "/api/articles/" slug)}
+                             :on-success [:article/loaded]
+                             :on-failure [:article/load-error]}]]}))
+
+(rf/reg-event :article/loaded     (fn [{:keys [db]} [_ {:keys [value]}]]   …))   ;; success
+(rf/reg-event :article/load-error (fn [{:keys [db]} [_ {:keys [failure]}]] …))   ;; failure
+```
+
+> **From re-frame v1.** Your `:http-xhrio`-style success/failure events map straight onto `:on-success` / `:on-failure` — the [migration page](../core/25-from-re-frame-v1.md) walks the translation.
+
+### One handler
+
+Omit `:on-success` / `:on-failure` and the reply routes back to the *originating* event, merged into the message under `:rf/reply`. One handler then serves all three roles:
 
 ```clojure
 ;; From examples/core/managed_http_counter (core.cljs), condensed.
@@ -100,9 +124,16 @@ Sometimes the request and reply really are two faces of one thing. Omit `:on-suc
        :fx [[:rf.http/managed {:request {:url "/api/inc.json"}}]]})))
 ```
 
-Read that handler bottom-up. The first time it runs there is no `:rf/reply` in the message, so `if-let` falls to the else branch and issues the request. When the reply comes back, the runtime re-dispatches the *same* event with `:rf/reply` filled in, the `if-let` binds it, and the `case` routes on `:success` / `:failure`. Prefer two handlers by default — the separation reads more clearly and tests more easily. Co-locate only when the reply logic is trivial and tightly coupled to the request.
+Read that handler bottom-up. The first time it runs there is no `:rf/reply` in the message, so `if-let` falls to the else branch and issues the request. When the reply comes back, the runtime re-dispatches the *same* event with `:rf/reply` filled in, the `if-let` binds it, and the `case` routes on `:success` / `:failure`. The original message rides through, so any request context — an id, a slug — is still in scope when the reply lands.
 
-> **From re-frame v1.** Your `:http-xhrio`-style success/failure events map straight onto `:on-success` / `:on-failure` — the [migration page](../core/25-from-re-frame-v1.md) walks the translation.
+> **Gotcha — the one-handler form wants a map message.** The reply is `assoc`'d onto the original message, so dispatch a map (`[:thing/load {:id "intro"}]`) or no payload at all. A bare non-map arg (`[:thing/load "intro"]`) can't be `assoc`'d and breaks the merge — wrap it in a map.
+
+### Which to use
+
+They're equals; pick by fit:
+
+- **Separate handlers** when the success and failure paths are substantial or diverge — they read and test independently.
+- **One handler** when request and reply are two faces of one thing and the reply logic is small (a counter, a toggle, a fire-and-refresh) — request and both outcomes sit in one place, with the original args still in scope.
 
 ## The request is a map
 

@@ -91,8 +91,8 @@
          So the handler runs twice for one load — once to send the request,
          once when the answer comes back — and branches on `(:rf/reply msg)`
          to tell which hat it's wearing. One event id, two roles. See the HTTP
-         guide on when request and reply belong together:
-         ../../../docs/async/http.md#when-request-and-reply-belong-together"
+         guide, the one-handler way to handle the reply:
+         ../../../docs/async/http.md#one-handler"
    :rf.http/decode-schemas [schema/ArticleResponse]
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ msg]]
