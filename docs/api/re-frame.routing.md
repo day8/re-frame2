@@ -42,7 +42,7 @@ The third positional arg is the URL shape — colon-prefixed segments capture in
 | `:parent` | Another route id; builds a chain readable via `:rf.route/chain`. |
 | `:on-match` | Event vector(s) to dispatch when the route activates. |
 | `:on-error` | Event vector dispatched if any `:on-match` event errors. |
-| `:can-leave` | Guard sub-query run before leaving the route. **Closed boolean contract**: `true` allows the navigation, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-leave-non-boolean`. The sub name reads positively (`:can-leave`), so `false` means "can NOT leave". See [Guide ch.19 — Navigation blocking](../routing/concepts.md). |
+| `:can-leave` | Guard sub-query run before leaving the route. **Closed boolean contract**: `true` allows the navigation, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-leave-non-boolean`. The sub name reads positively (`:can-leave`), so `false` means "can NOT leave". See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
 
 Canonical detail in [The metadata map, in full](../routing/concepts.md#the-metadata-map-in-full) in the routing concept guide.
@@ -353,12 +353,12 @@ The full `:rf/route` slice is `{:id :params :query :transition :error}`. The sta
 | `[:rf.nav/scroll scroll-spec]` | scroll-spec map | `:client` | Restore or set scroll position. |
 | `[:rf.route/with-nav-token {:rf/reply-to <reply-target> :nav-token <token>}]` | universal | universal | Name an async-completion continuation by its canonical `:rf/reply-to` reply target and guard it with a navigation token. On match the target is completed with the `:status :ok` reply map; if the token has been superseded by a later navigation, the completion is suppressed and `:rf.route.nav-token/stale-suppressed` fires. |
 
-The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Guide ch.19 — Navigation tokens](../routing/concepts.md).
+The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Routing → Loaders](../routing/concepts.md#loaders-declaring-a-pages-data) (the nav-token "going deeper").
 
 ## See also
 
 - [re-frame.core.md](re-frame.core.md) — the `re-frame.core` facade: the `reg-route` macro's brief row and the `route-link` view.
 - [re-frame.ssr.md](re-frame.ssr.md) — routes participate in SSR; the active route's `:head` registration is what `render-head` looks up.
-- [Guide ch.18 — Routing](../routing/concepts.md) and [Guide ch.19 — Routing reference](../routing/concepts.md) — narrative coverage including nav-token semantics, `:can-leave` flows, query strings, and multi-frame routing.
+- [Routing guide](../routing/index.md) — the narrative side: a [tutorial](../routing/tutorial.md), [concepts](../routing/concepts.md) (nav-token semantics, `:can-leave` flows, query strings, multi-frame routing), and how-to recipes.
 - [Routing glossary](../routing/glossary.md) — the surface vocabulary (navigate, route, loader, route guard, not-found, url-bound?).
 - [Coming from React Router](../routing/coming-from-react-router.md) — the mapping, and where re-frame2 routing diverges.
