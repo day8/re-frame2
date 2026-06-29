@@ -18,5 +18,5 @@ Because a route's [loader](glossary.md#loader) runs on the server too, routing a
 ## In this section
 
 - **[Concepts](concepts.md)** — the route table, navigation as events, route params, loaders, guards, not-found, and url-bound frames.
-- **[API](api.md)** — `reg-route`, the `:rf.route/*` events and subscriptions, the guard protocol.
+- **[API](../api/re-frame.routing.md)** — `reg-route`, the `:rf.route/*` events and subscriptions, the guard protocol.
 - **[Glossary](glossary.md)** — the routing vocabulary in one place.

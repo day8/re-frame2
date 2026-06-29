@@ -143,6 +143,6 @@ Every read crosses the wire elided; every write goes through the gate. Story cor
 - [Runtime](runtime.md) — `run-variant` / `snapshot-identity` / `read-assertions` and the four-phase lifecycle the MCP `run-variant` tool calls.
 - [Scripts](script.md) — the `:script` body shape an agent emits via the `register-variant` write tool.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
-- [Framework API — Schemas and data classification](../../core/api/08-schemas.md) — `elide-wire-value`, the framework primitive the MCP jar's egress boundary calls.
+- [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — `elide-wire-value`, the framework primitive the MCP jar's egress boundary calls.
 - [Xray runtime seam](../../xray/api/runtime-seam.md) — the parallel Tool-Pair contract for Xray-the-panel; same emit-and-consume discipline.
 - Normative spec — [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) (the MCP jar's own spec folder: wire protocol, tool registry, write-surface gating).

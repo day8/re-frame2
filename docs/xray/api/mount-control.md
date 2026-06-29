@@ -209,5 +209,5 @@ A CI gate ([`implementation/scripts/check-bundle-isolation.cjs`](https://github.
 - [Configuration keys](config-keys.md) — `configure!` and the per-key setters that flip the auto-open posture, the inline-host selector, the editor preference, the privacy gate.
 - [Runtime seam](runtime-seam.md) — the read-and-mutate accessors that tools compose against Xray's mount.
 - [Xray tutorial — Installation](../01-installation.md) — the five-minute, three-edits walk-through.
-- [Framework API — Lifecycle](../../core/api/13-lifecycle.md) — `rf/init!` and the adapter install pair. The adapter must land before Xray's auto-open path resolves the host.
-- [Framework API — Instrumentation](../../core/api/11-instrumentation.md) — the trace bus and epoch buffer Xray renders.
+- [Framework API — Lifecycle](../../api/re-frame.core.md) — `rf/init!` and the adapter install pair. The adapter must land before Xray's auto-open path resolves the host.
+- [Framework API — Instrumentation](../../api/re-frame.core.md) — the trace bus and epoch buffer Xray renders.

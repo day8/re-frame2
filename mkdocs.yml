@@ -212,24 +212,29 @@ nav:
     - "Reference index": core/reference.md
     - "Glossary": core/glossary.md
     - "API":
-      - core/api/README.md
-      - "01 — Core": core/api/01-core.md
-      - "02 — Views": core/api/02-views.md
-      - "03 — Effects": core/api/03-effects.md
-      - "05 — Flows": core/api/05-flows.md
-      - "08 — Schemas": core/api/08-schemas.md
-      - "10 — Testing": core/api/10-testing.md
-      - "11 — Instrumentation": core/api/11-instrumentation.md
-      - "12 — Registrar": core/api/12-registrar.md
-      - "13 — Lifecycle": core/api/13-lifecycle.md
-      - "14 — Adapters": core/api/14-adapters.md
+      - api/README.md
+      - "re-frame.core": api/re-frame.core.md
+      - "re-frame.schemas": api/re-frame.schemas.md
+      - "re-frame.flows": api/re-frame.flows.md
+      - "re-frame.http": api/re-frame.http.md
+      - "re-frame.machines": api/re-frame.machines.md
+      - "re-frame.routing": api/re-frame.routing.md
+      - "re-frame.resources": api/re-frame.resources.md
+      - "re-frame.ssr": api/re-frame.ssr.md
+      - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
+      - "re-frame.epoch": api/re-frame.epoch.md
+      - "re-frame.performance": api/re-frame.performance.md
+      - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
+      - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
+      - "re-frame.adapter.helix": api/re-frame.adapter.helix.md
+      - "re-frame.test-support": api/re-frame.test-support.md
+      - "re-frame.test-helpers": api/re-frame.test-helpers.md
       - "Normative reference": spec/API.md
 
   - Machines:
     - machines/index.md
     - "Concepts": machines/concepts.md
     - "Coming from XState": machines/coming-from-xstate.md
-    - "API": machines/api.md
     - "Glossary": machines/glossary.md
     - "Examples": machines/examples.md
 
@@ -248,8 +253,6 @@ nav:
     - "How-to":
       - "Paginate a feed": resources/how-to/paginate-a-feed.md
       - "Invalidate after a mutation": resources/how-to/invalidate-after-a-mutation.md
-    - "API": resources/api.md
-    - "HTTP API": resources/http-api.md
     - "Glossary": resources/glossary.md
     - "Examples": resources/examples.md
 
@@ -257,7 +260,6 @@ nav:
     - routing/index.md
     - "Concepts": routing/concepts.md
     - "Coming from React Router": routing/coming-from-react-router.md
-    - "API": routing/api.md
     - "Glossary": routing/glossary.md
     - "Examples": routing/examples.md
 
@@ -265,7 +267,6 @@ nav:
     - ssr/index.md
     - "Concepts": ssr/concepts.md
     - "Coming from Next.js": ssr/coming-from-nextjs.md
-    - "API": ssr/api.md
     - "Glossary": ssr/glossary.md
     - "Examples": ssr/examples.md
 

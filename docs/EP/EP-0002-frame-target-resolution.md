@@ -1182,7 +1182,7 @@ The contract is authored as the appendix argues — *one carried invariant*, the
   only as migration mechanics, not as the statement of the rule.
 - **R2 — Reuse scope/hold/override (appendix B), not a bespoke six-source list.**
   The §Frame Target Invariant six-source list is **superseded** by the published
-  [`docs/core/api/02-views.md`](../core/api/02-views.md) triad — **scope** (`with-frame` /
+  [`docs/api/re-frame.core.md`](../api/re-frame.core.md) triad — **scope** (`with-frame` /
   `with-new-frame` / `frame-provider`), **hold** (`capture-frame` /
   `frame-bound-fn` / `frame-bound-fn*` / captured envelope), **override** (the
   per-call `{:frame …}`). The six sources are instances of these three. The triad
@@ -1513,7 +1513,7 @@ The EP is written subtractively — "remove the `:rf/default` fallback," "delete
 
 ### B. Don't invent a sixth-source list — reuse the published *scope / hold / override* taxonomy
 
-§Frame Target Invariant introduces six resolution sources. That is still a *fallback chain* — the old four-tier chain with its worst rung amputated; the architecture of "search a priority list of ambient places" survived the surgery. It is also a *new* vocabulary, when [`docs/core/api/02-views.md`](../core/api/02-views.md) already organises the multi-frame surface into three intents:
+§Frame Target Invariant introduces six resolution sources. That is still a *fallback chain* — the old four-tier chain with its worst rung amputated; the architecture of "search a priority list of ambient places" survived the surgery. It is also a *new* vocabulary, when [`docs/api/re-frame.core.md`](../api/re-frame.core.md) already organises the multi-frame surface into three intents:
 
 - **scope** — `frame-provider`, `with-frame` / `with-new-frame`;
 - **hold** — `capture-frame`, `frame-bound-fn` / `frame-bound-fn*`;

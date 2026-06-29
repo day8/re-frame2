@@ -74,7 +74,7 @@
 ;; separately below (a `require`-style existence assertion).
 (def ^:private dir-surfaces
   "[[label repo-relative-dir-segs] ...] — directory reference trees."
-  [["docs/core/api/" ["docs" "core" "api"]]
+  [["docs/api/"       ["docs" "api"]]
    ["docs/story/api/" ["docs" "story" "api"]]])
 
 (def ^:private privacy-file-segs ["spec" "Privacy.md"])
@@ -142,16 +142,9 @@
                                 (proj/require-markdown-files
                                   label (apply proj/repo-file segs)))
                               dir-surfaces)
-        ;; Per-capability API docs (rf2-earvtz). The #4961 docs reorg moved
-        ;; each capability's API reference out of the flat top-level API tree into
-        ;; docs/<cap>/api.md (machines/resources/routing/ssr). The
-        ;; docs/*/api.md glob folds those moved files back under this gate's
-        ;; scan so a removed/renamed public surface named there goes RED; it
-        ;; auto-covers a future capability dir with no gate edit, and fails
-        ;; loudly (require-*) if the layout moves again.
-        cap-api-files (proj/require-capability-doc-files
-                        "docs/*/api.md" "api.md")
-        ;; spec/Privacy.md — a single EXPECTED file; fail loud if it moves.
+        ;; The API reference is one doc per namespace under docs/api/ (covered
+        ;; by the dir-surfaces tree above). spec/Privacy.md — a single
+        ;; EXPECTED file; fail loud if it moves.
         privacy-file  (apply proj/repo-file privacy-file-segs)
         _             (when-not (.isFile ^java.io.File privacy-file)
                         (throw (ex-info
@@ -161,7 +154,7 @@
                                       "against a non-existent surface; reconcile "
                                       "the path.")
                                  {:file (str privacy-file)})))
-        files         (concat [privacy-file] dir-files cap-api-files)
+        files         (concat [privacy-file] dir-files)
         references    (references-in-files files)
         var-problems  (reconcile {:references    references
                                   :manifest-vars manifest-vars
@@ -172,7 +165,7 @@
         kw-problems   (proj/keyword-drift-problems-over-files files)
         problems      (concat var-problems kw-problems)]
     (proj/report-with-floor!
-      "spec/Privacy.md + docs/core/api/ + docs/story/api/ + docs/*/api.md"
+      "spec/Privacy.md + docs/api/ + docs/story/api/"
       (count references) min-references problems)))
 
 (defn -main [& _]

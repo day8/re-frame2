@@ -1,0 +1,132 @@
+# re-frame.adapter.helix
+
+`re-frame.adapter.helix` binds re-frame2 to the Helix React substrate. It ships as its own artefact (`day8/re-frame2-helix`); the dependency direction is one-way — the adapter depends on `re-frame.core`, never the reverse — so a Helix app requires this namespace and passes its `adapter` Var into `(rf/init! ...)`. The surface is hooks-first and mirrors the [UIx adapter](re-frame.adapter.uix.md) one-for-one; the two are separate artefacts only because their underlying React-substrate libraries are, not because the re-frame2 contract differs. The substrate-agnostic carry and scoping primitives (`capture-frame`, `with-frame`, `with-new-frame`) live on [`re-frame.core`](re-frame.core.md) — this namespace carries the Helix-shaped hooks, the merged `frame-provider`, the view-wrapping seam, and the adapter spec. For choosing between substrates, see [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
+
+```clojure
+(:require [re-frame.adapter.helix :as helix-adapter])
+```
+
+## Initialisation
+
+### `adapter`
+
+- **Kind**: Var (map)
+- **Signature**:
+  ```clojure
+  {:make-state-container …
+   :render …
+   :dispose-adapter! …}
+  ```
+- **Description**: The adapter spec passed to `(rf/init! ...)`.
+
+## Hooks
+
+### `use-subscribe`
+
+- **Kind**: Helix hook (function)
+- **Signature**:
+  ```clojure
+  (use-subscribe query-v) → current sub value
+  (use-subscribe frame-kw query-v) → current sub value
+  ```
+- **Description**: "Subscribe inside a Helix component."
+
+### `use-current-frame`
+
+- **Kind**: Helix hook (function)
+- **Signature**:
+  ```clojure
+  (use-current-frame) → frame-kw
+  ```
+- **Description**: "What frame am I in?"
+
+> **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
+
+## Components
+
+### `frame-provider`
+
+- **Kind**: Helix component (function — one component, two config shapes)
+- **Signatures**:
+  ```clojure
+  ($ helix-adapter/frame-provider {:frame :session} child…)                        ;; SCOPE an existing frame
+  ($ helix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
+  ```
+- **Description**: The Helix-shaped merged frame provider, dispatched on the prop map: `{:frame …}` scopes an already-created frame (fails loud if absent), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts, no destroy-on-unmount). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other Helix component (no `:children` prop-map key).
+- **Example**:
+  ```clojure
+  ;; ENSURE shape at the render root: create the frame on first mount, seed it
+  ;; once via :initial-events, reuse (no re-seed) on hot-reload re-mount.
+  ($ helix-adapter/frame-provider {:id :app :initial-events [[:counter/initialise]]}
+     ($ counter-app))
+  ```
+
+## View wrapping
+
+### `wrap-view`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (wrap-view id metadata user-fn) → wrapped fn
+  ```
+- **Description**: Adapter-side source-coord injection.
+- **Example**:
+  ```clojure
+  ;; Code-gen / scaffolding seam: wrap a component head so its root DOM element
+  ;; carries data-rf2-source-coord (dev only; elided in production builds).
+  (def wrapped-row
+    (helix-adapter/wrap-view ::row {:line 42 :column 7}
+                             (fn [_props] (d/div "row"))))
+  ```
+
+## Test and SSR seams
+
+### `flush-views!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (flush-views!)
+  (flush-views! f)
+  ```
+- **Description**: Wraps React's `act()` for tests.
+- **Example**:
+  ```clojure
+  ;; Test-only: flush pending renders synchronously, returns nil.
+  (helix-adapter/flush-views!)               ;; 0-arity: drain queued renders + effects
+  (helix-adapter/flush-views! (fn [] nil))   ;; 1-arity: run the thunk inside act()
+  ```
+
+### `set-hiccup-emitter!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (set-hiccup-emitter! f)
+  ```
+- **Description**: Install a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam.
+- **Example**:
+  ```clojure
+  ;; SSR: install a render-tree → HTML emitter (normally wired for you by
+  ;; requiring re-frame.ssr). Pass nil to reset.
+  (helix-adapter/set-hiccup-emitter! (fn [tree _opts] (str tree)))
+  (helix-adapter/set-hiccup-emitter! nil)
+  ```
+
+## Worked example
+
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.adapter.helix :as helix-adapter]
+          [helix.core :refer [defnc]]
+          [helix.dom :as d])
+
+(rf/init! helix-adapter/adapter)
+
+(defnc cart-row [{:keys [item]}]
+  (let [count (helix-adapter/use-subscribe [:cart/count])]
+    (d/tr
+      (d/td (:name item))
+      (d/td count))))
+```

@@ -1,19 +1,14 @@
-# 05 — Flows
+# re-frame.flows
 
-A flow is a piece of derived state. You declare its inputs (a vector of frame-state **paths** — not subs), its computation (a pure fn over the values at those paths), and the path in `app-db` it should write its output to. Inputs read either partition of the frame: a **bare** path reads `app-db` (the common case), and a path led by `:rf.db/runtime` reads `runtime-db` (route / machine state). Outputs are always written to `app-db`. The runtime watches the input paths, recomputes the output when any of their values change, and writes the result. It's a sub-with-a-side-effect-on-`app-db` — useful exactly when you want derived state that other code reads via plain `get-in` (or a plain sub over the output path), without having to remember to recompute it manually.
-
-Flows replace v1's `on-changes` interceptor — same compute-on-input-change semantics, registered in the runtime rather than wired into individual events. They also replace much of what `enrich` did. The point: derived state is now a *registered, named, observable, restorable* thing, not a closure hidden behind an interceptor.
-
-See the [Flows concept guide](../concepts/flows.md) for the conceptual companion to this reference.
-
-This chapter spans `re-frame.core` (the `reg-flow` macro) and `re-frame.flows` (`clear-flow`):
+A **flow** is a piece of *registered, named, observable, restorable* derived state. You declare its inputs (a vector of frame-state **paths** — not subs), a pure `:derive` computation over the values at those paths, and the `:output-path` in `app-db` it should write its output to; the runtime watches the input paths, recomputes the output whenever any of their values change, and writes the result. Inputs read either partition of the frame — a **bare** path reads `app-db` (the common case), and a path led by `:rf.db/runtime` reads `runtime-db` (route / machine state) — but outputs are always written to `app-db`. It is a sub-with-a-side-effect-on-`app-db`: useful exactly when you want derived state that other code reads via plain `get-in` (or a plain sub over the output path), without having to remember to recompute it manually. Flows replace v1's `on-changes` interceptor (same compute-on-input-change semantics, registered in the runtime rather than wired into individual events) and much of what `enrich` did — derived state is now a registered, observable thing, not a closure hidden behind an interceptor.
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.flows :as flows])
+(:require [re-frame.flows :as flows])
 ```
 
-## The flow surface
+> **Note** — `reg-flow` is also exported from the `re-frame.core` facade, so the examples below register flows with `rf/reg-flow` (the conventional call site); `clear-flow`, the introspection accessors, and the test-support resets are called on the `flows` alias. The full `reg-flow` contract lives here.
+
+## Registering and clearing flows
 
 ### `reg-flow`
 
@@ -40,7 +35,9 @@ This chapter spans `re-frame.core` (the `reg-flow` macro) and `re-frame.flows` (
   (flows/clear-flow :cart/subtotal)
   ```
 
-### A minimal flow
+## The flow map
+
+`reg-flow` takes a flow map. A minimal flow:
 
 ```clojure
 (rf/reg-flow
@@ -70,8 +67,6 @@ read. Outputs stay `app-db`-only.
 
 `:inputs` is a **positional vector** of frame-state paths; the values at those paths arrive as positional args to `:derive` in the same order (a map-keyed `:inputs` form is a deferred design option, not v1). Each path reads against the pending frame-state's two partitions — a **bare** path reads `app-db`, and a path led by `:rf.db/runtime` reads `runtime-db`. The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised frame-state.
 
-### The flow map
-
 | Key | Required | Notes |
 |---|---|---|
 | `:id` | yes | The registry key. Use a namespaced keyword. |
@@ -81,15 +76,15 @@ read. Outputs stay `app-db`-only.
 | `:doc` | no | One-sentence what-and-why; surfaces in tooling. |
 | `:schema` | no | Malli schema for the **output value**. Validated on every recompute in dev (and elided in production, like all schema validation). On failure the runtime emits `:rf.error/schema-validation-failure :where :flow-output` — **observational**: the output is still written (a flow output is materialised state downstream already reads), the trace surfaces the producer bug. Routes through the registered validator, so an app without the schemas artefact pays nothing. |
 
-### Frame-scoping
+#### Frame-scoping
 
 The `:flow` registrar slot is **last-registration-wins across frames** — registering the same id against multiple frames shares one registrar slot keyed by `flow-id` only. For full per-frame discovery read the encapsulated runtime registry via the public snapshot accessor `re-frame.flows/flows-snapshot` (it returns the `{frame-id {flow-id flow-map}}` shape) — **not** the private `@re-frame.flows/flows` atom, which is an implementation detail behind the snapshot contract. The per-frame runtime registry is the source of truth for evaluation.
 
-### Frame-destroy teardown
+#### Frame-destroy teardown
 
 `destroy-frame!` releases every per-frame piece of flow state — registry slot, `last-inputs` rows, registrar entries for ids the destroyed frame was last owner of. Sibling frames' state is preserved.
 
-## Runtime registration via `:fx`
+## Keyword surfaces
 
 Sometimes you want to register or clear a flow from inside an event handler — feature-flag gates, demand-driven registration, the SSR per-request frame setting up flows for the request and tearing them down on response. Two reserved fx-ids cover that:
 
@@ -108,7 +103,7 @@ The signature mirrors `reg-flow` / `clear-flow` exactly — same opts, same retu
     {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
 ```
 
-### The one-event lag — the least-obvious thing about flows
+#### The one-event lag — the least-obvious thing about flows
 
 > A flow registered with `:rf.fx/reg-flow` **does not compute its initial output during that event.** It first fires on the **next** drain on the same frame.
 
@@ -132,11 +127,85 @@ In the common case the lag is invisible — you register a flow in an `:enter`-s
 
 This is an explicit step — not a hidden one — and most apps never need it. There is a one-event lag before a flow recomputes, which preserves the one-install-per-event invariant.
 
+## Introspection and tooling
+
+Read-only views over the per-frame flow registry. They never touch the registration write-path; tools (Xray, re-frame2-pair) and conformance fixtures consume them. None of the three has a `re-frame.core` facade export.
+
+### `flows-snapshot`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (flows-snapshot)
+  ```
+- **Description**: Return the per-frame flow registry value: `{frame-id {flow-id flow-map}}`. This is the public seam for observing the registry shape — read it rather than dereferencing the private `flows` atom. Snapshot; observers must not mutate it.
+- **Example**:
+  ```clojure
+  ;; Which flows are registered, and against which frames?
+  (keys (get (flows/flows-snapshot) :app))   ;; => (:cart/subtotal :nav/on-checkout?)
+  ```
+
+### `flow-meta-at`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (flow-meta-at flow-id)
+  (flow-meta-at flow-id opts)
+  ```
+- **Description**: Return the registration metadata map for `flow-id` in a frame, or `nil` — the canonical per-frame flow introspection surface. Returns the full flow-map stamped at `reg-flow` (its source-coords `:ns` / `:line` / `:file`, `:inputs`, `:derive`, `:output-path`, and any output-classification keys). Frame-divergent by construction: the same `flow-id` registered against two frames returns each frame's own definition. The zero-`opts` arity resolves the frame from the carried-invariant scope; `opts` is a map whose `:frame` names the frame target (a keyword id or frame value — the keyword sugar `(flow-meta-at flow-id frame-id)` is accepted).
+- **Example**:
+  ```clojure
+  ;; The :app frame's own definition of :cart/subtotal.
+  (flows/flow-meta-at :cart/subtotal {:frame :app})
+  ```
+
+### `flow-algebra-view`
+
+- **Kind**: function (JVM)
+- **Signature**:
+  ```clojure
+  (flow-algebra-view)
+  (flow-algebra-view frame-id)
+  ```
+- **Description**: Return the static derivation-algebra view of every registered flow — each flow lowered into the normalized derivation-node shape so a tool can show subscriptions, flows, resources, route facts, and machine selectors as one family. Each node carries the flow's `:id`, `:kind` `:derivation`, declared `:inputs` (each lowered to `[:db path]` or `[:runtime …rest]`), `:output` `[:db <output-path>]`, the fixed `:storage` `:app-db` / `:evaluation` `:after-event` / `:lifecycle` `:frame` / `:materialized?` `true` classifications, `:owner` `[:frame frame-id]`, the opaque `:derive` token, and `:source` / `:schema` / `:doc` when present. Zero-arity returns `{frame-id {flow-id node}}`; the one-arity form returns `{flow-id node}` for a single frame. This is a JVM convenience alias; CLJS consumers call `re-frame.flows.tooling/flow-algebra-view` directly.
+
+## Runtime and test-support internals
+
+The flow-transform entry point the router installs, plus the test-fixture resets. Applications do not call these directly.
+
+### `run-flows-on-db`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (run-flows-on-db frame-id db runtime-db)
+  ```
+- **Description**: The outermost-`:after` flow transform. Walks **this frame's** registered flows in topological order over the pending frame-state, dirty-checks each one, recomputes and `assoc-in`s the result into a transformed `app-db`, and returns the flow-augmented `app-db` value. `db` is the pending `app-db` partition; `runtime-db` the pending `runtime-db` partition (pass `nil` to resolve only bare `app-db` inputs). The router installs and calls this as the outermost `:after` interceptor — it fires last, against the chain's pending `:db` effect and before the `:db` install — so applications never call it. Flow outputs write `app-db` only; a flow `:derive` throw aborts the whole event (no partial commit) and the cascade halts.
+
+### `reset-flows!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reset-flows!)
+  ```
+- **Description**: Test-only. Clear the per-frame flow registry **and** the paired dirty-check `last-inputs` state (plus any pending abandoned-output-path moves), so a re-registration after a reset cannot silently no-op against a stale `=`-equal entry. Returns `nil`.
+
+### `reset-last-inputs!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reset-last-inputs!)
+  ```
+- **Description**: Test-only. Clear **all** per-frame dirty-check `last-inputs` containers (dropping every frame's inner atom) while leaving the flow registry itself intact. Used by the reset-runtime fixture to drop stale per-flow input rows between tests. Returns `nil`.
+
 ## Failure semantics
 
 **Production-survivable.** A throw inside a flow's `:derive` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `register-error-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is *not* trace-only; production deployments catch it.
 
-See [Report errors in production](../how-to/report-errors-in-production.md) for wiring the always-on error listeners that catch these in a deployed app.
+See [Report errors in production](../core/how-to/report-errors-in-production.md) for wiring the always-on error listeners that catch these in a deployed app.
 
 ## Flow vs sub: when to reach for which
 
@@ -147,7 +216,6 @@ A useful rule: if you find yourself writing `(reg-sub ::derived-total (fn [...])
 
 ## See also
 
-- [01 — Core](01-core.md) — `reg-flow` and `clear-flow` rowed in registration / clearing.
-- [03 — Effects and interceptors](03-effects.md) — `[:rf.fx/reg-flow ...]` rowed in `:fx` entries.
-- [Flows: derived values your handlers can read](../concepts/flows.md) — the conceptual companion to this reference.
-- [Migration reference](../../../migration/from-re-frame-v1/README.md) — `on-changes` (replaced by flows) and `enrich` (replaced by flows / schemas).
+- [re-frame.core](re-frame.core.md) — the ergonomic facade `reg-flow` is also exported from, plus the `:fx` effect mechanism the flow fx-ids ride.
+- [Flows: derived values your handlers can read](../core/concepts/flows.md) — the conceptual companion to this reference.
+- [Migration reference](../../migration/from-re-frame-v1/README.md) — `on-changes` (replaced by flows) and `enrich` (replaced by flows / schemas).

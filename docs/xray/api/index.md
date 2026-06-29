@@ -53,5 +53,5 @@ The normative spec docs (`007-UX-IA.md`, `011-Launch-Modes.md`, `015-Configurati
 
 - [Xray tutorial — Installation](../01-installation.md) — the five-minute, three-edits walk-through. Read this first if you've not yet wired Xray into a dev build.
 - [Xray tutorial — Panel tour](../02-panel-tour.md) — what each panel is for, when you'd open it.
-- [Framework API — Instrumentation](../../core/api/11-instrumentation.md) — the trace bus, the epoch buffer, the source-coord contract Xray reads. Xray adds no analogues; the framework owns the observation surface, Xray renders it.
-- [Framework API — Lifecycle](../../core/api/13-lifecycle.md) — `rf/init!` runs before Xray attaches. The adapter must be installed before the auto-open path resolves the host.
+- [Framework API — Instrumentation](../../api/re-frame.core.md) — the trace bus, the epoch buffer, the source-coord contract Xray reads. Xray adds no analogues; the framework owns the observation surface, Xray renders it.
+- [Framework API — Lifecycle](../../api/re-frame.core.md) — `rf/init!` runs before Xray attaches. The adapter must be installed before the auto-open path resolves the host.
