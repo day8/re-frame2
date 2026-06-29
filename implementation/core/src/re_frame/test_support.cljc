@@ -356,6 +356,102 @@
             (f)))
         (filter #(= phase (:phase %)) reset-hook-table)))
 
+;; ---- shared reset halves (fn-form + async map-form) -----------------------
+;;
+;; The per-test reset is the SAME work whether it runs inside the synchronous
+;; fn-form fixture (`(fn [test-fn] …)`) or split across an async map-form
+;; fixture's `:before` / `:after`. Both shapes share these three halves so the
+;; hairy EP-0026 (source-store isolation) / EP-0027 (`:rf/set-db` re-seed) /
+;; rf2-7hwnu (stable ns-load baseline) sequencing lives in ONE place. The
+;; halves are split at the boundaries the fn-form's try/finally already drew:
+;;
+;;   1. `reinstate-and-snapshot!`  — the pre-try work: fold the ns-load
+;;      registrar baseline back over the live registrar, restore the source
+;;      store, clear the generation cache, and CAPTURE the restore context
+;;      (registrar snapshot + the late-bound schemas snapshot/clear/restore
+;;      fns + the per-frame schemas snapshot, taken BEFORE the frames reset).
+;;   2. `reset-runtime!`           — the reset body proper: frames reset, the
+;;      pre/post-dispose hook phases, adapter dispose+install, the framework-
+;;      standard re-seeds, `:clear-kinds` / `:clear-app-schemas?`. Runs inside
+;;      the caller's try so the finish half still fires if it throws.
+;;   3. `finish-runtime-reset!`    — the finally body: restore the registrar +
+;;      per-frame schemas + source store, reset the frames + flows registries.
+;;
+;; What the halves DELIBERATELY leave to each shape: establishing the ambient
+;; frame scope. The fn-form wraps the body in a dynamic `binding` (unwound when
+;; the fixture fn returns — correct for a synchronous body). The async map-form
+;; cannot: a `binding` established in `:before` is gone by the time an async
+;; test body resumes on a later tick, so it `set!`s the var (a persistent root
+;; assignment that SURVIVES the async boundary) in `:before` and tears it down
+;; in `:after`. See `make-reset-runtime-fixture`'s `:async?` option.
+
+(defn- reinstate-and-snapshot!
+  "Pre-reset half (the fn-form's pre-try block). Fold the stable ns-load
+  registrar baseline back over whatever the live registrar holds (rf2-7hwnu —
+  run-order independence), restore the source store to its ns-load baseline and
+  clear the resolved-generation cache (EP-0026 source-store isolation), then
+  capture and return the restore context the reset + finish halves consume:
+
+    {:snap         <registrar snapshot to restore to on the way out>
+     :clear-fn     <late-bound schemas clear-by-frame! fn, or nil>
+     :restore-fn   <late-bound schemas restore-by-frame! fn, or nil>
+     :schemas-snap <per-frame schemas snapshot, taken BEFORE the frames reset>}
+
+  No frames / adapter mutation happens here — that is `reset-runtime!`, run
+  inside the caller's try so `finish-runtime-reset!` still fires if it throws."
+  [ns-load-baseline source-store-baseline]
+  (restore-registrar!
+    (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
+  (reset! source-store/kind->id->ns->descriptor source-store-baseline)
+  (image-assembly/clear-generation-cache!)
+  (let [snapshot-fn (late-bind/get-fn :schemas/snapshot-by-frame)]
+    {:snap         (snapshot-registrar)
+     :clear-fn     (late-bind/get-fn :schemas/clear-by-frame!)
+     :restore-fn   (late-bind/get-fn :schemas/restore-by-frame!)
+     :schemas-snap (when snapshot-fn (snapshot-fn))}))
+
+(defn- reset-runtime!
+  "The per-test runtime reset body shared by both fixture shapes. Reset the ONE
+  `frames` registry (clearing every record + its `:generation`), run the
+  pre/post-dispose late-bind hook phases, dispose then (re)install the adapter
+  and ensure the conventional `:rf/default` app frame, re-seed the framework
+  standards (`:rf/set-db`; the machine runtime when loaded), and apply
+  `:clear-kinds` / `:clear-app-schemas?`. Establishes everything EXCEPT the
+  ambient frame scope — each shape owns how it makes that scope survive (see
+  the section comment above)."
+  [{:keys [adapter clear-kinds clear-app-schemas?]} clear-fn]
+  (reset! frame/frames {})
+  (run-reset-hooks! :pre-dispose)
+  (adapter/dispose-adapter!)
+  (run-reset-hooks! :post-dispose)
+  (trace-tooling/clear-listeners!)
+  (event-emit/clear-event-listeners!)
+  (when adapter
+    (adapter/install-adapter! adapter)
+    (frame/ensure-default-frame!))
+  (events/register-set-db-standard!)
+  (when-let [install (late-bind/get-fn :machines/install-runtime!)]
+    (install))
+  (doseq [k clear-kinds]
+    (registrar/clear-kind! k))
+  (when (and clear-app-schemas? clear-fn)
+    (clear-fn)))
+
+(defn- finish-runtime-reset!
+  "The post-test finally body shared by both fixture shapes. Restore the
+  registrar to `:snap` and the per-frame schemas to `:schemas-snap`, restore the
+  source store to its ns-load baseline + clear the generation cache (EP-0026
+  symmetry with the registrar restore), then reset the frames + flows
+  registries so nothing a test body seated survives into the next fixture run."
+  [{:keys [snap restore-fn schemas-snap]} source-store-baseline]
+  (restore-registrar! snap)
+  (when restore-fn (restore-fn schemas-snap))
+  (reset! source-store/kind->id->ns->descriptor source-store-baseline)
+  (image-assembly/clear-generation-cache!)
+  (reset! frame/frames {})
+  (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
+    (reset-flows!)))
+
 (defn make-reset-runtime-fixture
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
   per-process re-frame runtime around each test.
@@ -464,8 +560,56 @@
                     per-frame schemas, so they're restored on the way
                     out — they only disappear for the duration of the
                     test.
+    :async?       — boolean (default false). Select the RETURN SHAPE:
+                    false → the synchronous fn-form fixture `(fn [test-fn]
+                    …)` (the default — for sync `cljs.test` / `clojure.test`
+                    suites); true → a `cljs.test` map-form fixture
+                    `{:before … :after …}` for suites with ASYNC tests. See
+                    §Async map-form variant below for why async suites NEED
+                    this and what changes.
 
-  Returns a fixture fn suitable for `(use-fixtures :each ...)`.
+  ## Async map-form variant (`:async? true`)
+
+  `cljs.test` HARD-ERRORS on a fn-form fixture for an `(async done …)` test
+  (\"Async tests require fixtures to be specified as maps\" / \"Fixtures may
+  not be of mixed types\"). The reason is structural, not a lint: the fn-form
+  establishes the body's ambient frame scope with a dynamic `binding`, which
+  is UNWOUND the instant the fixture fn returns — and an async test returns
+  immediately (it resolves later, on a fresh tick, via `done`). So the body's
+  late-resuming `dispatch-sync` / `subscribe` would run with the binding long
+  gone. `:async? true` returns the map shape instead:
+
+    - `:before` runs the full reset AND establishes the ambient frame scope
+      with `(set! re-frame.frame/*current-frame* <ambient-frame>)` — a
+      PERSISTENT root assignment (not a dynamic binding), so the scope is
+      still in effect when the async body resumes on a later tick. A BARE
+      `dispatch-sync` in the async body therefore drains and lands, exactly
+      as it does under the fn-form in a sync test.
+    - `:after` tears the ambient scope back down (`set!` to nil) and runs the
+      shared restore half (registrar / source-store / schemas / frames /
+      flows baselines). `cljs.test` guarantees `:after` runs AFTER the test's
+      `done`, so the restore does not race the async body.
+
+  All other options (`:adapter`, `:init-fn`, `:clear-kinds`,
+  `:clear-app-schemas?`, `:ambient-frame`) behave identically across both
+  shapes. `:ambient-frame nil` / an adapter-less fixture opts out of the
+  ambient scope under `:async?` too (no `set!`), for tests that drive their
+  own top-level frames.
+
+  FN/MAP MIXING HAZARD. `cljs.test` runs every test ns in ONE shared JS
+  runtime, and a fn-form fixture's teardown `(reset! frame/frames {})` clears
+  the `:rf/default` frame for whatever ns runs next. The `:async? true`
+  fixture is robust to this because its `:before` re-installs the adapter and
+  re-ensures `:rf/default` itself every test — it never relies on a
+  `:rf/default` left standing by a sibling ns. (A naive hand-rolled map
+  fixture that only `set!`s `*current-frame* :rf/default` WITHOUT re-ensuring
+  the frame would silence the no-frame-context throw yet silently NOT drain:
+  `dispatch-sync` resolves `:rf/default`, finds no frame record, and no-ops
+  via the recover-and-emit `:rf.error/frame-destroyed` path. Re-ensuring the
+  frame in `:before` is what closes that gap.)
+
+  Returns a fixture fn (`:async?` false) or a `{:before :after}` map
+  (`:async?` true), each suitable for `(use-fixtures :each …)`.
 
   Example (CLJS):
 
@@ -486,200 +630,116 @@
 
       (use-fixtures :each
         (test-support/make-reset-runtime-fixture
-          {:adapter plain-atom/adapter}))"
+          {:adapter plain-atom/adapter}))
+
+  Example (CLJS, a suite with async tests — map-form):
+
+      (use-fixtures :each
+        (test-support/make-reset-runtime-fixture
+          {:adapter plain-atom/adapter :async? true}))
+
+      (deftest drains-in-async-body
+        (async done
+          (js/setTimeout
+            (fn []
+              ;; a BARE dispatch-sync — no explicit {:frame …} — drains and
+              ;; lands because :before set! the ambient scope persistently.
+              (rf/dispatch-sync [:counter/inc])
+              (is (= 1 (:n (rf/app-db-value :rf/default))))
+              (done))
+            0)))"
   ([] (make-reset-runtime-fixture {}))
-  ([{:keys [adapter init-fn clear-kinds clear-app-schemas?] :as opts}]
-   ;; `:ambient-frame` (EP-0002, rf2-9o48ih): the frame the fixture binds as
-   ;; the ambient scope when an adapter is installed. Default `:rf/default`
+  ([{:keys [adapter init-fn] :as opts}]
+   ;; `:ambient-frame` (EP-0002, rf2-9o48ih): the frame the fixture establishes
+   ;; as the ambient scope when an adapter is installed. Default `:rf/default`
    ;; when the key is OMITTED; an explicit `:ambient-frame nil` OPTS OUT.
    ;; Resolved via `contains?` (not an `:or {… :rf/default}` destructure
    ;; default) so this conventional-scope default is not mistaken for a
    ;; frame-RESOLUTION absence-repair floor — it is an explicit fixture-
    ;; option default, not the runtime synthesising a frame from absence
    ;; (the no-rf-default-floor lint keys off the `:or`/`(or …)` shapes).
-   ;; Stable ns-load baseline (rf2-7hwnu). `make-reset-runtime-fixture` is
-   ;; called when the test ns's `(use-fixtures :each ...)` form is
-   ;; evaluated — i.e. AT THIS TEST NS'S LOAD, after its `:require` chain
-   ;; (which registers framework + example handlers / subs / views /
-   ;; machines / fx). Capturing the registrar HERE — once, at fixture-build
-   ;; time — pins every registration this ns brought live as a stable
-   ;; baseline.
    ;;
-   ;; Why this matters: `cljs.test` runs every test ns in ONE shared
-   ;; bundle. A sibling ns's `:each` fixture restores the registrar to a
-   ;; snapshot it captured — and that snapshot can PREDATE this ns's load,
-   ;; stranding this ns's registrations (leaving e.g. the entire `:event`
-   ;; registrar empty for alphabetically-later example ns). The per-test
-   ;; closure below folds this baseline back over the live registrar before
-   ;; snapshotting, so the snapshot the fixture restores to is always
-   ;; populated with this ns's own registrations — run-order-independent.
-   ;; This subsumes the bespoke outer-fixture workarounds that the todomvc
-   ;; (`ns-load-registrar` + `reinstate-todomvc-registrations`) and
-   ;; conformance-corpus (`pretest-registrar`) tests carried.
-   (let [ns-load-baseline (snapshot-registrar)
-         ;; EP-0026 source-store isolation (b1). Capture the source store's
-         ;; ns-load contents ALONGSIDE the registrar baseline, at fixture-build
-         ;; time — the same stable-baseline moment, so it carries exactly the
-         ;; framework / example registrations live by this ns's load. Unlike the
-         ;; registrar (which MERGES the baseline so a later-loading ns's
-         ;; registrations survive), the source store is RESTORED to this baseline
-         ;; before each test: isolation is the goal — a default projection must
-         ;; see only this test's own registrations plus the ns-load set, never the
-         ;; cross-bundle accumulation that leaves same-`[kind id]` collisions a
-         ;; whole-store default projection fails loud on.
+   ;; Stable ns-load baseline (rf2-7hwnu). `make-reset-runtime-fixture` is
+   ;; called when the test ns's `(use-fixtures :each ...)` form is evaluated —
+   ;; i.e. AT THIS TEST NS'S LOAD, after its `:require` chain has registered
+   ;; its framework + example handlers / subs / views / machines / fx.
+   ;; Capturing the registrar + source store HERE — once, at fixture-build
+   ;; time — pins every registration this ns brought live as a stable baseline,
+   ;; folded back over the live registrar before each test by
+   ;; `reinstate-and-snapshot!` (run-order independence; see that helper and
+   ;; the shared-halves section comment above for the full EP-0026 rationale).
+   (let [ns-load-baseline      (snapshot-registrar)
          source-store-baseline @source-store/kind->id->ns->descriptor
-         ambient-frame    (if (contains? opts :ambient-frame)
-                            (:ambient-frame opts)
-                            :rf/default)]
-   (fn [test-fn]
-     ;; Late-bind: when the schemas artefact is loaded, snap and restore
-     ;; the per-frame schema registry around the test body. `clear-fn`
-     ;; is captured here only for the `:clear-app-schemas? true` branch
-     ;; (the schemas artefact owns its own per-frame side-table — it is
-     ;; NOT a registrar kind per rf2-cq1ak, so the registrar's
-     ;; `clear-kind!` cannot reach it).
-     ;;
-     ;; rf2-7hwnu — reinstate the stable ns-load baseline over whatever the
-     ;; registrar currently holds BEFORE snapshotting. `merge-registrar-
-     ;; snapshots` keeps any registrations a later-loading ns left live
-     ;; (left arg) while guaranteeing this ns's own ns-load registrations
-     ;; (right arg, wins on collision) are present. The `snap` we then
-     ;; capture — and restore to on the way out — is therefore always
-     ;; populated, so this ns's tests no longer depend on run-order luck.
-     (restore-registrar!
-       (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
-     ;; EP-0026 source-store isolation (b1): restore the source store to its
-     ;; ns-load baseline BEFORE the test, dropping any cross-bundle accumulation
-     ;; a sibling test's `reg-*` leaked into the shared store. Clear the
-     ;; resolved-generation cache too — it is keyed on the source-store
-     ;; generation, and the reset above (and the store change here) must not let
-     ;; a stale default generation survive into this test. Each test then sees a
-     ;; default projection over its own registrations plus the ns-load set.
-     (reset! source-store/kind->id->ns->descriptor source-store-baseline)
-     (image-assembly/clear-generation-cache!)
-     (let [snap          (snapshot-registrar)
-           snapshot-fn   (late-bind/get-fn :schemas/snapshot-by-frame)
-           clear-fn      (late-bind/get-fn :schemas/clear-by-frame!)
-           restore-fn    (late-bind/get-fn :schemas/restore-by-frame!)
-           schemas-snap  (when snapshot-fn (snapshot-fn))]
-       (try
-         ;; Reset the ONE `frames` registry — clearing every record AND its
-         ;; `:generation`, so an image-loaded frame seated via `make-frame {:id …}`
-         ;; (e.g. the Xray production singleton) does not leak across tests
-         ;; (rf2-rjml45). With the second live-frame registry dissolved into this
-         ;; ONE registry (EP-0024), this reset is the whole job — there is no
-         ;; separate index to clear in lockstep (rf2-ji3tvy removed the vestigial
-         ;; live-frame-clearing no-op that used to follow this).
-         (reset! frame/frames {})
-         (run-reset-hooks! :pre-dispose)
-         (adapter/dispose-adapter!)
-         (run-reset-hooks! :post-dispose)
-         (trace-tooling/clear-listeners!)
-         (event-emit/clear-event-listeners!)
-         (when adapter
-           (adapter/install-adapter! adapter)
-           (frame/ensure-default-frame!))
-         ;; EP-0027 (rf2-7ae2to): re-seed the framework-standard `:rf/set-db`
-         ;; event so it resolves on EVERY test — including image-loaded frames
-         ;; that seed via `:initial-events [[:rf/set-db …]]` through a sealed
-         ;; generation (which unions the image standard registry, not the
-         ;; registrar atom). A sibling ns's `image-assembly/clear-standards!`
-         ;; can empty that registry; this re-seed (idempotent, mirrors `init!`)
-         ;; restores it at the head of every reset so the next ns is clean.
-         (events/register-set-db-standard!)
-         ;; EP-0026 §Framework Standard Registrations: re-install the framework-
-         ;; standard MACHINE runtime (`:rf.machine/*` fx + `:rf/machine*` subs)
-         ;; into BOTH the regular registrar AND the image standard registry on
-         ;; every reset, the SAME way `:rf/set-db` is re-seeded above. A reset
-         ;; wipes the registrar (`clear-kind!` below) and a sibling ns's
-         ;; `clear-standards!` empties the standard registry; a Story variant
-         ;; frame resolves the machine runtime through the standard union in its
-         ;; sealed generation, and a no-generation `compute-sub [:rf/machine …]`
-         ;; resolves it through the registrar — so both surfaces must be restored.
-         ;; Reached via a late-bind hook because `machines` ships in a separate
-         ;; Maven coordinate (test_support must not static-require it); a no-op
-         ;; when machines is not loaded.
-         (when-let [install (late-bind/get-fn :machines/install-runtime!)]
-           (install))
-         (doseq [k clear-kinds]
-           (registrar/clear-kind! k))
-         ;; App-db schemas live OUTSIDE the registrar (rf2-cq1ak); the
-         ;; schemas artefact owns its own per-frame side-table. When the
-         ;; caller asks for a clean app-schema slate, dispatch through
-         ;; the schemas clear-fn directly. No-op if the schemas artefact
-         ;; is not on the classpath.
-         (when (and clear-app-schemas? clear-fn)
-           (clear-fn))
-         ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-         ;; and the framework operation surfaces (dispatch / subscribe /
-         ;; machine + http + routing fxs) now require a carried frame stamp.
-         ;; When the fixture installed an adapter it ALSO ensured the
-         ;; conventional `:rf/default` app frame (above), so by default it
-         ;; establishes that frame as the body's ambient scope — the carried-
-         ;; invariant equivalent of wrapping every test in
-         ;; `(with-frame :rf/default …)`. Tests that drive multiple frames /
-         ;; explicit `{:frame …}` overrides still work: an inner `with-frame`
-         ;; re-binds, and an explicit opt wins over the ambient scope.
-         ;; Adapter-less fixtures (the test installs its own frame) get no
-         ;; ambient scope.
-         ;;
-         ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` OPTS OUT of the ambient
-         ;; scope even when an adapter is installed. Tests that create their
-         ;; OWN top-level frames via `make-frame` / `with-new-frame` (the
-         ;; example testbeds: realworld, nine-states, long-running-work,
-         ;; todomvc) need this: a frame's `:initial-events` dispatch branches on
-         ;; `*current-frame*` to choose between a synchronous top-level drain
-         ;; and an async child-frame queue (the in-flight-cascade heuristic,
-         ;; rf2-cufbh). An ambient `:rf/default` makes a top-level
-         ;; `make-frame` look mid-cascade, so its `:initial-events` are async-queued
-         ;; and never drains before the test reads state. Clearing the ambient
-         ;; scope models the genuine top-level boot those tests intend; their
-         ;; in-body dispatches carry explicit `{:frame …}` or run inside a
-         ;; `with-new-frame` scope, so they do not rely on the ambient frame.
-         ;;
-         ;; rf2-4775uc — the `:init-fn` runs UNDER the same ambient scope as the
-         ;; test body. `:init-fn` is per-suite setup that needs the registrar /
-         ;; adapter live (step 7) — e.g. re-running an app's `register-all!` /
-         ;; `install!` thunks. Those thunks can perform context-required
-         ;; frame-local ops (`reg-app-schema` / `reg-flow` / a bare `dispatch`),
-         ;; which resolve `*current-frame*` and raise `:rf.error/no-frame-context`
-         ;; under no scope (rf2-5q7um6). Pre-fix, `:init-fn` fired OUTSIDE this
-         ;; binding, so a bare frame-local op in setup threw frameless — and
-         ;; because the `:node-test` build runs every `*_cljs_test` ns in ONE
-         ;; shared JS runtime, that throw, landing during a concurrently-pending
-         ;; async test's `done` window, surfaced as the intermittent
-         ;; `unexpected reject: :rf.error/no-frame-context` +
-         ;; `Async test called done more than one time` suite-abort flake. Run
-         ;; `:init-fn` under the same carried-frame floor as the body so setup
-         ;; gets the same ambient scope the test does. (rf2-ofzxh9 patched one
-         ;; such call site, the websocket fixture's `reg-app-schema`; this
-         ;; closes the whole class at the fixture seam.) The `:ambient-frame nil`
-         ;; / adapter-less branch keeps `:init-fn` frameless — those tests own
-         ;; their frame creation and must not run setup under a synthetic scope.
-         (if (and adapter ambient-frame)
-           (binding [frame/*current-frame* ambient-frame]
-             (when init-fn (init-fn))
-             (test-fn))
-           (do
-             (when init-fn (init-fn))
-             (test-fn)))
-         (finally
-           (restore-registrar! snap)
-           (when restore-fn (restore-fn schemas-snap))
-           ;; EP-0026 source-store isolation (b1): restore the source store to the
-           ;; ns-load baseline and clear the resolved-generation cache for symmetry
-           ;; with the registrar restore, so a `reg-*` the test body issued (and
-           ;; the default generation it produced) never survives into the next
-           ;; fixture run. Mirrors the registrar `restore-registrar! snap` above.
-           (reset! source-store/kind->id->ns->descriptor source-store-baseline)
-           (image-assembly/clear-generation-cache!)
-           ;; Reset the ONE `frames` registry in the finally too (rf2-rjml45), so
-           ;; a frame (and its `:generation`) seated by the test body never
-           ;; survives into the next fixture run. The dissolved second registry
-           ;; means this single reset is the whole clear (rf2-ji3tvy).
-           (reset! frame/frames {})
-           (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
-             (reset-flows!)))))))))
+         ambient-frame         (if (contains? opts :ambient-frame)
+                                 (:ambient-frame opts)
+                                 :rf/default)
+         ;; EP-0002: establish the ambient frame scope ONLY when an adapter is
+         ;; installed (which also ensured `:rf/default`) AND `:ambient-frame`
+         ;; was not opted out to nil. Adapter-less / opted-out fixtures run the
+         ;; body frameless — those tests own their own frame creation, so a
+         ;; synthetic ambient `:rf/default` would make a top-level `make-frame`
+         ;; look mid-cascade (the in-flight-cascade heuristic, rf2-cufbh) and
+         ;; async-queue its `:initial-events`.
+         scope?                (boolean (and adapter ambient-frame))
+         ;; rf2-4775uc — `:init-fn` (per-suite setup that needs the registrar /
+         ;; adapter live, e.g. an app's `register-all!`) runs UNDER the same
+         ;; ambient scope as the body, so a frame-local op in setup
+         ;; (`reg-app-schema` / a bare `dispatch`) does not throw
+         ;; `:rf.error/no-frame-context`. For the fn-form that scope is the
+         ;; enclosing `binding`; for the async map-form it is the persistent
+         ;; `set!` already in effect when this runs.
+         run-init!             (fn [] (when init-fn (init-fn)))]
+     (if (:async? opts)
+       ;; ---- async map-form (cljs.test only) — see §Async map-form variant.
+       ;; cljs.test runs tests sequentially (each async test's `done` gates the
+       ;; next), so the :before/:after pair never overlaps and a single atom
+       ;; safely threads the restore context (captured in :before, consumed in
+       ;; :after) between them.
+       (let [ctx-atom (atom nil)]
+         {:before
+          (fn before-reset-runtime []
+            (let [ctx (reinstate-and-snapshot! ns-load-baseline source-store-baseline)]
+              (reset! ctx-atom ctx)
+              (reset-runtime! opts (:clear-fn ctx))
+              ;; Establish the ambient scope PERSISTENTLY — `set!` on the root
+              ;; var, NOT a dynamic `binding`. A binding would be unwound the
+              ;; instant this :before returns, long before the async test body
+              ;; resumes on a later tick; the `set!` survives so a bare
+              ;; `dispatch-sync` in that body resolves `:rf/default`, finds the
+              ;; frame `reset-runtime!` just ensured, and drains + lands.
+              (when scope?
+                (set! frame/*current-frame* ambient-frame))
+              (run-init!)))
+          :after
+          (fn after-reset-runtime []
+            ;; Tear the persistent ambient scope back down (the fn-form's
+            ;; binding-unwind equivalent), then run the shared restore half.
+            ;; cljs.test runs :after AFTER the test's `done`, so this never
+            ;; races the async body.
+            (when scope?
+              (set! frame/*current-frame* nil))
+            (finish-runtime-reset! @ctx-atom source-store-baseline)
+            (reset! ctx-atom nil))})
+       ;; ---- sync fn-form (default; clojure.test + non-async cljs.test) ----
+       ;; EP-0002 (rf2-nn0jqa): when an adapter is installed the fixture
+       ;; ensured `:rf/default` and binds it as the body's ambient scope — the
+       ;; carried-invariant equivalent of wrapping every test in
+       ;; `(with-frame :rf/default …)`, so a bare `dispatch-sync` lands. An
+       ;; inner `with-frame` re-binds and an explicit `{:frame …}` opt still
+       ;; wins. The `finally` restore fires even on a test exception.
+       (fn [test-fn]
+         (let [ctx (reinstate-and-snapshot! ns-load-baseline source-store-baseline)]
+           (try
+             (reset-runtime! opts (:clear-fn ctx))
+             (if scope?
+               (binding [frame/*current-frame* ambient-frame]
+                 (run-init!)
+                 (test-fn))
+               (do
+                 (run-init!)
+                 (test-fn)))
+             (finally
+               (finish-runtime-reset! ctx source-store-baseline)))))))))
 
 ;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
 ;;

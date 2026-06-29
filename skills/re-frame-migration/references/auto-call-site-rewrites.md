@@ -190,19 +190,27 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
           [re-frame.core :as rf]
           [re-frame.test-support :as ts])
 
-;; Epoch-free :each fixture — snapshot on entry, restore via a one-shot
-;; reg-event on exit. (If the suite DOES pull day8/re-frame2-epoch, the
-;; M-26 replace-app-db! restore is the simpler path — use that instead.)
-;; make-reset-runtime-fixture (M-64) handles registrar/runtime isolation;
-;; this fixture stacks the app-db snapshot on top.
-(defn restore-app-db-fixture [t]
-  (let [snap (rf/app-db-value :rf/default)]
-    (rf/reg-event ::restore-app-db (fn [_ [_ v]] {:db v}))   ; one-shot restorer
-    (try (t)
-      (finally (rf/dispatch-sync [::restore-app-db snap])))))
+;; Async suites MUST use MAP-FORM fixtures. cljs.test HARD-ERRORS on a fn-form
+;; fixture for an (async …) test ("Async tests require fixtures to be specified
+;; as maps") — the fn-form establishes the ambient frame scope with a dynamic
+;; binding that unwinds before an async body resumes — AND forbids mixing fn
+;; and map fixtures in one use-fixtures vector ("Fixtures may not be of mixed
+;; types"). So pass :async? true to the reset fixture (its :before set!s the
+;; ambient scope PERSISTENTLY so a bare dispatch-sync drains across the async
+;; boundary), AND express the app-db snapshot/restore as a {:before :after} map
+;; too. (If the suite DOES pull day8/re-frame2-epoch, the M-26 replace-app-db!
+;; restore is the simpler path — use that instead.)
+(def ^:private app-db-snap (atom nil))
+(def restore-app-db-fixture                                ; map-form, not fn-form
+  {:before (fn [] (reset! app-db-snap (rf/app-db-value :rf/default)))
+   :after  (fn []                                          ; runs before the reset
+                                                           ; fixture's :after, so the
+                                                           ; ambient scope is still live
+             (rf/reg-event ::restore-app-db (fn [_ [_ v]] {:db v}))
+             (rf/dispatch-sync [::restore-app-db @app-db-snap]))})
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter adapter})       ; M-64
+  (ts/make-reset-runtime-fixture {:adapter adapter :async? true})  ; M-64 + :async?
   restore-app-db-fixture)
 
 ;; wait-for-event → a one-shot trace listener matching :rf.event/run-end.
@@ -229,6 +237,9 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 - The listener is **dev/test-only** (the `:trace` stream rides the `re-frame.trace` surface, DCE'd under `:advanced` + `goog.DEBUG=false`) — that is correct for a test runner; do **not** reach for the always-on `:events` stream (`register-listener! :events …`) here (its tight per-event record is not trace-shaped and is for production observability, not test waits).
 - For a pure **state-observable** wait (the awaited effect lands in `app-db` rather than via a discrete event — e.g. a debounce that just updates a slice), prefer `re-frame.test-support/poll-until`, which returns a `js/Promise` that composes directly with `cljs.test/async` (`(-> (ts/poll-until pred) (.then ...) (.catch ...))`). Use the `:rf.event/run-end` listener when the contract is "*this event* fired", `poll-until` when it is "*this state* settled".
 - After the `re-frame.test` → `re-frame.test-support` require swap, also drop the `day8/re-frame-test` Maven coord (see M-25 above) — `run-test-async` / `wait-for-event` shipped from it and have no v2 successor symbol; they become the inline shapes above.
+- **The reset fixture is fn-form (sync) by default; async suites need `:async? true`.** `(ts/make-reset-runtime-fixture {:adapter adapter})` returns the synchronous fn-form fixture; an `(async …)` suite must add `:async? true` to get the `{:before :after}` map-form. The map-form `:before` establishes the ambient frame scope with a **persistent `set!`** (a dynamic binding would unwind before the async body resumes), so a **bare** `dispatch-sync` (no explicit `{:frame …}`) inside the async body drains and lands.
+- **Verify a bare test-body `dispatch-sync` actually lands.** This is the silent failure mode of a hand-rolled async fixture: one that `set!`s `*current-frame* :rf/default` but does NOT re-ensure the `:rf/default` frame silences the no-frame-context throw yet `dispatch-sync` **silently does not drain** (it resolves `:rf/default`, finds no frame record, and no-ops). The blessed `:async? true` fixture avoids this by re-installing the adapter + re-ensuring `:rf/default` every `:before` — but if you roll your own, assert a value lands; don't assume it.
+- **The fn/map mixing hazard.** A *sync* ns's fn-form-fixture teardown resets `frames` to `{}`, destroying `:rf/default` for whatever ns runs next in the shared cljs.test runtime. The `:async? true` fixture is robust (its `:before` re-ensures `:rf/default` every test); a fixture that trusts a sibling-left frame is not. And never put a fn fixture and a map fixture in the same `use-fixtures` vector — cljs.test rejects the mix.
 
 ### Test-layer v1 API to v2 mapping
 
