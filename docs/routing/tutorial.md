@@ -118,6 +118,8 @@ Most pages need data when they open. Declare it next to the route with `:on-matc
 
 The view reads the loaded data with an ordinary subscription — there's no special "loader data" hook, because the loader just wrote to [app-db](../core/concepts/app-db.md) like every other event. `:on-match` re-fires when the `:id` changes but *not* when you navigate to the same route with identical params, so you never get an accidental double-load.
 
+**What you see:** open one article, then navigate to another — `:app/load-article` fires once per article. Re-navigate to the *same* one and it doesn't fire again. Open [Xray](../core/how-to/debug-with-xray.md) and you'll see exactly those dispatches on the wire.
+
 > **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. And the same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [Concepts → Loaders](concepts.md#loaders-declaring-a-pages-data).
 
 ## Step 5 — when nothing matches: the 404
@@ -146,20 +148,25 @@ When no route matches a URL, the runtime activates a reserved id, `:rf.route/not
 
 > Register it. Skip it and unmatched URLs fall to a bare built-in placeholder (plus a warning) — something renders, but not your design. The not-found params also carry a `:reason` so you can tell a plain miss from a malformed URL from a failed schema; see [Concepts → Not found](concepts.md#not-found-is-a-route-you-register).
 
-## Step 6 — the Back button
+## Step 6 — boot it, and wire the Back button
 
-So far navigation is one-way: clicks change the URL, but the browser's Back button doesn't yet talk to your app. Two lines at boot fix that:
+Two things are still missing: we haven't actually *started* the app, and the browser's Back button doesn't yet talk to it. Both happen at boot. Routing adds just two things to the standard mount from the [Quickstart](../core/quickstart.md) — the owning [frame](../core/concepts/frames.md) declares `:url-bound? true`, and you call `install-history-listener!`:
 
 ```clojure
-;; Declare which frame owns the address bar…
-(rf/reg-frame :rf/default {:url-bound? true})
-;; …then start listening to the browser.
-(rf/install-history-listener!)
+;; The mount also needs the standard adapter requires:
+;;   [reagent.dom.client :as rdc] [re-frame.adapter.reagent :as reagent-adapter]
+(defn run []
+  (rf/init! reagent-adapter/adapter)
+  (rf/install-history-listener!)                     ;; ← Back/Forward + first-load URL sync
+  (rdc/render (rdc/create-root (js/document.getElementById "app"))
+              [rf/frame-provider {:id         :rf/default
+                                  :url-bound? true}  ;; ← this frame owns the address bar
+               [root-view]]))
 ```
 
-`:url-bound? true` says *this* [frame](../core/concepts/frames.md) owns the URL. `install-history-listener!` does two jobs: it syncs the current URL into state at first load (so a deep link or a refresh lands on the right page), and from then on every Back/Forward press dispatches into the owning frame. It's idempotent, so hot-reload is safe.
+`:url-bound? true` says *this* frame owns the URL. `install-history-listener!` does two jobs: it syncs the current URL into state at first load (so a deep link or a refresh lands on the right page), and from then on every Back/Forward press dispatches into the owning frame. It's idempotent, so hot-reload is safe.
 
-**What you see:** navigate Home → Articles → an article, then press Back twice — each press steps the page back, because a Back press is now, literally, a dispatch.
+**What you see:** the app mounts on the route for the current URL. Now navigate Home → Articles → an article, then press Back twice — each press steps the page back, because a Back press is now, literally, a dispatch.
 
 > **The inversion.** In most routers the URL is the source of truth and your app reacts to it. Here your frame's state is the truth and the URL is a *print-out* of it — which is why [time-travel](../core/how-to/debug-with-xray.md) rewinds the URL for free. [Concepts → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source) goes deeper.
 
