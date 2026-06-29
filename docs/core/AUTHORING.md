@@ -2,7 +2,7 @@
 
 > **Who this is for.** Contributors writing or revising pages under `docs/core/`. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every guide page is held to, and the gates that enforce it.
 
-The guide is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate divergences. First, **reference is not a guide mode at all**: the normative reference lives in `spec/` (AI-targeted, exhaustive, boring on purpose); the guide carries only [a thin map](reference.md) pointing down into it. A guide page that starts accumulating option tables and precedence rules is absorbing weight the spec already owns — move the weight, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
+The guide is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate divergences. First, **reference is not a guide mode at all**: the normative reference lives in `spec/` (AI-targeted, exhaustive, boring on purpose), and guide pages link down into it directly — there is no reference shelf inside the guide. A guide page that starts accumulating option tables and precedence rules is absorbing weight the spec already owns — move the weight, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
 
 Which yields the rule everything else here serves:
 
@@ -66,7 +66,6 @@ Small, self-contained examples should run in the browser, not just sit there. A 
 | `how-to/` | how-to | how-to | One task, complete code, done |
 | `explanation/`, `derivations-and-algebra-views.md` | explanation | explanation | The why — for the curious, not the blocked |
 | `25-from-re-frame-v1.md` | migration | migration | v1 deltas, not basics |
-| `reference.md` | reference | index | The thin map down into `spec/` |
 | `AUTHORING.md` | meta | index | This contract |
 
 A new page must name its tier and mode before drafting starts. If it doesn't fit one row, it's two pages.

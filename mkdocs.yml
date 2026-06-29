@@ -209,7 +209,6 @@ nav:
       - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
       - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
       - "clj-new → deps-new template": migration/from-clj-new-template/README.md
-    - "Reference index": core/reference.md
     - "Glossary": core/glossary.md
     - "API":
       - api/README.md

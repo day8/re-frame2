@@ -14,7 +14,7 @@ Three readers, three doors. Pick the row that's you and follow the first link; t
 |---|---|---|
 | **A React/JS developer** who knows the ecosystem — Redux, TanStack Query, XState, React Router — but maybe not Clojure. | [Quickstart: a counter in five minutes](quickstart.md) | The [RealWorld tutorial](../resources/tutorial/index.md). Every concept page opens by naming the tool you already reach for, then teaches only the *delta*. |
 | **A re-frame v1 veteran.** Most of your instincts survive intact. The *global* assumptions don't. | [From re-frame v1](25-from-re-frame-v1.md) — deltas, not basics. | [Frames: isolated worlds](concepts/frames.md) — the one idea that ripples through everything else. |
-| **An AI agent** working on a re-frame2 app. | [The reference map](reference.md), which indexes down into the [spec](../../spec/README.md) — the normative contract. | The guide pages are self-contained and speak the spec's vocabulary, so they chunk cleanly. Where guide and spec disagree, the spec wins. |
+| **An AI agent** working on a re-frame2 app. | [The spec](../../spec/README.md) — the normative contract, written for AI and implementors. | The guide pages are self-contained and speak the spec's vocabulary, so they chunk cleanly. Where guide and spec disagree, the spec wins. |
 
 There's one reader this guide deliberately *doesn't* serve: someone learning UI programming from scratch. It teaches re-frame2 by *difference* — "it's like the thing you already use, except…" — so it assumes you've shipped something with React or Redux before. If you haven't, this is the wrong first book.
 
@@ -46,7 +46,7 @@ The guide is layered by *how much you have to read before you can do something u
 | **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |
 | **Explanation** | The *why* behind the design — for when you're curious, not blocked | [Inside out: why views come last](explanation/inside-out.md) |
 | **Migration** | What changed from re-frame v1, and how to port | [From re-frame v1](25-from-re-frame-v1.md) |
-| **Reference** | The map down into the spec, tools, and skills — every shape, every option | [The reference map](reference.md) |
+| **Reference** | The normative contracts the guide links down into — every shape, every option, owned by the spec | [The spec](../../spec/README.md) |
 
 Two things about that order are deliberate, because they change how you should read it:
 
