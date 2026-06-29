@@ -645,6 +645,8 @@ The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.inter
 
 **No v1 subscription fetches.** A subscription is a pure passive read; it resolves scope per [§Subscription-side scope resolution](#subscription-side-scope-resolution) and raises `:rf.error/resource-sub-unresolved-scope` rather than reading global or returning a silent `:idle`. A future `:rf.resource/live` side-effecting convenience, if added, MUST be explicitly documented as side-effecting and kept separate from the recommended route/event pattern.
 
+For the common top-level state read, the artefact ships **`sub-resource`** as named read sugar over the canonical `[:rf.resource/state <query>]` vector — `@(rf/sub-resource query)` is `@(rf/subscribe [:rf.resource/state query])`, returning a reaction over the resource view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}` (plus the `:previous?` previous-data projection). `query` is the `{:resource :params}` map (with the optional `:scope` the sub-side scope resolution reads) the vector form takes; the sugar passes it through unchanged, so it resolves the SAME scoped key — including the fail-closed `:rf.error/resource-sub-unresolved-scope` boundary. The 2-arity `(sub-resource query opts)` carries `{:frame <target>}` (a frame-id keyword or a live frame object, lowered to `subscribe`'s frame-first arity) to read an explicit frame from outside an established scope. `sub-resource` is exported on the **`re-frame.resources` façade — not `re-frame.core`** — so a non-resources app's production-elision bundle carries no resource keyword strings (the resources bundle-isolation invariant, peer of routing's `sub-route`); the `[:rf.resource/state <query>]` vector stays canonical and the sugar coexists with it.
+
 ### Introspection and projection (tool/test only)
 
 ```clojure
@@ -763,6 +765,8 @@ Run a mutation with the `:rf.mutation/execute` event and observe it through the 
 [:rf.mutation/result   {:instance :form/save-1}]
 [:rf.mutation/error    {:instance :form/save-1}]
 ```
+
+For the common top-level state read, the artefact ships **`sub-mutation`** as named read sugar over the canonical `[:rf.mutation/state {:instance <instance>}]` vector — `@(rf/sub-mutation instance)` is `@(rf/subscribe [:rf.mutation/state {:instance instance}])`, returning a reaction over the mutation view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}` (the idle empty-state shape until the instance's first `:rf.mutation/execute`). The `{:instance …}` wrapping lives INSIDE the sugar, so callers pass just the **instance** id — the key a view scopes one form submission's state to. The 2-arity `(sub-mutation instance opts)` carries `{:frame <target>}` (a frame-id keyword or a live frame object, lowered to `subscribe`'s frame-first arity) to read an explicit frame from outside an established scope. Like `sub-resource` it is exported on the **`re-frame.resources` façade — not `re-frame.core`** (the resources bundle-isolation invariant); the `[:rf.mutation/state {:instance …}]` vector stays canonical and the sugar coexists with it.
 
 A `:mutation` registrar kind is added (the causal-write counterpart of `:resource`). The load-bearing invariants (MUST):
 
