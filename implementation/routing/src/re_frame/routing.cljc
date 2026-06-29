@@ -142,6 +142,32 @@
      (subs/subscribe frame [:rf/route])
      (subs/subscribe [:rf/route]))))
 
+(defn sub-pending-navigation
+  "Subscribe to the pending-navigation slot. Sugar over
+  `(subscribe [:rf/pending-navigation])`. Returns a reaction over the
+  pending-navigation map `{:requested-url :requested-by-event
+  :rejecting-route :rejecting-guard …}`, or nil in the steady state (no
+  navigation pending) — the slot is non-nil only while a `:can-leave` guard
+  holds a blocked navigation awaiting `:rf.route/continue` /
+  `:rf.route/cancel`. The slot is a per-frame singleton, so the primary
+  form is zero-arity.
+
+  The 1-arity `opts` map carries the same `{:frame <target>}` capability the
+  underlying subscription vector accepts — `<target>` is a frame-id keyword
+  or a live frame object — so a read can target an explicit frame (e.g. a
+  non-default url-bound frame) from outside an established scope. Without
+  `:frame` the read resolves the ambient frame through the carried scope/hold
+  chain, exactly like the bare `(subscribe [:rf/pending-navigation])`.
+
+  The `[:rf/pending-navigation]` vector form remains the canonical registered
+  sub; this is ergonomic read sugar over it. Per Spec 012 §Navigation
+  blocking — pending-nav protocol."
+  ([] (subs/subscribe [:rf/pending-navigation]))
+  ([opts]
+   (if-let [frame (:frame opts)]
+     (subs/subscribe frame [:rf/pending-navigation])
+     (subs/subscribe [:rf/pending-navigation]))))
+
 ;; EP-0014 slice-5 (rf2-eiiifu): the derivation/process algebra view of
 ;; registered routes (`route-algebra-view`, static) and a frame's live route
 ;; slice (`route-slice-algebra-view`, live). JVM-runnable (the route

@@ -530,6 +530,15 @@
   ["re-frame.core" "mutation-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "mutations"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; Named reactive-read sugar over the canonical `[:rf.mutation/state …]` /
+  ;; `[:rf.resource/state …]` subscription vectors. Unlike the wrappers above
+  ;; these live ONLY on the `re-frame.resources` façade (NOT re-frame.core),
+  ;; the resources peer of routing's `sub-route`, so a non-resources app's
+  ;; production bundle carries no resource/mutation keyword strings. The home
+  ;; ns is not whole-namespace introspected, so the generator names them via
+  ;; `extra-vars`; advanced tier like `sub-route` + the resources read surfaces.
+  ["re-frame.resources" "sub-mutation"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "sub-resource"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; Named resource-scope resolvers — the third resources kind (rf2-hls77w,
   ;; Spec 016 §Named resource-scope resolvers / EP-0016 D3 slice 2). The
   ;; inverse of slice-1's spec-ahead reservation: these now ship as live
@@ -1038,6 +1047,11 @@
   ;; bundle — the routing bundle-isolation invariant. Advanced tier like its
   ;; sibling read surfaces (`match-url` / `route-url`).
   ["re-frame.routing" "sub-route"]              {:tier :advanced :owner "012" :status "v1"}
+  ;; Named pending-navigation read sugar over the canonical
+  ;; `[:rf/pending-navigation]` subscription vector — the pending-nav peer of
+  ;; `sub-route`. Routing-façade home (NOT re-frame.core) for the same
+  ;; bundle-isolation reason; advanced tier like its sibling read surfaces.
+  ["re-frame.routing" "sub-pending-navigation"] {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "reg-route"]              {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "malformed-url?"]         {:tier :implementation :owner "012" :status "v1"}
