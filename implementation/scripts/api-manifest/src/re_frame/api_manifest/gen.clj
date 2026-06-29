@@ -121,7 +121,16 @@
     ;; namespaces (re-frame.interop / re-frame.performance) are otherwise
     ;; internal plumbing.
     [re-frame.interop     debug-enabled?]
-    [re-frame.performance enabled?]])
+    [re-frame.performance enabled?]
+    ;; The resources façade's named reactive-read sugar (sub-mutation /
+    ;; sub-resource). The `re-frame.resources` home namespace is not
+    ;; whole-namespace introspected here (its public surface is rowed via the
+    ;; re-frame.core late-bind wrappers — see the resources rows in the
+    ;; sidecar), so these two façade-only read-sugar fns are named
+    ;; individually, mirroring the routing `sub-route` precedent on a scanned
+    ;; namespace. The Owner-016 classification lives in the sidecar.
+    [re-frame.resources   sub-mutation]
+    [re-frame.resources   sub-resource]])
 
 ;; ---------------------------------------------------------------------------
 ;; Derivation from live vars.

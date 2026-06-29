@@ -68,6 +68,7 @@
             [re-frame.resources.state :as state]
             [re-frame.resources.subs :as resource-subs]
             [re-frame.resources.timers :as timers]
+            [re-frame.subs :as subs]
             ;; rf2-8x0gfa (EP-0015): the OFF-BOX trace-row egress projector for
             ;; the resource/mutation trace family's scoped-key slots. A
             ;; production-reachable ns (NOT the bundle-isolated tooling sibling)
@@ -287,6 +288,73 @@
        :extra    {:opts (dissoc opts :frame)}}))
   (let [runtime-db (frame/frame-runtime-db-value frame)]
     (get-in runtime-db (mstate/instance-path instance))))
+
+;; ---- named reactive-read sugar --------------------------------------------
+;; Thin read sugar over the canonical `[:rf.mutation/state …]` /
+;; `[:rf.resource/state …]` subscription vectors. Defined + exported HERE on
+;; the `re-frame.resources` façade (NOT `re-frame.core`) so a non-resources
+;; app's production-elision bundle carries no resource/mutation keyword
+;; strings — the resources bundle-isolation invariant, the peer of routing's
+;; `sub-route`. The vector forms remain the registered subs; these layer over
+;; them. Each is a single thin fn (NOT a per-projection family).
+
+(defn sub-mutation
+  "Subscribe to a mutation INSTANCE's state. Sugar over
+  `(subscribe [:rf.mutation/state {:instance <instance>}])`. Returns a
+  reaction over the mutation view-model `{:status :result :error
+  :affected-keys :pending? :success? :error? :settled? :optimistic?}` — the
+  idle empty-state shape until the instance's first `:rf.mutation/execute`.
+
+  `instance` is the INSTANCE id a view scopes one form submission's state to
+  (so a view reading one submission never sees another concurrent submission
+  of the same mutation); the `{:instance …}` wrapping lives INSIDE the sugar,
+  so callers pass just the instance.
+
+  The 2-arity `opts` map carries the same `{:frame <target>}` capability the
+  underlying subscription vector accepts — `<target>` is a frame-id keyword
+  or a live frame object — so a read can target an explicit frame from
+  outside an established scope. Without `:frame` the read resolves the
+  ambient frame through the carried scope/hold chain, exactly like the bare
+  `(subscribe [:rf.mutation/state {:instance instance}])`.
+
+  The `[:rf.mutation/state {:instance …}]` vector form remains the canonical
+  registered sub; this is ergonomic read sugar over it. Per EP-0003
+  §Mutations."
+  ([instance] (subs/subscribe [:rf.mutation/state {:instance instance}]))
+  ([instance opts]
+   (if-let [frame (:frame opts)]
+     (subs/subscribe frame [:rf.mutation/state {:instance instance}])
+     (subs/subscribe [:rf.mutation/state {:instance instance}]))))
+
+(defn sub-resource
+  "Subscribe to a resource instance's state. Sugar over
+  `(subscribe [:rf.resource/state <query>])`. Returns a reaction over the
+  resource view-model `{:status :data :error :refresh-error :loading?
+  :fetching? :stale? :has-data?}` (plus the `:keep-previous?` projection) —
+  the idle empty-state shape until a route / event / machine CAUSES the
+  fetch (a sub never fetches).
+
+  `query` is the `{:resource :params}` map (with the optional `:scope` the
+  sub-side scope resolution reads) the canonical vector form takes; the sugar
+  passes it through unchanged, so it resolves the SAME scoped key as
+  `(subscribe [:rf.resource/state query])` — including the fail-closed
+  `:rf.error/resource-sub-unresolved-scope` boundary.
+
+  The 2-arity `opts` map carries the same `{:frame <target>}` capability the
+  underlying subscription vector accepts — `<target>` is a frame-id keyword
+  or a live frame object — so a read can target an explicit frame from
+  outside an established scope. Without `:frame` the read resolves the
+  ambient frame through the carried scope/hold chain, exactly like the bare
+  `(subscribe [:rf.resource/state query])`.
+
+  The `[:rf.resource/state <query>]` vector form remains the canonical
+  registered sub; this is ergonomic read sugar over it. Per Spec 016
+  §Subscriptions."
+  ([query] (subs/subscribe [:rf.resource/state query]))
+  ([query opts]
+   (if-let [frame (:frame opts)]
+     (subs/subscribe frame [:rf.resource/state query])
+     (subs/subscribe [:rf.resource/state query]))))
 
 ;; ---- event / sub / hook registrations -------------------------------------
 ;; Keeping the registrations in this façade means a `(require
