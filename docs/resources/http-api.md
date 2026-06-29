@@ -27,6 +27,12 @@ The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-a
 - **Kind**: fx
 - **Args**: request-id
 - **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply fires with `{:rf/reply {:kind :failure :failure {:kind :rf.http/aborted ...}}}`.
+- **Example**:
+  ```clojure
+  (rf/reg-event :request/abort
+    (fn [_ [_ request-id]]
+      {:fx [[:rf.http/managed-abort request-id]]}))
+  ```
 
 ### A minimal request
 
@@ -69,6 +75,13 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   (rf.http/post url args)
   ```
 - **Description**: POST. Pass `:body` in `args`.
+- **Example**:
+  ```clojure
+  {:fx [(rf.http/post "/api/items"
+                      {:request    {:body {:title "new"}
+                                    :request-content-type :json}
+                       :on-success [:items/created]})]}
+  ```
 
 ### `re-frame.http/put`
 
@@ -78,6 +91,13 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   (rf.http/put url args)
   ```
 - **Description**: PUT.
+- **Example**:
+  ```clojure
+  {:fx [(rf.http/put "/api/items/42"
+                     {:request    {:body {:title "updated"}
+                                   :request-content-type :json}
+                      :request-id [:item :update 42]})]}
+  ```
 
 ### `re-frame.http/delete`
 
@@ -87,6 +107,11 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   (rf.http/delete url args)
   ```
 - **Description**: DELETE.
+- **Example**:
+  ```clojure
+  {:fx [(rf.http/delete "/api/items/42"
+                        {:on-failure [:item/delete-failed]})]}
+  ```
 
 ### `re-frame.http/patch`
 
@@ -96,6 +121,13 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   (rf.http/patch url args)
   ```
 - **Description**: PATCH.
+- **Example**:
+  ```clojure
+  {:fx [(rf.http/patch "/api/items/42"
+                       {:request    {:body {:done true}
+                                     :request-content-type :json}
+                        :on-success [:items/patched]})]}
+  ```
 
 ### `re-frame.http/head`
 
@@ -105,6 +137,11 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   (rf.http/head url args)
   ```
 - **Description**: HEAD.
+- **Example**:
+  ```clojure
+  {:fx [(rf.http/head "/api/items"
+                      {:on-success [:items/exists?]})]}
+  ```
 
 ### `re-frame.http/options`
 
@@ -114,6 +151,10 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   (rf.http/options url args)
   ```
 - **Description**: OPTIONS.
+- **Example**:
+  ```clojure
+  {:fx [(rf.http/options "/api/items")]}
+  ```
 
 The verb helpers live in `re-frame.http` — users `(:require [re-frame.http :as rf.http])` alongside `re-frame.core`. The namespace ships in `day8/re-frame2-http`, the same artefact as the fx itself, so loading the helpers and the fx is a single dep decision.
 
@@ -182,6 +223,10 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
   (clear-http-interceptor frame id)
   ```
 - **Description**: Unregister an interceptor by id. The single-arity `(clear-http-interceptor id)` resolves the frame from the carried scope it runs under; the two-arity `(clear-http-interceptor frame id)` names the frame explicitly. Either form raises `:rf.error/no-frame-context` when the frame is absent (single-arity under no scope, or two-arity passed `nil`) — it never clears against a synthesised `:rf/default`.
+- **Example**:
+  ```clojure
+  (rf/clear-http-interceptor :auth-header)
+  ```
 
 ```clojure
 (rf/reg-http-interceptor :auth/inject
@@ -206,11 +251,29 @@ Tests want to drive the cascade without hitting the network. The test-support su
 
 - **Kind**: fx
 - **Description**: Synthesise the canonical success reply directly into `:fx`. Useful for "stub THIS request inline" patterns. Registered at load of `re-frame.http.test-support`.
+- **Example**:
+  ```clojure
+  (rf/reg-event :counter/retry-recover
+    (fn [_ _]
+      {:fx [[:rf.http/managed-canned-success
+             {:request {:method :get :url "api/flaky"}
+              :decode  :json
+              :value   {:delta 5}}]]}))
+  ```
 
 ### `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]`
 
 - **Kind**: fx
 - **Description**: Synthesise the canonical failure reply directly into `:fx`.
+- **Example**:
+  ```clojure
+  (rf/reg-event :flaky/load
+    (fn [_ _]
+      {:fx [[:rf.http/managed-canned-failure
+             {:on-failure [:flaky/load-error]
+              :kind       :rf.http/http-5xx
+              :tags       {:status 503 :status-text "Service Unavailable"}}]]}))
+  ```
 
 ### `with-managed-request-stubs`
 
@@ -229,6 +292,15 @@ Tests want to drive the cascade without hitting the network. The test-support su
   (with-managed-request-stubs* route-map body-fn)
   ```
 - **Description**: Plain-fn surface beneath the macro. Use for computed route-maps or non-literal bodies. Like the macro, it installs the `:rf.http/managed` override for `body-fn`'s dynamic extent, so dispatches inside auto-route with no manual `:fx-overrides`.
+- **Example**:
+  ```clojure
+  ;; Computed route-map / non-literal body — use the fn form.
+  (rf/with-managed-request-stubs*
+    {[:get "/articles"] {:reply {:ok [:hello :world]}}}
+    (fn []
+      ;; No manual :fx-overrides — auto-routes by method + URL.
+      (rf/dispatch-sync [:articles/list])))
+  ```
 
 ### `re-frame.http.test-support/install-managed-request-stubs!`
 
@@ -238,6 +310,15 @@ Tests want to drive the cascade without hitting the network. The test-support su
   (install-managed-request-stubs! route-map)
   ```
 - **Description**: Lower-level than `with-managed-request-stubs`: registers the `:rf.http/managed-test-stub` fx that persists until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s. Unlike the wrapper, this does NOT install the `:rf.http/managed` override — dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http.test-support`.
+- **Example**:
+  ```clojure
+  ;; Stubs that span several deftests — install once, route via :fx-overrides.
+  (re-frame.http.test-support/install-managed-request-stubs!
+    {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}})
+
+  (rf/dispatch-sync [:cart/load]
+                    {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+  ```
 
 ### `re-frame.http.test-support/uninstall-managed-request-stubs!`
 
@@ -247,6 +328,10 @@ Tests want to drive the cascade without hitting the network. The test-support su
   (uninstall-managed-request-stubs!)
   ```
 - **Description**: Drop installed stubs; restore real-request routing. Idempotent. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http.test-support`.
+- **Example**:
+  ```clojure
+  (re-frame.http.test-support/uninstall-managed-request-stubs!)
+  ```
 
 All the test-support surfaces live in `re-frame.http.test-support`. One namespace; same artefact (`day8/re-frame2-http`) as the production code. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install`/`uninstall` pair is reached only through the home namespace.
 

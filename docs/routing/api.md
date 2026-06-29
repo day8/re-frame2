@@ -63,6 +63,15 @@ Canonical detail in [The metadata map, in full](concepts.md#the-metadata-map-in-
   (match-url url) → {:route-id :params :query :validation-failed?} or nil
   ```
 - **Description**: "What route does this URL match?" Pure — JVM-runnable; useful for server-side rendering and tests.
+- **Example**:
+  ```clojure
+  ;; with (rf/reg-route :user/show {} "/users/:id") registered:
+  (routing/match-url "/users/42")
+  ;; => {:route-id :user/show, :params {:id "42"}, :query {}, :fragment nil}
+
+  ;; nil when no route matches:
+  (routing/match-url "/no/such/path")  ;; => nil
+  ```
 
 ### `route-url`
 
@@ -73,6 +82,14 @@ Canonical detail in [The metadata map, in full](concepts.md#the-metadata-map-in-
   (route-url route-id path-params query-params) → URL string
   ```
 - **Description**: "Render this route to a URL." The inverse of `match-url`. Pure; JVM-runnable.
+- **Example**:
+  ```clojure
+  ;; with (rf/reg-route :user/show {} "/users/:id") registered:
+  (routing/route-url :user/show {:id 42})            ;; => "/users/42"
+
+  ;; query params are appended and percent-encoded:
+  (routing/route-url :search {} {:q "hello world"})  ;; => "/search?q=hello%20world"
+  ```
 
 ### `route-link`
 

@@ -34,6 +34,11 @@ This chapter spans `re-frame.core` (the `reg-flow` macro) and `re-frame.flows` (
   (clear-flow id opts)
   ```
 - **Description**: Deregister the flow from the named frame and `dissoc-in` its `:output-path` from that frame's `app-db` only. Sibling frames' state is preserved.
+- **Example**:
+  ```clojure
+  ;; Deregister :cart/subtotal; clears [:cart :subtotal] in this frame's app-db.
+  (flows/clear-flow :cart/subtotal)
+  ```
 
 ### A minimal flow
 
@@ -94,6 +99,14 @@ Sometimes you want to register or clear a flow from inside an event handler — 
 | `[:rf.fx/clear-flow id]` | flow id | v1 | Clear a registered flow at runtime via `:fx`. |
 
 The signature mirrors `reg-flow` / `clear-flow` exactly — same opts, same return semantics. Use whichever surface matches your call site.
+
+```clojure
+;; Clear a runtime-registered flow from inside a handler — e.g. disengaging a
+;; feature gate. The flow's :output-path is dissoc'd from this frame's app-db.
+(rf/reg-event :cart/remove-discount
+  (fn [_ _]
+    {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
+```
 
 ### The one-event lag — the least-obvious thing about flows
 

@@ -65,6 +65,15 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schemas {:frame frame-id})
   ```
 - **Description**: "Hand me every registered schema-at-path for this frame." Returns `{path schema}`. Tools and agents walk this to enumerate the app's schema surface.
+- **Example**:
+  ```clojure
+  ;; every registered schema-at-path for the default frame
+  (schemas/app-schemas)
+  ;; => {[:user] [:map [:id :uuid]]}
+
+  ;; scope the walk to one frame
+  (schemas/app-schemas {:frame :rf/default})
+  ```
 
 ### `app-schema-at`
 
@@ -75,6 +84,14 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schema-at path {:frame frame-id})
   ```
 - **Description**: "Schema for this exact path." Returns the schema value or `nil`.
+- **Example**:
+  ```clojure
+  (schemas/app-schema-at [:user])
+  ;; => [:map [:id :uuid]]
+
+  ;; frame-scoped lookup; nil when nothing is registered at the path
+  (schemas/app-schema-at [:articles] {:frame :tenant/a})
+  ```
 
 ### `app-schema-meta-at`
 
@@ -85,6 +102,13 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schema-meta-at path opts-or-frame-id)
   ```
 - **Description**: "Full registration-metadata map for this path." Returns `:path`, `:schema`, `:frame`, plus source-coords (`:ns` / `:line` / `:file`) and the rest of `:rf/registration-metadata`. Pair tools and 10x reach for this when they need the registration anchor for click-back-to-code. The lighter `app-schema-at` is the right call when only the schema value is needed.
+- **Example**:
+  ```clojure
+  ;; the registration anchor — schema value plus source coords for click-back
+  (schemas/app-schema-meta-at [:user])
+  ;; => {:path [:user] :schema [:map [:id :uuid]]
+  ;;     :frame :rf/default :ns "my.app.schema" :line 12 :file "..."}
+  ```
 
 ### `app-schemas-digest`
 
@@ -95,6 +119,13 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schemas-digest {:frame frame-id}) → string
   ```
 - **Description**: "Single hash over the frame's whole schema surface." Used by SSR hydration compatibility checks and by tools that want to know "has the schema corpus changed?" without diffing schema-by-schema.
+- **Example**:
+  ```clojure
+  ;; one stable hash over the whole frame's schema surface
+  (schemas/app-schemas-digest)
+
+  (schemas/app-schemas-digest {:frame :rf/default})
+  ```
 
 ### Validator-extension seams
 
@@ -108,6 +139,15 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
   (set-schema-validator! validate-fn)
   ```
 - **Description**: "Install the validator the framework uses at every dev-time schema-validation site." Swaps ONLY the validator; `nil` disables validation entirely. The default ships Malli's pair; this seam is for apps that want to swap to a different validator without forking the framework. To install the validator/explainer/printer together, use `set-schema-fns!`.
+- **Example**:
+  ```clojure
+  ;; install an app's own validator (same shape as malli.core/validate:
+  ;; (fn [schema value] truthy?))
+  (schemas/set-schema-validator! my-validate)
+
+  ;; nil disables dev-time validation entirely
+  (schemas/set-schema-validator! nil)
+  ```
 
 #### `set-schema-fns!`
 
@@ -117,6 +157,12 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
   (set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})
   ```
 - **Description**: "Atomically install any subset of the validator / explainer / printer bundle from a single map." The honest bundle setter — named for what it sets, not just the validator. Each key is optional; an absent key leaves the existing registration in place, and a `nil` `:print` coerces to the default EDN canonicaliser. The one-call substitute-Malli boot pattern, so the three fns never drift mid-boot.
+- **Example**:
+  ```clojure
+  ;; install validator + explainer together (e.g. a clojure.spec or Zod port)
+  (schemas/set-schema-fns! {:validate my-validate
+                            :explain  my-explain})
+  ```
 
 #### `set-schema-explainer!`
 
@@ -126,6 +172,11 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
   (set-schema-explainer! explain-fn)
   ```
 - **Description**: "Install the explainer the framework uses to enrich `:rf.error/schema-validation-failure` traces' `:explain` key." Companion to `set-schema-validator!`.
+- **Example**:
+  ```clojure
+  ;; enrich :rf.error/schema-validation-failure traces with a custom explanation
+  (schemas/set-schema-explainer! my-explain)
+  ```
 
 #### `set-schema-printer!`
 
@@ -135,6 +186,11 @@ The default validator ships Malli's `validate` / `explain` pair. These seams let
   (set-schema-printer! print-fn)
   ```
 - **Description**: "Install the schema-print companion the digest pipeline hashes." `(fn [schema-value] canonical-string)`. Must be pure and deterministic across runtimes. `nil` falls back to the default EDN canonicaliser, so the digest is never undefined. Parallel to the validator / explainer setters: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract.
+- **Example**:
+  ```clojure
+  ;; a non-Malli port registers its own canonical schema serialiser
+  (schemas/set-schema-printer! (fn [schema] (pr-str schema)))
+  ```
 
 The three setters answer three different questions: validation correctness (`validator`), human-readable failure messages (`explainer`), and stable canonical printing for digest (`printer`). Most apps use the defaults; ports and apps swap them selectively.
 
@@ -165,6 +221,26 @@ Durable `app-db` data classification is **event-owned** — a `reg-event` handle
 - `:large` — classify the listed `app-db` paths as large (size-elided at the wire boundary).
 - `:clear-sensitive` — un-classify the listed paths' sensitive marking when their ownership ends.
 - `:clear-large` — un-classify the listed paths' large marking when their ownership ends.
+
+```clojure
+;; classify durable app-db paths from the same event that writes them
+(rf/reg-event :user/sign-in
+  (fn [{:keys [db]} [_ token]]
+    {:db        (assoc-in db [:user :token] token)
+     :sensitive [[:user :token]]}))      ;; redacted at the wire boundary
+
+(rf/reg-event :docs/load-csv
+  (fn [{:keys [db]} [_ rows]]
+    {:db    (assoc-in db [:docs :csv] rows)
+     :large [[:docs :csv]]}))            ;; size-elided at the wire boundary
+
+;; un-classify when each path's ownership ends
+(rf/reg-event :user/sign-out
+  (fn [{:keys [db]} _]
+    {:db              (update db :user dissoc :token)
+     :clear-sensitive [[:user :token]]
+     :clear-large     [[:docs :csv]]}))
+```
 
 Composition: sensitive-drop wins; full teaching in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
 
