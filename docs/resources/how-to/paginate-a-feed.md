@@ -133,8 +133,8 @@ This is the part that makes pagination feel smooth instead of janky. With `:keep
 ;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view article-list []
   (let [page  @(subscribe [:home/page])
-        state @(subscribe [:rf.resource/state
-                           {:resource :app/articles :params {:page page}}])]
+        state @(resources/sub-resource
+                {:resource :app/articles :params {:page page}})]
     (cond
       (and (:loading? state) (not (:previous? state)))
       [list-skeleton]
@@ -161,7 +161,7 @@ This is the part that makes pagination feel smooth instead of janky. With `:keep
 
 Now watch it work. Click through to page 2 with [Xray](../../core/glossary.md#xray) open: the navigation event row shows the `ensure` it caused under the `{:page 2}` key, and the entry walks `:loading` → `:loaded`. Click *back* to page 1 and you'll see the same `{:page 1}` key, still fresh — a cache hit, no network request. That's the payoff of treating pages as identity: back-navigation is free, because you never threw page 1 away. You just stopped looking at it.
 
-The `:rf.resource/state` [subscription](../../core/glossary.md#subscription) you read here is the same one every resource exposes — pagination just leans on a few of its keys. The full shape is worth knowing once:
+That `resources/sub-resource` read is sugar over the canonical `:rf.resource/state` [subscription](../../core/glossary.md#subscription) — the same one every resource exposes — and pagination just leans on a few of its keys. The full shape it hands back is worth knowing once:
 
 ```clojure
 @(subscribe [:rf.resource/state {:resource :app/articles :params {:page 2}}])

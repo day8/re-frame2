@@ -113,7 +113,7 @@ A resource is "a subscription you read and an event you fire" (a [*subscription*
 
 (reg-view favorite-button [{:keys [article]}]
   (let [{:keys [slug favorited favoritesCount]} article
-        fav @(subscribe [:rf.mutation/state {:instance [:favorite slug]}])]
+        fav @(resources/sub-mutation [:favorite slug])]
     [:button.btn.btn-outline-primary.btn-sm
      {:type     "button"
       :class    (when favorited "active")
@@ -124,7 +124,7 @@ A resource is "a subscription you read and an event you fire" (a [*subscription*
 
 Pause on the `:instance` id, because this is where people get tripped up. Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, which means you can click hearts on three cards in quick succession and they can never clobber each other.
 
-The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` subscription, which returns the durable facts plus some derived booleans, computed for you:
+The view watches its instance through `resources/sub-mutation` — sugar over the passive `[:rf.mutation/state {:instance …}]` subscription — which returns the durable facts plus some derived booleans, computed for you:
 
 ```clojure
 {:status :idle      ;; :idle | :pending | :success | :error
@@ -481,13 +481,13 @@ One gap is left. Write half an article, click the site logo, and the draft silen
 
 The contract is strict, and the strictness is the point. `true` allows the navigation. `false` blocks it. Anything else blocks *and* emits a structured error (`:rf.error/can-leave-non-boolean`), so a buggy guard fails safe rather than waving you through by accident. The guard runs on **every** way out — a link click, a programmatic `:rf.route/navigate`, the browser Back button. There's no unguarded side door. The full pending-nav protocol lives in [Spec 012](../../../spec/012-Routing.md).
 
-When the guard blocks, the runtime parks the blocked navigation in a **pending-navigation slot** and leaves the decision to your UI. The UI reads it from the `:rf/pending-navigation` sub:
+When the guard blocks, the runtime parks the blocked navigation in a **pending-navigation slot** and leaves the decision to your UI. The UI reads it from the `:rf/pending-navigation` sub (via the `routing/sub-pending-navigation` sugar):
 
 ```clojure
 ;; src/conduit/core.cljs — rendered once in the app shell.
 ;; cf. examples/real-apps/realworld_resources/core.cljs
 (reg-view pending-nav-dialog []
-  (when-let [pending @(subscribe [:rf/pending-navigation])]
+  (when-let [pending @(routing/sub-pending-navigation)]
     [:div.pending-nav-overlay
      [:div.pending-nav-dialog
       [:p "You have unsaved changes. Leave anyway?"]

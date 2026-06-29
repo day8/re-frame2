@@ -371,9 +371,10 @@ Navigation can be *blocked*, which is how you build an "are you sure? you have u
    :can-leave [:editor/can-leave?]}   ;; a sub: true ⇒ leaving is fine
   "/articles/:id/edit")
 
-;; The pending navigation surfaces through its own sub — your dialog renders from it:
+;; The pending navigation surfaces through its own sub, read here with the
+;; routing/sub-pending-navigation sugar — your dialog renders from it:
 (rf/reg-view leave-guard-dialog []
-  (when-let [pending @(subscribe [:rf/pending-navigation])]
+  (when-let [pending @(routing/sub-pending-navigation)]
     [:div.modal
      [:p "You have unsaved changes. Leave anyway?"]
      [:button {:on-click #(dispatch [:rf.route/cancel])}   "Stay"]
@@ -386,7 +387,7 @@ When the guard blocks, the runtime also dispatches `:rf.route/navigation-blocked
 
 > **Gotcha — the guard sub is strict.** `:can-leave` is a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` — it fails closed (deny the leave) and fails loud (raise), never open. Keep the guard sub returning a real `true`/`false`.
 
-The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(subscribe [:rf/pending-navigation])`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/real-apps/realworld_resources](../../examples/real-apps/realworld_resources) show the shape, and [Guard against unsaved changes](how-to/guard-unsaved-changes.md) is the step-by-step recipe.
+The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(routing/sub-pending-navigation)`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/real-apps/realworld_resources](../../examples/real-apps/realworld_resources) show the shape, and [Guard against unsaved changes](how-to/guard-unsaved-changes.md) is the step-by-step recipe.
 
 ## Not found is a route you register
 
