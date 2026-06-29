@@ -1,8 +1,10 @@
 # Machines
 
-Some features aren't a value — they're a *lifecycle*. A login flow runs `idle → submitting → authed | error`; a checkout is a chain of gates; a long-running job spawns workers, collects results, and tears itself down. Model that lifecycle with scattered boolean flags (`:loading?`, `:submitting?`, `:error?`) and it drifts out of sync and sprouts impossible states ("submitting *and* error"). A **machine** makes the lifecycle explicit: named states, named transitions, exactly one state at a time.
+Finite state machines are hiding in plain sight, everywhere in your app. Your app's **boot** is one — load config, hydrate, check the session, go ready. So is **auth**: a user is logged out, or logged in; and if logged in, an admin or not. So is a single **HTTP request** (`idle → loading → loaded | failed`), a **websocket** (`connecting → open → reconnecting → closed`), and even a humble **dropdown** (`closed → open → selecting`). Keep looking and you'll see them at every scale. It's finite state machines all the way down.
 
-re-frame2 machines are statechart-capable — the XState v6 feature set (guards, actions, entry/exit, timeouts, parallel regions, spawned children) — and registered like everything else, with `reg-machine`. A machine's live value is a [snapshot](glossary.md#snapshot) held in the framework's [runtime-db](../core/glossary.md#runtime-db); you read it through an ordinary subscription and drive it with ordinary dispatched events.
+Model one of those lifecycles with scattered boolean flags — `:loading?`, `:submitting?`, `:error?` — and it drifts out of sync and sprouts impossible states ("submitting *and* error" at once). A **machine** makes the lifecycle explicit: named states, named transitions, exactly one state at a time. The illegal combinations simply can't be represented.
+
+re-frame2 has first-class, **hierarchical** state machines — nested states, parallel regions, spawned children, guards, delayed transitions: the full XState v6 feature set. And they're wired right into the re-frame2 substrate, **not bolted on as a side-car**. A machine *is* an event handler. Its live value is a [snapshot](glossary.md#snapshot) you read with an ordinary subscription and move with an ordinary dispatched event — same cascade, same `app-db`, same Xray, same tests. There's no second runtime to learn.
 
 ```clojure
 (rf/reg-machine :auth/login
@@ -16,31 +18,6 @@ re-frame2 machines are statechart-capable — the XState v6 feature set (guards,
 @(rf/subscribe [:rf/machine :auth/login])   ;; => {:state :idle :data {}}
 ```
 
-You dispatch events to drive the transitions; the snapshot moves, and the views that read it follow. [Concepts](concepts.md) walks the whole model from here.
+Dispatch an event, the snapshot moves, and the views reading it follow.
 
-## In this section
-
-**Start here**
-
-- **[Tutorial: build a login machine](tutorial.md)** — the hands-on path: build one machine step by step (states → guards → actions → a real server call → a view → a test).
-- **[Concepts](concepts.md)** — the whole model at once: states, transitions, guards, actions, the `{:data :fx}` effect map, the snapshot, and testing transitions as pure calls.
-
-**Structuring states**
-
-- **[Hierarchical states](hierarchical-states.md)** — nested compound states, initial cascading, deepest-wins resolution, entry/exit along the LCA, nested final states.
-- **[Parallel states](parallel-states.md)** — `:type :parallel` regions: orthogonal concurrent state, transition broadcast, cross-region coordination via tags.
-
-**Transitions and behaviour**
-
-- **[Automatic transitions](automatic-transitions.md)** — `:always` (eventless), `:type :choice`, `:after` (delayed), and `:timeout`.
-- **[Actors](actors.md)** — `:spawn` / `:spawn-all` child machines, fan-out + join, cooperative cancellation, cross-machine messaging.
-- **[Tags](tags.md)** — semantic state labels, `:rf/machine-has-tag?`, and collapsing many states into one render decision.
-- **[History](history.md)** — `:type :history` (shallow / deep): re-enter a compound state where you left it.
-
-**Tooling and reference**
-
-- **[Inspecting and testing](inspecting-machines.md)** — the Xray Machine Inspector, machine trace events, and pure-transition unit tests.
-- **[Coming from XState](coming-from-xstate.md)** — the XState v6 → re-frame2 mapping, and the deliberate divergences.
-- **[API](../api/re-frame.machines.md)** — `reg-machine`, the machine effects and the `:rf/machine` subscription, `machine-has-tag?`.
-- **[Glossary](glossary.md)** — the machine vocabulary in one place.
-- **[Examples](examples.md)** — runnable worked apps.
+New to machines? The [tutorial](tutorial.md) builds one step by step. To take in the whole model at once, read [Concepts](concepts.md).
