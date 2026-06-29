@@ -177,6 +177,24 @@ The read-side surface over the route registry and the live route slice — the s
   ```
 - **Description**: The layer-1 sub fn behind `:rf/route` — reads the route slice from `[:rf.runtime/routing :current]`. Exposed publicly so external callers (smoke tests, tooling) read the slice without re-deriving the path.
 
+### `sub-pending-navigation`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (re-frame.routing/sub-pending-navigation)        ;; → reaction over the pending-nav map, or nil
+  (re-frame.routing/sub-pending-navigation opts)   ;; opts {:frame <id-or-frame>}
+  ```
+- **Description**: Named read sugar over `[:rf/pending-navigation]`. Returns a reaction over the pending-navigation map `{:requested-url :requested-by-event :rejecting-route :rejecting-guard …}`, or `nil` in the steady state — the slot is non-nil only while a `:can-leave` guard holds a blocked navigation awaiting `:rf.route/continue` / `:rf.route/cancel`. Zero-arity is the primary form (the slot is a per-frame singleton); the 1-arity `opts` carries `{:frame …}` to target an explicit (e.g. non-default url-bound) frame. The vector form remains the canonical registered sub.
+
+```clojure
+(require '[re-frame.routing :as routing])
+
+;; show an "unsaved changes?" prompt only while a navigation is blocked
+(when-let [pending @(routing/sub-pending-navigation)]
+  [confirm-leave-dialog pending])
+```
+
 ## Scroll restoration
 
 Saved scroll positions are a **host-side, per-frame transient LRU cache** keyed by frame-id — NOT runtime-db state. They are host-derived (read from `window.scrollX/Y`), meaningless server-side, and not needed to reconstitute a coherent frame on restore / SSR-hydration / time-travel, so they never ride the trace / epoch / SSR egress wire and cannot rewind on an epoch restore. The pure helpers operate on a plain per-frame cache map `{:positions {url [x y]} :order [url ...]}`; the `!`-suffixed wrappers read/write the host cache.
@@ -342,7 +360,7 @@ The full `:rf/route` slice is `{:id :params :query :transition :error}`. The sta
 | `:rf.route/error` | Current error map (when `:transition = :error`) |
 | `:rf.route/fragment` | Current URL fragment (string or `nil`) |
 | `:rf.route/chain` | Vector of route ids from parent-most to current (per `:parent` links) |
-| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise |
+| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise. Named read sugar: [`sub-pending-navigation`](#sub-pending-navigation). |
 
 ### Effects (`fx`)
 

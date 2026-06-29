@@ -584,6 +584,46 @@ A failure settles `:error` — there is **no `:refresh-error` analogue** (a writ
 
 > **Internal replies — do not dispatch.** The `:rf.mutation.internal/*` replies (and the `:rf.mutation/*` trace family — `started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`, carrying the instance id) are framework-internal; user code MUST NOT dispatch them.
 
+## Read sugar
+
+`sub-resource` and `sub-mutation` are named reactive-read fns — thin sugar over the `[:rf.resource/state …]` / `[:rf.mutation/state …]` subscription vectors above. They live on the **`re-frame.resources` façade, not `re-frame.core`**, so a non-resources app's production bundle carries no resource/mutation keyword strings. The vector forms remain the canonical registered subs; these layer over them.
+
+### `sub-resource`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (re-frame.resources/sub-resource query)        ;; → reaction over the :rf.resource/state view-model
+  (re-frame.resources/sub-resource query opts)   ;; opts {:frame <id-or-frame>}
+  ```
+- **Description**: Sugar over `[:rf.resource/state query]`. `query` is the same `{:resource :params :scope}` map the vector takes, passed through unchanged — identical fail-closed scope resolution (`:rf.error/resource-sub-unresolved-scope`). The 2-arity `opts` carries `{:frame …}` to read from an explicit frame. A sub never fetches.
+
+```clojure
+(require '[re-frame.resources :as resources])
+
+;; a view reads passively — never fetches
+@(resources/sub-resource {:resource :article :params {:slug "hello"}})
+;; => {:status :loading}  …then  {:status :loaded :data {…}}
+```
+
+### `sub-mutation`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (re-frame.resources/sub-mutation instance)        ;; → reaction over the :rf.mutation/state view-model
+  (re-frame.resources/sub-mutation instance opts)   ;; opts {:frame <id-or-frame>}
+  ```
+- **Description**: Sugar over `[:rf.mutation/state {:instance instance}]` — the `{:instance …}` wrapping lives inside the sugar, so you pass just the instance id. The 2-arity `opts` carries `{:frame …}`. Idle empty-state until the instance's first `:rf.mutation/execute`.
+
+```clojure
+(require '[re-frame.resources :as resources])
+
+;; a form reads its own submission's state, keyed by instance
+@(resources/sub-mutation :form/save-1)
+;; => {:status :idle …}  …then  {:pending? true …}  …then  {:success? true …}
+```
+
 ## Cache home
 
 Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db partition (`:rf.db/runtime`); the frame work ledger at `:rf.runtime/work-ledger`. Both are reserved runtime-db keys, framework-owned, per-frame isolated, allocated lazily. App code reads through the subs and accessors and never hand-edits the slice. Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) are separate; host handles (AbortControllers, timers, promises) live in side tables and are never serialized. The correctness rule: **cancellation is opportunistic; stale-reply suppression (by work-id + generation) is mandatory.** See [Guide ch.27 §Cache home and the work ledger](../resources/concepts.md).
