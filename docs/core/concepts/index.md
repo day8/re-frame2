@@ -99,7 +99,7 @@ The reply comes back as a *new* event — `[:feed/loaded …]` — which walks t
 
 > **Coming from Redux?** This is the first of the two changes. Dominoes 3–4 replace the entire middleware question — thunks, sagas, observables — with a plain map your reducer returns. There's no async machinery to wire up: side effects are [*data*](../glossary.md#effects-are-data), and one runtime executes them.
 
-> **Going deeper.** Side-effects-as-returned-data is continuation-passing wearing plain clothes: the handler hands back a description of "what to do next" instead of doing it. That framing — and why it composes so cleanly — is [Continuations are data](../explanation/continuations-are-data.md).
+> **Going deeper.** Side-effects-as-returned-data is continuation-passing wearing plain clothes: the handler hands back a description of "what to do next" instead of doing it. That framing — and why it composes so cleanly — is [Continuations are data](../../async/continuations-are-data.md).
 
 ## Run-to-completion: no flicker
 
