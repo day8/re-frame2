@@ -213,12 +213,3 @@ Now `@(subscribe [:rf.route/chain])` returns the active route's ancestry, **root
 **What you see:** on `/articles/intro`, the article renders inside the `← All articles` section nav, under the site header — and every article detail page shares that frame with no copy-paste. Plain `/articles` (no parent above it) shows the bare list; `/` shows the home page. Note the split: truly *global* chrome (the `My Site` header) is just rendered in the root view — you only reach for the chain when a shell wraps a *subtree*.
 
 > **Coming from React Router?** This is the job `<Outlet/>` does there. The trade is deliberate: instead of a routing-specific render slot, you compose plain Clojure with the `case`/`reduce` you'd write for any conditional view. It's the one place routing asks a little more of you — and the only routing-specific piece is the one `:rf.route/chain` read. [Concepts → Nested layouts](concepts.md#nested-layouts) has the reference version.
-
-## Where to go next
-
-You've now built the whole everyday surface: routes, links, dynamic segments, loaders, the 404, Back/Forward, and a nested layout — each met on its own. From here:
-
-- **[Concepts](concepts.md)** — the same model end to end, plus the parts a growing app reaches for: query strings and retained global state, the loading/error `:transition` machine, blocking a navigation ("unsaved changes?"), keeping tokens off the wire, and routing on the server.
-- **[Coming from React Router](coming-from-react-router.md)** — the full mapping, and the handful of deliberate divergences.
-- **[Examples](examples.md)** — the complete app you just sketched, plus routing under real load in the RealWorld clone.
-- **[API reference](../api/re-frame.routing.md)** — every event, subscription, and helper, with signatures.
