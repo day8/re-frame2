@@ -22,6 +22,6 @@ Underneath sits [**managed HTTP**](glossary.md#managed-http) (`:rf.http/managed`
 - **[HTTP](http.md)** — managed HTTP, the transport under resources and the escape hatch for everything else.
 - **[Tutorial: Build RealWorld](tutorial/index.md)** — build a real, server-backed app (Conduit) end to end. This is the capability's worked example.
 - **[How-to](how-to/paginate-a-feed.md)** — task recipes: paginate a feed, invalidate after a mutation.
-- **[API](api.md)** — `reg-resource`, `reg-mutation`, the `:rf/resource` subscription, the cache/invalidation surface.
-- **[HTTP API](http-api.md)** — the `:rf.http/managed` effect and its reply contract.
+- **[API](../api/re-frame.resources.md)** — `reg-resource`, `reg-mutation`, the `:rf/resource` subscription, the cache/invalidation surface.
+- **[HTTP API](../api/re-frame.http.md)** — the `:rf.http/managed` effect and its reply contract.
 - **[Glossary](glossary.md)** — the server-state vocabulary in one place.

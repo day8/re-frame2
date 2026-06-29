@@ -1,26 +1,20 @@
-# 07 — HTTP
+# re-frame.http
 
-Managed HTTP is the answer to "I want my app to talk to a server, but I don't want to write a custom fx-handler every time, and I want retries / cancellation / timeouts / decode / failure-classification to be the framework's problem, not mine." `:rf.http/managed` is one fx-id that takes one args map and gives you back one reply event with one closed taxonomy of failure kinds.
-
-You don't get this for free — managed HTTP is an **optional capability**. Implementations ship it (the CLJS reference does, on Fetch in the browser and `java.net.http.HttpClient` on the JVM); ports that omit it must not reuse the `:rf.http/*` namespace for anything else. If you're using the CLJS reference, you have it; if you're vendoring a port that doesn't, you're back to writing your own.
-
-This chapter covers the canonical fx, the verb helpers, the test stubs, the request-interceptor surface, and the closed failure taxonomy. The conceptual walkthrough — args map, decode pipeline, retry semantics, reply addressing — is [Guide ch.10 — HTTP: the managed request](http.md).
-
-The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-addressed (used in an event's `:fx`):
+Managed HTTP is re-frame2's answer to "I want my app to talk to a server, but I don't want to write a custom fx-handler every time, and I want retries / cancellation / timeouts / decode / failure-classification to be the framework's problem, not mine." The `re-frame.http` namespace ships the verb-helper synthesis fns (`get`, `post`, `put`, `delete`, `patch`, `head`, `options`) that build the one canonical `[:rf.http/managed args-map]` fx; that fx, its abort/canned siblings, the request-interceptor middleware, and the test stubs are keyword-addressed or re-exported on the `re-frame.core` façade. Managed HTTP is an **optional capability** — implementations ship it (the CLJS reference does, on Fetch in the browser and `java.net.http.HttpClient` on the JVM); ports that omit it must not reuse the `:rf.http/*` namespace for anything else. If you're using the CLJS reference, you have it; if you're vendoring a port that doesn't, you're back to writing your own.
 
 ```clojure
-(:require [re-frame.http :as rf.http]
-          [re-frame.core :as rf])
+(:require [re-frame.http :as rf.http])
 ```
 
-## The canonical fx
+The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-addressed (used in an event's `:fx`), and the interceptor + test-stub surfaces (`reg-http-interceptor`, `clear-http-interceptor`, `with-managed-request-stubs`) are re-exported on the `re-frame.core` façade — so the examples below also use `[re-frame.core :as rf]`. The namespace ships in `day8/re-frame2-http`, the same artefact as the fx itself, so loading the helpers and the fx is a single dep decision.
+
+## Keyword surfaces — the managed-HTTP fx
 
 ### `[:rf.http/managed args-map]`
 
 - **Kind**: fx
-- **Args**: per [Guide ch.10 §The request is a map](http.md#the-request-is-a-map) and `:rf.fx/managed-args`
+- **Args**: per [Guide ch.10 §The request is a map](../resources/http.md#the-request-is-a-map) and `:rf.fx/managed-args`
 - **Description**: The one fx-id. Args carry the request envelope, decode policy, accept fn, retry policy, timeout, success / failure target events, request-id (for abort), and optional abort-signal.
-- **In the wild**: [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/core/managed_http_counter) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### `[:rf.http/managed-abort request-id]`
 
@@ -54,12 +48,46 @@ The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-a
 
 That's enough to issue a request, decode the JSON reply, and dispatch the result back. Retries, timeouts, schema validation, abort, decode customisation, accept-fn refinement — all of those are optional keys in the args map; you reach for them when the problem asks for them.
 
+## Reply addressing
+
+Every reply lands under `:rf/reply` in the dispatched event's payload map. Two shapes:
+
+```clojure
+;; Success
+{:rf/reply {:kind :success :value decoded-body}}
+
+;; Failure
+{:rf/reply {:kind    :failure
+            :failure {:kind  :rf.http/<category>
+                      :tags  {...}}}}
+```
+
+**Default reply addressing** dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler — your `:cart/load` handler sees the reply at `:rf/reply`. **Explicit `:on-success` / `:on-failure`** targets append the reply payload as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:rf/reply ...}]`. Both shapes detailed in [Guide ch.10 §Reading the reply](../resources/http.md#reading-the-reply-correctly).
+
+## Failure categories (closed set)
+
+Eight failure `:kind` values, all reserved under `:rf.http/*`. The set is closed — ports that ship managed HTTP deliver exactly these eight categories, and your handler's failure switch can be exhaustive.
+
+| `:kind` | Meaning |
+|---|---|
+| `:rf.http/transport` | Network / DNS / connection error pre-HTTP. |
+| `:rf.http/cors` | CORS preflight rejected (CLJS-only). |
+| `:rf.http/timeout` | Per-attempt timeout fired. |
+| `:rf.http/http-4xx` | Non-2xx 4xx response. |
+| `:rf.http/http-5xx` | Non-2xx 5xx response. |
+| `:rf.http/decode-failure` | 2xx response but decode rejected the body. |
+| `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. |
+| `:rf.http/aborted` | Request aborted via `:request-id` or `:abort-signal`. |
+
+See [Guide ch.10 §Failures are a closed set](../resources/http.md#failures-are-a-closed-set) for tags-by-kind.
+
 ## Verb helpers
 
 Call-site helpers for the common shapes. They're pure synthesis fns that produce the canonical `[:rf.http/managed args-map]` fx vector — no magic, no hidden state. The point is ergonomics: writing `(rf.http/get "/api/cart")` reads better at the call site than spelling out the full args map for a no-frills GET.
 
-### `re-frame.http/get`
+### `get`
 
+- **Kind**: function
 - **Signature**:
   ```clojure
   (rf.http/get url)
@@ -67,8 +95,9 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   ```
 - **Description**: "Synthesise a GET fx vector." Pure; no side effect — drop the result into `:fx`.
 
-### `re-frame.http/post`
+### `post`
 
+- **Kind**: function
 - **Signature**:
   ```clojure
   (rf.http/post url)
@@ -83,8 +112,9 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
                        :on-success [:items/created]})]}
   ```
 
-### `re-frame.http/put`
+### `put`
 
+- **Kind**: function
 - **Signature**:
   ```clojure
   (rf.http/put url)
@@ -99,8 +129,9 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
                       :request-id [:item :update 42]})]}
   ```
 
-### `re-frame.http/delete`
+### `delete`
 
+- **Kind**: function
 - **Signature**:
   ```clojure
   (rf.http/delete url)
@@ -113,8 +144,9 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
                         {:on-failure [:item/delete-failed]})]}
   ```
 
-### `re-frame.http/patch`
+### `patch`
 
+- **Kind**: function
 - **Signature**:
   ```clojure
   (rf.http/patch url)
@@ -129,8 +161,9 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
                         :on-success [:items/patched]})]}
   ```
 
-### `re-frame.http/head`
+### `head`
 
+- **Kind**: function
 - **Signature**:
   ```clojure
   (rf.http/head url)
@@ -143,8 +176,9 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
                       {:on-success [:items/exists?]})]}
   ```
 
-### `re-frame.http/options`
+### `options`
 
+- **Kind**: function
 - **Signature**:
   ```clojure
   (rf.http/options url)
@@ -167,52 +201,18 @@ The verb helpers live in `re-frame.http` — users `(:require [re-frame.http :as
                       :backoff-ms 100}})]}
 ```
 
-## Reply addressing
-
-Every reply lands under `:rf/reply` in the dispatched event's payload map. Two shapes:
-
-```clojure
-;; Success
-{:rf/reply {:kind :success :value decoded-body}}
-
-;; Failure
-{:rf/reply {:kind    :failure
-            :failure {:kind  :rf.http/<category>
-                      :tags  {...}}}}
-```
-
-**Default reply addressing** dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler — your `:cart/load` handler sees the reply at `:rf/reply`. **Explicit `:on-success` / `:on-failure`** targets append the reply payload as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:rf/reply ...}]`. Both shapes detailed in [Guide ch.10 §Reading the reply](http.md#reading-the-reply-correctly).
-
-## Failure categories (closed set)
-
-Eight failure `:kind` values, all reserved under `:rf.http/*`. The set is closed — ports that ship managed HTTP deliver exactly these eight categories, and your handler's failure switch can be exhaustive.
-
-| `:kind` | Meaning |
-|---|---|
-| `:rf.http/transport` | Network / DNS / connection error pre-HTTP. |
-| `:rf.http/cors` | CORS preflight rejected (CLJS-only). |
-| `:rf.http/timeout` | Per-attempt timeout fired. |
-| `:rf.http/http-4xx` | Non-2xx 4xx response. |
-| `:rf.http/http-5xx` | Non-2xx 5xx response. |
-| `:rf.http/decode-failure` | 2xx response but decode rejected the body. |
-| `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. |
-| `:rf.http/aborted` | Request aborted via `:request-id` or `:abort-signal`. |
-
-See [Guide ch.10 §Failures are a closed set](http.md#failures-are-a-closed-set) for tags-by-kind.
-
 ## Request-interceptor middleware
 
-Sometimes you want to inject behaviour into every request — adding an auth header, stamping a request ID, logging. Re-frame2's answer is a small middleware surface that mirrors the rest of the `reg-*` family.
+Sometimes you want to inject behaviour into every request — adding an auth header, stamping a request ID, logging. Re-frame2's answer is a small middleware surface that mirrors the rest of the `reg-*` family. Both surfaces are re-exported on the `re-frame.core` façade.
 
 ### `reg-http-interceptor`
 
-- **Kind**: function
+- **Kind**: macro
 - **Signature**:
   ```clojure
   (reg-http-interceptor id interceptor-map)
   ```
 - **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (the explicit-frame *override*) and the standard `:rf/registration-metadata`. The target frame is the explicit `:frame`, else the carried scope it registers under (`with-frame` / an `:initial-events` step); registering under **no** scope raises `:rf.error/no-frame-context` — there is no `:rf/default` default. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
-- **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http)
 
 ### `clear-http-interceptor`
 
@@ -241,11 +241,11 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
              (assoc resp :elapsed-ms (- (js/Date.now) (::started ctx))))})
 ```
 
-The `:before` runs before the request is dispatched to the platform's HTTP client; the `:after` runs after the response is built and BEFORE `:on-success` / `:on-failure` fire. If either throws, the corresponding side is not delivered (request: not dispatched; response: reply suppressed) and `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, `:cause`, and `:phase`. See [Guide ch.10 §Interceptors](http.md#interceptors-stamp-every-request-once).
+The `:before` runs before the request is dispatched to the platform's HTTP client; the `:after` runs after the response is built and BEFORE `:on-success` / `:on-failure` fire. If either throws, the corresponding side is not delivered (request: not dispatched; response: reply suppressed) and `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, `:cause`, and `:phase`. See [Guide ch.10 §Interceptors](../resources/http.md#interceptors-stamp-every-request-once).
 
 ## Testing: stubbed responses
 
-Tests want to drive the cascade without hitting the network. The test-support surface provides canned-reply fx and a stubbing macro that reroutes requests at the routes you name.
+Tests want to drive the cascade without hitting the network. The test-support surface provides canned-reply fx and a stubbing macro that reroutes requests at the routes you name. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install` / `uninstall` pair is reached only through the home namespace `re-frame.http.test-support`.
 
 ### `[:rf.http/managed-canned-success {:value v}]`
 
@@ -333,7 +333,7 @@ Tests want to drive the cascade without hitting the network. The test-support su
   (re-frame.http.test-support/uninstall-managed-request-stubs!)
   ```
 
-All the test-support surfaces live in `re-frame.http.test-support`. One namespace; same artefact (`day8/re-frame2-http`) as the production code. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install`/`uninstall` pair is reached only through the home namespace.
+All the test-support surfaces live in `re-frame.http.test-support`. One namespace; same artefact (`day8/re-frame2-http`) as the production code.
 
 ```clojure
 (deftest cart-loads
@@ -345,11 +345,11 @@ All the test-support surfaces live in `re-frame.http.test-support`. One namespac
 
 ## Schema-reflection metadata
 
-Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — pure metadata for tooling. See [08 — Schemas](../core/api/08-schemas.md).
+Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — pure metadata for tooling. See [re-frame.schemas.md](re-frame.schemas.md).
 
 ## Privacy and classification
 
-HTTP is the canonical privacy surface in any app: passwords ride request bodies, auth tokens ride request headers, PII rides response bodies. The framework keeps these off its own observability wire — traces, off-box records, SSR payloads — without you writing a `beforeSend` scrub. Four declaration surfaces cooperate, none of them a process-global mutation. The conceptual walkthrough is [Guide ch.10 §Keeping secrets out of the trace](http.md#keeping-secrets-out-of-the-trace); the model end-to-end is [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+HTTP is the canonical privacy surface in any app: passwords ride request bodies, auth tokens ride request headers, PII rides response bodies. The framework keeps these off its own observability wire — traces, off-box records, SSR payloads — without you writing a `beforeSend` scrub. Four declaration surfaces cooperate, none of them a process-global mutation. The conceptual walkthrough is [Guide ch.10 §Keeping secrets out of the trace](../resources/http.md#keeping-secrets-out-of-the-trace); the model end-to-end is [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 
 | Surface | What it covers | Where declared |
 |---|---|---|
@@ -395,7 +395,7 @@ The denylists and `:sensitive?` flag cover request carriers; the **response body
 
 !!! warning "Classification does not propagate — declare each surface a secret crosses"
 
-    A token in the response body (classified by the `:decode` schema) and the same token stored durably in `app-db` are **two** declarations on two surfaces. There is no propagation that carries one to the other. When `:on-success` writes the token into `app-db`, classify that durable path too — a `reg-event` returning `:sensitive [[:auth :token]]` alongside `:db` ([01 — Core §Standard events](../core/api/01-core.md) and [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md)). And never copy a secret into a sibling app-db path you have not classified (e.g. a JWT duplicated at `[:auth :user :token]`): the copy ships raw until *that* path is classified or the duplicate is dropped.
+    A token in the response body (classified by the `:decode` schema) and the same token stored durably in `app-db` are **two** declarations on two surfaces. There is no propagation that carries one to the other. When `:on-success` writes the token into `app-db`, classify that durable path too — a `reg-event` returning `:sensitive [[:auth :token]]` alongside `:db` ([re-frame.core.md §Standard events](re-frame.core.md) and [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md)). And never copy a secret into a sibling app-db path you have not classified (e.g. a JWT duplicated at `[:auth :user :token]`): the copy ships raw until *that* path is classified or the duplicate is dropped.
 
 ## Trace events emitted by `:rf.http/managed`
 
@@ -408,9 +408,8 @@ The denylists and `:sensitive?` flag cover request carriers; the **response body
 
 ## See also
 
-- [03 — Effects and interceptors](../core/api/03-effects.md) — `:rf.http/managed` rowed in the standard fx table.
-- [08 — Schemas](../core/api/08-schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
-- [10 — Testing](../core/api/10-testing.md) — patterns for combining HTTP stubs with `dispatch-sequence`.
-- [11 — Instrumentation](../core/api/11-instrumentation.md) — `project-egress`, the wire-boundary walker, and the observability-sink surface.
+- [re-frame.core.md](re-frame.core.md) — `:rf.http/managed` rowed in the standard fx table; `:sensitive` on Standard events; and the instrumentation/egress surface (`project-egress`, the wire-boundary walker, the observability-sink registration).
+- [re-frame.schemas.md](re-frame.schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
+- [re-frame.test-support.md](re-frame.test-support.md) — patterns for combining HTTP stubs with `dispatch-sequence`.
 - [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — the full classification + projection model.
-- [Guide ch.10 — HTTP: the managed request](http.md) — the conceptual walkthrough (incl. §Keeping secrets out of the trace).
+- [Guide ch.10 — HTTP: the managed request](../resources/http.md) — the conceptual walkthrough (incl. §Keeping secrets out of the trace).

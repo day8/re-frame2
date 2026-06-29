@@ -77,10 +77,9 @@ on:
       - 'spec/Privacy.md'
       - 'docs/core/api/**'
       - 'docs/story/api/**'
-      # Per-capability API docs (rf2-earvtz): the #4961 reorg moved each
-      # capability's API reference to docs/<cap>/api.md; doc-api-check now scans
-      # them, so a PR touching only one must run the api-manifest job.
-      - 'docs/*/api.md'
+      # API reference: one doc per namespace under docs/api/; doc-api-check
+      # scans them, so a PR touching one must run the api-manifest job.
+      - 'docs/api/**'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # above). The lint surface is re-applied job-side via the `detect` job.
   pull_request:
@@ -163,7 +162,7 @@ jobs:
               # A pure-doc PR touching them must still run the drift-check. The
               # per-capability API docs (docs/<cap>/api.md from the #4961 reorg)
               # are scanned by doc-api-check now too (rf2-earvtz).
-              spec/Privacy.md|docs/core/api/*|docs/story/api/*|docs/*/api.md)
+              spec/Privacy.md|docs/api/*|docs/story/api/*)
                 lint_surface=true ;;
             esac
           done <<< "$files"

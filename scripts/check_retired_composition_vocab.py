@@ -125,7 +125,7 @@ from typing import Iterable, NamedTuple
 # The human-facing + AI-facing doc surface EP-0023 governs: the API reference,
 # the guide, the spec, and the skills docs. (docs/EP rides under docs/ via the
 # `docs/core`-sibling tree, but every EP doc is allowlisted below.)
-DEFAULT_SCAN_DIRS = ("docs/core", "docs/EP", "spec", "skills")
+DEFAULT_SCAN_DIRS = ("docs/core", "docs/api", "docs/EP", "spec", "skills")
 
 # rf2-lq99wc — the per-tool spec trees (`tools/<tool>/spec/`) are a teaching
 # surface too: the Xray / Pair-MCP / Story tool specs document the host model a

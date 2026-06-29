@@ -21,5 +21,5 @@ You dispatch events to drive the transitions; the snapshot moves, and the views 
 ## In this section
 
 - **[Concepts](concepts.md)** — states, transitions, guards, actions, snapshots, tags, spawning: how machines actually work.
-- **[API](api.md)** — `reg-machine`, the machine effects and the `:rf/machine` subscription, `machine-has-tag?`.
+- **[API](../api/re-frame.machines.md)** — `reg-machine`, the machine effects and the `:rf/machine` subscription, `machine-has-tag?`.
 - **[Glossary](glossary.md)** — the machine vocabulary in one place.

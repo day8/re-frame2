@@ -101,7 +101,7 @@ from typing import Iterable, NamedTuple
 
 # The human-facing + AI-facing doc surface EP-0017 finding 2 names: the API
 # reference, the guide, the spec, and the skills docs.
-DEFAULT_SCAN_DIRS = ("docs/core", "spec", "skills")
+DEFAULT_SCAN_DIRS = ("docs/core", "docs/api", "spec", "skills")
 
 _DOC_SUFFIXES = (".md",)
 

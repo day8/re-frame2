@@ -20,7 +20,7 @@ You install it once, at boot, by passing it to `init!`:
 
 To switch substrate you change that one line — require `re-frame.adapter.uix` or `re-frame.adapter.helix` and pass *its* `adapter`. Nothing else moves: your events, subscriptions, and app-db are substrate-agnostic.
 
-Related: [Views](concepts/views.md), [Adapters](api/14-adapters.md). Don't confuse it with the [substrate](#substrate) — the substrate is the rendering library; the adapter is the value that binds re-frame2 to it.
+Related: [Views](concepts/views.md), [Adapters](../api/re-frame.adapter.reagent.md). Don't confuse it with the [substrate](#substrate) — the substrate is the rendering library; the adapter is the value that binds re-frame2 to it.
 
 ### **app-db**
 
@@ -53,7 +53,7 @@ A handler's first argument is its coeffects map. It always carries `:db` (the cu
     {:db (assoc db :order/date today)}))
 ```
 
-You make a coeffect available by registering a supplier for it with [`reg-cofx`](api/01-core.md#reg-cofx):
+You make a coeffect available by registering a supplier for it with [`reg-cofx`](../api/re-frame.core.md#reg-cofx):
 
 ```clojure
 (rf/reg-cofx :today
@@ -73,7 +73,7 @@ A single side effect, described as data for the framework to perform — an HTTP
 [:dispatch-later {:ms 500 :event [:cart/saved]}]   ;; one effect
 ```
 
-The [event handler](#event-handler) only *describes* the effect; the runtime performs it, via the [effect handler](#effect-handler) you registered for that `effect-id` with [`reg-fx`](api/01-core.md#reg-fx). Effects are the output side of an event — the dual of its input [coeffects](#coeffect) — and keeping them as data, rather than doing them inline, is what makes events pure and testable.
+The [event handler](#event-handler) only *describes* the effect; the runtime performs it, via the [effect handler](#effect-handler) you registered for that `effect-id` with [`reg-fx`](../api/re-frame.core.md#reg-fx). Effects are the output side of an event — the dual of its input [coeffects](#coeffect) — and keeping them as data, rather than doing them inline, is what makes events pure and testable.
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
@@ -109,7 +109,7 @@ It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace 
       [:dispatch-later {:ms 500 :event [:cart/saved]}]]}
 ```
 
-`:db` and `:fx` are the only top-level keys application code may return; an unknown key fails loud. Each effect is performed by an [effect handler](#effect-handler); register your own with [`reg-fx`](api/01-core.md#reg-fx).
+`:db` and `:fx` are the only top-level keys application code may return; an unknown key fails loud. Each effect is performed by an [effect handler](#effect-handler); register your own with [`reg-fx`](../api/re-frame.core.md#reg-fx).
 
 Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). The `:fx` key is why effects are often just called "fx".
 
@@ -217,7 +217,7 @@ You declare the `:inputs` to watch, a pure `:derive` function, and the `:output-
    :output-path [:cart :total]})
 ```
 
-Reach for a flow to collate or collapse many facts into one — e.g. folding several error flags into a single `:any-errors?`. Inputs may also read framework state (a path under `:rf.db/runtime`), and flows can be [added and removed dynamically](api/05-flows.md#runtime-registration-via-fx) via effects.
+Reach for a flow to collate or collapse many facts into one — e.g. folding several error flags into a single `:any-errors?`. Inputs may also read framework state (a path under `:rf.db/runtime`), and flows can be [added and removed dynamically](../api/re-frame.flows.md) via effects.
 
 Related: [Flows](concepts/flows.md), [toggling a derivation at runtime](concepts/flows.md#toggling-a-derivation-at-runtime).
 
@@ -333,7 +333,7 @@ For example, this registration says: when the runtime sees the event id `:cart/a
     {:db (update db :cart/items conj item)}))
 ```
 
-[Core](api/01-core.md) registration:
+[Core](../api/re-frame.core.md) registration:
 
 - `reg-event` registers an [event handler](#event-handler).
 - `reg-sub` registers a [subscription](#subscription).
@@ -368,7 +368,7 @@ HTTP registration:
 
 - `reg-http-interceptor` registers managed-HTTP middleware.
 
-[Resource](../resources/api.md) registration:
+[Resource](../api/re-frame.resources.md) registration:
 
 - `reg-resource` registers a [resource](../resources/glossary.md#resource).
 - `reg-mutation` registers a [mutation](../resources/glossary.md#mutation).
@@ -482,7 +482,7 @@ Related: [Observability](concepts/observability.md). Name DCE once, then use **e
 
 The one-time boot call that installs a [substrate](#substrate) [adapter](#adapter) into the runtime — `(rf/init! reagent-adapter/adapter)`. Idempotent, called once at startup. It does *not* create a default [frame](#frame) (identity is carried, not found); you register your root frame explicitly.
 
-Related: [Adapters](api/14-adapters.md).
+Related: [Adapters](../api/re-frame.adapter.reagent.md).
 
 ### **project (egress)**
 
