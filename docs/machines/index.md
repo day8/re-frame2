@@ -22,7 +22,8 @@ You dispatch events to drive the transitions; the snapshot moves, and the views 
 
 **Start here**
 
-- **[Concepts](concepts.md)** — the core model: states, transitions, guards, actions, the `{:data :fx}` effect map, the snapshot, and testing transitions as pure calls.
+- **[Tutorial: build a login machine](tutorial.md)** — the hands-on path: build one machine step by step (states → guards → actions → a real server call → a view → a test).
+- **[Concepts](concepts.md)** — the whole model at once: states, transitions, guards, actions, the `{:data :fx}` effect map, the snapshot, and testing transitions as pure calls.
 
 **Structuring states**
 

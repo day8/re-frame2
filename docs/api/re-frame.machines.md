@@ -124,17 +124,20 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (re-frame.machines/machine-transition definition snapshot event) → [next-snapshot effects]
+  (re-frame.machines/machine-transition definition snapshot event) → result/Result
   ```
-- **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns the next snapshot and the effect map. JVM-runnable; the conformance harness uses this as its primary test surface for machine behaviour.
-- **Worked example** — drive a transition and assert on the snapshot (JVM-runnable, no live frame needed):
+- **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns a `re-frame.machines.result/Result` — a map carrying the new snapshot under `::result/snap` and the effects vector under `::result/fx` (or a *failure* value if an action / `:data`-fn threw). Discriminate with `result/ok?` / `result/fail?`; destructure `::result/snap` / `::result/fx`. JVM-runnable, no live frame needed — this is the primary surface for unit-testing machine behaviour.
+- **Worked example** — drive a transition and assert on the snapshot:
   ```clojure
-  (let [definition          (machines/machine-meta :session)
-        snapshot            {:state :anonymous :data {}}
-        [next-snap effects] (machines/machine-transition definition snapshot [:login {:user "alice"}])]
-    (is (= :authenticating (:state next-snap)))
-    (is (= "alice" (get-in next-snap [:data :credentials :user])))
-    (is (= :rf.http/managed (ffirst (:fx effects)))))
+  (require '[re-frame.machines :as machines]
+           '[re-frame.machines.result :as result])
+
+  (let [{snap ::result/snap fx ::result/fx}
+        (machines/machine-transition login-flow
+                                     {:state :idle :data {}}
+                                     [:auth.login/submit {:email "a@b.com" :password "secret"}])]
+    (is (= :submitting (:state snap)))
+    (is (= :rf.http/managed (ffirst fx))))   ;; the :submitting :entry fired the request
   ```
 
 ## Inspection and queries
