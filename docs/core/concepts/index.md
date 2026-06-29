@@ -148,7 +148,7 @@ And everything else is built *on* the loop, never beside it:
 |---|---|
 | Derived values your handlers can read | [Flows](flows.md) |
 | Modes and transitions made explicit | [State machines](../../machines/concepts.md) |
-| The managed HTTP request | [HTTP](../../resources/http.md) |
+| The managed HTTP request | [HTTP](../../async/http.md) |
 | Server data, cached and invalidated | [Server state: resources](../../resources/concepts.md) |
 | The URL as just another input | [Routing: the URL is a sub](../../routing/concepts.md) |
 | Rendering on the server | [Server-side rendering](../../ssr/concepts.md) |

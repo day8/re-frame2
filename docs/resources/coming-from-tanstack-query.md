@@ -140,7 +140,7 @@ In re-frame2 the cache is a subsystem of [runtime-db](../core/glossary.md#runtim
 
 ## Where do auth headers go?
 
-Every example here hits a bare `/api/...` URL, which raises the obvious migrant question: where do auth headers, tracing headers, the base URL, and tenant headers live? **Not on the resource.** A resource's (or mutation's) `:request` fn describes the *domain* request only — method, url, params, body, `:decode`. Cross-cutting decoration belongs to the [managed-HTTP](http.md) layer the resource lowers through, applied once by a frame-registered `reg-http-interceptor` that decorates *every* `:rf.http/managed` request the frame issues — reads, writes, and plain managed calls alike ([Spec 016 §Request decoration belongs to the managed-HTTP seam](../../spec/016-Resources.md#request-decoration-belongs-to-the-managed-http-seam-not-the-resource-declaration)):
+Every example here hits a bare `/api/...` URL, which raises the obvious migrant question: where do auth headers, tracing headers, the base URL, and tenant headers live? **Not on the resource.** A resource's (or mutation's) `:request` fn describes the *domain* request only — method, url, params, body, `:decode`. Cross-cutting decoration belongs to the [managed-HTTP](../async/http.md) layer the resource lowers through, applied once by a frame-registered `reg-http-interceptor` that decorates *every* `:rf.http/managed` request the frame issues — reads, writes, and plain managed calls alike ([Spec 016 §Request decoration belongs to the managed-HTTP seam](../../spec/016-Resources.md#request-decoration-belongs-to-the-managed-http-seam-not-the-resource-declaration)):
 
 ```clojure
 (rf/reg-http-interceptor :realworld/auth
@@ -159,7 +159,7 @@ A query library is the obvious default in React because it's the *only* server-s
 
 > **Simpler than a resource.** Two cases where reaching for the resources artefact is over-engineering:
 >
-> - **A handful of reads, no caching story.** A [managed HTTP request](http.md) plus a small app-db slice is less machinery and entirely idiomatic.
+> - **A handful of reads, no caching story.** A [managed HTTP request](../async/http.md) plus a small app-db slice is less machinery and entirely idiomatic.
 > - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../machines/concepts.md), not a cached read.
 
 Reach for resources when cached server reads start multiplying and the per-read bookkeeping — scope, staleness, dedupe, invalidation, GC, SSR — is worth moving into the framework. [Where should this value live?](../core/where-state-lives.md) has the decision table, and resources are one of [the four homes](../core/glossary.md#the-four-homes-where-state-lives) state can take.
@@ -223,6 +223,6 @@ Three command names earn a sentence each, because a query-library reader reaches
 
 ---
 
-The throughline: TanStack Query optimises for *getting a cached read onto the screen with one hook call*, and it's superb at that. re-frame2 optimises for *the cache being declared, inspectable data that can't leak and whose every fetch and invalidation is causally recorded* — and accepts a bit more ceremony at the call site to get there. If your app has two reads, that trade isn't worth it (the concepts page is blunt about this: reach for [managed HTTP](http.md) plus a small app-db slice instead). When cached reads start multiplying — and especially when "whose data is this" and "what made this stale" start mattering — the structural version earns its keep.
+The throughline: TanStack Query optimises for *getting a cached read onto the screen with one hook call*, and it's superb at that. re-frame2 optimises for *the cache being declared, inspectable data that can't leak and whose every fetch and invalidation is causally recorded* — and accepts a bit more ceremony at the call site to get there. If your app has two reads, that trade isn't worth it (the concepts page is blunt about this: reach for [managed HTTP](../async/http.md) plus a small app-db slice instead). When cached reads start multiplying — and especially when "whose data is this" and "what made this stale" start mattering — the structural version earns its keep.
 
 For the full model built up from a single read, see [Server state: resources](concepts.md). The glossary is at [Resources & Server State glossary](glossary.md).

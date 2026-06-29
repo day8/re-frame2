@@ -35,7 +35,7 @@
 
    Every Conduit endpoint goes out via `:rf.http/managed`. The demo entry
    below swaps in a canned-stub override so the app runs with no network at
-   all. See the HTTP guide: ../../../docs/resources/http.md"
+   all. See the HTTP guide: ../../../docs/async/http.md"
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -468,7 +468,7 @@
 ;; source of truth, and this interceptor is the single place that reads it.
 ;; The day the token changes, you change it once. See the HTTP guide on
 ;; interceptors:
-;; ../../../docs/resources/http.md#interceptors-stamp-every-request-once
+;; ../../../docs/async/http.md#interceptors-stamp-every-request-once
 ;;
 ;; No token? It hands the ctx straight back, so login, register, and
 ;; public-read endpoints sail through unsigned, exactly as they should.

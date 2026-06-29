@@ -231,7 +231,7 @@
          carries `:request-id :articles/load`, which buys two things: re-issue
          it (the user flips to a different tag mid-load) and the new request
          supersedes the in-flight one, and `:articles/cancel` can abort it
-         outright. See the HTTP guide: ../../../docs/resources/http.md
+         outright. See the HTTP guide: ../../../docs/async/http.md
 
          It also broadcasts `:fetch-started` into the home machine, nudging the
          `:data` region to `:loading` (or `:refreshing`, if a list is already
@@ -306,7 +306,7 @@
   {:doc "Abort an in-flight :articles/load — say the user wanders off the home
          page before it lands. No sense letting a reply arrive for a screen
          nobody's looking at. See the HTTP guide on aborts:
-         ../../../docs/resources/http.md#the-search-box-race-cured"}
+         ../../../docs/async/http.md#the-search-box-race-cured"}
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :articles/load]]}))
 

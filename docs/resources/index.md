@@ -14,14 +14,10 @@ re-frame2's **resources** capability makes server state declarative. You registe
 ;; => {:status :loading}  …then {:status :loaded :value {...}}
 ```
 
-Underneath sits [**managed HTTP**](glossary.md#managed-http) (`:rf.http/managed`) — you describe a request as data and the runtime drives its whole lifecycle, dispatching the result back as an ordinary event. Resources are the high-level cache; managed HTTP is the transport they ride on, and it's here for the requests that aren't cached reads.
+Underneath sits [**managed HTTP**](../async/index.md) (`:rf.http/managed`) — you describe a request as data and the runtime drives its whole lifecycle, dispatching the result back as an ordinary event. Resources are the high-level cache; managed HTTP — now its own section, [Async (HTTP)](../async/index.md) — is the transport they ride on, and it's there for the requests that aren't cached reads.
 
 ## In this section
 
-- **[Concepts](concepts.md)** — resources, mutations, the cache, scope, invalidation, optimistic updates: how server state works.
-- **[HTTP](http.md)** — managed HTTP, the transport under resources and the escape hatch for everything else.
-- **[Tutorial: Build RealWorld](tutorial/index.md)** — build a real, server-backed app (Conduit) end to end. This is the capability's worked example.
+- **[Concepts](concepts.md)** — resources, mutations, the cache, scope, invalidation, optimistic updates: how server state works.- **[Tutorial: Build RealWorld](tutorial/index.md)** — build a real, server-backed app (Conduit) end to end. This is the capability's worked example.
 - **[How-to](how-to/paginate-a-feed.md)** — task recipes: paginate a feed, invalidate after a mutation.
-- **[API](../api/re-frame.resources.md)** — `reg-resource`, `reg-mutation`, the `:rf/resource` subscription, the cache/invalidation surface.
-- **[HTTP API](../api/re-frame.http.md)** — the `:rf.http/managed` effect and its reply contract.
-- **[Glossary](glossary.md)** — the server-state vocabulary in one place.
+- **[API](../api/re-frame.resources.md)** — `reg-resource`, `reg-mutation`, the `:rf/resource` subscription, the cache/invalidation surface.- **[Glossary](glossary.md)** — the server-state vocabulary in one place.

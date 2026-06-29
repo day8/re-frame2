@@ -176,7 +176,7 @@
 ;; talk to, so it ships its own little stub that delegates to the
 ;; framework's canned-success / canned-failure fxs. That's what lets the
 ;; control panel conjure Empty / One / Some / Too Many on demand, no
-;; backend required. See [managed HTTP](../../../docs/resources/http.md).
+;; backend required. See [managed HTTP](../../../docs/async/http.md).
 
 (defn- gen-todos [n]
   (vec (for [i (range n)]

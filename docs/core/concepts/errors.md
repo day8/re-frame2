@@ -67,7 +67,7 @@ The full catalogue — every category, its trigger, its `:tags` payload, its rec
 
 When an error fires, the runtime applies a typed, per-category default. That's the whole story. There's no app-steering error policy here: no global error handler, no hook that swallows an exception or substitutes a result.
 
-Swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](../../resources/http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
+Swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery belongs at the source, for *expected* failures, where "recovery" actually means something: [managed HTTP's](../../async/http.md) `:retry` for a flaky network, or a defensive default at a read. And the framework never re-runs a failing handler behind your back — when you want to try again, you [dispatch](../glossary.md#dispatch) a fresh event.
 
 The `:recovery` vocabulary is small and readable on sight:
 

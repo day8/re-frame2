@@ -13,7 +13,7 @@ The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-a
 ### `[:rf.http/managed args-map]`
 
 - **Kind**: fx
-- **Args**: per [Guide ch.10 §The request is a map](../resources/http.md#the-request-is-a-map) and `:rf.fx/managed-args`
+- **Args**: per [Managed HTTP — The request is a map](../async/http.md#the-request-is-a-map) and `:rf.fx/managed-args`
 - **Description**: The one fx-id. Args carry the request envelope, decode policy, accept fn, retry policy, timeout, success / failure target events, request-id (for abort), and optional abort-signal.
 
 ### `[:rf.http/managed-abort request-id]`
@@ -62,7 +62,7 @@ Every reply lands under `:rf/reply` in the dispatched event's payload map. Two s
                       :tags  {...}}}}
 ```
 
-**Default reply addressing** dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler — your `:cart/load` handler sees the reply at `:rf/reply`. **Explicit `:on-success` / `:on-failure`** targets append the reply payload as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:rf/reply ...}]`. Both shapes detailed in [Guide ch.10 §Reading the reply](../resources/http.md#reading-the-reply-correctly).
+**Default reply addressing** dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler — your `:cart/load` handler sees the reply at `:rf/reply`. **Explicit `:on-success` / `:on-failure`** targets append the reply payload as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:rf/reply ...}]`. Both shapes detailed in [Managed HTTP — Reading the reply](../async/http.md#reading-the-reply-correctly).
 
 ## Failure categories (closed set)
 
@@ -79,7 +79,7 @@ Eight failure `:kind` values, all reserved under `:rf.http/*`. The set is closed
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. |
 | `:rf.http/aborted` | Request aborted via `:request-id` or `:abort-signal`. |
 
-See [Guide ch.10 §Failures are a closed set](../resources/http.md#failures-are-a-closed-set) for tags-by-kind.
+See [Managed HTTP — Failures are a closed set](../async/http.md#failures-are-a-closed-set) for tags-by-kind.
 
 ## Verb helpers
 
@@ -241,7 +241,7 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
              (assoc resp :elapsed-ms (- (js/Date.now) (::started ctx))))})
 ```
 
-The `:before` runs before the request is dispatched to the platform's HTTP client; the `:after` runs after the response is built and BEFORE `:on-success` / `:on-failure` fire. If either throws, the corresponding side is not delivered (request: not dispatched; response: reply suppressed) and `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, `:cause`, and `:phase`. See [Guide ch.10 §Interceptors](../resources/http.md#interceptors-stamp-every-request-once).
+The `:before` runs before the request is dispatched to the platform's HTTP client; the `:after` runs after the response is built and BEFORE `:on-success` / `:on-failure` fire. If either throws, the corresponding side is not delivered (request: not dispatched; response: reply suppressed) and `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, `:cause`, and `:phase`. See [Managed HTTP — Interceptors](../async/http.md#interceptors-stamp-every-request-once).
 
 ## Testing: stubbed responses
 
@@ -349,7 +349,7 @@ Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-even
 
 ## Privacy and classification
 
-HTTP is the canonical privacy surface in any app: passwords ride request bodies, auth tokens ride request headers, PII rides response bodies. The framework keeps these off its own observability wire — traces, off-box records, SSR payloads — without you writing a `beforeSend` scrub. Four declaration surfaces cooperate, none of them a process-global mutation. The conceptual walkthrough is [Guide ch.10 §Keeping secrets out of the trace](../resources/http.md#keeping-secrets-out-of-the-trace); the model end-to-end is [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+HTTP is the canonical privacy surface in any app: passwords ride request bodies, auth tokens ride request headers, PII rides response bodies. The framework keeps these off its own observability wire — traces, off-box records, SSR payloads — without you writing a `beforeSend` scrub. Four declaration surfaces cooperate, none of them a process-global mutation. The conceptual walkthrough is [Managed HTTP — Keeping secrets out of the trace](../async/http.md#keeping-secrets-out-of-the-trace); the model end-to-end is [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 
 | Surface | What it covers | Where declared |
 |---|---|---|
@@ -412,4 +412,4 @@ The denylists and `:sensitive?` flag cover request carriers; the **response body
 - [re-frame.schemas.md](re-frame.schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
 - [re-frame.test-support.md](re-frame.test-support.md) — patterns for combining HTTP stubs with `dispatch-sequence`.
 - [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — the full classification + projection model.
-- [Guide ch.10 — HTTP: the managed request](../resources/http.md) — the conceptual walkthrough (incl. §Keeping secrets out of the trace).
+- [Managed HTTP](../async/http.md) — the conceptual walkthrough (incl. §Keeping secrets out of the trace).

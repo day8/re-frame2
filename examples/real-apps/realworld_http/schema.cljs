@@ -88,7 +88,7 @@
 ;; singular or plural top-level key. These schemas describe that envelope, and
 ;; they're what you pass as `:decode` to `:rf.http/managed` so the body gets
 ;; validated on the way in. See the HTTP guide on `:decode`:
-;; ../../../docs/resources/http.md#validating-the-body-with-decode
+;; ../../../docs/async/http.md#validating-the-body-with-decode
 
 (def UserResponse
   "POST /users/login, POST /users (register), GET /user."

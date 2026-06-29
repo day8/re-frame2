@@ -574,7 +574,7 @@ Every managed async surface (HTTP, resources, mutations, route loaders, machine 
 [:auth/login-reply {:kind :success :value {:token "…"}}]
 ```
 
-Related: [Managed HTTP](../resources/http.md).
+Related: [Managed HTTP](../async/http.md).
 
 
 ### **The derivation graph**

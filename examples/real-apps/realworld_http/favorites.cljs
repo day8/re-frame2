@@ -86,7 +86,7 @@
   {:doc "Abort an in-flight :feed/load — say the user leaves before it lands.
          No point delivering a reply to a screen that's gone. See the HTTP
          guide on aborts:
-         ../../../docs/resources/http.md#the-search-box-race-cured"}
+         ../../../docs/async/http.md#the-search-box-race-cured"}
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :feed/load]]}))
 
