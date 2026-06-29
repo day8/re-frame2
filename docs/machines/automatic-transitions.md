@@ -240,12 +240,3 @@ A `:timeout` duration is **exactly one of**:
 - an **ISO-8601 duration string** — `"PT5S"`, `"PT2M"`, `"PT1H30M"`, `"PT0.5S"`, `"P1D"`, … (the `PnYnMnWnDTnHnMnS` form; case-insensitive; fractional seconds allowed).
 
 > **Divergence from XState.** XState v6 also accepts a readable shorthand like `"10ms"` / `"5s"`. re-frame2 **rejects** it: a `"5s"` / `"10ms"` string — or any other malformed duration (a non-positive integer, a fn, a vector, the bare `"P"`) — fails **loud** at registration with `:rf.error/machine-bad-timeout-duration`. And unlike `:after`, a `:timeout` admits **no** subscription-vector or fn dynamic delays — a timeout is a fixed wall-clock deadline. The integer-ms-or-ISO-8601 rule is the single duration grammar; the shorthand string is gone on purpose.
-
-## Further reading
-
-- **Spec — [005 State Machines](../../spec/005-StateMachines.md)** is the normative contract. The sections behind this page: [Eventless `:always`](../../spec/005-StateMachines.md#eventless-always-transitions), [`:type :choice`](../../spec/005-StateMachines.md#type-choice-transient--choice-states), [Delayed `:after`](../../spec/005-StateMachines.md#delayed-after-transitions), and [`:timeout` / `:on-timeout`](../../spec/005-StateMachines.md#timeout--on-timeout-state--spawn) — for the exhaustive trace-event lists, hierarchy interactions, and the full error taxonomy.
-- **[Machines API](../api/re-frame.machines.md)** — `reg-machine`, the `[:rf/machine …]` subscription, and the reserved `:rf.machine/*` effects, including `[:raise event-vec]`.
-- **[Machines concepts](concepts.md)** and the **[glossary](glossary.md)** for the rest of the model; **[Coming from XState](coming-from-xstate.md)** for the full v6 parity delta.
-- **[WebSocket example](../../examples/patterns/websocket/README.md)** — a runnable machine using `:after` backoff and `:always` cascades together.
-
-These four features realise long-standing statechart ideas — eventless/transient transitions, choice pseudostates, and delayed transitions. For the broader theory they map from, see the [XState statecharts docs](https://stately.ai/docs/state-machines-and-statecharts) and [Fulcro statecharts](https://fulcrologic.github.io/statecharts/).

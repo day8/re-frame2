@@ -529,10 +529,3 @@ The matches go deeper than the renames: run-to-completion, transition tables as 
 **Don't reach for one when:** the "state" is just data (a counter, a list); there are only two stages (a `:loading?` boolean is fine); the lifecycle belongs to server data — fetching, caching, invalidation is what [resources](../resources/concepts.md) already manage, and hand-building that machine re-implements the framework; or you're enforcing a *sequence of operations* rather than a set of states — chained events handle the simple cases.
 
 **Reach for machines when named states are the load-bearing concept — not when named operations are.** [Part 3 of the tutorial](../resources/tutorial/03-auth-and-forms.md) puts a login machine to work in a real app, and [Server state: resources](../resources/concepts.md) covers the one lifecycle you should *not* hand-build as a machine — the framework already runs it for you.
-
-## Further reading
-
-- **The worked example.** Every snippet on this page lives as compiling code in [`examples/capabilities/machines/state_machine_walkthrough/`](../../examples/capabilities/machines/state_machine_walkthrough/) — the full login flow, the canned-HTTP stubs, and the headless pure-transition tests.
-- **The API.** [`re-frame.machines`](../api/re-frame.machines.md) — every fn and keyword surface (`reg-machine`, `machine-transition`, the `[:rf/machine …]` / `[:rf/machine-has-tag? …]` subs, the reserved `:rf.machine/*` fx-ids).
-- **The normative contract.** [Spec 005 — State Machines](../../spec/005-StateMachines.md) is the exhaustive grammar behind everything here: the full transition-table keys, the guard / action context map, the `{:data :fx}` effect map, schema validation, and the snapshot stability invariants.
-- **The wider statechart tradition.** re-frame2's machines realise the same statechart concepts as the [XState statecharts docs](https://stately.ai/docs/state-machines-and-statecharts) (the parity reference — behavioural, not API-level) and [Fulcro statecharts](https://fulcrologic.github.io/statecharts/) in the Clojure world. Both are good background on states, transitions, guards, and hierarchy.

@@ -230,9 +230,3 @@ Most logic lives at Level 1. Reach for Level 3 only for spawned-actor patterns, 
 See [`machine-transition`](../api/re-frame.machines.md#re-framemachinesmachine-transition) and [`machine-meta`](../api/re-frame.machines.md#re-framemachinesmachine-meta) in the API reference, and the narrative in [Concepts §Testing](concepts.md#testing-transitions-are-pure-function-calls).
 
 ---
-
-## Further reading
-
-- **Normative spec** — [Spec 005 — State Machines](../../spec/005-StateMachines.md): §Testing (the three-level pyramid and the pure transition contract), §Trace events — guard evaluations and action runs, and §`:machine-guard` / `:machine-action` handler-meta surfaces are the authoritative source for everything on this page.
-- **Sibling pages** — [Concepts](concepts.md) for the transition table and the recognition kit, [Glossary](glossary.md) for the surface vocabulary, [Coming from XState](coming-from-xstate.md) for the full parity delta, and [`re-frame.machines` API](../api/re-frame.machines.md) for the exhaustive function-by-function contract.
-- **The statechart lineage** — these features realise the broader statechart model: [XState statecharts docs](https://stately.ai/docs/state-machines-and-statecharts) is the behavioural-parity reference (re-frame2 matches XState's *behaviour*, not its API), and [Fulcro statecharts](https://fulcrologic.github.io/statecharts/) is the other prominent Clojure realisation of the same SCXML-derived ideas.
