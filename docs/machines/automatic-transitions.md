@@ -58,7 +58,7 @@ This is classic statechart **macrostep** semantics: the externally-observable tr
 A few rules keep the loop well-behaved — and keep your typos loud at registration time, not on the unlucky dispatch:
 
 - **`:always` settles before the next raised event.** If an action both `:raise`s an event `R` and lands in a state whose `:always` is enabled, the `:always` is taken **first**; `R` is then handled in the post-`:always` state. Raised events otherwise drain FIFO. (This matches XState v5/SCXML exactly.)
-- **Bounded depth.** The loop is capped (default **16** microsteps, configurable as `:always-depth-limit` at frame-config level). A non-converging cycle trips `:rf.error/machine-always-depth-exceeded` and **fails the whole macrostep** — the snapshot is never written, so the transition rolls back atomically. It is a failure, not a silent no-op, so a runaway cycle is distinguishable from an ordinary guard-blocked decline.
+- **Bounded depth.** The loop is capped (default **16** microsteps, configurable per machine via `:always-depth-limit`). A non-converging cycle trips `:rf.error/machine-always-depth-exceeded` and **fails the whole macrostep** — the snapshot is never written, so the transition rolls back atomically. It is a failure, not a silent no-op, so a runaway cycle is distinguishable from an ordinary guard-blocked decline.
 - **No self-target.** An `:always` whose `:target` resolves to its own declaring state is **rejected at `reg-machine` time** (`:rf.error/machine-always-self-loop`) — guarded or not. An eventless transition back into the state you just entered either loops to the depth limit or is a no-op; either way the author meant something else.
 
 > **Looping until a condition clears.** The legitimate "keep going while there's work" shape is a **targetless** guarded `:always` with an `:action` — `{:guard :more? :action :drain-one}`. Its action flips the guard false and the loop settles. That is *not* a self-loop (there's no `:target`), so it's allowed.
@@ -79,7 +79,7 @@ The [WebSocket example](../../examples/patterns/websocket/README.md) uses `:alwa
  :on     {…}}}
 ```
 
-Note that `:reconnecting` carries **both** `:always` and `:after` — they're independent state-node slots and coexist freely. And `:connected`'s `:always` is the targetless-action form: its `:flush-queue` action clears the queue, the guard goes false, and the microstep loop settles — no extra state needed.
+`:reconnecting` carries **both** `:always` and `:after` — they're independent state-node slots and coexist freely. And `:connected`'s `:always` is the targetless-action form: its `:flush-queue` action clears the queue, the guard goes false, and the microstep loop settles — no extra state needed.
 
 > **Coming from XState.** XState calls these `always` transitions (SCXML's *transient* transitions); re-frame2 keeps the name `:always`. Same idea, same first-match-wins ordering. `:always` is **not** a substitute for `:after`: `:always` fires on guard *truth*, `:after` fires on elapsed *time*.
 
@@ -142,7 +142,7 @@ Each entry is `<delay> → <transition>`. Both halves take several forms.
 
 **The delay (the key) — three forms:**
 
-- **Integer milliseconds** — `{30000 :timeout}`. The common fixed delay. (Note: a literal `:after` delay is **integer ms only** — not an ISO-8601 string, and *never* the `"5s"` shorthand. Those belong to `:timeout`, below.)
+- **Integer milliseconds** — `{30000 :timeout}`. The common fixed delay. (Note: a literal `:after` delay is **integer ms only** — not an ISO-8601 string, and *never* the `"5s"` shorthand. ISO-8601 durations belong to `:timeout`, below; the `"5s"` shorthand re-frame2 rejects everywhere.)
 - **A [subscription](../core/concepts/subscriptions.md) vector** — `[:sub-id & args]`, resolved like any `subscribe`. The canonical form for an **app-state-derived** delay (a user preference, a feature-flag config). It *re-resolves* when its value changes (see below).
 - **A function** — `(fn [{:keys [snapshot]}] ms)`, called **once** at state entry. The escape valve for a delay computed from the machine's own `:data`.
 
@@ -171,7 +171,7 @@ A state can have several triggers racing at once — multiple `:after` timers, t
 
 ### No cancel flag: epoch-based staleness
 
-re-frame2 ships **no `:cancel-dispatch-later` fx**, and you never write one. Here's why that's safe — and it's the headline reason to prefer `:after` over hand-rolled timers.
+re-frame2 ships **no `:cancel-dispatch-later` fx**, and you never write one. That's safe — and the headline reason to prefer `:after` over hand-rolled timers.
 
 Every scheduled timer carries an **epoch** — a per-state-entry counter — captured when it's armed. Leaving the state advances that state's epoch. When a timer eventually fires, the runtime compares the carried epoch against the state's current one:
 
@@ -202,7 +202,7 @@ The WebSocket example's `:reconnecting` state computes its backoff from the retr
           …}}
 ```
 
-Each visit to `:reconnecting` reads the *current* `:retries` and waits longer than the last (100 ms, 200, 400, … capped at `max-backoff-ms`). The `:always` short-circuits straight to `:failed` once retries are exhausted. And because leaving `:reconnecting` cancels the timer via the epoch mechanism, a backoff armed on an earlier visit can never fire late — no flag, no cleanup. See [`connection.cljs`](../../examples/patterns/websocket/README.md) for the whole machine.
+Each visit to `:reconnecting` reads the *current* `:retries` and waits longer than the last (200 ms, 400, 800, … capped at `max-backoff-ms`). The `:always` short-circuits straight to `:failed` once retries are exhausted. And because leaving `:reconnecting` cancels the timer via the epoch mechanism, a backoff armed on an earlier visit can never fire late — no flag, no cleanup. See [`connection.cljs`](../../examples/patterns/websocket/README.md) for the whole machine.
 
 ### The clock, SSR, and what `:after` is *not*
 

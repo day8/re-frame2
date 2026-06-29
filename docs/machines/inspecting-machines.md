@@ -34,7 +34,7 @@ The canonical window onto a machine is the framework-registered subscription `[:
 The three keys are the whole user-facing shape:
 
 - **`:state`** — the discrete FSM keyword (`:idle`, `:submitting`, …). For a hierarchical machine it's a path vector (`[:authenticated :cart :browsing]`); for a parallel machine, a region map. This is what XState calls `state.value`.
-- **`:data`** — the machine's extended state: a plain map, distinct from app-db. XState calls this slot `context`; re-frame2 calls it `:data` to avoid the already-overloaded word "context". Read individual fields by destructuring, never `(get-in snapshot [:data …])` from inside a callback.
+- **`:data`** — the machine's extended state: a plain map, distinct from app-db. XState calls this slot `context`; re-frame2 calls it `:data` to avoid the already-overloaded word "context". Read the fields a view needs by destructuring (above) or through a named projection sub (below).
 - **`:tags`** — the runtime-projected union of every active state's `:tags`. Ask membership questions against it rather than hard-coding state names (see below).
 
 > **The snapshot is `nil` until the first event.** A machine bootstraps itself on the first event addressed to it, so `[:rf/machine id]` reads `nil` before then. A view that renders pre-bootstrap should fall back to the definition's `:initial`:
@@ -46,7 +46,7 @@ The three keys are the whole user-facing shape:
 
 ### Named projections off the snapshot
 
-`[:rf/machine id]` is the raw value; chain ordinary `reg-sub`s off it to pluck the pieces a view actually wants. This keeps views reading small, named slices instead of re-destructuring the whole snapshot:
+`[:rf/machine id]` is the raw value; chain ordinary `reg-sub`s off it so a view reads a small, named slice instead of re-destructuring the whole snapshot:
 
 ```clojure
 (rf/reg-sub :auth.login/state
