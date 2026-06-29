@@ -278,18 +278,3 @@ Here's the payoff. A transition is a pure function of *(table, snapshot, event)*
 ```
 
 Feed in a snapshot and an event; assert on the snapshot that comes back. The result is a value — destructure `::result/snap` and `::result/fx`, or discriminate with `result/ok?` / `result/fail?` (a throwing action surfaces as a *failure value*, not an exception out of your test). These run on the JVM in microseconds, which is exactly the testing experience you want for the flows where testing usually gets hard.
-
-## Where to go next
-
-You've built the whole everyday surface — a table, a guard, actions and their `{:data :fx}`, an async call that loops its reply home, a view per state, and a pure-function test — each met on its own. From here:
-
-- **[Concepts](concepts.md)** — the same model end to end, plus the parts a richer flow reaches for: the snapshot in full, self / wildcard / final transitions, strict encapsulation, validating `:data` with a schema, and the XState delta.
-- **[Hierarchical states](hierarchical-states.md)** — a compound state with sub-states (an `:authenticated` super-state over `:browsing` / `:checkout`).
-- **[Parallel states](parallel-states.md)** — several orthogonal axes active at once, sharing one `:data`.
-- **[Automatic transitions](automatic-transitions.md)** — `:after` timers in full, and `:always` (fire the moment a guard turns true).
-- **[Actors](actors.md)** — machines that aren't singletons: spawn a child on entry, tear it down on exit.
-- **[History](history.md)** — re-enter a compound at the substate you left.
-- **[Tags](tags.md)** — the ask-don't-tell pattern in depth.
-- **[Inspecting and testing](inspecting-machines.md)** — watch a machine live in Xray, and the headless test surface in full.
-- **[API reference](../api/re-frame.machines.md)** — every fn, subscription, and keyword surface, with signatures.
-- **[Examples](examples.md)** — the runnable login machine you just sketched, plus more.
