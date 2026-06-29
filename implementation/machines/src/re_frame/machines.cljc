@@ -319,9 +319,10 @@
 
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
-;; Per Spec 005 §Subscribing to machines via sub-machine: the framework
-;; ships `:rf/machine` as the canonical entry point — read a machine's
-;; snapshot with the subscription vector `(subscribe [:rf/machine id])`.
+;; Per Spec 005 §Subscribing to machines via the :rf/machine sub: the
+;; framework ships `:rf/machine` as the canonical entry point — read a
+;; machine's snapshot with the subscription vector `(subscribe [:rf/machine
+;; id])`, or the `sub-machine` read-sugar fn over it.
 ;;
 ;; Registered at the façade (rather than in `re-frame.machines.lifecycle-
 ;; fx`) so the smoke-test fixture's `(require 're-frame.machines :reload)`
@@ -333,7 +334,7 @@
 ;; `db`-position arg is the runtime-db value (Spec 002 §Subscriptions read
 ;; the partition they belong to).
 (subs/reg-runtime-sub :rf/machine
-  {:doc "Subscribe to a machine's current snapshot `{:state <kw> :data <map> :tags <set>}`. Returns nil for an unknown or not-yet-initialised machine. Per Spec 005 §Subscribing to machines via sub-machine."}
+  {:doc "Subscribe to a machine's current snapshot `{:state <kw> :data <map> :tags <set>}`. Returns nil for an unknown or not-yet-initialised machine. Per Spec 005 §Subscribing to machines via the :rf/machine sub."}
   (fn [runtime-db [_ machine-id]]
     (get-in runtime-db (paths/snapshot-path machine-id))))
 
