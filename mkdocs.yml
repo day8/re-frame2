@@ -198,7 +198,6 @@ nav:
       - "Use UIx, Helix, or slim": core/how-to/use-uix-helix-or-slim.md
     - "Explanation":
       - "Inside-out: why it's built this way": core/explanation/inside-out.md
-      - "Continuations are data": core/explanation/continuations-are-data.md
       - "One graph: derivations and algebra views": core/derivations-and-algebra-views.md
       - "Where should this value live?": core/where-state-lives.md
     - "From re-frame v1":
@@ -264,6 +263,7 @@ nav:
 
   - "Async (HTTP)":
     - async/index.md
+    - "Continuations are data": async/continuations-are-data.md
     - "Managed HTTP": async/http.md
     - "Your own async effect": async/custom-effects.md
     - "Examples": async/examples.md

@@ -2,7 +2,7 @@
 
 Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. The good news is there's nothing new to learn — you wrap any of them the *same way* HTTP works: as a **managed effect** whose reply comes back as an ordinary [event](../core/concepts/events-and-the-cascade.md).
 
-> **The one rule.** An [event handler](../core/concepts/effects-and-coeffects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](../core/explanation/continuations-are-data.md).
+> **The one rule.** An [event handler](../core/concepts/effects-and-coeffects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
 
 ## Wrapping a promise
 
@@ -50,5 +50,5 @@ Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worke
 ## Going deeper
 
 - **[Pattern — Async Effect](../../spec/Pattern-AsyncEffect.md)** — the canonical six-step shape and a catalogue of instances: workers, IndexedDB, WebAuthn, geolocation, native bridges, `requestAnimationFrame`, streaming LLM calls.
-- **[No await: continuations are data](../core/explanation/continuations-are-data.md)** — why the reply is a named event in the first place.
+- **[No await: continuations are data](continuations-are-data.md)** — why the reply is a named event in the first place.
 - The [login example](../../examples/core/login) registers a hand-rolled async `fx` and drives the reply into a state machine — the pattern under real load.
