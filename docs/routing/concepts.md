@@ -107,7 +107,7 @@ Because routes are registry entries, the route table is *queryable data* — and
 
 ### The metadata map, in full
 
-You've now met the keys you'll reach for daily. The metadata map has thirteen reserved keys in total — the largest registration shape in re-frame2 — but you never learn them as a flat list. They cluster into four groups by *what they control*; pick the group first, then the key. The rest of this page introduces the remaining keys in context, so treat this table as a map of where you're going.
+You've now met the keys you'll reach for daily. The metadata map has thirteen reserved keys in total — the largest registration shape in re-frame2 — but you never learn them as a flat list. They cluster into four groups by *what they control*; pick the group first, then the key. The rest of this page introduces the remaining keys in context, so treat this table as a map of where you're going — and the [API reference](../api/re-frame.routing.md#reg-route) for the canonical, per-key spec.
 
 | Group | Keys | What it controls |
 |---|---|---|
@@ -215,7 +215,7 @@ The current route lives in **runtime-db** — the framework-owned partition besi
 @(rf/subscribe [:rf/pending-navigation]);; the blocked navigation parked by a :can-leave guard, or nil
 ```
 
-Nine subscriptions, every one a plain read — no special routing API in views. `:rf/route` is the whole slice; the rest are projections of it you'll reach for far more often.
+Nine subscriptions, every one a plain read — no special routing API in views. `:rf/route` is the whole slice; the rest are projections of it you'll reach for far more often. The [API reference](../api/re-frame.routing.md#subscriptions) lists each with its return shape.
 
 `:transition` is a tiny state machine the runtime drives for you: `:loading` while a route's loaders drain, `:error` if one fails, `:idle` otherwise. So a global progress bar is just a view over `:rf.route/transition`, and an error banner is a view over `:rf.route/error`. You never wire per-page loading state again — it's a property of the slice, the same on every page:
 

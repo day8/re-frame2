@@ -5,22 +5,40 @@ A URL is just another input. In most frameworks the router is a parallel system 
 You register routes (`reg-route`) as a table mapping URL patterns to what they need — param/query schemas, a [loader](glossary.md#loader) for the page's data, a [`:can-leave`](glossary.md#route-guard) guard — and read the active route as state.
 
 ```clojure
-(rf/reg-route :article
-  {:path   "/article/:slug"
-   :params {:slug :string}})
+;; A route is data: an id, a metadata map, and a path (the third slot).
+(rf/reg-route :app/article
+  {:params [:map [:id :string]]}
+  "/articles/:id")
 
-@(rf/subscribe [:rf.route/params])     ;; => {:slug "hello"}
-(rf/dispatch [:rf.route/navigate :article {:slug "hello"}])
+;; Read the active route as state; change it by dispatching an event.
+@(rf/subscribe [:rf.route/params])                  ;; => {:id "hello"}
+(rf/dispatch [:rf.route/navigate :app/article {:id "hello"}])
 ```
 
 Because a route's [loader](glossary.md#loader) runs on the server too, routing and [SSR](../ssr/index.md) share one data-fetch story — there's no separate server fetch to keep in sync.
 
 ## In this section
 
-- **[Tutorial: build a routed app](tutorial.md)** — start here. Build a small three-page app one piece at a time: routes, links, dynamic segments, loaders, the 404, the Back button, and a shared layout.
-- **[Concepts](concepts.md)** — the whole model in three moves, then everything a growing app reaches for: query strings, the loading/error transition, navigation blocking, data classification, and routing on the server.
+These pages are the **guide** — read top to bottom to learn routing, or dip in to understand one part. Every signature, event, subscription, and keyword has its canonical home in the separate **[API reference](../api/re-frame.routing.md)**: the guide teaches, the reference is where you look things up.
+
+**Start here**
+
+- **[Tutorial: build a routed app](tutorial.md)** — build a small three-page app one piece at a time: routes, links, dynamic segments, loaders, the 404, the Back button, and a shared layout.
+
+**Understand the model**
+
+- **[Concepts](concepts.md)** — the whole model in three moves, then everything a growing app reaches for: query strings, the loading/error transition, nested layouts, navigation blocking, data classification, and routing on the server.
 - **[Coming from React Router](coming-from-react-router.md)** — the mapping from `createBrowserRouter`, loaders, and the hooks, and where re-frame2 deliberately diverges.
-- **How-to** — task recipes: [guard against unsaved changes](how-to/guard-unsaved-changes.md), and [require sign-in on a route](how-to/require-sign-in-on-a-route.md).
-- **[API](../api/re-frame.routing.md)** — `reg-route`, the `:rf.route/*` events and subscriptions, the URL helpers, the guard protocol.
+
+**Do a task**
+
+- **[Guard against unsaved changes](how-to/guard-unsaved-changes.md)** and **[Require sign-in on a route](how-to/require-sign-in-on-a-route.md)** — focused recipes for the two common navigation-control jobs.
+
+**Look it up**
+
+- **[API reference](../api/re-frame.routing.md)** — `reg-route`, every `:rf.route/*` event and subscription, the URL helpers, and the guard contract, with signatures.
 - **[Glossary](glossary.md)** — the routing vocabulary in one place.
+
+**See it running**
+
 - **[Examples](examples.md)** — worked routing apps you can read end to end.
