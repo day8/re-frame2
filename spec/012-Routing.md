@@ -548,6 +548,8 @@ These are **framework subscriptions** — their layer-1 reader runs against the 
 
 Views derive UI from the route the same way they derive UI from any other state — no special routing API in views. A common pattern: a global progress bar reads `:rf.route/transition` and renders when the value is `:loading`; an error banner reads `:rf.route/error`.
 
+For the common top-level read, the framework ships **`sub-route`** as named read sugar over the canonical `[:rf/route]` vector — `@(rf/sub-route)` is `@(rf/subscribe [:rf/route])`, returning a reaction over the published slice. The route is a per-frame singleton, so the primary form is **zero-arity**; a 1-arity `(sub-route opts)` carries `{:frame <target>}` (a frame-id keyword or a live frame object, lowered to `subscribe`'s frame-first arity) to read a non-default URL-bound frame's slice from outside an established scope. `sub-route` is exported on the **`re-frame.routing` façade — not `re-frame.core`** — so a non-routing app's production-elision bundle carries no route keyword strings (the routing bundle-isolation invariant); the `[:rf/route]` vector stays the canonical registered sub and the sugar coexists with it. This mirrors `sub-machine` for machine snapshots — both are runtime-db reads, and the convention is that runtime-db state is eligible for named read sugar while app-db content (including flow output) is read with the ordinary `subscribe` (per [Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids)).
+
 ### The root view dispatches on `:rf.route/id`
 
 ```clojure
