@@ -54,8 +54,9 @@ A machine **is an event handler** ([this is the load-bearing difference from xst
 @(rf/subscribe [:rf/machine :media-player])
 ;; => {:state      [:player :playing :mid-track]
 ;;     :data       {}
-;;     :tags       #{…}   ;; the union of the active states' declared :tags
-;;     :rf/history  {[:player] [:player :playing :mid-track]}}
+;;     :rf/history {[:player] [:player :playing :mid-track]}}
+;; (no :tags key here — this machine declares no tags, and an empty tag
+;;  union is omitted from the snapshot rather than stored as #{})
 ```
 
 You wrote no capture code, no "remember the last tab" action. The `[:player :hist]` target does the work.
@@ -70,7 +71,7 @@ A `:type :history` pseudo-state carries **exactly** three keys, all owned by the
 | `:deep?` | boolean | `true` ⇒ **deep** history (restore the full recorded leaf path). `false` or **absent** ⇒ **shallow** (restore the recorded *direct child*, then cascade through *that* child's `:initial` chain). Default is shallow — a missing `:deep?` reads as `false`. |
 | `:default-target` | child keyword *or* absolute vector | Where to land the **first** time the compound is entered, before anything has been recorded. A direct-child keyword (`:stopped`) or an absolute path. **Absent** ⇒ falls back to the owning compound's `:initial`. |
 
-It MUST NOT declare `:on` / `:entry` / `:exit` / `:always` / `:after` / `:spawn` / `:states` / `:initial` / `:tags` / `:final?` — the machine never occupies it, so transition and lifecycle keys are meaningless on it. Any such key is a **registration error** (caught when you `reg-machine`, not on the unlucky dispatch that first reaches it).
+It MUST NOT declare `:on` / `:entry` / `:exit` / `:always` / `:after` / `:spawn` / `:spawn-all` / `:states` / `:initial` / `:tags` / `:final?` — the machine never occupies it, so transition and lifecycle keys are meaningless on it. Any such key is a **registration error** (caught when you `reg-machine`, not on the unlucky dispatch that first reaches it).
 
 ## Shallow vs deep — how *much* of the path is restored
 
@@ -94,7 +95,7 @@ Reach for **deep** when the precise nested position matters (resume the exact tr
 
 Recording is automatic and happens on the way **out**: whenever the exit cascade *leaves* a compound that owns a history pseudo-state, the runtime writes that compound's last-active configuration into the snapshot. You never write capture code.
 
-The subtlety — and the reason the example has a separate `:tray` state — is that the owning compound must be **genuinely exited** to record. This is the [W3C SCXML](https://www.w3.org/TR/scxml/#history) / xstate exit-set rule: a `<history>` value is written only for states in the exit set. A transition that merely moves *between two children* of the compound keeps the compound as the [least-common ancestor](concepts.md#when-the-machine-grows) — the compound **survives**, was never left, and so records nothing (there is no "last config" to remember; it is still in one).
+The owning compound must be **genuinely exited** to record. This is the [W3C SCXML](https://www.w3.org/TR/scxml/#history) / xstate exit-set rule: a `<history>` value is written only for states in the exit set. A transition that merely moves *between two children* of the compound keeps the compound as the [least-common ancestor](concepts.md#when-the-machine-grows) — the compound **survives**, was never left, and so records nothing (there is no "last config" to remember; it is still in one).
 
 That is exactly why `:eject` targets `:tray` (a *sibling of* `:player`, outside it) rather than some inner state: only leaving `:player` puts it in the exit set. A common first mistake is to put the history node on a compound that nothing ever exits — then it silently never records and "restore" always falls to the default. If your history isn't sticking, check that *something leaves the owning compound.*
 
@@ -134,9 +135,10 @@ Under a [parallel](concepts.md#when-the-machine-grows) machine each region runs 
 
 ```clojure
 ;; Two regions, each with a history-bearing :on compound at the same shape.
-;; The region name heads the key, so the recordings stay separate:
-{:rf/history {[:left  :group :on] [:left  :group :on :bright]
-              [:right :group :on] [:right :group :on :dim]}}
+;; The region name heads the KEY (so recordings stay separate); the recorded
+;; VALUE is that region's own within-region path:
+{:rf/history {[:left  :group :on] [:group :on :bright]
+              [:right :group :on] [:group :on :dim]}}
 ```
 
 Restoring history in one region leaves the others untouched — the same per-region scoping that `:spawn`, `:after`, and `:always` follow under parallel.

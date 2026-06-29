@@ -128,7 +128,7 @@ Registering the table is one line:
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-And here's where people brace for a new runtime concept. There isn't one. **A machine *is* an event handler.** Its live value at any moment — which state it's in, plus its `:data` — is one small map called its **[snapshot](glossary.md#snapshot)**. [`reg-machine`](../core/glossary.md#registration) is sugar over `reg-event` whose body interprets the table: look up the current snapshot, compute the transition, write the new snapshot back, return the action's [effects](../core/glossary.md#effect). That one line is exactly equivalent to:
+And here's where people brace for a new runtime concept. There isn't one. **A machine *is* an event handler.** Its live value at any moment — which state it's in, plus its `:data` — is one small map called its **[snapshot](glossary.md#snapshot)**. [`reg-machine`](../core/glossary.md#registration) is sugar over `reg-event` whose body interprets the table: look up the current snapshot, compute the transition, write the new snapshot back, return the action's [effects](../core/glossary.md#effect). Under the sugar it's an ordinary event handler whose body comes from `make-machine-handler` (plus the registration metadata that lets tooling recognise it as a machine):
 
 ```clojure
 ;; make-machine-handler lives in re-frame.machines
@@ -160,7 +160,7 @@ That's the whole loop: register the table, dispatch wrapped events into it, subs
 
 ### Composing with async effects
 
-It's worth pausing on the async wiring in `:issue-request`, because it shows off something quietly excellent: an HTTP reply lands back *inside* the machine as just another event, with no glue code in between.
+The async wiring in `:issue-request` shows off something quietly excellent: an HTTP reply lands back *inside* the machine as just another event, no glue code in between.
 
 Look at the `:on-success` value: `[:auth.login/flow [:auth.login/success]]`. That's the same wrapped shape you dispatch by hand — the machine id `:auth.login/flow` outside, the inner event `[:auth.login/success]` inside — but written one element short on purpose. When the request returns, [managed HTTP](../resources/http.md) *appends* its reply payload to that inner event, so what actually arrives is `[:auth.login/success {:kind :success :value v}]` — exactly the event `:store-session` destructures. That's [the uniform reply](../resources/http.md) at work: a managed async surface completes by dispatching an event, so a machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
 
@@ -344,7 +344,7 @@ Two guard-rails enforce the boundary:
 - **Returning `:db` is a hard error.** A `:db` key in an action's effect map surfaces `:rf.error/machine-action-wrote-db` and the `:db` key is dropped (the rest of the effects still flow). Fail loud, don't silently let a machine scribble on app-db.
 - **The next state isn't in the return shape either.** An action returns `:data` and `:fx` — never a state keyword. Only the transition's `:target` moves the machine. Callbacks update working memory; they can't nudge the machine into a state the table didn't declare. (This is exactly XState's `assign` invariant.)
 
-> **Gotcha — facts from the world are *declared*, not grabbed.** A guard or action that needs the time (or a random draw) must not call `(js/Date.now)` or `(rand)`: that buries nondeterminism where replay can't reach it, and replay is what makes time-travel and SSR hydration work. Instead, declare the fact as a [coeffect](../core/glossary.md#coeffect) on a *named* entry and read it from the context map's `:rf.cofx` record:
+> **Gotcha — facts from the world are *declared*, not grabbed.** A guard or action that needs the time (or a random draw) must not call `(js/Date.now)` or `(rand)`: that buries nondeterminism where replay can't reach it, and replay is what makes time-travel and SSR hydration work. Instead, declare the fact as a [coeffect](../core/glossary.md#coeffect) on a *named* entry with `:rf.cofx/requires`, and the framework threads it into the context map:
 >
 > ```clojure
 > :guards

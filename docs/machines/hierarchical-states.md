@@ -165,9 +165,8 @@ A compound state *without* `:initial` is a registration error
 > **The initial cascade also runs at birth.** When a machine first comes to
 > life — a singleton on its first dispatched event, or a spawned actor — the
 > whole `:initial` chain's `:entry` actions fire once, shallowest-first, as part
-> of bringing it into existence. A multi-level `:initial` chain runs *every*
-> level's `:entry` at start. (In XState this is `xstate.init` entering the
-> initial state cascade.)
+> of bringing it into existence — *every* level along the chain, not just the
+> leaf. (In XState this is `xstate.init` entering the initial state cascade.)
 
 ---
 
@@ -330,7 +329,7 @@ Take this auth-flow machine (a compound `:authenticated` over a `:dashboard` /
 
 | Event | Source path | Target path | What fires |
 |---|---|---|---|
-| `:login` | `[:unauthenticated]` | `[:authenticated :dashboard]` | Target `[:authenticated]` cascades `:initial :dashboard`. Entry: `:authenticated`, then `:dashboard`. |
+| `:login` | `[:unauthenticated]` | `[:authenticated :dashboard]` | LCA is the root: exit `:unauthenticated`. Target `[:authenticated]` cascades `:initial :dashboard`, so entry is `:authenticated`, then `:dashboard`. |
 | `:open-cart` | `[:authenticated :dashboard]` | `[:authenticated :cart :browsing]` | Keyword `:cart` = sibling of `:dashboard`; cascades `:initial :browsing`. LCA is `:authenticated`: exit `:dashboard`; enter `:cart`, `:browsing`. |
 | `:checkout` | `[:authenticated :cart :browsing]` | `[:authenticated :cart :paying]` | Sibling hop inside `:cart`. LCA `:cart`: exit `:browsing`; enter `:paying`. |
 | `:logout` | `[:authenticated :cart :paying]` | `[:unauthenticated]` | Deepest-wins walks `:paying` (no match), `:cart` (no), `:authenticated` (match). LCA is the root: exit `:paying → :cart → :authenticated` (deepest-first); enter `:unauthenticated`. |
@@ -340,7 +339,7 @@ Take this auth-flow machine (a compound `:authenticated` over a `:dashboard` /
 > `exit → action → entry` rule: in a flat machine the path length is 1 and the
 > LCA is always the root.
 
-Remember actions are **pure returns**, not imperative writes: an `:entry` /
+Actions are **pure returns**, not imperative writes: an `:entry` /
 `:exit` / transition `:action` is `(fn [{:keys [data event state]}] effects)`
 returning `{:data … :fx …}`. The `:fx` flow through the ordinary
 [effects cascade](../core/concepts/events-and-the-cascade.md) like any handler's.
@@ -351,7 +350,7 @@ returning `{:data … :fx …}`. The `:fx` flow through the ordinary
 
 A compound state often *is* a sub-flow with a clear end: collect, submit, paid.
 re-frame2 ships the statechart pattern for "the sub-flow finished, now advance
-the outer flow" first-class — and crucially, **the machine keeps running**.
+the outer flow" first-class — and **the machine keeps running**.
 
 Mark the sub-flow's terminal leaf `:final? true`. The moment a compound's active
 child becomes that final leaf, the engine raises a synthetic, transitionable
@@ -463,8 +462,8 @@ A `:final?` state fails loud at registration if you break these:
 
 - **Leaf-only.** No `:states` / `:initial` on a final state — a compound can't
   be final; its finality is a leaf *inside* it. (`:rf.error/machine-final-state-compound`)
-- **No further transitions.** No `:on` / `:always` / `:after` / `:spawn` on a
-  final state — final means final. (`:rf.error/machine-final-state-has-transitions`)
+- **No further transitions.** No `:on` / `:always` / `:after` / `:spawn` /
+  `:spawn-all` on a final state — final means final. (`:rf.error/machine-final-state-has-transitions`)
   `:entry` and `:exit` *are* allowed (entry runs in the cascade; exit runs from
   teardown).
 - **`:output-key` requires `:final?`.** A non-final state declaring

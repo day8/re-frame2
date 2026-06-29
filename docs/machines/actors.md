@@ -14,7 +14,7 @@ This page assumes you've met the [transition table, guards, actions, tags, and `
 
 Put a `:spawn` map on a state node. While the machine sits in that state, a child actor of the named machine exists; on any transition out of the state, it's destroyed.
 
-Here's the heart of the [websocket example](../../examples/patterns/websocket/): a connection machine whose `:active` state owns a live socket. The socket is its own machine (`:websocket/socket`), spawned on the `:active` *parent* so one socket spans the connect → authenticate → connected leaves nested inside it.
+Here's the heart of the [websocket example](../../examples/patterns/websocket/): a connection machine whose `:active` state owns a live socket. The socket is its own machine (`:websocket/socket`), spawned on the `:active` *parent* so one socket spans the `:connecting` → `:authenticating` → `:connected` leaves nested inside it.
 
 ```clojure
 (rf/reg-machine :ws/connection
@@ -39,7 +39,7 @@ Here's the heart of the [websocket example](../../examples/patterns/websocket/):
 
 Enter `:active` → the runtime spawns a `:websocket/socket` actor. Leave `:active` by *any* door — `:ws/closed`, `:ws/fatal`, a frame teardown — and the runtime destroys it. The parent never wrote "spawn" or "destroy"; `:spawn` is **registration-time sugar** that rewrites the state's `:entry`/`:exit` into the imperative spawn/destroy effects you'll meet below. From the outside it's indistinguishable from a machine that wired those slots by hand.
 
-> **Mental model.** `:spawn` is XState's `invoke`. The child's lifetime is the state's lifetime. Renamed because "invoke" reads like a synchronous call, whereas what's really created is a child actor's worth of lifecycle.
+> **Mental model.** `:spawn` is XState's `invoke`. The child's lifetime is the state's lifetime. Renamed because "invoke" reads like a synchronous call, when what you create is a child actor with its own lifecycle.
 
 ### The spawn-spec keys
 
@@ -174,7 +174,7 @@ From a non-action call site you can resolve the id directly with `(re-frame.mach
 
 ### Including a reply address
 
-There's no `sender`/`sendTo`-reply special form — put the reply event *in the request* (the standard re-frame2 reply convention): address the request by name, but put the reply id in the payload so the reply lands in a specific actor rather than whoever currently owns the name.
+There's no `sender`/`sendTo`-reply special form. Put the reply event *in the request* (the standard re-frame2 reply convention): address the request by name, but carry the reply id in the payload, so the reply lands in a specific actor rather than whoever currently owns the name.
 
 ---
 
@@ -237,7 +237,7 @@ The runtime knows how to release exactly **three** framework-managed resource ki
 
 The destroy path runs the actor's `:exit` *before* dissociating its snapshot, so cleanup gets to read the final `:data`. There is no `core.async` in this path — close the host handle directly, don't reach for a channel close. (The websocket example keeps its mock socket in a host-side atom and leans on actor-destroy plus a mock that holds no real OS resource; a real `js/WebSocket` would `.close()` in `:exit`.)
 
-The [long-running-work example](../../examples/patterns/long_running_work/) shows the cascade end-to-end: the user hitting **Cancel** dispatches `:cancel`, which leaves the `:working` state, and *that exit* fires a single `:rf.machine/destroy` that takes every still-running child with it — pending `:after` yield-timers and all. The author wrote no per-child teardown.
+The [long-running-work example](../../examples/patterns/long_running_work/) shows the cascade end-to-end: the user hitting **Cancel** dispatches `:cancel`, which leaves the `:working` state, and *that exit* fires a `:rf.machine/destroy` for every still-running child — pending `:after` yield-timers and all. The author wrote no per-child teardown.
 
 ---
 
@@ -310,6 +310,7 @@ A few rules worth knowing:
 
 - **Each child needs a unique `:id`** (the join key) on top of the usual spawn keys. Duplicate ids are a registration error.
 - **Join discriminators:** `:all` (default), `:any`, `{:n N}`, or `{:fn (fn [{:keys [done failed]}] …)}`. `:on-all-complete` is required for `:all`; `:on-some-complete` is required for the partial-success kinds.
+- **Cancel-on-decision defaults to `true`** — when the join resolves, surviving siblings are torn down. Set `:cancel-on-decision? false` for a non-cancelling join (e.g. an analytics fan-out where each child is independently valuable): siblings run to completion and their late results still fold into the join-state, firing no further parent event.
 - **An unregistered child type fails the whole join closed** before any join-state is seeded — a child that can never run can never deadlock an `:all` join.
 - **Wall-clock timeout:** same as single `:spawn` — an `:after` on the `:spawn-all`-bearing state. When it fires, the exit cascade cancels every surviving child.
 

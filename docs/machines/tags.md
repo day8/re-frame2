@@ -34,7 +34,7 @@ If a label would only ever match exactly one state, skip it — query the state 
 
 Both `:loading` and `:retrying` wear `:data/in-flight`. A view that wants "show the spinner while a request is in flight" consumes that one tag and never disjoins two state keywords — and the day you add a third in-flight state, it's one `:tags` entry and the view picks it up for free.
 
-Two rules worth pinning down now:
+Two rules:
 
 - **Tags label *intent*, not *identity*.** `:tags #{:data/in-flight}` is good; `:tags #{:todos.loader/loading-state}` just re-encodes the state name and earns nothing. Use a per-axis namespace (`:data/…`, `:form/…`, `:mode/…`) so one tag-question can span several states.
 - **The `:rf/*` / `:rf.*/*` namespaces are framework-reserved.** Tag with your own feature prefix — `:auth/busy`, `:cart/dirty`, `:ws/disconnected`. Any unreserved namespace is fair game, dotted forms (`:ui.state/loading`) included.
@@ -109,7 +109,7 @@ This is where tags pay off hardest. The [Nine States example](../../examples/pat
 Three axes run at once, so several tags are live simultaneously — `:data/loading` *and* `:form/invalid` *and* `:mode/active`. The page can only draw one thing, so it needs a tie-breaker. Make it **plain data**: a render-priority table read top to bottom, plus one selector sub that returns the first matching tag's render-model keyword.
 
 ```clojure
-(def render-priority
+(def render-priority             ;; excerpt — the runnable example carries all ten rows
   [{:tag :mode/done    :render :done}        ;; archived trumps everything
    {:tag :form/success :render :correct}     ;; transient form acks next
    {:tag :form/invalid :render :incorrect}
@@ -156,9 +156,9 @@ Notice what the form *doesn't* ask: "is the `:mode` region in `:done`?" It asks 
 
 ## Tags as a cross-region signal (`stateIn`)
 
-In a parallel machine the tag union spans *all* regions, which makes it the channel one region uses to read what a sibling is doing. This is the classic statechart coordination primitive: a guard in region A predicates on region B's state. XState spells it `stateIn({ form: 'valid' })` (and W3C SCXML has `In(...)`); re-frame2 ships the *behaviour* without a separate `stateIn` operator — a deliberate divergence in the name of behavioural parity, not API mimicry. **A sibling region advertises a tag, and any region's guard reads the tag union off its context map.**
+In a parallel machine the tag union spans *all* regions, which makes it the channel one region uses to read what a sibling is doing. This is the classic statechart coordination primitive: a guard in region A predicates on region B's state. XState spells it `stateIn({ form: 'valid' })` (and W3C SCXML has `In(...)`); re-frame2 ships the *behaviour* without a separate `stateIn` operator — a deliberate divergence for behavioural parity, not API mimicry. **A sibling region advertises a tag, and any region's guard reads the tag union off its context map.**
 
-A guard or action running *inside a parallel region* gets two extra keys in its context map, alongside the usual `:data` / `:event` / `:state`:
+A guard or action running *inside a parallel region* gets two extra keys in its context map, alongside the usual `:data` / `:event` / `:state` / `:meta`:
 
 - **`:tags`** — the machine-wide tag union (the **coarse**, idiomatic `stateIn` substitute);
 - **`:all-state`** — the full `{region → active-state}` map (the **precise** read).

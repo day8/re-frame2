@@ -1,6 +1,6 @@
 # Parallel regions
 
-Some lifecycles aren't *one* question — they're several, all live at once. A todos screen is, at the same instant, *somewhere in its fetch* (nothing / loading / empty / some / too-many), *somewhere in its form* (neutral / valid / invalid), and *somewhere in its page mode* (active / archived). Those three axes are **orthogonal**: each moves on its own, and any combination is legal.
+Some lifecycles aren't *one* question — they're several, all live at once. A todos screen is *somewhere in its fetch* (nothing / loading / empty / some / too-many), *somewhere in its form* (neutral / valid / invalid), and *somewhere in its page mode* (active / archived). Those three axes are **orthogonal**: each moves on its own, and any combination is legal.
 
 Model that as one flat machine and the states multiply — three axes of three states each is `3 × 3 × 3 = 27` cross-product states, most of them named things like `:loading-and-invalid-and-active`. **Parallel regions** keep the axes apart. One machine declares `:type :parallel` and a `:regions` map; each region is a full little state-tree minding one axis; all regions are active simultaneously. Three axes of three states becomes **nine states across three regions**, not twenty-seven flat ones.
 
@@ -10,7 +10,7 @@ Model that as one flat machine and the states multiply — three axes of three s
 
 Reach for them when you have **multiple orthogonal axes of one feature** that share a domain: one form with data / validity / display-mode axes, one connection with auth + lifecycle + request-queue, one widget with display + interaction state. The giveaway is a single conceptual thing whose state is naturally a *tuple* of independent sub-states.
 
-The axes share a single [`:data`](concepts.md#the-same-flow-as-a-transition-table) map *because they're facets of one domain* — they read and write the *same* data, just sliced differently. If your axes are genuinely separate features that share nothing (a websocket connection plus an unrelated auth flow plus a route), that's not parallel regions — that's **N separate machines** colocated in [runtime-db](../core/glossary.md#runtime-db). Per-region `:data` is deliberately **not** supported; if your axes need their own encapsulated data, that's the substrate telling you to register N machines instead. (The full parallel-regions-versus-N-machines trade-off lives in the spec — see Further reading.)
+The axes share a single [`:data`](concepts.md#the-same-flow-as-a-transition-table) map *because they're facets of one domain* — they read and write the *same* data, just sliced differently. If your axes are genuinely separate features that share nothing (a websocket connection plus an unrelated auth flow plus a route), that's not parallel regions — that's **N separate machines** colocated in [runtime-db](../core/glossary.md#runtime-db). Per-region `:data` is deliberately **not** supported; if your axes need encapsulated data, that's the substrate telling you to register N machines instead. (The full parallel-regions-versus-N-machines trade-off lives in the spec — see Further reading.)
 
 ## The shape: one machine, several regions
 
@@ -260,7 +260,7 @@ A parallel machine's `:tags` is the **union of every active state's tags across 
 
 The framework [`machine-has-tag?`](../api/re-frame.machines.md) sub works unchanged — it asks "does the union contain this tag?", and the answer is yes iff *any* active state in *any* region declared it. That's what lets a view disable itself with `@(rf/machine-has-tag? :ui/nine-states :mode/read-only)` without caring which region (or which state of it) carries the read-only intent — *ask, don't tell* ([state tag](glossary.md#state-tag)).
 
-The composed tag union is also what makes the headline payoff work: **collapsing N live axes down to one render decision**. Several tags are live at once, but the page draws one thing, so a plain-data priority table picks the winner:
+The composed tag union also delivers the headline payoff: **collapsing N live axes down to one render decision**. Several tags are live at once, but the page draws one thing, so a plain-data priority table picks the winner:
 
 ```clojure
 (def render-priority                       ;; read top to bottom; first match wins
@@ -281,7 +281,7 @@ The composed tag union is also what makes the headline payoff work: **collapsing
             render-priority))))
 ```
 
-The root view's whole branching logic is then a single `case` over `@(rf/subscribe [:ui/render])`. Three regions, nine states, **one** branch site — and the display priorities live in *one* readable table, not scattered across ten views.
+The root view then branches with a single `case` over `@(rf/subscribe [:ui/render])`. Three regions, nine states, **one** branch site — and the display priorities live in *one* readable table, not scattered across ten views.
 
 ## A divergence to know: no nested parallel regions
 

@@ -69,7 +69,7 @@ The side work a [transition](#transition) performs: it returns the same `{:data 
 
 ### **action effect map**
 
-What an [action](#action) returns: the same `{:data … :fx …}` map a [`reg-event`](../core/glossary.md#event-handler) handler returns. `:data` is **merged** into the snapshot key-by-key (last write wins; a key returned as explicit `nil` *sets* it to `nil` rather than removing it); `:fx` is a vector of `[fx-id args]` pairs the runtime actions for you. Returning `nil` does nothing. Because the action *describes* effects rather than performing them, it stays pure, testable, and replayable.
+What an [action](#action) returns: the same `{:data … :fx …}` map a [`reg-event`](../core/glossary.md#event-handler) handler returns. `:data` is **merged** into the snapshot key-by-key (last write wins; a key returned as explicit `nil` *sets* it to `nil` rather than removing it); `:fx` is a vector of `[fx-id args]` pairs the runtime performs for you. Returning `nil` does nothing. Because the action *describes* effects rather than performing them, it stays pure, testable, and replayable.
 
 ```clojure
 :record-error
@@ -90,7 +90,7 @@ A [state](#state) that nests its own `:states` map plus a required `:initial` su
 
 ### **parallel state**
 
-A [compound state](#compound-state) declared `:type :parallel` whose children are [regions](#region) that are **all active at once** rather than one-at-a-time. Three orthogonal axes of three states each is three regions, not twenty-seven cross-product states. The snapshot's `:state` becomes a **map** of region-name → that region's state (`{:data :loading :form :neutral :mode :active}`); all regions share one [`:data`](#data) and their [tags](#state-tag) union across regions. When the axes *don't* share data, prefer N separate machines instead.
+A machine declared `:type :parallel` at its root, holding a **`:regions`** map (not `:states`) — the [regions](#region) are **all active at once** rather than one-at-a-time. Three orthogonal axes of three states each is three regions, not twenty-seven cross-product states. The snapshot's `:state` becomes a **map** of region-name → that region's state (`{:data :loading :form :neutral :mode :active}`); all regions share one [`:data`](#data) and their [tags](#state-tag) union across regions. When the axes *don't* share data, prefer N separate machines instead.
 
 *XState:* `type: 'parallel'`. See the [nine_states example](../../examples/patterns/nine_states/) and [When the machine grows](concepts.md#when-the-machine-grows).
 
@@ -155,14 +155,14 @@ A state-node key holding a vector of guarded transitions that fire **with no eve
 
 ### **delayed transition (`:after`)**
 
-The declarative timer: a state-node key mapping a delay to a transition. Enter the state and the timer arms; leave it and the timer cancels — no `setTimeout`-plus-cancel-flag to wire. A late-firing timer from an earlier visit is ignored (each visit is epoch-tagged), so you never get a ghost transition. The delay is a positive-integer millisecond count, a [subscription](../core/glossary.md#subscription) vector, or a `(fn [snapshot] ms)`.
+The declarative timer: a state-node key mapping a delay to a transition. Enter the state and the timer arms; leave it and the timer cancels — no `setTimeout`-plus-cancel-flag to wire. A late-firing timer from an earlier visit is ignored (each visit is epoch-tagged), so you never get a ghost transition. The delay is a positive-integer millisecond count, a [subscription](../core/glossary.md#subscription) vector, or a `(fn [{:keys [snapshot]}] ms)`.
 
 ```clojure
 :reconnecting {:after {5000 {:target :connecting}}   ;; retry in 5s
                :on    {:net/give-up :failed}}
 ```
 
-*XState:* `after: { 5000: 'next' }`; same auto-cancel-on-exit. ISO-8601 strings (`"PT5S"`) are accepted; XState's `"5s"` shorthand is **rejected**. See [Guards, actions, tags, and `:after`](concepts.md#guards-and-actions).
+*XState:* `after: { 5000: 'next' }`; same auto-cancel-on-exit. (ISO-8601 durations and the `"5s"`-shorthand rejection belong to [`:timeout`](#timeout), not `:after` — an `:after` key is an ms int, a sub vector, or a fn.) See [Guards, actions, tags, and `:after`](concepts.md#guards-and-actions).
 
 ### **timeout**
 

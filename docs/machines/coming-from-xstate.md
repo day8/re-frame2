@@ -2,7 +2,7 @@
 
 If you've built statecharts with [XState](https://stately.ai/docs) — v5, or the v6 alpha — most of your mental model ports straight across. re-frame2's [machines](concepts.md) borrow XState's grammar on purpose: transition tables as data, guards, actions, tags, delayed transitions, final states, run-to-completion, internal-by-default self-transitions. You can read a re-frame2 machine spec on day one and a re-frame2 author can read yours. The *behaviour* is the contract re-frame2 tracks; what changes is the *expression* and one piece of *plumbing*.
 
-So let's be honest about the split up front. Two things transfer almost untouched:
+Two things transfer almost untouched:
 
 - **The statechart itself.** States, nested states, parallel regions, guards on transitions, entry/exit actions, `after` timers, final states, history — same concepts, idiomatic spelling. If you can draw it, you can write it.
 - **The semantics you rely on.** Run-to-completion, internal-vs-external self-transitions, eventless (`always`) transitions firing on guard flips, an unknown event being a no-op rather than a crash. re-frame2 matches XState here deliberately, including the v5/v6 drop of strict mode.
@@ -23,7 +23,7 @@ Skim this, then read the worked build-up in [The grammar, concept by concept](#t
 |---|---|---|
 | `createMachine({ ... })` / `setup().createMachine()` | a transition-table map passed to [`reg-machine`](concepts.md#registering-and-running-it) | Plain Clojure data. No builder, no fluent API. |
 | `context` (extended state) | [`:data`](#context-becomes-data) | Same idea. "Context" was already taken (interceptor context, React context); `:data` tracks FSM / `gen_statem` "state data". |
-| `state.value` | the snapshot's `:state` | Flat → keyword; compound → vector path; parallel → region-name→keyword map. |
+| `state.value` | the snapshot's `:state` | Flat → keyword; compound → vector path; parallel → region-name→state map (each region's value is itself a keyword or path). |
 | `states: { idle: { on: { ... } } }` | `:states {:idle {:on {...}}}` | Near-identical shape. `on` → `:on`, target strings → state keywords. |
 | nested states (`initial` + `states`) | [`:initial` + `:states` on a state node](#compound-nested-states) | Deepest-wins resolution, parent fall-through. Keyword target = sibling; vector target = absolute path. |
 | `guard: 'canRetry'` | `:guard :under-retry-limit` | Named; defined in the spec's [`:guards`](#guards) map. Idiomatic Clojure name (`?`-suffixed predicate), not a JS boolean string. |
@@ -126,7 +126,7 @@ Same split — a discrete `:state` (XState's `state.value`) plus extended memory
 
 ### Actions, assign, and the effect map
 
-This is the deepest behavioural shift, so it's worth slowing down. XState's `assign(...)` is an action *creator* that imperatively updates `context`, and an effectful action *runs* its side effect when invoked:
+This is the deepest behavioural shift. XState's `assign(...)` is an action *creator* that imperatively updates `context`, and an effectful action *runs* its side effect when invoked:
 
 ```js
 actions: assign({ attempts: ({ context }) => context.attempts + 1 }),  // the "assign"
@@ -301,7 +301,7 @@ A leaf marked `:final?` terminates the machine; if it was spawned, the parent is
                                       :on-error   :idle}}}})    ;; child failed → transition
 ```
 
-In XState `output` is a *function* of context; in re-frame2 `:output-key` names a **key** into the child's `:data` (compute it with an `:action` into the final state if you need to — there is no `:output-fn`). **Divergence:** completion is *event-shaped*, not a long-lived `snapshot.output` slot you read later — `:output-key`'s value flows to the parent's `:on-done` as `result` *at the moment of completion*, then the child auto-destroys. A `:final?` leaf may add `:error? true` to be the designated error terminal that drives the parent's `:on-error` **transition** (XState's `invoke onError` as control flow, not observability). And note: a **singleton** machine reaching `:final?` also auto-destroys — "final means final"; omit `:final?` for a persistent terminal state (`:authed` / `:locked-out` above are plain leaves).
+In XState `output` is a *function* of context; in re-frame2 `:output-key` names a **key** into the child's `:data` (compute it with an `:action` into the final state if you need to — there is no `:output-fn`). **Divergence:** completion is *event-shaped*, not a long-lived `snapshot.output` slot you read later — `:output-key`'s value flows to the parent's `:on-done` as `result` *at the moment of completion*, then the child auto-destroys. A `:final?` leaf may add `:error? true` to be the designated error terminal that drives the parent's `:on-error` **transition** (XState's `invoke onError` as control flow, not observability). And a **singleton** machine reaching `:final?` also auto-destroys — "final means final"; omit `:final?` for a persistent terminal state (`:authed` / `:locked-out` above are plain leaves).
 
 ### Invoke becomes spawn
 
@@ -407,7 +407,7 @@ re-frame2 already has exactly one of those — the [event cascade](../core/gloss
 
 **Why:** because the machine's entire state is *just a value riding the frame*, everything the frame can do, the machine gets for nothing. [Time-travel](../core/glossary.md#time-travel), undo, persistence, and SSR hydration all work on machines with zero extra code — rewind the frame and the machine rewinds with it. An actor that owns its own mutable state can't be rolled back by an outside force without a bespoke serialization story; a value in a database rolls back by definition. This is the quiet dividend of refusing to make the machine an object: it can't hide state where replay can't reach.
 
-That same refusal is why an action **sees only `{:state :data :event :meta}` and never app-db** — and why returning `:db` from an action is a hard error. State that escaped into app-db wouldn't ride the snapshot, and the free rollback would silently develop a hole. To touch a sibling slice you [`dispatch`](../core/glossary.md#dispatch) a named event; the reach becomes a traced, reusable event instead of a quiet cross-write.
+That same refusal is why an action sees **only the snapshot, event, and any declared coeffects (`:data` / `:state` / `:event` / `:meta` / `:rf.cofx`) — never app-db**, and why returning `:db` from an action is a hard error. State that escaped into app-db wouldn't ride the snapshot, and the free rollback would silently develop a hole. To touch a sibling slice you [`dispatch`](../core/glossary.md#dispatch) a named event; the reach becomes a traced, reusable event instead of a quiet cross-write.
 
 ### 3. Actions return effects; they don't perform them
 
