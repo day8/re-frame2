@@ -1096,8 +1096,9 @@
   or a captured `*current-frame*` stamp. There is NO
   `:rf/default` floor — a subscribe issued under no established scope
   raises `:rf.error/no-frame-context` rather than silently reading the
-  wrong frame. Pass the 2-arity `(subscribe frame-id query-v)` to read a
-  named frame from outside any scope (async callbacks, tools, tests, SSR).
+  wrong frame. Pass the public opts form `(subscribe query-v {:frame
+  target})` to read a named frame from outside any scope (async callbacks,
+  tools, tests, SSR); `target` is a frame-id keyword or a live frame object.
 
   Per Spec 006 §Plain-fn-under-non-default-frame warning:
   the 1-arity form runs the plain-fn detection check — if the
@@ -1109,13 +1110,20 @@
   the JVM build never loads it; production (`:advanced` +
   `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
 
-  The 2-arity `(subscribe frame-id query-v)` form **deliberately
-  skips** the plain-fn detection check. Supplying an
-  explicit `frame-id` IS the opt-out — the caller has told the runtime
+  The explicit-frame form `(subscribe query-v {:frame target})`
+  **deliberately skips** the plain-fn detection check. Naming an
+  explicit frame IS the opt-out — the caller has told the runtime
   exactly which frame to target, so a fall-through-to-`:rf/default`
-  diagnostic doesn't apply. Use the 2-arity form from a plain
+  diagnostic doesn't apply. Use the opts form from a plain
   Reagent fn body when you want to subscribe against a known frame
   without triggering the warning surface.
+
+  The 2-arity is SHAPE-DISCRIMINATED on the first arg, mirroring
+  `dispatch*`: a query-vector first ⇒ the public `(subscribe query-v opts)`
+  form (`opts` may carry `{:frame target}`; ambient when absent); a frame
+  target first ⇒ the INTERNAL frame-first `(subscribe frame-id query-v)`
+  plumbing, retired from the taught app grammar by EP-0024 but retained for
+  implementation / test / tooling reach.
 
   Per Spec 006 §The sub-override subscribe seam (CLJS /
   dev-only): when a Story render wraps the variant view in the
@@ -1151,18 +1159,31 @@
                 {:where    're-frame.subs/subscribe
                  :event-id (first query-v)})
               query-v))
-  ([frame-id query-v]
-   ;; The 2-arity target may be a frame-id KEYWORD or a
-   ;; live frame OBJECT (`(rf/subscribe frame query-v)` — `rf/make-frame`'s
-   ;; return value). Normalize an object to its runnable-id ADDRESS so the
-   ;; sub-cache lookup (`(frame/frame frame-id)`),
-   ;; the override seam, and the error payloads all key the backing record
-   ;; unchanged; a keyword passes through. The generation-resolution seam
-   ;; (`frame-resolution-target`) then re-resolves the frame's image from this id
-   ;; via the live-frame registry — so an object target builds against its OWN
-   ;; image, byte-identical to the keyword form. Mirrors the dispatch-side
-   ;; normalization in `re-frame.router/build-envelope`.
-   (let [frame-id (frame/frame-target->id frame-id)]
+  ([a b]
+   ;; EP-0024: the 2-arity is SHAPE-DISCRIMINATED on the first arg, exactly as
+   ;; `dispatch*-impl` separates `(event-vec opts)` from frame-first. A QUERY-
+   ;; VECTOR first ⇒ the PUBLIC `(subscribe query-v opts)` form; `opts` may carry
+   ;; `{:frame target}` (ambient when absent). Lower it to the frame-first
+   ;; internal arity — `(:frame opts)` is a keyword/object, never a vector, so
+   ;; the recursive call lands in the frame-first branch below. A frame target
+   ;; first (never a vector) ⇒ the INTERNAL frame-first `(subscribe frame-id
+   ;; query-v)` plumbing, retired from the taught app grammar by EP-0024 but kept
+   ;; for implementation / test / tooling reach.
+   (if (vector? a)
+     (if-some [target (:frame b)]
+       (subscribe target a)
+       (subscribe a))
+     ;; INTERNAL frame-first. The target `a` may be a frame-id KEYWORD or a live
+     ;; frame OBJECT (`rf/make-frame`'s return value). Normalize an object to its
+     ;; runnable-id ADDRESS so the sub-cache lookup (`(frame/frame frame-id)`),
+     ;; the override seam, and the error payloads all key the backing record
+     ;; unchanged; a keyword passes through. The generation-resolution seam
+     ;; (`frame-resolution-target`) then re-resolves the frame's image from this
+     ;; id via the live-frame registry — so an object target builds against its
+     ;; OWN image, byte-identical to the keyword form. Mirrors the dispatch-side
+     ;; normalization in `re-frame.router/build-envelope`.
+     (let [frame-id (frame/frame-target->id a)
+           query-v  b]
    ;; (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
    ;; can carry the view's OWN read-set (`:deref-subs`). No-op outside a
@@ -1306,7 +1327,7 @@
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
                  (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v))))))))))) ;; close fn + call-with-frame-resolution + normalize-target let
+             (compute-and-cache! frame-id query-v)))))))))))) ;; close fn + call-with-frame-resolution + normalize-target let + shape-discrim if
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then

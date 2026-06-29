@@ -117,16 +117,28 @@
 
 #?(:clj
    (defn build-subscribe-form
-     [form-meta ns-sym file frame-form query-v]
+     "Build the expansion for the `subscribe` macro. `arg1` is the user's
+     first form (the `query-v` in the taught grammar — or a frame target in
+     the internal frame-first reach); `arg2` is the optional second form
+     (`opts`, or a query-v in the frame-first reach), nil for the 1-arity.
+     Mirrors `build-dispatch-form`: the call-site coord rides a
+     `trace/with-call-site` wrapper (not an opts assoc), so NO `vector?`
+     discrimination is needed here — `subscribe*` / `re-frame.subs/subscribe`
+     do the shape split at runtime. The two forms emit POSITIONALLY
+     (`(subscribe* arg1 arg2)`), so both the public `(query-v opts)` and the
+     internal frame-first `(frame query-v)` reach route correctly. The
+     OUTERMOST debug-gate keeps the whole stamped branch DCE-able under
+     `:advanced` + `goog.DEBUG=false`."
+     [form-meta ns-sym file arg1 arg2]
      (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped (if frame-form
+           stamped (if arg2
                      `(re-frame.trace/with-call-site ~cs-form
-                        (re-frame.core/subscribe* ~frame-form ~query-v))
+                        (re-frame.core/subscribe* ~arg1 ~arg2))
                      `(re-frame.trace/with-call-site ~cs-form
-                        (re-frame.core/subscribe* ~query-v)))
-           plain   (if frame-form
-                     `(re-frame.core/subscribe* ~frame-form ~query-v)
-                     `(re-frame.core/subscribe* ~query-v))]
+                        (re-frame.core/subscribe* ~arg1)))
+           plain   (if arg2
+                     `(re-frame.core/subscribe* ~arg1 ~arg2)
+                     `(re-frame.core/subscribe* ~arg1))]
        (gate stamped plain))))
 
 ;; `build-inject-cofx-form` was retired with `inject-cofx` (EP-0017 slice

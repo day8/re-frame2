@@ -982,9 +982,14 @@
   `re-frame.core-call-site-macros/build-subscribe-form`). NOT an app-facing
   surface — the public read shapes are `subscribe`, `subscribe-once`, or the
   `:subscribe` op from a `capture-frame`. Arities mirror
-  `re-frame.subs/subscribe`."
-  ([query-v]            (subs/subscribe query-v))
-  ([frame-id query-v]   (subs/subscribe frame-id query-v)))
+  `re-frame.subs/subscribe`: the public `(subscribe* query-v opts)` (`opts`
+  may carry `{:frame target}`; ambient when absent) and the internal
+  frame-first `(subscribe* frame-id query-v)`, SHAPE-DISCRIMINATED on the
+  first arg by `re-frame.subs/subscribe` (a query-vector ⇒ public; a frame
+  target ⇒ frame-first) — mirroring `dispatch*`."
+  {:arglists '([query-v] [query-v opts])}
+  ([query-v] (subs/subscribe query-v))
+  ([a b]     (subs/subscribe a b)))
 
 ;; `inject-cofx` / `inject-cofx*` are NOT on the public facade (EP-0017,
 ;; rf2-w9xyx1). The interceptor idiom was removed; coeffect delivery is
@@ -1070,18 +1075,33 @@
 #?(:clj
    (defmacro subscribe
      "Return a reaction whose value is the registered sub's current
-     output for `query-v` (`[sub-id & args]`); deref to read. 2-arity
-     targets an explicit frame, otherwise resolves via `current-frame`.
-     Use `subscribe-once` for a one-shot read; for a frame carried
-     across an async boundary use the `:subscribe` op from a
-     `capture-frame`. Captures call-site coords (rf2-ts1a). Per Spec 006
-     §Lookup algorithm."
-     ([query-v]
+     output for `query-v` (`[sub-id & args]`); deref to read. Captures
+     call-site coords (rf2-ts1a). Use `subscribe-once` for a one-shot read;
+     for a frame carried across an async boundary use the `:subscribe` op
+     from a `capture-frame`. Per Spec 006 §Lookup algorithm.
+
+     Two public arities:
+
+       (subscribe query-v)            ;; ambient frame (carried scope)
+       (subscribe query-v opts)       ;; `opts` may carry `:frame` (a frame-id
+                                      ;; keyword OR a live frame object)
+
+     The `{:frame …}` opt is the public way to target an explicit frame.
+
+     The runtime ALSO discriminates a frame-first `(subscribe frame
+     query-v)` 2-arity (first arg a frame target, not a vector) and routes
+     it to the same build. EP-0024 (Open Issue #8, rf2-5vla7c) retired the
+     frame-first form from the taught app grammar — author with the
+     `{:frame …}` opt above. The discrimination is retained as internal
+     plumbing for implementation / test / tooling reach only; it is not part
+     of the public API surface."
+     {:arglists '([query-v] [query-v opts])}
+     ([arg1]
       (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                nil query-v))
-     ([frame-id query-v]
+                                arg1 nil))
+     ([arg1 arg2]
       (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                frame-id query-v))))
+                                arg1 arg2))))
 
 ;; (`inject-cofx` macro removed from the public facade — rf2-w9xyx1; see the
 ;; comment by `subscribe*` above.)
