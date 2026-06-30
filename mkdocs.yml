@@ -265,6 +265,7 @@ nav:
     - async/index.md
     - "Continuations are data": async/continuations-are-data.md
     - "Managed HTTP": async/http.md
+    - "HTTP: going further": async/http-going-further.md
     - "Your own async effect": async/custom-effects.md
     - "Examples": async/examples.md
 
