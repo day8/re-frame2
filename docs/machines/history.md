@@ -51,7 +51,7 @@ A machine **is an event handler** — there is no actor to `send` to — so you 
 (rf/dispatch [:media-player [:eject]])   ;; → :tray   AND records :player's last config
 (rf/dispatch [:media-player [:insert]])  ;; → restores [:player :playing :mid-track] — resumes mid-track
 
-@(rf/subscribe [:rf/machine :media-player])
+@(rf/sub-machine :media-player)
 ;; => {:state      [:player :playing :mid-track]
 ;;     :data       {}
 ;;     :rf/history {[:player] [:player :playing :mid-track]}}

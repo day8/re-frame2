@@ -46,7 +46,7 @@ Two rules:
 At every transition the runtime walks the machine's active states, unions their tag sets, and stamps the result onto the [snapshot](glossary.md#snapshot) at `:tags`. The snapshot gains one optional slot:
 
 ```clojure
-@(rf/subscribe [:rf/machine :todos/loader])
+@(rf/sub-machine :todos/loader)
 ;; => {:state :retrying :data {…} :tags #{:data/in-flight}}
 ```
 
@@ -83,7 +83,7 @@ Because the sub is **derived directly off the snapshot's `:tags` slot** — it r
 Need the whole set rather than one bit? That's the ordinary snapshot read:
 
 ```clojure
-(:tags @(rf/subscribe [:rf/machine :todos/loader]))   ;; => #{:data/in-flight}
+(:tags @(rf/sub-machine :todos/loader))   ;; => #{:data/in-flight}
 ```
 
 > **Reading tags inside an event handler.** A snapshot lives in [runtime-db](../core/glossary.md#runtime-db), not app-db, so a handler that needs to branch on a tag reads it from the `:rf.db/runtime` coeffect rather than from `:db`:

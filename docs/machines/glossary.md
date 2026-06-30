@@ -38,7 +38,7 @@ See [The same flow as a transition table](concepts.md#the-same-flow-as-a-transit
 A [machine](#machine)'s live value at any moment — which state it's in, plus its `:data`. It lives in [runtime-db](../core/glossary.md#runtime-db), and you read it through a [subscription](../core/glossary.md#subscription) addressed by the machine's id.
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])   ;; {:state :authed :data {...}}
+@(rf/sub-machine :auth.login/flow)   ;; {:state :authed :data {...}}
 ```
 
 The snapshot is a plain, printable value (no functions or atoms), so [undo, time-travel](../core/glossary.md#time-travel), persistence, and SSR hydration all work on machines for free. Its `:state` takes one of three forms: a single keyword (flat machine), a vector path (`[:authenticated :cart :browsing]`, a [compound](#compound-state) machine), or a region → state map (a [parallel](#parallel-state) machine).

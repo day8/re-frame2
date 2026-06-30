@@ -4241,7 +4241,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 (rf/reg-view main []
   (let [circles                @(rf/subscribe [:drawer/circles-with-preview])
         ;; the :rf/machine sub returns the whole snapshot; inline-destructure it.
-        {state :state ed :data} @(rf/subscribe [:rf/machine :drawer/editor])
+        {state :state ed :data} @(rf/sub-machine :drawer/editor)
         editing?               (= state :editing)
         can-undo?              @(rf/subscribe [:drawer/can-undo?])
         can-redo?              @(rf/subscribe [:drawer/can-redo?])]

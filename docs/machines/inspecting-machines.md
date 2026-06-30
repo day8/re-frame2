@@ -23,7 +23,7 @@ Four surfaces, building from "read the value" to "prove the logic":
 The canonical window onto a machine is the framework-registered subscription `[:rf/machine machine-id]`. It returns the [snapshot](glossary.md#snapshot) — the whole `{:state :data :tags}` value — and you subscribe to it exactly like anything else:
 
 ```clojure
-(let [{:keys [state data tags]} @(rf/subscribe [:rf/machine :auth.login/flow])]
+(let [{:keys [state data tags]} @(rf/sub-machine :auth.login/flow)]
   [:div
    [:p "state: " (name state)]            ;; the discrete FSM keyword, e.g. :submitting
    [:p "attempts: " (:attempts data)]     ;; :data — the machine's private memory
@@ -40,7 +40,7 @@ The three keys are the whole user-facing shape:
 > **The snapshot is `nil` until the first event.** A machine bootstraps itself on the first event addressed to it, so `[:rf/machine id]` reads `nil` before then. A view that renders pre-bootstrap should fall back to the definition's `:initial`:
 >
 > ```clojure
-> (or @(rf/subscribe [:rf/machine :turnstile/flow])
+> (or @(rf/sub-machine :turnstile/flow)
 >     {:state (:initial turnstile) :data (:data turnstile)})
 > ```
 
