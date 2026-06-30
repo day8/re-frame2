@@ -15,7 +15,7 @@ re-frame2 has first-class, **hierarchical** state machines — nested states, pa
              :authed     {}
              :error      {:on {:submit :submitting}}}})
 
-@(rf/subscribe [:rf/machine :auth/login])   ;; => {:state :idle :data {}}
+@(rf/sub-machine :auth/login)   ;; => {:state :idle :data {}}
 ```
 
 Dispatch an event, the snapshot moves, and the views reading it follow.

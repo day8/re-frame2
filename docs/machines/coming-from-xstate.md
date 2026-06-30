@@ -47,7 +47,7 @@ Skim this, then read the worked build-up in [The grammar, concept by concept](#t
 | TypeScript `types` / v6 `schemas` | [`:schemas {:data … :output …}`](#schemas-types-that-actually-run) | A [Malli schema](../core/glossary.md#schema) — but one that **actually runs in dev** and rolls a bad transition back, not erased-at-compile types. |
 | three creation modes (`createActor` / `invoke` / `spawn`) | one mechanism: singleton via `reg-machine`, dynamic via `:spawn` / `[:rf.machine/spawn …]` | Lifetime is the snapshot's presence in [runtime-db](../core/glossary.md#runtime-db), not which constructor you called. |
 | **`createActor(m).start()` → `actor.send(ev)`** | **the machine is an event handler → `(rf/dispatch [machine-id [event]])`** | **The big one.** No actor object; one [`dispatch`](../core/glossary.md#dispatch), one [cascade](../core/glossary.md#event-cascade). |
-| `actor.getSnapshot()` | [`@(rf/subscribe [:rf/machine id])`](#reading-the-snapshot) | The [snapshot](glossary.md#snapshot) is a value in [runtime-db](../core/glossary.md#runtime-db), read like any other derived state. |
+| `actor.getSnapshot()` | [`@(rf/sub-machine id)`](#reading-the-snapshot) | The [snapshot](glossary.md#snapshot) is a value in [runtime-db](../core/glossary.md#runtime-db), read like any other derived state. |
 
 This table is the long form; the worked build-up and the *why* essays below are the part worth your attention.
 
@@ -174,7 +174,7 @@ const snap = actor.getSnapshot();   // { value, context, tags, … }
 ```
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
+@(rf/sub-machine :auth.login/flow)
 ;; => {:state :submitting :data {:attempts 1 :error nil} :tags #{:auth/busy}}
 ;;    (nil before the first event; :tags present only when active states declare tags)
 ```
@@ -253,7 +253,7 @@ For orthogonal axes of one domain, XState uses `type: 'parallel'` with sub-`stat
 In XState the parallel node's children sit under `states`; in re-frame2 they sit under `:regions`, each a `{:initial … :states …}` body. The snapshot's `:state` becomes a **region-name → state** map, `:tags` is the **union** across active regions, and `:data` is **shared** (there is no per-region `:data` — if your axes need encapsulated data, that's the substrate telling you to register N separate machines):
 
 ```clojure
-@(rf/subscribe [:rf/machine :ui/nine-states])
+@(rf/sub-machine :ui/nine-states)
 ;; => {:state {:data :nothing :form :neutral} :data {:items [] :error nil} :tags #{:data/idle :form/neutral}}
 ```
 
@@ -399,7 +399,7 @@ re-frame2 already has exactly one of those — the [event cascade](../core/gloss
 `actor.getSnapshot()` reaches into an object. In re-frame2 the snapshot — `{:state :submitting :data {...}}` — is a plain value living in the frame's [runtime-db](../core/glossary.md#runtime-db), the framework's half of [the two partitions](../core/glossary.md#the-two-partitions). You read it with an ordinary subscription:
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
+@(rf/sub-machine :auth.login/flow)
 ;; => {:state :submitting :data {:attempts 1 :error nil}}   (nil before the first event)
 ```
 

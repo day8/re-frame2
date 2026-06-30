@@ -92,7 +92,7 @@ So every event reaches the machine through the same `dispatch` and the same [eve
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
 
-@(rf/subscribe [:rf/machine :auth.login/flow])
+@(rf/sub-machine :auth.login/flow)
 ;; => {:state :submitting :data {:attempts 1 :error nil}}   (nil before the first event)
 ```
 
@@ -129,7 +129,7 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 
 ;; [:rf/machine ...] returns nil until the first event; render :initial until then.
 (defn turnstile-view []
-  (let [{:keys [state data]} (or @(rf/subscribe [:rf/machine :turnstile/flow])
+  (let [{:keys [state data]} (or @(rf/sub-machine :turnstile/flow)
                                  {:state (:initial turnstile) :data (:data turnstile)})
         open? (= state :unlocked)]
     [:div {:style {:font-family "sans-serif"}}
@@ -311,7 +311,7 @@ Three slots do the work:
 You read the snapshot through the framework's `[:rf/machine <id>]` [subscription](../api/re-frame.machines.md) — it returns the `{:state :data}` value (plus `:tags`), or `nil` before the first event:
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
+@(rf/sub-machine :auth.login/flow)
 ;; => {:state :submitting :data {:attempts 1 :error nil} :tags #{:auth/busy}}
 ```
 

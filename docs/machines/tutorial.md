@@ -51,7 +51,7 @@ Now drive it. A machine is addressed by its id, and the event rides *inside* a w
 **What you see:** read the snapshot through a subscription and it has moved.
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
+@(rf/sub-machine :auth.login/flow)
 ;; => {:state :submitting :data {:attempts 0 :error nil}}
 ;;    (nil before the very first event — the machine starts itself on its first dispatch)
 ```
@@ -90,10 +90,10 @@ You name the guard once in `:guards`, then point at it by id — `:guard :form-v
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "" :password ""}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])     ;; => {:state :idle …}        (guard said no)
+@(rf/sub-machine :auth.login/flow)     ;; => {:state :idle …}        (guard said no)
 
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "secret"}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])     ;; => {:state :submitting …}
+@(rf/sub-machine :auth.login/flow)     ;; => {:state :submitting …}
 ```
 
 **Notice what the guard read.** It pulled the credentials out of `:event`, not out of [app-db](../core/concepts/app-db.md). A machine callback can't see app-db at all — only its own `:data` plus the event that woke it. A fact from the outside world arrives *in the event*; the view that has the form hands it over in the dispatch. That boundary is load-bearing — [Concepts](concepts.md) has the why.
@@ -162,7 +162,7 @@ Two things arrived with the actions. The `:auth.login/failure` arrow is now a **
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
 (rf/dispatch [:auth.login/flow [:auth.login/failure {:failure {:message "nope"}}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])
+@(rf/sub-machine :auth.login/flow)
 ;; => {:state :error-shown :data {:attempts 1 :error "nope"}}
 ```
 
