@@ -58,7 +58,7 @@ Now drive it. A machine is addressed by its id, and the event rides *inside* a w
 
 Dispatch `[:auth.login/flow [:auth.login/success]]` and the snapshot reads `{:state :authed …}`. Dispatch an event the current state has no transition for — `[:auth.login/flow [:auth.login/dismiss]]` while `:submitting` — and nothing happens: an unhandled event is a silent no-op, not a crash.
 
-**Why this works.** A machine *is* an [event handler](../core/glossary.md#event-handler). `reg-machine` is sugar over `reg-event` whose body reads the snapshot, computes the transition from the table, and writes the new snapshot back. So the snapshot rides the [frame](../core/concepts/frames.md) like everything else, and you read it with the ordinary `[:rf/machine <id>]` subscription — same `dispatch`, same `subscribe`, no second runtime to learn.
+**Why it works:** `reg-machine` is sugar over `reg-event`, so the snapshot rides the [frame](../core/concepts/frames.md) and you read it with an ordinary subscription — same `dispatch`, same `subscribe`. [Concepts → Registering and running it](concepts.md#registering-and-running-it) walks the machinery.
 
 ## Step 2 — a guard: refuse an invalid submit
 
@@ -96,14 +96,11 @@ You name the guard once in `:guards`, then point at it by id — `:guard :form-v
 @(rf/sub-machine :auth.login/flow)     ;; => {:state :submitting …}
 ```
 
-**Notice what the guard read.** It pulled the credentials out of `:event`, not out of [app-db](../core/concepts/app-db.md). A machine callback can't see app-db at all — only its own `:data` plus the event that woke it. A fact from the outside world arrives *in the event*; the view that has the form hands it over in the dispatch. That boundary is load-bearing — [Concepts](concepts.md) has the why.
+**Notice:** the guard read the credentials from `:event`, not [app-db](../core/concepts/app-db.md) — a machine callback sees only its own `:data` and the event that woke it. [Concepts → Strict encapsulation](concepts.md#strict-encapsulation--a-machine-sees-only-its-own-data) explains why that boundary matters.
 
 ## Step 3 — an action, and the `{:data :fx}` it returns
 
-A guard decides *whether*; an **action** does the *work* a transition performs. But an action never performs a side-effect itself — it **returns a description**, the same `{:data :fx}` shape a `reg-event` handler returns:
-
-- `:data` — updates *merged* into the machine's own `:data`, key by key (mention only what changes).
-- `:fx` — the ordinary effects vector (`:dispatch`, HTTP, your own effects).
+A guard decides *whether*; an **action** does the *work*. But it never performs a side-effect itself — it **returns** the same `{:data :fx}` map a `reg-event` does: `:data` is merged into the machine's own data, `:fx` is the ordinary effects vector. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the full shape.
 
 Add three actions and a second guard, and wire them in. `:clear-error` wipes the last error on submit; `:record-error` counts a failure into `:data`; `:store-session` fires an effect on success:
 
@@ -155,7 +152,7 @@ Add three actions and a second guard, and wire them in. `:clear-error` wipes the
     :locked-out {:meta {:terminal? true}}}})   ;; NOT :final? (which would auto-destroy the machine)
 ```
 
-Two things arrived with the actions. The `:auth.login/failure` arrow is now a **list of candidates** — the runtime tries them top to bottom and takes the first whose guard passes. While under the retry limit, a failure records the error and shows it; once `:under-retry-limit` says no, the next candidate (no guard) wins and the machine locks out. And `:store-session` returns an `:fx` rather than calling `localStorage` itself — effects are data the runtime actions, exactly like in an event handler.
+The `:auth.login/failure` arrow is now a **list of candidates** — the runtime takes the first whose guard passes. Under the retry limit, a failure records the error and shows it; past it, the unguarded candidate wins and the machine locks out.
 
 **What you see:** drive a failure and watch `:data` change.
 
@@ -168,7 +165,7 @@ Two things arrived with the actions. The `:auth.login/failure` arrow is now a **
 
 Keep submitting and failing. The first three failures each land in `:error-shown` with `:attempts` climbing `1 → 2 → 3`. On the fourth, `:under-retry-limit` returns false, the guarded candidate is skipped, and the machine settles in `:locked-out`.
 
-> **`:data` is a merge, not a replace.** `:clear-error` returns `{:data {:error nil}}` and only `:error` changes — `:attempts` is left alone. [Concepts](concepts.md) covers the sharp edges: an explicit `nil` *sets* a key (the merge never removes keys), and an action's `:fx` can't read the `:data` it's writing in the same breath.
+> **`:data` is a merge, not a replace** — `:clear-error` changes only `:error`, leaving `:attempts` alone. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the sharp edges.
 
 ## Step 4 — talk to a real server
 
@@ -277,4 +274,4 @@ Here's the payoff. A transition is a pure function of *(table, snapshot, event)*
     (is (= :locked-out (:state snap)))))
 ```
 
-Feed in a snapshot and an event; assert on the snapshot that comes back. The result is a value — destructure `::result/snap` and `::result/fx`, or discriminate with `result/ok?` / `result/fail?` (a throwing action surfaces as a *failure value*, not an exception out of your test). These run on the JVM in microseconds, which is exactly the testing experience you want for the flows where testing usually gets hard.
+Feed in a snapshot and an event; assert on what comes back. The result is a value — `::result/snap` / `::result/fx`, or `result/ok?` / `result/fail?` (a throwing action is a *failure value*, not an exception out of your test). It runs on the JVM in microseconds — exactly the testing experience you want for the flows where testing usually gets hard. [Concepts → Testing](concepts.md#testing-transitions-are-pure-function-calls) goes deeper.

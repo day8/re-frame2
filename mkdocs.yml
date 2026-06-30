@@ -235,14 +235,14 @@ nav:
     - "Concepts": machines/concepts.md
     - "Hierarchical states": machines/hierarchical-states.md
     - "Parallel states": machines/parallel-states.md
-    - "Automatic transitions": machines/automatic-transitions.md
-    - "Actors": machines/actors.md
-    - "Tags": machines/tags.md
     - "History": machines/history.md
+    - "Automatic transitions": machines/automatic-transitions.md
+    - "Tags": machines/tags.md
+    - "Actors": machines/actors.md
     - "Inspecting and testing": machines/inspecting-machines.md
-    - "Coming from XState": machines/coming-from-xstate.md
-    - "Glossary": machines/glossary.md
     - "Examples": machines/examples.md
+    - "Glossary": machines/glossary.md
+    - "Coming from XState": machines/coming-from-xstate.md
 
   - Resources:
     - resources/index.md
