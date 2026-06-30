@@ -1,26 +1,30 @@
 # Hierarchical State Machines
 
-## They are everywhere
+## They're everywhere
 
-Finite state machines (FSMs) hide in plain sight all over your app:
+Finite state machines (FSMs) are hiding in plain sight all over your app:
 
-- Your app's boot — load config, hydrate, check the session, then go ready.
-- Auth — logged out, or logged in; and if logged in, an admin or not.
-- A single HTTP request — `idle → loading → loaded | failed`.
+- Your app's boot process — load config, check the session, get some codes, then go ready.
+- Auth — user logged out, or logged in; and if logged in, an admin or not. And do we have a JWT yet?
+- A single HTTP request — `idle → loading → timeout → retry → loaded | failed`.
 - A websocket — `connecting → open → reconnecting → closed`.
-- A humble dropdown — `closed → open → selecting`.
+- A humble dropdown — `disabled | enabled → closed → open → selecting`.
 
-Keep looking and you'll see them at every scale — usually tangled up in a cluster of enums and boolean flags. Formally modelling them makes your code more explicit, robust, and easier to understand.
+Keep looking and you'll find them at every scale — usually tangled up in a cluster of enums and boolean flags. 
+
+But if you have a way of modelling them formally, your code becomes more explicit, robust, and easier to understand.
 
 ## First-class support
 
-re-frame2 has first-class, **hierarchical** state machines — nested states, parallel regions, spawned children, guards, and delayed transitions. They cover much the same ground as the 500-pound gorilla in this space, [XState v6](coming-from-xstate.md) — a wonderful library from which we have learned a lot.
+re-frame2 has first-class, **hierarchical** state machines — including nested states, parallel regions, spawned children, guards, and delayed transitions. 
+
+The re-frame2 implementation seeks near-parity with the 500-pound gorilla in this space, [XState v6](coming-from-xstate.md) — a wonderful library which has taught me a lot.
 
 ## Deeply integrated
 
-They're wired right into the **core** of re-frame2 — not bolted on as a side-car, and infused with the re-frame2 ethos. A machine *is* an event handler: its state lives in the [frame](../core/concepts/frames.md) alongside your `app-db`, it moves on the same cascade, and the same Xray and tests work on it — no second runtime to learn.
+The machines implementation is wired into the **core** of re-frame2 — not bolted on as a side-car. And it is infused with the re-frame2 ethos. 
 
-They're **expressed** as a data-oriented DSL — the whole machine is just a value, so you can `def` it. Read `:states` as a transition table: in each state, `:on` maps an incoming event to the next state.
+A machine is **expressed** via a data-oriented DSL — state, transitions, guards, etc. The whole machine is just a value, so you can `def` it like this. 
 
 ```clojure
 (def auth-login-machine
@@ -32,13 +36,15 @@ They're **expressed** as a data-oriented DSL — the whole machine is just a val
              :error      {:on {:submit :submitting}}}})
 ```
 
-They're **integrated** as an event handler — `reg-machine` is just a machine-specific `reg-event`:
+And a singleton machine (based on this specification value) can be defined as an event handler using `reg-machine` (which is just a machine-specific `reg-event`), like this:
 
 ```clojure
 (rf/reg-machine :auth-login auth-login-machine)
 ```
 
-They're **triggered** by normal events, dispatched the normal way, so you drive a machine straight from an ordinary handler. Dispatching `[:auth-login [:submit …]]` fires the machine's `:submit` arrow:
+The state for all machines lives in a [frame](../core/concepts/frames.md) alongside your `app-db`, it moves on the same cascade, can be "undone" the same way, and be debugged using the same tools (like Xray) and be tested the same way — **there's no second runtime to learn**.
+
+Triggers are sent to machines by normal events, dispatched the normal way, so you drive a machine straight from an ordinary handler. Dispatching `[:auth-login [:submit …]]` fires the machine's `:submit` arrow:
 
 ```clojure
 (rf/reg-event :login/submit
@@ -48,7 +54,7 @@ They're **triggered** by normal events, dispatched the normal way, so you drive 
 (rf/dispatch [:login/submit credentials])   ;; fire it the normal way
 ```
 
-And they're **read** through an ordinary subscription — you get back a [snapshot](glossary.md#snapshot), `{:state … :data …}`:
+And the state of a machine is **read** like an ordinary subscription — you get back a [snapshot](glossary.md#snapshot), `{:state … :data …}`:
 
 ```clojure
 @(rf/sub-machine :auth-login)   ;; => {:state :submitting :data {}}

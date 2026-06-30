@@ -1,14 +1,11 @@
 # Tutorial: build a login machine
 
-The fastest way to understand a re-frame2 state machine is to build one and watch each piece arrive on its own. We'll make a **login flow** — idle, then submitting, then either signed-in or showing an error, and locked out after too many tries — adding one idea at a time: a guard, an action, a real server call, a view, and a test.
+Let's build a machine to model a **login flow** — idle, then submitting, then either signed-in or showing an error, and locked out after too many tries — adding one idea at a time: a guard, an action, a real server call, a view, and a test.
 
-This page assumes you've done the [core Quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-cascade.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md).
-
-> **One idea to carry through.** A machine is just an event handler. You *read* its current state — a small map called the [snapshot](glossary.md#snapshot) — through a subscription, and you *move* it by dispatching an event. There's no actor object to hold and no second runtime to learn. Keep that in mind and every step below is a small variation on the `dispatch` / `subscribe` loop you already know.
 
 ## Step 0 — turn machines on
 
-Machines ship as their own package, `day8/re-frame2-machines`, so an app that has none builds a bundle clean of them. Add the dependency, then require the namespace once at boot:
+To reduce bundle size, re-frame2 doesn't include the machines capability by default, so if you want to use it, you have to explicitly require it into your boot/root namespace. Like this:
 
 ```clojure
 (ns app.login
@@ -16,16 +13,17 @@ Machines ship as their own package, `day8/re-frame2-machines`, so an app that ha
             [re-frame.machines]))   ;; ← requiring it is what turns machines on
 ```
 
-That bare `[re-frame.machines]` require has a side effect: it wires up `reg-machine`, the `:rf/machine` subscription, and the rest of the machine runtime. Forget it and your first `reg-machine` throws `:rf.error/machines-artefact-missing` — a loud error that names the artefact to add, not a silent no-op. `reg-machine` itself lives on the `rf/` facade, alongside `dispatch` and `subscribe`.
+If you forget to do this, your first `reg-machine` will loudly throw `:rf.error/machines-artefact-missing`.  
+
 
 ## Step 1 — your first machine
 
-A machine is a **transition table**: a set of named states, and for each one, which events move it where. Here's a login as that table — four states, and the events that connect them.
+A machine is a data structure which defines a set of named states, and for each one, which triggers move it where. Here's a login as that data structure — four states, and the triggers that connect them.
 
 ```clojure
 (def login-flow
   {:initial :idle
-   :data    {:attempts 0 :error nil}     ;; the machine's private memory; Step 3 puts it to work
+   :data    {:attempts 0 :error nil}     ;; the machine's private state; Step 3 puts it to work
 
    :states
    {:idle        {:on {:auth.login/submit  {:target :submitting}}}
@@ -36,19 +34,23 @@ A machine is a **transition table**: a set of named states, and for each one, wh
     :authed      {}}})                    ;; a resting state — no outgoing transitions
 ```
 
-Register it — one line:
+Except, instead of triggers, we'll call them events. 
+
+Register it — one line to create a singleton machine:
 
 ```clojure
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-Now drive it. A machine is addressed by its id, and the event rides *inside* a wrapper:
+This singleton machine is identifiable via `:auth.login/flow` because the code above literally wrapped it in an event handler. `reg-machine` is pretty much syntactic sugar over `reg-event`.
+
+And that means, to drive this machine, we dispatch events. The event id is that of the machine, and the trigger rides *inside* an event wrapper, like this:
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit]])
 ```
 
-**What you see:** read the snapshot through a subscription and it has moved.
+In a similar way, if a view needs to see what state the machine is in, it reads that snapshot through a subscription (a specialised subscription called sub-machine)
 
 ```clojure
 @(rf/sub-machine :auth.login/flow)
@@ -56,19 +58,19 @@ Now drive it. A machine is addressed by its id, and the event rides *inside* a w
 ;;    (nil before the very first event — the machine starts itself on its first dispatch)
 ```
 
-Dispatch `[:auth.login/flow [:auth.login/success]]` and the snapshot reads `{:state :authed …}`. Dispatch an event the current state has no transition for — `[:auth.login/flow [:auth.login/dismiss]]` while `:submitting` — and nothing happens: an unhandled event is a silent no-op, not a crash.
 
 **Why it works:** `reg-machine` is sugar over `reg-event`, so the snapshot rides the [frame](../core/concepts/frames.md) and you read it with an ordinary subscription — same `dispatch`, same `subscribe`. [Concepts → Registering and running it](concepts.md#registering-and-running-it) walks the machinery.
 
 ## Step 2 — a guard: refuse an invalid submit
 
-Right now *any* `:auth.login/submit` moves you to `:submitting`, even with an empty form. A **guard** is a yes/no test that gates a transition. Add one named guard and reference it from the arrow:
+Right now *any* `:auth.login/submit` trigger moves you from `:idle` to `:submitting`, even with an empty form. A **guard** is a yes/no test that gates a transition. Below we add one named guard `:form-valid?`, and reference it from the arrow:
 
 ```clojure
 (def login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
 
+   ;; guards defined here
    :guards
    {:form-valid?
     (fn [{[_ creds] :event}]
@@ -76,7 +78,7 @@ Right now *any* `:auth.login/submit` moves you to `:submitting`, even with an em
 
    :states
    {:idle        {:on {:auth.login/submit  {:target :submitting
-                                            :guard  :form-valid?}}}
+                                            :guard  :form-valid?}}}   ;; <- use here.
     :submitting  {:on {:auth.login/success {:target :authed}
                        :auth.login/failure {:target :error-shown}}}
     :error-shown {:on {:auth.login/dismiss {:target :idle}
@@ -100,9 +102,9 @@ You name the guard once in `:guards`, then point at it by id — `:guard :form-v
 
 ## Step 3 — an action, and the `{:data :fx}` it returns
 
-A guard decides *whether*; an **action** does the *work*. But it never performs a side-effect itself — it **returns** the same `{:data :fx}` map a `reg-event` does: `:data` is merged into the machine's own data, `:fx` is the ordinary effects vector. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the full shape.
+A guard decides *whether*; an **action** computes change. But it never performs a side-effect itself — it **returns** the same `{:data :fx}` map a `reg-event` does: `:data` is merged into the machine's own data, `:fx` is the ordinary effects vector. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the full shape.
 
-Add three actions and a second guard, and wire them in. `:clear-error` wipes the last error on submit; `:record-error` counts a failure into `:data`; `:store-session` fires an effect on success:
+Below, we add three actions and a second guard, and wire them in. `:clear-error` wipes the last error on submit; `:record-error` counts a failure into `:data`; `:store-session` fires an effect on success:
 
 ```clojure
 (def login-flow
