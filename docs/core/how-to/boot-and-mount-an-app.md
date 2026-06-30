@@ -16,7 +16,7 @@ or Helix. The frame is created later by the rendered
 The goal is simple: first page load should create and seed the app; hot reload
 should re-render changed views without losing app-db.
 
-## The Small Shape
+## The small shape
 
 For an app with no browser listeners, there is no need for a separate `boot!`
 function. Keep the process setup inline in `run`, and put DOM work in `mount!`.
@@ -65,7 +65,7 @@ namespace whose top-level registrations must exist before the app runs: events,
 effects, coeffects, subscriptions, views, routes, resources, machines, and
 schemas.
 
-## What the Provider Does
+## What the provider does
 
 This form:
 
@@ -91,7 +91,7 @@ frame on unmount. That is why app-db survives reload.
 If you edit the setup event itself and want the new setup to run, reset the
 frame or reload the page. Hot reload preserves state by design.
 
-## Hot Reload
+## Hot reload
 
 Two pieces make hot reload work:
 
@@ -109,7 +109,7 @@ second `create-root` call for a live DOM node.
 reload. That re-renders the edited views into the same root and the same frame.
 It does not re-run `run`.
 
-## Host Listeners
+## Host listeners
 
 Some apps also install browser listeners: `hashchange`, `popstate`, `storage`,
 or similar. Those listeners are process/browser wiring, not frame creation.
@@ -155,7 +155,7 @@ reinstalls listeners and renders once.
 For history routing, prefer the routing helper where it fits. It already owns the
 same hot-reload-safe listener pattern.
 
-## Two Frame Shapes
+## Two frame shapes
 
 `frame-provider` has two useful shapes.
 
@@ -183,7 +183,7 @@ This shape only scopes an existing frame into the React subtree. It creates
 nothing and destroys nothing. Use it when boot, tests, SSR/request setup, or a
 tooling harness needs to create the frame before rendering.
 
-## Lifecycle Summary
+## The boot lifecycle
 
 | Moment | What should happen |
 | --- | --- |
@@ -194,7 +194,7 @@ tooling harness needs to create the frame before rendering.
 | Host listener edit | Reinstall the stored listener so the browser calls the current code. |
 | Fresh setup wanted | Reset the frame or reload the page; remounting does not replay setup. |
 
-## No DOM Work at Namespace Load
+## No DOM work at namespace load
 
 Keep `create-root`, `render`, and browser listener installation out of top-level
 namespace code. Requiring registration namespaces is fine; browser work is not.
@@ -217,7 +217,17 @@ The namespace may be loaded by a test host, a Story tool, or another namespace
 that wants the registrations without mounting the app. Lazy DOM work keeps that
 safe.
 
-## Worked Examples
+## When boot goes wrong
+
+Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../concepts/errors.md) rather than a blank page.
+
+> **Gotcha — touching the substrate before `init!`.** `rf/init!` installs the [adapter](../glossary.md#adapter); until it runs there is nothing to render or dispatch through. A `render`, `dispatch`, or `subscribe` that beats `(rf/init! …)` — an event fired from a top-level form, a `mount!` that ran before `run` — throws `:rf.error/no-adapter-installed`, naming the call. Install the adapter first; in the shapes above, `run` does it on its first line.
+
+> **Gotcha — `{:frame …}` needs a frame that already exists.** The scope shape only *scopes* a frame someone else created; it creates nothing. Point `[rf/frame-provider {:frame :checkout} …]` at a frame that was never `reg-frame`'d (nor ensured by an `{:id}` provider) and it throws `:rf.error/frame-provider-frame-absent`. When the subtree should bring its own frame into being, use the **ensure** shape `{:id …}` instead — that's the whole difference between [the two shapes](#two-frame-shapes).
+
+> **Gotcha — a registration namespace you forgot to require.** A `reg-event` or `reg-sub` runs only when its namespace loads, so a missing `require` means the registration never happened. Drop `counter.events` from the entry `ns` and the first `[:counter/inc]` dispatch — or `[:counter/value]` subscribe — is a loud `:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming the missing id, not a silent dead button. The fix is the require list in the `ns` form above.
+
+## Worked examples
 
 - [`examples/core/counter/core.cljs`](../../../examples/core/counter/core.cljs)
   shows the smallest app shape.
