@@ -1,4 +1,4 @@
-# No await: continuations are data
+# Why no await: continuations are data
 
 You've met `:on-success` on [HTTP requests](http.md), `:reply-to` on mutations, `:on-done` on [machines](../machines/concepts.md). At some point you asked the obvious question: *why am I naming a second event instead of just `await`ing the result?* This page is the answer. It's one idea — and once it clicks, every async surface in re-frame2 reads the same way.
 
@@ -6,7 +6,7 @@ You've met `:on-success` on [HTTP requests](http.md), `:reply-to` on mutations, 
 
 ## Start with the one move
 
-Here is the [effect map](../core/glossary.md#effect-map) an [event handler](../core/glossary.md#event-handler) returns to ask for an HTTP request. (In re-frame2 a handler doesn't *do* things — it's a pure function that returns a *description* of what should happen, under the `:fx` key, and the runtime carries it out.) Watch where the *result* is supposed to go:
+Here is the [effect map](../core/glossary.md#effect-map) an [event handler](../core/glossary.md#event-handler) returns to ask for an HTTP request. Watch where the *result* is supposed to go:
 
 ```clojure
 {:fx [[:rf.http/managed
@@ -34,7 +34,7 @@ Under `async/await`, the continuation is a **closure**. Write `const quote = awa
 
 That event vector — `[:article/loaded]` — has none of those properties. It *has* a name (it *is* a name). It serializes. It survives a reload. And, as we're about to see, it never reads a stale world.
 
-> **From re-frame v1.** re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every [managed](../resources/glossary.md#managed-http) async surface — HTTP, [resources](../resources/concepts.md), mutations, [machines](../machines/concepts.md) — addresses its reply by a named event, and the result arrives as a single [uniform reply](../core/glossary.md#the-uniform-reply) — one [reply map](../resources/glossary.md#reply-map), every surface. The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loud (see the trap below) — there's a sanctioned managed effect for every async job.
+> **From re-frame v1.** re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every [managed](../resources/glossary.md#managed-http) async surface — HTTP, [resources](../resources/concepts.md), mutations, [machines](../machines/concepts.md) — addresses its reply by a named event. The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loud (see the trap below) — there's a sanctioned managed effect for every async job.
 
 ## The bug this kills: the stale-world trap
 
@@ -71,9 +71,6 @@ Now the same intent, with the continuation as data. The request handler just *na
             :on-failure [:article/load-failed]}]]}))
 
 (rf/reg-event :article/loaded
-  ;; The event vector that arrives is [:article/loaded <reply-map>]. The handler's
-  ;; second argument is that vector; `[_ {:keys [value]}]` ignores the event id (`_`)
-  ;; and destructures `:value` — the decoded result — out of the reply map.
   (fn [{:keys [db]} [_ {:keys [value]}]]
     ;; This `db` is current — handed to the handler at ARRIVAL time.
     {:db (if (= (:article/viewing db) (:slug value))
@@ -87,9 +84,9 @@ Now the same intent, with the continuation as data. The request handler just *na
              (assoc-in [:article :error]  failure))}))
 ```
 
-A closure **closes over the past; a handler receives the present.** The reply handler — the ordinary [event handler](../core/glossary.md#event-handler) registered to run when the answer arrives — is given the `db` of the moment the reply lands. So "did the user navigate away while we waited?" is a *live* comparison, not a memory. It takes no discipline on your part: there is simply no mechanism by which the old `db` can leak into the new decision.
+A closure **closes over the past; a handler receives the present.** The reply handler is given the `db` of the moment the reply lands. So "did the user navigate away while we waited?" is a *live* comparison, not a memory. It takes no discipline on your part: there is simply no mechanism by which the old `db` can leak into the new decision.
 
-> **Gotcha — why the trap fails *louder* here.** In re-frame2 the trap above doesn't even reach the stale read: the bare `rf/dispatch` inside the `.then` fires on a fresh stack with no [frame](../core/glossary.md#frame) in scope (a frame is an isolated app instance — its own db and event queue) and raises a `:rf.error/no-frame-context` [error record](../core/glossary.md#error-record). Useful, but don't mistake the loud failure for the disease. The *stale read* is the disease — and that one ships fine in frameworks that allow the bare dispatch, which is most of them. The data-continuation form is immune by construction, not by vigilance. (Need to dispatch from a callback on purpose — a `setTimeout`, a WebSocket message? Capture a [capture-frame](../core/glossary.md#capture-frame) while the frame is in scope and dispatch through that.)
+> **Gotcha — why the trap fails *louder* here.** In re-frame2 the trap above doesn't even reach the stale read: the bare `rf/dispatch` inside the `.then` fires on a fresh stack with no [frame](../core/glossary.md#frame) in scope and raises a `:rf.error/no-frame-context` [error record](../core/glossary.md#error-record). Useful, but don't mistake the loud failure for the disease. The *stale read* is the disease — and that one ships fine in frameworks that allow the bare dispatch, which is most of them. The data-continuation form is immune by construction, not by vigilance. (Need to dispatch from a callback on purpose — a `setTimeout`, a WebSocket message? Capture a [capture-frame](../core/glossary.md#capture-frame) while the frame is in scope and dispatch through that.)
 
 ## What a named continuation can do that a closure can't
 
@@ -99,19 +96,56 @@ Naming the continuation makes it a value, and values are governable. Five proper
 - **Inspectable.** In-flight work and its continuation are both data, so the runtime can show them to you. Every managed surface keeps a queryable registry of what's in flight; server-state work goes further with a durable **work ledger** — literally a table of outstanding continuations, each row carrying what was started, who owns it, and the reply target it will complete. "What is this app waiting on right now?" is a query, not a hunt through invisible suspended stack frames.
 - **Survivable.** The event vector is a *name*, resolved at delivery time. Hot-reload mid-flight and the reply finds the newest handler registered under that name — a closure would have resumed the stale one. And because a ledger row is plain data, it serializes: server-side rendering can wait on outstanding work and ship its summary across the wire, which no captured closure could survive. (Honest footnote: the *host work itself* — the socket, the timer — is never revived across a reload or restore. A late completion whose correlation no longer matches is suppressed. The continuation survives as data; the in-flight attempt fails safe.)
 - **Lawful.** Re-targeting a continuation — a feature module relocating a reply onto its parent's event — is a pure data transform on the target vector. Picture a reusable child feature that issues work with `:on-success [:child/loaded]`; a parent embedding the child rewrites that target to `[:parent/child-loaded]` before the work flies, so the parent hears about it. Because the target is just a vector, this is data-in, data-out, and the guarantee is precise: mapping the target changes *only* which event completes — never the issuance, the work identity (`:work/id`), the status classification, or the staleness checks. There is no hidden callback to smuggle behaviour through.
-- **Managed.** A value can be refused. Every managed reply carries a closed `:status` — exactly one of [`:ok` / `:partial` / `:error` / `:cancelled` / `:stale`, defined once on the status table at its home](http-going-further.md#one-envelope-under-every-async-surface). The leverage that buys *this* page's argument: the runtime checks staleness *before* delivery, so a reply whose correlation was superseded (the search-box race, a navigation, a re-fired mutation) is classified `:stale` and **never dispatched to your handler at all** — and a cancellation arrives as `:cancelled` data, never as a silently dropped promise. Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
+- **Managed.** A value can be refused. Every managed reply carries a closed `:status` ([below](#one-envelope-under-every-async-surface)), and the runtime checks staleness *before* delivery — a reply whose correlation was superseded (the search-box race, a navigation, a re-fired mutation) is classified `:stale` and **never dispatched to your handler at all**. A cancellation arrives as `:cancelled` data, never as a silently dropped promise. Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
 
-> **Gotcha — silencing a reply on purpose stays honest.** You *can* decline the continuation: `:on-success nil` / `:on-failure nil` is fire-and-forget, the right shape for a telemetry beacon you genuinely don't care about. But silence is the one place this model could quietly regrow the bug it kills — a dropped failure is an error nobody sees. So the runtime keeps it honest: the first time a *real* (non-aborted) failure — a transport error, a 5xx, a timeout, a decode failure — is dropped by `:on-failure nil`, it emits a one-shot dev-only `:rf.warning/failure-swallowed` trace, naming the silence rather than letting it vanish. (A *cancelled* request that no longer wants its reply is correct-by-design silence, not a swallowed error, so an `:rf.http/aborted` failure is excluded.) The warning is informational — there's no `:rf.error/*` here — but it means even your deliberate silences leave a line in the record.
-
-### The reply that lands
-
-The event that lands is just data: any context you carried, followed by the reply for that async surface. HTTP handlers see the short HTTP reply shape. Other async surfaces may pass the full reply map. In both cases, the reply carries the time the work completed. That timestamp is the important part here: if you store "last updated", use the timestamp that came with the reply, not a fresh clock read.
-
-> **Gotcha — don't reach for the clock in a reply handler.** The temptation, fresh off `await`, is to write `(js/Date.now)` when you store "last updated." Don't: that's a fresh ambient read, and on replay it samples *today's* clock, not the run you're replaying. In an HTTP reply handler, declare `{:rf.cofx/requires [:rf/time-ms]}` and read the built-in `:rf/time-ms` [coeffect](../core/glossary.md#coeffect). In a handler that receives the full reply map, read `(:completed-at reply)`. Both are the same durable completion value; neither is something you re-sample.
-
-> **Going deeper — the shape of the flow.** Effects can run in order, but their results do not flow back into the same handler. A result always returns as the next event. That keeps the continuation named, traceable, and movable: changing the reply target only changes which event receives the answer. It does not change the request, the work id, the status, or the stale-result checks.
+> **Gotcha — silencing a reply on purpose stays honest.** You *can* decline the continuation: `:on-success nil` / `:on-failure nil` is fire-and-forget, the right shape for a telemetry beacon you genuinely don't care about. But silence is the one place this model could quietly regrow the bug it kills — a dropped failure is an error nobody sees. So the runtime keeps it honest: the first time a *real* (non-aborted) failure is dropped by `:on-failure nil`, it emits a one-shot dev-only `:rf.warning/failure-swallowed` trace, naming the silence rather than letting it vanish. Even your deliberate silences leave a line in the record.
 
 > **Do, observe.** Dispatch a slow request with [Xray](../core/how-to/debug-with-xray.md) open. While it flies, the outstanding work is visible as data — its work id, its owner, its reply target. When it lands, the reply is just another event row in the ledger. Now give the request a stable `:request-id` and re-fire before the first answer arrives: the superseded completion is classified stale, the trace records the suppression, and your handler never runs.
+
+## One envelope under every async surface
+
+"A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../core/glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](../resources/concepts.md), [state-machine async work](../machines/concepts.md), and [route loaders](../routing/concepts.md). Those pages lean on this section instead of re-teaching it.
+
+The envelope has two pieces. A **reply target** says where completion is dispatched. A **reply map** says what it carries. When the work completes, the runtime dispatches the target event with the reply map appended as the final argument:
+
+```clojure
+[:article/load-replied
+ {:id 42}                                        ;; your carried context
+ {:status       :ok                              ;; the reply map
+  :value        {:title "Welcome"}
+  :work/id      [:rf.work/http :article/by-id 42 1]
+  :completed-at 1781078400456}]
+```
+
+**The status set is closed** — five outcomes, never quietly a sixth:
+
+| `:status` | Meaning |
+|---|---|
+| `:ok` | Completed successfully; reply is current. `:value` present. |
+| `:partial` | Completed with usable data *and* structured problems (the motivating case is GraphQL, which returns both in one response). Plain HTTP never emits `:partial`. |
+| `:error` | Completed with a failure; reply is current. `:error` carries a family `:kind` — for HTTP, one of the [`:rf.http/*` categories](http.md#failures-are-a-closed-set). |
+| `:cancelled` | Intentionally cancelled while still correlated with the target. `:cancel/reason` present. |
+| `:stale` | Completed *after* its correlation became obsolete. The app target is never dispatched; **no app-state mutation happens**. |
+
+Four rules finish the tour:
+
+- **Stale suppression is the correctness boundary.** A newer request supersedes an older one — that's the search-box race. The old completion is classified `:stale`, the app target is skipped, and the trace records the carried-versus-current correlation. Your handler never sees a stale answer, so it can never overwrite fresh data with old. Cancellation is only an optimization here; *suppression* is what actually keeps state correct.
+- **Cancellation is data, not the absence of a reply.** A live user-cancel dispatches `:status :cancelled` with a `:cancel/reason`. A supersession suppresses as `:stale`. Either way there's a value describing what happened — never a silently dropped continuation.
+- **Completion timestamps ride the reply.** The reply carries facts about the work, including when it completed — full reply maps carry it as `:completed-at`, and HTTP exposes it through the built-in `:rf/time-ms` [coeffect](../core/glossary.md#coeffect). Either way, handlers store the carried value rather than reading the clock again — a fresh `(js/Date.now)` in a reply handler samples *today's* clock on replay, not the run you're replaying.
+- **Each surface picks its own public spelling; the substrate is one.** HTTP's `{:kind :success …}` / `{:kind :failure …}` payloads are this envelope in shorter clothing: `:kind :success` *is* `:status :ok`, and `:kind :failure` *is* `:status :error` with the failure under `:error`. (Timeout is not its own status, either — it's `:status :error` with `:kind :rf.http/timeout`. One fact, named once.)
+
+Here's how the one envelope is spelled per surface. The canonical target key is `:rf/reply-to` with an event-vector prefix; every surface either accepts it directly or exposes sugar that *lowers* to it — so what you *write* changes, but the envelope underneath does not:
+
+| Surface | What you write | What lands |
+|---|---|---|
+| [HTTP](http.md) | `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` (or the co-located `:rf/reply` sentinel — `:rf.http/managed` takes the sugar, not a bare `:rf/reply-to`) | The success handler gets `{:kind :success :value …}`; failure gets `{:kind :failure :failure …}`. |
+| [Resources](../resources/concepts.md) | a `:scope` + `:params` read key — the framework owns the reply | The continuation goes in the **work ledger**; stale generations are suppressed structurally by `:work/id` + generation. |
+| Mutations | `:reply-to [:favorite/replied slug]` — the spine of [form submission](../core/how-to/build-a-form.md) | The same reply map appended; a superseded generation never delivers. |
+| [Machines](../machines/concepts.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
+
+Learn the shape once; it is the same shape everywhere. (One honest wrinkle, the same one the [glossary](../core/glossary.md#the-uniform-reply) flags: HTTP's public spelling is `:kind`, while resources and machines speak `:status` directly — same five outcomes, two surface vocabularies for the *one* closed set.)
+
+> **Going deeper.** Effects *sequence but never bind*: a handler can ask for several effects in order (the `:fx` vector), but never "do this effect, *then* feed its result into the next expression" — that would be monadic binding, the awaited-value shape, and it's exactly what re-frame2 refuses. The result comes back as the next event instead, and relocating a reply target is a pure data transform (the role `Cmd.map` plays in Elm's command algebra) — never a hidden callback.
 
 ## The honest trade
 
@@ -120,16 +154,3 @@ This costs you something, and pretending otherwise would be marketing. With `asy
 What you buy with the ceremony: the continuation is **on the record**. Visible to every tool watching the trace, queryable while outstanding, faithful under replay, safe under races you didn't think to test, and testable by dispatching a plain data event — no mock runtime required to "resume" anything. You name the continuation yourself; in exchange, nothing about your app's future is invisible.
 
 > **Coming from redux-saga?** You've already accepted half this idea: saga *effects* are descriptions the middleware interprets, not direct calls. re-frame2 makes the *continuation* data too — the thing a saga keeps as a suspended generator (a closure that dies with the process) becomes a named event vector that doesn't. So you keep saga's "effects are data" win and lose its "the rest of the flow lives in an un-serializable, un-inspectable generator" cost.
-
-## One doctrine, four surfaces
-
-You'll meet this idea everywhere, spelled per surface but argued once, here. The canonical target key is `:rf/reply-to` with an event-vector prefix, and the canonical carried shape is the [reply map](../resources/glossary.md#reply-map). Every surface either accepts `:rf/reply-to` directly or exposes sugar that *lowers* to it — so what you *write* changes, but the envelope underneath does not:
-
-| Surface | What you write | What lands |
-|---|---|---|
-| [HTTP](http.md) | `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` (or the co-located `:rf/reply` sentinel — `:rf.http/managed` takes the sugar, not a bare `:rf/reply-to`) | The success handler gets `{:kind :success :value …}`; failure gets `{:kind :failure :failure …}` — the same envelope in HTTP's shorter clothing (`:kind :success` *is* `:status :ok`; `:kind :failure` *is* `:status :error`). |
-| [Resources](../resources/concepts.md) | a `:scope` + `:params` read key — the framework owns the reply | The continuation goes in the **work ledger**; stale generations are suppressed structurally by `:work/id` + generation. |
-| Mutations | `:reply-to [:favorite/replied slug]` — the spine of [form submission](../core/how-to/build-a-form.md) | The same reply map appended; a superseded generation never delivers. |
-| [Machines](../machines/concepts.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
-
-Learn the shape once; it is the same shape everywhere. (One honest wrinkle, the same one the [glossary](../core/glossary.md#the-uniform-reply) flags: HTTP's public spelling is `:kind`, while resources and machines speak `:status` directly — same five outcomes, two surface vocabularies for the *one* closed set. The substrate is identical; only the public word on the slot differs.)

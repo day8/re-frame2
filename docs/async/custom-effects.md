@@ -47,8 +47,6 @@ Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worke
 - **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — managed HTTP already gives you retries, abort, structured failures, and stale-result suppression. The example above is for APIs that *aren't* HTTP, so it only has the guarantees you put into it.
 - **For a long-lived connection** — a WebSocket, SSE, WebRTC peer with retry/backoff/heartbeat — the *connection* is a lifecycle, so model it with a [machine](../machines/concepts.md), not a one-shot fx. (Individual messages over an already-open socket *do* fit the one-shot shape above.)
 
-## Going deeper
+## The checklist
 
-- Use the same checklist for any one-shot async `fx`: register the effect, capture the frame, start the host work, dispatch a named success or failure event, keep state writes in handlers, and pass data rather than closures.
-- **[No await: continuations are data](continuations-are-data.md)** — why the reply is a named event in the first place.
-- The [login example](../../examples/core/login) registers a hand-rolled async `fx` and drives the reply into a state machine — the pattern under real load.
+The same recipe covers any one-shot async `fx`: register the effect, capture the frame, start the host work, dispatch a named success or failure event, keep state writes in handlers, and pass data rather than closures. The [login example](../../examples/core/login) shows it under real load — a hand-rolled async `fx` driving its reply into a state machine.
