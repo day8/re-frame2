@@ -39,8 +39,8 @@ The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-a
             :on-failure [:cart/load-failed]}]]}))
 
 (rf/reg-event :cart/loaded
-  (fn [{:keys [db]} [_ {:keys [rf/reply]}]]
-    {:db (assoc-in db [:cart :items] (:value reply))}))
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc-in db [:cart :items] value)}))
 
 (rf/reg-sub :cart/items
   (fn [db _] (get-in db [:cart :items])))
@@ -50,19 +50,19 @@ That's enough to issue a request, decode the JSON reply, and dispatch the result
 
 ## Reply addressing
 
-Every reply lands under `:rf/reply` in the dispatched event's payload map. Two shapes:
+Every reply is one of two plain payload maps:
 
 ```clojure
 ;; Success
-{:rf/reply {:kind :success :value decoded-body}}
+{:kind :success :value decoded-body}
 
 ;; Failure
-{:rf/reply {:kind    :failure
-            :failure {:kind  :rf.http/<category>
-                      :tags  {...}}}}
+{:kind    :failure
+ :failure {:kind :rf.http/<category>
+           :tags {...}}}
 ```
 
-**Default reply addressing** dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler — your `:cart/load` handler sees the reply at `:rf/reply`. **Explicit `:on-success` / `:on-failure`** targets append the reply payload as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:rf/reply ...}]`. Both shapes detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
+Where that payload lands depends on how you addressed the reply. **Explicit `:on-success` / `:on-failure`** targets receive the **bare payload** appended as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:kind :success :value decoded-body}]` and destructures it directly (`[_ {:keys [value]}]` / `[_ {:keys [failure]}]`). **Default (co-located) addressing** — omit both targets — instead merges the same payload under `:rf/reply` into the originating message and re-dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler, which reads it at `:rf/reply`. The `:rf/reply` wrapper is the co-located form only; explicit targets get the bare `{:kind ...}` map. Both shapes detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
 
 ## Failure categories (closed set)
 
