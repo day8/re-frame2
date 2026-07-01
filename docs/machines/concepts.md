@@ -321,8 +321,8 @@ Because the snapshot is *just a value* — no functions, no atoms, nothing unpri
 
 Two keys round out the everyday kit, and each has earned a page of its own rather than a paragraph here:
 
-- **Tags** — `:tags #{:auth/busy}` on a state node, read with `@(rf/machine-has-tag? :auth.login/flow :auth/busy)`. This is the *ask-don't-tell* pattern: a view tracks "is it busy?" across any number of states without hard-coding state names, and adding a sixth busy state later is one `:tags` entry with zero view changes. (See [state tag](glossary.md#state-tag).) The deep treatment is in [tags.md](tags.md).
-- **Automatic transitions** — `:after` (a declarative timer: arm on entry, cancel on exit, no `setTimeout` or cancel-flag to wire) and `:always` (an eventless transition that fires the moment a guard turns true). The machine's *automatic* moves — the ones no event drives. See [automatic-transitions.md](automatic-transitions.md).
+- **Tags** — `:tags #{:auth/busy}` on a state node, read with `@(rf/machine-has-tag? :auth.login/flow :auth/busy)`. This is the *ask-don't-tell* pattern: a view tracks "is it busy?" across any number of states without hard-coding state names, and adding a sixth busy state later is one `:tags` entry with zero view changes. (See [state tag](glossary.md#state-tag).) The deep treatment is in [Tags](tags.md).
+- **Automatic transitions** — `:after` (a declarative timer: arm on entry, cancel on exit, no `setTimeout` or cancel-flag to wire) and `:always` (an eventless transition that fires the moment a guard turns true). The machine's *automatic* moves — the ones no event drives. See [Automatic transitions](automatic-transitions.md).
 
 ## Self-transitions: internal by default, external on demand
 
@@ -342,7 +342,7 @@ Look again at the turnstile. Pushing while `:locked` is a *self-transition* — 
 
 Here the `:after` self-transition is **external** (`:reenter? true`), so re-entering `:polling` re-runs `:start-fetch` and rearms the 30-second timer — a self-rescheduling poll in two keys. The `:got-data` transition is **internal** (no target), so a reply landing mid-window merges into `:data` without resetting the clock. Picking internal vs external per transition is exactly the control this rule buys you.
 
-> **The self-target subtlety.** A *targeted* self-transition does **not** re-enter by default. A self-target you *meant* to re-fire `:entry` on needs `:reenter? true`; without it, only the transition `:action` runs. Full mechanics, including ancestor restarts and the one `:always` restriction (an eventless `:always` may never self-target), are in [Spec 005 §Self-transitions](../../spec/005-StateMachines.md#self-transitions--internal-default-vs-external-reenter).
+> **The self-target subtlety.** A *targeted* self-transition does **not** re-enter by default. A self-target you *meant* to re-fire `:entry` on needs `:reenter? true`; without it, only the transition `:action` runs. (One related restriction: an eventless `:always` may never self-target at all — it's rejected at registration. See [Automatic transitions](automatic-transitions.md).)
 
 ## Wildcard transitions: handle a whole class of events
 
@@ -359,7 +359,7 @@ Sometimes a state should react to *any* event in a family rather than enumerate 
       :*          {:action :log-unknown}}}  ;; anything else
 ```
 
-One subtlety worth knowing: a guard-**blocked** exact match falls through to the coarser tiers (it wasn't *handled*), but a deliberate **forbidden block** — `{:on {:E {}}}` or `{:on {:E nil}}` — is itself a handler that *consumes* the event and stops the search. That distinction is how a child state opts out of an event its parent would otherwise handle. Full precedence rules in [Spec 005 §Wildcard transitions](../../spec/005-StateMachines.md#wildcard-transitions).
+One subtlety worth knowing: a guard-**blocked** exact match falls through to the coarser tiers (it wasn't *handled*), but a deliberate **forbidden block** — `{:on {:E {}}}` or `{:on {:E nil}}` — is itself a handler that *consumes* the event and stops the search. That distinction is how a child state opts out of an event its parent would otherwise handle. In a hierarchical machine the same three tiers run at each level of the deepest-wins walk — see [Hierarchical states](hierarchical-states.md#transition-resolution-deepest-wins-with-parent-fallthrough).
 
 > **A non-namespaced id has no wildcard tier.** A bare id like `:go` has no `:ns/*` tier — only its exact key or `:*` can catch it. The `:ns/*` tier lives on the keyword's `/` boundary: one prefix level between the exact id and the catch-all `:*`.
 
@@ -369,33 +369,10 @@ The login flow above parks in `:authed` and `:locked-out` forever — ordinary l
 
 > **Gotcha — final means final.** A `:final? true` leaf auto-destroys *even a top-level singleton machine*. If you want a state the machine rests in indefinitely (like `:authed`), use an ordinary leaf and **omit `:final?`** — exactly what the login flow does. `:final?` is for "this run is over," not "this is the last screen."
 
-The payoff is composition. A spawned child names a result key with `:output-key`; its parent's `:spawn` declares `:on-done`, which fires the moment the child finishes and receives that value as `:result`:
+The payoff is composition, and it comes in two scopes:
 
-```clojure
-;; Child — a one-shot auth handshake that reports its token, then ends.
-(rf/reg-machine :auth-flow
-  {:initial :running
-   :data    {}
-   :states
-   {:running {:on {:server-ok {:target :done
-                               :action (fn [{data :data ev :event}]
-                                         {:data (assoc data :token (second ev))})}}}
-    :done    {:final?     true
-              :output-key :token}}})       ;; report :data's :token back to the parent
-
-;; Parent — :on-done reads the child's result and folds it into its own :data.
-(rf/reg-machine :login
-  {:initial :idle
-   :states
-   {:idle           {:on {:submit :authenticating}}
-    :authenticating {:spawn {:machine-id :auth-flow
-                             :on-done    (fn [{data :data result :result}]
-                                           (assoc data :token result))}
-                     :on    {:auth/cancelled :idle}}
-    :authenticated  {}}})
-```
-
-When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to the parent's `:on-done` as `result`, then tears the child down — no stale id left behind. A `:final?` leaf can also be flagged `:error? true` (a designated *error* terminal); if the parent's `:spawn` declares an `:on-error` transition, a failing child routes there instead. Full grammar, the singleton-symmetry rule, and the `[:rf.machine/done …]` signal that lets a *compound* state advance on its substates finishing are in [Spec 005 §Final states](../../spec/005-StateMachines.md#final-states-final--on-done--output-key).
+- **A spawned child reports back.** The child names a result key with `:output-key`; its parent's `:spawn` declares `:on-done`, which receives that value the moment the child finishes — then the runtime tears the child down. The full protocol, including the `:on-error` failure path, is in [Actors → When a child finishes](actors.md#when-a-child-finishes).
+- **A nested sub-flow advances the outer flow.** A `:final?` leaf *inside a compound state* doesn't end the machine — it signals "this sub-flow is done" to the enclosing compound's `:on-done`, and the machine keeps running. [Hierarchical states → When a sub-flow finishes](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states) owns that pattern.
 
 ## Validating a machine's `:data`
 
@@ -450,51 +427,30 @@ Unlike the `:data` boundary, output validation is **best-effort fail-loud**: the
 
 ## Testing: transitions are pure function calls
 
-This is where machines pay you back hardest. `machine-transition` runs one transition with no frame, no browser, no mocks. Table in, snapshot in, event in; result out:
+This is where machines pay you back hardest. A transition is a pure function of *(definition, snapshot, event)*, and `machine-transition` runs exactly one — no frame, no browser, no mocks. Table in, snapshot in, event in; result out:
 
 ```clojure
-(ns my-app.login-flow-test
-  (:require [clojure.test :refer [deftest is]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
-            [my-app.login :refer [login-flow]]))
-
-(deftest login-flow-test
-  ;; happy path: :idle --submit--> :submitting (fires the request fx)
-  (let [s0 {:state :idle :data {:attempts 0 :error nil}}
-        {s1 ::result/snap fx1 ::result/fx}
-        (machines/machine-transition login-flow s0
-                                     [:auth.login/submit {:email "a@b.com" :password "secret"}])]
-    (is (= :submitting (:state s1)))
-    (is (= :rf.http/managed (ffirst fx1)))      ;; :entry ran :issue-request
-
-    ;; at the retry limit the guard rejects :error-shown; :locked-out wins
-    (let [{s2 ::result/snap}
-          (machines/machine-transition login-flow
-                                       {:state :submitting :data {:attempts 3 :error nil}}
-                                       [:auth.login/failure {:failure {:message "bad creds"}}])]
-      (is (= :locked-out (:state s2))))))
+(machines/machine-transition login-flow
+                             {:state :submitting :data {:attempts 3 :error nil}}
+                             [:auth.login/failure {:failure {:message "bad creds"}}])
+;; => a Result — ::result/snap holds {:state :locked-out …}, ::result/fx the emitted effects
 ```
 
-The return value is a result map. Destructure `::result/snap` and `::result/fx`, or discriminate with `result/ok?` / `result/fail?` — a throwing action surfaces as a *failure value*, not an exception out of your test, so one assertion style covers both paths. These run on the JVM in microseconds, which is exactly the testing experience you want for the flows where testing usually gets hard. The complete login flow with these tests lives at [`examples/capabilities/machines/state_machine_walkthrough/`](https://github.com/day8/re-frame2/tree/main/examples/capabilities/machines/state_machine_walkthrough) and runs on every CI pass.
+Feed in a snapshot and an event; assert on the value that comes back. These tests run on the JVM in microseconds — exactly the testing experience you want for the flows where testing usually gets hard. [Inspecting and testing machines](inspecting-machines.md) has the full treatment: the Result accessors, asserting effects as data, and the three test levels.
 
 ## When the machine grows
 
-The flat grammar above carries most machines. When a flow gets richer, the grammar grows *without changing the model* — each of these is the same transition-table data, one more key. You only need to recognise them here; the contracts live in [Spec 005](../../spec/005-StateMachines.md):
+The flat grammar above carries most machines. When a flow gets richer, the grammar grows *without changing the model* — each of these is the same transition-table data, one more key. Each has its own page in this guide:
 
+- **[Hierarchical states](hierarchical-states.md)** — a compound state contains sub-states; entering the parent cascades to its `:initial` child (an `:authenticated` super-state over `:browsing` / `:checkout`). A parent factors out transitions every descendant inherits, and a nested `:final?` leaf advances the outer flow when a sub-flow completes.
+- **[Parallel regions](parallel-states.md)** — one machine, several orthogonal axes active at once (`:type :parallel` + `:regions`) sharing one `:data`; the snapshot's `:state` becomes a map of region → state, tags union across regions. Three axes of 3 states each is 3 regions, not 27 cross-product states. When the axes *don't* share data, prefer N separate machines — that page works the trade-off.
+- **[History states](history.md)** — re-enter a compound at the substate it was in when you left (a paused player resumes mid-track), via a `:type :history` pseudo-state. The recording rides the snapshot, so it survives undo and hydration for free.
+- **[Automatic transitions](automatic-transitions.md)** — the moves no event drives, in depth: eventless `:always` (fires when a guard becomes true), `:type :choice` (a transient decision node that routes on entry), `:after` (the declarative timer), and `:timeout` / `:on-timeout` (a named deadline that lowers onto `:after`).
+- **[Spawned actors](actors.md)** — machines that aren't long-lived singletons: a per-request protocol machine, a wizard's per-step subprocess. The declarative [`:spawn`](glossary.md#spawn) key starts a child on state entry and destroys it on exit; `:spawn-all` fans out N children and joins on their completion.
 - **`:raise` loops an event back into this machine.** An action can return `:fx [[:raise [:some-event …]]]` to fire an event *at its own machine*, atomically, before the transition commits — useful when one transition's outcome should immediately drive another (a wizard step that completes and re-asks "is the whole form done?"). `:raise` is a reserved fx-id, alongside `[:rf.machine/spawn …]` and `[:rf.machine/destroy …]`, the actor-lifecycle pair behind the `:spawn` sugar. Everything else in `:fx` — `:dispatch`, `:rf.http/managed`, your own effects — flows to the ordinary effects machinery untouched.
-- **`:internal-events` makes an event private.** Some events are machine *plumbing* — a `:check-complete` the machine raises at itself, not for a view or test to dispatch. Declare those in a top-level `:internal-events` **set** (`#{:check-complete}`); an internal `:raise` is handled normally, but an *external* dispatch is **refused** at the machine's boundary (no transition; a `:rf.error/machine-internal-event-external-dispatch` trace fires). It's a set because membership is what you're declaring, not order. [§Public / private `:internal-events`](../../spec/005-StateMachines.md#public--private-internal-events).
-- **`:type :choice` is a decision node.** A choice state is a *transient* routing node: enter it and it resolves immediately — same step, no event — to the first guarded candidate whose `:guard` passes. It's `:always`'s decision pattern with a name, so diagrams render an explicit fork. The `:choice` value is a **declarative candidate array** — the routing stays *data*, not a function — and it must include an unguarded default and must not declare ordinary state keys. [§`:type :choice`](../../spec/005-StateMachines.md#type-choice-transient--choice-states).
-- **`:timeout` / `:on-timeout` names a deadline.** Where `:after` is the general timer table, `:timeout` is the named-intent spelling of "this state — or its spawned child — must finish before this time," pairing a duration with an `:on-timeout` transition (it lowers onto the same `:after` timer). A duration is a positive-integer millisecond count (`5000`) or an ISO-8601 string (`"PT5S"`, `"PT1H30M"`) — a `"5s"`-style shorthand is rejected, failing loud at registration. [§`:timeout` / `:on-timeout`](../../spec/005-StateMachines.md#timeout--on-timeout-state--spawn).
-- **Hierarchical states** — a compound state contains sub-states; entering the parent cascades to its `:initial` child (an `:authenticated` super-state over `:browsing` / `:checkout`). [§Hierarchical compound states](../../spec/005-StateMachines.md#hierarchical-compound-states).
-- **Eventless `:always`** — fires when a guard becomes true, no event needed. [§Eventless `:always` transitions](../../spec/005-StateMachines.md#eventless-always-transitions).
-- **Parallel regions** — one machine, several orthogonal axes active at once (`:type :parallel` + `:regions`) sharing one `:data`; the snapshot's `:state` becomes a map of region → state, tags union across regions. Three axes of 3 states each is 3 regions, not 27 cross-product states. [§Parallel regions](../../spec/005-StateMachines.md#parallel-regions); when the axes *don't* share data, prefer N separate machines — the trade-off is worked in the [CP-5 guide](../../spec/CP-5-MachineGuide.md).
-- **History states** — re-enter a compound at the substate it was in when you left (a paused player resumes mid-track), via a `:type :history` pseudo-state. The recording rides the snapshot, so it survives undo and hydration for free. [§History states](../../spec/005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
-- **Spawned actors** — machines that aren't long-lived singletons: a per-request protocol machine, a wizard's per-step subprocess. The declarative [`:spawn`](glossary.md#spawn) key starts a child on state entry and destroys it on exit. [§Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn).
+- **`:internal-events` makes an event private.** Some events are machine *plumbing* — a `:check-complete` the machine raises at itself, not for a view or test to dispatch. Declare those in a top-level `:internal-events` **set** (`#{:check-complete}`); an internal `:raise` is handled normally, but an *external* dispatch is **refused** at the machine's boundary (no transition; a `:rf.error/machine-internal-event-external-dispatch` trace fires). It's a set because membership is what you're declaring, not order.
 
 > **Gotcha — a runaway `:always` / `:raise` cycle is a *failed* macrostep, not a hang.** Eventless transitions and `:raise` both re-enter the transition machinery within the same macrostep, so a non-converging loop (`:a` `:always`-targets `:b`, `:b` `:always`-targets `:a`, both guards true) could spin forever. It can't: each is bounded by a depth limit (default **16**, set per-frame via `:always-depth-limit` / `:raise-depth-limit`). Trip it and the macrostep **aborts atomically** — the snapshot stays at its pre-event value, no observer sees the partial path — and a single `:rf.error/machine-always-depth-exceeded` (or `:rf.error/machine-raise-depth-exceeded`) [error record](../core/glossary.md#error-record) fires. It is **distinct** from the silent no-op of an unhandled event: a runaway loop is a bug you want surfaced, not swallowed. There's no automatic recovery.
-
-> **Gotcha — an `:always` may not target itself.** `{:checking {:always {:target :checking}}}` is rejected at *registration* with `:rf.error/machine-always-self-loop`: re-entering a state to re-test the same guard either spins to the depth limit (guard stays true) or no-ops (guard flips) — neither is what you meant. The fixed-point loop you actually want is a **targetless** guarded `:always` with an `:action` that flips the guard — `{:always {:guard :more? :action :bump}}` — which runs and settles; or an intermediate distinct state if you genuinely need entry/exit to re-fire.
 
 ## When to reach for a machine — and when not
 

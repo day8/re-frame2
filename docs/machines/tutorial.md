@@ -276,4 +276,4 @@ Here's the payoff. A transition is a pure function of *(table, snapshot, event)*
     (is (= :locked-out (:state snap)))))
 ```
 
-Feed in a snapshot and an event; assert on what comes back. The result is a value — `::result/snap` / `::result/fx`, or `result/ok?` / `result/fail?` (a throwing action is a *failure value*, not an exception out of your test). It runs on the JVM in microseconds — exactly the testing experience you want for the flows where testing usually gets hard. [Concepts → Testing](concepts.md#testing-transitions-are-pure-function-calls) goes deeper.
+Feed in a snapshot and an event; assert on what comes back. The result is a value — `::result/snap` / `::result/fx`, or `result/ok?` / `result/fail?` (a throwing action is a *failure value*, not an exception out of your test). It runs on the JVM in microseconds — exactly the testing experience you want for the flows where testing usually gets hard. [Inspecting and testing machines](inspecting-machines.md) goes deeper: the Result accessors, asserting effects as data, and the three test levels.
