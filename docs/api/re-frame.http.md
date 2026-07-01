@@ -62,7 +62,7 @@ Every reply lands under `:rf/reply` in the dispatched event's payload map. Two s
                       :tags  {...}}}}
 ```
 
-**Default reply addressing** dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler — your `:cart/load` handler sees the reply at `:rf/reply`. **Explicit `:on-success` / `:on-failure`** targets append the reply payload as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:rf/reply ...}]`. Both shapes detailed in [Managed HTTP — Reading the reply](../async/http.md#reading-the-reply-correctly).
+**Default reply addressing** dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler — your `:cart/load` handler sees the reply at `:rf/reply`. **Explicit `:on-success` / `:on-failure`** targets append the reply payload as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:rf/reply ...}]`. Both shapes detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
 
 ## Failure categories (closed set)
 
@@ -412,4 +412,4 @@ The denylists and `:sensitive?` flag cover request carriers; the **response body
 - [re-frame.schemas.md](re-frame.schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
 - [re-frame.test-support.md](re-frame.test-support.md) — patterns for combining HTTP stubs with `dispatch-sequence`.
 - [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — the full classification + projection model.
-- [Managed HTTP](../async/http.md) — the conceptual walkthrough (incl. §Keeping secrets out of the trace).
+- [Managed HTTP reference](../async/http.md) — the guide-level reference; [Interceptors and secrets](../async/http-going-further.md) carries §Keeping secrets out of the trace.

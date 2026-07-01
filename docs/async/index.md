@@ -1,20 +1,31 @@
 # Async (HTTP)
 
-Some work can't finish inside one event handler — a server round-trip, or anything that answers *later*. re-frame2 handles all of it the same way: you return the request as **data** from a pure [event handler](../core/concepts/effects-and-coeffects.md), finish, and the reply arrives later as an **ordinary [event](../core/concepts/events-and-the-cascade.md)**. No `await`, no resumed stack frame, no callback nesting — the answer comes back on the same wire as everything else, with success and failure each named.
+Sooner or later your app must talk to a server, and the moment it does you inherit a family of problems: errors, timeouts, retries, loading states, stale replies racing each other.
 
-That pattern is a **managed effect**: you *describe* the side effect, the runtime *performs* it and dispatches the result back to you. The flagship — and, today, the one this section documents in full — is **managed HTTP**.
+re-frame2's answer is the **managed request**. You describe the request as data, return it from a pure [event handler](../core/concepts/effects-and-coeffects.md), and finish. The runtime performs it. The reply arrives later as an **ordinary [event](../core/concepts/events-and-the-cascade.md)** — success and failure each named:
 
 ```clojure
-;; Issue a request as data from a handler; the reply lands as an event.
 {:fx [[:rf.http/managed {:request    {:url "/api/articles/intro"}
                          :on-success [:article/loaded]
                          :on-failure [:article/load-error]}]]}
 ```
 
-> **The idea underneath.** Why *name* a reply event instead of `await`ing the result? That one question — answered once for every async surface (HTTP, resources, mutations, machines) — is [No await: continuations are data](continuations-are-data.md). Read it for the *why*; this section is the *how* for HTTP.
+No `await`, no callback nesting, no resumed stack frame. The answer comes back on the same wire as everything else in your app.
 
-> **Scope.** This is about *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the cascade are async too, and they live in [Effects and coeffects](../core/concepts/effects-and-coeffects.md).
+## In this section
 
-> **Separate artefact.** Managed HTTP ships as `day8/re-frame2-http`, so apps that never issue a request build clean of it. Require `re-frame.http.managed` once at boot and the `:rf.http/managed` effect is wired up.
+- **[Tutorial: talk to a server](tutorial.md)** — build up from the smallest request that works to schema validation, retries, a cured search-box race, and a network-free test. Start here.
+- **[Managed HTTP reference](http.md)** — every key of `:rf.http/managed`: the request envelope, the reply contract, the closed set of failure categories, retry, cancellation, testing.
+- **[Interceptors and secrets](http-going-further.md)** — production cross-cutting concerns: stamp auth on every request once; keep tokens and passwords out of traces.
+- **[Your own async effect](custom-effects.md)** — wrap a promise-returning SDK, a callback API, or a worker message in the same pattern.
+- **[Why no await](continuations-are-data.md)** — the idea underneath it all: a continuation is data, not a closure. Read it once and every async surface in re-frame2 looks the same.
+- **[Examples](examples.md)** — complete apps built on managed HTTP.
 
-For the *cache* over server reads — staleness, invalidation, scope — that's [Resources](../resources/index.md), which rides on managed HTTP underneath.
+## Scope
+
+Two boundaries worth knowing before you dive in:
+
+- This section covers *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the cascade are async too, and they live in [Effects and coeffects](../core/concepts/effects-and-coeffects.md).
+- For the *cache* over server reads — staleness, invalidation, scope — see [Resources](../resources/index.md), which rides on managed HTTP underneath. This section is the transport.
+
+> **Setup.** Managed HTTP ships as its own artefact, `day8/re-frame2-http`, so apps that never issue a request build clean of it. Add the dep and require `re-frame.http.managed` once at boot — that registers `:rf.http/managed` and family. The [tutorial](tutorial.md) walks it.
