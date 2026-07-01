@@ -126,9 +126,9 @@ Omit `:on-success` / `:on-failure` and the reply routes back to the *originating
        :fx [[:rf.http/managed {:request {:url "/api/inc.json"}}]]})))
 ```
 
-Read that handler bottom-up. The first time it runs there is no `:rf/reply` in the message, so `if-let` falls to the else branch and issues the request. When the reply comes back, the runtime re-dispatches the *same* event with `:rf/reply` filled in, the `if-let` binds it, and the `case` routes on `:success` / `:failure`. The original message rides through, so any request context — an id, a slug — is still in scope when the reply lands.
+Read that handler bottom-up. The first time it runs there is no `:rf/reply` in the message, so `if-let` falls to the else branch and issues the request. When the reply comes back, the runtime re-dispatches the *same* event with `:rf/reply` filled in, the `if-let` binds it, and the `case` routes on `:success` / `:failure`. With a map message, the original message rides through, so any request context — an id, a slug — is still in scope when the reply lands.
 
-> **Gotcha — the one-handler form wants a map message.** The reply is `assoc`'d onto the original message, so dispatch a map (`[:thing/load {:id "intro"}]`) or no payload at all. A bare non-map arg (`[:thing/load "intro"]`) can't be `assoc`'d and breaks the merge — wrap it in a map.
+> **Gotcha — the one-handler form wants a map message.** The reply is `assoc`'d onto the original message when that message is a map, so dispatch a map (`[:thing/load {:id "intro"}]`) or no payload at all. A bare non-map arg (`[:thing/load "intro"]`) still receives the reply, but the scalar context cannot be merged and the reply branch sees only `{:rf/reply ...}`. Wrap request context in a map when you need it after the reply lands.
 
 ### Which to use
 

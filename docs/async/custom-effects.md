@@ -1,6 +1,6 @@
 # Your own async effect
 
-Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. The good news is there's nothing new to learn — you wrap any of them the *same way* HTTP works: as a **managed effect** whose reply comes back as an ordinary [event](../core/concepts/events-and-the-cascade.md).
+Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. The good news is the basic shape is still familiar: wrap the host API in an `fx` and dispatch the reply back as an ordinary [event](../core/concepts/events-and-the-cascade.md). That is the async-effect pattern; HTTP adds the [managed-effect contract](../../spec/Managed-Effects.md) on top.
 
 > **The one rule.** An [event handler](../core/concepts/effects-and-coeffects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
 
@@ -20,7 +20,7 @@ Three steps: register the effect once, ask for it from a handler (naming where t
           (.then  (fn [result] (rf/dispatch (conj on-success result) {:frame frame})))
           (.catch (fn [err]    (rf/dispatch (conj on-failure err)    {:frame frame})))))))
 
-;; 2. A handler asks for it, naming where the reply lands — exactly like HTTP.
+;; 2. A handler asks for it, naming where the reply lands.
 (rf/reg-event :checkout/pay
   (fn [{:keys [db]} _]
     {:db (assoc db :checkout/status :charging)
@@ -44,7 +44,7 @@ Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worke
 
 ## When *not* to roll your own
 
-- **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — the managed effect already gives you retries, abort, a structured failure taxonomy, and stale-result suppression. The example above is for the async APIs that *aren't* HTTP.
+- **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — the managed effect already gives you retries, abort, a structured failure taxonomy, and stale-result suppression. The example above is an ad-hoc async effect for APIs that *aren't* HTTP; it does not get those managed guarantees for free.
 - **For a long-lived connection** — a WebSocket, SSE, WebRTC peer with retry/backoff/heartbeat — the *connection* is a lifecycle, so model it with a [machine](../machines/concepts.md), not a one-shot fx. (Individual messages over an already-open socket *do* fit the one-shot shape above.)
 
 ## Going deeper
