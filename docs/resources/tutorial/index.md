@@ -18,7 +18,7 @@ Each part adds one slice of the real app and teaches exactly the machinery that 
 | [Part 4](04-mutations-and-invalidation.md) | Favoriting, posting, commenting | writes, and invalidating what they stale |
 | [Part 5](05-test-and-ship.md) | Tests and a production build | testing the pieces, shipping the app |
 
-From Part 2 onward the app talks to a Conduit API — either a hosted demo or an offline stub, whichever you prefer. Part 2 sets that up. The finished reference lives at [`examples/real-apps/realworld_http/`](../../../examples/real-apps/realworld_http), so you can peek when you're truly stuck — but try not to read ahead. Building it yourself is where the learning actually happens; reading the answer key rarely teaches anyone to do the crossword.
+From Part 2 onward the app talks to a Conduit API — either a hosted demo or an offline stub, whichever you prefer. Part 2 sets that up. The finished reference lives at [`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources) — the same app on resources and mutations — so you can peek when you're truly stuck; but try not to read ahead. Building it yourself is where the learning actually happens; reading the answer key rarely teaches anyone to do the crossword. (A sibling, [`realworld_http/`](../../../examples/real-apps/realworld_http), builds the same app on the raw HTTP transport with no resource layer — useful later, as the before-picture.)
 
 ## What you need
 
@@ -212,7 +212,7 @@ The manual Move 3 (`with-frame` + `dispatch-sync`) is worth meeting first becaus
 
 By the time `reg-frame` returns, that cascade has settled and `app-db` holds whatever it produced — so you can drop the separate `with-frame` + `dispatch-sync` of Move 3 entirely. From Part 1 on you'll often prefer this form, and the finished reference uses it.
 
-> **Gotcha — mind the double brackets.** A *step* is a bare event vector like `[:app/initialise]`; the whole `:initial-events` value is a vector *of* those — so `[[:app/initialise]]`, a single one-step vector, with the double brackets. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix; it doesn't quietly run the wrong thing. See [`:initial-events` in 002-Frames](../../../spec/002-Frames.md) for the full grammar.
+> **Gotcha — mind the double brackets.** A *step* is a bare event vector like `[:app/initialise]`; the whole `:initial-events` value is a vector *of* those — so `[[:app/initialise]]`, a single one-step vector, with the double brackets. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix; it doesn't quietly run the wrong thing. [Boot and mount an app](../../core/how-to/boot-and-mount-an-app.md) covers the boot surface in full.
 
 > **Going deeper — why an event and not a `:db` key?** Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same [event cascade](../../core/glossary.md#event-cascade) that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` [effect map](../../core/glossary.md#effect-map). The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes [time-travel](../../core/glossary.md#time-travel) and replay possible.
 

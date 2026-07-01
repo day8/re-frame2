@@ -14,4 +14,13 @@ re-frame2's **resources** capability makes server state declarative. You registe
 ;; => {:status :loading}  …then {:status :loaded :value {...}}
 ```
 
-Underneath sits [**managed HTTP**](../async/index.md) (`:rf.http/managed`) — you describe a request as data and the runtime drives its whole lifecycle, dispatching the result back as an ordinary event. Resources are the high-level cache; managed HTTP — now its own section, [Async (HTTP)](../async/index.md) — is the transport they ride on, and it's there for the requests that aren't cached reads.
+## In this section
+
+- **[Tutorial: Build RealWorld](tutorial/index.md)** — five parts that grow a real Medium-style app: pages and state, real server data, auth and forms, writes and invalidation, tests and a production build. Start here.
+- **[Concepts](concepts.md)** — the whole model, built up from a single read: registration, causes, the view-model, scope, owners, mutations, optimistic writes, infinite feeds, and every named failure.
+- **How-to** — [Paginate a feed](how-to/paginate-a-feed.md) and [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md): one task each, complete code.
+- **[Examples](examples.md)** — runnable apps, from a focused read lifecycle to the full read → write → invalidate → refetch loop.
+- **[Glossary](glossary.md)** — the section's vocabulary, one definition each.
+- **[Coming from TanStack Query](coming-from-tanstack-query.md)** — the vocabulary mapping and the five deliberate divergences, for query-library refugees.
+
+Underneath sits [**managed HTTP**](../async/index.md) (`:rf.http/managed`) — you describe a request as data and the runtime drives its whole lifecycle, dispatching the result back as an ordinary event. Resources are the high-level cache; [Async (HTTP)](../async/index.md) is the transport they ride on, and it's there for the requests that aren't cached reads.

@@ -85,7 +85,7 @@ Three things do the work:
 - **`:invalidates`** declares which tags the write makes stale on success. Favoriting breaks reads in *two* scopes: the article and lists are global, while your feed is keyed by session. So it returns a vector of *descriptors* — one per scope, each a map naming a scope and the tags it stales there. The second descriptor's scope is computed by running the `:conduit/session` resolver from earlier, at *settle time* (the moment the write's reply comes back and its consequences are applied). One write, both scopes, declared once.
 - **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry — skipping a refetch entirely. One catch: the value you populate has to be in the *same shape the resource stores*. A normal load of `:conduit/article` caches the whole `{:article …}` map the server sent, so we hand `:populates` that same whole map (`result`), not just the article inside it. A populated entry counts as freshly loaded, so this mutation's own invalidation won't turn around and refetch the key it just learned.
 
-Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface lives in [Spec 016](../../../spec/016-Resources.md).
+Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface is catalogued in [Concepts → Writes invalidate by tag](../concepts.md#writes-invalidate-by-tag--causally).
 
 > **Gotcha — writes never retry by default.** There's one asymmetry from reads worth flagging up front. Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries *only* if its request map explicitly opts in. The favorite write doesn't, so a slow favorite simply waits — it never silently fires twice.
 
@@ -323,7 +323,7 @@ Three things make this safe, and none of them are your job:
 
 The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user already sees their change, so don't block the button — and optionally read the derived **`:optimistic?`** flag (`(:optimistic? fav)`, true while the optimistic value is showing and unconfirmed) for a subtle in-flight cue.
 
-> **Coming from TanStack / RTK / SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace ([`:rf.mutation/optimistic-applied`](../../../spec/016-Resources.md#optimistic-mutations) → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic surface lives in [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); `examples/real-apps/realworld_resources/mutations.cljs` runs exactly this favorite.
+> **Coming from TanStack / RTK / SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace (`:rf.mutation/optimistic-applied` → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic contract is [Concepts → Optimistic writes](../concepts.md#optimistic-writes-commit-roll-back-or-reconcile); `examples/real-apps/realworld_resources/mutations.cljs` runs exactly this favorite.
 
 ## Publish from the editor — and continue with `:reply-to`
 
@@ -479,7 +479,7 @@ One gap is left. Write half an article, click the site logo, and the draft silen
 
 (The example adds the `/editor/:slug` edit route the same way — same guard; its `:on-match` seeds the draft from the article read.)
 
-The contract is strict, and the strictness is the point. `true` allows the navigation. `false` blocks it. Anything else blocks *and* emits a structured error (`:rf.error/can-leave-non-boolean`), so a buggy guard fails safe rather than waving you through by accident. The guard runs on **every** way out — a link click, a programmatic `:rf.route/navigate`, the browser Back button. There's no unguarded side door. The full pending-nav protocol lives in [Spec 012](../../../spec/012-Routing.md).
+The contract is strict, and the strictness is the point. `true` allows the navigation. `false` blocks it. Anything else blocks *and* emits a structured error (`:rf.error/can-leave-non-boolean`), so a buggy guard fails safe rather than waving you through by accident. The guard runs on **every** way out — a link click, a programmatic `:rf.route/navigate`, the browser Back button. There's no unguarded side door. The full pending-nav protocol is the subject of [Guard against unsaved changes](../../routing/how-to/guard-unsaved-changes.md).
 
 When the guard blocks, the runtime parks the blocked navigation in a **pending-navigation slot** and leaves the decision to your UI. The UI reads it from the `:rf/pending-navigation` sub (via the `routing/sub-pending-navigation` sugar):
 

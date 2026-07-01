@@ -110,30 +110,9 @@ Most of the config map is optional knobs you reach for later. Four keys carry th
 
 > **Why is `:scope` required, with no default?** Because the cache's leak boundary is too important to infer. A user-scoped read silently registered as global would serve one user's private data to another from a shared cache — a security bug the framework can't lint its way out of after the fact. So you state the intent *once*, at the registration site. A `reg-resource` with no `:scope` is a loud `:rf.error/resource-missing-scope-policy` at registration — "I forgot this read is user-scoped" is unrepresentable rather than a 2am incident. You'll meet the non-global scopes — a `:rf.scope/session` value, the `{:from-db <id>}` named resolver — in Part 3; here, `:rf.scope/global` is the honest answer for a public list.
 
-??? note "The full metadata-key reference"
+??? note "The rest of the metadata keys"
 
-    **Required** — the framework refuses to register a resource without them:
-
-    | Key | What it is |
-    |---|---|
-    | **`:params-schema`** | the read's *identity* — a Malli schema for the params the cache keys on |
-    | **`:scope`** | the cache's *leak boundary* — `:rf.scope/global`, a `{:from-db <id>}` resolver reference, or `:rf.scope/from-caller` |
-    | **`:request`** (3rd slot) | the request fn — `(fn [params ctx] → managed-HTTP args)` |
-
-    **Optional** — each a knob you reach for when you need it:
-
-    | Key | What it does |
-    |---|---|
-    | **`:stale-after-ms`** | freshness window — fresh for this long, then the next *ensure* refetches in the background. Your `staleTime`. |
-    | **`:gc-after-ms`** | how long an entry lingers in cache after its last reader/owner goes away, before garbage collection. Your `gcTime`/`cacheTime`. |
-    | **`:poll-interval-ms`** | re-read every N ms while the entry has an active owner and the tab is visible — `refetchInterval`, but owner-driven. Covered in [Server state: resources](../concepts.md). |
-    | **`:tags`** | `(fn [params data] → #{tag …})` — names the facts the data contains, so a write can invalidate exactly the reads it broke (Part 4). |
-    | **`:data-schema`** | optional Malli schema for the *decoded response*. When present, the data is shape-validated; when absent, it isn't. Validation only — it does **not** drive caching or privacy. |
-    | **`:transport`** | which transport the read runs on. The only built-in is `:rf.http/managed`, which is also the default — you'll rarely write this. |
-    | **`:doc`** | a docstring the registry and Xray surface. |
-    | **`:sensitive` / `:large`** | privacy/size classification — vectors of paths into the entry (e.g. `[[:data :ssn]]`) marking fields to redact or summarise at every egress boundary (trace, Xray, SSR). The whole-entry shorthands are `:sensitive?` / `:large?`. |
-
-    The request fn returns the managed-HTTP args map — `{:request {…} :decode …}` — which is itself the network layer's contract, [Spec 014](../../../spec/014-HTTPRequests.md). You get its other knobs for free here: `:retry`, `:timeout-ms`, `:accept`, request headers. One restriction — the runtime owns reply addressing, so the args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`; the resource lowering derives those from the scoped key and current generation. Put one in and it's a loud reject, not a silent override.
+    The remaining registration keys — `:gc-after-ms`, `:poll-interval-ms`, `:data-schema`, `:transport`, `:doc`, `:sensitive` / `:large`, `:infinite` — are knobs you reach for when the need arrives; the one-glance table is [Concepts → Freshness and lifetime](../concepts.md#freshness-and-lifetime-the-policy-keys). Two rules are worth carrying now. The request fn returns a [managed-HTTP](../../async/http.md) args map — `{:request {…} :decode …}` — so the transport's knobs (`:retry`, `:timeout-ms`, `:accept`, headers) come for free. And it describes the *domain* request only: the runtime owns reply addressing, so the args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure` — put one in and it's a loud reject, not a silent override.
 
 Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initialise`, and the three `:articles/*` subs. The resource replaces all of them, so `:app/initialise` shrinks to an empty seed:
 
@@ -187,19 +166,9 @@ Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`,
 
 > **Coming from TanStack Query?** This is the inversion from the intro made concrete. In a React + TanStack app the `useQuery` call lives *inside* the component, so the fetch is a side-effect of rendering. Here the page-to-data binding lives in the route table, *outside* any view — so you can read the whole app's data dependencies in one place, and a view that renders is guaranteed its data was already asked for.
 
-??? note "The full `:resources` entry reference"
+??? note "The rest of the `:resources` entry keys"
 
-    Each entry in the `:resources` vector takes more keys than the two we used; the full set covers the next pages you'll build:
-
-    | Key | What it does |
-    |---|---|
-    | **`:resource`** | the registered resource id to ensure. |
-    | **`:params`** | `(fn [route] → params)` — pull the read's params out of the matched route (its path params, query, etc.). |
-    | **`:scope`** | the scope to ensure under, for a non-global read — usually a `{:from-db <id>}` named-resolver reference (Part 3). Omit it for a `:rf.scope/global` resource. |
-    | **`:blocking?`** | hold the transition until this read settles (and the SSR wait point). |
-    | **`:keep-previous?`** | keep the prior entry's data visible while the new params first-load (no flicker between pages/filters). |
-    | **`:when`** | `(fn [route ctx] → boolean)` — only ensure this read when the predicate holds (skip a read whose params aren't available yet). The clean alternative to ensuring with sentinel `nil` params. |
-    | **`:id` / `:after`** | order the ensure-*dispatch* of dependent reads — give an entry a local `:id`, and another `:after #{that-id}` to dispatch it later. (Dispatch order only, not a data waterfall — the params still come from the route, not from the earlier read's data.) |
+    Each entry takes more keys than the two we used: `:scope` for a non-global read (Part 3 registers one), a `:when` predicate that skips a read whose params aren't available yet, and `:id` / `:after` to order the ensure-*dispatch* of dependent reads (dispatch order only — never a data waterfall). The one-glance table is [Concepts → Routes can declare more than one resource](../concepts.md#routes-can-declare-more-than-one-resource).
 
 > **Routes aren't the only cause.** The route is the *cleanest* cause, but an [event](../../core/glossary.md#event) or a [state machine](../../machines/glossary.md#machine) can ensure a resource too — `[:rf.resource/ensure {:resource … :params … :owner … :cause …}]`. The difference is the **[owner](../glossary.md#owner--cause)**: a route owner is released for you on route leave, while an event-minted owner needs a matching `[:rf.resource/release-owner {:owner …}]` so the entry doesn't get pinned alive forever. For "fetch this when the page is showing," the route is exactly right and frees you from the bookkeeping.
 
@@ -271,7 +240,7 @@ One invariant about failure is worth pausing on:
 
     A failed *background* refresh does not flip the resource to `:error`. It stays `:loaded` with its prior data and records the problem in `:refresh-error`, so users keep reading last-known-good content through a flaky network. Reserve the `:error` branch for the one case where there is genuinely nothing to show yet — a first load that failed. A refresh that fails is a footnote, not a catastrophe.
 
-The two error channels carry the **same envelope** — the closed [Spec 014](../../../spec/014-HTTPRequests.md) HTTP-failure shape — so you can render either with the same view. A first-load failure looks like:
+The two error channels carry the **same envelope** — the closed HTTP-failure shape from [managed HTTP](../../async/http.md#failures-are-a-closed-set) — so you can render either with the same view. A first-load failure looks like:
 
 ```clojure
 {:status :error
@@ -355,4 +324,4 @@ Step back and notice there's still just one loop here: events write state, subs 
 
 > **Going deeper.** Why does this stay "one loop" rather than becoming a second data path bolted on the side? Because a resource entry is a *value* — an immutable view-model projected from the runtime cache — and your view is a pure function of that value. The cache's mutation (fetch, settle, expire, GC) happens entirely inside the runtime; what crosses the boundary into your code is always a fresh immutable snapshot. So the substitution model you rely on for app-db subscriptions holds unchanged: same input value, same rendered output, every time. The lifecycle complexity is real, but it's *encapsulated* — it never leaks into the referential transparency your views depend on. That's the algebraic reason "new power, same shape" isn't just a slogan: the resource is a new *source* feeding the same pure reduction, not a new kind of computation.
 
-The full resources model — scopes as leak boundaries, owners vs. causes, polling, the refetch race rules — is in [Server state: resources](../concepts.md). The normative contract is [Spec 016 — Resources](../../../spec/016-Resources.md).
+The full resources model — scopes as leak boundaries, owners vs. causes, polling, the refetch race rules — is in [Server state: resources](../concepts.md).
