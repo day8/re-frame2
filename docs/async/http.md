@@ -126,9 +126,9 @@ Omit `:on-success` / `:on-failure` and the reply routes back to the *originating
        :fx [[:rf.http/managed {:request {:url "/api/inc.json"}}]]})))
 ```
 
-Read that handler bottom-up. The first time it runs there is no `:rf/reply` in the message, so `if-let` falls to the else branch and issues the request. When the reply comes back, the runtime re-dispatches the *same* event with `:rf/reply` filled in, the `if-let` binds it, and the `case` routes on `:success` / `:failure`. With a map message, the original message rides through, so any request context — an id, a slug — is still in scope when the reply lands.
+Read that handler bottom-up. The first time it runs there is no `:rf/reply`, so the handler issues the request. When the reply comes back, the runtime dispatches the *same* event again with `:rf/reply` in the message. If the original message was a map, the rest of that map is still there too, so request context like an id or slug is still in scope.
 
-> **Gotcha — the one-handler form wants a map message.** The reply is `assoc`'d onto the original message when that message is a map, so dispatch a map (`[:thing/load {:id "intro"}]`) or no payload at all. A bare non-map arg (`[:thing/load "intro"]`) still receives the reply, but the scalar context cannot be merged and the reply branch sees only `{:rf/reply ...}`. Wrap request context in a map when you need it after the reply lands.
+> **Gotcha — the one-handler form wants a map message.** Dispatch a map (`[:thing/load {:id "intro"}]`) or no payload. A bare value (`[:thing/load "intro"]`) still receives the reply, but there is nowhere to merge `"intro"`, so the reply branch sees only `{:rf/reply ...}`. Put request context in a map when you need it after the reply lands.
 
 ### Which to use
 
@@ -228,7 +228,7 @@ The view reads `[:article :status]` and `[:article :message]` like any other sta
 
 ## Validating the body with `:decode`
 
-By default `:decode` is `:auto`, which sniffs the Content-Type and parses accordingly. But the 2xx body is exactly where a [schema](../core/glossary.md#schema) earns its keep — coercing and validating the shape your handler then trusts. Hand `:decode` a [Malli schema](../../spec/010-Schemas.md) (Malli is the data-described schema library re-frame2 uses throughout — a schema is itself just a vector of data) and a malformed body becomes a clean `:rf.http/decode-failure` rather than a `NullPointerException` three handlers later:
+By default `:decode` is `:auto`, which sniffs the Content-Type and parses accordingly. But the 2xx body is exactly where a [schema](../core/glossary.md#schema) earns its keep — coercing and validating the shape your handler then trusts. Hand `:decode` a Malli schema (a data vector that describes the expected shape) and a malformed body becomes a clean `:rf.http/decode-failure` rather than a `NullPointerException` three handlers later:
 
 ```clojure
 (def ArticleResponse
@@ -370,4 +370,4 @@ Managed HTTP is the right tool for a single request that gets a single reply. He
 - **Wire-level weirdness** (custom transports, exotic binary protocols) — register your own fx; the escape hatch is always there.
 - **Testing** needs no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`, registered by requiring the sibling `re-frame.http.test-support` namespace) synthesize a reply with the exact envelope a live request produces — see [testing a full cascade](../core/how-to/test-a-cascade.md).
 
-The full key-by-key contract — body thunks, multipart, the keyword-interning DoS cap (`:rf.http/max-decoded-keys`, default `10000`), the `:sensitive?` trace flag, per-host degradations — is [spec 014](../../spec/014-HTTPRequests.md).
+The less common keys follow the same rules: a body function can defer body construction until the request runs, multipart sends form-data, `:rf.http/max-decoded-keys` caps decoded keyword interning at `10000` by default, `:sensitive?` hides request and response values in traces, and unsupported host work becomes a named HTTP failure instead of silently doing nothing.
