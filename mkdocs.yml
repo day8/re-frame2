@@ -233,11 +233,11 @@ nav:
     - machines/index.md
     - "Tutorial: build a login machine": machines/tutorial.md
     - "Concepts": machines/concepts.md
+    - "Tags": machines/tags.md
+    - "Automatic transitions": machines/automatic-transitions.md
     - "Hierarchical states": machines/hierarchical-states.md
     - "Parallel states": machines/parallel-states.md
     - "History": machines/history.md
-    - "Automatic transitions": machines/automatic-transitions.md
-    - "Tags": machines/tags.md
     - "Actors": machines/actors.md
     - "Inspecting and testing": machines/inspecting-machines.md
     - "Examples": machines/examples.md

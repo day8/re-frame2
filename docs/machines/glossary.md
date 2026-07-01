@@ -1,6 +1,6 @@
 # Machines glossary
 
-re-frame2's optional state-machine capability — modelling a feature's lifecycle as an explicit statechart rather than a scatter of boolean flags. Every term below lives within a [machine](#machine), and each entry links to the page that teaches it in depth — usually [the Machines guide](concepts.md).
+re-frame2's optional state-machine capability — modelling a feature's lifecycle as an explicit statechart rather than a scatter of boolean flags. Every term below lives within a [machine](#machine), and each entry links to the page that teaches it in depth.
 
 Grouped by role: [the core loop](#the-core-loop), [state structure](#state-structure), [transitions and timing](#transitions-and-timing), [actors and composition](#actors-and-composition), [tags](#tags), and [the runtime model](#the-runtime-model).
 
@@ -78,7 +78,7 @@ What an [action](#action) returns: the same `{:data … :fx …}` map a [`reg-ev
                   (assoc :error (:message failure)))})
 ```
 
-See [Guards, actions, tags, and `:after`](concepts.md#guards-and-actions).
+See [The action effect map](concepts.md#the-action-effect-map--data-fx).
 
 ## State structure
 
@@ -86,13 +86,13 @@ See [Guards, actions, tags, and `:after`](concepts.md#guards-and-actions).
 
 A [state](#state) that nests its own `:states` map plus a required `:initial` substate — a parent mode with child modes (`:authenticated` over `:browsing` / `:checkout`). Entering it cascades down the `:initial` chain to a leaf, and the snapshot's `:state` becomes a **vector path** like `[:authenticated :cart :browsing]`. The runtime resolves an event by walking from the active leaf up to the root — **deepest-wins with parent fallthrough** — so a parent can factor out a transition (`:logout`) that every descendant inherits, while a child can [opt out](#forbidden-transition) or override.
 
-Listed under [When the machine grows](concepts.md#when-the-machine-grows).
+See [Hierarchical states](hierarchical-states.md).
 
 ### **parallel state**
 
 A machine declared `:type :parallel` at its root, holding a **`:regions`** map (not `:states`) — the [regions](#region) are **all active at once** rather than one-at-a-time. Three orthogonal axes of three states each is three regions, not twenty-seven cross-product states. The snapshot's `:state` becomes a **map** of region-name → that region's state (`{:data :loading :form :neutral :mode :active}`); all regions share one [`:data`](#data) and their [tags](#state-tag) union across regions. When the axes *don't* share data, prefer N separate machines instead.
 
-See the [nine_states example](../../examples/patterns/nine_states/) and [When the machine grows](concepts.md#when-the-machine-grows).
+See the [nine_states example](../../examples/patterns/nine_states/) and [Parallel states](parallel-states.md).
 
 ### **region**
 
@@ -100,15 +100,15 @@ One orthogonal axis of a [parallel state](#parallel-state) — its own independe
 
 ### **final state**
 
-A leaf marked **`:final? true`**: entering it **terminates the machine** — the runtime auto-destroys it, *even a top-level singleton*. It's for "this run is over," not "this is the last screen" — for a state the machine rests in indefinitely (like `:authed`), use an ordinary leaf and **omit** `:final?`. A final leaf can name an [`:output-key`](#on-done-and-output-key) to report a result, and can be flagged `:error? true` as a designated failure terminal.
+A leaf marked **`:final? true`**: entering it **terminates the machine** — the runtime auto-destroys it, *even a top-level singleton*. It's for "this run is over," not "this is the last screen" — for a state the machine rests in indefinitely (like `:authed`), use an ordinary leaf and **omit** `:final?`. A final leaf can name an [`:output-key`](#on-done-and-output-key) to report a result, and can be flagged `:error? true` as a designated failure terminal. A final leaf *nested inside a compound* is different: it ends the sub-flow, not the machine.
 
-See [Final states](concepts.md#final-states-when-a-machine-is-done).
+See [Actors → When a child finishes](actors.md#when-a-child-finishes) and [Hierarchical states → nested final states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
 
 ### **history state**
 
 A `:type :history` **pseudo-state** you target to re-enter a [compound state](#compound-state) at whichever substate was active when you last left it — a paused player resuming mid-track. **Shallow** restores the immediate child; **deep** restores the full nested path; a `:default-target` covers the never-visited-yet case. The recording rides the [snapshot](#snapshot), so it survives undo and SSR hydration for free.
 
-Listed under [When the machine grows](concepts.md#when-the-machine-grows).
+See [History states](history.md).
 
 ## Transitions and timing
 
@@ -149,7 +149,7 @@ A state-node key holding a vector of guarded transitions that fire **with no eve
                          {:guard :form-invalid? :target :show-errors}]}
 ```
 
-Settled inside the [microstep](#microstep) loop. See [When the machine grows](concepts.md#when-the-machine-grows).
+Settled inside the [microstep](#microstep) loop. See [Automatic transitions](automatic-transitions.md).
 
 ### **delayed transition (`:after`)**
 
@@ -160,19 +160,19 @@ The declarative timer: a state-node key mapping a delay to a transition. Enter t
                :on    {:net/give-up :failed}}
 ```
 
-(ISO-8601 durations and the `"5s"`-shorthand rejection belong to [`:timeout`](#timeout), not `:after` — an `:after` key is an ms int, a sub vector, or a fn.) See [Guards, actions, tags, and `:after`](concepts.md#guards-and-actions).
+(ISO-8601 durations and the `"5s"`-shorthand rejection belong to [`:timeout`](#timeout), not `:after` — an `:after` key is an ms int, a sub vector, or a fn.) See [Automatic transitions](automatic-transitions.md).
 
 ### **timeout**
 
 The named-intent spelling of "this state — or its spawned child — must finish before this deadline": a `:timeout` duration paired with an `:on-timeout` transition. It *lowers onto* the same [`:after`](#delayed-transition-after) timer machinery; it just reads as a deadline rather than a general delay. A duration is integer-ms (`5000`) or an ISO-8601 string (`"PT5S"`, `"PT1H30M"`) — `"5s"` is rejected, failing loud at registration.
 
-Listed under [When the machine grows](concepts.md#when-the-machine-grows).
+See [Automatic transitions](automatic-transitions.md).
 
 ### **choice state**
 
 A `:type :choice` **transient** routing node: enter it and it resolves *immediately* — same step, no event — to the first candidate whose `:guard` passes. It's [`:always`](#eventless-transition-always)'s decision pattern with a name, so a diagram renders an explicit fork. The candidate list is a **declarative array** that must include an unguarded default and must not declare ordinary state keys.
 
-See [When the machine grows](concepts.md#when-the-machine-grows).
+See [Automatic transitions](automatic-transitions.md).
 
 ### **run-to-completion**
 
@@ -186,7 +186,7 @@ See [microstep](#microstep) and [macrostep](#macrostep).
 
 A declarative key that starts a *child* machine on entering a [state](#state) and tears it down on leaving; the child reports a result back through [`:on-done`](#on-done-and-output-key). (`:spawn-all` starts several in parallel and joins on completion.) Under the hood it's the reserved [`[:rf.machine/spawn …]`](../api/re-frame.machines.md#rfmachinespawn-spawn-spec) [effect](../core/glossary.md#effect); emit that directly from any handler when you need a dynamic count rather than one-child-per-state. The running instance it creates is an [actor](#actor).
 
-See [When the machine grows](concepts.md#when-the-machine-grows).
+See [Actors](actors.md).
 
 ### **actor**
 
@@ -198,7 +198,7 @@ The live instance is just a value in the frame, so time-travel and SSR extend to
 
 The fan-out sibling of [`:spawn`](#spawn): on entering a state it starts **N children in parallel** and **joins** on their completion, resolving when they've all finished (or on the first failure, with a cooperative cancellation cascade). Used for "spawn a worker per chunk and continue when all return."
 
-See the [long_running_work example](../../examples/patterns/long_running_work/) and [When the machine grows](concepts.md#when-the-machine-grows).
+See the [long_running_work example](../../examples/patterns/long_running_work/) and [Actors → Fan-out and join](actors.md#fan-out-and-join-with-spawn-all).
 
 ### **:on-done and :output-key**
 
@@ -212,7 +212,7 @@ How a finishing child reports back. A [final state](#final-state) names an **`:o
                                     (assoc data :token result))}}
 ```
 
-See [Final states](concepts.md#final-states-when-a-machine-is-done).
+See [Actors → When a child finishes](actors.md#when-a-child-finishes).
 
 ### **system-id**
 
@@ -256,7 +256,7 @@ A label like `:auth/busy` attached to several [machine](#machine) [states](#stat
   [spinner])
 ```
 
-See [Guards, actions, tags, and `:after`](concepts.md#guards-and-actions).
+See [Tags](tags.md).
 
 ## The runtime model
 

@@ -6,7 +6,7 @@ The pattern earns its keep when an activity has a *lifetime that should match a 
 
 A spawned child can be **state-bound** — alive for exactly as long as a state is active — or **dynamically created**; re-frame2 spells both as **`:spawn`**. There is **no actor object**: a spawned actor's *liveness is its snapshot* — a plain value at `[:rf.runtime/machines :snapshots <actor-id>]` in the [frame's runtime-db](glossary.md#snapshot). You address it by `dispatch`-ing to its id, exactly like any other handler, and it reverts with the frame on time-travel.
 
-This page assumes you've met the [transition table, guards, actions, tags, and `:after`](concepts.md#guards-and-actions). If not, read [Concepts](concepts.md) first.
+This page assumes you've met the transition table and [guards and actions](concepts.md#guards-and-actions) from [Concepts](concepts.md), plus [`:after` timers](automatic-transitions.md) — they carry the timeout story below.
 
 ---
 
@@ -55,7 +55,7 @@ The map under `:spawn` accepts:
 | `:on-error` | an `:on`-shaped **transition** — fires when the child fails (an `:error?` final leaf, or a thrown action). The parent changes state. |
 | `:fixed-actor-id` | an explicit actor id instead of a gensym, for a per-state singleton actor. |
 
-`:on-done` / `:on-error` are the completion story — they pair with the child declaring a `:final?` leaf. That's covered under [Final states](concepts.md#final-states-when-a-machine-is-done); the [API reference](../api/re-frame.machines.md) lists the exact shapes. Here we focus on the lifecycle: spawn, address, message, and tear down.
+`:on-done` / `:on-error` are the completion story — they pair with the child declaring a `:final?` leaf, and they get [their own section below](#when-a-child-finishes). The [API reference](../api/re-frame.machines.md) lists the exact shapes.
 
 > **One `:spawn` per state.** A state node carries at most one `:spawn` — for multiple children, use a compound state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all) for parallelism. Events aren't auto-forwarded to children — forward them explicitly with `:fx [[:dispatch [child-id ev]]]`. To observe a child's snapshot, read it with the `[:rf/machine actor-id]` subscription.
 
@@ -174,6 +174,41 @@ There's no `sender`/`sendTo`-reply special form. Put the reply event *in the req
 
 ---
 
+## When a child finishes
+
+A spawned child that genuinely *completes* — a one-shot protocol, a finished handshake — declares a **`:final?` leaf**. Entering it terminates the child: the runtime reads the child's result, notifies the parent, then destroys the actor. The child names its result with **`:output-key`** — the slot of its final `:data` to hand up — and the parent's `:spawn` declares **`:on-done`**, which receives that value as `result`:
+
+```clojure
+;; Child — a one-shot auth handshake that reports its token, then ends.
+(rf/reg-machine :auth-flow
+  {:initial :running
+   :data    {}
+   :states
+   {:running {:on {:server-ok {:target :done
+                               :action (fn [{data :data ev :event}]
+                                         {:data (assoc data :token (second ev))})}}}
+    :done    {:final?     true
+              :output-key :token}}})       ;; report :data's :token back to the parent
+
+;; Parent — :on-done folds the child's result into its own :data.
+:authenticating
+{:spawn {:machine-id :auth-flow
+         :on-done    (fn [{data :data result :result}]   ;; result = the child's :token
+                       (assoc data :token result))
+         :on-error   :idle}                               ;; child failed → a transition
+ :on    {:auth/cancelled :idle}}
+```
+
+When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to the parent's `:on-done` as `result`, then tears the child down — no stale id left behind. The details worth internalising:
+
+- **`:on-done` is a data-fold, not a transition.** It's `(fn [{:keys [data result]}] new-data)` — it returns the parent's next `:data`; the parent's state doesn't move.
+- **`:on-error` IS a transition.** A child that fails — it reaches a `:final?` leaf flagged `:error? true`, or one of its actions throws — routes the parent through the `:on`-shaped `:on-error` spec. Failure is control flow, not just observability.
+- **Completion is event-shaped.** The `:output-key` value flows to `:on-done` at the moment of completion, then the child is gone — there is no long-lived output slot to read later. Want a *computed* output? Write it into the final state's `:data` with a transition `:action`; there's no `:output-fn`.
+- **Final means final — even for a singleton.** A root-level `:final?` leaf auto-destroys *any* machine, spawned or not. A state a machine rests in indefinitely (an `:authed` end-screen) is an ordinary leaf with `:final?` omitted.
+- **Nested finals are different.** A `:final?` leaf *inside a compound state* doesn't end the machine — it signals "this sub-flow is done" to the enclosing compound's own `:on-done`, and the machine keeps running. That's the hierarchical pattern; see [Hierarchical states → When a sub-flow finishes](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
+
+---
+
 ## Imperative spawn and destroy
 
 `:spawn` desugars to two reserved effects you can also emit by hand from any `:fx` vector. They are **fx-ids inside `:fx`**, not top-level effect keys:
@@ -239,7 +274,7 @@ The [long-running-work example](../../examples/patterns/long_running_work/) show
 
 ## Wall-clock timeouts — use the parent state's `:after`
 
-"The whole activity must finish within N seconds, spanning any internal retries." There is **no `:timeout-ms` slot** on `:spawn` (it's rejected at registration). The answer is the [`:after`](concepts.md#guards-and-actions) primitive on the `:spawn`-bearing state — one timer mechanism, not two:
+"The whole activity must finish within N seconds, spanning any internal retries." There is **no `:timeout-ms` slot** on `:spawn` (it's rejected at registration). The answer is the [`:after`](automatic-transitions.md) primitive on the `:spawn`-bearing state — one timer mechanism, not two:
 
 ```clojure
 {:authenticating

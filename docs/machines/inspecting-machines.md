@@ -223,10 +223,10 @@ The `login-flow` table above is plain data, so the very same value that renders 
 | **2 — unregistered handler fn** | handler-level wiring, `:data`-to-`:db` lowering | fast | dispatch pipeline, spawn lifecycle |
 | **3 — registered in a test frame** | full integration: trace events, drain, spawn/destroy, cross-actor messaging | slowest | nothing |
 
-Most logic lives at Level 1. Reach for Level 3 only for spawned-actor patterns, where the whole point is that a handler gets registered dynamically and the parent can `dispatch` to it. The contracts for all three are in [Spec 005 §Testing](../../spec/005-StateMachines.md).
+Most logic lives at Level 1. Reach for Level 3 only for spawned-actor patterns, where the whole point is that a handler gets registered dynamically and the parent can `dispatch` to it.
 
 > **The test *is* the transition function.** A `machine-transition` test is literally `(fn definition snapshot event)` — nothing to instantiate, you assert the behavioural contract *(state, event) → next state + effects* directly.
 
-See [`machine-transition`](../api/re-frame.machines.md#re-framemachinesmachine-transition) and [`machine-meta`](../api/re-frame.machines.md#re-framemachinesmachine-meta) in the API reference, and the narrative in [Concepts §Testing](concepts.md#testing-transitions-are-pure-function-calls).
+See [`machine-transition`](../api/re-frame.machines.md#re-framemachinesmachine-transition) and [`machine-meta`](../api/re-frame.machines.md#re-framemachinesmachine-meta) in the API reference.
 
 ---

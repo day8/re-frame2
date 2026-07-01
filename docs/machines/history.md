@@ -1,6 +1,6 @@
 # History states
 
-Some compound states have a memory. A media player you stop and restart should resume *mid-track*, not jump back to the first second. A wizard you step away from and return to should land on the step you left, not step one. A tabbed settings panel should remember which tab — and how far down each tab was scrolled — across a close/reopen. That "resume where I last was" behaviour is what a **history state** gives you, declaratively, for any [compound state](concepts.md#when-the-machine-grows).
+Some compound states have a memory. A media player you stop and restart should resume *mid-track*, not jump back to the first second. A wizard you step away from and return to should land on the step you left, not step one. A tabbed settings panel should remember which tab — and how far down each tab was scrolled — across a close/reopen. That "resume where I last was" behaviour is what a **history state** gives you, declaratively, for any [compound state](hierarchical-states.md).
 
 Without it you reach for the obvious workaround — stash the last substate in `:data` on the way out, read it back on the way in, and write the wiring to restore it. History states make that pattern a single node in the transition table — a first-class `:type :history` node — and (because the record/restore lives *inside the snapshot*) they ride undo, time-travel, persistence, and SSR for free.
 
@@ -95,7 +95,7 @@ Reach for **deep** when the precise nested position matters (resume the exact tr
 
 Recording is automatic and happens on the way **out**: whenever the exit cascade *leaves* a compound that owns a history pseudo-state, the runtime writes that compound's last-active configuration into the snapshot. You never write capture code.
 
-The owning compound must be **genuinely exited** to record. This is the [W3C SCXML](https://www.w3.org/TR/scxml/#history) exit-set rule: a `<history>` value is written only for states in the exit set. A transition that merely moves *between two children* of the compound keeps the compound as the [least-common ancestor](concepts.md#when-the-machine-grows) — the compound **survives**, was never left, and so records nothing (there is no "last config" to remember; it is still in one).
+The owning compound must be **genuinely exited** to record. This is the [W3C SCXML](https://www.w3.org/TR/scxml/#history) exit-set rule: a `<history>` value is written only for states in the exit set. A transition that merely moves *between two children* of the compound keeps the compound as the [least-common ancestor](hierarchical-states.md#entryexit-cascading-along-the-lca) — the compound **survives**, was never left, and so records nothing (there is no "last config" to remember; it is still in one).
 
 That is exactly why `:eject` targets `:tray` (a *sibling of* `:player`, outside it) rather than some inner state: only leaving `:player` puts it in the exit set. A common first mistake is to put the history node on a compound that nothing ever exits — then it silently never records and "restore" always falls to the default. If your history isn't sticking, check that *something leaves the owning compound.*
 
@@ -131,7 +131,7 @@ Because the recording is *part of the snapshot value* — not a side-table — r
 
 ## Per-region history under `:type :parallel`
 
-Under a [parallel](concepts.md#when-the-machine-grows) machine each region runs an independent state-tree, so **history is per-region**: a history node declared inside a region's compound records and restores *that region's* configuration on the region's own exit cascade, independently of its siblings. The `:rf/history` keys are **region-qualified** — the region name is the head segment of the declaration-path key — so two regions that each declare a history-bearing compound at structurally-identical paths never collide:
+Under a [parallel](parallel-states.md) machine each region runs an independent state-tree, so **history is per-region**: a history node declared inside a region's compound records and restores *that region's* configuration on the region's own exit cascade, independently of its siblings. The `:rf/history` keys are **region-qualified** — the region name is the head segment of the declaration-path key — so two regions that each declare a history-bearing compound at structurally-identical paths never collide:
 
 ```clojure
 ;; Two regions, each with a history-bearing :on compound at the same shape.

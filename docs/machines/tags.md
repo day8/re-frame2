@@ -6,7 +6,7 @@ Reach for tags when:
 
 - several states share a meaning a view cares about ("any of these is loading-ish"), and you don't want a boolean sub per state;
 - a page's render decision slices across more than one axis (data cardinality × form validity × mode) and you want one decision table instead of an N-way `cond`;
-- a guard in one [parallel region](concepts.md#when-the-machine-grows) needs to know what a *sibling* region is doing without reaching into its private state.
+- a guard in one [parallel region](parallel-states.md) needs to know what a *sibling* region is doing without reaching into its private state.
 
 If a label would only ever match exactly one state, skip it — query the state directly with `(= :loading (:state snap))`. Tags earn their keep by matching *many* states with one shared intent.
 
@@ -53,8 +53,8 @@ At every transition the runtime walks the machine's active states, unions their 
 How the union is computed depends on the machine's shape:
 
 - **Flat machine** — the single active state's `:tags`.
-- **Compound (hierarchical) machine** — the union along the active path: root → every compound ancestor → leaf.
-- **Parallel machine** — the union across *every* active state in *every* region. (This is what makes tags the cross-region signal in the last section.)
+- **[Compound (hierarchical)](hierarchical-states.md) machine** — the union along the active path: root → every compound ancestor → leaf.
+- **[Parallel](parallel-states.md) machine** — the union across *every* active state in *every* region. (This is what makes tags the cross-region signal in the last section.)
 
 `:tags` is **read-only** for you. It's a pure projection of `:state` — set the state, the tags follow — so an action can't return `:tags` in its `{:data :fx}` effect map; the runtime owns the slot. And when the union is **empty** (no active state declares any tag), the runtime **elides** the key entirely: a tag-free machine carries no `:tags` slot at all, so `(contains? snap :tags)` can be `false` even after the machine has settled. Don't declare an empty `:tags #{}` to "have the slot" — just omit it.
 
@@ -95,7 +95,7 @@ Need the whole set rather than one bit? That's the ordinary snapshot read:
 
 ## Collapsing many states into one render decision
 
-This is where tags pay off hardest. The [Nine States example](../../examples/patterns/nine_states) models a page as one `:type :parallel` machine with three orthogonal regions — `:data` (request lifecycle + cardinality), `:form` (validation), `:mode` (active / archived). Every state wears a per-axis tag:
+This is where tags pay off hardest. The [Nine States example](../../examples/patterns/nine_states) models a page as one [`:type :parallel`](parallel-states.md) machine with three orthogonal regions — `:data` (request lifecycle + cardinality), `:form` (validation), `:mode` (active / archived). Every state wears a per-axis tag:
 
 ```clojure
 ;; (excerpt from the three regions) — each state announces its intent
@@ -156,41 +156,14 @@ Notice what the form *doesn't* ask: "is the `:mode` region in `:done`?" It asks 
 
 ## Tags as a cross-region signal
 
-In a parallel machine the tag union spans *all* regions, which makes it the channel one region uses to read what a sibling is doing. This is the classic statechart coordination primitive: a guard in region A predicates on region B's state. re-frame2 ships this without a dedicated operator: **a sibling region advertises a tag, and any region's guard reads the tag union off its context map.**
-
-A guard or action running *inside a parallel region* gets two extra keys in its context map, alongside the usual `:data` / `:event` / `:state` / `:meta`:
-
-- **`:tags`** — the machine-wide tag union (the **coarse**, idiomatic read);
-- **`:all-state`** — the full `{region → active-state}` map (the **precise** read).
-
-```clojure
-(rf/reg-machine :ui/checkout
-  {:type   :parallel
-   :data   {}
-   :guards {:form-valid? (fn [{:keys [tags]}]              ;; reads a SIBLING region's tag
-                           (contains? tags :form/valid))}
-   :regions
-   {:form     {:initial :editing
-               :states  {:editing {:tags #{:form/editing} :on {:complete :valid}}
-                         :valid   {:tags #{:form/valid}}}}
-    :checkout {:initial :idle
-               :states  {:idle       {:on {:submit {:target :submitting
-                                                    :guard  :form-valid?}}}
-                         :submitting {:tags #{:checkout/submitting}}}}}})
-```
-
-`:checkout`'s `:submit` fires only once the `:form` region has advertised `:form/valid`. The precise variant reads the sibling's state value directly instead:
-
-```clojure
-:guards {:form-valid? (fn [{:keys [all-state]}] (= :valid (:form all-state)))}
-```
-
-Prefer the **tag** form: a tag is a named, tool-legible render-state, and it survives the sibling region renaming its internal states as long as the tag stays put.
+In a [parallel machine](parallel-states.md) the tag union spans *all* regions, which makes it the channel one region uses to read what a sibling is doing — the classic statechart coordination primitive, shipped without a dedicated operator. A sibling region advertises a tag; any region's guard reads the machine-wide union off its context map and predicates on it — `(fn [{:keys [tags]}] (contains? tags :form/valid))`.
 
 Two things to hold onto:
 
 - **A tag is a guard *input*, not a *trigger*.** A tag flipping on does not *fire* anything — there is no "on this tag appearing" transition. The dependent region still moves on its next event (or an eventless `:always`); the guard merely *reads* the sibling's advertised tag when it runs.
-- **These keys are parallel-only, and frozen.** A flat or compound machine's guard/action context is exactly `{:data :event :state :meta}` — no `:tags` / `:all-state`, because a flat machine has no sibling to coordinate with (its own `:state` is all there is to read). In a parallel machine both keys reflect the configuration *as of the start of the macrostep*, so every region selects against the same frozen sibling view, independent of region declaration order. The exact same-event convergence paths — `:raise` for same-macrostep coupling, a guarded `:always` for next-event coupling — are spelled out in the spec.
+- **The cross-region keys are parallel-only.** A flat or compound machine's guard/action context stays exactly `{:data :event :state :meta}` — it has no sibling to coordinate with.
+
+The worked example — a `:checkout` region whose `:submit` waits for the `:form` region to advertise `:form/valid` — plus the precise `:all-state` variant and the frozen-snapshot selection rules are in [Parallel states → Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein).
 
 ## What tags are *not*
 

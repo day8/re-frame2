@@ -15,7 +15,7 @@ There are four authoring grammars, and underneath them just **two engines**:
 
 > **Four grammars, two engines.** `:type :choice` is sugar that **desugars to `:always`**; `:timeout` / `:on-timeout` is sugar that **desugars to `:after`**. So everything on this page runs on one of two mechanisms: the **guard-driven microstep loop** (`:always`, `:choice`) and the **wall-clock timer** (`:after`, `:timeout`). One fact, one mechanism — the extra grammars exist only to *name the author's intent* so tools and diagrams can read it.
 
-Everything below assumes the core loop from the [concepts guide](concepts.md#registering-and-running-it): a machine is registered with `reg-machine`, its transition table is data, a [guard](glossary.md#guard) returns a boolean, an [action](glossary.md#action) returns the data-shaped effect map `{:data … :fx …}` (the `:data` is *merged* into the snapshot, key by key), and the live value is a snapshot `{:state … :data … :tags …}`. New to all that? Read [Guards, actions, tags, and `:after` — the recognition kit](concepts.md#guards-and-actions) first.
+Everything below assumes the core loop from the [concepts guide](concepts.md#registering-and-running-it): a machine is registered with `reg-machine`, its transition table is data, a [guard](glossary.md#guard) returns a boolean, an [action](glossary.md#action) returns the data-shaped effect map `{:data … :fx …}` (the `:data` is *merged* into the snapshot, key by key), and the live value is a snapshot `{:state … :data … :tags …}`. New to all that? Read [Concepts → Guards and actions](concepts.md#guards-and-actions) first.
 
 ## Eventless `:always` — fire the instant a condition holds
 

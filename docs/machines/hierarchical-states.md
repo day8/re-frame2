@@ -381,34 +381,12 @@ at the root, by contrast, ends the actor.
 
 ### Reporting a result to a spawning parent: `:output-key`
 
-The *whole-machine* final case is how a **spawned child** reports back. The
+The *whole-machine* final case is how a **spawned child** reports back: the
 child marks its terminal leaf `:final?` and names the `:data` slot to hand up
 with `:output-key`; the parent's **`:spawn :on-done`** callback receives it as
-`result`:
-
-```clojure
-;; Child: declares its terminal state and what it outputs.
-(rf/reg-machine :auth-flow
-  {:initial :running
-   :data    {}
-   :states
-   {:running {:on {:server-ok {:target :done
-                               :action (fn [{data :data ev :event}]
-                                         {:data (assoc data :token (second ev))})}}}
-    :done    {:final?     true
-              :output-key :token}}})           ;; ← the :data slot reported back
-
-;; Parent: :spawn :on-done reads the child's result, then the child auto-destroys.
-(rf/reg-machine :login
-  {:initial :idle
-   :states
-   {:idle {:on {:submit :authenticating}}
-    :authenticating
-    {:spawn {:machine-id :auth-flow
-             :on-done    (fn [{data :data result :result}]   ;; result = child's :token
-                           (assoc data :token result))}
-     :on    {:auth/cancelled :idle}}}})
-```
+`result`, and the runtime then tears the child down. That protocol — including
+the `:on-error` failure path — is worked in
+[Actors → When a child finishes](actors.md#when-a-child-finishes).
 
 Two distinct `:on-done` hooks, then, named the same on purpose because they're
 the same idea at two scopes:
@@ -418,10 +396,6 @@ the same idea at two scopes:
 - **`:on-done` on a parent's `:spawn` map** — the *actor-teardown notification*
   `(fn [{:keys [data result]}] new-data)` a parent gets when a spawned child
   reaches a root-level `:final?` and is then destroyed.
-
-> re-frame2 keeps exactly **one** output primitive — there's no `:output-fn`
-> escape hatch. Want a *computed* output? Write a transition `:action` *into* the
-> final state that stashes the computed value at the `:output-key` slot.
 
 ### `:final?` constraints
 
@@ -440,6 +414,6 @@ A `:final?` state fails loud at registration if you break these:
 (Inside a parallel-region machine, a `:final?` leaf means "*this region* is
 done"; the machine as a whole is done only when *every* region is final.
 Parallel regions are a separate axis — they're for orthogonal concerns that
-*don't* share a sub-tree — covered in [Concepts](concepts.md).)
+*don't* share a sub-tree — covered in [Parallel states](parallel-states.md).)
 
 ---
