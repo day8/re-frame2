@@ -1,6 +1,6 @@
 # HTTP: going further
 
-[The basics](http.md) cover everyday work — issue a request, handle the reply, classify failures, retry, win the search-box race. This page is the rest: trimming keys at the call site, the cross-cutting interceptor seam, keeping secrets off the trace, and the one reply contract that sits under every async surface. Reach for these when you need them; none is required to be productive.
+[The basics](http.md) cover everyday work — issue a request, handle the reply, classify failures, retry, win the search-box race. This page is the rest: trimming keys at the call site, the cross-cutting interceptor seam, keeping secrets off the trace, and the reply shape shared by the async surfaces. Reach for these when you need them; none is required to be productive.
 
 ## Fewer keys at the call site: the verb helpers
 
@@ -64,9 +64,9 @@ A few rules that matter:
 - **Onion order.** `:before`s run in registration order, `:after`s in reverse — A-registered-before-B means `A.before → B.before → transport → B.after → A.after`. Exactly the event-interceptor mental model.
 - **At least one phase is required.** A map with neither `:before` nor `:after` is rejected at registration with a named bad-interceptor error. A `:before`-only or `:after`-only interceptor is fine and composes cleanly.
 - **A throw is named, not swallowed.** A `:before` or `:after` that throws classifies as a named interceptor-failed error (carrying the offending `:interceptor-id`); a request-side throw means the transport never sees the request. Wrap recoverable logic inside the interceptor yourself — the chain has no recovery cofx.
-- **Clearing.** `(rf/clear-http-interceptor id)` removes the slot from the current carried frame scope; `(rf/clear-http-interceptor frame-id id)` targets a frame explicitly. Calling the single-arity form with no frame in scope fails loud with `:rf.error/no-frame-context`. Re-registering an existing id replaces it *in place* (hot-reload-friendly); clear-then-reg appends a fresh slot at the end.
+- **Clearing.** Inside a frame scope, `(rf/clear-http-interceptor id)` removes that frame's interceptor. Outside a frame scope, or when you want to name the frame directly, use `(rf/clear-http-interceptor frame-id id)`. Calling the single-arity form with no frame in scope fails loud with `:rf.error/no-frame-context`. Re-registering an existing id replaces it *in place* (hot-reload-friendly); clear-then-reg appends a fresh slot at the end.
 
-`reg-http-interceptor` and `clear-http-interceptor` are the only two HTTP surfaces re-exported onto the `rf/` facade (everything else lives in `re-frame.http` / `re-frame.http.managed`). This same seam is where resources and mutations get *their* request decoration too — register the auth interceptor once and every `:rf.http/managed` request, whether you issued it directly or a [resource](../resources/concepts.md) did, carries the header. The normative contract is [spec 014 §Middleware](../../spec/014-HTTPRequests.md#middleware).
+`reg-http-interceptor` and `clear-http-interceptor` are the only two HTTP surfaces re-exported onto the `rf/` facade (everything else lives in `re-frame.http` / `re-frame.http.managed`). This same seam is where resources and mutations get *their* request decoration too: register the auth interceptor once and every `:rf.http/managed` request, whether you issued it directly or a [resource](../resources/concepts.md) did, carries the header.
 
 ## Keeping secrets out of the trace
 
@@ -102,15 +102,15 @@ HTTP is where the secrets are: passwords ride request bodies, auth tokens ride r
          [:user-id :int]]
 ```
 
-This is the schema's job whether or not the request also carries the coarse `:sensitive?` flag (the flag is the whole-body hammer; the schema marks are the scalpel). All of this rides the dev trace surface, so it [elides](../core/glossary.md#elide) wholesale in production along with the rest of tracing — the redaction step costs nothing in a release build. (The full denylists, the `{:include :except}` carrier-policy form, and the off-box fail-closed rules are in [spec 014 §Privacy](../../spec/014-HTTPRequests.md#privacy); the framework-wide story is [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).)
+This is the schema's job whether or not the request also carries the coarse `:sensitive?` flag (the flag is the whole-body hammer; the schema marks are the scalpel). All of this rides the dev trace surface, so it [elides](../core/glossary.md#elide) wholesale in production along with the rest of tracing — the redaction step costs nothing in a release build. When trace data is exported outside the app, re-frame2 keeps secrets out by default: sensitive slots are denied, unknown error bodies stay local, and export policy can exclude specific places where secrets may appear. For the framework-wide story, see [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 
 > **Gotcha — a 4xx/5xx error body is always omitted off-box.** A non-2xx response surfaces its raw body at `:body`, and that body never ran through your `:decode` schema (status is classified *before* decode), so its shape is unknown. Off-box egress therefore drops it unconditionally — error responses routinely echo back request context or tokens. On your local dev trace you still see it; it's the off-box boundary that fails closed. If you need fields out of an error body, decode `:body` yourself in the failure branch where the value stays on-box.
 
 ## One envelope under every async surface
 
-Everything on the [HTTP basics](http.md) page is HTTP-specific spelling over a deeper, framework-wide contract. You don't need this section to be productive — but it's the seam that makes resources, machines, and routing feel the same, so it's worth one read.
+Everything on the [HTTP basics](http.md) page is HTTP-specific spelling over a framework-wide reply shape. You don't need this section to be productive — but it's the seam that makes resources, machines, and routing feel the same, so it's worth one read.
 
-"A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../core/glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](../resources/concepts.md), [state-machine async work](../machines/concepts.md), and [route loaders](../routing/concepts.md). Those pages lean on this section instead of re-teaching it. The normative contract is [Managed-Effects](../../spec/Managed-Effects.md).
+"A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../core/glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](../resources/concepts.md), [state-machine async work](../machines/concepts.md), and [route loaders](../routing/concepts.md). Those pages lean on this section instead of re-teaching it.
 
 The envelope has two pieces. A **reply target** says where completion is dispatched. A **reply map** says what it carries. When the work completes, the runtime dispatches the target event with the reply map appended as the final argument:
 
@@ -139,7 +139,7 @@ Four rules finish the tour:
 
 - **Stale suppression is the correctness boundary.** A newer request supersedes an older one — that's the search-box race. The old completion is classified `:stale`, the app target is skipped, and the trace records the carried-versus-current correlation. Your handler never sees a stale answer, so it can never overwrite fresh data with old. Cancellation is only an optimization here; *suppression* is what actually keeps state correct.
 - **Cancellation is data, not the absence of a reply.** A live user-cancel dispatches `:status :cancelled` with a `:cancel/reason`. A supersession suppresses as `:stale`. Either way there's a value describing what happened — never a silently dropped continuation.
-- **Completion timestamps ride the reply.** A reply is a causal token. Facts like *when it completed* travel on it (`:completed-at` in the canonical envelope), and handlers derive durable timestamps from that carried data. The [`:rf/time-ms` declaration](http.md#reading-the-reply-correctly) is the HTTP public shape for the same durable completion value.
+- **Completion timestamps ride the reply.** The reply carries facts about the work, including when it completed. HTTP exposes that time through the [`:rf/time-ms` declaration](http.md#reading-the-reply-correctly); full reply maps carry it as `:completed-at`. Either way, handlers use the carried value rather than reading the clock again.
 - **HTTP's `:on-success` / `:on-failure` / `:rf/reply` are public sugar over this envelope.** They're what you write on HTTP — `:rf.http/managed` does not accept a bare `:rf/reply-to`. But the general async model, shared by resources, mutations, machines, and routing, is the envelope. Each surface picks its own public spelling; the substrate underneath is one.
 
 > **Going deeper.** Effects *sequence but never bind*: a handler can ask for several effects in order (the `:fx` vector), but never "do this effect, *then* feed its result into the next expression" — that would be monadic binding, the awaited-value shape, and it's exactly what re-frame2 refuses. The result comes back as the next event instead, and relocating a reply target is a pure data transform (the role `Cmd.map` plays in Elm's command algebra) — never a hidden callback.

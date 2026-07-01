@@ -1,6 +1,6 @@
 # Your own async effect
 
-Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. The good news is the basic shape is still familiar: wrap the host API in an `fx` and dispatch the reply back as an ordinary [event](../core/concepts/events-and-the-cascade.md). That is the async-effect pattern; HTTP adds the [managed-effect contract](../../spec/Managed-Effects.md) on top.
+Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. For those, write a small `fx`: start the host work, then dispatch a named reply [event](../core/concepts/events-and-the-cascade.md) when it finishes. That gives you the same continuation style as HTTP. It does not give you HTTP's managed extras — retry, abort, stale-result suppression, and the HTTP failure categories — unless you build those too.
 
 > **The one rule.** An [event handler](../core/concepts/effects-and-coeffects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
 
@@ -44,11 +44,11 @@ Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worke
 
 ## When *not* to roll your own
 
-- **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — the managed effect already gives you retries, abort, a structured failure taxonomy, and stale-result suppression. The example above is an ad-hoc async effect for APIs that *aren't* HTTP; it does not get those managed guarantees for free.
+- **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — managed HTTP already gives you retries, abort, structured failures, and stale-result suppression. The example above is for APIs that *aren't* HTTP, so it only has the guarantees you put into it.
 - **For a long-lived connection** — a WebSocket, SSE, WebRTC peer with retry/backoff/heartbeat — the *connection* is a lifecycle, so model it with a [machine](../machines/concepts.md), not a one-shot fx. (Individual messages over an already-open socket *do* fit the one-shot shape above.)
 
 ## Going deeper
 
-- **[Pattern — Async Effect](../../spec/Pattern-AsyncEffect.md)** — the canonical six-step shape and a catalogue of instances: workers, IndexedDB, WebAuthn, geolocation, native bridges, `requestAnimationFrame`, streaming LLM calls.
+- Use the same checklist for any one-shot async `fx`: register the effect, capture the frame, start the host work, dispatch a named success or failure event, keep state writes in handlers, and pass data rather than closures.
 - **[No await: continuations are data](continuations-are-data.md)** — why the reply is a named event in the first place.
 - The [login example](../../examples/core/login) registers a hand-rolled async `fx` and drives the reply into a state machine — the pattern under real load.
