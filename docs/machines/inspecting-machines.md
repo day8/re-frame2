@@ -31,11 +31,11 @@ The canonical window onto a machine is the framework-registered subscription `[:
      [spinner])])
 ```
 
-The three keys are the whole user-facing shape:
+`:state` and `:data` are always present; `:tags` shows up only when an active state declares tags, and some machines add their own runtime-owned keys (a machine with history states carries `:rf/history`, for example):
 
 - **`:state`** — the discrete FSM keyword (`:idle`, `:submitting`, …). For a hierarchical machine it's a path vector (`[:authenticated :cart :browsing]`); for a parallel machine, a region map.
 - **`:data`** — the machine's extended state: a plain map, distinct from app-db; it's named `:data` to avoid the already-overloaded word "context". Read the fields a view needs by destructuring (above) or through a named projection sub (below).
-- **`:tags`** — the runtime-projected union of every active state's `:tags`. Ask membership questions against it rather than hard-coding state names (see below).
+- **`:tags`** *(optional)* — the runtime-projected union of every active state's `:tags`, omitted entirely when no active state declares a tag. Ask membership questions against it rather than hard-coding state names (see below).
 
 > **The snapshot is `nil` until the first event.** A machine bootstraps itself on the first event addressed to it, so `[:rf/machine id]` reads `nil` before then. A view that renders pre-bootstrap should fall back to the definition's `:initial`:
 >

@@ -243,7 +243,7 @@ The [long-running-work example](../../examples/patterns/long_running_work/) show
 
 ```clojure
 {:authenticating
- {:spawn {:machine-id :rf.http/managed
+ {:spawn {:machine-id :login-request                  ;; a child MACHINE that issues the request and retries internally
           :data       {:request {:method :post :url "/api/login" :body credentials}}}
   :after {30000 :auth-failed}      ;; wall-clock guard — spans the child's retries
   :on    {:succeeded      :authenticated
