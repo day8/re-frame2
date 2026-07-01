@@ -174,7 +174,7 @@ Here is the full `:request` envelope:
 | `:request-content-type` | none | `:json` / `:form` / `:text` / an explicit MIME. Sugar that both sets `Content-Type` and serialises `:body`. |
 | `:credentials` | `:same-origin` | `:omit` / `:same-origin` / `:include`. CLJS-only; the JVM transport ignores it. |
 | `:mode` | host default | Fetch passthrough. CLJS-only; ignored on the JVM. |
-| `:redirect` | host default | Redirect policy. Honoured by both browser Fetch and the JVM transport. |
+| `:redirect` | `:follow` | `:follow` / `:error` / `:manual`. Honoured by browser Fetch; on the JVM, `:error` and `:manual` both mean "do not auto-follow". |
 | `:cache` | host default | Fetch cache mode. CLJS-only; ignored on the JVM. |
 | `:referrer` | host default | Fetch referrer value. CLJS-only; ignored on the JVM. |
 | `:integrity` | none | Fetch subresource-integrity value. CLJS-only; ignored on the JVM. |
@@ -194,7 +194,7 @@ When something goes wrong, your `:on-failure` handler receives `{:kind :failure 
 |---|---|---|
 | `:rf.http/transport` | Network, DNS, connection error, or request-preparation error before the HTTP transaction completed. | `:message`, `:cause`; request-preparation failures also carry `:stage :request-prep`. |
 | `:rf.http/cors` | CORS rejection. Browser-only. | `:message`, `:url`. |
-| `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms`; JVM failures may also carry `:message`. |
+| `:rf.http/timeout` | The per-attempt timeout fired. The default is 30 seconds; `:timeout-ms nil` or `:timeout-ms 0` opts out. | `:elapsed-ms`, `:limit-ms`; JVM failures may also carry `:message`. |
 | `:rf.http/http-4xx` | A 4xx response, plus rare non-2xx responses that are not 5xx. Decode is skipped. | `:status`, `:status-text`, `:body`, `:headers`. |
 | `:rf.http/http-5xx` | A 5xx response. Decode is skipped. | `:status`, `:status-text`, `:body`, `:headers`. |
 | `:rf.http/decode-failure` | A 2xx response whose body the decode pipeline rejected. | `:body-text`, `:cause`, `:schema-validation-failure?`; keyword-cap failures also carry `:reason :too-many-keys` and `:limit`. |
@@ -217,6 +217,8 @@ Every live request reply has one of these public shapes:
 | Failure | `{:kind :failure :failure failure-map}` | `failure-map` is one of the category maps listed above. Branch on `(-> reply :failure :kind)`. |
 
 Explicit reply handlers receive the reply map as the last event argument. In the one-handler form, the same reply map is merged into the originating event message under `:rf/reply`. A stale reply from a superseded request is not delivered to your app at all; it is trace-only.
+
+`:on-success` and `:on-failure` must be event vectors when you supply them. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected when that side's reply is dispatched, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
 
 ### Handling a failure
 
@@ -373,7 +375,7 @@ Every key you can hand `:rf.http/managed`, in one place. Only `:request` (with a
 | `:retry` | A [transport-retry policy](#reads-retry-writes-dont) — `:on` set, `:max-attempts`, `:backoff`. | none |
 | `:request-id` | A stable id; a new request with the same id [supersedes the old](#the-search-box-race-cured). | none |
 | `:abort-signal` | An external `AbortController` `.signal` to cancel through. Browser-only. | none |
-| `:timeout-ms` | Per-attempt timeout; `nil` opts out. | `30000` |
+| `:timeout-ms` | Per-attempt timeout; `nil` or `0` opts out. | `30000` |
 | `:sensitive?` | Redact body, params, and all URL values in traces — see [keeping secrets](http-going-further.md#keeping-secrets-out-of-the-trace). | `false` |
 | `:rf.http/max-decoded-keys` | Caps how many unique JSON object keys the decoder may intern. Raise it only for unusually large trusted payloads. | `10000` |
 
