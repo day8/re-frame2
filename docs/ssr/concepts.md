@@ -99,7 +99,7 @@ Handlers read the request the way they read any outside fact — through a decla
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [db rf.server/request]} _]
-    {:db (assoc db :session-user (-> request :session :user))
+    {:db db
      :fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]
           [:rf.http/managed {:request    {:method :get :url "/api/articles"}
                              :decode     :json
@@ -112,7 +112,7 @@ Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arriv
 
     `:rf/server-init` is a pattern-reserved name the framework documents and you supply the body for. It is not licence to register your own events under the reserved `:rf/*` root.
 
-One rule governs this coeffect, and it's worth stating plainly before the fine print: **use the request for decisions, but when a request-derived fact needs to live in app-db, put that fact on an event's payload rather than copying it from the ambient read.** The handler above breaks this rule on its first line — deliberately, so the collapsible below has something concrete to fix.
+One rule governs this coeffect, and it's worth stating plainly before the fine print: **use the request for decisions, but when a request-derived fact needs to live in app-db, put that fact on an event's payload rather than copying it from the ambient read.** The handler above obeys it — the URI it reads lands on the `[:rf.route/handle-url-change …]` event, so the value is recorded with the dispatch. The tempting shortcut it avoids is a direct copy into durable state, `(assoc db :session-user (-> request :session :user))`. Why that's a replay hole, and the two legal shapes for durable request-derived facts:
 
 ??? note "Going deeper — why a durable write must be recorded, and how to fix it"
 
@@ -175,8 +175,8 @@ The client's job is to land in the state the server finished in, without redoing
 [`ssr/hydrate!`](glossary.md#hydration) (from `re-frame.ssr`) consumes it in three steps, in a mandated order: **read** the embedded payload, **hydrate** — dispatch `[:rf/hydrate payload]` *before* the first render — and **verify** the render-tree hash against the server's:
 
 ```clojure
-;; Adapted from examples/capabilities/ssr/ssr/core.cljc
-;; requires [re-frame.ssr :as ssr] and the Reagent adapter
+;; Adapted from examples/capabilities/ssr/ssr/core.cljc — requires, alongside rf and ssr:
+;;   [reagent.dom.client :as rdc]  [re-frame.adapter.reagent :as reagent-adapter]
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
@@ -187,7 +187,7 @@ The client's job is to land in the state the server finished in, without redoing
                                :render-tree-fn (fn [] ((rf/view :app/root)))})]
     (when-not payload
       ;; No payload script — a client-only first load. Seed normally.
-      (rf/dispatch-sync [:app/initialise] {:frame :app})))
+      (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})))
   (rdc/render react-root
     [rf/frame-provider {:frame :app}
      [(rf/view :app/root)]]))
@@ -212,7 +212,11 @@ Two rules to hold onto:
 
 Server state declared as a [resource](../resources/glossary.md#resource) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch — see the [resources SSR example](../../examples/capabilities/ssr/resources_ssr).
 
-A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have. (Non-blocking route resources don't hold up the render; whatever's settled at render time serialises, and anything still in flight refetches on the client.) That wait has a deadline: a blocking fetch that hangs past the render budget settles as a structured first-load failure — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view sees a clean `:error` rather than a hung page — and records `:rf.error/resource-ssr-blocking-timeout`. A server has one render moment; a blocking resource that can't resolve in time fails closed instead of stalling the request.
+A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have. Non-blocking route resources don't hold up the render: whatever's settled at render time serialises, and anything still in flight refetches on the client.
+
+??? note "Going deeper — the render budget"
+
+    The wait has a deadline, because a server has one render moment. A blocking fetch that hangs past the render budget settles as a structured first-load failure — the resource enters `:error` with `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view renders a clean error state rather than a hung page — and the runtime records `:rf.error/resource-ssr-blocking-timeout`. A blocking resource that can't resolve in time fails closed instead of stalling the request.
 
 ### Deploy-drift checks come along for free
 
@@ -227,17 +231,21 @@ If the runtime can't find the client-side value to compare against (no version h
 
 Sometimes the client's first render *doesn't* match the server's HTML. This is the classic SSR bug — a [hydration mismatch](glossary.md#hydration-mismatch) — and in most stacks it produces a content flash and a console warning nobody reads. The causes are almost always mundane: a date rendered in two timezones, a bit of state the server set but the client never read, an unordered map that happens to serialise in two different orders.
 
-re-frame2 treats it as a located, debuggable failure. The server embeds a structural hash of its render-tree (the `:rf/render-hash` you saw in the payload); the client computes the same hash on its own first render and compares. On disagreement, a structured [trace event](../core/glossary.md#trace-event) fires — telling you not just *that* it diverged but *where*:
+re-frame2 treats it as a structured, first-class failure. The server embeds a structural hash of its render-tree (the `:rf/render-hash` you saw in the payload); the client computes the same hash on its own first render and compares. On disagreement, a structured [trace event](../core/glossary.md#trace-event) fires:
 
 ```clojure
 {:operation :rf.ssr/hydration-mismatch
  :op-type   :error
- :tags      {:server-hash     "a3f29c01"
-             :client-hash     "0b77e4d2"
-             :first-diff-path [:articles 0 :date]}}   ;; where, not just whether
+ :tags      {:server-hash "a3f29c01"          ;; the tree the server shipped…
+             :client-hash "0b77e4d2"          ;; …vs the client's first render
+             :frame       :app
+             :failing-id  :rf/hydrate
+             :recovery    :warned-and-replaced}}
 ```
 
 The default recovery is **warn and replace**: log it, render the client's view, so the user never sees a broken page. Per-frame strict mode (`:ssr {:on-mismatch :hard-error}`) escalates it to a thrown structured exception for dev and CI. (The [tutorial's Step 5](tutorial.md) trips this on purpose, which is the fastest way to internalise it.)
+
+Be clear about what the hash buys you: it proves *that* the renders diverged — on which frame, and what the runtime did about it — not *which node*. Locating the node is a tree-diff, and that's deliberately left to tooling: the trace carries an optional `:first-diff-path` tag (a path into the render tree, e.g. `[:body 0 :children 0]`) that a host running its own diff supplies through [`verify-hydration!`](../api/re-frame.ssr.md)'s opts; the bundled runtime emits the hashes and leaves the slot empty. What the detector itself guarantees is cheap, always-on, and loud: a mismatch is never a warning you scroll past.
 
 !!! note "The mismatch trace is dev-only — instrument deliberately for production"
 
@@ -363,7 +371,14 @@ The framework ships a default projector that maps the obvious cases — a routin
       {:status 500 :code :internal-error :message "Something went wrong" :retryable? false})))
 ```
 
-The projector you register is named in the frame's `:ssr {:public-error-id :myapp/public-error}` metadata (so a server-rendering frame and a dev-tooling frame in one process can run different ones). The error page is a registered view that receives the *public* shape — it physically cannot leak the internal trace, because the trace never reaches it. In dev (`:ssr {:dev-error-detail? true}`) the public shape carries an extra `:details` with the full trace for the developer; in prod that key is simply absent. The rich trace still flows to your monitoring sinks unchanged — projection only governs the HTTP boundary, never the always-on [error records](../core/glossary.md#error-record) your listeners depend on. The full error story lives in the [error dossier](../core/concepts/errors.md).
+The wiring facts, one at a time:
+
+- **The projector is named per frame** — `:ssr {:public-error-id :myapp/public-error}` on the frame's metadata — so a server-rendering frame and a dev-tooling frame in one process can run different ones.
+- **The error page cannot leak.** It's a registered view that receives the *public* shape only; the internal trace never reaches it, so there's nothing to leak.
+- **Dev builds can carry detail.** With `:ssr {:dev-error-detail? true}` the public shape gains an extra `:details` key holding the full trace; in prod that key is simply absent.
+- **Monitoring keeps the rich trace.** Projection governs the HTTP boundary only — the full trace still flows unchanged to your sinks and the always-on [error records](../core/glossary.md#error-record) your listeners depend on.
+
+The full error story lives in the [error dossier](../core/concepts/errors.md).
 
 !!! note "Why this matters — two error opts, two jobs"
 
@@ -410,8 +425,8 @@ The wiring mirrors what you've already seen, with streaming counterparts: `strea
 
 Two compositions of these primitives are common enough to deserve names. They're conventions over what you already know, not new machinery:
 
-- **The SSR loader** — N parallel data fetches before render, the `Promise.all` of a Next.js loader. A [state machine](../machines/glossary.md#machine) spawned from the frame's `:initial-events` fans out HTTP-fetching children with `:spawn-all`, joins on all-complete, writes the slices. Wall-clock cost drops from the sum of the fetches to the max. The same machine drives client-side navigation fetch; only the spawn site moves. (This is what a route's [loader](../routing/glossary.md#loader) compiles down to when it runs server-side.)
-- **The form action** — form POSTs that work before JS loads. The form renders with a real `method="POST"` and `action`. The server routes POST to the same domain event the client's `:on-submit` dispatches after hydration. Validation runs server-side via the event's schema, and success answers with `[:rf.server/redirect {:status 303 ...}]`. One handler tree, both entry points. Where the pattern reads the request, the spelling is the one you saw above: `:rf.cofx/requires [:rf.server/request]` on the registration, the value flat in the coeffects map.
+- **The SSR loader** — N parallel data fetches before render. A [state machine](../machines/glossary.md#machine) spawned from the frame's `:initial-events` fans out HTTP-fetching children with `:spawn-all`, joins when all complete, and writes the slices — so the wall-clock cost drops from the *sum* of the fetches to the *max*. The same machine drives the fetch on client-side navigation; only the spawn site moves. It's also what a route's [loader](../routing/glossary.md#loader) compiles down to when it runs server-side. (For Next.js readers: this is the `Promise.all` loader.)
+- **The form action** — form POSTs that work before JS loads. The form renders with a real `method="POST"` and `action`, and the server routes that POST to the *same* domain event the client's `:on-submit` dispatches after hydration — one handler tree, both entry points. Validation runs server-side via the event's schema; success answers with `[:rf.server/redirect {:status 303 ...}]`. Where the pattern reads the request, the spelling is the one you saw above: `:rf.cofx/requires [:rf.server/request]` on the registration, the value flat in the coeffects map.
 
 ## What you give up
 
