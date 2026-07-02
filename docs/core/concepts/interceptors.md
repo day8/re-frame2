@@ -222,10 +222,6 @@ Matching is by the *full* reference, so a parameterized entry is named in full �
 
 When both a frame and a dispatch supply overrides, they **merge, and on any key they both touch the per-call one wins** — the frame sets the default, the dispatch gets the last word. A frame might swap your auth guard for a permissive stub by default, and one test dispatch can still re-swap it for that single call. A malformed override — a key or replacement that isn't a valid reference — is rejected loudly with `:rf.error/interceptor-override-invalid`.
 
-??? info "From re-frame v1"
-
-    Per-dispatch *additive* `:interceptors` is gone. Authored behaviour has exactly two homes — event metadata and frame metadata — and per-call variation is expressed by *overriding a named reference*, not by appending an anonymous one. That keeps the per-call surface serializable too.
-
 ## Contribute, don't perform
 
 Here's the rule from the top of the page, made precise. The chain is part of the *step function* — the pure fold that replay, time-travel, and deterministic tests re-run against recorded inputs. So this is where discipline pays off:

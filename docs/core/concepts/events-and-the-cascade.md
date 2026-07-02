@@ -172,10 +172,6 @@ Two notes before moving on:
 - **The first argument is the coeffects map** — a [coeffect](../glossary.md#coeffect) being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [the coeffects page's](effects-and-coeffects.md) subject.
 - **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: *describe, don't do.*
 
-??? info "From re-frame v1"
-
-    The shape is the same — effect map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered [interceptors](../glossary.md#interceptor) referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
-
 !!! note "An optional middle slot"
 
     `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [:my-app/audit]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered [interceptors](../glossary.md#interceptor) (the cross-cutting "wrap every handler" work) referenced by id. The chain *must* live under that key — a bare interceptor or a loose positional vector in the slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Authoring them is [Interceptors](interceptors.md)' subject.

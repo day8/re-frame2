@@ -33,10 +33,6 @@ When you then create a frame *without* naming an image, that frame just resolves
 
 The common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
 
-??? info "From re-frame v1"
-
-    In v1 there was exactly one global registry, and every `reg-*` wrote straight into it — last write wins, no provenance. v2 keeps the registrar process-global but adds a selection step: `reg-*` writes the registrar (now remembering the authoring namespace as provenance), and a *frame* resolves a selected slice of that registrar at creation. For everyday code you feel no difference — the default image gives you v1's "see everything" behaviour. The new power only shows up when you want more than one slice.
-
 ??? info "Coming from JavaScript modules?"
 
     Think of the registrar as your full set of module exports, and the default image as `import * from` everything. You don't normally think about it — until two modules export the same name and you need to be explicit about which one a particular consumer gets.

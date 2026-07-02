@@ -114,10 +114,6 @@ So every event reaches the machine through the same `dispatch` and the same [eve
 
     `:issue-request` names its reply events machine-wrapped — `:on-success [:auth.login/flow [:auth.login/success]]`, written one element short on purpose. When the request returns, [managed HTTP](../async/http.md) *appends* its reply to that inner event, so it lands back *inside* the machine as `[:auth.login/success {:kind :success :value v}]` — exactly the event `:store-session` destructures. A machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
 
-??? info "From re-frame v1"
-
-    Machines don't exist in v1 — the keyword-in-app-db + `cond` pattern *is* the v1 shape this replaces. There's nothing to unlearn; you're promoting an informal pattern to first-class data. See [From re-frame v1](../core/25-from-re-frame-v1.md).
-
 ## See one run
 
 Here's a turnstile with two states and a counter riding in `:data`, live in your browser. Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to re-evaluate after edits. This is the real `rf/reg-machine` — the same call you'd write in your own app.

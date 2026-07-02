@@ -62,10 +62,6 @@ That's the minimum. A real list usually tunes a few more optional keys:
 
     There's no implicit global default — a `reg-resource` with no `:scope` is a loud registration error (`:rf.error/resource-missing-scope-policy`), not a silent shared read. "I forgot this read is user-scoped" is made unrepresentable at the door. The articles list is the same for every viewer, so it states `:scope :rf.scope/global` outright. A *per-user* list — "my drafts", a tenant-scoped table — would carry a scope resolver instead, so page 2 of tenant A and page 2 of tenant B never collide in the cache. Pagination doesn't move that boundary.
 
-??? info "From re-frame v1"
-
-    The page-keyed cache map and the staleness clocks are framework state, not handler code. Your app-db holds none of it.
-
 ### 2. Let the URL carry the page
 
 Quick question: where should the *current page number* live? It's tempting to drop it into app-db — but the page number is really telling you *where the user is*, and "where the user is" is the URL's job. Put it in the URL and you get shareable links, working Back/Forward, and a reload that lands on the same page, all for free. (This is the [routing](../../routing/concepts.md) ethos in one move: the URL is an input, not a thing you sync.)
@@ -198,10 +194,6 @@ If you'd rather subscribe to one fact than the whole map, the family splits into
 !!! warning "Gotcha — two error channels, not one"
 
     This trips people the first time. `:error` is **first-load only**. Click back to a page you visited a while ago and its entry has gone stale: the framework revalidates in the background, the page stays `:loaded` with its old rows on screen, and the status moves to `:fetching` (not `:loading`). If *that* refresh fails, the failure lands on `:refresh-error` and the data **stays visible** — the list does *not* collapse to an error screen. So your full error branch (above) gates on `(:error state)` *and* `(not (:has-data? state))`, while a "couldn't refresh — showing cached" banner gates on `(:refresh-error state)`. Two channels, two affordances; conflate them and you either hide refresh failures or blank a perfectly good list.
-
-??? info "From re-frame v1"
-
-    The page-keyed cache map, the `:loading?` flags, the "don't blank the list while fetching" dance — all the framework's job. The whole handler-and-flags apparatus is four declarations and a `cond`.
 
 ??? note "Going deeper"
 
@@ -384,10 +376,6 @@ This is the load-bearing payoff. Itemised, here's what just disappeared from you
 - **The in-flight UI.** `:fetching-next?` is true while a load-more page is fetching; a second load-more while one is in flight dedupes (no double-fetch). You keep no `:loading-more?` flag.
 - **The terminal.** `:next-page-param` returning `nil` is the single end-of-feed signal; `:has-next-page?` reads it. A load-more past the end is a no-op — no request fires.
 - **The error.** A load-more failure keeps the feed and surfaces `:page-error` ("couldn't load more — retry"), a separate channel from a first-load failure.
-
-??? info "From re-frame v1"
-
-    Before infinite resources, you rolled all of the above by hand, and the parts list was long: a list slice in app-db, a `:loading-more?` flag, a cursor slice, an append handler on the success event, an "end of feed" flag, dedupe of a double-clicked button, reset-on-filter-change. The infinite resource owns all of it — and, because it's a real resource, it also rides scope clearing, tag invalidation, SSR, and time-travel restore, which a hand-rolled slice never gets for free.
 
 ### Refetch and reset
 

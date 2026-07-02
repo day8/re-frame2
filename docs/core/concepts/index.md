@@ -133,10 +133,6 @@ All of this — the queue, app-db, the subscription cache — lives inside a [**
 
 But the frame is why a page can mount the same app several times without the copies sharing state, why every test gets a pristine world, and why a server can run one frame per request. A frame isolates *state*, not your code: the [**registrar**](../glossary.md#registrar) of handlers is process-global, so the same handlers and subscriptions run in every frame, each against that frame's own app-db. A frame always starts with `app-db = {}` and seeds itself by dispatching its `:initial-events` — the first dominoes that fall the moment it exists. So "load the app" is just the loop running on itself. [Frames: isolated worlds](frames.md) has the shape.
 
-??? info "From re-frame v1"
-
-    v1 had one implicit global `app-db` atom and one event queue. v2 names that world a *frame* and lets you have more than one. A frame seeds itself with `:initial-events` (the old `:on-create` / `:initial-db` boot keys are retired) — and because seeding is itself an event, there's no back door for "the first state": it's the same cascade, all the way down.
-
 ## A few deeper truths, once the loop clicks
 
 The loop above is the productive core — you can build real apps with exactly what's on this page. The callouts below are for the curious reader who wants to know *why* the design is shaped this way. Skip them freely; nothing downstream depends on them.

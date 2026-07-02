@@ -387,10 +387,6 @@ The read happens at boot. Reading the world is a [coeffect](../../core/glossary.
 
 Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect, itself a *provided* fact stamped at enqueue) rides every dispatch, but a handler must declare it to read it. Declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event`, so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`, stamping the saved token onto that dispatch (the boot wiring below shows exactly how).
 
-??? info "From re-frame v1"
-
-    The `inject-cofx` interceptor is gone — declare `:rf.cofx/requires` on the registration and the runtime assembles the value before the handler runs. No interceptor to thread, no order to get right: the dependency is data on the registration, and the runtime reads it.
-
 ??? note "Going deeper — why the token gets these two flags"
 
     [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Effects and coeffects](../../core/concepts/effects-and-coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. And because the boot boundary stamps it rather than a supplier generating it, it's `:provided? true` — a registration with no generator function, there only to give the boundary fact docs, schema, and an owner (so a typo'd requirement is distinguishable from a missing value). An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.

@@ -86,10 +86,6 @@ Now observe the fix. Dispatch the same event with the Views tab open, and the su
 
     The split-extractor trick is *function memoisation* applied compositionally. Layer 1 is a pure projection `app-db → slice`; the gate is `=` on its output, so the layer-1 sub is a memoised function whose cache invalidates exactly when its observable input changes. Stacking a layer-2 sub on top composes two memoised projections: `app-db → slice → derived`, and the composite recomputes the second stage only when the first stage's `=` check opens. The whole graph is a DAG of memoised pure functions, each gated independently — which is why "move the work behind the gate" is the *only* lever you ever need: you're choosing which arrow in the composition carries the cost, and the framework caches every arrow for free.
 
-??? info "From re-frame v1"
-
-    This is the same layered-subscription model you already know — `reg-sub` with `:<-` inputs, the `=`-based propagation cut. Nothing in the gate moved. What's new is the diagnostic surface: Xray's Views tab shows the cached-vs-recomputed verdict per sub per event, so "is this extractor doing work?" is now a thing you *read* rather than reason about. The fix is identical; the observability is better.
-
 !!! note "One derivation, read in many places?"
 
     A subscription is a *view-facing* reactive cache — a handler can take a one-shot `subscribe-once` read of its current value, but that read recomputes per call for the handler and shares nothing with the render side. So if the same expensive value is read by *both* views and handlers (or schemas, or other derivations), a layer-2 sub ends up computing it twice: once for the reactive view cache, once per handler that asks. Promote it to a [flow](../concepts/flows.md) and it's computed exactly once per app-db write, [materialised into app-db](../glossary.md#flow), and every reader — view and handler alike — shares that one result as plain state. A flow is the equality gate applied to *state* instead of to a view-facing cache.
@@ -197,10 +193,6 @@ The trick is to split those two concerns. Build, once per row, a single long-liv
 ??? info "For JavaScript developers"
 
     `useCallback(fn, [slug])` exists to hand a child a stable function identity so it can `memo` past a no-op prop change. The factory-factory does the same job, but it sidesteps the stale-closure trap that bites `useCallback` when the dependency array is wrong: the callback object is stable *and* always sees current args, because the args live in an atom the factory refreshes, not in a captured closure. Same payoff (skip the expensive child's re-render), no dependency array to get wrong.
-
-??? info "From re-frame v1"
-
-    This is v1's `callback-factory-factory`, unchanged — the prop-equality contract underneath didn't move. If you wrote this pattern in a v1 app, copy it across verbatim.
 
 !!! note "Reach for this rung last"
 

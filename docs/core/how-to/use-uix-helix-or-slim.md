@@ -209,10 +209,6 @@ The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. T
 
     If you *do* take explicit ownership and `destroy-frame!` a frame, a handle you captured against it (a `capture-frame :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the teardown — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when you destroy the frame, or hold the data in a longer-lived frame if it must outlast the widget.
 
-??? info "From re-frame v1"
-
-    There's no `:db` / `:initial-db` / `:on-create` here — a frame always starts `app-db = {}` and you seed it with `[:rf/set-db {…}]` as the first `:initial-events` step, as the `:checkout` example does. [Frames — Seeding initial state](../concepts/frames.md#seeding-initial-state) is the full init surface.
-
 ## Step 6 — Helix is the same moves, different notation
 
 Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` (this time from `re-frame.adapter.helix`), the same `capture-frame` dispatch, and the same `($ helix-adapter/frame-provider {:frame ...} ...)` mount — here over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/substrates/helix/counter/`](../../../examples/substrates/helix/counter) line-for-line with [`examples/substrates/uix/counter/`](../../../examples/substrates/uix/counter); the diff is notation, nothing more.

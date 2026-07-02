@@ -10,10 +10,6 @@ Here's the thing about forms: they look trivial and turn out to be one of the bu
 
 We'll build the simplest thing that works first — a login form that validates the whole draft on submit — and only then layer on the trimmings (cross-field rules, per-field and async validation, server rejections). The running example lives at `[:auth :login]`; that vector is a *path* into app-db, the same way `["auth"]["login"]` would be in a nested object. A form's slice always lives under its feature's key like this, which keeps the whole feature's state in one inspectable place.
 
-??? info "From re-frame v1"
-
-    v1 shipped no forms library, and neither does v2 — a form was, and still is, hand-rolled from the same primitives as everything else. What's new is that the hand-rolling now follows a *named convention* (this slice shape), the writes are [schema](../glossary.md#schema)-guarded so a malformed draft fails at the handler that wrote it, and handlers return an [effect map](../glossary.md#effect-map) — `(fn [{:keys [db]} _] {:db ...})` instead of v1's `reg-event-db` `(fn [db _] ...)`. If you wrote forms in v1, you already know the moves; this page just gives them a standard skeleton.
-
 ??? info "Coming from React Hook Form or Formik?"
 
     re-frame2 ships no `<Form>`, no `register()`, no `useForm`. A form is a *convention* built from the same events, subs, and schemas as everything else: state lives in [app-db](../glossary.md#app-db) (every keystroke is an inspectable event), the "validation resolver" is the Malli schema that guards the slice, and errors are subs.

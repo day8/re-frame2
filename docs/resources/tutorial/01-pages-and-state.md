@@ -336,10 +336,6 @@ To navigate from code — after a successful form submit, say — it's an event 
 
 One verb, `dispatch`, whether the user clicked a link, pressed Back, or your handler decided to move. Every path funnels into the same state change — which is why, when something goes wrong, there's only ever one place to look.
 
-??? info "From re-frame v1"
-
-    There was no routing in re-frame v1 — you reached for an external library (`reitit`, `secretary`, `bidi`) and hand-glued its match events into your event handlers. Routing now ships as a first-class re-frame2 artefact: the route table is a registry like events and subs, the current route is an ordinary subscription, and navigation is a dispatch. Nothing here is a foreign object you bridge into the loop — it *is* the loop.
-
 ??? note "URLs both ways — the pure helpers"
 
     The route table is bidirectional, and that fact is exposed as two **pure** functions you can call anywhere — in a handler, in a test, on the JVM during server rendering. They live in `re-frame.routing`, not on the `rf/` facade:
@@ -378,10 +374,6 @@ Reading it top to bottom:
 3. `dispatch-sync` runs the seed event *synchronously*, before the first render, so the feed never paints against an empty db. `with-frame` says which frame the dispatch targets. (Plain `dispatch` queues for the next tick — fine everywhere else, but at boot you want the state committed *now*.)
 4. `rf/install-history-listener!` does the initial URL→state sync, so deep links work from the very first paint. It also turns the browser's Back/Forward into the same kind of route-change event a link click produces — Back is not a special case, it's just another event.
 5. `frame-provider {:frame :rf/default}` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it. ([Frame identity is carried, not found](../../core/glossary.md#frame-identity-is-carried-not-found) — the scope hands the frame down through React; the runtime never guesses one.)
-
-??? info "From re-frame v1"
-
-    In re-frame v1 there was no frame: app-db was one global atom, and `re-frame.core/dispatch` always hit it. re-frame2 wraps app-db, the event queue, and the subscription cache into a [**frame**](../../core/glossary.md#frame) — a named, isolated instance — so you can run two independent apps on one page, or mount the same app twice without them sharing state. (Registrations stay process-global, shared across frames; it's the *state* that's isolated.) A single-app boot like this one declares one frame, names it `:rf/default`, and scopes the tree to it; for everyday code that mostly means an explicit `with-frame` at boot and a `frame-provider {:frame :rf/default}` around your root view. The everything-is-global model is gone, and with it the whole class of bugs where two parts of a page quietly clobbered each other's state.
 
 !!! note "An equivalent shape: `:initial-events`"
 
