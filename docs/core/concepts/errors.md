@@ -95,7 +95,7 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 
 !!! note "No app-policy error hook"
 
-    There is no `reg-event-error-handler`. Observation lives on a [listener](../glossary.md#listener) on the error channel (the `:errors` stream covered at the end of this page); there is no app-policy recovery hook — recovery is a framework-owned typed default, not an app concern. Coming from a v1 app that installed an error hook, the [migration corpus](../../migration/from-re-frame-v1/README.md) maps the translation.
+    There is no `reg-event-error-handler`. Observation lives on a [listener](../glossary.md#listener) on the error channel (the `:errors` stream covered at the end of this page); there is no app-policy recovery hook — recovery is a framework-owned typed default, not an app concern. Coming from a v1 app that installed an error hook, the [migration guide](../25-from-re-frame-v1.md) maps the translation.
 
 !!! note "One category, three modes"
 
