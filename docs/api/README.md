@@ -31,4 +31,4 @@ The dependency direction is one-way: adapters and feature artefacts depend on co
 
 Every entry carries a **Kind** (`function` / `macro` / `fx` / `sub` / `event`), a **Signature**, a **Description**, and — where one exists — an **Example** drawn from real usage. A facade re-export (e.g. `reg-machine` on `rf/`) appears briefly in [`re-frame.core`](re-frame.core.md) with the full contract in its feature namespace doc.
 
-The dense, normative single-page contract lives in [the spec API](../../spec/API.md); this reference is the same surface walked through by namespace.
+This reference is the complete public surface, walked through by namespace — every callable an application may reach for is here.
