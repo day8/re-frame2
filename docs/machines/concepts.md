@@ -97,7 +97,7 @@ So every event reaches the machine through the same `dispatch` and the same [eve
 (rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
 
 @(rf/sub-machine :auth.login/flow)
-;; => {:state :submitting :data {:attempts 1 :error nil}}   (nil before the first event)
+;; => {:state :submitting :data {:attempts 0 :error nil}}   (nil before the first event)
 ```
 
 `[:rf/machine <id>]` is an ordinary [query vector](../core/glossary.md#query-vector), so it's traceable like the rest of your [derivation graph](../core/glossary.md#the-derivation-graph), and named projections chain off it — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](../core/concepts/subscriptions.md).

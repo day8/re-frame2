@@ -34,7 +34,7 @@ A machine is a data structure which defines a set of named states, and for each 
     :authed      {}}})                    ;; a resting state — no outgoing transitions
 ```
 
-Except, instead of triggers, we'll call them events. 
+Those triggers — the `:on` keys, `:auth.login/submit` and friends — are ordinary event ids. You'll see how one reaches the machine in a moment.
 
 Register it — one line to create a singleton machine:
 
@@ -50,7 +50,7 @@ And that means, to drive this machine, we dispatch events. The event id is that 
 (rf/dispatch [:auth.login/flow [:auth.login/submit]])
 ```
 
-In a similar way, if a view needs to see what state the machine is in, it reads that snapshot through a subscription (a specialised subscription called sub-machine)
+And when a view needs to know what state the machine is in, it reads the machine's [snapshot](glossary.md#snapshot) — its live `{:state … :data …}` value — through a specialised subscription, `rf/sub-machine`:
 
 ```clojure
 @(rf/sub-machine :auth.login/flow)
