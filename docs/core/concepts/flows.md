@@ -36,7 +36,9 @@ From now on, every event that changes `:counter/value` also recomputes `:counter
 
 The flow also skips recomputing when its inputs didn't actually change value — write the same `:counter/value` back and the flow stays quiet, which keeps the cost honest. (This input-changed test is the flow's **dirty-check**, a name worth remembering — it comes back later.)
 
-> **A flow is a derivation whose answer your handlers can read.** Same pure function as a subscription; the only difference is *where the answer lives*.
+!!! note "A flow is a derivation whose answer your handlers can read"
+
+    Same pure function as a subscription; the only difference is *where the answer lives*.
 
 ### What changed, and what didn't
 
@@ -44,11 +46,17 @@ The flow also skips recomputing when its inputs didn't actually change value —
 - **Handlers can now read it.** Any event handler can ask `(:counter/parity db)` as plain data. With the sub version that answer was stranded in the view-cache — visible to views, invisible to handlers. A handler always sees the output as of the last completed event; if the handler itself changes an input, the recompute happens right after it, inside that same event's single commit.
 - **You never write the output path.** You keep writing `:counter/value` through ordinary handlers. The runtime is the sole author of `[:counter/parity]`.
 
-> **Coming from re-frame v1?** A flow takes `on-changes` further: the same compute-on-input-change semantics, but registered against the runtime instead of wired into specific events' interceptor chains. That re-registration is what makes a flow toggleable at runtime — see [Toggling a derivation at runtime](#toggling-a-derivation-at-runtime). The old `[:rf.runtime/…]` bare-path scheme for runtime state never existed for flows; runtime inputs use `[:rf.db/runtime …]` (below).
+??? info "From re-frame v1"
 
-> **Coming from SQL?** If you've used a *materialised view*, a flow is exactly that — with the staleness problem already solved. In a database you'd `CREATE MATERIALIZED VIEW total AS SELECT sum(...)` and then sweat over *when to refresh it* — a cron job, a trigger, `REFRESH MATERIALIZED VIEW`. A flow's refresh trigger is built in: it re-runs precisely when its declared inputs change, as part of the very same write that changed them. No refresh schedule, no chance of reading a stale row.
+    A flow takes `on-changes` further: the same compute-on-input-change semantics, but registered against the runtime instead of wired into specific events' interceptor chains. That re-registration is what makes a flow toggleable at runtime — see [Toggling a derivation at runtime](#toggling-a-derivation-at-runtime). The old `[:rf.runtime/…]` bare-path scheme for runtime state never existed for flows; runtime inputs use `[:rf.db/runtime …]` (below).
 
-> **Coming from Redux?** The style guide's "never store derived state" rule guards against someone forgetting to update it in one reducer. A flow is the *sanctioned* exception, because the framework owns the updating — that whole staleness failure mode is gone.
+??? info "Coming from SQL?"
+
+    If you've used a *materialised view*, a flow is exactly that — with the staleness problem already solved. In a database you'd `CREATE MATERIALIZED VIEW total AS SELECT sum(...)` and then sweat over *when to refresh it* — a cron job, a trigger, `REFRESH MATERIALIZED VIEW`. A flow's refresh trigger is built in: it re-runs precisely when its declared inputs change, as part of the very same write that changed them. No refresh schedule, no chance of reading a stale row.
+
+??? info "Coming from Redux?"
+
+    The style guide's "never store derived state" rule guards against someone forgetting to update it in one reducer. A flow is the *sanctioned* exception, because the framework owns the updating — that whole staleness failure mode is gone.
 
 ### A flow belongs to a frame
 
@@ -124,7 +132,9 @@ Trace one keystroke through this. The keystroke event writes the draft; the flow
 
 One validation rule, one source of truth, two readers — the handler and the button — both pointed at the same materialised slot. That is the whole reason the value earned its place in app-db.
 
-> **Flows may read each other's outputs.** The runtime orders dependent flows topologically — and rejects cycles and overlapping output paths loudly at registration time (see [When the framework refuses](#when-the-framework-refuses-the-registration-time-errors)).
+!!! note "Flows may read each other's outputs"
+
+    The runtime orders dependent flows topologically — and rejects cycles and overlapping output paths loudly at registration time (see [When the framework refuses](#when-the-framework-refuses-the-registration-time-errors)).
 
 ## When *not* to: the default is still a subscription
 
@@ -137,7 +147,9 @@ Flows are a convenience for a small number of small use-cases. They are not a ne
 
 A typical app has *dozens* of subscriptions and *one to a handful* of flows. Tens of flows is a smell that subscriptions or machines are being misused. Each flow pays an app-db write per recomputation and adds a piece of registered runtime, and that cost is only worth it when the criteria above genuinely apply. When in doubt, use a sub. (This is the [where state lives](../glossary.md#the-four-homes-where-state-lives) decision in miniature: subscription first, flow only when the value must *be* state.)
 
-> **Going deeper.** A subscription and a flow are the *same node* in one [derivation graph](../glossary.md#the-derivation-graph) — the same pure function of the same inputs — differing only in *policy*: a sub stores nothing and evaluates on demand; a flow stores into app-db and evaluates after each event (the algebra names that policy `:after-event`). [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) draws the whole picture.
+??? note "Going deeper"
+
+    A subscription and a flow are the *same node* in one [derivation graph](../glossary.md#the-derivation-graph) — the same pure function of the same inputs — differing only in *policy*: a sub stores nothing and evaluates on demand; a flow stores into app-db and evaluates after each event (the algebra names that policy `:after-event`). [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) draws the whole picture.
 
 ## Deriving from route or machine state
 
@@ -154,7 +166,9 @@ Most flows read app-db with bare paths. But a flow's `:inputs` can also reach in
 
 Two things stay true no matter how many runtime inputs a flow reads. First, **the output is still app-db** — a flow never writes runtime-db, so `:rf.db/runtime`-led paths are an input-only privilege. Second, the dirty-check watches *both* partitions: a pure route transition that changes runtime-db but touches no app-db still re-fires this flow, because the resolved route-id is part of the flow's cached input vector. You get a materialised, time-travelling, handler-readable mirror of route state without writing a single sync handler.
 
-> **Gotcha — there is no `[:rf.db/app …]` form, and no bare runtime path.** Runtime state never lived in app-db under a bare `[:rf.runtime/…]` path, and there is no explicit-app spelling either. The *only* way to read runtime-db is the partition-qualified `[:rf.db/runtime …]` input above. A bare path is *always* app-db. (The binary rule is deliberately dull: one prefix means runtime, everything else means app-db, no third case to remember.)
+!!! warning "Gotcha — there is no `[:rf.db/app …]` form, and no bare runtime path"
+
+    Runtime state never lived in app-db under a bare `[:rf.runtime/…]` path, and there is no explicit-app spelling either. The *only* way to read runtime-db is the partition-qualified `[:rf.db/runtime …]` input above. A bare path is *always* app-db. (The binary rule is deliberately dull: one prefix means runtime, everything else means app-db, no third case to remember.)
 
 ## Validating a flow's output
 
@@ -171,7 +185,9 @@ A flow is a producer, and producers can have bugs. The optional `:schema` key de
 
 This is **observational, not a rollback** — and that distinction matters. A `:schema` violation does *not* throw and does *not* unwind the write. The flow computed a value successfully; it just failed its declared shape. So the value *is* written, the commit proceeds normally, and the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` [error record](../glossary.md#error-record) — carrying the flow id, the `:output-path`, the offending value, and Malli's explanation. It is there to surface a producer bug early, not to repair state.
 
-> **Why not roll back?** Recall that flows may read each other's outputs, so a single event can set off a small chain of recomputes before it commits. By the time a schema violation could be observed, a downstream flow in that same settling pass may already have read the offending value as its own input. Retroactively yanking the write back would leave the half-settled state inconsistent — so the framework reports the bug rather than corrupting the pass. Contrast this gentle, non-fatal check with a `:derive` function that *throws*, which aborts the entire event — see [What happens when a derive throws](#what-happens-when-a-derive-throws).
+!!! note "Why not roll back?"
+
+    Recall that flows may read each other's outputs, so a single event can set off a small chain of recomputes before it commits. By the time a schema violation could be observed, a downstream flow in that same settling pass may already have read the offending value as its own input. Retroactively yanking the write back would leave the half-settled state inconsistent — so the framework reports the bug rather than corrupting the pass. Contrast this gentle, non-fatal check with a `:derive` function that *throws*, which aborts the entire event — see [What happens when a derive throws](#what-happens-when-a-derive-throws).
 
 Like the rest of the validation surface, this is dev-only: it sits behind the framework's debug gate and is [elided](../glossary.md#elide) from production builds. It also leans on the [schemas](../how-to/validate-with-schemas.md) artefact — if your app doesn't include schemas (or registers no validator), the check soft-passes and costs nothing.
 
@@ -191,9 +207,13 @@ A flow's output rides the [trace stream](../glossary.md#trace-stream) to Xray an
 
 Each of `:sensitive` and `:large` is a **vector of subpaths** *into the output shape* — each subpath itself a vector of keys. `[[]]` (a single empty subpath) classifies the whole output. `:large? true` is the whole-output shorthand for `:large`. These mark *which slices* of the output get redacted (sensitive) or elided (large) when the flow's trace event and the `:output-path` write cross a trust boundary.
 
-> **Gotcha — `:sensitive` is a list of paths, not a boolean.** At the registration layer `:sensitive` already means "a collection of sensitive paths", so writing `:sensitive true` (the boolean spelling) is a *mistake*. A malformed declaration — a non-vector axis, a non-path entry, or the boolean spelling — is rejected fail-closed at registration with `:rf.error/flow-bad-marks`. It fails loud rather than silently shipping the secret, which is exactly what you want from a safety feature. (Keep the two layers straight: the *handler*-level marker is the boolean `:sensitive?`; a *flow's output* classification is the plural `:sensitive` path-list.)
+!!! warning "Gotcha — `:sensitive` is a list of paths, not a boolean"
 
-> **Gotcha — classification does not flow from input to output.** A flow that *reads* a sensitive app-db slice does **not** auto-classify its output. A derived secret is just a new path; you classify it directly with the flow's own `:sensitive` / `:large`. There is no taint propagation to rely on (or fight). Separately — and don't conflate these — when a flow recomputes inside the settling pass of a handler that itself carries `:sensitive? true`, the *whole* flow trace event inherits that coarse marker from the surrounding handler. The two mechanisms coexist: one classifies output slices (fine-grained, no propagation), the other stamps the trace event from the triggering handler (coarse, whole-event).
+    At the registration layer `:sensitive` already means "a collection of sensitive paths", so writing `:sensitive true` (the boolean spelling) is a *mistake*. A malformed declaration — a non-vector axis, a non-path entry, or the boolean spelling — is rejected fail-closed at registration with `:rf.error/flow-bad-marks`. It fails loud rather than silently shipping the secret, which is exactly what you want from a safety feature. (Keep the two layers straight: the *handler*-level marker is the boolean `:sensitive?`; a *flow's output* classification is the plural `:sensitive` path-list.)
+
+!!! warning "Gotcha — classification does not flow from input to output"
+
+    A flow that *reads* a sensitive app-db slice does **not** auto-classify its output. A derived secret is just a new path; you classify it directly with the flow's own `:sensitive` / `:large`. There is no taint propagation to rely on (or fight). Separately — and don't conflate these — when a flow recomputes inside the settling pass of a handler that itself carries `:sensitive? true`, the *whole* flow trace event inherits that coarse marker from the surrounding handler. The two mechanisms coexist: one classifies output slices (fine-grained, no propagation), the other stamps the trace event from the triggering handler (coarse, whole-event).
 
 ## What happens when a derive throws
 
@@ -208,7 +228,9 @@ This is the single most important safety property of flows, so it's worth statin
 
 The same atomic rule covers a throw in a [coeffect](../glossary.md#coeffect) supplier, the handler body, or an [interceptor](../glossary.md#interceptor)'s `:after` step: an event either commits in full or not at all. A flow's `:derive` throwing is just one more pre-install throw, behaving identically to all of them.
 
-> **Going deeper — the asymmetry to remember.** This all-or-nothing guarantee covers everything *up to and including* the app-db write. It does **not** cover `:fx`. Once app-db has committed, `:fx` runs best-effort — an HTTP POST that already fired, a navigation that already happened, a `:dispatch` already queued are *not* rolled back if a later fx throws. Most [effects](../glossary.md#effect) are irreversible by construction, which is exactly why they live in `:fx` and not in the handler. When you need rollback semantics across an effect (the optimistic-update pattern), you compose it at the application layer with an `:on-failure` compensating event.
+??? note "Going deeper — the asymmetry to remember"
+
+    This all-or-nothing guarantee covers everything *up to and including* the app-db write. It does **not** cover `:fx`. Once app-db has committed, `:fx` runs best-effort — an HTTP POST that already fired, a navigation that already happened, a `:dispatch` already queued are *not* rolled back if a later fx throws. Most [effects](../glossary.md#effect) are irreversible by construction, which is exactly why they live in `:fx` and not in the handler. When you need rollback semantics across an effect (the optimistic-update pattern), you compose it at the application layer with an `:on-failure` compensating event.
 
 ## Toggling a derivation at runtime
 
@@ -247,7 +269,9 @@ The fx variant is the common one because most toggling happens *inside* event ha
 (flows/clear-flow :editor/can-submit? {:frame :scratch})  ;; clear lives on re-frame.flows
 ```
 
-> **Gotcha — `clear-flow` is not on the `rf/` facade.** `reg-flow` stays on `re-frame.core` because registration must stay central (it captures the call-site source coordinates). The lifecycle helper `clear-flow` lives on its owning namespace, `re-frame.flows` — reach it as `flows/clear-flow`, not `rf/clear-flow`. (Most code never needs it directly anyway: prefer the `:rf.fx/clear-flow` effect from inside a handler.)
+!!! warning "Gotcha — `clear-flow` is not on the `rf/` facade"
+
+    `reg-flow` stays on `re-frame.core` because registration must stay central (it captures the call-site source coordinates). The lifecycle helper `clear-flow` lives on its owning namespace, `re-frame.flows` — reach it as `flows/clear-flow`, not `rf/clear-flow`. (Most code never needs it directly anyway: prefer the `:rf.fx/clear-flow` effect from inside a handler.)
 
 Outside any frame scope and with no `{:frame …}` opt, `reg-flow` refuses with `:rf.error/no-frame-context` — it never guesses which frame you meant.
 
@@ -307,6 +331,8 @@ Flows [fail loud](../glossary.md#fail-loud-not-silent) and early. Almost everyth
 
 The **shape** errors are the ones you meet while you're still typing the map — each names the offending key in its `ex-data` so you can fix it without a stack-trace dig. They're checked in order, most-fundamental-first: `:rf.error/flow-missing-id` (no `:id`), `:rf.error/flow-bad-id` (`:id` present but not a keyword), `:rf.error/flow-bad-inputs` (`:inputs` isn't a vector of non-empty paths), `:rf.error/flow-bad-output` (`:derive` isn't a function — the name predates the key), and `:rf.error/flow-bad-path` (`:output-path` isn't a non-empty vector of path segments). You'll mostly hit these once, the first time you write a flow; they're listed here so a thrown `:rf.error/flow-bad-*` keyword is self-explaining when it lands.
 
-> **Gotcha — forgot the artefact? `:rf.error/flows-artefact-missing`.** Flows ship in their own optional artefact, `day8/re-frame2-flows`, and the whole flow API (`reg-flow`, `clear-flow`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) is published through a late-bind seam rather than baked into the core. If that artefact isn't on the classpath — or you forgot the one-time `(:require [re-frame.flows])` that loads its registration hooks — the *first* flow call throws `:rf.error/flows-artefact-missing` (a thrown ex-info naming the calling fn, not a trace) rather than silently no-opping. Add `day8/re-frame2-flows` to your deps and require it once, somewhere in your app. (Same require-to-register convention the schemas / machines / routing artefacts use.)
+!!! warning "Gotcha — forgot the artefact? `:rf.error/flows-artefact-missing`"
+
+    Flows ship in their own optional artefact, `day8/re-frame2-flows`, and the whole flow API (`reg-flow`, `clear-flow`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) is published through a late-bind seam rather than baked into the core. If that artefact isn't on the classpath — or you forgot the one-time `(:require [re-frame.flows])` that loads its registration hooks — the *first* flow call throws `:rf.error/flows-artefact-missing` (a thrown ex-info naming the calling fn, not a trace) rather than silently no-opping. Add `day8/re-frame2-flows` to your deps and require it once, somewhere in your app. (Same require-to-register convention the schemas / machines / routing artefacts use.)
 
 The one error that surfaces at *runtime* rather than registration is `:rf.error/flow-eval-exception` — a `:derive` function throwing — which aborts the event as described in [What happens when a derive throws](#what-happens-when-a-derive-throws). (A flow's `:schema` failing is *not* an error of this kind: it's the observational `:rf.error/schema-validation-failure` diagnostic — the value still commits; see [Validating a flow's output](#validating-a-flows-output).)

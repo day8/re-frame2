@@ -4,7 +4,9 @@ A click happened. Now what? Between the user's finger leaving the button and the
 
 We'll build up gently: first what an [event](../glossary.md#event) *is*, then one click in slow motion, then the moment a handler needs to reach outside the app — and the single move re-frame2 makes to keep that reach honest.
 
-> **Coming from Redux?** You already have the skeleton. An [event](../glossary.md#event) is an action. An [event handler](../glossary.md#event-handler) is a reducer. [app-db](../glossary.md#app-db), your app's single state map, is the store. Three deliberate differences earn their keep, and this page walks each one: (1) there is no middleware layer — side effects come out of the handler *as data* and the runtime performs them (no thunks, no sagas, no `applyMiddleware`); (2) the dispatch queue drains to completion before the view renders, so the UI paints settled states, never intermediate ones; (3) the action log is not a devtools add-on — the dev runtime records every event natively, so the "replayable history" promise at the heart of this page is checkable, not aspirational.
+??? info "Coming from Redux?"
+
+    You already have the skeleton. An [event](../glossary.md#event) is an action. An [event handler](../glossary.md#event-handler) is a reducer. [app-db](../glossary.md#app-db), your app's single state map, is the store. Three deliberate differences earn their keep, and this page walks each one: (1) there is no middleware layer — side effects come out of the handler *as data* and the runtime performs them (no thunks, no sagas, no `applyMiddleware`); (2) the dispatch queue drains to completion before the view renders, so the UI paints settled states, never intermediate ones; (3) the action log is not a devtools add-on — the dev runtime records every event natively, so the "replayable history" promise at the heart of this page is checkable, not aspirational.
 
 !!! note "Production builds drop the recording"
 
@@ -29,9 +31,13 @@ When the click handler returns, **nothing has happened yet**. No state changed. 
 
 This is the first load-bearing idea, and it's the one that trips people up coming from imperative event handlers: an event is a declaration of *what happened*, not an instruction packet. The button doesn't know how the counter works or what effects might fire. It records the fact "the user asked to increment" and walks away. The [event handler](../glossary.md#event-handler), registered elsewhere under that id, decides what the fact means. And because events are inert data, you can log them, assert on them in tests, replay them into a fresh app, and view them in an inspector. The rest of this page leans on all four.
 
-> **For JavaScript developers.** A DOM `on-click` usually *does* the work — mutate state, kick off a fetch, maybe both. Here the `on-click` does exactly one thing: it hands a value to `dispatch` and returns. Think of it less like calling a function and more like posting a message to a queue. Whatever the increment *means* lives somewhere else entirely, and the button neither knows nor cares.
+??? info "For JavaScript developers"
 
-> **The canonical shape.** Best practice is `[<id>]` for a trivial event, `[<id> <scalar>]` for one argument, and `[<id> {<k> <v>}]` when you have several — a single map payload rather than positional args. The runtime still *tolerates* variadic `[<id> a b c]` for migration and convenience, but the linter nudges new code toward the map form, because a named map is easier to read, grow, and destructure than a positional tail.
+    A DOM `on-click` usually *does* the work — mutate state, kick off a fetch, maybe both. Here the `on-click` does exactly one thing: it hands a value to `dispatch` and returns. Think of it less like calling a function and more like posting a message to a queue. Whatever the increment *means* lives somewhere else entirely, and the button neither knows nor cares.
+
+!!! note "The canonical shape"
+
+    Best practice is `[<id>]` for a trivial event, `[<id> <scalar>]` for one argument, and `[<id> {<k> <v>}]` when you have several — a single map payload rather than positional args. The runtime still *tolerates* variadic `[<id> a b c]` for migration and convenience, but the linter nudges new code toward the map form, because a named map is easier to read, grow, and destructure than a positional tail.
 
 ## One click, in slow motion
 
@@ -48,9 +54,13 @@ This is the first load-bearing idea, and it's the one that trips people up comin
 
 It runs as a pure function: the [coeffects](../glossary.md#coeffect) (the facts it's handed — `:db` among them) and the event in, an [effect map](../glossary.md#effect-map) out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../how-to/test-an-event-handler.md) is exactly this).
 
-> **New to Clojure?** A few bits of syntax to read that handler. The first argument `{:keys [db]}` is *destructuring* — it pulls the `:db` entry out of the incoming coeffects map and binds it to a local named `db`, so you don't write `(:db cofx)` by hand. The second argument is named `_event`: a leading underscore is the Clojure convention for "an argument I'm required to accept but don't use here." And `(update db :counter/value inc)` returns a *new* map — a copy of `db` with `:counter/value` run through `inc` (increment) — it never mutates the original. Returning a fresh value rather than editing in place is the move that keeps the handler pure.
+!!! note "New to Clojure?"
 
-> **Gotcha — dispatching an event with no handler fails loud.** If the runtime dequeues an event whose id was never registered — a typo (`:counter/inc` vs `:counter/incr`), or a dispatch that ran before its `reg-event` loaded — the cascade for that event simply doesn't run, and the runtime emits an [error record](../glossary.md#error-record) keyed `:rf.error/no-such-handler` carrying the offending event. It does *not* fall through to a silent no-op ([fail loud, not silent](../glossary.md#fail-loud-not-silent)). This is one of the few error categories that survives production — it fans out to your always-on error listeners — because a dispatch to a missing handler is a real bug whether you're in dev or live.
+    A few bits of syntax to read that handler. The first argument `{:keys [db]}` is *destructuring* — it pulls the `:db` entry out of the incoming coeffects map and binds it to a local named `db`, so you don't write `(:db cofx)` by hand. The second argument is named `_event`: a leading underscore is the Clojure convention for "an argument I'm required to accept but don't use here." And `(update db :counter/value inc)` returns a *new* map — a copy of `db` with `:counter/value` run through `inc` (increment) — it never mutates the original. Returning a fresh value rather than editing in place is the move that keeps the handler pure.
+
+!!! warning "Gotcha — dispatching an event with no handler fails loud"
+
+    If the runtime dequeues an event whose id was never registered — a typo (`:counter/inc` vs `:counter/incr`), or a dispatch that ran before its `reg-event` loaded — the cascade for that event simply doesn't run, and the runtime emits an [error record](../glossary.md#error-record) keyed `:rf.error/no-such-handler` carrying the offending event. It does *not* fall through to a silent no-op ([fail loud, not silent](../glossary.md#fail-loud-not-silent)). This is one of the few error categories that survives production — it fans out to your always-on error listeners — because a dispatch to a missing handler is a real bug whether you're in dev or live.
 
 **3 — Effects come out, as data.** The handler returned an [effect map](../glossary.md#effect-map) — a description of what should happen, expressed as data:
 
@@ -103,7 +113,9 @@ This fails three ways, and the failures *are* the reasons for the architecture �
 - **The async path is a trap.** The `.then` callback fires *after* the handler returned. The `db` it closed over is the previous state, and the callback has no legal way to produce a new one. You've written a function that is half pure, half effectful, by accident.
 - **The history goes dark.** The fetch never appears in the event record. Reading the handler no longer tells you what the app will look like when the response lands. Replaying the app's events no longer reproduces its state. The inline fetch is a side effect the [ledger](#the-ledger) never recorded — and the ledger, as a later section shows, is the asset this framework most refuses to give up.
 
-> **Gotcha — never call `js/fetch` (or any I/O) from a handler body.** A handler that performs I/O directly stops being pure, captures a stale `db` in its async callback, and vanishes from the event record. The next section shows the pure rewrite. The rule is one line: *describe the effect, don't perform it.*
+!!! warning "Gotcha — never call `js/fetch` (or any I/O) from a handler body"
+
+    A handler that performs I/O directly stops being pure, captures a stale `db` in its async callback, and vanishes from the event record. The next section shows the pure rewrite. The rule is one line: *describe the effect, don't perform it.*
 
 ## Effects are data
 
@@ -145,9 +157,13 @@ That reply rides as the event's last argument in [the uniform reply](../glossary
 
 Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a *name* instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 
-> **Coming from Redux?** The `:fx` vector is where thunks, sagas, and middleware used to live — except the handler stays a pure function returning data, and the "middleware" is the runtime's effect interpreter. The async reply doesn't resolve a promise the reducer is awaiting; it arrives as a brand-new action dispatched onto the same queue.
+??? info "Coming from Redux?"
 
-> **Coming from TanStack Query?** A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
+    The `:fx` vector is where thunks, sagas, and middleware used to live — except the handler stays a pure function returning data, and the "middleware" is the runtime's effect interpreter. The async reply doesn't resolve a promise the reducer is awaiting; it arrives as a brand-new action dispatched onto the same queue.
+
+??? info "Coming from TanStack Query?"
+
+    A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
 
 The `:rf.http/managed` args map carries far more than the four keys above — `:decode`, `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../async/http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the cascade point.
 
@@ -156,9 +172,13 @@ Two notes before moving on:
 - **The first argument is the coeffects map** — a [coeffect](../glossary.md#coeffect) being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [the coeffects page's](effects-and-coeffects.md) subject.
 - **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: *describe, don't do.*
 
-> **From re-frame v1.** The shape is the same — effect map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered [interceptors](../glossary.md#interceptor) referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
+??? info "From re-frame v1"
 
-> **An optional middle slot.** `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [:my-app/audit]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered [interceptors](../glossary.md#interceptor) (the cross-cutting "wrap every handler" work) referenced by id. The chain *must* live under that key — a bare interceptor or a loose positional vector in the slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Authoring them is [Interceptors](interceptors.md)' subject.
+    The shape is the same — effect map out, `:fx` carries the side effects — but v1's hand-rolled `:http-xhrio` (cljs-ajax) is gone; the managed `:rf.http/managed` effect with its uniform reply map replaces it. The cross-cutting "wrap every handler" work you wrote as global interceptors now lives behind named, registered [interceptors](../glossary.md#interceptor) referenced by id (below). [From re-frame v1](../25-from-re-frame-v1.md) catalogues the deltas.
+
+!!! note "An optional middle slot"
+
+    `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [:my-app/audit]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered [interceptors](../glossary.md#interceptor) (the cross-cutting "wrap every handler" work) referenced by id. The chain *must* live under that key — a bare interceptor or a loose positional vector in the slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Authoring them is [Interceptors](interceptors.md)' subject.
 
 ## The shape of an effect map
 
@@ -173,7 +193,9 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold, 
 3. **Each row runs to (synchronous) completion before the next.** No interleaving. *Async* work a row kicks off — an outbound request, a `dispatch-later` timer — isn't awaited; "complete" means the effect handler returned.
 4. **Effects see the post-`:db` state.** Because `:db` committed first, a `[:dispatch [:react-to-new-state]]` row dispatches an event whose handler reads the *new* app-db. This is the legitimate way to chain: write state, then dispatch the event that builds on it.
 
-> **Gotcha — an effect throwing does NOT halt the others.** If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, and each error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit (which happened first) is kept. This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, don't express that as two sibling rows; lift the dependent step into a `:dispatch` chain so it observes the result via the queue.
+!!! warning "Gotcha — an effect throwing does NOT halt the others"
+
+    If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, and each error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit (which happened first) is kept. This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, don't express that as two sibling rows; lift the dependent step into a `:dispatch` chain so it observes the result via the queue.
 
 ## The ledger
 
@@ -181,7 +203,9 @@ Here's a reframing that reorganises how you think about the whole app, once it c
 
 That picture comes with a promise precise enough to test:
 
-> **Two fresh apps, fed the same sequence of events, finish in identical states.** Start two copies from the same initial app-db, replay the same event log into each, and they land on the same value. The events *are* the state; the current app-db carries no information the log didn't put there.
+!!! note
+
+    **Two fresh apps, fed the same sequence of events, finish in identical states.** Start two copies from the same initial app-db, replay the same event log into each, and they land on the same value. The events *are* the state; the current app-db carries no information the log didn't put there.
 
 The promise has one precondition: handlers must be honest about their inputs. A handler that secretly reads the clock or mints a random id mid-fold smuggles in a value the ledger never recorded, and replay diverges. re-frame2 closes that hole structurally. World facts enter handlers as [recordable coeffects](../glossary.md#recordable-vs-ambient-coeffects), declared at registration and recorded with the event, so replay re-presents the very values the original run consumed. [Effects and coeffects](effects-and-coeffects.md) is the full story. The rule of thumb is: *durable state folds facts, never reads.*
 
@@ -191,13 +215,57 @@ Hold the promise and a cluster of features stops looking like separate tricks:
 - **A bug report is a ledger excerpt.** "It broke after I did these things" becomes the literal event list that produces the bad state — in a fresh app, on demand, as a regression test ([Test a full cascade](../how-to/test-a-cascade.md)).
 - **Xray's event rows *are* the ledger, drawn.** The inspector showing "every event, in order, with app-db after each" isn't building a clever visualisation — it's rendering the [epoch](../glossary.md#epoch) record the runtime keeps anyway.
 
-> **Going deeper.** The whole app is a **left fold** — Clojure's `reduce` — over the event stream: a step function `state' = step(state, event)` applied once per event, each result threaded into the next call. Your handlers are the step function; the runtime is the `reduce`; "two apps, same events, same state" is just the observation that `reduce` is deterministic when its step function is pure. Everything else on this page is a consequence of that one algebraic fact: time travel is partial sums, a bug report is an input slice, and recordable coeffects are the rule that keeps the step function honest so the fold stays deterministic.
+??? note "Going deeper"
+
+    The whole app is a **left fold** — Clojure's `reduce` — over the event stream: a step function `state' = step(state, event)` applied once per event, each result threaded into the next call. Your handlers are the step function; the runtime is the `reduce`; "two apps, same events, same state" is just the observation that `reduce` is deterministic when its step function is pure. Everything else on this page is a consequence of that one algebraic fact: time travel is partial sums, a bug report is an input slice, and recordable coeffects are the rule that keeps the step function honest so the fold stays deterministic.
 
 ## Run to completion
 
 One scheduling rule deserves a hard stop, because most frameworks choose the other way. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full cascade. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the render boundary arrive. This is the dispatch semantics, not a mode; there is no opt-out.
 
 What it buys is coherence. If submitting a form dispatches three follow-up events, the view does not glimpse the state after each one. It sees one settled state, once. Either the form is submitting or it's failed, never both in one paint. The flicker-of-intermediate-state bug, familiar from systems where any update can interleave with any render, is structurally absent.
+
+Watch it happen. One click below dispatches a single `:submit` whose handler fans out three follow-up events — four cascades in one drain. Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then click **submit**:
+
+```cljs-rf2
+(require '[reagent2.core :as r]
+         '[re-frame.core :as rf])
+
+(rf/reg-event :cascade.demo/initialise
+  (fn [_cofx _event] {:db {:cascade.demo/steps []}}))
+
+;; One click → one event whose handler fans out three follow-ups.
+(rf/reg-event :cascade.demo/submit
+  (fn [{:keys [db]} _event]
+    {:db (update db :cascade.demo/steps conj :submitted)
+     :fx [[:dispatch [:cascade.demo/validate]]
+          [:dispatch [:cascade.demo/save]]
+          [:dispatch [:cascade.demo/notify]]]}))
+
+(rf/reg-event :cascade.demo/validate
+  (fn [{:keys [db]} _event] {:db (update db :cascade.demo/steps conj :validated)}))
+(rf/reg-event :cascade.demo/save
+  (fn [{:keys [db]} _event] {:db (update db :cascade.demo/steps conj :saved)}))
+(rf/reg-event :cascade.demo/notify
+  (fn [{:keys [db]} _event] {:db (update db :cascade.demo/steps conj :notified)}))
+
+(rf/reg-sub :cascade.demo/steps
+  (fn [db _query] (:cascade.demo/steps db)))
+
+(defn cascade-demo []
+  [:div
+   [:button {:on-click #(rf/dispatch [:cascade.demo/submit])} "submit"]
+   [:p "steps: " (pr-str @(rf/subscribe [:cascade.demo/steps]))]])
+
+(rf/dispatch-sync [:cascade.demo/initialise])
+[cascade-demo]
+```
+
+All four steps appear **together**. The view never shows `[:submitted]` alone — by the time the render boundary arrives, the whole drain has settled.
+
+!!! tip "Try it"
+
+    Make `:cascade.demo/validate` fan out its *own* follow-up — add `:fx [[:dispatch [:cascade.demo/notify]]]` to its handler — and re-evaluate. Five steps now settle in one drain, still one paint. However deep the chain goes, the screen only ever sees the end of it.
 
 Two precise details, both visible in Xray:
 
@@ -206,9 +274,13 @@ Two precise details, both visible in Xray:
 
 Strictly, the drain is per [**frame**](../glossary.md#frame) — an isolated world with its own app-db and its own queue, and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
 
-> **For JavaScript developers.** React batches state updates within an event handler and paints once at the end — run-to-completion is that idea taken all the way: the batch boundary is the *entire* settled cascade, not one handler. You never need `flushSync`, and you never catch the UI mid-update, because no render can interleave with the queue draining.
+??? info "For JavaScript developers"
 
-> **From re-frame v1.** There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-cascade to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite). The v1 use case — "show this, *then* run the heavy block" — is served by a `dispatch-later` with `{:ms 0}` or an after-render effect, which lets one paint land before the next event runs.
+    React batches state updates within an event handler and paints once at the end — run-to-completion is that idea taken all the way: the batch boundary is the *entire* settled cascade, not one handler. You never need `flushSync`, and you never catch the UI mid-update, because no render can interleave with the queue draining.
+
+??? info "From re-frame v1"
+
+    There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-cascade to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite). The v1 use case — "show this, *then* run the heavy block" — is served by a `dispatch-later` with `{:ms 0}` or an after-render effect, which lets one paint land before the next event runs.
 
 ### When the cascade won't stop
 
@@ -224,7 +296,9 @@ Run-to-completion is unconditional, which raises an obvious question: what if a 
 
 The important part is what survives. Atomicity in re-frame2 is per [**event**](../glossary.md#commit), not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent.
 
-> **The bound is per-frame and tunable.** Test and story frames set a tighter `:drain-depth` (so a runaway cascade fails fast rather than spinning to the production limit); you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
+!!! note "The bound is per-frame and tunable"
+
+    Test and story frames set a tighter `:drain-depth` (so a runaway cascade fails fast rather than spinning to the production limit); you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
 
 ### Dispatching from outside the cascade
 
@@ -238,8 +312,12 @@ One more entry point completes the picture. Inside a handler, you never call `di
 
 `dispatch-sync` runs the event through the same run-to-completion drain as `dispatch`, but it *blocks* until the drain settles, instead of scheduling it for the next microtask and returning immediately. That's exactly what you want when the next line of a test needs to assert on the settled state, or when boot code must finish initialising before rendering begins.
 
-> **Gotcha — `dispatch-sync` is an *outside* call only.** Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the cascade is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`. Use `dispatch-sync` to *enter* the machine from the outside; use `:fx` `:dispatch` to chain *within* it.
+!!! warning "Gotcha — `dispatch-sync` is an *outside* call only"
 
-> **Gotcha — a dispatch needs a frame in scope.** Both `dispatch` and `dispatch-sync` resolve [which frame](../glossary.md#frame) to target from the scope they're called in — a [provider](../glossary.md#frame-provider), a running handler, or a captured [capture-frame](../glossary.md#capture-frame). The runtime never invents one. A call from a *rootless* async callback — a stray `setTimeout`, a WebSocket `onmessage`, a bare promise `.then` that escaped the view tree — has no frame in scope and raises `:rf.error/no-frame-context` (also production-surviving). The fix is to grab a `capture-frame` while the frame *is* in scope and dispatch through it, or to pass `{:frame <id>}` explicitly in the dispatch opts. (This is the everyday face of [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found); [Frames](frames.md) is the full story.)
+    Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the cascade is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`. Use `dispatch-sync` to *enter* the machine from the outside; use `:fx` `:dispatch` to chain *within* it.
+
+!!! warning "Gotcha — a dispatch needs a frame in scope"
+
+    Both `dispatch` and `dispatch-sync` resolve [which frame](../glossary.md#frame) to target from the scope they're called in — a [provider](../glossary.md#frame-provider), a running handler, or a captured [capture-frame](../glossary.md#capture-frame). The runtime never invents one. A call from a *rootless* async callback — a stray `setTimeout`, a WebSocket `onmessage`, a bare promise `.then` that escaped the view tree — has no frame in scope and raises `:rf.error/no-frame-context` (also production-surviving). The fix is to grab a `capture-frame` while the frame *is* in scope and dispatch through it, or to pass `{:frame <id>}` explicitly in the dispatch opts. (This is the everyday face of [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found); [Frames](frames.md) is the full story.)
 
 The trade is the framework's signature move, made for the third time on this page. Give up a little flexibility — interleaved renders, inline effects, ambient reads — and get back inspectability: a recorded, replayable, coherent history.

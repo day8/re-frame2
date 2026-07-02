@@ -6,9 +6,13 @@ That's a feature most of the time and a problem exactly once: when the data on t
 
 Whenever a value leaves the wire for somewhere it can be *observed* — a dev panel, the saved epoch history, an off-box monitor — it crosses what we'll call an **observation boundary** (or just *egress*, the point where data exits the runtime to be looked at). The whole idea of this page fits in one sentence: **you name a *path* as sensitive once, where the data is defined, and the framework redacts whatever lives at that path everywhere it crosses an observation boundary.** That's it. This is the framework's [data classification](../glossary.md#data-classification) capability, and we'll build it up one declaration at a time.
 
-> **This is hygiene, not a security boundary — and it is fail-open.** The framework keeps secrets off its *own* observability wire; your app still owns auth, encryption, and transport. The contract is **fail-open**: a path you never classify ships raw. That's the bargain — convenient leak-prevention, not a guarantee. The framework does no *taint-tracking* (it never follows a secret value around to redact every copy), so a secret you copy to a new path — a re-keyed value, a rendered field — ships raw until you classify *that* path too.
+!!! note "This is hygiene, not a security boundary — and it is fail-open"
 
-> **Coming from Sentry?** The instinct is `beforeSend`: a scrub function you write into each consumer, run just before shipping. re-frame2 does the opposite. You classify data **once, at the owner of its shape**, and the framework applies it at every boundary it owns. There's no `beforeSend` to write — which means there's no Nth consumer left to forget one.
+    The framework keeps secrets off its *own* observability wire; your app still owns auth, encryption, and transport. The contract is **fail-open**: a path you never classify ships raw. That's the bargain — convenient leak-prevention, not a guarantee. The framework does no *taint-tracking* (it never follows a secret value around to redact every copy), so a secret you copy to a new path — a re-keyed value, a rendered field — ships raw until you classify *that* path too.
+
+??? info "Coming from Sentry?"
+
+    The instinct is `beforeSend`: a scrub function you write into each consumer, run just before shipping. re-frame2 does the opposite. You classify data **once, at the owner of its shape**, and the framework applies it at every boundary it owns. There's no `beforeSend` to write — which means there's no Nth consumer left to forget one.
 
 ## Classify a durable secret in app-db
 
@@ -32,9 +36,13 @@ Wire `:auth/init` to run at frame creation with `:initial-events`, so the classi
   {:initial-events [[:auth/init]]})
 ```
 
-> **Classify at the boundary.** re-frame2 lets the secret live where it naturally belongs and redacts it *at the boundary* — you don't keep a token out of traces by keeping it out of app-db. There is no frame-level `:sensitive {:app-db …}` annotation and no top-level `:large` frame key (both fail loud with `:rf.error/bad-frame-classification`). The event is app-db's definition site; that is the one route.
+!!! note "Classify at the boundary"
 
-> **For JavaScript developers.** `:initial-events` is the only frame-init surface — there is no `:initial-db` and no `:on-create`. A [frame](../glossary.md#frame) always starts with `app-db = {}`; seeding it is itself an event (`[:rf/set-db {…}]`) dispatched as the first init step. See [the frames concept page](../concepts/frames.md).
+    re-frame2 lets the secret live where it naturally belongs and redacts it *at the boundary* — you don't keep a token out of traces by keeping it out of app-db. There is no frame-level `:sensitive {:app-db …}` annotation and no top-level `:large` frame key (both fail loud with `:rf.error/bad-frame-classification`). The event is app-db's definition site; that is the one route.
+
+??? info "For JavaScript developers"
+
+    `:initial-events` is the only frame-init surface — there is no `:initial-db` and no `:on-create`. A [frame](../glossary.md#frame) always starts with `app-db = {}`; seeding it is itself an event (`[:rf/set-db {…}]`) dispatched as the first init step. See [the frames concept page](../concepts/frames.md).
 
 ### Two axes: sensitive and large
 
@@ -68,9 +76,13 @@ You reach for `:clear-*` rarely — when a value disappears its redaction effect
      :clear-sensitive [[:docs doc-id :body]]}))
 ```
 
-> **Gotcha — `:sensitive` is a *path collection*, never `:sensitive false`.** You *clear* the sensitive axis with `:clear-sensitive`; you never set `:sensitive false`. (Don't confuse it with `:sensitive?`, the yes/no schema prop — that's a different axis, covered later.)
+!!! warning "Gotcha — `:sensitive` is a *path collection*, never `:sensitive false`"
 
-> **Going deeper.** The classification effects are applied **with the `:db` write** — a frame-state transform at the [commit](../glossary.md#commit) point, not a later `:fx`. They ride the [runtime-db](../glossary.md#runtime-db) partition — the framework's `:rf.db/runtime` state beside your app-db — in its `:rf.runtime/elision` registry, not app-db, which buys two properties for free. First, a path classified in an event is redacted from its *very first* egress (no race against the value landing). Second, because the registry lives in revertible runtime-db, a classification **walks back atomically with the frame** on a `restore-epoch` revert — a reverted secret is still a classified secret. Malformed effects (a non-vector value, an unknown axis) abort the transition pre-commit with `:rf.error/classification-effect-shape`, so a typo can't silently disable your protection.
+    You *clear* the sensitive axis with `:clear-sensitive`; you never set `:sensitive false`. (Don't confuse it with `:sensitive?`, the yes/no schema prop — that's a different axis, covered later.)
+
+??? note "Going deeper"
+
+    The classification effects are applied **with the `:db` write** — a frame-state transform at the [commit](../glossary.md#commit) point, not a later `:fx`. They ride the [runtime-db](../glossary.md#runtime-db) partition — the framework's `:rf.db/runtime` state beside your app-db — in its `:rf.runtime/elision` registry, not app-db, which buys two properties for free. First, a path classified in an event is redacted from its *very first* egress (no race against the value landing). Second, because the registry lives in revertible runtime-db, a classification **walks back atomically with the frame** on a `restore-epoch` revert — a reverted secret is still a classified secret. Malformed effects (a non-vector value, an unknown axis) abort the transition pre-commit with `:rf.error/classification-effect-shape`, so a typo can't silently disable your protection.
 
 ## Classify a transient payload on the registration
 
@@ -112,11 +124,15 @@ The same `:sensitive` metadata key works on **every** registration that introduc
 (rf/reg-fx :rf.ws/send {:sensitive [[:auth]]} ws-send-handler)
 ```
 
-> **Gotcha — positional args are not path-addressable; a secret in one egresses RAW.** A path like `[:password]` reaches into the event's **arg-map** (`[:auth/sign-in {:password "…"}]`), so the mark can name it. A positionally-passed secret (`[:auth/sign-in "alice" "hunter2"]`) has **no** stable named path — a positional index isn't addressable, so there's nothing for `:sensitive` to classify. Under fail-open that means it ships RAW into every trace and error sink. This is a structural limitation, not a bug: redaction is path-based, and only the arg-map (`(second event)`) is reachable. **So when an event carries a secret, pass a map payload and classify the key.** (The glossary [recommends a map payload over positional args](../glossary.md#event) anyway — this is one more reason.) The positional form is fine for data you wouldn't mind seeing in a trace.
+!!! warning "Gotcha"
+
+    A path like `[:password]` reaches into the event's **arg-map** (`[:auth/sign-in {:password "…"}]`), so the mark can name it. A positionally-passed secret (`[:auth/sign-in "alice" "hunter2"]`) has **no** stable named path — a positional index isn't addressable, so there's nothing for `:sensitive` to classify. Under fail-open that means it ships RAW into every trace and error sink. This is a structural limitation, not a bug: redaction is path-based, and only the arg-map (`(second event)`) is reachable. **So when an event carries a secret, pass a map payload and classify the key.** (The glossary [recommends a map payload over positional args](../glossary.md#event) anyway — this is one more reason.) The positional form is fine for data you wouldn't mind seeing in a trace.
 
 Note the `:decode` schema in the sign-in example: `[:token {:sensitive? true} :string]` classifies the *response body*. That's a second, separate declaration for the same secret — the **HTTP reply** is redacted by its `:decode` schema, and the **durable copy** that `:auth/signed-in` later stores at `[:auth :token]` is redacted by the path classification from the first section. There's no propagation carrying one to the other. **Classify each surface the secret crosses** — the wire it arrives on, *and* the slot it comes to rest in.
 
-> **A malformed mark is the loud case.** A non-vector path is rejected at *registration* with `:rf.error/bad-classification` (a [flow](../glossary.md#flow)'s bad output marks raise `:rf.error/flow-bad-marks`), so the typo surfaces when you reload — not in a production log six weeks later.
+!!! note "A malformed mark is the loud case"
+
+    A non-vector path is rejected at *registration* with `:rf.error/bad-classification` (a [flow](../glossary.md#flow)'s bad output marks raise `:rf.error/flow-bad-marks`), so the typo surfaces when you reload — not in a production log six weeks later.
 
 ### HTTP carriers: redact by header and query-param name
 
@@ -179,7 +195,9 @@ So a route carrying a token in its query string (`?reset_token=…`) classifies 
 
 A malformed subsystem declaration fails loud at registration under its own per-subsystem error id — `reg-machine` raises `:rf.error/invalid-machine-classification`, a bad resource spec folds into `:rf.error/invalid-resource-spec`.
 
-> **Gotcha — `:sensitive` (effect/declaration) vs `:sensitive?` (schema prop).** These trip people up, so pin the difference once. `:sensitive` (no `?`) names a *collection of paths* — a classification effect, a registration mark, or a subsystem declaration. `:sensitive?` (with `?`) is a *yes/no Malli prop on one schema slot*. A `:sensitive?` prop on a `[:schemas :data]` slot redacts that slot only in the schema's own **validation-failure trace** — it does **not** classify the durable `:data` for snapshot egress (that's the projection-relative declaration above). The same `:sensitive?` prop on an HTTP `:decode` schema *is* the right and only route for the *transient* response body. The rule underneath: **schemas own transient and validation-failure products; durable state is the effect or the subsystem declaration.** The `:large` / `:large?` pair carries the identical distinction.
+!!! warning "Gotcha"
+
+    These trip people up, so pin the difference once. `:sensitive` (no `?`) names a *collection of paths* — a classification effect, a registration mark, or a subsystem declaration. `:sensitive?` (with `?`) is a *yes/no Malli prop on one schema slot*. A `:sensitive?` prop on a `[:schemas :data]` slot redacts that slot only in the schema's own **validation-failure trace** — it does **not** classify the durable `:data` for snapshot egress (that's the projection-relative declaration above). The same `:sensitive?` prop on an HTTP `:decode` schema *is* the right and only route for the *transient* response body. The rule underneath: **schemas own transient and validation-failure products; durable state is the effect or the subsystem declaration.** The `:large` / `:large?` pair carries the identical distinction.
 
 ### The whole ownership map, on one page
 
@@ -191,9 +209,13 @@ Three durable owners, no overlap. When you have a secret, this is the table to w
 | Subsystem instance data (machine `:data`, resource data/params, route query) | the **subsystem definition** | projection-relative `:sensitive` / `:large` on `reg-machine` / `reg-resource` / `reg-mutation` / `reg-route` |
 | Transient payloads (event args, fx/cofx, sub outputs, HTTP bodies, header/query carriers) | the **registration** / its `:decode` schema | `:sensitive` / `:large` path vectors, `:sensitive?` props on the `:decode` schema, or the `:carriers` block |
 
-> **Going deeper — classification does not propagate.** A sub or flow that *reads* a sensitive input does **not** auto-classify its output. If you derive a secret to a new path — through a sub, a flow, a rendered field — classify *that* path. A sensitive flow output is just a classified db path. There's no value-match "same value redacted everywhere" engine and no declassification claim that travels with a derived value. Path in, path out, every time. The design picks the simplest thing that works: record the path, redact at egress. No taint, no propagation, no magic.
+??? note "Going deeper — classification does not propagate"
 
-> **The size backstop is the one thing that fires without a declaration.** The large axis has a safety net the sensitive axis doesn't: an *oversized* value auto-elides at egress even at a path you never classified `:large`, governed by `:rf.size/threshold-bytes` (default 16384, overridable via `(rf/configure! {:elision {:rf.size/threshold-bytes N}})`). That keeps a surprise 5MB blob out of a trace. It is **not** a secrecy backstop — a small secret sails straight through. Sensitive is strictly opt-in by path.
+    A sub or flow that *reads* a sensitive input does **not** auto-classify its output. If you derive a secret to a new path — through a sub, a flow, a rendered field — classify *that* path. A sensitive flow output is just a classified db path. There's no value-match "same value redacted everywhere" engine and no declassification claim that travels with a derived value. Path in, path out, every time. The design picks the simplest thing that works: record the path, redact at egress. No taint, no propagation, no magic.
+
+!!! note "The size backstop is the one thing that fires without a declaration"
+
+    The large axis has a safety net the sensitive axis doesn't: an *oversized* value auto-elides at egress even at a path you never classified `:large`, governed by `:rf.size/threshold-bytes` (default 16384, overridable via `(rf/configure! {:elision {:rf.size/threshold-bytes N}})`). That keeps a surprise 5MB blob out of a trace. It is **not** a secrecy backstop — a small secret sails straight through. Sensitive is strictly opt-in by path.
 
 ## Wire an off-box shipper
 
@@ -241,7 +263,9 @@ A profile names the *boundary* the data is crossing — *who is about to look at
 
 The table above is the working set; each profile names how far data travels and resolves to a floor the flags below can override.
 
-> **Going deeper.** Beneath the profiles sit advanced `:rf.size/*` override flags — `:rf.size/include-sensitive?`, `:rf.size/include-large?`, `:rf.size/include-digests?`, `:rf.size/threshold-bytes`. A profile resolves to a *floor* and an explicit flag overlays it. You rarely reach for them; the profile is the public choice.
+??? note "Going deeper"
+
+    Beneath the profiles sit advanced `:rf.size/*` override flags — `:rf.size/include-sensitive?`, `:rf.size/include-large?`, `:rf.size/include-digests?`, `:rf.size/threshold-bytes`. A profile resolves to a *floor* and an explicit flag overlays it. You rarely reach for them; the profile is the public choice.
 
 ### Two things to verify before the first record ships
 
@@ -267,19 +291,23 @@ Omit the frame and the projection **fails closed** — it redacts the whole valu
 ;;     :event-id :auth/sign-in ...}   ;; no :event slot
 ```
 
-> **Gotcha — fail-open and fail-closed live on different surfaces.** *Fail-open* is the **classification** posture: an undeclared path ships raw. *Fail-closed* is the **projector's** posture on an unknown frame/profile: a frame with no `:observability` policy routes nothing; an unresolvable frame routes nothing (never a default frame); an unknown profile is rejected with `:rf.error/unknown-egress-profile` (the enum is closed); a throwing sink is isolated from its siblings. Different surfaces, different defaults — worth keeping straight in your head.
+!!! warning "Gotcha — fail-open and fail-closed live on different surfaces"
 
-> **Going deeper — exceptions are the one gap.** Projection walks *known data shapes*. It can't un-concatenate a secret out of an `ex-message` string, and it can't guess which `ex-data` keys are sensitive. So in handlers that read secrets, throw the *category*, never the value:
->
-> ```clojure
-> ;; ANTI-PATTERN — the email lands in the error record verbatim.
-> (throw (ex-info (str "User " email " failed login") {:user/email email}))
->
-> ;; PREFERRED — name the category; omit the value.
-> (throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))
-> ```
->
-> The exception's job is to say *what went wrong*, not to carry the secret that caused it. (There's no `rf/safe-throw` — which `ex-data` keys are sensitive is author knowledge. The framework's *own* adapter/render diagnostics carry only a shape summary, never the raw value, so the residual here is exclusively your app's throw-sites.)
+    *Fail-open* is the **classification** posture: an undeclared path ships raw. *Fail-closed* is the **projector's** posture on an unknown frame/profile: a frame with no `:observability` policy routes nothing; an unresolvable frame routes nothing (never a default frame); an unknown profile is rejected with `:rf.error/unknown-egress-profile` (the enum is closed); a throwing sink is isolated from its siblings. Different surfaces, different defaults — worth keeping straight in your head.
+
+??? note "Going deeper — exceptions are the one gap"
+
+    Projection walks *known data shapes*. It can't un-concatenate a secret out of an `ex-message` string, and it can't guess which `ex-data` keys are sensitive. So in handlers that read secrets, throw the *category*, never the value:
+
+    ```clojure
+    ;; ANTI-PATTERN — the email lands in the error record verbatim.
+    (throw (ex-info (str "User " email " failed login") {:user/email email}))
+
+    ;; PREFERRED — name the category; omit the value.
+    (throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))
+    ```
+
+    The exception's job is to say *what went wrong*, not to carry the secret that caused it. (There's no `rf/safe-throw` — which `ex-data` keys are sensitive is author knowledge. The framework's *own* adapter/render diagnostics carry only a shape summary, never the raw value, so the residual here is exclusively your app's throw-sites.)
 
 ## Advanced
 

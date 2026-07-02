@@ -6,9 +6,13 @@ A word on the term *substrate*, since the rest of the page leans on it. A re-fra
 
 We'll build it up one step at a time: first the single line that picks a substrate, then a working UIx view, then how its callbacks [dispatch](../glossary.md#dispatch), then how you mount and scope it, and finally how Helix and reagent-slim fit the same mould. By the end you'll be able to boot one app on any of four substrates, write UIx/Helix views that read subs and dispatch correctly, and recognise the handful of errors the framework throws when you get the boundary wrong.
 
-> **Same app, four substrates — the only line that changes is `init!`.** Events, subscriptions, effects, and app-db never learn which React wrapper renders them. The boot call ([`init!`](../glossary.md#init)) names the substrate. Only the view bodies speak its notation. That's the whole story; the rest of this page is detail.
+!!! note "Same app, four substrates — the only line that changes is `init!`"
 
-> **Coming from Redux?** The [adapter](../glossary.md#adapter) plays react-redux's role — `frame-provider` is `<Provider>`, `use-subscribe` is `useSelector` — with two differences. The binding is a value you pass explicitly at boot rather than a package you import, and exactly one is ever installed per runtime. No hidden default, no autowiring.
+    Events, subscriptions, effects, and app-db never learn which React wrapper renders them. The boot call ([`init!`](../glossary.md#init)) names the substrate. Only the view bodies speak its notation. That's the whole story; the rest of this page is detail.
+
+??? info "Coming from Redux?"
+
+    The [adapter](../glossary.md#adapter) plays react-redux's role — `frame-provider` is `<Provider>`, `use-subscribe` is `useSelector` — with two differences. The binding is a value you pass explicitly at boot rather than a package you import, and exactly one is ever installed per runtime. No hidden default, no autowiring.
 
 ## Step 1 — The one line that changes
 
@@ -55,9 +59,13 @@ There's deliberately no registry and no auto-install here, because the project h
 - `(rf/init!)` with no argument is an arity error — `init!` has exactly one arity (it takes the adapter spec map), so there's no zero-arg form to fall through to.
 - A keyword, a `nil`, or anything that isn't the adapter spec map raises `:rf.error/no-adapter-specified`, whose message says it plainly: *"rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry."*
 
-> **Install once, install one.** Calling `init!` a second time after an adapter is already installed raises `:rf.error/adapter-already-installed` — the runtime won't silently swap substrates underneath a running app. One adapter, installed once, for the life of the runtime.
+!!! note "Install once, install one"
 
-> **Going deeper: what is an adapter, really?** Everything upstream of rendering — the [registrar](../glossary.md#registrar), the dispatch loop, your [event handlers](../glossary.md#event-handler), your subscriptions, your effects — is value-shuffling over Clojure maps. None of it imports React, which is precisely why none of it cares about the substrate. The [adapter](../glossary.md#adapter) is the one piece that does: a small map of functions sitting at the single boundary where re-frame2 touches a rendering library. It provides the reactive container app-db lives in, notices when a subscription's value changed and schedules dependent components to re-render, and mounts the tree. That's the entire job description — a render-side power adapter, not a brain. It has no idea what events are, what your handlers do, or what app-db looks like. The full contract is ten entries (six required + three optional + one lifecycle): the required `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`; the optional `subscribe-container`, `register-context-provider`, `flush-render!` (the core falls back when these are absent); and the `dispose-adapter!` lifecycle hook. You never call these — they're the contract the four shipped adapters satisfy on your behalf.
+    Calling `init!` a second time after an adapter is already installed raises `:rf.error/adapter-already-installed` — the runtime won't silently swap substrates underneath a running app. One adapter, installed once, for the life of the runtime.
+
+??? note "Going deeper: what is an adapter, really?"
+
+    Everything upstream of rendering — the [registrar](../glossary.md#registrar), the dispatch loop, your [event handlers](../glossary.md#event-handler), your subscriptions, your effects — is value-shuffling over Clojure maps. None of it imports React, which is precisely why none of it cares about the substrate. The [adapter](../glossary.md#adapter) is the one piece that does: a small map of functions sitting at the single boundary where re-frame2 touches a rendering library. It provides the reactive container app-db lives in, notices when a subscription's value changed and schedules dependent components to re-render, and mounts the tree. That's the entire job description — a render-side power adapter, not a brain. It has no idea what events are, what your handlers do, or what app-db looks like. The full contract is ten entries (six required + three optional + one lifecycle): the required `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`; the optional `subscribe-container`, `register-context-provider`, `flush-render!` (the core falls back when these are absent); and the `dispose-adapter!` lifecycle hook. You never call these — they're the contract the four shipped adapters satisfy on your behalf.
 
 ### One adapter per build (the coordinate table)
 
@@ -70,7 +78,9 @@ A build *may* carry two adapters on its classpath, but `init!` installs exactly 
 | Helix | `day8/re-frame2-helix` | `lilactown/helix` (0.2.x) |
 | reagent-slim | `day8/reagent-slim` | `reagent2` (ships inside it) |
 
-> **Coordinates are not published yet.** re-frame2 is pre-alpha; these coordinates publish with the first public release. Inside the repo the adapters build from [`implementation/adapters/`](../../../implementation/adapters).
+!!! note "Coordinates are not published yet"
+
+    re-frame2 is pre-alpha; these coordinates publish with the first public release. Inside the repo the adapters build from [`implementation/adapters/`](../../../implementation/adapters).
 
 ## Step 2 — Write a UIx view
 
@@ -99,7 +109,9 @@ Three rules govern every UIx and Helix component, and once they click you won't 
 - **Take `dispatch` off `(rf/capture-frame)` at render time.** Grab it during render; never reach for a bare `rf/dispatch` inside a callback. (The next step explains exactly why.)
 - **There is no `reg-view` macro here.** That sugar is Reagent-only. UIx components are plain `defui`, Helix components plain `defnc`. (`rf/reg-view*` exists for the rare component that needs a registry id, but you'll reach for it about as often as you reach for `forwardRef`.)
 
-> **For JavaScript developers.** `use-subscribe` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe frame-id [:q])`.
+??? info "For JavaScript developers"
+
+    `use-subscribe` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe frame-id [:q])`.
 
 ## Step 3 — Why callbacks dispatch off the frame api
 
@@ -135,7 +147,9 @@ The no-arg `(rf/capture-frame)` captures the *ambient* frame at call time, which
   (ws/on-message (fn [msg] (dispatch [:ws/incoming msg]))))
 ```
 
-> **From re-frame v1.** v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app; re-frame2 has many frames and never infers one from absence, so the frame api is how you carry the right frame across the async gap. [Frames](../concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found) covers why a guessed default would be a trap.
+??? info "From re-frame v1"
+
+    v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app; re-frame2 has many frames and never infers one from absence, so the frame api is how you carry the right frame across the async gap. [Frames](../concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found) covers why a guessed default would be a trap.
 
 ## Step 4 — Mount it: scope a frame into the subtree
 
@@ -153,9 +167,13 @@ So the last move is to mount the root inside it. The scope shape takes a `:frame
 
 Children ride the native `$` trailing-args channel — `($ frame-provider {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx/Helix component uses. There's no `:children` prop-map key to remember — the subtree rides the trailing-args channel, so there's no key to forget.
 
-> **For JavaScript developers.** `frame-provider {:frame …}` is your `<Provider store={...}>`. Same job as react-redux's `<Provider>` — make a store (here, a frame) available to everything rendered beneath it — except this shape never *creates* the store; it just scopes an existing one. The `use-subscribe` hooks below it resolve their frame through this provider, exactly as `useSelector` reads through `<Provider>`.
+??? info "For JavaScript developers"
 
-> **A missing provider fails loud, on purpose.** A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. And the scope shape is itself strict: its `:frame` is **required** and must be a keyword. A `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` but non-keyword `:frame` (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`; and naming a `:frame` that was never created (or has been destroyed) raises `:rf.error/frame-provider-frame-absent`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
+    `frame-provider {:frame …}` is your `<Provider store={...}>`. Same job as react-redux's `<Provider>` — make a store (here, a frame) available to everything rendered beneath it — except this shape never *creates* the store; it just scopes an existing one. The `use-subscribe` hooks below it resolve their frame through this provider, exactly as `useSelector` reads through `<Provider>`.
+
+!!! note "A missing provider fails loud, on purpose"
+
+    A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. And the scope shape is itself strict: its `:frame` is **required** and must be a keyword. A `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` but non-keyword `:frame` (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`; and naming a `:frame` that was never created (or has been destroyed) raises `:rf.error/frame-provider-frame-absent`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
 
 That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` views that read with `use-subscribe` (Step 2) and dispatch off the handle (Step 3), and mount inside `frame-provider {:frame …}` (Step 4). Everything from here builds on those four moves.
 
@@ -175,15 +193,25 @@ The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. T
    ($ checkout-app))
 ```
 
-> **Gotcha — the prop map selects the shape.** A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
+!!! warning "Gotcha — the prop map selects the shape"
 
-> **Idempotent re-mount is safe.** Re-mounting the ensure shape under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state or replay `:initial-events`. `make-frame` is idempotent replacement: a remount refreshes config and the image while preserving `app-db`, the sub-cache, and the queue. You don't have to special-case dev tooling.
+    A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
 
-> **True ownership is explicit.** The ensure shape deliberately does *not* destroy the frame on unmount — a genuine unmount leaves the frame live, and a remount reuses it. When a component should own a frame's whole lifetime (a modal that wants its world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns both the birth and the death.
+!!! note "Idempotent re-mount is safe"
 
-> **Gotcha — a captured handle can outlive a destroyed frame.** If you *do* take explicit ownership and `destroy-frame!` a frame, a handle you captured against it (a `capture-frame :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the teardown — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when you destroy the frame, or hold the data in a longer-lived frame if it must outlast the widget.
+    Re-mounting the ensure shape under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state or replay `:initial-events`. `make-frame` is idempotent replacement: a remount refreshes config and the image while preserving `app-db`, the sub-cache, and the queue. You don't have to special-case dev tooling.
 
-> **From re-frame v1.** There's no `:db` / `:initial-db` / `:on-create` here — a frame always starts `app-db = {}` and you seed it with `[:rf/set-db {…}]` as the first `:initial-events` step, as the `:checkout` example does. [Frames — Seeding initial state](../concepts/frames.md#seeding-initial-state) is the full init surface.
+!!! note "True ownership is explicit"
+
+    The ensure shape deliberately does *not* destroy the frame on unmount — a genuine unmount leaves the frame live, and a remount reuses it. When a component should own a frame's whole lifetime (a modal that wants its world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns both the birth and the death.
+
+!!! warning "Gotcha — a captured handle can outlive a destroyed frame"
+
+    If you *do* take explicit ownership and `destroy-frame!` a frame, a handle you captured against it (a `capture-frame :that-id` you stashed at setup) can fire its `dispatch` or `subscribe` *after* the teardown — a slow HTTP reply, a `setTimeout`, a WebSocket message that lands late. The framework won't corrupt anything: a `dispatch` / `subscribe` against a frame that's been torn down raises `:rf.error/frame-destroyed`, and the deeper case where a scheduled commit reaches the container *after* it's already gone no-ops behind a guard and emits `:rf.error/write-after-destroy` (recovery `:ignored`). Both are **always-on** errors — they survive production and land in your error listeners, not just the dev trace. The fix is ownership-shaped: cancel the in-flight work when you destroy the frame, or hold the data in a longer-lived frame if it must outlast the widget.
+
+??? info "From re-frame v1"
+
+    There's no `:db` / `:initial-db` / `:on-create` here — a frame always starts `app-db = {}` and you seed it with `[:rf/set-db {…}]` as the first `:initial-events` step, as the `:checkout` example does. [Frames — Seeding initial state](../concepts/frames.md#seeding-initial-state) is the full init surface.
 
 ## Step 6 — Helix is the same moves, different notation
 
@@ -191,7 +219,9 @@ Helix is the same decisions in Helix notation: `defnc` components built with `he
 
 All three React-shaped adapters read the *same* React context object for frame routing, which means a provider chain even composes across substrates — a Reagent provider wrapping a UIx subtree resolves correctly.
 
-> **For JavaScript developers.** UIx and Helix differ from each other the way they would in any React-CLJS project, not in any re-frame2-specific way. UIx ships a richer, more instrumented hook layer; Helix is the deliberately *minimal* React wrapper — a smaller surface, no hook auto-instrumentation. For re-frame2's purposes the view-author-facing trio (`use-subscribe`, `capture-frame` dispatch, `frame-provider {:frame …}` mount) is byte-identical between them.
+??? info "For JavaScript developers"
+
+    UIx and Helix differ from each other the way they would in any React-CLJS project, not in any re-frame2-specific way. UIx ships a richer, more instrumented hook layer; Helix is the deliberately *minimal* React wrapper — a smaller surface, no hook auto-instrumentation. For re-frame2's purposes the view-author-facing trio (`use-subscribe`, `capture-frame` dispatch, `frame-provider {:frame …}` mount) is byte-identical between them.
 
 ## Step 7 — reagent-slim: kilobytes for capability
 
@@ -209,7 +239,9 @@ Mechanically it's a small swap: your app depends on exactly one of `{day8/re-fra
 
 (If you have a `r/dom-node` call, it moves to a `:ref` callback — `findDOMNode` is gone in React 19.) The worked twin is [`examples/substrates/reagent_slim/counter/`](../../../examples/substrates/reagent_slim/counter), whose events, subs, and views are byte-for-byte the stock Reagent counter's.
 
-> **The imperative escape hatch survives the diet.** Most views are Form-1 / Form-2 and don't notice slim at all. The small fraction that genuinely own a piece of host-DOM lifecycle — a charting library, a map widget — use Reagent's Form-3 class-component shape via `reagent2.core/create-class`, registered through `rf/reg-view*`. Slim caps `create-class` to **seven** keys: the render fn `:reagent-render`, the four lifecycle hooks `:component-did-mount` / `:component-did-update` / `:component-will-unmount` / `:get-snapshot-before-update`, the React-19 error-boundary callback `:component-did-catch`, and the compile-time `:display-name`. That's exactly the set the real-world Day8 codebases use (re-com, re-frame-10x, and two internal apps), and nothing else — pass any other key and it fails loud at `create-class` time with `:rf.error/create-class-key-unsupported`, naming the offending key and listing the supported set. The deprecated `will-*` lifecycles, `:should-component-update`, and `:get-derived-state-from-props` aren't in the cap because nobody uses them under React 19; the FORM-3 doc carries a migration recipe for each. The rule for dispatching from inside a lifecycle callback is the same as everywhere else: capture `(:dispatch (rf/capture-frame))` at *render* time, then call it from the callback.
+!!! note "The imperative escape hatch survives the diet"
+
+    Most views are Form-1 / Form-2 and don't notice slim at all. The small fraction that genuinely own a piece of host-DOM lifecycle — a charting library, a map widget — use Reagent's Form-3 class-component shape via `reagent2.core/create-class`, registered through `rf/reg-view*`. Slim caps `create-class` to **seven** keys: the render fn `:reagent-render`, the four lifecycle hooks `:component-did-mount` / `:component-did-update` / `:component-will-unmount` / `:get-snapshot-before-update`, the React-19 error-boundary callback `:component-did-catch`, and the compile-time `:display-name`. That's exactly the set the real-world Day8 codebases use (re-com, re-frame-10x, and two internal apps), and nothing else — pass any other key and it fails loud at `create-class` time with `:rf.error/create-class-key-unsupported`, naming the offending key and listing the supported set. The deprecated `will-*` lifecycles, `:should-component-update`, and `:get-derived-state-from-props` aren't in the cap because nobody uses them under React 19; the FORM-3 doc carries a migration recipe for each. The rule for dispatching from inside a lifecycle callback is the same as everywhere else: capture `(:dispatch (rf/capture-frame))` at *render* time, then call it from the callback.
 
 ### Server-rendering and the two HTML paths
 
@@ -218,7 +250,9 @@ There are two different "render to HTML" jobs, and slim treats them differently 
 - **Static HTML export** (clipboard exports, report HTML, anything that leaves the React lifecycle) — `render-to-static-markup`, shipped by slim under `reagent2.dom.server` as a pure-CLJS tree walk. No `react-dom/server`, no hydration attributes. This is the path slim *keeps*, and it's where the ~22–27 KB HTML-export saving comes from (stock Reagent's `render-to-string` pulls in the ~50 KB `react-dom/server` module; the pure-CLJS serializer is ~3–4 KB).
 - **Hydrate-able SSR** (server-render markup that the client `hydrate-root`s) — slim does **not** ship this. It lives in the `day8/re-frame2-ssr` seam (see [Server-side rendering](../../ssr/concepts.md)), which the adapter wires through a late-bind hook.
 
-> **Planning to hydrate-able server-render? Weigh the seam first.** Slim drops `react-dom/server`, so the stock `reagent.dom.server/render-to-string` path isn't there. If your SSR is hydrate-able, you'll route it through `day8/re-frame2-ssr` rather than the adapter. If you're not sure you'll ever server-render, the simplest call is to stay on stock Reagent — switching back later is more disruptive than the kilobytes you'd save now. Slim is for apps that *know* they're client-only (or only need offline static-markup export).
+!!! note "Planning to hydrate-able server-render? Weigh the seam first"
+
+    Slim drops `react-dom/server`, so the stock `reagent.dom.server/render-to-string` path isn't there. If your SSR is hydrate-able, you'll route it through `day8/re-frame2-ssr` rather than the adapter. If you're not sure you'll ever server-render, the simplest call is to stay on stock Reagent — switching back later is more disruptive than the kilobytes you'd save now. Slim is for apps that *know* they're client-only (or only need offline static-markup export).
 
 ## What carries over, what doesn't
 
@@ -238,11 +272,17 @@ Once you've seen all four substrates, the whole port collapses to one table. The
 
 There's one Reagent footgun that doesn't port at all, and that's good news: the lazy-seq deref trap — the *"Reactive deref not supported in lazy seq, it should be wrapped in doall"* warning. It exists because Reagent tracks derefs *during* render, and a lazy seq can defer a deref until after render has finished. On Reagent the fix is to realise the seq inside the render fn — `(doall (for …))`, `(mapv child @sub)`, or `(into [:<>] (map child) @sub)`.
 
-> **Going deeper: why hooks are immune to the lazy-seq trap.** Hooks capture their dependency at call time, so UIx and Helix sidestep that whole class of bug by construction — `use-subscribe` registers the dependency at hook-call time regardless of when any surrounding seq realises. Reagent's reactivity, by contrast, is *render-tracked*: it records every deref that happens during the render pass, so a deref deferred into an unrealised lazy seq escapes the tracking window. The hook model trades render-tracking for an explicit dependency edge, and that edge doesn't care about evaluation order. One fewer thing to teach a new hire.
+??? note "Going deeper: why hooks are immune to the lazy-seq trap"
 
-> **Flushing renders in tests.** When a test dispatches against a UIx- or Helix-mounted tree and then wants to read the resulting DOM, the React `useSyncExternalStore` updates haven't settled yet. Call `(uix-adapter/flush-views!)` (or `(helix-adapter/flush-views!)`) after the dispatch — it wraps React's `act()` and settles pending effects. This is a *test* helper, per-adapter-require (you reach for it from test code, not app code). It's distinct from the production-grade `flush-render!` contract function the adapter implements for headless tooling; you won't call that one directly.
+    Hooks capture their dependency at call time, so UIx and Helix sidestep that whole class of bug by construction — `use-subscribe` registers the dependency at hook-call time regardless of when any surrounding seq realises. Reagent's reactivity, by contrast, is *render-tracked*: it records every deref that happens during the render pass, so a deref deferred into an unrealised lazy seq escapes the tracking window. The hook model trades render-tracking for an explicit dependency edge, and that edge doesn't care about evaluation order. One fewer thing to teach a new hire.
 
-> **Why this matters.** The promise of substrate independence is only worth as much as your ability to *trust* it. If you'd rather verify the "same app" claim than take it on faith, here's the receipt: port the app, run it, and open [Xray](../glossary.md#xray). The [epoch](../glossary.md#epoch) ledger and event rows are indistinguishable from the Reagent run, because the instrumentation reads the core, and the core never knew which substrate was rendering. Same events, same state transitions, same trace — different pixels.
+!!! note "Flushing renders in tests"
+
+    When a test dispatches against a UIx- or Helix-mounted tree and then wants to read the resulting DOM, the React `useSyncExternalStore` updates haven't settled yet. Call `(uix-adapter/flush-views!)` (or `(helix-adapter/flush-views!)`) after the dispatch — it wraps React's `act()` and settles pending effects. This is a *test* helper, per-adapter-require (you reach for it from test code, not app code). It's distinct from the production-grade `flush-render!` contract function the adapter implements for headless tooling; you won't call that one directly.
+
+!!! note "Why this matters"
+
+    The promise of substrate independence is only worth as much as your ability to *trust* it. If you'd rather verify the "same app" claim than take it on faith, here's the receipt: port the app, run it, and open [Xray](../glossary.md#xray). The [epoch](../glossary.md#epoch) ledger and event rows are indistinguishable from the Reagent run, because the instrumentation reads the core, and the core never knew which substrate was rendering. Same events, same state transitions, same trace — different pixels.
 
 ## Which substrate, and what ships for it
 

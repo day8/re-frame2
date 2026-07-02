@@ -10,9 +10,13 @@ A word on vocabulary, because three terms shape Xray's whole layout. When you [d
 
 One more term, because multi-frame apps get a picker: a [**frame**](../glossary.md#frame) is one isolated, running instance of your app, with its own app-db. It isolates *state*, not [registrations](../glossary.md#registrar) — so every frame resolves against the same handlers and subs ([Frames](../concepts/frames.md) covers the detail).
 
-> **For JavaScript developers.** If you know Redux DevTools, Xray is that same idea: an action ledger, a state diff, time travel. What Xray adds is the rest of the cascade — not just "which action, what state", but which effects fired, which subscriptions recomputed, which views re-rendered, and which line of *your* code each one came from.
+??? info "For JavaScript developers"
 
-> **From re-frame v1.** Xray is the successor to re-frame-10x: the same epoch-centric debugging, rebuilt on re-frame2's structured [trace stream](../glossary.md#trace-stream). If you lived in 10x, the muscle memory transfers — same instinct to step the event list and watch the db diff.
+    If you know Redux DevTools, Xray is that same idea: an action ledger, a state diff, time travel. What Xray adds is the rest of the cascade — not just "which action, what state", but which effects fired, which subscriptions recomputed, which views re-rendered, and which line of *your* code each one came from.
+
+??? info "From re-frame v1"
+
+    Xray is the successor to re-frame-10x: the same epoch-centric debugging, rebuilt on re-frame2's structured [trace stream](../glossary.md#trace-stream). If you lived in 10x, the muscle memory transfers — same instinct to step the event list and watch the db diff.
 
 ## Step 1: get Xray open
 
@@ -53,18 +57,24 @@ That's the whole contract — four declarations on the host, and Xray opens. You
 
 If Xray can't find the host element when it tries to open, it doesn't fail silently — it logs an actionable missing-host diagnostic on the console telling you to add `[data-rf-xray-host]`, and even hands you the snippet to paste.
 
-> **Gotcha — Xray is desktop-only.** Below a 600px viewport (phones) it refuses to mount: the DOM root is created but the visible UI is a single message explaining it's desktop-only. Between 600px and 900px it narrows; at 900px and below it takes the full viewport width. So if Xray seems to "vanish" on a small window, that's the floor — widen the window, don't hunt for a bug.
+!!! warning "Gotcha — Xray is desktop-only"
 
-> **No resize CSS required.** You do *not* wire any resize CSS: Xray auto-injects its own drag handle on the host's left edge (drag to widen, double-click to reset, arrow keys when focused). Width is driven by the `--rf-xray-inline-width` custom property (default `560px`); override it anywhere up the cascade — `:root { --rf-xray-inline-width: 720px; }` — and a user drag writes back to the same property.
+    Below a 600px viewport (phones) it refuses to mount: the DOM root is created but the visible UI is a single message explaining it's desktop-only. Between 600px and 900px it narrows; at 900px and below it takes the full viewport width. So if Xray seems to "vanish" on a small window, that's the floor — widen the window, don't hunt for a bug.
 
-> **A tool-only page that shouldn't reserve app real estate?** Suppress just the auto-open before `rf/init!` and drive Xray explicitly instead:
->
-> ```clojure
-> (require '[day8.re-frame2-xray.config :as xray-config])
-> (xray-config/configure! {:rf.xray/auto-open? false})
-> ```
->
-> This disables only the page-load open. The collectors, the keybinding, and explicit `(day8.re-frame2-xray.core/open!)` / `toggle!` calls all stay live. (Story's browser-test canvases use this — they don't want a permanent Xray column.)
+!!! note "No resize CSS required"
+
+    You do *not* wire any resize CSS: Xray auto-injects its own drag handle on the host's left edge (drag to widen, double-click to reset, arrow keys when focused). Width is driven by the `--rf-xray-inline-width` custom property (default `560px`); override it anywhere up the cascade — `:root { --rf-xray-inline-width: 720px; }` — and a user drag writes back to the same property.
+
+!!! note "A tool-only page that shouldn't reserve app real estate?"
+
+    Suppress just the auto-open before `rf/init!` and drive Xray explicitly instead:
+
+    ```clojure
+    (require '[day8.re-frame2-xray.config :as xray-config])
+    (xray-config/configure! {:rf.xray/auto-open? false})
+    ```
+
+    This disables only the page-load open. The collectors, the keybinding, and explicit `(day8.re-frame2-xray.core/open!)` / `toggle!` calls all stay live. (Story's browser-test canvases use this — they don't want a permanent Xray column.)
 
 None of this exists in production, which is by design. Xray and the trace machinery it reads are [elided](../glossary.md#elide) entirely in `:advanced` builds — remove the consumer and the framework is byte-for-byte unchanged. See [Configure dev and production builds](configure-dev-and-prod.md).
 
@@ -72,7 +82,9 @@ None of this exists in production, which is by design. Xray and the trace machin
 
 Before you debug anything, internalise the single idea the whole tool is built on. The shell has four layers stacked top to bottom: a **ribbon** (scope + nav controls), the **event list** (the ledger), a **tab bar**, and a **detail panel**. You select one event in the list, and every tab rebinds to it. Each tab is just a different *lens* on that one event: one shows the state diff, one shows the effects, one shows the renders, and so on.
 
-> **One event in, full insight out.** This is the whole thing. There is no "current state" view floating free of an event — every panel is bound to the *one focused event* in the list. Move the focus and the whole shell re-points at that moment. Once that clicks, the rest of Xray is just choosing which lens (tab) you want on the moment you've focused.
+!!! note "One event in, full insight out"
+
+    This is the whole thing. There is no "current state" view floating free of an event — every panel is bound to the *one focused event* in the list. Move the focus and the whole shell re-points at that moment. Once that clicks, the rest of Xray is just choosing which lens (tab) you want on the moment you've focused.
 
 Working in a multi-frame app? Pick the [frame](../glossary.md#frame) you're inspecting in the ribbon's frame picker. (The picker hides Xray's own tool frame by default; flip *Settings → General → "Show tool frames in picker"* if you ever need to see it.)
 
@@ -87,7 +99,9 @@ You're staring at bad state, and you don't yet know which event put it there. He
 
 That's it. Four keys — `Space`, `a`, `j`, `e` — find most bugs.
 
-> **Why walking backwards works.** Each event's diff is *just that event's* delta. So the question at every step is purely local — "did this one write the bad value?" — never "what's the running total of everything so far?" You're bisecting a timeline of small, independent changes. The first step where the bad value appears in the *after* column is, by definition, the event that wrote it. No reasoning about accumulation required.
+!!! note "Why walking backwards works"
+
+    Each event's diff is *just that event's* delta. So the question at every step is purely local — "did this one write the bad value?" — never "what's the running total of everything so far?" You're bisecting a timeline of small, independent changes. The first step where the bad value appears in the *after* column is, by definition, the event that wrote it. No reasoning about accumulation required.
 
 Once the core loop is muscle memory, three shortcuts make it faster:
 
@@ -97,7 +111,9 @@ Once the core loop is muscle memory, three shortcuts make it faster:
 
 Press `L` to snap back to live when you're done (`G` does the same — "go to head").
 
-> **Gotcha.** The ledger keeps the most recent 50 cascades per frame by default, and older ones age out. You can raise that depth in *Settings → Buffer* (the `:cascades-retained` knob) if a long session needs more history — at a heap cost. The same tab carries a "Clear buffer now" button if you want to wipe the slate mid-session.
+!!! warning "Gotcha"
+
+    The ledger keeps the most recent 50 cascades per frame by default, and older ones age out. You can raise that depth in *Settings → Buffer* (the `:cascades-retained` knob) if a long session needs more history — at a heap cost. The same tab carries a "Clear buffer now" button if you want to wipe the slate mid-session.
 
 ## Step 4: see why a subscription recomputed
 
@@ -112,7 +128,9 @@ Read it two ways:
 
 This is the [derivation graph](../glossary.md#the-derivation-graph) made visible: app-db at the root, views at the leaves, subscriptions as the nodes between. If the verdict turns out to be "correct, just too often", head to [Find and fix a slow view](fix-a-slow-view.md).
 
-> **For JavaScript developers — coming from React DevTools' "why did this render"?** Same question, deeper answer. React can tell you a component re-rendered and which prop changed. Xray follows the chain the whole way down: the view, the subscription that triggered it, the upstream subscriptions behind *that*, and finally the app-db path that actually moved this epoch. You read a causal chain, not just a leaf.
+??? info "For JavaScript developers"
+
+    Same question, deeper answer. React can tell you a component re-rendered and which prop changed. Xray follows the chain the whole way down: the view, the subscription that triggered it, the upstream subscriptions behind *that*, and finally the app-db path that actually moved this epoch. You read a causal chain, not just a leaf.
 
 ## Step 5: the other lenses
 
@@ -138,9 +156,13 @@ Everything so far is **passive** — selecting an old event rebases the panels t
 
 Focus the bad epoch and press `r` while the event list has focus (or click the epoch's `Reset` control on the tab ribbon). This rewinds the live app to the state the epoch left behind — app-db as it was *just after* that event committed, "as if the event had only now happened". It's a real write: the frame's whole state is restored atomically — app-db and the framework-owned [runtime-db](../glossary.md#runtime-db) beside it, machine snapshots and route included. Subscriptions recompute, and the UI repaints as it was. A rewind that can't be performed — because the epoch has aged out of the buffer, for instance — is refused with a stated reason rather than silently doing nothing.
 
-> **Rewind vs re-dispatch.** `r` rewinds *state* to an epoch. Its capital sibling, `R`, **re-dispatches** the focused event — it runs that same event vector again *now*, against current state, appending a fresh cascade to the ledger. Use `r` to get back to a moment; use `R` to re-run a single event and watch its cascade afresh (handy right after you hot-swap its handler at the REPL). Pinning a cascade you want to keep referring to is `*`.
+!!! note "Rewind vs re-dispatch"
 
-> **For JavaScript developers — rewind restores state, not the world.** Effects that already escaped — HTTP requests sent, writes to `localStorage` — happened and stay happened. Rewind is "put the app's *state* back to that point", not "undo the universe". If you know Redux DevTools' time travel, it's the same boundary: the store rewinds; side effects that already left the building do not come back.
+    `r` rewinds *state* to an epoch. Its capital sibling, `R`, **re-dispatches** the focused event — it runs that same event vector again *now*, against current state, appending a fresh cascade to the ledger. Use `r` to get back to a moment; use `R` to re-run a single event and watch its cascade afresh (handy right after you hot-swap its handler at the REPL). Pinning a cascade you want to keep referring to is `*`.
+
+??? info "For JavaScript developers"
+
+    Effects that already escaped — HTTP requests sent, writes to `localStorage` — happened and stay happened. Rewind is "put the app's *state* back to that point", not "undo the universe". If you know Redux DevTools' time travel, it's the same boundary: the store rewinds; side effects that already left the building do not come back.
 
 ## Step 7: jump to source from any panel
 
@@ -151,27 +173,31 @@ For most setups this Just Works with no configuration. There are two ways the ju
 1. **A dev-server endpoint (zero-config, preferred).** If your shadow-cljs `:dev-http` server is wired with re-frame2's open-in-editor handler, Xray `POST`s the file and line to it and the server launches your editor locally — the same trick Vite and react-dev-utils use. No editor configuration, no on-disk path baked into the bundle.
 2. **An `editor://` URI (fallback).** When no dev server answers (a static export, a non-shadow host, production-mode inspection), Xray falls back to building an `editor://file/<path>:<line>:<column>` URI and handing it to the browser.
 
-> **Pointing the chips at a different editor.** The default for the URI path is VS Code. To point the chips elsewhere, set it at boot:
->
-> ```clojure
-> (require '[day8.re-frame2-xray.config :as xray-config])
->
-> (xray-config/configure! {:rf.xray/editor :cursor})
-> ;; :vscode (default) · :cursor · :windsurf · :zed · :idea
-> ;; or {:custom "<uri-template>"} for an editor Xray doesn't know natively
-> ```
->
-> The custom template takes `{path}` / `{file}` / `{line}` / `{column}` placeholders, substituted at click time. An unknown editor keyword falls back to `:vscode` (so a typo still yields a clickable URI), and a source-coord with no file hides its chip entirely.
->
-> If your editor's URI path needs an absolute on-disk root prepended (because your source-coords are classpath-relative and your editor can't resolve them), set it once:
->
-> ```clojure
-> (xray-config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app"})
-> ```
->
-> This is only needed on the fallback URI path — the dev-server endpoint resolves paths on the dev machine at request time, so it needs no `:project-root`.
+!!! note "Pointing the chips at a different editor"
 
-> **Gotcha — nothing happens when you click a chip?** The default `vscode://` scheme only fires if VS Code is actually registered as a handler on your machine — otherwise the OS silently swallows the navigation and JavaScript can't even see it failed. Xray notices this case and, rather than leaving you clicking a dead chip, pops a small "No editor configured" toast with an **Open Settings** button that lands you on the editor picker. Set `:rf.xray/editor` once (above) — or, on a shared machine, pick yours per-operator in *Settings → General → "Click-to-source links open in"*, which overrides the host default for your browser only — and the chips light up.
+    The default for the URI path is VS Code. To point the chips elsewhere, set it at boot:
+
+    ```clojure
+    (require '[day8.re-frame2-xray.config :as xray-config])
+
+    (xray-config/configure! {:rf.xray/editor :cursor})
+    ;; :vscode (default) · :cursor · :windsurf · :zed · :idea
+    ;; or {:custom "<uri-template>"} for an editor Xray doesn't know natively
+    ```
+
+    The custom template takes `{path}` / `{file}` / `{line}` / `{column}` placeholders, substituted at click time. An unknown editor keyword falls back to `:vscode` (so a typo still yields a clickable URI), and a source-coord with no file hides its chip entirely.
+
+    If your editor's URI path needs an absolute on-disk root prepended (because your source-coords are classpath-relative and your editor can't resolve them), set it once:
+
+    ```clojure
+    (xray-config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app"})
+    ```
+
+    This is only needed on the fallback URI path — the dev-server endpoint resolves paths on the dev machine at request time, so it needs no `:project-root`.
+
+!!! warning "Gotcha — nothing happens when you click a chip?"
+
+    The default `vscode://` scheme only fires if VS Code is actually registered as a handler on your machine — otherwise the OS silently swallows the navigation and JavaScript can't even see it failed. Xray notices this case and, rather than leaving you clicking a dead chip, pops a small "No editor configured" toast with an **Open Settings** button that lands you on the editor picker. Set `:rf.xray/editor` once (above) — or, on a shared machine, pick yours per-operator in *Settings → General → "Click-to-source links open in"*, which overrides the host default for your browser only — and the chips light up.
 
 ## Static mode: inspect the registry without an event
 
@@ -203,12 +229,20 @@ Xray is keyboard-first, but you only need a handful of keys for everything above
 
 Don't memorise the table — `Cmd/Ctrl+K` opens a command palette where you can find any action by typing its name, and `?` pops a cheat-sheet. The keys are just the shortcuts you'll wear in over time.
 
-> **`r` does two things — but never ambiguously.** When focus is *in the event list*, `r` rewinds. When focus is *elsewhere*, `r` is the Routes-tab mnemonic. The list's own key handler wins when you're in the list; the tab-bar mnemonic wins otherwise. Same key, two scopes, no collision. Likewise `s`: the tab mnemonic in the tab bar, Settings globally.
+!!! note "`r` does two things — but never ambiguously"
+
+    When focus is *in the event list*, `r` rewinds. When focus is *elsewhere*, `r` is the Routes-tab mnemonic. The list's own key handler wins when you're in the list; the tab-bar mnemonic wins otherwise. Same key, two scopes, no collision. Likewise `s`: the tab mnemonic in the tab bar, Settings globally.
 
 ## When Xray isn't the tool
 
-> **The incident is in production.** Xray is dev-only by construction, so there is nothing to open. Production failures reach you through the always-on error surface instead: [Report errors in production](report-errors-in-production.md).
+!!! note "The incident is in production"
 
-> **The panel shows `REDACTED`.** Values you've classified as sensitive render redacted in Xray, exactly as they do on every other surface. That's working as intended, not a bug in the tool. By default Xray fails closed — `:sensitive?` events are dropped before they ever reach the buffer, and a `[● REDACTED N]` counter tells you how many. If you genuinely need to see them on a trusted-local machine, a host can widen the egress profile to `:rf.egress/local-raw` (`(xray-config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})`) — that reveal is itself recorded in the trace, and narrowing back scrubs the buffer. [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md) covers the classification.
+    Xray is dev-only by construction, so there is nothing to open. Production failures reach you through the always-on error surface instead: [Report errors in production](report-errors-in-production.md).
 
-> **Going deeper.** Xray is a pure consumer of re-frame2's structured [trace stream](../glossary.md#trace-stream) — it holds no privileged hook into the runtime, only the same instrumentation API any tool may read (Spec 009). That is why it compiles away cleanly in production: remove the consumer and the framework is unchanged. The "one event in, full insight out" model is the trace stream's natural shape made visible — each cascade is an immutable, fully-described value (dispatch, coeffects, effects, the reactive recompute graph), so every panel is just a different projection of the *same* data. [Time-travel](../glossary.md#time-travel) rewind follows from the same property: because each epoch's state transition is a value, restoring one is a write, not a replay. The boundary rewind respects — state comes back, escaped effects do not — is exactly the line between the pure reduction (recoverable) and the effects at its edges (already in the world).
+!!! note "The panel shows `REDACTED`"
+
+    Values you've classified as sensitive render redacted in Xray, exactly as they do on every other surface. That's working as intended, not a bug in the tool. By default Xray fails closed — `:sensitive?` events are dropped before they ever reach the buffer, and a `[● REDACTED N]` counter tells you how many. If you genuinely need to see them on a trusted-local machine, a host can widen the egress profile to `:rf.egress/local-raw` (`(xray-config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})`) — that reveal is itself recorded in the trace, and narrowing back scrubs the buffer. [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md) covers the classification.
+
+??? note "Going deeper"
+
+    Xray is a pure consumer of re-frame2's structured [trace stream](../glossary.md#trace-stream) — it holds no privileged hook into the runtime, only the same instrumentation API any tool may read (Spec 009). That is why it compiles away cleanly in production: remove the consumer and the framework is unchanged. The "one event in, full insight out" model is the trace stream's natural shape made visible — each cascade is an immutable, fully-described value (dispatch, coeffects, effects, the reactive recompute graph), so every panel is just a different projection of the *same* data. [Time-travel](../glossary.md#time-travel) rewind follows from the same property: because each epoch's state transition is a value, restoring one is a write, not a replay. The boundary rewind respects — state comes back, escaped effects do not — is exactly the line between the pure reduction (recoverable) and the effects at its edges (already in the world).

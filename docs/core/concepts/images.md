@@ -27,15 +27,23 @@ Those `reg-*` forms don't *run* anything. They write entries into the [**registr
 
 When you then create a frame *without* naming an image, that frame just resolves every lookup straight against the whole registrar — "everything I've registered." That implicit "all of it" selection is the **default image**: the conceptual zero-config selection you get for free. So an image, at its simplest, is just a *selection from the registrar* — and the default selects all of it.
 
-> **Heads-up — the default frame carries no sealed generation *yet*.** Conceptually the default image is "the whole registrar sealed into one set." Mechanically, a frame created with no `:images` key currently skips the sealing step entirely and resolves each lookup live against the shared registrar (the *absence-is-default* path). The difference is invisible to your events and subs — they see every registration either way — but it has one observable edge, covered below: the read-side accessors (`rf/frame-shadows`, `rf/frame-generation`) need a frame that *was* built from `:images`, so on a default-image frame they fail loud rather than reporting an empty result. (Wiring the omit-`:images` path to resolve a real sealed default generation is a tracked follow-up; until it lands, "default frame" means "resolves against the registrar," not "carries a generation.")
+!!! note "Heads-up — the default frame carries no sealed generation *yet*"
+
+    Conceptually the default image is "the whole registrar sealed into one set." Mechanically, a frame created with no `:images` key currently skips the sealing step entirely and resolves each lookup live against the shared registrar (the *absence-is-default* path). The difference is invisible to your events and subs — they see every registration either way — but it has one observable edge, covered below: the read-side accessors (`rf/frame-shadows`, `rf/frame-generation`) need a frame that *was* built from `:images`, so on a default-image frame they fail loud rather than reporting an empty result. (Wiring the omit-`:images` path to resolve a real sealed default generation is a tracked follow-up; until it lands, "default frame" means "resolves against the registrar," not "carries a generation.")
 
 The common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
 
-> **Coming from re-frame v1?** In v1 there was exactly one global registry, and every `reg-*` wrote straight into it — last write wins, no provenance. v2 keeps the registrar process-global but adds a selection step: `reg-*` writes the registrar (now remembering the authoring namespace as provenance), and a *frame* resolves a selected slice of that registrar at creation. For everyday code you feel no difference — the default image gives you v1's "see everything" behaviour. The new power only shows up when you want more than one slice.
+??? info "From re-frame v1"
 
-> **Coming from JavaScript modules?** Think of the registrar as your full set of module exports, and the default image as `import * from` everything. You don't normally think about it — until two modules export the same name and you need to be explicit about which one a particular consumer gets.
+    In v1 there was exactly one global registry, and every `reg-*` wrote straight into it — last write wins, no provenance. v2 keeps the registrar process-global but adds a selection step: `reg-*` writes the registrar (now remembering the authoring namespace as provenance), and a *frame* resolves a selected slice of that registrar at creation. For everyday code you feel no difference — the default image gives you v1's "see everything" behaviour. The new power only shows up when you want more than one slice.
 
-> **Heads-up.** "Default image" is the runtime's zero-config behaviour, not a value you author. Don't reach for `rf/image` to get the default — plain `reg-*` already gives it to you. In code, the default image is simply *a frame created with no `:images` key*. You never write the word "image" to get it.
+??? info "Coming from JavaScript modules?"
+
+    Think of the registrar as your full set of module exports, and the default image as `import * from` everything. You don't normally think about it — until two modules export the same name and you need to be explicit about which one a particular consumer gets.
+
+!!! note "Heads-up"
+
+    "Default image" is the runtime's zero-config behaviour, not a value you author. Don't reach for `rf/image` to get the default — plain `reg-*` already gives it to you. In code, the default image is simply *a frame created with no `:images` key*. You never write the word "image" to get it.
 
 ## When two registrations collide, it fails loud
 
@@ -43,7 +51,9 @@ The default image works only while ids are globally unique across everything tha
 
 That refusal is a feature. The registrar kept *both* descriptors, and assembly won't guess which one wins. You have three explicit ways out, and we'll meet each below: rename one id, narrow each frame to its own slice with an explicit image, or compose a later image that declares an exact replacement winner. The one thing the framework won't do is silently pick one and move on.
 
-> **Coming from re-frame v1?** This is the deliberate hardening over v1's last-write-wins registrar. In v1 the second `reg-event` of `:counter/inc` quietly clobbered the first, and you found out weeks later when the wrong handler ran in production. v2 keeps both and stops at assembly with a named error, before any event touches state. It [fails loud, not silent](../glossary.md#fail-loud-not-silent).
+??? info "From re-frame v1"
+
+    This is the deliberate hardening over v1's last-write-wins registrar. In v1 the second `reg-event` of `:counter/inc` quietly clobbered the first, and you found out weeks later when the wrong handler ran in production. v2 keeps both and stops at assembly with a named error, before any event touches state. It [fails loud, not silent](../glossary.md#fail-loud-not-silent).
 
 ## Naming an image: `rf/image`
 
@@ -61,7 +71,9 @@ When you do need to be explicit, `rf/image` builds an image *value*. Building on
 
 One thing to notice, because it trips people up: the selection chooses by **provenance** — *where a registration was written* — not by the keyword namespace of its id. A registration with id `:counter/inc` authored in `docs.quickstart.counter.basic` is selected because of the *file it lives in*, not because the keyword starts with `counter`.
 
-> **Coming from a bundler's globs?** `:select-ns` is a glob over module paths, the way a bundler's `include`/`exclude` globs pick source files — except it selects *already-loaded* registrations rather than reading from disk. The namespace must already be `require`d through ordinary `ns` dependencies; the glob only chooses from what the runtime already knows. It never loads code for you.
+??? info "Coming from a bundler's globs?"
+
+    `:select-ns` is a glob over module paths, the way a bundler's `include`/`exclude` globs pick source files — except it selects *already-loaded* registrations rather than reading from disk. The namespace must already be `require`d through ordinary `ns` dependencies; the glob only chooses from what the runtime already knows. It never loads code for you.
 
 ### The three image keys
 
@@ -75,7 +87,9 @@ An `rf/image` value carries **exactly three** public source keys, and nothing el
 
 An image with neither `:select-ns` nor `:registrations` is valid but empty — useful as a deliberate "no app registrations" image: `(rf/image {:id :test/empty})`.
 
-> **Gotcha — the image surface is *closed*, not open.** An unknown top-level key fails loud (`:rf.error/invalid-image`) rather than being silently ignored — so a typo'd key is a loud error you hear at construction, not a mystery you debug at runtime.
+!!! warning "Gotcha — the image surface is *closed*, not open"
+
+    An unknown top-level key fails loud (`:rf.error/invalid-image`) rather than being silently ignored — so a typo'd key is a loud error you hear at construction, not a mystery you debug at runtime.
 
 ### Narrowing the glob: `:include` and `:exclude`
 
@@ -95,18 +109,22 @@ You reach for `:exclude` when a recursive glob (`**`) sweeps in sibling namespac
                                  "day8.re-frame2-xray.test-helpers.**"]}})
 ```
 
-> **Going deeper.** The glob grammar is small and case-sensitive, and works on the dotted namespace path:
->
-> - a literal segment matches itself;
-> - `*` matches exactly one dot-free segment;
-> - `**` matches zero or more segments;
-> - a `*` *inside* a segment matches zero or more characters within that one segment, never crossing a `.` — so `*-cljs-test` matches the leaf of `app.feature.mount-cljs-test`.
->
-> Worked through: `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` (no leaf) or `docs.shared.widgets.forms.input` (two leaves); `docs.shared.**` matches all three.
->
-> The two legs — `:include` and `:exclude` — are deliberately asymmetric about matching *nothing*. An `:include` that matches nothing is an assembly error (`:rf.error/image-zero-match`): a typo, a forgotten `require`, or a dead-code-eliminated namespace becomes a loud failure rather than a silently-incomplete frame. An `:exclude` that matches nothing is a harmless no-op — so a production build that never loads the excluded test namespaces is unaffected, while the dev build still gets its collision-free narrowing. (`:exclude` applies only to glob-selected registrations, never to inline `:registrations`.)
+??? note "Going deeper"
 
-> **Coming from an older image spec?** There are no `:include-ns` / `:exclude-ns` sibling top-level keys, and no `:replace` / `:replace-standard` override keys. An `rf/image` carrying any of them fails loud (`:rf.error/invalid-image`) with a migration diagnostic. The mapping: `:include-ns` + `:exclude-ns` collapse into the one `:select-ns {:include … :exclude …}` map; `:replace` becomes "put the winner in a later image and read `rf/frame-shadows`" (the override story below); and there is no `:replace-standard` — framework standards are protected, and no app image may shadow them.
+    The glob grammar is small and case-sensitive, and works on the dotted namespace path:
+
+    - a literal segment matches itself;
+    - `*` matches exactly one dot-free segment;
+    - `**` matches zero or more segments;
+    - a `*` *inside* a segment matches zero or more characters within that one segment, never crossing a `.` — so `*-cljs-test` matches the leaf of `app.feature.mount-cljs-test`.
+
+    Worked through: `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` (no leaf) or `docs.shared.widgets.forms.input` (two leaves); `docs.shared.**` matches all three.
+
+    The two legs — `:include` and `:exclude` — are deliberately asymmetric about matching *nothing*. An `:include` that matches nothing is an assembly error (`:rf.error/image-zero-match`): a typo, a forgotten `require`, or a dead-code-eliminated namespace becomes a loud failure rather than a silently-incomplete frame. An `:exclude` that matches nothing is a harmless no-op — so a production build that never loads the excluded test namespaces is unaffected, while the dev build still gets its collision-free narrowing. (`:exclude` applies only to glob-selected registrations, never to inline `:registrations`.)
+
+??? info "Coming from an older image spec?"
+
+    There are no `:include-ns` / `:exclude-ns` sibling top-level keys, and no `:replace` / `:replace-standard` override keys. An `rf/image` carrying any of them fails loud (`:rf.error/invalid-image`) with a migration diagnostic. The mapping: `:include-ns` + `:exclude-ns` collapse into the one `:select-ns {:include … :exclude …}` map; `:replace` becomes "put the winner in a later image and read `rf/frame-shadows`" (the override story below); and there is no `:replace-standard` — framework standards are protected, and no app image may shadow them.
 
 ### Defining registrations inline: `:registrations`
 
@@ -125,9 +143,13 @@ Most human-authored code should stay with ordinary `reg-*` forms and select by p
                    (fn [db _] (:count db 0))]]}}))
 ```
 
-> **Going deeper.** Inline `:registrations` covers **exactly four** registrar kinds: `:reg-event`, `:reg-sub`, `:reg-fx`, `:reg-cofx` — the kinds a test double or generated slice realistically needs without a namespace. Every other section key (`:reg-interceptor`, `:reg-view`, `:reg-frame`, `:reg-route`, `:reg-flow`, …) fails loud with an unsupported-inline-kind diagnostic; those stay namespace-authored and come in via `:select-ns`. Inline `:reg-sub` accepts only the layer-1 db-reader shape `(fn [db query] …)`; signal-graph subs stay in source. Each entry lowers through its kind's own registrar parser, so a malformed inline descriptor fails exactly the way the corresponding `reg-*` call would. These are *descriptions* of registrations, never `reg-*` calls smuggled into a map.
+??? note "Going deeper"
 
-> **Gotcha — `:select-ns` and `:registrations` must be disjoint.** An image may carry both, but a single `(kind, id)` may not be *both* selected by provenance *and* defined inline in the same image — that's a within-image collision (`:rf.error/image-within-image-collision`), not an override. If you want an inline definition to *win over* a selected one, the inline definition goes in a **later** image and composes (see [Overriding a registration is a later image](#overriding-a-registration-is-a-later-image)), never as a second source for the same id in one image.
+    Inline `:registrations` covers **exactly four** registrar kinds: `:reg-event`, `:reg-sub`, `:reg-fx`, `:reg-cofx` — the kinds a test double or generated slice realistically needs without a namespace. Every other section key (`:reg-interceptor`, `:reg-view`, `:reg-frame`, `:reg-route`, `:reg-flow`, …) fails loud with an unsupported-inline-kind diagnostic; those stay namespace-authored and come in via `:select-ns`. Inline `:reg-sub` accepts only the layer-1 db-reader shape `(fn [db query] …)`; signal-graph subs stay in source. Each entry lowers through its kind's own registrar parser, so a malformed inline descriptor fails exactly the way the corresponding `reg-*` call would. These are *descriptions* of registrations, never `reg-*` calls smuggled into a map.
+
+!!! warning "Gotcha — `:select-ns` and `:registrations` must be disjoint"
+
+    An image may carry both, but a single `(kind, id)` may not be *both* selected by provenance *and* defined inline in the same image — that's a within-image collision (`:rf.error/image-within-image-collision`), not an override. If you want an inline definition to *win over* a selected one, the inline definition goes in a **later** image and composes (see [Overriding a registration is a later image](#overriding-a-registration-is-a-later-image)), never as a second source for the same id in one image.
 
 ## The id rule that makes it all work
 
@@ -152,7 +174,9 @@ Two images may both contain a `:counter/inc` event. Two live frames may *not* bo
 
 The reader sees one small vocabulary evolve across lessons instead of `:counter-v1/inc`, `:counter-v2/inc`, `:counter-v3/inc`. The image supplies the *meaning*; the frame ids keep the live *instances* apart.
 
-> **Coming from Redux?** An image is the set of reducers/selectors a store runs, lifted into a value you can name and compose — `combineReducers` if it returned *data* instead of a function, and could be assembled per-store. The key divergence: registration *names* are scoped to the image, so two stores can each define `:cart/add` meaning different things without a global collision. In Redux you'd reach for namespacing conventions or separate action-type constants; here the scope does it for you.
+??? info "Coming from Redux?"
+
+    An image is the set of reducers/selectors a store runs, lifted into a value you can name and compose — `combineReducers` if it returned *data* instead of a function, and could be assembled per-store. The key divergence: registration *names* are scoped to the image, so two stores can each define `:cart/add` meaning different things without a global collision. In Redux you'd reach for namespacing conventions or separate action-type constants; here the scope does it for you.
 
 ## The shape of every image decision
 
@@ -178,19 +202,21 @@ The rule is simple: **the later image in `:images` wins.** If two input images p
 
 A *within*-image collision is still an error — an image must resolve cleanly to one descriptor per `(kind, id)`. So to override, you compose a later image; you never put two definitions of one id inside one image.
 
-> **Going deeper.** Whatever the inputs, an image is always resolved into one **sealed image generation** before the frame runs an event: framework standard registrations added, collisions and references validated, the result frozen. Every lookup the frame makes resolves against that one sealed generation. Assembly is where a bad composition fails — and each failure carries a named error id you can `catch` and assert on:
->
-> | What's wrong | Error id |
-> |---|---|
-> | Two selected descriptors for one `(kind, id)` (different source namespaces) inside one image | `:rf.error/image-duplicate-id` |
-> | An inline entry colliding with a selected one (or two inline entries) in one image | `:rf.error/image-within-image-collision` |
-> | An `:include` glob that matches no loaded source namespace | `:rf.error/image-zero-match` |
-> | Two images sharing an `:id` in one composition | `:rf.error/image-duplicate-image-id` |
-> | An app registration colliding with a protected framework standard | `:rf.error/image-standard-replacement-forbidden` |
-> | A retired or unknown source key in an `rf/image` spec | `:rf.error/invalid-image` |
-> | `:images []` (empty composition) or a non-vector `:images` | `:rf.error/make-frame-bad-images` |
->
-> All caught *before any event touches state* — the payoff of making the registration set a value the framework can inspect up front. (`:images []` is an error because an empty vector almost always means "I meant to put images here and forgot." If you genuinely want a frame with no app registrations, pass one real empty image: `(rf/make-frame {:images [(rf/image {:id :test/empty})]})`, so the intent is on the page.)
+??? note "Going deeper"
+
+    Whatever the inputs, an image is always resolved into one **sealed image generation** before the frame runs an event: framework standard registrations added, collisions and references validated, the result frozen. Every lookup the frame makes resolves against that one sealed generation. Assembly is where a bad composition fails — and each failure carries a named error id you can `catch` and assert on:
+
+    | What's wrong | Error id |
+    |---|---|
+    | Two selected descriptors for one `(kind, id)` (different source namespaces) inside one image | `:rf.error/image-duplicate-id` |
+    | An inline entry colliding with a selected one (or two inline entries) in one image | `:rf.error/image-within-image-collision` |
+    | An `:include` glob that matches no loaded source namespace | `:rf.error/image-zero-match` |
+    | Two images sharing an `:id` in one composition | `:rf.error/image-duplicate-image-id` |
+    | An app registration colliding with a protected framework standard | `:rf.error/image-standard-replacement-forbidden` |
+    | A retired or unknown source key in an `rf/image` spec | `:rf.error/invalid-image` |
+    | `:images []` (empty composition) or a non-vector `:images` | `:rf.error/make-frame-bad-images` |
+
+    All caught *before any event touches state* — the payoff of making the registration set a value the framework can inspect up front. (`:images []` is an error because an empty vector almost always means "I meant to put images here and forgot." If you genuinely want a frame with no app registrations, pass one real empty image: `(rf/make-frame {:images [(rf/image {:id :test/empty})]})`, so the intent is on the page.)
 
 ## Reading what a frame is running
 
@@ -207,16 +233,20 @@ The most common read is **`rf/frame-shadows`** — the cross-image override repo
 
 An empty vector means nothing was overridden — so `(empty? (rf/frame-shadows frame))` is the assertion "this composition stacked cleanly, no surprises."
 
-> **Gotcha — the read side needs a frame built from `:images`.** `rf/frame-shadows` returns `[]` (no overrides) only for a frame that *was* composed from an `:images` vector. Aimed at a **default-image** frame — one created with no `:images` key — it has no sealed generation to read, so it **fails loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same is true of `rf/frame-generation` and the frame-targeted `{:frame …}` queries below. So this whole read side is for the explicit-image frames where a composition could surprise you; a default-image frame is the "I never composed anything, there's nothing to inspect" case by construction.
+!!! warning "Gotcha — the read side needs a frame built from `:images`"
 
-> **Going deeper.** Two more reads when the shadow report isn't enough. **`rf/frame-generation`** returns the whole sealed generation as inert data — `:rf.gen/resolver` (one descriptor per `(kind, id)`), `:rf.gen/images` (in `:images` order, later wins), `:rf.gen/kinds` (the kinds present), and `:rf.gen/shadows` (what `frame-shadows` reads). And **frame-targeted registrar queries** resolve *one* registration's metadata or the id set for *one* kind through this frame's image rather than the global registrar, by passing a `{:frame …}` map:
->
-> ```clojure
-> (rf/handler-ids {:frame :docs/main :kind :event})
-> (rf/handler-meta {:frame :docs/main :kind :sub :id :counter/value})
-> ```
->
-> A map argument is *always* a frame-targeted read — a query map without a `:frame` key is itself an error (`:rf.error/registrar-query-needs-frame`), so you can never accidentally read the global registrar when you meant a frame. The metadata carries `:rf.provenance/ns` — which source namespace each registration came from — so when two images both define `:counter/inc` you can see in data which one won and where it was authored. Every read takes a frame **id** or a frame **value** interchangeably, and every read fails loud (`:rf.error/frame-no-generation`) if the target isn't a live frame carrying a generation. When images form a *chain* over one `(kind, id)` — `[base override-a override-b]` — every loser names the **final** winner, never an intermediate one, so an assertion never walks a chain.
+    `rf/frame-shadows` returns `[]` (no overrides) only for a frame that *was* composed from an `:images` vector. Aimed at a **default-image** frame — one created with no `:images` key — it has no sealed generation to read, so it **fails loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same is true of `rf/frame-generation` and the frame-targeted `{:frame …}` queries below. So this whole read side is for the explicit-image frames where a composition could surprise you; a default-image frame is the "I never composed anything, there's nothing to inspect" case by construction.
+
+??? note "Going deeper"
+
+    Two more reads when the shadow report isn't enough. **`rf/frame-generation`** returns the whole sealed generation as inert data — `:rf.gen/resolver` (one descriptor per `(kind, id)`), `:rf.gen/images` (in `:images` order, later wins), `:rf.gen/kinds` (the kinds present), and `:rf.gen/shadows` (what `frame-shadows` reads). And **frame-targeted registrar queries** resolve *one* registration's metadata or the id set for *one* kind through this frame's image rather than the global registrar, by passing a `{:frame …}` map:
+
+    ```clojure
+    (rf/handler-ids {:frame :docs/main :kind :event})
+    (rf/handler-meta {:frame :docs/main :kind :sub :id :counter/value})
+    ```
+
+    A map argument is *always* a frame-targeted read — a query map without a `:frame` key is itself an error (`:rf.error/registrar-query-needs-frame`), so you can never accidentally read the global registrar when you meant a frame. The metadata carries `:rf.provenance/ns` — which source namespace each registration came from — so when two images both define `:counter/inc` you can see in data which one won and where it was authored. Every read takes a frame **id** or a frame **value** interchangeably, and every read fails loud (`:rf.error/frame-no-generation`) if the target isn't a live frame carrying a generation. When images form a *chain* over one `(kind, id)` — `[base override-a override-b]` — every loser names the **final** winner, never an intermediate one, so an assertion never walks a chain.
 
 ## Tests and stories: behaviour is the image, state is the frame
 
@@ -235,9 +265,13 @@ Tests and stories want controlled behaviour *and* controlled state. The image gi
 
 State setup is a *frame* concern — `:initial-events` (e.g. a leading `[:rf/set-db {…}]`), a restored frame-state value, or setup events. Behaviour setup is an *image* concern — select or override registrations before the frame runs. The two stay separate, which is exactly why a test can fix behaviour and history independently.
 
-> **Coming from Jest mocks or MSW?** If you've used `jest.mock` module mocks or MSW handlers, you know the pain of mutating a shared module registry and remembering to reset it between tests. The image avoids that entirely: the test double is a *value* you compose into a *fresh* frame, so there's no global to dirty and nothing to reset — the frame is discarded when the test ends.
+??? info "Coming from Jest mocks or MSW?"
 
-> **Going deeper.** The frame rides in the `{:frame …}` opts map — the uniform last-argument envelope `dispatch-sync` / `subscribe` accept. There is no positional `(dispatch-sync frame event)` form; the frame travels in the opts map. The opt accepts a frame **value** (the token `make-frame` returns) or a frame **id** keyword interchangeably. Targeting the frame value directly is the test/harness path; mounted product code targets a frame *id* through the same opt. Both are covered in [Frames](frames.md).
+    If you've used `jest.mock` module mocks or MSW handlers, you know the pain of mutating a shared module registry and remembering to reset it between tests. The image avoids that entirely: the test double is a *value* you compose into a *fresh* frame, so there's no global to dirty and nothing to reset — the frame is discarded when the test ends.
+
+??? note "Going deeper"
+
+    The frame rides in the `{:frame …}` opts map — the uniform last-argument envelope `dispatch-sync` / `subscribe` accept. There is no positional `(dispatch-sync frame event)` form; the frame travels in the opts map. The opt accepts a frame **value** (the token `make-frame` returns) or a frame **id** keyword interchangeably. Targeting the frame value directly is the test/harness path; mounted product code targets a frame *id* through the same opt. Both are covered in [Frames](frames.md).
 
 ## Overriding a registration is a later image
 
@@ -260,7 +294,9 @@ To override an existing `(kind, id)`, define the winning registration in a *late
 
 An override is always a *separate* image, never a second key in the same one. A cross-image shadow resolves (later wins) and is reported; you read the report and apply whatever policy you want.
 
-> **Gotcha — you cannot override a framework standard.** The one cross-image collision that still fails assembly is an app registration colliding with a framework **standard**. If it's application-owned, define the winner in a later image and read the shadow report. But if it's *how the frame executes registered entries* — queue ordering, the interceptor algorithm, app-db commit semantics — that's a protected standard (`:rf.error/image-standard-replacement-forbidden`), and no app image may shadow it. A standard encodes an execution invariant, not an app policy choice.
+!!! warning "Gotcha — you cannot override a framework standard"
+
+    The one cross-image collision that still fails assembly is an app registration colliding with a framework **standard**. If it's application-owned, define the winner in a later image and read the shadow report. But if it's *how the frame executes registered entries* — queue ordering, the interceptor algorithm, app-db commit semantics — that's a protected standard (`:rf.error/image-standard-replacement-forbidden`), and no app image may shadow it. A standard encodes an execution invariant, not an app policy choice.
 
 ## Hot reload swaps the image, keeps the memory
 
@@ -282,10 +318,14 @@ When you want to change a frame's image *composition* outright — swap one whol
 
 You hand it a frame (id or value) and a new `:images` vector — exactly the shape `make-frame` takes. It's composition-*replacing*, not member-patching: the whole vector is re-assembled into a fresh sealed generation and swapped onto the frame's record. Only the generation slot moves; app-db, runtime-db, queues, and still-valid subscription caches continue untouched.
 
-> **Going deeper.** The return value is a **reload report**. Its `:rf.reload/diff` partitions the `(kind, id)` space four ways — `:added`, `:changed`, `:removed`, `:retained` — between the old generation and the new, so the runtime invalidates only what actually moved (a sub whose definition didn't change keeps its cache). `:rf.reload/shadows` is the new composition's shadow report, the same shape `rf/frame-shadows` returns, so if a reload changes the override set you see it right there beside the diff. Reloading one frame never drags a sibling that happened to share a generation along with it — the swap is frame-targeted, and the old generation is never mutated. Re-assembling the new `:images` runs the same assembly gate as `make-frame`, so a bad new composition fails loud with the *same* error ids from the table above (a duplicate id, a zero-match include, …) — the swap is all-or-nothing, and a failed reload leaves the frame on its existing generation.
->
-> **Gotcha — `reload-images!` only targets an image-built frame.** Like the read-side accessors, it needs a frame that carries a generation. Aimed at a frame created with no `:images` key — a default-image frame — it has nothing to swap and **fails loud** with `:rf.error/reload-no-such-frame` (the error names the image-loaded frame ids it *could* have targeted). To re-point a default-image frame at a real composition, recreate it with `make-frame` (idempotent on a live id) carrying the `:images` you want, rather than reaching for `reload-images!`.
+??? note "Going deeper"
 
-> **Heads-up.** `reload-images!` is the explicit knob; the automatic `reg-*` re-eval path is what you actually lean on. Save a file and the affected frames pick up the change with no call from you. Reach for `reload-images!` only when you want to swap a frame's *whole composition* deliberately — a test that re-points a running frame at a different image stack, a tool driving a frame through several configurations, a story canvas trading one deck of registrations for another.
+    The return value is a **reload report**. Its `:rf.reload/diff` partitions the `(kind, id)` space four ways — `:added`, `:changed`, `:removed`, `:retained` — between the old generation and the new, so the runtime invalidates only what actually moved (a sub whose definition didn't change keeps its cache). `:rf.reload/shadows` is the new composition's shadow report, the same shape `rf/frame-shadows` returns, so if a reload changes the override set you see it right there beside the diff. Reloading one frame never drags a sibling that happened to share a generation along with it — the swap is frame-targeted, and the old generation is never mutated. Re-assembling the new `:images` runs the same assembly gate as `make-frame`, so a bad new composition fails loud with the *same* error ids from the table above (a duplicate id, a zero-match include, …) — the swap is all-or-nothing, and a failed reload leaves the frame on its existing generation.
+
+    **Gotcha — `reload-images!` only targets an image-built frame.** Like the read-side accessors, it needs a frame that carries a generation. Aimed at a frame created with no `:images` key — a default-image frame — it has nothing to swap and **fails loud** with `:rf.error/reload-no-such-frame` (the error names the image-loaded frame ids it *could* have targeted). To re-point a default-image frame at a real composition, recreate it with `make-frame` (idempotent on a live id) carrying the `:images` you want, rather than reaching for `reload-images!`.
+
+!!! note "Heads-up"
+
+    `reload-images!` is the explicit knob; the automatic `reg-*` re-eval path is what you actually lean on. Save a file and the affected frames pick up the change with no call from you. Reach for `reload-images!` only when you want to swap a frame's *whole composition* deliberately — a test that re-points a running frame at a different image stack, a tool driving a frame through several configurations, a story canvas trading one deck of registrations for another.
 
 And that's the whole shape. The same boundary that lets two examples on one page each own `:counter/inc` is the boundary that survives a file save: the image is a *value*, the runtime can diff two of them, and a frame can trade one for another without forgetting what it has lived through. Behaviour is the image; state is the frame; the events are the program — and once those three are separate things, every situation above is one move in different clothes: *different behaviour means a different image; same behaviour with a different history means the same image with a different frame.*

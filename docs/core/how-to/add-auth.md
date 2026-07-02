@@ -47,9 +47,13 @@ A page reload throws away app-db, so to stay logged in across refreshes the toke
 
 One [effect handler](../glossary.md#effect-handler), two behaviours, called from exactly one place each. That `:platforms #{:client}` is doing real work — see the next callout.
 
-> **Gotcha — this effect is client-only.** Under [SSR](../../ssr/glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and an `:auth.session/persist` row is a no-op rather than a crash.
+!!! warning "Gotcha — this effect is client-only"
 
-> **Why this matters — a localStorage token is readable by any script on your page.** If XSS is in your threat model, use the http-only cookie and drop this effect; the rest of the recipe stands unchanged. The slice, the guard, and the teardown never care *how* the credential was persisted — they only read it back from app-db.
+    Under [SSR](../../ssr/glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and an `:auth.session/persist` row is a no-op rather than a crash.
+
+!!! note
+
+    **Why this matters — a localStorage token is readable by any script on your page.** If XSS is in your threat model, use the http-only cookie and drop this effect; the rest of the recipe stands unchanged. The slice, the guard, and the teardown never care *how* the credential was persisted — they only read it back from app-db.
 
 ### Read the saved token back at boot
 
@@ -89,7 +93,9 @@ A provided coeffect needs an owner to stamp its value. For session restore that 
                     {:rf.cofx {:auth.session/token (read-jwt-from-storage)}}))
 ```
 
-> **Going deeper — the one-question test.** Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md)).
+??? note "Going deeper — the one-question test"
+
+    Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md)).
 
 ### Keep the secret out of traces
 
@@ -126,9 +132,13 @@ One token, one home. The classified `[:auth :token]` path holds it; the user map
 
 The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../../resources/glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed`'s retry is also closed to a fixed category set and writes never auto-retry — reads do.) Register is the same wiring with a different URL and draft.
 
-> **Gotcha — keep the credential out of the trace on the way *in*, too.** The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value (the [data-classification](../glossary.md#data-classification) model).
+!!! warning "Gotcha — keep the credential out of the trace on the way *in*, too"
 
-> **Going deeper — when to reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../../machines/glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/real-apps/realworld_http)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
+    The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value (the [data-classification](../glossary.md#data-classification) model).
+
+??? note "Going deeper — when to reach for a machine"
+
+    Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../../machines/glossary.md#machine) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/real-apps/realworld_http)). The tell: when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions. That's a state machine wearing a trench coat.
 
 ## 3. Decorate requests once, at the frame seam
 
@@ -180,13 +190,21 @@ That's all step 3 needs. But the same seam has a *response* side, and it's where
 
 An interceptor map carries **`:before`**, **`:after`**, or both — supply at least one, or registration is rejected fail-loud with `:rf.error/http-bad-interceptor`. (A no-op interceptor is almost always a typo, so the framework refuses to register it rather than letting it sit there doing nothing.)
 
-> **Gotcha — read the status from the failure map, not the top level.** The `:after` response is the public reply payload, discriminated by `:kind` (`:success` / `:failure`) — there is no top-level `:status`. A 4xx/5xx arrives as `{:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}`, so the HTTP status code is at `(get-in response [:failure :status])`, under the failure `:kind`. The full failure-category vocabulary is a closed set — `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, plus `:rf.http/decode-failure` / `:rf.http/accept-failure` / `:rf.http/aborted` (the set [Managed HTTP](../../async/http.md) documents). Branch on those, never on a parsed message.
+!!! warning "Gotcha — read the status from the failure map, not the top level"
 
-> **Going deeper — how the chain composes.** HTTP interceptors compose with the same onion shape as event [interceptors](../concepts/interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both legs, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure. If a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap any recoverable logic inside the interceptor itself.
+    The `:after` response is the public reply payload, discriminated by `:kind` (`:success` / `:failure`) — there is no top-level `:status`. A 4xx/5xx arrives as `{:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}`, so the HTTP status code is at `(get-in response [:failure :status])`, under the failure `:kind`. The full failure-category vocabulary is a closed set — `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, plus `:rf.http/decode-failure` / `:rf.http/accept-failure` / `:rf.http/aborted` (the set [Managed HTTP](../../async/http.md) documents). Branch on those, never on a parsed message.
 
-> **Gotcha — hot-reloading the interceptor.** Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you genuinely want a fresh end-of-chain slot.
+??? note "Going deeper — how the chain composes"
 
-> **One write site, not many.** The frame seam is the single write site for this decoration, so there's no per-request call site to forget — one forgotten wrapper around an `http-xhrio` map is one unauthenticated request, and there are no wrappers here. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
+    HTTP interceptors compose with the same onion shape as event [interceptors](../concepts/interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both legs, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure. If a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap any recoverable logic inside the interceptor itself.
+
+!!! warning "Gotcha — hot-reloading the interceptor"
+
+    Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you genuinely want a fresh end-of-chain slot.
+
+!!! note "One write site, not many"
+
+    The frame seam is the single write site for this decoration, so there's no per-request call site to forget — one forgotten wrapper around an `http-xhrio` map is one unauthenticated request, and there are no wrappers here. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
 
 ## 4. Guard the protected routes
 
@@ -254,9 +272,13 @@ Two helpers do the reading, and both are *pure* — they compute from their argu
 
 The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` — the public short-circuit primitive an interceptor's `:before` sets on its ctx — stops the original handler, so the protected slice never commits and its `:on-match` loads never fire. The guard then dispatches the login navigation itself.
 
-> **Gotcha — don't rewrite the event in place.** The runtime picks the handler from the *original* event id, so editing the event in `:before` would just run the wrong handler. Use skip-and-dispatch instead. And stash the target in app-db, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
+!!! warning "Gotcha — don't rewrite the event in place"
 
-> **Gotcha — a bad URL is a non-match, not a crash.** If `match-url` can't resolve a path — an unknown route, or path params that fail the route's `:params` schema (`:validation-failed? true`) — it returns a non-match (`nil`), and `nav-target` short-circuits the guard for that event. The runtime's own URL-change handler routes the same non-match to [`:rf.route/not-found`](../../routing/glossary.md#not-found). So a logged-out user pasting a garbage protected-looking URL lands on not-found, never inside a guarded slice.
+    The runtime picks the handler from the *original* event id, so editing the event in `:before` would just run the wrong handler. Use skip-and-dispatch instead. And stash the target in app-db, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
+
+!!! warning "Gotcha — a bad URL is a non-match, not a crash"
+
+    If `match-url` can't resolve a path — an unknown route, or path params that fail the route's `:params` schema (`:validation-failed? true`) — it returns a non-match (`nil`), and `nav-target` short-circuits the guard for that event. The runtime's own URL-change handler routes the same non-match to [`:rf.route/not-found`](../../routing/glossary.md#not-found). So a logged-out user pasting a garbage protected-looking URL lands on not-found, never inside a guarded slice.
 
 ### Wire the guard frame-wide
 
@@ -288,9 +310,13 @@ The init event from step 1 restores the saved session and classifies the token p
                     {:rf.cofx {:auth.session/token (read-jwt-from-storage)}}))
 ```
 
-> **From re-frame v1 (and a frame gotcha) — `reg-frame` is a create-and-register, atomically.** There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event cascade](../glossary.md#event-cascade) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (See [Frames](../concepts/frames.md).)
+??? info "From re-frame v1"
 
-> **Gotcha — exactly one frame owns the URL.** `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) is what makes this frame's `:rf.route/navigate` push to the browser address bar and makes Back/Forward dispatch back into it — and it's *exclusive*. A second frame that also declares `:url-bound? true` is rejected fail-loud with `:rf.error/duplicate-url-binding`. This matters the moment you run a sidecar app on the same page — [Xray](../glossary.md#xray), a story, a second mounted instance: leave the sidecar's frame URL-unbound so it routes in memory only and never fights your app for the URL. (The same isolation that lets a second logged-in tab keep its own token, from step 1, is what lets the sidecar coexist here.)
+    There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event cascade](../glossary.md#event-cascade) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (See [Frames](../concepts/frames.md).)
+
+!!! warning "Gotcha — exactly one frame owns the URL"
+
+    `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) is what makes this frame's `:rf.route/navigate` push to the browser address bar and makes Back/Forward dispatch back into it — and it's *exclusive*. A second frame that also declares `:url-bound? true` is rejected fail-loud with `:rf.error/duplicate-url-binding`. This matters the moment you run a sidecar app on the same page — [Xray](../glossary.md#xray), a story, a second mounted instance: leave the sidecar's frame URL-unbound so it routes in memory only and never fights your app for the URL. (The same isolation that lets a second logged-in tab keep its own token, from step 1, is what lets the sidecar coexist here.)
 
 ## 5. Bounce back after login
 
@@ -307,7 +333,9 @@ A guard's headline feature is returning the user to exactly where they were head
                          [:rf.route/navigate :app/home])]]})))
 ```
 
-> **Why this matters — read-and-clear, not just read.** A stash that lingers is a footgun. The user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consuming the stash in the same handler that reads it means the bounce target lives exactly as long as one login round-trip — no longer.
+!!! note "Why this matters — read-and-clear, not just read"
+
+    A stash that lingers is a footgun. The user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consuming the stash in the same handler that reads it means the bounce target lives exactly as long as one login round-trip — no longer.
 
 ## 6. Logout is a teardown
 
@@ -345,11 +373,17 @@ Now logout itself. There's one subtlety, and the ordering is the whole game: res
 
 `clear-scope` earns its keep: it removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, suppresses late replies (by scope-plus-generation checks), and emits a trace row explaining what was removed, aborted, and left alone. Every other scope stays intact, and there's no hand-maintained list of keys to forget (see [Server state: resources](../../resources/concepts.md)). Don't use resources? Drop that one `:fx` row and the rest stands.
 
-> **Going deeper — `resolve-resource-scope` is pure, and that's load-bearing.** It reads the resolver registry against a `db` value with no dispatch, no app-state mutation, and no trace. That's exactly why you can call it *inline* in the handler to capture `old-scope` before the clear. Note the `:cause :logout` on the payload: `clear-scope` records it in resource history so Xray can attribute the eviction. And there's **no `:snapshot-db` key** — a whole-db snapshot riding an event vector would be an egress-bearing record on traces.
+??? note "Going deeper — `resolve-resource-scope` is pure, and that's load-bearing"
 
-> **Gotcha — a nil scope is loud, not silent.** If the resolver returns `nil` at a `clear-scope` site — say the user was already gone — the runtime emits a loud diagnostic (`:rf.warning/resource-clear-scope-unresolved`) rather than a silent no-op. So a logout that quietly *fails* to clear a session's cache shows up in the trace, instead of leaking the previous user's feed and looking fine.
+    It reads the resolver registry against a `db` value with no dispatch, no app-state mutation, and no trace. That's exactly why you can call it *inline* in the handler to capture `old-scope` before the clear. Note the `:cause :logout` on the payload: `clear-scope` records it in resource history so Xray can attribute the eviction. And there's **no `:snapshot-db` key** — a whole-db snapshot riding an event vector would be an egress-bearing record on traces.
 
-> **Coming from TanStack Query?** This is `queryClient.clear()` with a scalpel instead of a sledgehammer. Rather than nuking the entire cache on logout, `clear-scope` evicts exactly the entries owned by the departing session's scope — derived from the *old* identity you captured before the clear — and leaves everything else (app-level config, public reads, a second logged-in frame) untouched.
+!!! warning "Gotcha — a nil scope is loud, not silent"
+
+    If the resolver returns `nil` at a `clear-scope` site — say the user was already gone — the runtime emits a loud diagnostic (`:rf.warning/resource-clear-scope-unresolved`) rather than a silent no-op. So a logout that quietly *fails* to clear a session's cache shows up in the trace, instead of leaking the previous user's feed and looking fine.
+
+??? info "Coming from TanStack Query?"
+
+    This is `queryClient.clear()` with a scalpel instead of a sledgehammer. Rather than nuking the entire cache on logout, `clear-scope` evicts exactly the entries owned by the departing session's scope — derived from the *old* identity you captured before the clear — and leaves everything else (app-level config, public reads, a second logged-in frame) untouched.
 
 ## Observe it in Xray
 

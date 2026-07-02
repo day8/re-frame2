@@ -37,9 +37,13 @@ Give the nodes you'll assert on a stable address at the view site — `th/testid
 
 `find-by-testid` returns the first node carrying that `:data-testid`; `text-content` collects the string leaves under it. Their generic siblings — `find-by-attr`, `find-all-by-testid`, `find-by-testid-prefix`, `attrs`, `children` — cover lists and custom attributes ("every node whose testid starts with `row-`").
 
-> **Gotcha — a tree that nests other views needs expanding.** A view that renders another view returns it as a *component reference* — `[cart-line item]`, a vector whose head is a function, not a tag. `th/expand-tree` recursively expands those references so your walk sees the real tags underneath. Run it first whenever you assert *through* a child view.
+!!! warning "Gotcha — a tree that nests other views needs expanding"
 
-> **Coming from React Testing Library?** `find-by-testid` / `text-content` are `getByTestId` / `textContent` — except the "render" was a plain function call, so there's no JSDOM to stand up and nothing to clean up. The query API is deliberately smaller: you're walking a value, not a live document.
+    A view that renders another view returns it as a *component reference* — `[cart-line item]`, a vector whose head is a function, not a tag. `th/expand-tree` recursively expands those references so your walk sees the real tags underneath. Run it first whenever you assert *through* a child view.
+
+??? info "Coming from React Testing Library?"
+
+    `find-by-testid` / `text-content` are `getByTestId` / `textContent` — except the "render" was a plain function call, so there's no JSDOM to stand up and nothing to clean up. The query API is deliberately smaller: you're walking a value, not a live document.
 
 ## 2. Views that subscribe: the app fixture
 
@@ -57,7 +61,9 @@ A presentational view takes data as arguments. A *connected* view subscribes and
 
 `expect-text` renders the stashed root view, finds the testid, and asserts its text through `clojure.test/is` — the view-side sibling of `ts/assert-path-equals`. (A 3-arity form takes an explicit tree when you're not using the fixture.)
 
-> **Gotcha — `:install` registrations land in the process-global registrar.** The fixture destroys its *frame*, but registrations are global, exactly as [Test an event handler](test-an-event-handler.md#4-the-trap-frames-dont-isolate-registrations) warns. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top so one test's registrations can't leak into the next.
+!!! warning "Gotcha — `:install` registrations land in the process-global registrar"
+
+    The fixture destroys its *frame*, but registrations are global, exactly as [Test an event handler](test-an-event-handler.md#4-the-trap-frames-dont-isolate-registrations) warns. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top so one test's registrations can't leak into the next.
 
 ## 3. Drive the wiring
 

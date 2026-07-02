@@ -10,7 +10,9 @@ re-frame2 closes that gap with an **always-on error substrate**: a small slice o
 
 This guide builds a production bridge to Sentry one step at a time: register the listener, gate it so it can't leak dev data, then branch correctly on every record shape the substrate hands you. We start with the smallest thing that works and add safety as we go.
 
-> **Coming from plain JavaScript?** You'd reach for `Sentry.init` plus the global `window.onerror` hook. That gives you the exception and its stack — genuinely useful — but it can't tell you what the app was actually *doing* when things went sideways. re-frame2's record carries the in-flight event alongside the throwable, so your issue tracker shows the *cause*, not just the crash site. The slogan: **production keeps the dossiers, not the firehose.**
+??? info "Coming from plain JavaScript?"
+
+    You'd reach for `Sentry.init` plus the global `window.onerror` hook. That gives you the exception and its stack — genuinely useful — but it can't tell you what the app was actually *doing* when things went sideways. re-frame2's record carries the in-flight event alongside the throwable, so your issue tracker shows the *cause*, not just the crash site. The slogan: **production keeps the dossiers, not the firehose.**
 
 ## 1. Register a listener {#register-a-listener}
 
@@ -32,11 +34,17 @@ One verb, `register-listener!`. Its leading `:errors` keyword names the **stream
 
 That's a working bridge — but it's naive in three ways we'll fix in turn: it fires in dev too, it assumes every record carries an `:exception` (some don't), and it ships nothing useful about *what* the app was doing. The rest of this page is those three fixes.
 
-> **Gotcha — the `:trace` stream is not a production wire.** There's a *different* stream, `register-listener! :trace`, and it's tempting because it carries everything. Don't reach for it here: it's dev-only and gets **elided** in a production build (`:advanced` + `goog.DEBUG=false`). A monitor built on `:trace` works beautifully on your laptop and ships *nothing* in production — and you discover the gap mid-incident, which is the worst possible time. The `:errors` stream is the always-on substrate that survives elision. That's the one.
+!!! warning "Gotcha — the `:trace` stream is not a production wire"
 
-> **From re-frame v1.** v1 had no always-on error wire — production monitoring meant wrapping `dispatch` yourself or hanging off `window.onerror`. The four-member `register-listener!` vocabulary (`:trace`, `:events`, `:errors`, `:epoch`) is new in v2, and two of those streams (`:events`, `:errors`) are *designed* to survive elision. There's no bare-trace default and no compatibility alias: an unknown stream [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/unknown-listener-stream`.
+    There's a *different* stream, `register-listener! :trace`, and it's tempting because it carries everything. Don't reach for it here: it's dev-only and gets **elided** in a production build (`:advanced` + `goog.DEBUG=false`). A monitor built on `:trace` works beautifully on your laptop and ships *nothing* in production — and you discover the gap mid-incident, which is the worst possible time. The `:errors` stream is the always-on substrate that survives elision. That's the one.
 
-> **Coming from Redux?** The closest analogue is a logging / crash-reporting middleware you `applyMiddleware` once at store creation. The difference: this listener sits *outside* the data path entirely. It observes failures; it never sits in the reducer chain; it has no power to swallow, retry, or rewrite the action. It's a read-only seat by design — more on that in §5.
+??? info "From re-frame v1"
+
+    v1 had no always-on error wire — production monitoring meant wrapping `dispatch` yourself or hanging off `window.onerror`. The four-member `register-listener!` vocabulary (`:trace`, `:events`, `:errors`, `:epoch`) is new in v2, and two of those streams (`:events`, `:errors`) are *designed* to survive elision. There's no bare-trace default and no compatibility alias: an unknown stream [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/unknown-listener-stream`.
+
+??? info "Coming from Redux?"
+
+    The closest analogue is a logging / crash-reporting middleware you `applyMiddleware` once at store creation. The difference: this listener sits *outside* the data path entirely. It observes failures; it never sits in the reducer chain; it has no power to swallow, retry, or rewrite the action. It's a read-only seat by design — more on that in §5.
 
 ## 2. Gate it so it can't fire in dev {#gate-it}
 
@@ -112,7 +120,9 @@ So why can the `:exception` be absent? Most failures carry the raw host throwabl
 
 Because these have no throwable, your bridge falls through to `captureMessage` — the `if-let` handles it automatically. And there's a second reason to branch on the category keyword rather than the message: the `:reason` string is human-facing, and its exact wording is allowed to change between releases. The structured slots are the contract; lean on those, not the prose.
 
-> **One slot worth grabbing — `:source-coord`.** When the failing handler or subscription was registered through a `reg-*` macro, the record carries a `:source-coord` of `{:ns … :file … :line …}` — the definition site of the *broken* component. It's the production analogue of the jump-to-source chip [Xray](../glossary.md#xray) shows in dev, and it survives elision on purpose: the coord rides a separate always-on registry, *not* the public registration metadata (which is stripped of coord keys under `goog.DEBUG=false`). Ship it as `:extra` (above) and your Sentry issue links straight back to the line; it also makes a stabler fingerprint than a stack trace whose frames shift between builds. The slot is simply **absent** when the component was registered programmatically (no macro to capture the coord) — so read it defensively, never assume it's there.
+!!! note "One slot worth grabbing — `:source-coord`"
+
+    When the failing handler or subscription was registered through a `reg-*` macro, the record carries a `:source-coord` of `{:ns … :file … :line …}` — the definition site of the *broken* component. It's the production analogue of the jump-to-source chip [Xray](../glossary.md#xray) shows in dev, and it survives elision on purpose: the coord rides a separate always-on registry, *not* the public registration metadata (which is stripped of coord keys under `goog.DEBUG=false`). Ship it as `:extra` (above) and your Sentry issue links straight back to the line; it also makes a stabler fingerprint than a stack trace whose frames shift between builds. The slot is simply **absent** when the component was registered programmatically (no macro to capture the coord) — so read it defensively, never assume it's there.
 
 ### Name the *failing* component, not just the event {#name-the-failing-component}
 
@@ -123,13 +133,17 @@ Here's the subtlety that's the difference between a useful Sentry issue and a us
 
 For exactly these two, the record **also** carries `:failing-id` (the broken interceptor / cofx id) and `:reason` (a short human sentence). The §3 code already ships `:failing-id` as a tag — it's `nil` and harmless on every other category. That one tag is what lets you group "*this* interceptor is failing across many events" instead of staring at a smear of unrelated event-ids. Without it, an off-box shipper would see the category and the event but *not which interceptor or cofx broke* — because the classified component id otherwise rides only the dev-trace tags, which are elided under `goog.DEBUG=false`.
 
-> **Going deeper.** The error payload is a *tagged union* (a sum type) keyed by `(:error record)`, with `:exception` an *optional* field rather than a guaranteed one — so a correct consumer is a fold over the discriminant with a presence-check on the optional. The substrate guarantees the tag is a stable closed vocabulary while leaving the `:reason` prose free to vary: the classic move of pinning the machine-readable variant tag and treating the human string as a non-contractual rendering. Branch on the tag, project the optional, ignore the prose.
+??? note "Going deeper"
+
+    The error payload is a *tagged union* (a sum type) keyed by `(:error record)`, with `:exception` an *optional* field rather than a guaranteed one — so a correct consumer is a fold over the discriminant with a presence-check on the optional. The substrate guarantees the tag is a stable closed vocabulary while leaving the `:reason` prose free to vary: the classic move of pinning the machine-readable variant tag and treating the human string as a non-contractual rendering. Branch on the tag, project the optional, ignore the prose.
 
 ### Don't scrub the `:event` yourself {#dont-scrub-the-event}
 
 You don't have to redact the event vector by hand to keep secrets out of Sentry. The substrate runs it through `re-frame.elision/elide-wire-value` once before fan-out, with the off-box defaults. Paths your app classified as sensitive arrive as `:rf/redacted`, and oversized payloads arrive as the `:rf.size/large-elided` marker rather than the full thing. That's [data classification](../glossary.md#data-classification) doing its job at the egress boundary ([Keep secrets out of traces](keep-secrets-out-of-traces.md)).
 
-> **Gotcha — the raw `:exception` is *not* scrubbed.** The `:event` vector is wire-elided, but the host throwable rides **raw** — deliberately, because a post-mortem shipper needs the stack to be useful. The consequence: a value that landed in an exception message or `ex-data` is *not* redacted on this surface. This is the documented exception to the always-on substrate's "structured data only" rule. If that worries you for a given frame, the projected frame sink (§8) drops the `:exception` for you under its `:rf.egress/public-error` profile.
+!!! warning "Gotcha — the raw `:exception` is *not* scrubbed"
+
+    The `:event` vector is wire-elided, but the host throwable rides **raw** — deliberately, because a post-mortem shipper needs the stack to be useful. The consequence: a value that landed in an exception message or `ex-data` is *not* redacted on this surface. This is the documented exception to the always-on substrate's "structured data only" rule. If that worries you for a given frame, the projected frame sink (§8) drops the `:exception` for you under its `:rf.egress/public-error` profile.
 
 ## 4. Handle the frame-teardown report {#handle-the-frame-teardown-report}
 
@@ -177,9 +191,13 @@ Notice where the throwables live: **inside** the `:hook-failures` vector, one pe
 
 (`mapv` walks `:hook-failures` and builds a new vector — one summary map per failed hook. `some->` guards against a missing `:exception`: it calls `ex-message` only when the exception is non-`nil`, returning `nil` instead of crashing otherwise.) Each `:hook-failures` entry names the cleanup hook that threw (`:hook`), carries *that hook's* throwable (`:exception`), and stamps `:where :safe-call-hook!` for provenance. Teardown stays best-effort by design — there's no slot here you act on; the disposition is a fixed property of the category.
 
-> **Why a single bounded report?** A frame destroy may run *many* optional cleanup hooks, several of which could throw. The runtime *could* fan out one error per failed hook — but on a long-lived SSR host that destroys a frame per request, that's a flood pointed straight at your error shipper. Instead it accumulates failures into one bounded record with a `:hook-failures` vector. You keep the which-hooks-failed-together correlation (external shippers won't reliably re-group it), and you keep your error budget. The destroy *is* the fact; the hooks are detail rows. It's also **emit-safe on a partial teardown**: entries are flushed through a finally-shaped boundary, so even if teardown aborts after hook 3 of 7, the entries collected so far still ship.
+!!! note "Why a single bounded report?"
 
-> **SSR categories ride the same union.** On the [server-side-rendering](../../ssr/glossary.md#ssr) tier, a handful of non-event categories arrive on this stream: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` / `:event-id`, each has its own flat keys, and some carry an `:exception` while others don't — one more reason the structural branch checks `:exception` presence rather than assuming it.
+    A frame destroy may run *many* optional cleanup hooks, several of which could throw. The runtime *could* fan out one error per failed hook — but on a long-lived SSR host that destroys a frame per request, that's a flood pointed straight at your error shipper. Instead it accumulates failures into one bounded record with a `:hook-failures` vector. You keep the which-hooks-failed-together correlation (external shippers won't reliably re-group it), and you keep your error budget. The destroy *is* the fact; the hooks are detail rows. It's also **emit-safe on a partial teardown**: entries are flushed through a finally-shaped boundary, so even if teardown aborts after hook 3 of 7, the entries collected so far still ship.
+
+!!! note "SSR categories ride the same union"
+
+    On the [server-side-rendering](../../ssr/glossary.md#ssr) tier, a handful of non-event categories arrive on this stream: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` / `:event-id`, each has its own flat keys, and some carry an `:exception` while others don't — one more reason the structural branch checks `:exception` presence rather than assuming it.
 
 ## 5. Know what survives elision {#what-survives-elision}
 
@@ -189,9 +207,13 @@ It's worth being precise about what's still running in production, because the l
 - **Still firing:** this error substrate (the `:errors` stream); its event-emit sibling `register-listener! :events` (§7); and an opt-in Performance API channel behind its own compile-time flag.
 - **The listener observes; it never steers.** What to *do* about a failure — recover, retry, fall back — is decided by the framework's typed per-category default ([Errors: dossiers, not log lines](../concepts/errors.md)), not by your listener: frame-destroyed recovers and emits, a failed subscription returns `nil`, a thrown handler [fails loud](../glossary.md#fail-loud-not-silent) without crashing the app. There is no error *hook* that swallows, substitutes, or re-runs. Your listener is a read-only seat, full stop.
 
-> **Recovery and observation are separate.** There is no lever for crash handling that catches inside an interceptor's `:after` and rewrites the context. re-frame2 separates *recovery* (a fixed per-category framework default) from *observation* (your read-only listener). You can't swallow or retry from the listener; recovery already happened before your `fn` ran.
+!!! note "Recovery and observation are separate"
 
-> **Gotcha — flip the JVM gate on an SSR host.** On the JVM the diagnostic gate defaults **on**, the opposite of what you want in production. A production SSR host must set `-Dre-frame.debug=false` explicitly to shed the dev-verbose overhead (otherwise it retains user input in trace rings, per request). The good news: the error substrate fires under *both* settings, so this bridge keeps working there regardless — flipping the gate is purely about cost, not coverage.
+    There is no lever for crash handling that catches inside an interceptor's `:after` and rewrites the context. re-frame2 separates *recovery* (a fixed per-category framework default) from *observation* (your read-only listener). You can't swallow or retry from the listener; recovery already happened before your `fn` ran.
+
+!!! warning "Gotcha — flip the JVM gate on an SSR host"
+
+    On the JVM the diagnostic gate defaults **on**, the opposite of what you want in production. A production SSR host must set `-Dre-frame.debug=false` explicitly to shed the dev-verbose overhead (otherwise it retains user input in trace rings, per request). The good news: the error substrate fires under *both* settings, so this bridge keeps working there regardless — flipping the gate is purely about cost, not coverage.
 
 ## 6. Verify it in dev {#verify-it-in-dev}
 
@@ -237,7 +259,9 @@ The `:outcome` slot earns its keep, because it reports the dispatch result acros
 
 The two streams pair naturally: `:events` tells you *something is wrong* (a spike of `:error` / `:rolled-back` outcomes on your dashboard); `:errors` tells you *what* (the throwable and its stack, ready for the issue tracker).
 
-> **Coming from TanStack Query?** Think of `:events` as the per-query lifecycle telemetry you'd feed a metrics dashboard, and `:errors` as the crash channel you'd feed an issue tracker — except here they're two streams of one verb, differentiated by data, not two separate libraries you bolt on.
+??? info "Coming from TanStack Query?"
+
+    Think of `:events` as the per-query lifecycle telemetry you'd feed a metrics dashboard, and `:errors` as the crash channel you'd feed an issue tracker — except here they're two streams of one verb, differentiated by data, not two separate libraries you bolt on.
 
 ## 8. Prefer the frame sink for metrics and privacy-bound egress {#prefer-the-frame-sink}
 
@@ -277,4 +301,6 @@ The `:rf.egress/profile` on each entry is load-bearing, and it's the one slot th
 
 The mental split: the corpus-wide `:errors` listener is the global black-box recorder (raw exceptions, one fan-out per process, *unprojected*); the frame `:observability` sink is the per-frame, policy-aware egress for metrics and projected diagnostics. Crash reporting that needs the host stack wants the former; dashboards and privacy-policy-bound error egress want the latter.
 
-> **Gotcha — frameless records reach only the corpus-wide listener.** One record type the sink *can't* carry is a **frameless** (`:frame nil`) record — the pre-frame SSR hydration-parse path and `:rf.error/no-frame-context` — because there's no owning frame to supply a policy. Those reach the corpus-wide `:errors` listener only. It's the other reason a black-box `:errors` listener stays useful even when you've gone all-in on frame sinks.
+!!! warning "Gotcha — frameless records reach only the corpus-wide listener"
+
+    One record type the sink *can't* carry is a **frameless** (`:frame nil`) record — the pre-frame SSR hydration-parse path and `:rf.error/no-frame-context` — because there's no owning frame to supply a policy. Those reach the corpus-wide `:errors` listener only. It's the other reason a black-box `:errors` listener stays useful even when you've gone all-in on frame sinks.

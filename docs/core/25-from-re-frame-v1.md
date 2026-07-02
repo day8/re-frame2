@@ -16,7 +16,9 @@ The opinionated stance hasn't moved either: one source of truth, data over APIs 
 
 That's why your v1 code reads as v2 code on the first pass. A `reg-sub` is a `reg-sub`. A [hiccup](glossary.md#hiccup) view — Clojure's vectors-as-HTML notation, `[:div ...]` — is still a hiccup view. The migration is not a rewrite — it's a *sweep*: a bounded set of mechanical renames, a smaller set of judgment calls, and a few new shapes you choose to adopt. The framework counts "40-plus rules," and that number sounds alarming, but the vast majority are find-and-replace, and a tool does them for you.
 
-> **Coming from a React 17→18 upgrade?** Think of this less like that — where concurrent rendering shifted runtime behaviour under you — and more like flipping on TypeScript's `strict` flag. The semantics you relied on are almost all intact; v2 mostly stops *silently swallowing* the things v1 let slide (an ambient frame, an unrecorded clock read) and asks you to say them out loud. Strictness, not rearchitecture — with one genuine runtime-behaviour exception, the run-to-completion dispatch change flagged below.
+??? info "Coming from a React 17→18 upgrade?"
+
+    Think of this less like that — where concurrent rendering shifted runtime behaviour under you — and more like flipping on TypeScript's `strict` flag. The semantics you relied on are almost all intact; v2 mostly stops *silently swallowing* the things v1 let slide (an ambient frame, an unrecorded clock read) and asks you to say them out loud. Strictness, not rearchitecture — with one genuine runtime-behaviour exception, the run-to-completion dispatch change flagged below.
 
 ## The one tool: don't do this by hand
 
@@ -31,7 +33,9 @@ The workflow is four steps:
 
 The rest of this chapter is orientation. It gives you the mental model of what the skill is doing, so that when you read a diff at step 3 and ask "what kind of thing am I looking at?", you'll have a category to slot it into. The exhaustive rule list lives in the skill; this is the *why* behind it.
 
-> **The one rule that keeps it honest: don't invent migration rules.** The skill's cardinal rule is exactly that — if a failure doesn't match a known shape, it surfaces it for human review instead of guessing. That's the load-bearing safety property of the whole sweep: it does the things it's *sure* of, and asks about the rest. You'll see this rule invoked again and again below.
+!!! note "The one rule that keeps it honest: don't invent migration rules"
+
+    The skill's cardinal rule is exactly that — if a failure doesn't match a known shape, it surfaces it for human review instead of guessing. That's the load-bearing safety property of the whole sweep: it does the things it's *sure* of, and asks about the rest. You'll see this rule invoked again and again below.
 
 ## Step one of the sweep: the deps
 
@@ -44,9 +48,13 @@ re-frame2 is **pay-as-you-go**: capabilities ship as separate artefacts, so unus
 
 The skill handles every part of this. The list is here so you know what's coming.
 
-> **Gotcha — two things are forced *before* you start, and the skill checks them first.** The "settle the migration before upgrading anything else" advice has two carve-outs that aren't optional. **First, a React-19 / Reagent-2 floor.** re-frame2's adapters target React 19 and the Reagent bridge runs on Reagent 2.x, so a React-17/18 project bumps as part of the same change — and if a component library you depend on has no React-19 build, that's a genuine go/no-go blocker the skill surfaces up front (wait for a release, replace it, vendor a patch, or verify it empirically under forced React 19), not a surprise inside a failed compile. **Second, certain v1 add-ons stop compiling the instant re-frame2 is on the classpath.** `http-fx`, `async-flow-fx`, `undo`, and `forward-events-fx` all reference `re-frame.core/console`, which v2 removed with no shim — so the build fails with an unresolved `re-frame.core/console` until each is removed or converted (`http-fx` onto managed HTTP, covered below; `async-flow-fx`'s orchestration sequences onto state machines via `reg-machine`; `undo` re-implemented on app-db snapshots or epoch time-travel). "Drop in re-frame2 and modernise the add-ons later" is therefore not available: you must act on them at the compile gate, even if converting fully comes later.
+!!! warning "Gotcha"
 
-> **Coming from npm's all-or-nothing bundles?** The closest mental model is tree-shaking made explicit. Instead of pulling one fat `re-frame` package and trusting the bundler to drop what you don't import, you pull only the artefacts whose features you use. The payoff is that bundle isolation is a contract, not a hope: code you didn't add can't sneak into production.
+    The "settle the migration before upgrading anything else" advice has two carve-outs that aren't optional. **First, a React-19 / Reagent-2 floor.** re-frame2's adapters target React 19 and the Reagent bridge runs on Reagent 2.x, so a React-17/18 project bumps as part of the same change — and if a component library you depend on has no React-19 build, that's a genuine go/no-go blocker the skill surfaces up front (wait for a release, replace it, vendor a patch, or verify it empirically under forced React 19), not a surprise inside a failed compile. **Second, certain v1 add-ons stop compiling the instant re-frame2 is on the classpath.** `http-fx`, `async-flow-fx`, `undo`, and `forward-events-fx` all reference `re-frame.core/console`, which v2 removed with no shim — so the build fails with an unresolved `re-frame.core/console` until each is removed or converted (`http-fx` onto managed HTTP, covered below; `async-flow-fx`'s orchestration sequences onto state machines via `reg-machine`; `undo` re-implemented on app-db snapshots or epoch time-travel). "Drop in re-frame2 and modernise the add-ons later" is therefore not available: you must act on them at the compile gate, even if converting fully comes later.
+
+??? info "Coming from npm's all-or-nothing bundles?"
+
+    The closest mental model is tree-shaking made explicit. Instead of pulling one fat `re-frame` package and trusting the bundler to drop what you don't import, you pull only the artefacts whose features you use. The payoff is that bundle isolation is a contract, not a hope: code you didn't add can't sneak into production.
 
 ## The mechanical renames
 
@@ -74,19 +82,25 @@ The mapping is deterministic, which is why it's codemod-able:
 
 For the common pure-state handler, a nice habit on the way through is to lift the body into a plain `(defn step [db] …)` and register `(fn [{:keys [db]} _] {:db (step db)})` — the state transition stays bare and testable, the handler stays one line.
 
-> **Coming from Redux Toolkit?** This is the same instinct as `createSlice` collapsing reducer cases into one place. v1's `reg-event-db` was the convenient form that turned awkward the instant you needed a thunk; v2's single `reg-event` is the always-honest form — a handler is a function of the world that returns a *description* of the next world. You return `{:db …}` the way an RTK reducer mutates `state`, except it stays a pure value.
+??? info "Coming from Redux Toolkit?"
+
+    This is the same instinct as `createSlice` collapsing reducer cases into one place. v1's `reg-event-db` was the convenient form that turned awkward the instant you needed a thunk; v2's single `reg-event` is the always-honest form — a handler is a function of the world that returns a *description* of the next world. You return `{:db …}` the way an RTK reducer mutates `state`, except it stays a pure value.
 
 ### Registrar imports
 
 Some v1 code requires `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, or `re-frame.alpha` directly. That reached past the front door, and v2 closes it. The single-import contract is `(:require [re-frame.core :as rf])`. Direct access to `re-frame.db/app-db` was always off-contract and is now firmly so. The accessor is `(rf/app-db-value frame-id)`, which names the [frame](glossary.md#frame) and returns a plain map.
 
-> **Going deeper.** This tightening is the same reason chapter 18's frames work at all: when there can be N isolated app-db instances, "the global `app-db` atom" stops being a coherent thing to reach for. The contract *has* to be a function call that names *which* frame you mean — [identity is carried, not found](glossary.md#frame-identity-is-carried-not-found), an argument rather than ambient global state.
+??? note "Going deeper"
+
+    This tightening is the same reason chapter 18's frames work at all: when there can be N isolated app-db instances, "the global `app-db` atom" stops being a coherent thing to reach for. The contract *has* to be a function call that names *which* frame you mean — [identity is carried, not found](glossary.md#frame-identity-is-carried-not-found), an argument rather than ambient global state.
 
 ### Effect-map shape
 
 Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` shorthands fold into the `:fx` vector — an [effect](glossary.md#effect) being a description of a side-effect the runtime carries out for you. `:db` is unchanged. If you've internalised "effects are a vector of `[id arg]` pairs" from [chapter 07](concepts/effects-and-coeffects.md), this is just that shape arriving where the shorthands used to be.
 
-> **Gotcha — `:dispatch` is the one place the *timing* genuinely changes.** This is the rare migration category that isn't strictness — it's a real behavioural shift, so it's flagged for you to think about, never rewritten blind. v2 [drains run-to-completion](glossary.md#drain--run-to-completion): every event dispatched *during* a handler (a `:dispatch` effect, or a bare `dispatch` from inside a handler body) drains to a fixed point **before any view re-renders**. In v1 those re-dispatches landed on a later tick, so a view could render the intermediate state in between. The vast majority of code doesn't notice. What does: an animation/wizard chain that *relied* on a flash of intermediate render between steps, and any test that peeked at the router queue after a dispatch (it's already drained — empty). Reframe such tests around the *resulting* app-db state or the effects observed, not queue contents. A pathologically long synchronous chain can also trip the per-frame drain-depth limit (default 100) with a `:drain-depth-exceeded` error; raise it with `{:drain-depth N}` on the frame, or break the chain with `:dispatch-later`.
+!!! warning "Gotcha — `:dispatch` is the one place the *timing* genuinely changes"
+
+    This is the rare migration category that isn't strictness — it's a real behavioural shift, so it's flagged for you to think about, never rewritten blind. v2 [drains run-to-completion](glossary.md#drain--run-to-completion): every event dispatched *during* a handler (a `:dispatch` effect, or a bare `dispatch` from inside a handler body) drains to a fixed point **before any view re-renders**. In v1 those re-dispatches landed on a later tick, so a view could render the intermediate state in between. The vast majority of code doesn't notice. What does: an animation/wizard chain that *relied* on a flash of intermediate render between steps, and any test that peeked at the router queue after a dispatch (it's already drained — empty). Reframe such tests around the *resulting* app-db state or the effects observed, not queue contents. A pathologically long synchronous chain can also trip the per-frame drain-depth limit (default 100) with a `:drain-depth-exceeded` error; raise it with `{:drain-depth N}` on the frame, or break the chain with `:dispatch-later`.
 
 ### Framework keywords move to the `:rf/*` root
 
@@ -96,9 +110,13 @@ v2 gathers every framework-owned keyword under a single reserved root, `:rf/*` (
 
 The two-function `reg-sub` form changes shape, not spirit. The first function declares what this [subscription](glossary.md#subscription) depends on. In v1 it *returned live signals* — it called `(rf/subscribe ...)` itself and handed back the running subscriptions. In v2 it instead returns plain data: a vector listing the [**query vectors**](glossary.md#query-vector) it wants (each query vector being a `[:sub-id arg …]` request), and the runtime does the actual subscribing. That keeps the input function pure and the subscription graph inspectable without running the app. The mechanical tell is the bracket count on the single-input case: v2 wants `[[:item/by-id id]]` — a one-element vector *containing* the query vector — not the bare `[:item/by-id id]`. [Chapter 05](concepts/subscriptions.md) carries the full grammar and the why. The migration skill rewrites the common shapes and flags the rest.
 
-> **Gotcha — this one fails *silently* until the sub is first read.** A v1 signal-function `reg-sub` still *registers* cleanly under v2 (it parses as a parametric sub), so the compile says nothing. The mismatch surfaces only at the *first* `subscribe`/deref of that sub, which raises `:rf.error/sub-input-fn-bad-return` — the input function returned live reactions where the runtime wanted a vector of query vectors. A view that swallows the error just renders nothing. Because the build is no help here, sweep every two-function `reg-sub` up front rather than waiting to trip over it at runtime, and smoke-test that each migrated sub actually derefs to a value.
+!!! warning "Gotcha — this one fails *silently* until the sub is first read"
 
-> **Going deeper.** In v1 the signal fn *ran* the subscription and handed back a live `Reaction` — it had to execute to produce its result. In v2 it hands back *data describing* which subscriptions it wants, and the runtime resolves them. A pure function returning a vector-of-vectors can be read, diffed, and graphed without ever mounting the app — which is exactly how [Xray](glossary.md#xray)'s dependency view draws the subscription DAG. The extra bracket pair is the seam where "do it" became "describe it."
+    A v1 signal-function `reg-sub` still *registers* cleanly under v2 (it parses as a parametric sub), so the compile says nothing. The mismatch surfaces only at the *first* `subscribe`/deref of that sub, which raises `:rf.error/sub-input-fn-bad-return` — the input function returned live reactions where the runtime wanted a vector of query vectors. A view that swallows the error just renders nothing. Because the build is no help here, sweep every two-function `reg-sub` up front rather than waiting to trip over it at runtime, and smoke-test that each migrated sub actually derefs to a value.
+
+??? note "Going deeper"
+
+    In v1 the signal fn *ran* the subscription and handed back a live `Reaction` — it had to execute to produce its result. In v2 it hands back *data describing* which subscriptions it wants, and the runtime resolves them. A pure function returning a vector-of-vectors can be read, diffed, and graphed without ever mounting the app — which is exactly how [Xray](glossary.md#xray)'s dependency view draws the subscription DAG. The extra bracket pair is the seam where "do it" became "describe it."
 
 ### Removed surfaces, interceptors, and the test rename
 
@@ -113,7 +131,9 @@ A handful of v1 affordances are gone, each with a defined replacement. None is a
 
 Six v1 *interceptors* are gone too — `debug`, `trim-v`, `on-changes`, `enrich`, `after`, and `inject-cofx` — each because v2 grew a better-shaped answer to the problem it solved. `debug` is subsumed by the [trace stream](glossary.md#trace-stream) ([chapter 16](concepts/observability.md)). `trim-v` is unnecessary because the canonical event shape is consistent now. `enrich` and `after` are replaced by [flows](glossary.md#flow) and [schemas](glossary.md#schema). `on-changes` becomes flows (its own section below). `inject-cofx` is replaced by the `:rf.cofx/requires` declaration ([chapter 07](concepts/effects-and-coeffects.md)). The retained standard set is deliberately tiny: exactly one framework interceptor, `path`, referenced as `[:rf.interceptor/path <path-vector>]`. For anything else you register your own with `reg-interceptor` and reference it by id; chains carry references, not inline interceptor values. [Interceptors](concepts/interceptors.md) is the full model.
 
-> **Going deeper.** Notice the pattern in *why* each interceptor left: `enrich` / `after` were "compute or assert a derived thing after the handler," which is now declarative (flows, schemas) and therefore tooling-visible; `inject-cofx` was a positional ctx→ctx function, now registration metadata the runtime resolves at context assembly (which also retires v1's cofx-ordering wart). v1's standard `unwrap` is gone for the same reason — ordinary handler destructuring covers it, and the `:event` coeffect stays the stable original vector for tracing and replay. The through-line: v2 prefers *declared facts the runtime can see* over *imperative entries in a chain*.
+??? note "Going deeper"
+
+    Notice the pattern in *why* each interceptor left: `enrich` / `after` were "compute or assert a derived thing after the handler," which is now declarative (flows, schemas) and therefore tooling-visible; `inject-cofx` was a positional ctx→ctx function, now registration metadata the runtime resolves at context assembly (which also retires v1's cofx-ordering wart). v1's standard `unwrap` is gone for the same reason — ordinary handler destructuring covers it, and the `:event` coeffect stays the stable original vector for tracing and replay. The through-line: v2 prefers *declared facts the runtime can see* over *imperative entries in a chain*.
 
 ## The change most likely to bite: establish a root frame
 
@@ -134,9 +154,13 @@ The fix is one line of ceremony at your root: register a frame and scope your tr
 
 Inside that tree, every bare `dispatch` / `subscribe` you already wrote works unchanged — the frame rides along ambiently. Only *rootless* calls need attention: async callbacks that lost their scope, and top-level boot code with no provider. Those are exactly the wrong-frame footguns v1 used to swallow silently. The skill rewrites bare top-level call sites into a root provider and flags async callbacks for an explicit capture (next).
 
-> **No `:initial-db` key, and that's deliberate (EP-0027).** A v1 reflex is to reach for an `:initial-db` / `:db` config key to seed initial state. v2 doesn't have one. **Every frame starts with `app-db = {}`**, and seeding it is *itself an event*: make `[:rf/set-db {…}]` the first step of `:initial-events` (it's a built-in handler). That vector is dispatched synchronously, in order, right after the frame is created — so a v1 `(reg-event-db :initialise-db (fn [_ _] default-db))` plus a mount becomes one `[:rf/set-db default-db]` step, or your existing initialise event listed after the seed. The payoff: "events are the unit of state change" holds with no exceptions — initial state is built by the same dispatch pipeline that handles every later change, which is exactly why time-travel can rewind *to* the initial state. (v1's `:on-create` callback hook is likewise gone — setup is events, not a callback.)
+!!! note "No `:initial-db` key, and that's deliberate (EP-0027)"
 
-> **Gotcha — a wholesale `{:db fresh-map}` reset is now *safe*, but strip any `:rf/runtime` key.** A common v1 shape is an `:initialize-db` / `:app/reset` handler that returns a whole fresh app-db — and in v1 that could clobber framework state stashed in the same map. Under v2 it can't: the framework keeps its own state in a separate [runtime-db](glossary.md#runtime-db) partition that a `:db` return cannot reach, so the wholesale-replace footgun is structurally gone — replace away. The one residual hazard is a fresh map that still carries the retired `:rf/runtime` app-db root (a v1-shaped runtime stash). That throws `:rf.error/legacy-runtime-root` on dispatch — loud, always-on, in production too. The fix is to delete the key; framework state isn't yours to seed.
+    A v1 reflex is to reach for an `:initial-db` / `:db` config key to seed initial state. v2 doesn't have one. **Every frame starts with `app-db = {}`**, and seeding it is *itself an event*: make `[:rf/set-db {…}]` the first step of `:initial-events` (it's a built-in handler). That vector is dispatched synchronously, in order, right after the frame is created — so a v1 `(reg-event-db :initialise-db (fn [_ _] default-db))` plus a mount becomes one `[:rf/set-db default-db]` step, or your existing initialise event listed after the seed. The payoff: "events are the unit of state change" holds with no exceptions — initial state is built by the same dispatch pipeline that handles every later change, which is exactly why time-travel can rewind *to* the initial state. (v1's `:on-create` callback hook is likewise gone — setup is events, not a callback.)
+
+!!! warning "Gotcha"
+
+    A common v1 shape is an `:initialize-db` / `:app/reset` handler that returns a whole fresh app-db — and in v1 that could clobber framework state stashed in the same map. Under v2 it can't: the framework keeps its own state in a separate [runtime-db](glossary.md#runtime-db) partition that a `:db` return cannot reach, so the wholesale-replace footgun is structurally gone — replace away. The one residual hazard is a fresh map that still carries the retired `:rf/runtime` app-db root (a v1-shaped runtime stash). That throws `:rf.error/legacy-runtime-root` on dispatch — loud, always-on, in production too. The fix is to delete the key; framework state isn't yours to seed.
 
 ### The async-callback fix: capture a frame api
 
@@ -155,7 +179,9 @@ The capture is one line, and it's worth seeing concretely because it's the most 
 
 You can also pass `(rf/capture-frame frame-id)` to capture a *named* frame rather than the ambient one. Read its app-db with `(rf/app-db-value (:frame h))` — the frame api carries operations, not state.
 
-> **Coming from React Context?** The merged `frame-provider {:frame …}` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a frame api (`rf/capture-frame`) while the scope was live. Same lesson, louder failure.
+??? info "Coming from React Context?"
+
+    The merged `frame-provider {:frame …}` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a frame api (`rf/capture-frame`) while the scope was live. Same lesson, louder failure.
 
 ### Views render under a frame scope
 
@@ -171,7 +197,9 @@ v2 treats a **path** — a vector addressing a value, the thing you hand `get-in
 
 There's no automated rewrite for the cache-key habit. It's a judgement call about your own keying scheme, so the skill flags hand-built cache keys for review rather than guessing your intent.
 
-> **Coming from TanStack Query?** You already think in query keys, so this will feel native: the scoped resource key *is* a query key, and the same rule applies — two `useQuery` calls share a cache entry only when their keys are structurally equal. v2's one addition is that scope (which user, which tenant) is a first-class segment of the key, not something you splice into a string by hand. The `nil`-vs-missing distinction is the bit TanStack leaves to you and v2 makes explicit: `{tab: null}` and `{}` are *different* keys, so decide which one you mean.
+??? info "Coming from TanStack Query?"
+
+    You already think in query keys, so this will feel native: the scoped resource key *is* a query key, and the same rule applies — two `useQuery` calls share a cache entry only when their keys are structurally equal. v2's one addition is that scope (which user, which tenant) is a first-class segment of the key, not something you splice into a string by hand. The `nil`-vs-missing distinction is the bit TanStack leaves to you and v2 makes explicit: `{tab: null}` and `{}` are *different* keys, so decide which one you mean.
 
 ## The deepest change: ambient world reads in durable handlers
 
@@ -219,7 +247,9 @@ One mechanical rewrite touches *every* `reg-cofx` a v1 app wrote, ambient or rec
 
 The signature change is *unconditional* — it applies whether or not the fact is recordable, and whether the supplier takes call-site arguments (`(fn [k] v)`, declared `[[:viewport k]]`) or none. A cofx that only measures a diagnostic or transient fact (a viewport width, a non-durable display preference) stays **ambient**: register it without `:recordable?` and it simply re-runs on replay. The `:recordable?` grade bites only when the value feeds a *durable* write.
 
-> **Why this matters.** This is the deepest "why" on the page, and it's the replay promise from the top of this section, made concrete. A handler that secretly reads `(js/Date.)` and writes it to state breaks that promise the instant you replay: the clock moved, so the rebuilt app-db no longer matches. The bright line — a fact that decides a *durable* write must come through a *recorded* coeffect, never an ambient host read — is exactly what keeps the replay faithful. A diagnostic read that never lands in durable state stays ambient and re-runs freely; it can't poison anything. The skill flags these for review rather than rewriting blind, because "does this read decide durable state?" is a judgement about your code's intent, not something a tool can read off the syntax — the cardinal rule again, doing the things it's sure of and asking about the rest.
+!!! note "Why this matters"
+
+    This is the deepest "why" on the page, and it's the replay promise from the top of this section, made concrete. A handler that secretly reads `(js/Date.)` and writes it to state breaks that promise the instant you replay: the clock moved, so the rebuilt app-db no longer matches. The bright line — a fact that decides a *durable* write must come through a *recorded* coeffect, never an ambient host read — is exactly what keeps the replay faithful. A diagnostic read that never lands in durable state stays ambient and re-runs freely; it can't poison anything. The skill flags these for review rather than rewriting blind, because "does this read decide durable state?" is a judgement about your code's intent, not something a tool can read off the syntax — the cardinal rule again, doing the things it's sure of and asking about the rest.
 
 ## Two changes worth understanding in depth
 
@@ -252,7 +282,9 @@ A v1 status-code `cond` becomes a `case` over these named kinds:
 
 The skill applies steps 1–4 unprompted and stops at an optional step 5 (collapsing per-call success handlers into default reply addressing) for review. This is more than a rename because `:rf.http/managed` is a *managed* effect: it owns retries, aborts, double-submit suppression, the slow-loris timeout from [chapter 24](how-to/configure-dev-and-prod.md), and the eight-category failure taxonomy. Migrating onto it deletes a pile of hand-rolled request-lifecycle code that the framework now does correctly for you.
 
-> **Coming from TanStack Query or RTK Query?** This is the same trade you made when you stopped writing raw `fetch` and `useState` / `useEffect` lifecycles by hand. A managed effect owns the retry, the in-flight dedup, the abort-on-unmount, the timeout — the unglamorous edge cases you keep re-implementing slightly wrong. The one re-frame-flavoured difference: failures arrive as a *closed* category set (`(:kind failure)`), so you `case` over named outcomes instead of pattern-matching HTTP status integers and praying the server is consistent.
+??? info "Coming from TanStack Query or RTK Query?"
+
+    This is the same trade you made when you stopped writing raw `fetch` and `useState` / `useEffect` lifecycles by hand. A managed effect owns the retry, the in-flight dedup, the abort-on-unmount, the timeout — the unglamorous edge cases you keep re-implementing slightly wrong. The one re-frame-flavoured difference: failures arrive as a *closed* category set (`(:kind failure)`), so you `case` over named outcomes instead of pattern-matching HTTP status integers and praying the server is consistent.
 
 ### `on-changes` becomes flows
 
@@ -272,7 +304,9 @@ Internalise one thing before you reach for them, because the easy mistake is to 
 
 **Flows are a niche convenience, not a sub replacement.** They're for derived values that are part of the application's *state*: visible to other event handlers, surviving SSR hydration, covered by registered schemas, queryable from the app-db inspector. If the derived value is consumed only by views, the right tool is a [subscription](glossary.md#subscription) — lighter, sub-cache-native, no `app-db` write. A healthy re-frame2 app has dozens of subs and a handful of flows. Tens of flows means you reached for the wrong tool.
 
-> **The litmus test.** Ask: *does anything other than a view need this value?* If only views read it → subscription. If an event handler reads it, or it must be in app-db so SSR hydrates it, or a schema asserts on it → flow. It's the same line a spreadsheet draws between a derived cell other cells reference (a flow) and a value you only glance at on screen (a sub). When in doubt, reach for a sub; flows are the exception, not the default. (The [where state lives](glossary.md#the-four-homes-where-state-lives) router is the full version of this call.)
+!!! note "The litmus test"
+
+    Ask: *does anything other than a view need this value?* If only views read it → subscription. If an event handler reads it, or it must be in app-db so SSR hydrates it, or a schema asserts on it → flow. It's the same line a spreadsheet draws between a derived cell other cells reference (a flow) and a value you only glance at on screen (a sub). When in doubt, reach for a sub; flows are the exception, not the default. (The [where state lives](glossary.md#the-four-homes-where-state-lives) router is the full version of this call.)
 
 Flows can also reach what `on-changes` couldn't. `on-changes` was statically wired into specific events at registration time, so a derivation that should run conditionally — only while a wizard step is active, only when a feature gate is engaged — had no clean shape. Flows are runtime-registered and runtime-clearable via the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` effects. So the migration sometimes *improves* the code it touches: a thing that was awkwardly always-on becomes cleanly conditional.
 
@@ -284,9 +318,13 @@ A v1 app registers everything at namespace load with `reg-*`, into one process-g
 
 You reach past that only when v2 gives you a shape v1 didn't have. The public composition model is `image → frame → event stream`: an [**image**](glossary.md#image) (`rf/image`) is a value naming a set of registrations — you select them from loaded namespaces (`:select-ns`) or list them inline (`:registrations`). A [**frame**](glossary.md#frame) (`rf/make-frame`) is the live isolated execution context that runs one **generation** — the resolved registration set an image seals into — with its own app state, subscription cache, and adapter binding. Images and frames are the route for genuinely new structure — a packaged feature you assemble and run as a unit, a per-tenant or multi-frame process. They're a refinement you grow into, not a step the migration forces.
 
-> **Going deeper — build isolated contexts from images.** A frame built from `:images` runs exactly the registrations those images select — its own sealed registration set, validated for collisions and capability requirements at assembly. Two frames can hold different handlers for the same id without collision, which makes a frame the natural unit for a hermetic test or a parallel frame on the same page. You target a frame by its id — the public address is always the frame id, never an enclosing substrate.
+??? note "Going deeper — build isolated contexts from images"
 
-> **Gotcha — don't select the same id twice in one image.** Within a *single* `rf/image`, `:select-ns` and `:registrations` must be **disjoint** — a `[kind id]` may not be both selected from a namespace and defined inline in the same image. Image assembly catches it and fails loud rather than silently merging. And the way to *override* a registration is **not** a `:replace` key — that key was retired in EP-0026, and `rf/image` rejects it (along with `:include-ns` / `:exclude-ns` / `:replace-standard`) with `:rf.error/invalid-image`. Instead, put the winning registration in a **later** image and compose — later image wins. The override is not silent: composition records every shadowing in a report you read with the public `rf/frame-shadows` accessor (each entry names the registration, the image that originally defined it, and the image that shadowed it), so you can assert in a test that the override you intended is the override that happened.
+    A frame built from `:images` runs exactly the registrations those images select — its own sealed registration set, validated for collisions and capability requirements at assembly. Two frames can hold different handlers for the same id without collision, which makes a frame the natural unit for a hermetic test or a parallel frame on the same page. You target a frame by its id — the public address is always the frame id, never an enclosing substrate.
+
+!!! warning "Gotcha — don't select the same id twice in one image"
+
+    Within a *single* `rf/image`, `:select-ns` and `:registrations` must be **disjoint** — a `[kind id]` may not be both selected from a namespace and defined inline in the same image. Image assembly catches it and fails loud rather than silently merging. And the way to *override* a registration is **not** a `:replace` key — that key was retired in EP-0026, and `rf/image` rejects it (along with `:include-ns` / `:exclude-ns` / `:replace-standard`) with `:rf.error/invalid-image`. Instead, put the winning registration in a **later** image and compose — later image wins. The override is not silent: composition records every shadowing in a report you read with the public `rf/frame-shadows` accessor (each entry names the registration, the image that originally defined it, and the image that shadowed it), so you can assert in a test that the override you intended is the override that happened.
 
 ```clojure
 (def base    (rf/image {:id :app/base   :select-ns {:include ["app.*"]}}))
