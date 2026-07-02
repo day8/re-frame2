@@ -118,6 +118,8 @@ You've now met the keys you'll reach for daily. The metadata map has thirteen re
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described, nested (`:parent`), grouped for interceptors (`:tags`), and scrolled on entry (`:scroll`). |
 | **Classification** — data hygiene | `:sensitive`, `:large` | Which slice values are redacted or kept off the wire at egress while the route is active (see [Data classification](#keeping-tokens-off-the-wire) below). |
 
+Two more bare keys are on loan from other parts of the framework, accepted when their owning artefact is loaded: `:resources` (declared server state — [below](#declaring-resources-instead), owned by the resources artefact) and `:head` (the server-rendered page's [head metadata](../ssr/concepts.md#head-metadata----opengraph-json-ld), owned by SSR). In an app that doesn't load the owning artefact, they're rejected like any other unknown bare key — so a `:resources` declaration can't silently do nothing.
+
 > **Gotcha — typos fail loud, at registration.** Because the shape is large, a typo like `:on-matched` or `:querey` would otherwise be silently accepted and then quietly do nothing forever. So `reg-route` validates its metadata *at the authoring boundary*: a **bare** (unqualified) key outside the reserved set throws `:rf.error/invalid-route-metadata` the instant you register, naming the offending key and the valid vocabulary. Your own extension keys are fine — just namespace them (`:myapp/layout`, `:analytics/id`); namespaced keys are the open-extension surface, bare keys are the framework's reserved vocabulary. And note `:path` belongs in the *third slot*, not the map — leaving it inside the metadata is the same loud error.
 
 When two patterns could both match one URL, a structural ranking breaks the tie: more static segments win, and named params beat splats. The ranking is computed at *registration* time from the patterns alone — so the winner is decided before a single URL ever arrives, and there's no runtime ambiguity to debug.
@@ -149,7 +151,7 @@ The opts map (third slot) is open; the runtime recognises four keys:
 |---|---|
 | `:replace?` | Use `replaceState` instead of `pushState` — for redirects, login-flow returns, and search-as-you-type, where the back button should *not* land on the intermediate URL. |
 | `:query` | The query-string params for the new URL — coerced and emitted as `?key=value`. |
-| `:fragment` | The target `#fragment` (also accepted on the target map). |
+| `:fragment` | The target `#fragment` for the new URL. |
 | `:bypass-leave-guard?` | Skip the current route's `:can-leave` guard for this one navigation (see [Blocking a navigation](#blocking-a-navigation) below). |
 
 Hosts and apps may add their own opts under a namespace.
@@ -182,7 +184,7 @@ For links *in views*, use `route-link`. It renders a real `<a href>` (good for a
 
 Plain `[:a {:href "..."}]` anchors are **not** intercepted; they do a native full-page navigation. Site-wide anchor interception is a host-adapter concern, not framework magic, so you opt in per link (or install your own document-level click handler that dispatches `:rf/url-requested` — the same decision-point event `route-link` uses).
 
-> **`:rf/url-requested` is the policy seam.** Every `route-link` click dispatches `:rf/url-requested`, and *that* event is the single decision point for "in-app or external?", "is the leave-guard satisfied?", and any per-frame policy (auth, modifier keys). It's enumerable and testable with zero DOM: dispatch `[:rf/url-requested {:url "/cart"}]` from a test and assert the result — an in-app request pushes the URL and synthesises the transition; an external one (anything not provably same-origin) emits a `:rf.route/external-url-requested` trace and pushes nothing. Re-registering `:rf/url-requested` is how you install app-wide navigation policy.
+> **`:rf/url-requested` is the policy seam.** Every `route-link` click dispatches `:rf/url-requested`, and *that* event is the single decision point for "in-app or external?", "is the leave-guard satisfied?", and any policy of your own (auth, modifier keys). Because it's an ordinary event, you can drive it from a test with zero DOM: dispatch `[:rf/url-requested {:url "/cart"}]` and assert what happened. An in-app request pushes the URL and runs the route transition. Anything not provably same-origin is treated as external — it emits a `:rf.route/external-url-requested` trace and pushes nothing. Re-registering `:rf/url-requested` is how you install app-wide navigation policy.
 
 ### Navigating to a raw URL string
 
@@ -219,7 +221,7 @@ The current route lives in **runtime-db** — the framework-owned partition besi
 
 Nine subscriptions, every one a plain read — no special routing API in views. `:rf/route` is the whole slice; the rest are projections of it you'll reach for far more often. The [API reference](../api/re-frame.routing.md#subscriptions) lists each with its return shape.
 
-Two of those reads are per-frame singletons, so `re-frame.routing` also ships named read sugar for them: `(routing/sub-route)` over `[:rf/route]` and `(routing/sub-pending-navigation)` over `[:rf/pending-navigation]` — the same reaction, fewer brackets. The vector forms stay canonical; the sugar just tidies the two reads every app makes.
+Two of those you'll read constantly — the whole slice, and the pending navigation — so `re-frame.routing` ships small named helpers for them: `(routing/sub-route)` over `[:rf/route]` and `(routing/sub-pending-navigation)` over `[:rf/pending-navigation]`. Same reaction, fewer brackets. The vector forms stay canonical; the sugar just tidies the two most common reads.
 
 `:transition` is a tiny state machine the runtime drives for you: `:loading` while a route's loaders drain, `:error` if one fails, `:idle` otherwise. So a global progress bar is just a view over `:rf.route/transition`, and an error banner is a view over `:rf.route/error`. You never wire per-page loading state again — it's a property of the slice, the same on every page:
 
@@ -344,7 +346,7 @@ If the page's data is [server state managed as resources](../resources/concepts.
 
 Here's the bug this design quietly kills. On route entry, the runtime marks each listed resource active, owned by the route, keyed by *this navigation's* **nav-token**. On route leave — or the moment a newer navigation supersedes this one — ownership is released by token, and any stale reply that lands late is *suppressed* rather than written. That's the classic race where you click away, an old fetch resolves a beat too late, and clobbers the page you're now looking at. Fixed once, in the substrate, instead of in every page you'll ever write.
 
-> **Going deeper.** The nav-token is a monotonically-allocated identity stamped on each navigation — think of it as a generation counter for "which navigation am I?". Suppression is the *correctness* boundary: a result is written only if its token still matches the live one; otherwise it's dropped. That's the same shape as a compare-and-swap guard, and it's not a `:resources` trick. Any async loader can capture the live nav-token (declare the `:rf.route/nav-token` cofx) and either compare it on receipt or thread it through the `:rf.route/with-nav-token` effect wrapper, which suppresses a result whose token has been superseded. Resources do this for you; hand-rolled loaders opt in. Aborting the in-flight fetch (where the host supports it) is an optional bandwidth optimisation *on top of* suppression — never a substitute for it, because abort isn't guaranteed to win the race.
+> **Going deeper.** The nav-token is just a counter. Every navigation gets the next number, and that number answers "which navigation am I?". Suppression uses it as a receipt check: a result is written only if its token still matches the live navigation's; otherwise it's quietly dropped. And it isn't a `:resources`-only trick. A hand-rolled async loader can capture the live token (declare the `:rf.route/nav-token` cofx) and either compare it when the reply lands, or route the reply through the `:rf.route/with-nav-token` effect wrapper, which does the check for you. Resources do all of this automatically; hand-rolled loaders opt in. If the host can also abort the in-flight fetch, great — that saves bandwidth — but abort is an optimisation *on top of* suppression, never a substitute, because an abort isn't guaranteed to win the race.
 
 When a resource is per-user, scope it with a **named scope resolver**. Register the resolver once, then reference it everywhere as `{:from-db ...}` — so the "who is this for?" logic lives in exactly one place:
 
@@ -363,7 +365,7 @@ When a resource is per-user, scope it with a **named scope resolver**. Register 
  :blocking? false}
 ```
 
-The runtime resolves `{:from-db :realworld/session}` against [app-db](../core/concepts/app-db.md) at route entry. Resolution **fails closed**: logged out, the resolver returns `nil` and the feed is simply *not planned* (surfacing as a route plan error rather than a silent fallback). It never silently falls back to a shared cache, so one user's feed can never leak into another's session. Security by construction, not by remembering to check.
+The runtime resolves `{:from-db :realworld/session}` against [app-db](../core/concepts/app-db.md) at route entry, and the resolution **fails closed**. Logged out, the resolver returns `nil` and the feed simply isn't loaded — that surfaces as a visible route error, never a quiet fall-back to a shared cache. So one user's feed can never leak into another's session. Security by construction, not by remembering to check.
 
 ## Blocking a navigation
 
@@ -432,7 +434,7 @@ A route slice can hold secrets — an OAuth `?token=`, a `?code=` callback param
 
 `:sensitive` redacts a value's content; `:large` keeps a bulky value off the wire (emitting only a size marker). A path declared both lowers as `:sensitive` only. Classification is applied atomically when the route activates and dropped when it changes — so a route declaring none (including `:rf.route/not-found`) clears the previous route's classification cleanly. Crucially, it's *egress-only*: `@(routing/sub-route)` in your running app always returns the real values; only the copies that leave the box are redacted.
 
-> **Gotcha — classify the query key the route promotes.** A `[:query :token]` classification path names the *keyword* `:token`, but the slice only keys a query value as a keyword when the route declares it (in `:query`, `:query-defaults`, or `:query-retain`). Classify a query key the route doesn't promote and the path silently fails open — so `reg-route` emits a `:rf.warning/route-classification-query-key-unpromoted` advisory pointing at the fix: name the key in the `:query` schema. Path params are immune (path captures are always keyword-keyed). And a structurally malformed declaration (a non-vector axis, a bad path segment) fails *loud* at registration with `:rf.error/invalid-route-classification`.
+> **Gotcha — classify only query keys the route declares.** A classification path like `[:query :token]` names the keyword `:token`, and the slice only holds a query value under a keyword when the route declares that key — in `:query`, `:query-defaults`, or `:query-retain`. Classify a key the route never declares and there'd be nothing at that path to redact, so `reg-route` warns (`:rf.warning/route-classification-query-key-unpromoted`) and points at the fix: add the key to the `:query` schema. Path params can't have this problem — captures are always keyword-keyed. And a structurally malformed declaration (a non-vector axis, a bad path segment) fails loud at registration with `:rf.error/invalid-route-classification`.
 
 Routing's classification is the framework-wide [data-classification](../core/glossary.md#data-classification) model applied to the singleton current-route — [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) is the full story; routes just declare the paths.
 
@@ -446,7 +448,11 @@ Back/forward, deep links, and the initial page load are all, underneath, URL cha
 (rf/install-history-listener!)
 ```
 
-`:url-bound? true` declares which [frame](../core/concepts/frames.md) — an isolated instance of your app's state (frames isolate state, not registrations) — owns the browser URL. Ownership is always *explicit*, never inferred, and only one frame may hold it (a second frame claiming `:url-bound? true` is a loud `:rf.error/duplicate-url-binding`). Non-owning frames still route internally: a [Story](../core/concepts/observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`. With no declared owner, URL pushes and the popstate listener simply no-op. `install-history-listener!` installs the `popstate` listener (targeted at the owner) and does the initial URL-to-state sync; it's idempotent, so hot-reload is safe, and `rf/remove-history-listener!` tears it down.
+`:url-bound? true` declares which [frame](../core/concepts/frames.md) owns the browser URL. Ownership is always explicit, never inferred. Only one frame may hold it — a second claimant is a loud `:rf.error/duplicate-url-binding` — and having *no* owner is legal too: URL pushes and the popstate listener simply no-op.
+
+Frames without the flag still route internally, in memory. That's a feature, not a gap: a [Story](../core/concepts/observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`.
+
+`install-history-listener!` installs the `popstate` listener (aimed at whichever frame owns the URL) and syncs the URL into state once at startup, so deep links and refreshes land on the right page. It's idempotent — hot-reload can call it again — and `rf/remove-history-listener!` tears it down.
 
 > **From re-frame v1.** This is where the inversion lands hardest. In v1 the browser URL was the source of truth and your router *reacted* to it. Here the frame's state is the source of truth and the URL is a *print-out* of it. So a back-button press is, literally, a dispatch: popstate fires, the URL-change handler runs, the slice updates, the views re-derive. And [time-travel](../core/how-to/debug-with-xray.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never truth, only a projection.
 
@@ -486,7 +492,3 @@ This is the payoff of routing having no runtime of its own. During [server-side 
 !!! note "What is client-only"
 
     The URL-push and scroll effects are no-ops on the server, where there's no address bar, and `install-history-listener!` does nothing server-side because there's no popstate to listen to. Everything else — your route table, handlers, loaders, and guards — runs unchanged on both sides. `route-url` and `match-url` are pure and run identically on the JVM, which is exactly why SSR can build links and parse the request URL with the same code.
-
-!!! note "Honest edges, pre-alpha"
-
-    [Nested layouts](#nested-layouts) are data — a `:parent` link plus the `:rf.route/chain` sub — with no React-Router-style `<Outlet/>` render slot; you compose the layout shells in the root view yourself (worked out in the section above). And if your app has exactly one page with no shareable URLs, skip the artefact entirely: it's separately packaged precisely so a non-routing app ships zero routing bytes.

@@ -22,6 +22,7 @@ Because a route's [loader](glossary.md#loader) runs on the server too, routing a
 - **[Tutorial: build a routed app](tutorial.md)** — a three-page app grown one step at a time: routes, links, dynamic segments, loaders, the 404, the Back button, and a shared layout. Start here.
 - **[Concepts](concepts.md)** — the whole model in three moves, then the refinements: query strings, loaders and resources, blocking a navigation, not-found, classification, and running the same handler on the server.
 - **How-to** — [Guard against unsaved changes](how-to/guard-unsaved-changes.md) and [Require sign-in on a route](how-to/require-sign-in-on-a-route.md): one task each, complete code.
+- **[Testing](testing.md)** — the URL codec as pure function calls, navigation through a test frame, deep links and the 404, and the leave guard — all with zero DOM.
 - **[Examples](examples.md)** — runnable routing apps, small and under real load.
 - **[Glossary](glossary.md)** — the section's vocabulary, one definition each.
 - **[Coming from React Router](coming-from-react-router.md)** — the mapping table and the deliberate divergences.

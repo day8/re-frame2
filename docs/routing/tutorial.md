@@ -1,6 +1,6 @@
 # Tutorial: build a routed app
 
-The fastest way to understand re-frame2 routing is to build something small and watch each piece arrive on its own. We'll make a three-page app — a **home** page, a **list of articles**, and a **detail** page for one article — then add the touches that make it real: a 404, the Back button, and a shared layout.
+The fastest way to understand re-frame2 routing is to build something small and watch each piece arrive on its own. We'll make a three-page app — a **home** page, a **list of articles**, and a **detail** page for one article — then add the touches that make it real: page data, a 404, the Back button, and a shared layout.
 
 You'll meet every part of routing you reach for daily, one at a time. This page assumes you've done the [core Quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-cascade.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md); if you're arriving from React Router, [the mapping](coming-from-react-router.md) may be the faster door.
 
@@ -18,9 +18,9 @@ Routing ships as its own package, `day8/re-frame2-routing`, so an app with no sh
 
 That bare `[re-frame.routing]` require has a side effect: it wires up `reg-route`, the route subscriptions, and `route-link`. Forget it and your first `reg-route` throws `:rf.error/routing-artefact-missing` — a loud error that names exactly what to require, not a silent no-op.
 
-## Step 1 — your first route
+## Step 1 — your first route, on screen
 
-A route is one row in a table: an **id**, a **metadata map**, and a **path**. Register the home page, then render it.
+A route is one row in a table: an **id**, a **metadata map**, and a **path**. Register the home page, give the root view a `case` to pick pages with, and mount the app so you can watch every step from here on:
 
 ```clojure
 ;; 1. Register the route: id, metadata, path.
@@ -33,12 +33,24 @@ A route is one row in a table: an **id**, a **metadata map**, and a **path**. Re
 (rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :app/home [:h1 "Home"]
-    [:h1 "…"]))
+    [:h1 "Nothing here yet"]))   ;; any URL we haven't routed — Step 5 retires this
+
+;; 3. Mount it — the standard mount from the Quickstart, plus two routing
+;;    lines that Step 6 explains properly. (Also requires:
+;;    [reagent.dom.client :as rdc] [re-frame.adapter.reagent :as reagent-adapter])
+(defn run []
+  (rf/init! reagent-adapter/adapter)
+  (rf/install-history-listener!)          ;; ← URL ↔ app wiring — Step 6's subject
+  (rdc/render (rdc/create-root (js/document.getElementById "app"))
+              [rf/frame-provider {:id :rf/default :url-bound? true}  ;; ← and this flag
+               [root-view]]))
 ```
 
 `@(subscribe [:rf.route/id])` reads the id of the route that matches the current URL. The root view is a plain `case` over that id — pick a page, render it. That's the entire "router": no `<Routes>`, no `<Switch>`, no nesting.
 
-**What you see:** at `/`, the page shows **Home**.
+The two routing lines in the mount are `install-history-listener!`, which connects the address bar to the app, and `:url-bound? true`, which says this frame is the one that owns it. Take both on faith for now — Step 6 comes back to them when we wire the Back button.
+
+**What you see:** at `/`, the page shows **Home**. Any other URL shows the placeholder — for now.
 
 ## Step 2 — a second page, and a link between them
 
@@ -60,7 +72,7 @@ Add an articles page, and a link to reach it. Links use `route-link`, which rend
   (case @(subscribe [:rf.route/id])
     :app/home     [home-page]
     :app/articles [articles-page]
-    [:h1 "…"]))
+    [:h1 "Nothing here yet"]))
 ```
 
 `route-link` builds the URL from the route id, so you never hand-write `href="/articles"`. Change the route's path later and every link follows — there's one place the URL is synthesised.
@@ -93,7 +105,7 @@ Link to it by passing `:params`:
 [rf/route-link {:to :app/article :params {:id "intro"}} "Read intro"]
 ```
 
-**What you see:** clicking the link lands on `/articles/intro`, and the page reads **Article intro**.
+**What you see:** clicking the link lands on `/articles/intro`, and the page reads **Article intro**. (Add `:app/article [article-page]` to the root view's `case` — each new page gets its row.)
 
 > **Path params vs query params.** `:params` are the `/segments/` of the path. Query-string values (`?page=2`) are a *separate* map you declare with `:query` and read with `@(subscribe [:rf.route/query])` — the two never merge into one bag. [Concepts → Move 1](concepts.md#move-1-a-route-is-a-registry-entry) covers `:query`, defaults, and carrying global state like `?theme=dark` across pages.
 
@@ -106,21 +118,38 @@ Most pages need data when they open. Declare it next to the route with `:on-matc
   {:params   [:map [:id :string]]
    :on-match [[:app/load-article]]}   ;; dispatched on entry, and on every :id change
   "/articles/:id")
-
-;; A normal event handler. It reads the active id, kicks off a fetch, and
-;; writes into app-db — the same app-db your view already reads.
-(rf/reg-event :app/load-article
-  (fn [{:keys [db]} _]
-    ;; Read the active :id (via a sub, or the :rf.route/params coeffect), start a
-    ;; fetch, and mark the page loading; a later event writes the article to db.
-    {:db (assoc db :article/loading? true)}))
 ```
 
-The view reads the loaded data with an ordinary subscription — there's no special "loader data" hook, because the loader just wrote to [app-db](../core/concepts/app-db.md) like every other event. `:on-match` re-fires when the `:id` changes but *not* when you navigate to the same route with identical params, so you never get an accidental double-load.
+Now the loader itself. It's a normal event handler, with one new thing to learn: it needs the article's `:id`, and that lives in the **route slice**, which the framework keeps in [runtime-db](../core/glossary.md#runtime-db) — its own partition beside your app-db. Handlers receive that partition under the `:rf.db/runtime` key, right next to `:db`:
 
-**What you see:** open one article, then navigate to another — `:app/load-article` fires once per article. Re-navigate to the *same* one and it doesn't fire again. Open [Xray](../core/how-to/debug-with-xray.md) and you'll see exactly those dispatches on the wire.
+```clojure
+(def sample-articles                            ;; stand-in for your server
+  {"intro" {:title "Intro to re-frame2"}
+   "ssr"   {:title "Server rendering"}})
 
-> **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. And the same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [Concepts → Loaders](concepts.md#loaders-declaring-a-pages-data).
+(rf/reg-event :app/load-article
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [{:keys [id]} (get-in rt [:rf.runtime/routing :current :params])]
+      ;; A real app starts an HTTP fetch here and lets a later event write the
+      ;; reply — see Managed HTTP (../async/http.md). We'll "load" locally.
+      {:db (assoc db :article/current (get sample-articles id))})))
+
+(rf/reg-sub :article/current (fn [db _] (:article/current db)))
+```
+
+And the detail page from Step 3 now reads the loaded article, like any other state:
+
+```clojure
+(rf/reg-view article-page []
+  (let [article @(subscribe [:article/current])]
+    [:h1 (or (:title article) "Loading…")]))
+```
+
+There's no special "loader data" hook, because the loader just wrote to [app-db](../core/concepts/app-db.md) like every other event. And `:on-match` re-fires when the `:id` changes but *not* when you navigate to the same route with identical params, so you never get an accidental double-load.
+
+**What you see:** click through to `/articles/intro` and the title appears. Navigate to another article and the loader fires again with the new id; re-navigate to the *same* one and it doesn't. Open [Xray](../core/how-to/debug-with-xray.md) and you'll see exactly those dispatches on the wire.
+
+> **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. The same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [Concepts → Loaders](concepts.md#loaders-declaring-a-pages-data).
 
 ## Step 5 — when nothing matches: the 404
 
@@ -144,17 +173,17 @@ When no route matches a URL, the runtime activates a reserved id, `:rf.route/not
     :rf.route/not-found [not-found-page]))
 ```
 
+The "Nothing here yet" placeholder arm is gone — and that's the point. Now that `:rf.route/not-found` is registered, every URL lands on a real route id, so the `case` always has a page to pick.
+
 **What you see:** visit `/nonsense` and your own 404 renders, with `/nonsense` shown back to the reader.
 
 > Register it. Skip it and unmatched URLs fall to a bare built-in placeholder (plus a warning) — something renders, but not your design. The not-found params also carry a `:reason` so you can tell a plain miss from a malformed URL from a failed schema; see [Concepts → Not found](concepts.md#not-found-is-a-route-you-register).
 
-## Step 6 — boot it, and wire the Back button
+## Step 6 — the Back button and deep links
 
-Two things are still missing: we haven't actually *started* the app, and the browser's Back button doesn't yet talk to it. Both happen at boot. Routing adds just two things to the standard mount from the [Quickstart](../core/quickstart.md) — the owning [frame](../core/concepts/frames.md) declares `:url-bound? true`, and you call `install-history-listener!`:
+Back in Step 1, the mount had two routing lines you took on faith. Time to cash that in — they're what make the Back button, refreshes, and shared links work:
 
 ```clojure
-;; The mount also needs the standard adapter requires:
-;;   [reagent.dom.client :as rdc] [re-frame.adapter.reagent :as reagent-adapter]
 (defn run []
   (rf/init! reagent-adapter/adapter)
   (rf/install-history-listener!)                     ;; ← Back/Forward + first-load URL sync
@@ -164,9 +193,13 @@ Two things are still missing: we haven't actually *started* the app, and the bro
                [root-view]]))
 ```
 
-`:url-bound? true` says *this* frame owns the URL. `install-history-listener!` does two jobs: it syncs the current URL into state at first load (so a deep link or a refresh lands on the right page), and from then on every Back/Forward press dispatches into the owning frame. It's idempotent, so hot-reload is safe.
+`:url-bound? true` says *this* [frame](../core/concepts/frames.md) owns the browser URL. When it navigates, the address bar updates; a frame without the flag routes purely in memory, which is exactly what a test frame wants.
 
-**What you see:** the app mounts on the route for the current URL. Now navigate Home → Articles → an article, then press Back twice — each press steps the page back, because a Back press is now, literally, a dispatch.
+`install-history-listener!` does two jobs. At startup, it syncs the current URL into state — so a deep link or a refresh lands on the right page instead of always starting at home. From then on, every Back/Forward press is delivered to the owning frame as an ordinary dispatch. It's idempotent, so hot-reload is safe.
+
+**What you see:** paste `/articles/intro` straight into the address bar and the app boots onto that article. Then navigate Home → Articles → an article and press Back twice — each press steps the page back, because a Back press is now, literally, a dispatch.
+
+> **One mount shape, two spellings.** `frame-provider` with `:id` *creates* the frame if it doesn't exist — handy for a small app that boots everything in one spot. Elsewhere you'll see the two-step spelling: `reg-frame` first, then `frame-provider {:frame …}` to scope it. Same frame, same result; the second form just makes the registration explicit.
 
 > **The inversion.** In most routers the URL is the source of truth and your app reacts to it. Here your frame's state is the truth and the URL is a *print-out* of it — which is why [time-travel](../core/how-to/debug-with-xray.md) rewinds the URL for free. [Concepts → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source) goes deeper.
 
@@ -209,6 +242,15 @@ Now `@(subscribe [:rf.route/chain])` returns the active route's ancestry, **root
              (page-for (last chain))         ;; start: the leaf page
              (reverse (butlast chain))))])   ;; wrap: ancestors, innermost first
 ```
+
+If the fold feels abstract, trace it once. On `/articles/intro` the chain is `[:app/articles :app/article]`, so the `reduce` computes:
+
+```clojure
+(ancestor-shell :app/articles (page-for :app/article))
+;; ⇒ [:div.articles-section [:nav "← All articles"] [article-page]]
+```
+
+One wrap, from the inside out. A deeper chain just wraps more times.
 
 **What you see:** on `/articles/intro`, the article renders inside the `← All articles` section nav, under the site header — and every article detail page shares that frame with no copy-paste. Plain `/articles` (no parent above it) shows the bare list; `/` shows the home page. Note the split: truly *global* chrome (the `My Site` header) is just rendered in the root view — you only reach for the chain when a shell wraps a *subtree*.
 
