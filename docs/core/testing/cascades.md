@@ -85,6 +85,7 @@ Two *seams* are already visible in that code — a "seam" being a spot where the
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
             [re-frame.http.test-support]   ;; canned-reply stubs — test-only, never in production requires
+            [re-frame.test-support :as ts]
             [my-app.session]))             ;; loads the registrations
 
 (deftest login-happy-path
@@ -121,7 +122,7 @@ A handler only ever receives the facts it asked for — exactly the ones its `:r
 
 !!! note "Why generated facts are stricter than the clock"
 
-    `:rf/time-ms` is special: the router stamps it on every dispatch, so it's always satisfied even when you don't supply it. *Generated* [recordable facts](../glossary.md#recordable-vs-ambient-coeffects) — a `reg-cofx` that mints a fresh id, a seeded random source, a read of browser location — are not stamped. A test frame defaults to a **strict mint policy** ("mint" = a generator producing a fresh value; "strict" = it refuses to do so silently). Under that policy, a handler that declares such a fact for which the dispatch carried no supplied value fails with **`:rf.error/missing-required-cofx`** — the generator does *not* fire a fresh per-run value. That's deliberate: a silently-minted id would make a green test that minted a *different* value than production will. Either supply the fact in `:rf.cofx`, or opt back into live generation with `{:rf.cofx/mint-policy :explicit-live}` (a per-call dispatch opt) when a fresh value per run is genuinely what you want.
+    `:rf/time-ms` is special: the router stamps it on every dispatch, so it's always satisfied even when you don't supply it. *Generated* [recordable facts](../glossary.md#recordable-vs-ambient-coeffects) — a `reg-cofx` that mints a fresh id, a seeded random source, a read of browser location — are not stamped. A `:preset :test` frame defaults to a **strict mint policy** ("mint" = a generator producing a fresh value; "strict" = it refuses to do so silently); a plain `(rf/make-frame {})` rides the router's `:live` default, which quietly mints. Under `:strict`, a handler that declares such a fact for which the dispatch carried no supplied value fails with **`:rf.error/missing-required-cofx`** — the generator does *not* fire a fresh per-run value. That's deliberate: a silently-minted id would make a green test that minted a *different* value than production will. Either supply the fact in `:rf.cofx`, or opt back into live generation with `{:rf.cofx/mint-policy :explicit-live}` (a per-call dispatch opt) when a fresh value per run is genuinely what you want.
 
 ### Answer the HTTP: canned replies by method + URL
 
@@ -138,7 +139,7 @@ Several routes coexist in one table — list each `[method url]` the cascade fir
   )
 ```
 
-A request that matches no route in the table is unanswered — the cascade hangs at that effect rather than silently passing, which is the loud failure you want. So the table is also a coverage check: it must name every request the path under test fires.
+A request that matches no route in the table is answered with a *synthesized failure* — kind `:rf.http/transport`, tagged `"no stub matched"` along with the offending method and URL — riding the normal `:on-failure` path. Nothing hangs and nothing silently passes: the miss folds into your failure handler's state, where the next assertion catches it. So the table is also a coverage check: it must name every request the path under test fires.
 
 ??? info "Coming from MSW?"
 
@@ -146,16 +147,20 @@ A request that matches no route in the table is unanswered — the cascade hangs
 
 #### Observing the `:pending` state before the reply lands
 
-Both tests above assert the *settled* state — the reply has already folded in by the time the assertion runs, so they never see `:session/status :pending`. If the in-flight state is itself worth a test (a spinner, a disabled submit button), defer the canned reply with `:after-ms`. The reply then rides a framework-native `:dispatch-later` tick instead of landing in the same drain, so the `:pending` state is observable in between:
+Both tests above assert the *settled* state — the reply has already folded in by the time the assertion runs, so they never see `:session/status :pending`. If the in-flight state is itself worth a test (a spinner, a disabled submit button), defer the canned reply with `:after-ms` — a key the framework-shipped canned stubs read off their *args map*. The stub table has no delay knob, so this is the one case that reaches under it: redirect `:rf.http/managed` to a small wrapper that adds `:after-ms` (and the reply `:value`), then delegates to the registered canned-success handler. The deferred reply rides a framework-native `:dispatch-later` tick instead of landing in the same drain, so the `:pending` state is observable in between:
 
 ```clojure
 (deftest login-shows-pending-then-authed
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
-      {[:post "/api/users/login"]
-       {:reply {:ok {:user {:email "alice@example.com"}}} :after-ms 20}}
+    (let [canned (:handler-fn (rf/handler-meta :fx :rf.http/managed-canned-success))]
       (rf/dispatch-sync [:session/login {:email "alice@example.com" :password "x"}]
-                        {:rf.cofx {:rf/time-ms 1781078400000}})
+                        {:rf.cofx      {:rf/time-ms 1781078400000}
+                         :fx-overrides {:rf.http/managed
+                                        (fn [frame-ctx args]
+                                          (canned frame-ctx
+                                                  (assoc args
+                                                         :after-ms 20
+                                                         :value    {:user {:email "alice@example.com"}})))}})
       ;; The request fired but the reply hasn't landed yet — :pending is observable.
       (is (= :pending (:session/status (rf/app-db-value f))))
       ;; Wait for the deferred reply to settle, then assert the final state.
@@ -163,7 +168,7 @@ Both tests above assert the *settled* state — the reply has already folded in 
       (is (= :authed (:session/status (rf/app-db-value f)))))))
 ```
 
-That last test reaches for `ts/poll-until` — here `ts` is the conventional alias for `re-frame.test-support`, the test-only helper namespace (`[re-frame.test-support :as ts]` in your require block; you'll see the full block in the regression-test section below). `poll-until` is the **settle** primitive: it polls a predicate against a bounded deadline (defaults `:timeout-ms 2000`, `:interval-ms 5`) and fails fast if the condition never holds, so a genuinely stuck cascade surfaces as a timeout rather than a hang. On the JVM it's synchronous and returns the truthy value (and on timeout throws an `ex-info` carrying `:rf.error/poll-until-timeout`, so you can branch on the discriminator); on CLJS it returns a `js/Promise` you compose under `cljs.test/async` — resolving with the value, rejecting on timeout. The optional `:label` rides into the timeout message, so a failing poll names *what* it was waiting for instead of a bare deadline. Reach for it whenever a reply or a scheduled event drains *past* `dispatch-sync` — a deferred reply, a machine `:after` transition, a `:dispatch-later`.
+That last test reaches for `ts/poll-until` — `ts` is the conventional alias for `re-frame.test-support`, the test-only helper namespace already in this page's require block. `poll-until` is the **settle** primitive: it polls a predicate against a bounded deadline (defaults `:timeout-ms 2000`, `:interval-ms 5`) and fails fast if the condition never holds, so a genuinely stuck cascade surfaces as a timeout rather than a hang. On the JVM it's synchronous and returns the truthy value (and on timeout throws an `ex-info` carrying `:rf.error/poll-until-timeout`, so you can branch on the discriminator); on CLJS it returns a `js/Promise` you compose under `cljs.test/async` — resolving with the value, rejecting on timeout. The optional `:label` rides into the timeout message, so a failing poll names *what* it was waiting for instead of a bare deadline. Reach for it whenever a reply or a scheduled event drains *past* `dispatch-sync` — a deferred reply, a machine `:after` transition, a `:dispatch-later`.
 
 !!! warning "Gotcha — `poll-until` is for *settles*, not *windows*"
 
@@ -185,7 +190,7 @@ The stub table is sugar over a more general seam. A per-dispatch `:fx-overrides`
       (is (= "/api/users/login" (get-in @sent [:request :url]))))))
 ```
 
-This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same seam silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword (the framework-shipped success stub, the value form `with-managed-request-stubs` ultimately routes to):
+This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same seam silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword (the framework-shipped success stub — it shares the canned-reply machinery `with-managed-request-stubs` runs under its route table):
 
 ```clojure
 ;; Redirect to the framework-shipped canned-success stub by keyword.
@@ -223,28 +228,31 @@ The two seams above — redirect HTTP to a stub, make generated facts strict —
   (is (= :authed (:session/status (rf/app-db-value f)))))
 ```
 
-The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (every `:rf.http/managed` is redirected to its canned-success stub, so a test frame can never accidentally reach the network), `:drain-depth 100` (the cap on how many cascade steps a single dispatch will drain before it bails — set to the framework default here, surfaced explicitly so tooling can read "this is a test frame"), and `:rf.cofx/mint-policy :strict` (the strict-mint behaviour described above). Your own keys win over the preset expansion, so you can still pin a different HTTP stub or opt into `:explicit-live` per dispatch. Use the preset when you want the defaults everywhere; reach for the explicit `with-managed-request-stubs` table when a test needs route-by-route control over the replies.
+The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (every `:rf.http/managed` is redirected to its canned-success stub, so a test frame can never accidentally reach the network), `:drain-depth 100` (the cap on how many cascade steps a single dispatch will drain before it bails — set to the framework default here, surfaced explicitly so tooling can read "this is a test frame"), and `:rf.cofx/mint-policy :strict` (the strict-mint behaviour described above). One prerequisite: the canned stubs register only when `re-frame.http.test-support` is in your require block — it already is on this page; without it the preset's redirect target doesn't resolve. Your own keys win over the preset expansion, so you can still pin a different HTTP stub or opt into `:explicit-live` per dispatch. Use the preset when you want the defaults everywhere; reach for the explicit `with-managed-request-stubs` table when a test needs route-by-route control over the replies.
 
 !!! warning "Gotcha — a runaway cascade halts at `:drain-depth`, it doesn't hang"
 
-    If a handler re-dispatches itself (or a stubbed reply re-fires the same request that triggers it), the cascade would loop forever. It doesn't: the drain stops the moment it exceeds `:drain-depth` and emits a structured `:rf.error/drain-depth-exceeded` (tags `:depth`, `:queue-size`, `:last-event`). Crucially the unit of atomicity is the *event, not the drain* — every event that already settled keeps its committed `:db` and its own epoch; only the remaining queued events are discarded, and nothing is rolled back. So a test that trips the cap reads partly-advanced state, never a frozen one. If a `dispatch-sync` in a test ever seems to "never return", suspect an accidental dispatch loop and check your error listener for that category — the cap is set deliberately low (`100`) on a test frame so the loop surfaces fast.
+    If a handler re-dispatches itself (or a stubbed reply re-fires the same request that triggers it), the cascade would loop forever. It doesn't: the drain stops the moment it exceeds `:drain-depth` and emits a structured `:rf.error/drain-depth-exceeded` (tags `:depth`, `:queue-size`, `:last-event`). Crucially the unit of atomicity is the *event, not the drain* — every event that already settled keeps its committed `:db` and its own epoch; only the remaining queued events are discarded, and nothing is rolled back. So a test that trips the cap reads partly-advanced state, never a frozen one. If a `dispatch-sync` in a test ever seems to "never return", suspect an accidental dispatch loop and check your error listener for that category — the cap (`100`) means the loop surfaces within one drain.
 
 ## Asserting on what would dispatch — without running the cascade
 
 Sometimes the property under test is not the settled state but *which event the handler decided to fire next*. `:dispatch` is itself a reserved fx, and it lives in the **overridable** tier — so a per-call `:fx-overrides {:dispatch ...}` captures the queued event vector instead of running it, halting the cascade exactly one step in:
 
 ```clojure
-(deftest login-success-fires-redirect
+(rf/reg-event :session/logout
+  (fn [_ _]
+    {:fx [[:dispatch [:nav/goto :login]]]}))
+
+(deftest logout-fires-redirect
   (rf/with-new-frame [f (rf/make-frame {})]
     (let [dispatched (atom [])]
-      (rf/with-managed-request-stubs
-        {[:post "/api/users/login"] {:reply {:ok {:user {:email "a@b.c"}}}}}
-        (rf/dispatch-sync [:session/login {:email "a@b.c" :password "x"}]
-                          {:rf.cofx       {:rf/time-ms 0}
-                           :fx-overrides {:dispatch (fn [_ ev] (swap! dispatched conj ev))}})
-        ;; The reply handler tried to (re-)dispatch; we captured it instead of running it.
-        (is (some #(= :nav/goto (first %)) @dispatched))))))
+      (rf/dispatch-sync [:session/logout]
+                        {:fx-overrides {:dispatch (fn [_ ev] (swap! dispatched conj ev))}})
+      ;; The handler tried to dispatch; we captured it instead of running it.
+      (is (= [[:nav/goto :login]] @dispatched)))))
 ```
+
+One boundary to know before you lean on this: a per-call override rides the cascade it starts — the `:dispatch` / `:dispatch-later` children of that dispatch inherit it — but it does **not** survive an asynchronous hop. An HTTP reply is a *fresh* dispatch (tagged `:source :http`), so a per-call capture on the request's dispatch never sees the reply cascade's follow-ups. To capture across the hop, use the lexical seam: `rf/with-fx-overrides` wraps a body so every dispatch in its dynamic extent — replies included — carries the override. (That's the same seam `with-managed-request-stubs` uses to install its own routing.)
 
 !!! warning "Gotcha — scope a `:dispatch` override per-call, never per-frame"
 
@@ -252,7 +260,7 @@ Sometimes the property under test is not the settled state but *which event the 
 
 !!! note "State-installing fxs can't be stubbed — and that's the point"
 
-    `:dispatch` and `:dispatch-later` are overridable, but the **state-installing** reserved fxs — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` — are **hard-rejected**. An override targeting one is ignored: the runtime emits `:rf.error/reserved-fx-override` and runs the real body. Stubbing them would leave the frame's [runtime-db](../glossary.md#runtime-db) inconsistent and break behaviour far from the override site (a spawned actor whose snapshot was never installed → every later actor dispatch is a no-such-handler error). To assert on *those* operations, drive the real fx and read the resulting runtime-db state directly.
+    `:dispatch` and `:dispatch-later` are overridable, but the **state-installing** reserved fxs — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, and the router's `:rf.route/with-nav-token` — are **hard-rejected**. An override targeting one is ignored: the runtime emits `:rf.error/reserved-fx-override` and runs the real body. Stubbing them would leave the frame's [runtime-db](../glossary.md#runtime-db) inconsistent and break behaviour far from the override site (a spawned actor whose snapshot was never installed → every later actor dispatch is a no-such-handler error). To assert on *those* operations, drive the real fx and read the resulting runtime-db state directly.
 
 ## Silencing noise — `:interceptor-overrides`
 
@@ -337,11 +345,11 @@ Every assertion so far has read a path straight out of `app-db`. But the cascade
 
 !!! warning "Gotcha"
 
-    `compute-sub` follows the same fail-soft recovery the reactive runtime uses: if the sub body throws, the runtime emits `:rf.error/sub-exception` and the call returns `nil`; an input that names an unregistered sub emits `:rf.error/no-such-sub` and substitutes `nil` for that input (the outer body still runs). So a green-looking `(is (nil? ...))` can be masking a thrown sub rather than a genuinely empty result — when a `compute-sub` assertion surprises you, check your error listener for those two categories before trusting the `nil`.
+    `compute-sub` fails soft in two different ways. A sub body that throws emits `:rf.error/sub-exception` and the call returns `nil` — that one is listener-observable. But an input naming an *unregistered* sub silently computes to `nil` with no error record at all (`:rf.error/no-such-sub` belongs to the reactive `subscribe` path, which `compute-sub` never touches). So a green-looking `(is (nil? ...))` can be masking a thrown body *or* a typo'd input id — when a `compute-sub` assertion surprises you, check your error listener for `:rf.error/sub-exception` and re-read the input ids before trusting the `nil`.
 
 !!! note "`compute-sub` is JVM-pure; it is not the live reactive value"
 
-    It recomputes from the `db` you hand it every call, with no memoisation carried between calls — perfect for a deterministic assertion, but it is *not* a substitute for the running frame's cache. When you want "what the mounted frame would show *right now*" (cache-aware, after a live dispatch) rather than "what this sub computes over this `app-db` value", that's `subscribe-once` — same call shape, reads through the frame's cache, returns the value and disposes its ref-count without leaving a live subscription behind.
+    It recomputes from the `db` you hand it every call, with no memoisation carried between calls — perfect for a deterministic assertion, but it is *not* a substitute for the running frame's cache. When you want "what the mounted frame would show *right now*" (cache-aware, after a live dispatch) rather than "what this sub computes over this `app-db` value", that's `subscribe-once` — same query vector, no db argument; it reads through the frame's cache, returns the value, and disposes its ref-count without leaving a live subscription behind.
 
 ## Co-located replies — when the request and its reply belong together
 

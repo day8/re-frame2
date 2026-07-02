@@ -99,14 +99,14 @@ Day to day, `:initial-events` is the key you reach for. But `reg-frame` mirrors 
    :fx-overrides   {:my-app/http http-stub-fn}     ;; per-frame fx replacements (test doubles)
    :interceptors   [:my-app/recorder]              ;; interceptor REFS prepended to every event in this frame
    :drain-depth    100                             ;; run-to-completion drain depth limit
-   :preset         :test})                         ;; capability bundle — :default / :test / :story / :devtool
+   :preset         :test})                         ;; capability bundle — :default / :test / :story / :ssr-server
 ```
 
 - **`:on-destroy`** is a *single* event fired once, just before teardown.
 - **`:fx-overrides`** swaps registered [effect handlers](../glossary.md#effect-handler) by id — the test-double mechanism (stub `:my-app/http` so a frame never hits the network).
 - **`:interceptors`** prepends [interceptor](../glossary.md#interceptor) *refs* (registered ids, never inline interceptor values) to every event in the frame — "global within this frame."
 - **`:drain-depth`** caps the run-to-completion drain.
-- **`:preset`** expands into a named bundle (`:test`, `:story`, `:devtool`) so a frame's *intent* is visible at the call site and machine-readable from `(rf/frame-meta :cart)`.
+- **`:preset`** expands into a named bundle (`:test`, `:story`, `:ssr-server`) so a frame's *intent* is visible at the call site and machine-readable from `(rf/frame-meta :cart)`.
 
 The `:observability` sink policy — the production-telemetry key not shown above — is covered in [Observability](observability.md#consuming-production-telemetry-declare-a-sink); the full `reg-frame` grammar is in the [API reference](../../api/re-frame.core.md).
 
@@ -331,12 +331,12 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
 ;; CREATE a frame, use it, and destroy it on exit (success or throw):
 (rf/with-new-frame [f (rf/make-frame {:images [cart-image]})]
   (rf/dispatch-sync [:cart/add "milk"])
-  (is (= 1 (count (:items (rf/app-db-value (rf/frame-value->id f)))))))
+  (is (= 1 (count (:items (rf/app-db-value f))))))
 ```
 
-`with-frame` is the lexical counterpart of the scope-only `frame-provider {:frame …}`; `with-new-frame` is the lexical form that *owns* a frame's lifetime — guaranteed teardown on block exit. Inside either, plain `dispatch` / `subscribe` resolve to the bound frame. `make-frame` is the one frame constructor; it hands back a live frame *value*, and `app-db-value` reads an app-db given that frame's **id** — hence `(rf/frame-value->id f)` to bridge the two.
+`with-frame` is the lexical counterpart of the scope-only `frame-provider {:frame …}`; `with-new-frame` is the lexical form that *owns* a frame's lifetime — guaranteed teardown on block exit. Inside either, plain `dispatch` / `subscribe` resolve to the bound frame. `make-frame` is the one frame constructor; it hands back a live frame *value*, and the read surfaces take either that value or a frame id — `(rf/app-db-value f)` works as-is (`rf/frame-value->id` exists when an API genuinely wants the id).
 
-Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.)
+Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.) The test-fixture idiom in full — seeding, stubs, and the two macros' argument-shape guards — is [Test a full cascade](../testing/cascades.md)'s territory.
 
 !!! warning "Gotcha"
 

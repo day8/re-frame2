@@ -57,8 +57,11 @@ Now bind two [schemas](../glossary.md#schema), one for the slice's shape and one
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
-(rf/reg-app-schema [:auth :login]        {:schema FormSlice})
-(rf/reg-app-schema [:auth :login :draft] {:schema LoginForm})
+;; App-db schemas are frame-scoped: register inside a frame scope (or pass
+;; :frame) — a bare top-level call fails loud with :rf.error/no-frame-context.
+(rf/with-frame :rf/default
+  (rf/reg-app-schema [:auth :login]        {:schema FormSlice})
+  (rf/reg-app-schema [:auth :login :draft] {:schema LoginForm}))
 ```
 
 Two schemas, because they answer two different questions. `FormSlice` describes the *machinery* — the status enum, the touched set, the errors map. `LoginForm` describes the *payload* — what a valid email and password look like. They evolve independently: you change `LoginForm` when the business rules change, and you'll basically never touch `FormSlice`.
@@ -70,12 +73,13 @@ With those bound, a `:status` outside the enum, or a malformed draft, now fails 
     Two `reg-app-schema` calls are fine for one form, but a feature module with several forms usually declares the lot in a single `reg-app-schemas` (note the plural), which takes a `{path -> schema}` map and keeps the whole feature's shape contract in one place:
 
     ```clojure
-    (rf/reg-app-schemas
-      {[:auth :login]        FormSlice
-       [:auth :login :draft] LoginForm})
+    (rf/with-frame :rf/default
+      (rf/reg-app-schemas
+        {[:auth :login]        FormSlice
+         [:auth :login :draft] LoginForm}))
     ```
 
-    `reg-app-schemas` is the same registration, vectorised — handy when a feature owns five slices and you'd rather not write five calls.
+    `reg-app-schemas` is the same registration, vectorised — handy when a feature owns five slices and you'd rather not write five calls. Like the singular form, it's frame-scoped, so it runs inside the same `with-frame`.
 
 ## 2. Register the events
 
@@ -396,6 +400,11 @@ For most forms that's fine — your own backend is trusted. But when the respons
 ```clojure
 ;; LoginReply describes the success reply *envelope* — {:kind :success :value <user-map>} —
 ;; because the boundary check validates the whole dispatched event vector, reply map and all.
+(def LoginReply
+  [:map
+   [:kind  [:= :success]]
+   [:value [:map [:user :map]]]])
+
 (rf/reg-event :form.login/submit-success
   {:schema       [:cat [:= :form.login/submit-success] LoginReply]
    :interceptors [:rf.schema/at-boundary]}    ;; force the check in prod

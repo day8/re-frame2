@@ -27,9 +27,9 @@ Those `reg-*` forms don't *run* anything. They write entries into the [**registr
 
 When you then create a frame *without* naming an image, that frame just resolves every lookup straight against the whole registrar — "everything I've registered." That implicit "all of it" selection is the **default image**: the conceptual zero-config selection you get for free. So an image, at its simplest, is just a *selection from the registrar* — and the default selects all of it.
 
-!!! note "Heads-up — the default frame carries no sealed generation *yet*"
+!!! note "Heads-up — the default image is a real sealed generation"
 
-    Conceptually the default image is "the whole registrar sealed into one set." Mechanically, a frame created with no `:images` key currently skips the sealing step entirely and resolves each lookup live against the shared registrar (the *absence-is-default* path). The difference is invisible to your events and subs — they see every registration either way — but it has one observable edge, covered below: the read-side accessors (`rf/frame-shadows`, `rf/frame-generation`) need a frame that *was* built from `:images`, so on a default-image frame they fail loud rather than reporting an empty result. (Wiring the omit-`:images` path to resolve a real sealed default generation is a tracked follow-up; until it lands, "default frame" means "resolves against the registrar," not "carries a generation.")
+    Conceptually the default image is "the whole registrar sealed into one set" — and mechanically that is exactly what you get. `make-frame` with no `:images` key resolves a sealed **default generation** over the whole active store (framework standards included): the implicit selector over everything. It runs the same assembly gate as an explicit selection, so even the default path fails loud on a cross-namespace `[kind id]` collision (`:rf.error/image-duplicate-id`) rather than letting load order silently pick a survivor. The one frame that carries *no* generation is one declared with bare `reg-frame` — it resolves each lookup live against the shared registrar, which is why the read-side accessors below want a `make-frame`-built frame.
 
 The common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
 
@@ -229,9 +229,9 @@ The most common read is **`rf/frame-shadows`** — the cross-image override repo
 
 An empty vector means nothing was overridden — so `(empty? (rf/frame-shadows frame))` is the assertion "this composition stacked cleanly, no surprises."
 
-!!! warning "Gotcha — the read side needs a frame built from `:images`"
+!!! warning "Gotcha — the read side needs a frame that carries a generation"
 
-    `rf/frame-shadows` returns `[]` (no overrides) only for a frame that *was* composed from an `:images` vector. Aimed at a **default-image** frame — one created with no `:images` key — it has no sealed generation to read, so it **fails loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same is true of `rf/frame-generation` and the frame-targeted `{:frame …}` queries below. So this whole read side is for the explicit-image frames where a composition could surprise you; a default-image frame is the "I never composed anything, there's nothing to inspect" case by construction.
+    Every `make-frame` frame carries one — an explicit `:images` composition or the sealed default — so `rf/frame-shadows` answers `[]` on a default-image frame (nothing composed, nothing shadowed). The frame with nothing to read is one declared via bare `reg-frame`: it resolves live against the registrar, carries no generation, and the read side **fails loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same holds for `rf/frame-generation` and the frame-targeted `{:frame …}` queries below.
 
 ??? note "Going deeper"
 
@@ -318,7 +318,7 @@ You hand it a frame (id or value) and a new `:images` vector — exactly the sha
 
     The return value is a **reload report**. Its `:rf.reload/diff` partitions the `(kind, id)` space four ways — `:added`, `:changed`, `:removed`, `:retained` — between the old generation and the new, so the runtime invalidates only what actually moved (a sub whose definition didn't change keeps its cache). `:rf.reload/shadows` is the new composition's shadow report, the same shape `rf/frame-shadows` returns, so if a reload changes the override set you see it right there beside the diff. Reloading one frame never drags a sibling that happened to share a generation along with it — the swap is frame-targeted, and the old generation is never mutated. Re-assembling the new `:images` runs the same assembly gate as `make-frame`, so a bad new composition fails loud with the *same* error ids from the table above (a duplicate id, a zero-match include, …) — the swap is all-or-nothing, and a failed reload leaves the frame on its existing generation.
 
-    **Gotcha — `reload-images!` only targets an image-built frame.** Like the read-side accessors, it needs a frame that carries a generation. Aimed at a frame created with no `:images` key — a default-image frame — it has nothing to swap and **fails loud** with `:rf.error/reload-no-such-frame` (the error names the image-loaded frame ids it *could* have targeted). To re-point a default-image frame at a real composition, recreate it with `make-frame` (idempotent on a live id) carrying the `:images` you want, rather than reaching for `reload-images!`.
+    **Gotcha — `reload-images!` targets a generation-carrying frame.** Every `make-frame` frame qualifies, the sealed default included — re-pointing a default-image frame at an explicit composition is exactly the move it exists for. The frame it *can't* target is one declared via bare `reg-frame` (no generation to swap): aimed there it **fails loud** with `:rf.error/reload-no-such-frame`, and the error names the frame ids it could have targeted. To move such a frame onto a composition, recreate it with `make-frame` carrying the `:images` you want.
 
 !!! note "Heads-up"
 

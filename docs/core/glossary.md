@@ -40,6 +40,12 @@ Note: The framework keeps *its* own state separately in [runtime-db](#runtime-db
 
 Related: [app-db](concepts/app-db.md), [Validate with schemas](how-to/validate-with-schemas.md).
 
+### **path**
+
+A vector of keys addressing one location inside [app-db](#app-db), with `get-in` / `assoc-in` semantics — `[:auth :token]` names the `:token` entry inside the `:auth` map. Paths are the framework-wide addressing vocabulary: an app-db [schema](#schema) binds to a path, a [data-classification](#data-classification) mark names one, a [flow](#flow) writes its `:output-path`, and the `path` interceptor narrows a handler to one.
+
+Related: [app-db](concepts/app-db.md).
+
 ### **coeffect**
 
 A fact about the world — the current time, a fresh UUID, a value from local storage — that the framework supplies to an [event handler](#event-handler) as data, so the handler stays a pure function and never reaches out to the world itself. A handler is a pure function from coeffects to an [effect map](#effect-map): the world flows *in* as coeffects and *out* as [effects](#effect).
@@ -82,9 +88,9 @@ Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 The function — registered with `reg-fx` for a given `effect-id` — that actually *performs* an [effect](#effect). The runtime calls it once for each effect in a handler's `:fx` vector, passing that effect's config. This is where the real, impure work happens (the HTTP call, the navigation, the `localStorage` write) — which is exactly why it's kept *out* of the pure [event handler](#event-handler): the event handler describes effects as data; the effect handler carries them out.
 
 ```clojure
-(rf/reg-fx :cart/save          ;; teach the runtime a new effect
-  (fn [{:keys [items]}]        ;; the handler receives the effect's config
-    (save-to-server! items)))  ;; and does the impure work
+(rf/reg-fx :cart/save             ;; teach the runtime a new effect
+  (fn [_ctx {:keys [items]}]      ;; (fn [ctx args]) — args is the effect's config
+    (save-to-server! items)))     ;; and does the impure work
 ```
 
 re-frame2 ships handlers for the common effects (`:dispatch`, `:dispatch-later`, `:rf.http/managed`, …); you register your own with `reg-fx`.
@@ -115,11 +121,11 @@ Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). The `:fx` key
 
 ### **error record**
 
-A failure the framework surfaces as a structured map rather than a thrown, silent, or swallowed error — it [fails loud](#fail-loud-not-silent), but as *data*. Every record is keyed by a reserved **`:rf.error/*` category** drawn from a fixed catalogue; **branch on the category**, never on the human-readable `:reason` (which is prose for people and can change).
+A failure the framework surfaces as a structured map rather than a thrown, silent, or swallowed error — it [fails loud](#fail-loud-not-silent), but as *data*. Every record is keyed by a reserved **`:rf.error/*` category** drawn from a fixed catalogue: traced/listener records carry it under `:operation`; the few construction-time errors that *throw* carry it as `:rf.error/id` in the exception's `ex-data`. Either way, **branch on the category**, never on the human-readable `:reason` (which is prose for people and can change).
 
 ```clojure
-{:rf.error/category :rf.error/no-frame-context
- :reason "no frame in scope"}
+{:operation :rf.error/no-frame-context
+ :reason    "no frame in scope"}
 ```
 
 Error records fan out to your always-on error listeners (Sentry, Datadog, …), so — unlike the dev-only trace surface — they **survive production**. Build your monitoring on them.
@@ -277,6 +283,12 @@ The rule that ties it to a frame: **the image supplies behaviour; the [frame](#f
 
 Related: [Images](concepts/images.md).
 
+### **generation**
+
+The sealed registration set a [frame](#frame)'s [image](#image) selection resolves into when the frame is constructed — the concrete "which handler answers this id" table the frame runs against, frozen as a value. Every `make-frame` frame carries one (the default image seals into a generation too); `reload-images!` swaps a frame onto a freshly resolved generation.
+
+Related: [Images](concepts/images.md).
+
 ### **interceptor**
 
 A named, reusable wrapper around an [event handler](#event-handler) — a pair of `:before` / `:after` functions for cross-cutting concerns (logging, validation, tracing, undo, injecting effects). Each is a `context → context` function:
@@ -418,7 +430,8 @@ Related: [Use UIx, Helix, or slim](how-to/use-uix-helix-or-slim.md).
 A pure render function from [subscription](#subscription) values to **hiccup** — the Clojure data that describes your UI. Views read derived state and [dispatch](#dispatch) [events](#event) on interaction; they hold no business logic. The [substrate](#substrate) turns the hiccup into real React elements.
 
 ```clojure
-(rf/reg-view :cart-badge (fn [] [:span.badge @(rf/subscribe [:cart/count])]))
+(rf/reg-view cart-badge []
+  [:span.badge @(subscribe [:cart/count])])
 ```
 
 Related: [Views](concepts/views.md). Use "component" for React-analogy callouts only.
@@ -568,7 +581,7 @@ Related: [app-db](concepts/app-db.md).
 
 ### **The uniform reply**
 
-Every managed async surface (HTTP, resources, mutations, route loaders, machine async) completes by [dispatching](#dispatch) an [event](#event) carrying a reply map, never by an awaited value. The HTTP envelope's discriminator is `:kind` (`:success`/`:failure`); the resource view-model's `:status` (`:ok/:partial/:error/:cancelled/:stale`) is a different field, with `:kind :success` ≡ `:status :ok`.
+Every managed async surface (HTTP, resources, mutations, route loaders, machine async) completes by [dispatching](#dispatch) an [event](#event) carrying a reply map, never by an awaited value. The HTTP envelope's discriminator is `:kind` (`:success`/`:failure`); the *reply map's* `:status` (`:ok`/`:error`/`:cancelled`/`:stale` — the resources corpus's four-status view-model) is a different field, with `:kind :success` ≡ `:status :ok`. (Different again from the resource *read sub's* `:status`, whose values are the five lifecycle states `:idle`/`:loading`/`:fetching`/`:loaded`/`:error`.)
 
 ```clojure
 [:auth/login-reply {:kind :success :value {:token "…"}}]
@@ -640,3 +653,9 @@ The dev inspector: an in-app panel that reads the [trace stream](#trace-stream) 
 ```
 
 Related: [Debug with Xray](how-to/debug-with-xray.md).
+
+### **Story**
+
+The view workbench: render a [view](#view)'s loading, empty, error, and happy states as named variants, each in its own isolated [frame](#frame), then promote the good examples into tests. Reads the same [trace stream](#trace-stream) as every other tool.
+
+Related: [the Story tab](../story/index.md), [Observability](concepts/observability.md).

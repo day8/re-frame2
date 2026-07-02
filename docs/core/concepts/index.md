@@ -107,7 +107,7 @@ The reply comes back as a *new* event — `[:feed/loaded …]` — which walks t
 
 !!! warning "Gotcha — the effect map is a closed vocabulary"
 
-    Application code may return only `:db` and `:fx` at the top level. Return a third key — a stray `:dispatch` you meant to nest inside `:fx`, a typo'd `:fxx` — and the handler [fails loud](../glossary.md#fail-loud-not-silent) with a structured error the instant it runs, not a silent no-op three features downstream. The closed grammar means a mistake surfaces *at the handler*, where you can see it, instead of vanishing into a feature that mysteriously never happens.
+    Application code returns `:db` and `:fx` at the top level (plus the commit-plane classification effects like `:sensitive`, which [app-db](app-db.md) covers). Return an *unknown* key — a stray `:dispatch` you meant to nest inside `:fx`, a typo'd `:fxx` — and the handler [fails loud](../glossary.md#fail-loud-not-silent) with a structured error the instant it runs, not a silent no-op three features downstream. The closed grammar means a mistake surfaces *at the handler*, where you can see it, instead of vanishing into a feature that mysteriously never happens.
 
 ??? info "Coming from Redux?"
 

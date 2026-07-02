@@ -25,7 +25,7 @@ We'll take them one at a time.
 
 Your usual first move still works: open the React DevTools profiler, record, do the slow thing, read the flame graph. But it tells you *which components rendered*, not *why the data changed* — and the why is what you need. Every re-render here traces back through a subscription to an [event](../glossary.md#event), the inert data vector recording that something happened. [Xray](../glossary.md#xray), the dev inspector, shows that chain directly.
 
-Attach Xray with one line ([Debug with Xray](debug-with-xray.md)). Reproduce the slow interaction once, select the newest event row, and open the **Views** tab. It lists every view that re-rendered in that [event cascade](../glossary.md#event-cascade), with its render time, and nests under each view the subscriptions it read. Each sub carries a drill that answers "why did this sub re-run", tracing back to the event that caused it. Mounted, re-rendered, and unmounted views appear in their own groups, and a re-rendered row carries a one-line *mount-reason* attribution ("parent conj'd this child", "own data changed", "callback prop churned").
+Attach Xray with one line ([Debug with Xray](debug-with-xray.md)). Reproduce the slow interaction once, select the newest event row, and open the **Views** tab. It lists every view that re-rendered in that [event cascade](../glossary.md#event-cascade), with its render time, and nests under each view the subscriptions it read. Each sub carries a drill that answers "why did this sub re-run", tracing back to the event that caused it. Mounted, re-rendered, and unmounted views appear in their own groups, and a re-rendered row names its cause — `← :sub-id` when a subscription's value moved, `← props` when the parent handed it different arguments.
 
 You are looking for one of two shapes:
 
@@ -36,7 +36,7 @@ If the dev build feels fine and only production is slow, jump straight to rung 4
 
 !!! warning "Gotcha — those render times are best-effort"
 
-    The dev Views tab borrows its per-view millisecond numbers from React's own profiler: present when React profiling data is available, absent otherwise, and — like any dev-build number — inflated by the trace surface itself. Use them to *rank rows within one capture*, not as ground truth. The numbers that match what your users feel come from rung 4's production channel.
+    The dev Views tab's per-view millisecond numbers are the framework's own wall-clock read around each registered view's render function — and, like any dev-build number, they're inflated by the trace surface itself. Use them to *rank rows within one capture*, not as ground truth. The numbers that match what your users feel come from rung 4's production channel.
 
 ---
 
@@ -88,7 +88,7 @@ Now observe the fix. Dispatch the same event with the Views tab open, and the su
 
 !!! note "One derivation, read in many places?"
 
-    A subscription is a *view-facing* reactive cache — a handler can take a one-shot `subscribe-once` read of its current value, but that read recomputes per call for the handler and shares nothing with the render side. So if the same expensive value is read by *both* views and handlers (or schemas, or other derivations), a layer-2 sub ends up computing it twice: once for the reactive view cache, once per handler that asks. Promote it to a [flow](../concepts/flows.md) and it's computed exactly once per app-db write, [materialised into app-db](../glossary.md#flow), and every reader — view and handler alike — shares that one result as plain state. A flow is the equality gate applied to *state* instead of to a view-facing cache.
+    A subscription is a *view-facing* reactive cache — a handler can take a one-shot `subscribe-once` read of its current value, and when a mounted view already holds that same query live, the read is a cache hit. But when nothing reactive holds the sub, each `subscribe-once` recomputes from scratch. So an expensive value read by handlers on paths no view keeps warm gets computed repeatedly. Promote it to a [flow](../concepts/flows.md) and it's computed exactly once per app-db write, [materialised into app-db](../glossary.md#flow), and every reader — view and handler alike — shares that one result as plain state. A flow is the equality gate applied to *state* instead of to a view-facing cache.
 
 !!! note "When placement isn't enough"
 

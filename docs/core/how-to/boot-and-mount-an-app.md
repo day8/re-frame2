@@ -122,6 +122,9 @@ remove that stored value before adding the new one.
 ```clojure
 (defonce hash-listener (atom nil))
 
+(defn- current-path []
+  (subs (.-hash js/location) 1))   ;; your URL-reading helper — hash-based here
+
 (defn- on-hashchange [_event]
   (rf/dispatch [:rf.route/handle-url-change (current-path)]
                {:frame app-frame}))
@@ -223,7 +226,7 @@ Boot is where the "did you wire it up?" mistakes surface, and each one [fails lo
 
 !!! warning "Gotcha — touching the substrate before `init!`"
 
-    `rf/init!` installs the [adapter](../glossary.md#adapter); until it runs there is nothing to render or dispatch through. A `render`, `dispatch`, or `subscribe` that beats `(rf/init! …)` — an event fired from a top-level form, a `mount!` that ran before `run` — throws `:rf.error/no-adapter-installed`, naming the call. Install the adapter first; in the shapes above, `run` does it on its first line.
+    `rf/init!` installs the [adapter](../glossary.md#adapter); until it runs there is nothing to render through. A `render` or `mount!` that beats `(rf/init! …)` throws `:rf.error/no-adapter-installed`, naming the call; a `dispatch` or `subscribe` fired from a bare top-level form fails on its missing frame scope first (`:rf.error/no-frame-context`). Either way the cure is the same: boot before anything runs — in the shapes above, `run` installs the adapter on its first line.
 
 !!! warning "Gotcha — `{:frame …}` needs a frame that already exists"
 

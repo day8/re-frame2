@@ -32,7 +32,7 @@ When the app does something you didn't ask for, you don't reach for `println` �
 
 !!! note
 
-    **Want to poke at the running app instead of reading a trace after the fact?** Several of these tasks have a *live* counterpart: attach to a running [frame](../glossary.md#frame), read its [app-db](../glossary.md#app-db), dispatch events, and hot-swap a handler from your editor through the Tool-Pair surface the pair MCP rides. That's pairing against a live runtime rather than following a recipe — the recipes here cover the after-the-fact read; the live path is its own surface.
+    **Want to poke at the running app instead of reading a trace after the fact?** Several of these tasks have a *live* counterpart: attach to a running [frame](../glossary.md#frame), read its [app-db](../glossary.md#app-db), dispatch events, and hot-swap a handler from your editor through the Tool-Pair surface the pair MCP rides. That's pairing against a live runtime rather than following a recipe — the recipes here cover the after-the-fact read; the live path is the [pair skill](../../skills/re-frame2-pair.md)'s territory.
 
 ## Ship it
 

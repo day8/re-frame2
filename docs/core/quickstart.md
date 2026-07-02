@@ -207,15 +207,14 @@ Now restore an older row. The counter returns to that exact moment — value, pa
 
 ## Running it locally
 
-The snippets above are the whole app *except* for boot. Boot is the one place you name the rendering [substrate](glossary.md#substrate) and the [frame](glossary.md#frame), so adapt `examples/core/counter/` to match:
+The snippets above are the whole app *except* for boot. Boot is the one place you name the rendering [substrate](glossary.md#substrate) and the [frame](glossary.md#frame), so adapt `examples/core/counter/` to match (starting from an empty directory instead? the [tutorial's opening part](../resources/tutorial/index.md) walks the `deps.edn` / shadow-cljs scaffold from nothing):
 
 ```clojure
 (ns quickstart.core
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [quickstart.counter :as counter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [quickstart.counter :as counter]))
 
 (defonce root (rdc/create-root (js/document.getElementById "app")))
 

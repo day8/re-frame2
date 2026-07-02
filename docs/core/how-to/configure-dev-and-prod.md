@@ -131,7 +131,7 @@ You touch the `set-…!` bucket only to replace an implementation — a non-Mall
 
 ### The per-frame bucket: frame-lifetime overrides
 
-The per-frame bucket rides `reg-frame` metadata (or, per-dispatch, the `dispatch` opts argument, which merges over the frame's metadata on conflict). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
+The per-frame bucket rides `reg-frame` metadata (two of its keys — `:fx-overrides` and `:interceptor-overrides` — can also arrive per-dispatch on the `dispatch` opts argument, where the per-call value wins on conflict; the rest are frame-config-only). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
 
 ```clojure
 ;; A frame that ships its own error sink — survives goog.DEBUG=false,

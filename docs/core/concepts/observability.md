@@ -66,10 +66,10 @@ Both of these are designed to grow without breaking anyone. New `:op-type` value
 
 Synchronous delivery has a catch. If you weren't listening when an event fired, you missed it — which is fatal for any tool that attaches *after* the interesting thing happened: the devtools panel you opened three clicks too late, or the AI you summoned precisely because the app is already broken.
 
-So each [frame](../glossary.md#frame) also keeps a ring buffer of recent history beside its own [app-db](../glossary.md#app-db). One read gets you the recent past:
+So each [frame](../glossary.md#frame) also keeps a ring buffer of recent history beside its own [app-db](../glossary.md#app-db). The read surface is tool-facing, so it lives in its own namespace — `[re-frame.trace.tooling :as tooling]` — rather than on the app facade (on the JVM, `rf/trace-buffer` exists as a test-convenience alias). One read gets you the recent past:
 
 ```clojure
-(rf/trace-buffer :app)
+(tooling/trace-buffer :app)
 ;; => vector of cascade bundles, oldest first — each one already grouped:
 ;;    {:dispatch-id 4711  :parent-dispatch-id nil  :frame :app
 ;;     :event [:cart/add-item {:sku "BK-1"}]  :dispatched {,,,}
@@ -87,7 +87,7 @@ One knob sets the depth:
 (rf/configure! {:trace-buffer {:cascades-retained 50}})   ;; the default
 ```
 
-That sets the process default. A frame that wants its own retention sets `:rf.trace/cascades-retained` in its `reg-frame` metadata. And when you want to start a session from a clean slate — between two recordings, say — `(rf/clear-trace-buffer! :app)` empties the named frame's ring without touching anyone else's.
+That sets the process default. A frame that wants its own retention sets `:rf.trace/cascades-retained` in its `reg-frame` metadata. And when you want to start a session from a clean slate — between two recordings, say — `(tooling/clear-trace-buffer! :app)` empties the named frame's ring without touching anyone else's.
 
 ??? info "Coming from Redux DevTools?"
 
@@ -99,24 +99,24 @@ That sets the process default. A frame that wants its own retention sets `:rf.tr
 
 ### Reading a slice, not the whole ring
 
-`(rf/trace-buffer frame-id opts)` takes a filter map, so a tool doesn't have to pull the whole ring and sift it in JavaScript. The keys compose AND-wise — an absent key means "no constraint on that axis," and an unrecognised key is ignored (so a tool can probe a newer axis and degrade gracefully on an older runtime). The ones you'll reach for:
+`(tooling/trace-buffer frame-id opts)` takes a filter map, so a tool doesn't have to pull the whole ring and sift it in JavaScript. The keys compose AND-wise — an absent key means "no constraint on that axis," and an unrecognised key is ignored (so a tool can probe a newer axis and degrade gracefully on an older runtime). The ones you'll reach for:
 
 ```clojure
 ;; Just the cascades dispatched from a :user/login event:
-(rf/trace-buffer :app {:event-id :user/login})
+(tooling/trace-buffer :app {:event-id :user/login})
 
 ;; Cursor-based polling — read once, remember the last :id, ask for what's new
 ;; (requires :flat, since :id lives on individual events):
-(rf/trace-buffer :app {:flat true :since last-seen-id})
+(tooling/trace-buffer :app {:flat true :since last-seen-id})
 
 ;; Only error events, flat:
-(rf/trace-buffer :app {:flat true :op-type :error})
+(tooling/trace-buffer :app {:flat true :op-type :error})
 
 ;; Anything that matches your own predicate (the escape hatch):
-(rf/trace-buffer :app {:pred (fn [cascade] (< 100 (count (:effects cascade))))})
+(tooling/trace-buffer :app {:pred (fn [cascade] (< 100 (count (:effects cascade))))})
 ```
 
-The full vocabulary is small: `:event-id`, `:origin`, `:dispatch-id`, `:between [t0 t1]`, `:since-ms`, and the `:flat`-only `:operation` / `:op-type` / `:severity` / `:since` / `:source` / `:handler-id` keys. Cascade-level keys (`:event-id`, `:origin`, `:dispatch-id`, `:between`, `:pred`) work on bundle reads; the per-event keys require `:flat true`.
+The full vocabulary is small: `:event-id`, `:origin`, `:dispatch-id`, `:between [t0 t1]`, `:since-ms`, `:pred`, and the `:flat`-only `:operation` / `:op-type` / `:severity` / `:since` / `:source` / `:handler-id` / `:sensitive?` keys. The cascade-level keys (`:event-id`, `:origin`, `:dispatch-id`, `:between`, `:since-ms`, `:pred`) work on bundle reads; the per-event keys require `:flat true`.
 
 !!! note "The corner cases are forgiving by design"
 
@@ -296,7 +296,7 @@ flowchart LR
 
 **Xray answers: what happened?** It's the Redux DevTools of this world, grown to the full cascade: the epoch ledger, app-db diffs per event, which subscriptions recomputed, which views rendered, effects, machine transitions, schema failures — and time-travel scrubbing via `restore-epoch`. It also assembles the registration facts into the [derivation graph](../derivations-and-algebra-views.md): "where does this value come from?" drawn as a picture. Reach for it when you're debugging the running app — start with [debug with Xray](../how-to/debug-with-xray.md).
 
-**Story answers: what states should this thing have?** It's the Storybook of this world. You render a [view](../glossary.md#view)'s loading, empty, error, and happy states as named variants, each in its own isolated frame, without driving the whole app there by hand — then promote the good examples into tests. Story embeds Xray's panels for diagnosis rather than growing a second diff engine, and it has its own tutorial track in its docs.
+**Story answers: what states should this thing have?** It's the Storybook of this world. You render a [view](../glossary.md#view)'s loading, empty, error, and happy states as named variants, each in its own isolated frame, without driving the whole app there by hand — then promote the good examples into tests. Story embeds Xray's panels for diagnosis rather than growing a second diff engine, and it has [its own tutorial track](../../story/index.md) in its docs.
 
 **The pair MCP answers: can an agent help?** It's an MCP server that lets an AI attach to your *running* app: read frames and app-db, follow epochs, dispatch events, run a dry-run cascade, time-travel — all through the same structured surfaces, with the mutating tools flagged so the agent host can gate them. The agent sees the evidence a good human debugger would ask for, instead of guessing from source.
 

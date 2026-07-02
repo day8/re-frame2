@@ -57,10 +57,6 @@ That's the whole contract — four declarations on the host, and Xray opens. You
 
 If Xray can't find the host element when it tries to open, it doesn't fail silently — it logs an actionable missing-host diagnostic on the console telling you to add `[data-rf-xray-host]`, and even hands you the snippet to paste.
 
-!!! warning "Gotcha — Xray is desktop-only"
-
-    Below a 600px viewport (phones) it refuses to mount: the DOM root is created but the visible UI is a single message explaining it's desktop-only. Between 600px and 900px it narrows; at 900px and below it takes the full viewport width. So if Xray seems to "vanish" on a small window, that's the floor — widen the window, don't hunt for a bug.
-
 !!! note "No resize CSS required"
 
     You do *not* wire any resize CSS: Xray auto-injects its own drag handle on the host's left edge (drag to widen, double-click to reset, arrow keys when focused). Width is driven by the `--rf-xray-inline-width` custom property (default `560px`); override it anywhere up the cascade — `:root { --rf-xray-inline-width: 720px; }` — and a user drag writes back to the same property.
@@ -78,6 +74,8 @@ If Xray can't find the host element when it tries to open, it doesn't fail silen
 
 None of this exists in production, which is by design. Xray and the trace machinery it reads are [elided](../glossary.md#elide) entirely in `:advanced` builds — remove the consumer and the framework is byte-for-byte unchanged. See [Configure dev and production builds](configure-dev-and-prod.md).
 
+This page is the condensed on-ramp; the Xray tab owns the reference detail — [installation](../../xray/01-installation.md) for the full host contract, the [panel tour](../../xray/02-panel-tour.md) for every tab in depth, and [time travel](../../xray/03-time-travel.md) for rewind's exact semantics.
+
 ## Step 2: the one mental model — one event in, full insight out
 
 Before you debug anything, internalise the single idea the whole tool is built on. The shell has four layers stacked top to bottom: a **ribbon** (scope + nav controls), the **event list** (the ledger), a **tab bar**, and a **detail panel**. You select one event in the list, and every tab rebinds to it. Each tab is just a different *lens* on that one event: one shows the state diff, one shows the effects, one shows the renders, and so on.
@@ -86,18 +84,18 @@ Before you debug anything, internalise the single idea the whole tool is built o
 
     This is the whole thing. There is no "current state" view floating free of an event — every panel is bound to the *one focused event* in the list. Move the focus and the whole shell re-points at that moment. Once that clicks, the rest of Xray is just choosing which lens (tab) you want on the moment you've focused.
 
-Working in a multi-frame app? Pick the [frame](../glossary.md#frame) you're inspecting in the ribbon's frame picker. (The picker hides Xray's own tool frame by default; flip *Settings → General → "Show tool frames in picker"* if you ever need to see it.)
+Working in a multi-frame app? Pick the [frame](../glossary.md#frame) you're inspecting in the ribbon's frame picker. (The picker hides Xray's own tool frame by design — your app's frames are what you choose between.)
 
 ## Step 3: find the event that broke state
 
 You're staring at bad state, and you don't yet know which event put it there. Here's the core loop — the thing you'll do ten times a day.
 
 1. **Open Xray** (`Ctrl+Shift+C`). It lands on the latest event. Press `Space` to pause the live feed so new dispatches stop shoving the list out from under you.
-2. **Press `a`** for the App-db tab. You'll see the diff this one event made — app-db before against app-db after. Each event shows only its own delta, never a cumulative pile, so the change is easy to read.
+2. **Click the app-db tab.** You'll see the diff this one event made — app-db before against app-db after. Each event shows only its own delta, never a cumulative pile, so the change is easy to read.
 3. **Walk backwards in time** with `j` (it steps to the older event; `k` steps back toward the newest — or use the ribbon's `◀` `▶` nav buttons), watching the diff. Ask one small question per step: *did this event write the bad value?*
-4. **Stop at the first event where the bad value appears.** That's your culprit — the epoch that wrote it. Press `e` for the Epoch tab, which lays out the full [event cascade](../glossary.md#event-cascade) in order: dispatch site, event vector, [coeffects](../glossary.md#coeffect), handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
+4. **Stop at the first event where the bad value appears.** That's your culprit — the epoch that wrote it. Click the **Epoch** tab, which lays out the full [event cascade](../glossary.md#event-cascade) in order: dispatch site, event vector, [coeffects](../glossary.md#coeffect), handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
 
-That's it. Four keys — `Space`, `a`, `j`, `e` — find most bugs.
+That's it. One pause, one walk, two tabs — `Space`, `j`/`k`, app-db, Epoch — find most bugs.
 
 !!! note "Why walking backwards works"
 
@@ -106,10 +104,10 @@ That's it. Four keys — `Space`, `a`, `j`, `e` — find most bugs.
 Once the core loop is muscle memory, three shortcuts make it faster:
 
 - **Loud breakages tint pink.** An epoch that carries an issue — a thrown exception, a schema violation, a hydration mismatch, a perf-budget overrun, or a raw `console.error` from your app — tints its row pink in the list, so you can scan for the tint instead of stepping one by one. The exception's message and data show up inline in the Epoch panel for that event (there's no separate "Issues" tab — issues surface where the event already is). Want Xray to *come to you*? Flip *Settings → General → "Auto-open on error"* (off by default — Xray won't interrupt you in your own app unasked) and it pops open the moment the first issue lands.
-- **Drowning in noise? Add a filter pill.** The events ribbon (which slides open the moment you add your first filter) takes filter-IN pills (show only matches, green `+`) and filter-OUT pills (hide matches, magenta `×`) keyed on an event-id or a wildcard like `:mouse/*`. They compose as `(any IN) AND NOT (any OUT)`, and a count of `N events filtered out` shows on the right so a filter can never silently hide the truth. Filters are transient — they reset on reload, so a stale pill never bites you in a fresh session.
+- **Drowning in noise? Add a filter pill.** The events ribbon (which slides open the moment you add your first filter) takes filter-IN pills (show only matches, green `+`) and filter-OUT pills (hide matches, magenta `×`) keyed on an event-id or a wildcard like `:mouse/*`. They compose as `(any IN) AND NOT (any OUT)`, and a count of `N events filtered out` shows on the right so a filter can never silently hide the truth. Pills *persist* per host app (localStorage), so your noise-trim survives a reload — which also means a stale pill can outlive the bug it was for. When the count on the right surprises you, check the pills first.
 - **Chase the cause across dispatches.** Was the culprit handler dispatched by another event's `:dispatch` effect? Then keep walking — its cascade lists the follow-up dispatches it queued, so the causal chain stays legible. ([Events and the cascade](../concepts/events-and-the-cascade.md) is the model behind this.)
 
-Press `L` to snap back to live when you're done (`G` does the same — "go to head").
+Press `l` to snap back to live when you're done (`Shift+G` does the same — "go to head").
 
 !!! warning "Gotcha"
 
@@ -119,11 +117,11 @@ Press `L` to snap back to live when you're done (`G` does the same — "go to he
 
 The next-most-common bug has a different symptom: a view re-rendered, or it shows a wrong derived value, and you don't know why.
 
-Focus the suspect event and press `v` for the Views tab. It lists every [subscription](../glossary.md#subscription) that ran during this cascade, one row each. Each row flags two things: whether the sub's **value actually changed**, and whether the recompute was **driven by an upstream sub** — and if so, that upstream sub is named right on the row. Below that, you'll see the views that re-rendered this epoch. Hover a view row and it highlights that view's rendered DOM in the page, so "which view is this row?" never needs guessing.
+Focus the suspect event and click the **Views** tab. It lists every [subscription](../glossary.md#subscription) that ran during this cascade, one row each. Each row flags two things: whether the sub's **value actually changed**, and whether the recompute was **driven by an upstream sub** — and if so, that upstream sub is named right on the row. Below that, you'll see the views that re-rendered this epoch. Hover a view row and it highlights that view's rendered DOM in the page, so "which view is this row?" never needs guessing.
 
 Read it two ways:
 
-- **Bottom-up to answer *why did this view re-render?*** — the view, the sub that triggered it, the upstream subs behind that, and finally the app-db path that changed this epoch (one keypress away on `a`).
+- **Bottom-up to answer *why did this view re-render?*** — the view, the sub that triggered it, the upstream subs behind that, and finally the app-db path that changed this epoch (one click away on **app-db**).
 - **Top-down to answer *why is this sub returning the wrong value?*** — find the sub's row, check whether its value changed this epoch, and follow its source chip into the registration code.
 
 This is the [derivation graph](../glossary.md#the-derivation-graph) made visible: app-db at the root, views at the leaves, subscriptions as the nodes between. If the verdict turns out to be "correct, just too often", head to [Find and fix a slow view](fix-a-slow-view.md).
@@ -134,31 +132,27 @@ This is the [derivation graph](../glossary.md#the-derivation-graph) made visible
 
 ## Step 5: the other lenses
 
-App-db, Epoch and Views cover the everyday bugs, and you'll live in them. But the tab bar carries more lenses — each answering a specific question about the focused event. The full roster, left to right (the first six carry a single-letter mnemonic, in parentheses):
+App-db, Epoch and Views cover the everyday bugs, and you'll live in them. But the tab bar carries more lenses — each answering a specific question about the focused event. The full roster, left to right:
 
 | Tab | The question it answers |
 |---|---|
-| **Epoch** (`e`) | What did this event *do*? — the full event cascade. |
-| **app-db** (`a`) | What *changed* because of this event? — the sectioned diff. |
-| **Views** (`v`) | Why did these views re-render? — the app-db → subs → views chain. |
-| **Trace** (`t`) | What raw [trace events](../glossary.md#trace-event) fired in this cascade? — the readable-line timeline, colour-banded by op family. |
-| **Machine** (`m`) | What did this event do to my state machines? — transitions, guards, actions, `:after` rings, the cancellation cascade. Blank when the focused event touched no machine. |
-| **Routes** (`r`) | What did this event do to my routes? — current route, this-epoch navigation, the registered route table. |
+| **Epoch** | What did this event *do*? — the full event cascade. |
+| **app-db** | What *changed* because of this event? — the sectioned diff. |
+| **Views** | Why did these views re-render? — the app-db → subs → views chain. |
+| **Trace** | What raw [trace events](../glossary.md#trace-event) fired in this cascade? — the readable-line timeline, colour-banded by op family. |
+| **Machine** | What did this event do to my state machines? — transitions, guards, actions, `:after` rings, the cancellation cascade. Blank when the focused event touched no machine. |
+| **Routes** | What did this event do to my routes? — current route, this-epoch navigation, the registered route table. |
 | **Resources** | What's the lifecycle state of my resources? — long-lived server-state reads, retained values, teardown. |
 | **Graph** | How does my reactive graph hang together? — the cross-family derivation graph (subs, flows, machines, routes) as one picture. |
-| **Modules** | How is my app's runtime wired? — the `image → frame` structure for multi-frame / [image](../glossary.md#image)-composed apps. |
+| **Frames** | How is my app's runtime wired? — the `image → frame` structure for multi-frame / [image](../glossary.md#image)-composed apps. |
 
-Each tab is the same one-event-bound lens: focus an event, switch tab, read that projection of *that* moment. The first six carry a letter mnemonic (`e` `a` `v` `t` `m` `r`) and a number (`1`–`6`); `Ctrl+→` / `Ctrl+←` cycle through the whole strip. The last three — Resources, Graph and Modules — landed later and have no keystroke of their own yet, so you click them (or jump by name from the command palette, `Ctrl/Cmd+K`).
+Each tab is the same one-event-bound lens: focus an event, switch tab, read that projection of *that* moment. Switch by clicking, or jump to any tab by name from the command palette (`Cmd/Ctrl+K`).
 
 ## Step 6: rewind to the bad epoch
 
 Everything so far is **passive** — selecting an old event rebases the panels to show that moment, but your running app doesn't move. Sometimes you want the app *itself* back at that moment — so you can poke at it live, drive forward from there, or show a colleague. That's what rewind is for.
 
-Focus the bad epoch and press `r` while the event list has focus (or click the epoch's `Reset` control on the tab ribbon). This rewinds the live app to the state the epoch left behind — app-db as it was *just after* that event committed, "as if the event had only now happened". It's a real write: the frame's whole state is restored atomically — app-db and the framework-owned [runtime-db](../glossary.md#runtime-db) beside it, machine snapshots and route included. Subscriptions recompute, and the UI repaints as it was. A rewind that can't be performed — because the epoch has aged out of the buffer, for instance — is refused with a stated reason rather than silently doing nothing.
-
-!!! note "Rewind vs re-dispatch"
-
-    `r` rewinds *state* to an epoch. Its capital sibling, `R`, **re-dispatches** the focused event — it runs that same event vector again *now*, against current state, appending a fresh cascade to the ledger. Use `r` to get back to a moment; use `R` to re-run a single event and watch its cascade afresh (handy right after you hot-swap its handler at the REPL). Pinning a cascade you want to keep referring to is `*`.
+Focus the bad epoch and click its `Reset` control on the tab ribbon. This rewinds the live app to the state the epoch left behind — app-db as it was *just after* that event committed, "as if the event had only now happened". It's a real write: the frame's whole state is restored atomically — app-db and the framework-owned [runtime-db](../glossary.md#runtime-db) beside it, machine snapshots and route included. Subscriptions recompute, and the UI repaints as it was. A rewind that can't be performed — because the epoch has aged out of the buffer, for instance — is refused with a stated reason rather than silently doing nothing.
 
 ??? info "For JavaScript developers"
 
@@ -166,7 +160,7 @@ Focus the bad epoch and press `r` while the event list has focus (or click the e
 
 ## Step 7: jump to source from any panel
 
-Everything in the panels that came from your code carries a source coordinate: the dispatch site, the handler, a sub's registration, a view. Each renders as a clickable chip. Click it and your editor opens at that file and line. With focus in the event list, `o` opens the focused event's dispatch site.
+Everything in the panels that came from your code carries a source coordinate: the dispatch site, the handler, a sub's registration, a view. Each renders as a clickable chip. Click it and your editor opens at that file and line.
 
 For most setups this Just Works with no configuration. There are two ways the jump can happen, and Xray prefers the first:
 
@@ -203,35 +197,23 @@ For most setups this Just Works with no configuration. There are two ways the ju
 
 Everything above is *dynamic* mode — Xray reading the live event stream. Sometimes you don't have a bug in flight; you just want to ask "what's actually *registered* right now?" — which events, subscriptions, effects, machines, and routes the running app knows about, independent of any cascade.
 
-That's **Static mode**. Toggle it with `Cmd/Ctrl+Shift+M`, or pick it from the `Dynamic / Static ▾` dropdown in the ribbon. The shell swaps to registry-browse surfaces: a catalogue of every [registration](../glossary.md#registrar), a machine explorer you can step through interactively, and the schema timeline. There's no event list here — you're browsing the app's wiring, not its history. (Static mode is always available; the mode choice persists across reloads, unlike filters.)
+That's **Static mode**. Toggle it with `Cmd/Ctrl+Shift+M`, or pick it from the `Dynamic / Static ▾` dropdown in the ribbon. The shell swaps to registry-browse surfaces — the **Flows**, **Interceptors**, **Machines**, **Routes**, and **Schemas** catalogues, including a machine explorer you can step through interactively and the schema timeline. There's no event list here — you're browsing the app's wiring, not its history. (Static mode is always available; the mode choice persists across reloads.)
 
 ## The keys you'll actually use
 
-Xray is keyboard-first, but you only need a handful of keys for everything above. They live in two scopes: anywhere (global), and while the event list has focus.
+The key set is small, and it lives in two scopes: the global chords work anywhere on the page; the single-letter spine keys fire while your focus is inside the Xray shell (they never steal keystrokes from your app or a text input).
 
 | Key | Scope | What it does |
 |---|---|---|
 | `Ctrl+Shift+C` | global | Show / hide the Xray shell |
-| `Space` | event list | Pause / resume the live feed |
-| `j` / `k` | event list | Step to the older / newer event |
-| `L` or `G` | event list | Snap back to live (follow the head) |
-| `a` / `e` / `v` | tab bar | Jump to App-db / Epoch / Views |
-| `t` / `m` / `r` | tab bar | Jump to Trace / Machine / Routes |
-| `1`–`6` | tab bar | Jump to the first six tabs by number |
-| `r` | event list | Rewind the live app to the focused epoch |
-| `R` | event list | Re-dispatch the focused event (fresh cascade) |
-| `*` | event list | Pin / unpin the focused cascade |
-| `o` | event list | Open the focused event's dispatch site in your editor |
-| `/` | event list | Focus the add-filter input |
 | `Cmd/Ctrl+Shift+M` | global | Toggle Dynamic / Static mode |
 | `Cmd/Ctrl+K` | global | Command palette (everything by name) |
-| `,` or `s` | global | Settings |
+| `Space` | shell | Pause / resume the live feed |
+| `j` / `k` | shell | Step to the older / newer event |
+| `l` or `Shift+G` | shell | Snap back to live (follow the head) |
+| `,` or `s` | shell | Settings |
 
-Don't memorise the table — `Cmd/Ctrl+K` opens a command palette where you can find any action by typing its name, and `?` pops a cheat-sheet. The keys are just the shortcuts you'll wear in over time.
-
-!!! note "`r` does two things — but never ambiguously"
-
-    When focus is *in the event list*, `r` rewinds. When focus is *elsewhere*, `r` is the Routes-tab mnemonic. The list's own key handler wins when you're in the list; the tab-bar mnemonic wins otherwise. Same key, two scopes, no collision. Likewise `s`: the tab mnemonic in the tab bar, Settings globally.
+Everything else — tab switching, rewind, filters — is a click or a palette command away: `Cmd/Ctrl+K` finds any action by name.
 
 ## When Xray isn't the tool
 

@@ -57,7 +57,7 @@ A state change, an HTTP POST, a storage write, and a follow-up dispatch — stil
 
 !!! warning "Gotcha — `:db` and `:fx` are the whole top level"
 
-    Application handlers return exactly those two keys; anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](../glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — the error message points you at wrapping it as an `:fx` row.
+    Application handlers return those two keys — plus, when a write carries a privacy consequence, the commit-plane classification effects (`:sensitive`, `:large`, and their `clear-` counterparts) that [app-db](app-db.md) teaches. Anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](../glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — which belongs in an `:fx` row.
 
 !!! warning "Effects don't roll back"
 
@@ -81,11 +81,11 @@ The `:platforms #{:client}` declaration says where the effect may run. During [s
 
 !!! warning "Gotcha — register before you use it"
 
-    An `:fx` row naming an effect-id that was never `reg-fx`'d [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/no-such-handler`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration *ordering* across files doesn't matter — the lookup happens when the row runs, not when the handler is defined.
+    An `:fx` row naming an effect-id that was never `reg-fx`'d [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/no-such-fx`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration *ordering* across files doesn't matter — the lookup happens when the row runs, not when the handler is defined.
 
 #### The effect handler's two arguments
 
-The handler you pass `reg-fx` takes two arguments. The first, the *context map*, is the same one the originating event handler received — `:db`, `:event`, `:frame`, plus any coeffects. The second is the row's argument.
+The handler you pass `reg-fx` takes two arguments. The first is a small *context map* carrying `:frame` — the frame the originating event ran in — and `:event`, the originating event vector. (It is *not* the handler's coeffects map: there's no `:db` in it, deliberately — an effect that wants state reads it through `app-db-value` or receives it in its args.) The second argument is the row's args map, exactly as the handler built it.
 
 That `:frame` entry earns its keep the moment an effect needs to dispatch back. A [frame](../glossary.md#frame) is a single isolated app instance — its own `app-db` — and a page can run several at once. So when an effect fires a follow-up dispatch, *which* `app-db` should it land in? The answer is `(:frame m)`: the frame the originating event ran in. **Frame-aware effects read `(:frame m)`** so the reply lands in the right `app-db` instead of guessing at a default. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
 
@@ -144,7 +144,7 @@ Nothing reaches a handler implicitly — **not even the time**. A handler declar
                    {:id id :items items :placed-at time-ms})}))
 ```
 
-`:rf/time-ms` is the framework's one built-in coeffect: wall-clock epoch milliseconds, stamped once when the event was enqueued and then frozen into the record. The handler reads it like any other key — but now it's pure, because the value arrived *with* the event instead of being grabbed mid-body. Order `:placed-at` / `:updated-at`, [resource](../../resources/glossary.md#resource) freshness, mutation timestamps — all read the clock this way.
+`:rf/time-ms` is core's one built-in coeffect (the add-on artefacts register their own facts — routing's nav token, SSR's request — taught in their corpora): wall-clock epoch milliseconds, stamped once when the event was enqueued and then frozen into the record. The handler reads it like any other key — but now it's pure, because the value arrived *with* the event instead of being grabbed mid-body. Order `:placed-at` / `:updated-at`, [resource](../../resources/glossary.md#resource) freshness, mutation timestamps — all read the clock this way.
 
 Delivery is **declared-only**: a fact riding on the event that this handler didn't declare is simply not staged. That's strict, but it buys you something rare — `:rf.cofx/requires` becomes the *complete, greppable record* of everything a handler consumes from the world, the same enforced-declaration deal [subscriptions](subscriptions.md) give you for inputs. There's no silent coupling where a test fixture happened to supply a value that's `nil` in production.
 
@@ -178,7 +178,7 @@ Each child dispatch gets its own fresh stamp, because every event is its own cau
 
 ### Registering suppliers: `reg-cofx`
 
-`:rf/time-ms` is the only built-in. Everything else you register, as a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the declaration site:
+`:rf/time-ms` is core's only built-in. Everything else you register, as a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the declaration site:
 
 ```clojure
 ;; ambient (the default grade) — a display preference; never feeds durable state
@@ -195,7 +195,7 @@ Each child dispatch gets its own fresh stamp, because every event is its own cau
 
 The `[id arg]` form supplies the supplier's argument, so one `:ui/local-theme` registration serves every handler and each handler declares which key it reads. Ambient is the *right* grade here: if replay re-reads the theme, nothing durable drifts. A storage value that *does* feed a durable write — a session token you `assoc` into `:db` — must instead enter as recorded data: a `:recordable? true` registration, the event payload, or a supplied value on the dispatch.
 
-There's one more shape — not a third grade, but a recordable with the supplier left off. A **provided** fact — `{:recordable? true :provided? true}` — registers a recordable that nobody computes; its value is *stamped onto the event by an owner* instead, a subsystem or the dispatch boundary. Why register a fact with no supplier? To give it a `:doc`, a `:schema`, and a home — and so a typo'd requirement reads differently from a genuinely missing value (the failure cases below lean on exactly that distinction). `:rf/time-ms` itself is just the framework's own provided entry, and today the only shipped one.
+There's one more shape — not a third grade, but a recordable with the supplier left off. A **provided** fact — `{:recordable? true :provided? true}` — registers a recordable that nobody computes; its value is *stamped onto the event by an owner* instead, a subsystem or the dispatch boundary. Why register a fact with no supplier? To give it a `:doc`, a `:schema`, and a home — and so a typo'd requirement reads differently from a genuinely missing value (the failure cases below lean on exactly that distinction). `:rf/time-ms` itself is just core's own provided entry (the add-on artefacts ship more, like SSR's per-request fact).
 
 One rule, no exceptions: a cofx supplier must return its value **synchronously**. A coeffect is assembled into the handler's input map *before* the handler runs, so a value that isn't ready yet has nowhere to go. If the world can only answer asynchronously — a fetch, a socket round-trip — it was never a coeffect. It's a managed effect whose completion comes back as a reply *event* ([HTTP](../../async/http.md) is the worked example).
 
@@ -209,7 +209,7 @@ One rule, no exceptions: a cofx supplier must return its value **synchronously**
 
 ??? note "What about generated recordable facts?"
 
-    You might want an app-registered supplier that *mints* a replayable random value on demand. The contract is settled: generation runs at processing-start, governed by three mint policies — `:live` (the router's default), `:strict` (hard-wired for replay and the `:test` preset's default), and `:explicit-live` (the declared-nondeterminism escape hatch), selectable per dispatch via the `:rf.cofx/mint-policy` opt. But the machinery is **not built yet**. Today every requirable fact is provided, ambient, or supplied on the dispatch — so don't reach for this shape until it ships.
+    You can register a supplier that *mints* a replayable random value on demand — a fresh id, a seeded random. Generation runs at processing-start, governed by three mint policies: `:live` (the router's default — the generator runs and the value is recorded), `:strict` (no silent minting — a declared-but-unsupplied generated fact fails loud with `:rf.error/missing-required-cofx`; hard-wired for replay, and the `:test` preset's default), and `:explicit-live` (the declared-nondeterminism escape hatch). The policy is selectable per dispatch via the `:rf.cofx/mint-policy` opt; the framework's own routing and resources artefacts ride the same machinery. [Test an event handler](../testing/event-handlers.md) springs the strict mode on purpose.
 
 ### When a declaration goes wrong
 

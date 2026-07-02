@@ -26,7 +26,6 @@ site_dir: site
 # node_modules/ READMEs out of the published site.
 exclude_docs: |
   tools/playground/
-  core/OUTLINE.md
   migration/from-re-frame-v1/codemod/
 
 # Build-time hooks. mkdocs_hooks.py rewrites core/* cross-references
