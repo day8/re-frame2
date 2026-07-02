@@ -61,6 +61,8 @@ A presentational view takes data as arguments. A *connected* view subscribes and
 
 `expect-text` renders the stashed root view, finds the testid, and asserts its text through `clojure.test/is` — the view-side sibling of `ts/assert-path-equals`. (A 3-arity form takes an explicit tree when you're not using the fixture.)
 
+The two dispatches in that body are the *action under test* — the counter incrementing is the point. When a view instead needs state built *before* the action (a populated cart, a signed-in user), seed it in the fixture opts rather than the body: `:frame-config` merges into the fixture frame's config map, so `:frame-config {:initial-events [[:cart/seed-items …]]}` boots the frame through the same [construction script](../concepts/frames.md#seeding-initial-state) `make-frame` takes. The body then holds only the interaction being tested.
+
 !!! warning "Gotcha — `:install` registrations land in the process-global registrar"
 
     The fixture destroys its *frame*, but registrations are global, exactly as [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) warns. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top so one test's registrations can't leak into the next.

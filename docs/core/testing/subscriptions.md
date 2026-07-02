@@ -29,21 +29,18 @@ The sub under test here is the three-layer cart chain from [Subscriptions](../co
 
 ## The sharper variant: drive real events first
 
-Hand-rolling a literal `db` is the escape hatch for very simple readers. For anything that depends on the *shape* your events actually produce, it silently rots the day a handler changes that shape — the test keeps passing against a db your app no longer builds. So the more robust style is to dispatch real events through a test [frame](../glossary.md#frame) and read the sub against the resulting db:
+Hand-rolling a literal `db` is the escape hatch for very simple readers. For anything that depends on the *shape* your events actually produce, it silently rots the day a handler changes that shape — the test keeps passing against a db your app no longer builds. So the more robust style is to boot a test [frame](../glossary.md#frame) through real events — `:initial-events` on `make-frame`, each step an ordinary dispatch drained in order at construction — and read the sub against the db that produces. The events aren't the subject here; they're setup, so they ride the frame's construction rather than the test body:
 
 ```clojure
 (deftest cart-count-after-events
-  (rf/with-new-frame [f (rf/make-frame {})]
-    ;; with-new-frame pins f as the current frame for the body, so the
-    ;; dispatches below land in f without naming it each time.
-    (rf/dispatch-sync [:cart/add-item {:sku "BK-1"}])
-    (rf/dispatch-sync [:cart/add-item {:sku "BK-2"}])
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:cart/add-item {:sku "BK-1"}]
+                                                         [:cart/add-item {:sku "BK-2"}]]})]
     (is (= 2 (count (rf/compute-sub [:cart/items] (rf/app-db-value f)))))))
 ```
 
 !!! note "Two styles, one rule of thumb"
 
-    `compute-sub` against a literal `db` when the reader is trivial and the shape is obvious; dispatch real events and read `(rf/app-db-value f)` when the db shape matters — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter.
+    `compute-sub` against a literal `db` when the reader is trivial and the shape is obvious; seed with real events and read `(rf/app-db-value f)` when the db shape matters — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter.
 
 !!! warning "Gotcha — what a sub test can't see"
 

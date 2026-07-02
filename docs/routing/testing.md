@@ -80,11 +80,12 @@ The `:can-leave` flow is deliberately testable without a browser: the guard is a
 
 ```clojure
 (deftest leave-guard-parks-and-continues
-  (rf/with-new-frame [f (rf/make-frame {})]
-    ;; land on the guarded editor with unsaved changes (the guard sub reads app state)
-    (rf/dispatch-sync [:rf.route/navigate :app/article-editor {:id "intro"}])
-    (rf/dispatch-sync [:editor/typed "draft text"])
-
+  ;; the frame BOOTS on the guarded editor with unsaved changes — that's setup,
+  ;; so it rides :initial-events; the body dispatches only the moves under test
+  (rf/with-new-frame [f (rf/make-frame
+                          {:initial-events
+                           [[:rf.route/navigate :app/article-editor {:id "intro"}]
+                            [:editor/typed "draft text"]]})]
     ;; try to leave: the navigation parks, the slice doesn't move
     (rf/dispatch-sync [:rf.route/navigate :app/home])
     (is (some? @(routing/sub-pending-navigation)))
