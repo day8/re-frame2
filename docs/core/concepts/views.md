@@ -6,7 +6,9 @@ A [view](../glossary.md#view)'s whole job is to turn data into a description of 
 
 This page builds that sentence up one piece at a time. We'll start with the output — [*hiccup*](../glossary.md#hiccup), the data a view returns — then add the two ways a view talks to the rest of the app, then look at a complete view running live, and finally cover the one discipline that keeps views fast and the handful of escape hatches you'll occasionally reach for.
 
-> **For JavaScript developers.** A re-frame2 view is a React function component with everything except rendering removed. There's no `useState`, because state lives in [app-db](app-db.md) — your app's single state map — and arrives through [subscriptions](subscriptions.md). There's no `useEffect`, because anything that touches the world is an [effect](effects-and-coeffects.md), produced as data by an [event handler](../glossary.md#event-handler) and never run from a component. And there's no JSX, because a view returns plain Clojure data. The design here is in what got *subtracted*, not in anything added.
+??? info "For JavaScript developers"
+
+    A re-frame2 view is a React function component with everything except rendering removed. There's no `useState`, because state lives in [app-db](app-db.md) — your app's single state map — and arrives through [subscriptions](subscriptions.md). There's no `useEffect`, because anything that touches the world is an [effect](effects-and-coeffects.md), produced as data by an [event handler](../glossary.md#event-handler) and never run from a component. And there's no JSX, because a view returns plain Clojure data. The design here is in what got *subtracted*, not in anything added.
 
 ## Hiccup: the screen is data
 
@@ -32,9 +34,13 @@ The important word is *data*. Not "data-like" — these are actual vectors, maps
 
 Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure function that walks hiccup and emits an HTML string can run on the server (Clojure runs on the JVM there, not in a browser) — which is how [server-side rendering](../../ssr/concepts.md) renders the *same* views without a browser.
 
-> **For JavaScript developers.** Template strings can do none of this. They don't compose, they don't diff, and string-built markup is where injection bugs come from. Hiccup is closer in spirit to React's `createElement` calls — a tree of data describing the UI — except it's plain literals you can map, filter, and pass around, with no build-time transform.
+??? info "For JavaScript developers"
 
-> **Going deeper.** Hiccup is the ClojureScript render-tree — the shape that survives serialisation across the JVM/browser boundary, which is what lets [server-side rendering](../../ssr/concepts.md) render the same views without a browser. Other hosts use their own render-tree shape behind the same contract.
+    Template strings can do none of this. They don't compose, they don't diff, and string-built markup is where injection bugs come from. Hiccup is closer in spirit to React's `createElement` calls — a tree of data describing the UI — except it's plain literals you can map, filter, and pass around, with no build-time transform.
+
+??? note "Going deeper"
+
+    Hiccup is the ClojureScript render-tree — the shape that survives serialisation across the JVM/browser boundary, which is what lets [server-side rendering](../../ssr/concepts.md) render the same views without a browser. Other hosts use their own render-tree shape behind the same contract.
 
 ## Subscribe in, dispatch out
 
@@ -58,7 +64,9 @@ A dispatch *announces that something happened* by handing the framework an [even
 
 Notice the shape of the round trip, because it's the whole idea. A click never mutates the number it sits next to. It dispatches an event that produces a *new* `app-db`, which flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with.
 
-> **Coming from Redux?** `subscribe` is `useSelector` and `dispatch` is `dispatch` — the same unidirectional loop. The difference is that the "selector" is a named, cached node in a derivation graph (see [subscriptions](subscriptions.md)) rather than a function you pass inline, and the event is dispatched as data rather than through a thunk.
+??? info "Coming from Redux?"
+
+    `subscribe` is `useSelector` and `dispatch` is `dispatch` — the same unidirectional loop. The difference is that the "selector" is a named, cached node in a derivation graph (see [subscriptions](subscriptions.md)) rather than a function you pass inline, and the event is dispatched as data rather than through a thunk.
 
 ## A view, live
 
@@ -117,11 +125,17 @@ A `reg-view` and a `defn` define the **same render function**. `reg-view` adds e
 
 So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and `subscribe` → `rf/subscribe`. Nothing else differs about the render function.
 
-> **Hot-reload just works.** Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The wrapper resolves the render fn through the registry on every render, so a saved edit (or a REPL re-eval) flows through immediately. The runtime also emits a `:rf.registry/handler-replaced` trace event on the swap, which is how tooling refreshes its view list.
+!!! note "Hot-reload just works"
 
-> **Why every live cell uses `defn`.** The cells in this guide run in a functions-only environment where `reg-view` isn't available, `rf/dispatch` / `rf/subscribe` resolve as plain functions, and the cell supplies the frame scope. So a cell and a prose listing of the same view differ in exactly this one way — same view, two spellings. In project code, write `reg-view`.
+    Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The wrapper resolves the render fn through the registry on every render, so a saved edit (or a REPL re-eval) flows through immediately. The runtime also emits a `:rf.registry/handler-replaced` trace event on the swap, which is how tooling refreshes its view list.
 
-> **`reg-view` is the Reagent surface.** The `defn`-shape macro rewrite is Reagent-specific. On the hooks-shaped [substrates](../glossary.md#substrate) — UIx and Helix — you write native components and reach for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) and a captured `(rf/capture-frame)` instead; there's no `reg-view` macro and most views need no registration at all, because UIx/Helix components compose by Var reference like ordinary React components. The `reg-view*` lookup lane (below) is still available on every substrate for registry-keyed addressing. Everything else on this page — the one rule, the imperative-listener trap, frame isolation — holds identically across all three. See [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
+!!! note "Why every live cell uses `defn`"
+
+    The cells in this guide run in a functions-only environment where `reg-view` isn't available, `rf/dispatch` / `rf/subscribe` resolve as plain functions, and the cell supplies the frame scope. So a cell and a prose listing of the same view differ in exactly this one way — same view, two spellings. In project code, write `reg-view`.
+
+!!! note "`reg-view` is the Reagent surface"
+
+    The `defn`-shape macro rewrite is Reagent-specific. On the hooks-shaped [substrates](../glossary.md#substrate) — UIx and Helix — you write native components and reach for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) and a captured `(rf/capture-frame)` instead; there's no `reg-view` macro and most views need no registration at all, because UIx/Helix components compose by Var reference like ordinary React components. The `reg-view*` lookup lane (below) is still available on every substrate for registry-keyed addressing. Everything else on this page — the one rule, the imperative-listener trap, frame isolation — holds identically across all three. See [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
 
 ### The three call shapes
 
@@ -148,9 +162,13 @@ So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and
 
 In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]` from sibling code regardless. The docstring and the `^{:rf/id …}` override are the only two knobs; the body is just hiccup.
 
-> **Gotcha.** Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a Form-3 `(reagent.core/create-class …)` — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
+!!! warning "Gotcha"
 
-> **From re-frame v1.** `reg-view` is new, and it's more than sugar. In v1 a view was just a `defn` and there was an implicit default frame for it to find. That default frame is gone, so registration is now how a view finds its frame — which is why the macro injects frame-bound `dispatch`/`subscribe`. The full delta is in [From re-frame v1](../25-from-re-frame-v1.md).
+    Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a Form-3 `(reagent.core/create-class …)` — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
+
+??? info "From re-frame v1"
+
+    `reg-view` is new, and it's more than sugar. In v1 a view was just a `defn` and there was an implicit default frame for it to find. That default frame is gone, so registration is now how a view finds its frame — which is why the macro injects frame-bound `dispatch`/`subscribe`. The full delta is in [From re-frame v1](../25-from-re-frame-v1.md).
 
 ### Plain `defn` views, and when they break
 
@@ -158,29 +176,33 @@ A plain `defn` view still works — but only when it renders *inside* a frame sc
 
 That isn't an oversight — it's [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) doing its job. An operation reads its frame from scope; the runtime never invents one. So the reverse rewrite — turning a `reg-view` into a `defn` — is not free. If a view genuinely must stay an unregistered plain fn, it captures a [`(rf/capture-frame)`](../glossary.md#capture-frame) at render time and uses its bound ops instead.
 
-> **A view that runs setup on mount.** If a screen needs an event to fire when its frame comes up — load the cart, hydrate a form — don't `dispatch` from the render body. That couples reads to writes and, under a reactive substrate, can loop the render. Name the setup as an event and list it in the frame's `:initial-events`:
->
-> ```clojure
-> (rf/reg-frame :cart {:initial-events [[:cart/load]]})
-> ```
->
-> The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the Form-1-friendly home for "do this on mount" — see [Frames](frames.md).
+!!! note "A view that runs setup on mount"
 
-> **From re-frame v1.** Reagent's **Form-2** and **Form-3** view shapes are still supported, mostly for migration:
->
-> **Form-2** is a view whose body returns *another fn*. The outer fn runs once per mount (a place for per-mount setup that genuinely depends on props); the inner fn is the render fn, re-run each render. Lexical closure does the right thing — the injected `dispatch` / `subscribe` are in scope for both:
->
-> ```clojure
-> (rf/reg-view cart-line-with-init [sku]
->   (dispatch [:cart/load-line sku])          ;; outer: fires once on mount
->   (fn [sku]                                 ;; inner: the actual render fn
->     [:button {:on-click #(dispatch [:cart/qty-inc sku])}
->      (str sku ": " @(subscribe [:cart/qty sku]))]))
-> ```
->
-> Prefer Form-1 + a frame `:initial-events` step over Form-2 for *stable* setup — the outer fn hides a mount-time side effect that doesn't appear at the call site. Reach for Form-2 only when the setup truly needs the per-mount props.
->
-> **Form-3** (`reagent.core/create-class`, with `:component-did-mount` / `:component-will-unmount`) is the escape hatch for wrapping a stateful imperative library (a chart, a map, a code editor) that owns its own DOM. It is *out of scope for the `reg-view` macro* — register it through `reg-view*` instead, where the body can be any callable.
+    If a screen needs an event to fire when its frame comes up — load the cart, hydrate a form — don't `dispatch` from the render body. That couples reads to writes and, under a reactive substrate, can loop the render. Name the setup as an event and list it in the frame's `:initial-events`:
+
+    ```clojure
+    (rf/reg-frame :cart {:initial-events [[:cart/load]]})
+    ```
+
+    The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the Form-1-friendly home for "do this on mount" — see [Frames](frames.md).
+
+??? info "From re-frame v1"
+
+    Reagent's **Form-2** and **Form-3** view shapes are still supported, mostly for migration:
+
+    **Form-2** is a view whose body returns *another fn*. The outer fn runs once per mount (a place for per-mount setup that genuinely depends on props); the inner fn is the render fn, re-run each render. Lexical closure does the right thing — the injected `dispatch` / `subscribe` are in scope for both:
+
+    ```clojure
+    (rf/reg-view cart-line-with-init [sku]
+      (dispatch [:cart/load-line sku])          ;; outer: fires once on mount
+      (fn [sku]                                 ;; inner: the actual render fn
+        [:button {:on-click #(dispatch [:cart/qty-inc sku])}
+         (str sku ": " @(subscribe [:cart/qty sku]))]))
+    ```
+
+    Prefer Form-1 + a frame `:initial-events` step over Form-2 for *stable* setup — the outer fn hides a mount-time side effect that doesn't appear at the call site. Reach for Form-2 only when the setup truly needs the per-mount props.
+
+    **Form-3** (`reagent.core/create-class`, with `:component-did-mount` / `:component-will-unmount`) is the escape hatch for wrapping a stateful imperative library (a chart, a map, a code editor) that owns its own DOM. It is *out of scope for the `reg-view` macro* — register it through `reg-view*` instead, where the body can be any callable.
 
 ??? note "Tooling and library registration: `reg-view*` and `(rf/view id)`"
 
@@ -227,17 +249,23 @@ And the *after*, with the derivation pushed up into a [subscription](subscriptio
 
 Ask the "after" view what it does: all it does is walk the list and emit `<li>`s. That's a view that knows what it's for.
 
-> **Why this matters.** A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
+!!! note "Why this matters"
 
-> **Need the derived value in an *event handler*, not just a view?** A subscription's value is only available to views. When a handler needs the same derivation as plain state, materialise it with a [flow](../glossary.md#flow) — a pure derivation re-frame2 keeps written at a path *in* `app-db`. Same "compute once" idea, the other side of the loop. ([Flows](flows.md) has the full picture; [Where state lives](../where-state-lives.md) is the chooser.)
+    A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
+
+!!! note "Need the derived value in an *event handler*, not just a view?"
+
+    A subscription's value is only available to views. When a handler needs the same derivation as plain state, materialise it with a [flow](../glossary.md#flow) — a pure derivation re-frame2 keeps written at a path *in* `app-db`. Same "compute once" idea, the other side of the loop. ([Flows](flows.md) has the full picture; [Where state lives](../where-state-lives.md) is the chooser.)
 
 !!! warning "Compute-in-view is the most common way apps get slow"
 
     Pushing computation into the view is the single most common way re-frame2 apps get accidentally slow, because the work re-runs on every render instead of only when its inputs change. The hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
-> **What's the `^{:key (:id p)}` for?** Same as React's `key`. When you emit a *list* of elements, give each a stable identity so the substrate diffs by identity instead of position — insert or remove one item and only that item's DOM moves, not everything below it. Attach it as metadata on the element (`^{:key v} [:li ...]`) and key by something durable from the data, never the loop index. More on why this matters for big lists in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
->
-> **Gotcha — missing or colliding keys.** Omit the key on a list and the substrate falls back to *position*; key two siblings the same and they collide. Either way reconciliation can keep stale DOM in place, drop a row, or duplicate one when the list changes — a silent visual bug, not an error. The `^{:key …}` rides through `reg-view` to React untouched, so a registered row keys exactly like a plain one; the discipline is the same in both. (This `:key` is React's reconciliation key — distinct from the trace `:render-key` further down, which is instrumentation identity, not reconciliation.)
+!!! note "What's the `^{:key (:id p)}` for?"
+
+    Same as React's `key`. When you emit a *list* of elements, give each a stable identity so the substrate diffs by identity instead of position — insert or remove one item and only that item's DOM moves, not everything below it. Attach it as metadata on the element (`^{:key v} [:li ...]`) and key by something durable from the data, never the loop index. More on why this matters for big lists in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
+
+    **Gotcha — missing or colliding keys.** Omit the key on a list and the substrate falls back to *position*; key two siblings the same and they collide. Either way reconciliation can keep stale DOM in place, drop a row, or duplicate one when the list changes — a silent visual bug, not an error. The `^{:key …}` rides through `reg-view` to React untouched, so a registered row keys exactly like a plain one; the discipline is the same in both. (This `:key` is React's reconciliation key — distinct from the trace `:render-key` further down, which is instrumentation identity, not reconciliation.)
 
 ## The trap: imperative listeners lose the frame
 
@@ -264,7 +292,9 @@ Rule of thumb: if a synthetic prop exists for what you need, use it. If one does
 
     Inside a `reg-view` body the injected `dispatch` happens to survive, because it captured its frame at render time. But the imperative attach is wrong there too: render bodies re-run, each run adds another listener, and nothing ever removes them. Attach through the attrs map either way.
 
-> **Going deeper.** The runtime fails fast rather than synthesising a default frame, and the carried-frame mechanism (a [capture-frame](../glossary.md#capture-frame) closing over the right world) lets a registered effect's closure dispatch back into it — the *carried invariant*. The full account is in [Frames: isolated worlds](frames.md).
+??? note "Going deeper"
+
+    The runtime fails fast rather than synthesising a default frame, and the carried-frame mechanism (a [capture-frame](../glossary.md#capture-frame) closing over the right world) lets a registered effect's closure dispatch back into it — the *carried invariant*. The full account is in [Frames: isolated worlds](frames.md).
 
 ## Targeting a different frame, deliberately
 
@@ -293,4 +323,6 @@ So don't debug views. Inspect data. Follow the value upstream: the [subscription
 
 The render itself is observable too, which helps with the *other* failure mode — not "wrong value" but "why did this re-render at all?" Each render emits a [trace event](../glossary.md#trace-event) keyed by a `:render-key` — the tuple `[view-id instance-token]`, where the token disambiguates two mounted instances of the same view (`[:cart/row 1473]` vs `[:cart/row 1474]`). The entry also carries what *triggered* the render (the sub or props that changed) and the view's render args, so an over-rendering view shows its cause rather than leaving you to guess.
 
-> **Why register the views you care about.** Plain unregistered fns render under the fallback key `[:rf.view/anonymous nil]` — a registered `reg-view` is what gives a render a *name* in the trace. That's one more reason to register the views you want to see. All of this sits behind the dev-build gate and [elides](../glossary.md#elide) completely in production.
+!!! note "Why register the views you care about"
+
+    Plain unregistered fns render under the fallback key `[:rf.view/anonymous nil]` — a registered `reg-view` is what gives a render a *name* in the trace. That's one more reason to register the views you want to see. All of this sits behind the dev-build gate and [elides](../glossary.md#elide) completely in production.

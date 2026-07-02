@@ -18,9 +18,13 @@ A frame isolates **state, not behaviour**. You write the app once; the frame dec
 
 (The selected set of registrations a frame resolves against has a name — the [**image**](../glossary.md#image) — but you can park that word for now. It only earns its keep in the rare case where you want two frames to run *different* handlers, which we get to at the very end. Until then, "the handlers are shared" is the whole story.)
 
-> **For JavaScript developers.** A frame is the *instance* of your app's state; the handlers are the *code* that runs against it, and they're shared across every instance. Nothing in React or Redux forces you to keep those two things apart — re-frame2 does, and that separation is what lets you spin up a second copy for free.
+??? info "For JavaScript developers"
 
-> **Coming from Redux?** A frame is a store instance and the frame provider is `<Provider store={...}>`. Creating a second store gives you a second state tree but the same reducers; frames work exactly that way — handlers are registered once, state is per-frame. The divergence: there is no default store. A dispatch that can't trace which frame it belongs to fails loud instead of landing somewhere conventional. (More on that below — it's the whole design.)
+    A frame is the *instance* of your app's state; the handlers are the *code* that runs against it, and they're shared across every instance. Nothing in React or Redux forces you to keep those two things apart — re-frame2 does, and that separation is what lets you spin up a second copy for free.
+
+??? info "Coming from Redux?"
+
+    A frame is a store instance and the frame provider is `<Provider store={...}>`. Creating a second store gives you a second state tree but the same reducers; frames work exactly that way — handlers are registered once, state is per-frame. The divergence: there is no default store. A dispatch that can't trace which frame it belongs to fails loud instead of landing somewhere conventional. (More on that below — it's the whole design.)
 
 ## The normal case: one app, one frame
 
@@ -58,21 +62,27 @@ Three lines do the work. `init!` installs the [substrate](../glossary.md#substra
 
 That last point is the payoff: the frame is **invisible inside its own scope**. Your views and handlers never mention `:app` — that's why the injected `dispatch` and `subscribe` in `main-view` above just *worked* without naming a frame, and it's exactly what lets you go multi-frame later without touching a line of app code.
 
-> **For JavaScript developers.** This is `ReactDOM.render(<Provider store={store}><App/></Provider>)` — establish the store at the root, and every component below reads it through context. The difference: `init!` doesn't secretly create a store for you. Nothing is implicit about which frame your root uses; you say so, once, at the root.
+??? info "For JavaScript developers"
 
-> **Coming from re-frame v1?** v1's single implicit app-db becomes one explicit frame you register and establish at the root — one extra line at boot, and nothing else changes. `:rf/default` is a perfectly legal frame id you may *choose*, but it carries no privilege: the runtime never falls back to it.
+    This is `ReactDOM.render(<Provider store={store}><App/></Provider>)` — establish the store at the root, and every component below reads it through context. The difference: `init!` doesn't secretly create a store for you. Nothing is implicit about which frame your root uses; you say so, once, at the root.
+
+??? info "From re-frame v1"
+
+    v1's single implicit app-db becomes one explicit frame you register and establish at the root — one extra line at boot, and nothing else changes. `:rf/default` is a perfectly legal frame id you may *choose*, but it carries no privilege: the runtime never falls back to it.
 
 ### Seeding initial state
 
 Notice there's no place to hand `reg-frame` an initial app-db. That's on purpose.
 
-> **A frame's app-db always starts as `{}` — there is no `:db` config key.** State arrives the only way state ever arrives: through an [event cascade](../glossary.md#event-cascade). To seed initial data, make `[:rf/set-db {…}]` the first `:initial-events` step (`:rf/set-db` is the framework's "replace app-db with this map" event):
->
-> ```clojure
-> (rf/reg-frame :cart {:initial-events [[:rf/set-db {:items []}]]})
-> ```
->
-> Keeping initialisation on the dispatch path means the same cascade that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
+!!! note "A frame's app-db always starts as `{}` — there is no `:db` config key"
+
+    State arrives the only way state ever arrives: through an [event cascade](../glossary.md#event-cascade). To seed initial data, make `[:rf/set-db {…}]` the first `:initial-events` step (`:rf/set-db` is the framework's "replace app-db with this map" event):
+
+    ```clojure
+    (rf/reg-frame :cart {:initial-events [[:rf/set-db {:items []}]]})
+    ```
+
+    Keeping initialisation on the dispatch path means the same cascade that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
 
 `:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:cart/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:cart/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — "to completion" meaning that if a setup event dispatches further events, those all finish too. So by the time `reg-frame` returns, the entire setup cascade is done and the frame is fully booted.
 
@@ -100,9 +110,13 @@ Day to day, `:initial-events` is the key you reach for. But `reg-frame` mirrors 
 
 The `:observability` sink policy — the production-telemetry key not shown above — is covered in [Observability](observability.md#consuming-production-telemetry-declare-a-sink); the full `reg-frame` grammar is in the [API reference](../../api/re-frame.core.md).
 
-> **Gotcha — malformed config fails loud, at registration, before anything mutates.** Hand `reg-frame` a `:sensitive` or `:large` key (those moved to handler effects — see [data classification](../glossary.md#data-classification)) or a malformed `:observability` entry, and registration throws `:rf.error/bad-frame-classification` *before* any setup event runs, so you never get a half-registered frame. A top-level shape mistake is caught the same way: `{:initial-events [:cart/init]}` — a bare event, not a *vector of* steps — is rejected with a diagnostic that names the fix (wrap it as `[[:cart/init]]`).
+!!! warning "Gotcha"
 
-> **Going deeper — three lanes meet at startup; keep them apart.** The two lines you write are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:initial-events`, which seed app-db or kick a boot sequence. **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/re-frame.core.md).
+    Hand `reg-frame` a `:sensitive` or `:large` key (those moved to handler effects — see [data classification](../glossary.md#data-classification)) or a malformed `:observability` entry, and registration throws `:rf.error/bad-frame-classification` *before* any setup event runs, so you never get a half-registered frame. A top-level shape mistake is caught the same way: `{:initial-events [:cart/init]}` — a bare event, not a *vector of* steps — is rejected with a diagnostic that names the fix (wrap it as `[[:cart/init]]`).
+
+??? note "Going deeper — three lanes meet at startup; keep them apart"
+
+    The two lines you write are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:initial-events`, which seed app-db or kick a boot sequence. **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/re-frame.core.md).
 
 ## When you want more than one
 
@@ -149,7 +163,9 @@ Notice what *isn't* there: no pane id threaded through the view, no atom per pan
 
 Click `+` on the left and only the left number moves. Open [Xray](../glossary.md#xray), pick the left frame, and you see only that frame's events and app-db; the right frame's ledger never heard about the click. Frames are how every inspection tool partitions the world.
 
-> **Borderline case? Ask one question.** This is where people hesitate. The discriminator: *would these two things ever sensibly share a piece of state?* If yes, they are two views over slices of *one* frame's app-db — views on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter, and that "no" is the signal.
+!!! note "Borderline case? Ask one question"
+
+    This is where people hesitate. The discriminator: *would these two things ever sensibly share a piece of state?* If yes, they are two views over slices of *one* frame's app-db — views on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter, and that "no" is the signal.
 
 ### Two config shapes: scope an existing frame, or ensure a named one?
 
@@ -173,17 +189,25 @@ So the choice is "do I already have this frame, or do I want the provider to ens
 - **`{:frame …}` (scope)** — the frame exists already (you `reg-frame` it at boot, or an enclosing provider ensured it). The provider only scopes. This is the split-pane shape above and the normal root-of-app shape.
 - **`{:id …}` (ensure)** — the provider creates the frame if absent and reuses it if present, keyed by `:id`. Reach for it when a view should bring its own frame into being — a Story canvas, an embedded widget, a comparison pane.
 
-> **For JavaScript developers.** The `{:frame …}` shape is the React pattern you already know: *providing* a store someone else created — a context `Provider` wrapping a store made at the app root. The `{:id …}` shape is closer to a `useState`/`useRef` that lazily initialises a resource on first render and keeps it stable across re-renders — except the resource (the frame) deliberately *survives* unmount; tearing it down is an explicit `destroy-frame!`, not a cleanup effect.
+??? info "For JavaScript developers"
 
-> **True ownership is explicit.** Neither shape destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns the birth *and* the death.
+    The `{:frame …}` shape is the React pattern you already know: *providing* a store someone else created — a context `Provider` wrapping a store made at the app root. The `{:id …}` shape is closer to a `useState`/`useRef` that lazily initialises a resource on first render and keeps it stable across re-renders — except the resource (the frame) deliberately *survives* unmount; tearing it down is an explicit `destroy-frame!`, not a cleanup effect.
 
-> **Gotcha — re-mounting the `{:id …}` shape is idempotent.** If the view re-mounts (a hot reload, a Story re-evaluation, a key change), the existing frame's durable state is *preserved*, not blown away — re-mount updates config and refreshes the image without resetting `app-db` or replaying `:initial-events`. That's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
+!!! note "True ownership is explicit"
+
+    Neither shape destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns the birth *and* the death.
+
+!!! warning "Gotcha — re-mounting the `{:id …}` shape is idempotent"
+
+    If the view re-mounts (a hot reload, a Story re-evaluation, a key change), the existing frame's durable state is *preserved*, not blown away — re-mount updates config and refreshes the image without resetting `app-db` or replaying `:initial-events`. That's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
 
 ## The one rule: frame identity is carried, not found
 
 Everything above rests on a single invariant. It's worth stating plainly, because it's the rule that makes isolation *trustworthy*:
 
-> **[Frame identity is a value that travels with the work](../glossary.md#frame-identity-is-carried-not-found).** A dispatch, a subscription, a captured callback — each reads its frame from the context it was *given*: the provider above it, the handler it's running in, the frame api that carried it. An operation never goes looking for a frame in the ambient world, and the runtime never invents one from absence.
+!!! note
+
+    **[Frame identity is a value that travels with the work](../glossary.md#frame-identity-is-carried-not-found).** A dispatch, a subscription, a captured callback — each reads its frame from the context it was *given*: the provider above it, the handler it's running in, the frame api that carried it. An operation never goes looking for a frame in the ambient world, and the runtime never invents one from absence.
 
 So a bare `(rf/dispatch [:counter/inc])` works when — and only when — something above it established a frame: the root provider, the event handler it's firing from, a `with-frame` block in a test or at the REPL. With no established scope and no carried frame, the operation fails loud:
 
@@ -196,9 +220,13 @@ So a bare `(rf/dispatch [:counter/inc])` works when — and only when — someth
 
 Why an error instead of a sensible default? Because a default would make distant code change meaning *silently* — the kind of bug that costs you a weekend.
 
-> **Why a default frame would be a trap.** Say a frameless dispatch fell through to "the" frame. Your app would work perfectly — right up until a second frame appears (a Story canvas, an inspection tool, an SSR pass). At that point the dispatch lands *somewhere*, with no error, in the wrong world. The carried rule converts that silent cross-frame leak into an immediate, attributed failure at the exact call site that lost its frame. The error is the feature.
+!!! note "Why a default frame would be a trap"
 
-> **Coming from Redux?** This is the one place re-frame2 refuses the Redux convenience. Redux gives you "the store" through context and a frameless `store.dispatch` always works. re-frame2 trades that convenience for a guarantee: an operation that has lost track of which world it belongs to is a *bug*, and you find out at the call site, not three frames later in production.
+    Say a frameless dispatch fell through to "the" frame. Your app would work perfectly — right up until a second frame appears (a Story canvas, an inspection tool, an SSR pass). At that point the dispatch lands *somewhere*, with no error, in the wrong world. The carried rule converts that silent cross-frame leak into an immediate, attributed failure at the exact call site that lost its frame. The error is the feature.
+
+??? info "Coming from Redux?"
+
+    This is the one place re-frame2 refuses the Redux convenience. Redux gives you "the store" through context and a frameless `store.dispatch` always works. re-frame2 trades that convenience for a guarantee: an operation that has lost track of which world it belongs to is a *bug*, and you find out at the call site, not three frames later in production.
 
 ### Naming a frame explicitly
 
@@ -211,7 +239,9 @@ From outside any scope — a test, a tool, the REPL — you name the frame expli
 
 There is no `dispatch-to` / `subscribe-to` sugar — the two-argument opts form is the one mechanism, and `{:frame …}` always beats whatever scope (or absence of scope) surrounds the call. It's also the right shape from non-Reagent contexts: server-side rendering, headless JVM tests, and tooling agents all address frames this way.
 
-> **Gotcha — naming a frame that doesn't exist is a *different* error from naming none.** `:rf.error/no-frame-context` is reserved for **absence** — you carried no frame at all. The moment you *do* carry one (`{:frame :ghost}`), you've supplied an explicit target, so a target that names no registered frame — a typo, or a frame already torn down — is the registry-lookup case instead: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record lands on the always-on [error stream](../glossary.md#error-record) (the same recovering behaviour as a [destroyed frame](#ending-and-resetting-a-frame), because the runtime can't tell a typo from a teardown race). Branch on the category, not the absence: a missing scope and a bad target are two distinct failures.
+!!! warning "Gotcha"
+
+    `:rf.error/no-frame-context` is reserved for **absence** — you carried no frame at all. The moment you *do* carry one (`{:frame :ghost}`), you've supplied an explicit target, so a target that names no registered frame — a typo, or a frame already torn down — is the registry-lookup case instead: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record lands on the always-on [error stream](../glossary.md#error-record) (the same recovering behaviour as a [destroyed frame](#ending-and-resetting-a-frame), because the runtime can't tell a typo from a teardown race). Branch on the category, not the absence: a missing scope and a bad target are two distinct failures.
 
 ## The async boundary: capture the frame
 
@@ -240,7 +270,9 @@ The fix is always the same move: **capture the frame as a value while it's still
 
 `capture-frame` is the one public carry primitive — reach for it (or an explicit `{:frame …}` opt) for every async / callback / tooling boundary.
 
-> **For JavaScript developers.** This is the classic "capture `this` / capture the closure variable" problem, but the runtime makes the failure mode *loud* instead of silent. In JS, a stale closure over the wrong store often just works against the wrong data and you never notice. Here, a callback that didn't capture its frame throws — so you're forced to capture at the right moment.
+??? info "For JavaScript developers"
+
+    This is the classic "capture `this` / capture the closure variable" problem, but the runtime makes the failure mode *loud* instead of silent. In JS, a stale closure over the wrong store often just works against the wrong data and you never notice. Here, a callback that didn't capture its frame throws — so you're forced to capture at the right moment.
 
 And there's one case where you need none of this: scheduling from inside an event handler. A handler that wants a later dispatch returns [effect](../glossary.md#effect) data — a description of work for the runtime to perform — and the effects carry the frame for you:
 
@@ -253,7 +285,9 @@ And there's one case where you need none of this: scheduling from inside an even
 
 `:dispatch` and `:dispatch-later` effects are stamped with the in-flight frame before any timer or microtask boundary — zero ceremony. If the deferred work is just a dispatch, this is the shape.
 
-> **Gotcha — when `capture-frame` is still needed inside an effect handler.** Reach for `capture-frame` only for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler. The effect system carries the frame for the dispatches *it* schedules, not for callbacks you register with the outside world.
+!!! warning "Gotcha — when `capture-frame` is still needed inside an effect handler"
+
+    Reach for `capture-frame` only for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler. The effect system carries the frame for the dispatches *it* schedules, not for callbacks you register with the outside world.
 
 This page is the canonical home of the capture pattern. When the [views](views.md) and [subscriptions](subscriptions.md) pages warn "don't dispatch bare from async callbacks," this is the full story they're pointing at.
 
@@ -261,7 +295,9 @@ This page is the canonical home of the capture pattern. When the [views](views.m
 
 A [subscription](../glossary.md#subscription) — a derived, cached read over app-db — belongs to one frame. It computes from that frame's app-db and from other subscriptions *in that frame*, never from another frame's state. There is no "read frame B from a sub in frame A" affordance, and you must not build one by sneaking a cross-frame read into a sub's computation function. That's the anti-pattern, full stop.
 
-> **Why this matters — one cross-frame subscription breaks every per-frame guarantee.** The reasoning is the same as the carried rule's: isolation is only worth having if it's total. Story variants are reproducible because nothing outside a frame can influence them. SSR requests can run concurrently because no request can observe another. A test frame is hermetic because *nothing* reaches in. One cross-frame sub quietly breaks all three — frame A's derived values now change when frame B does, and every tool that reasons per-frame (the [epoch](../glossary.md#epoch) ledger, [time-travel](../glossary.md#time-travel), replay) is lying to you about A.
+!!! note
+
+    **Why this matters — one cross-frame subscription breaks every per-frame guarantee.** The reasoning is the same as the carried rule's: isolation is only worth having if it's total. Story variants are reproducible because nothing outside a frame can influence them. SSR requests can run concurrently because no request can observe another. A test frame is hermetic because *nothing* reaches in. One cross-frame sub quietly breaks all three — frame A's derived values now change when frame B does, and every tool that reasons per-frame (the [epoch](../glossary.md#epoch) ledger, [time-travel](../glossary.md#time-travel), replay) is lying to you about A.
 
 If you feel the need for one, you've answered the discriminator question wrongly: two things that need to share derived state are one frame. Restructure — don't reach across.
 
@@ -278,7 +314,9 @@ Most frames live for the whole program and you never tear them down — `frame-p
 
 **`reset-frame!`** is "I want this back to how it started." It's equivalent to a destroy followed by a fresh `reg-frame` with the same config: `app-db` resets to `{}`, the sub-cache and router queue clear, and the recorded `:initial-events` re-run synchronously. Tests use it between cases; Story "reset" buttons use it. (For an `app-db`-only reset that *keeps* live runtime state, there's a lighter `reset-app-db!` — but `reset-frame!` is the whole-world one.)
 
-> **Gotcha — frames are created from views and top level, never from a handler.** Constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on: a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-cascade frame-creation path.
+!!! warning "Gotcha"
+
+    Constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on: a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-cascade frame-creation path.
 
 ### Scoping a frame in a test or at the REPL
 
@@ -300,7 +338,9 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
 
 Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.)
 
-> **Gotcha — the scope macros are synchronous-only, like the dynamic binding underneath them.** `with-frame` establishes the frame via a dynamic var, which evaporates the instant control crosses an async boundary. An async callback created inside a `with-frame` body that fires *after* the body returns is back in frameless territory — and `with-new-frame` has already destroyed its frame by then. That's the same async cliff as the WebSocket above; the same fix applies — capture a `capture-frame` (or pass an explicit `{:frame …}`) before the boundary.
+!!! warning "Gotcha"
+
+    `with-frame` establishes the frame via a dynamic var, which evaporates the instant control crosses an async boundary. An async callback created inside a `with-frame` body that fires *after* the body returns is back in frameless territory — and `with-new-frame` has already destroyed its frame by then. That's the same async cliff as the WebSocket above; the same fix applies — capture a `capture-frame` (or pass an explicit `{:frame …}`) before the boundary.
 
 ## Advanced
 
@@ -324,4 +364,6 @@ It's almost never what you meant, though, so the runtime emits `:rf.warning/cros
 - **Not routing.** Navigating changes *which slice of app-db matters*, not which frame is running. One frame, many routes.
 - **Not micro-frontends.** Frames are N instances of *one* app, each running the same shared handlers. Two surfaces with genuinely *different* handler sets can share a page (that's the [Images](images.md) story), but two genuinely different *apps* on one page want iframes — a wall, not a scalpel.
 
-> **Going deeper — when two frames resolve the same id differently.** Everything on this page assumed the default: all frames draw their handlers from one shared registrar, so every frame runs the same handlers against different app-dbs. The selected slice a frame resolves against has a name — the [**image**](../glossary.md#image) — and 99% of the time you never need to think about it. The 1% is when you want two frames to resolve `[:counter/inc]` to *different* handlers: two examples on one page, or an inspection tool sitting beside the app it inspects. Then you give those frames *different* images, and which image a frame points at is what decides its behaviour. That's the [Images](images.md) story; ignore it until you hit a case that needs it, which most apps never do.
+??? note "Going deeper — when two frames resolve the same id differently"
+
+    Everything on this page assumed the default: all frames draw their handlers from one shared registrar, so every frame runs the same handlers against different app-dbs. The selected slice a frame resolves against has a name — the [**image**](../glossary.md#image) — and 99% of the time you never need to think about it. The 1% is when you want two frames to resolve `[:counter/inc]` to *different* handlers: two examples on one page, or an inspection tool sitting beside the app it inspects. Then you give those frames *different* images, and which image a frame points at is what decides its behaviour. That's the [Images](images.md) story; ignore it until you hit a case that needs it, which most apps never do.

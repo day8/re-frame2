@@ -40,14 +40,15 @@ A reader goes top to bottom. The first time a page uses a core term — `app-db`
 
 ## Callouts
 
-Match the device to the signal — and match the corpus, which reaches for a **bold-lead blockquote** far more often than a coloured box:
+Callouts are **MkDocs admonitions** — never bold-lead blockquotes — and the expanded-vs-collapsed choice turns on how skippable the content is:
 
-- **Persona deltas** (`> **Coming from React?** …`) stay **light bold blockquotes**. They're frequent and skippable; a coloured box each time is just noise.
-- **Footguns and gotchas** → a **bold-lead `> **Gotcha — …**` blockquote**, inline beside the risky step. This is the corpus's overwhelming choice — bold-lead gotchas outnumber `!!!` boxes better than ten to one — and it keeps the warning in the reader's flow rather than in a box they skim past.
-- **`!!! warning` / `!!! note` boxes are the exception**, reserved for the rare, genuinely load-bearing point that must not be missed — a CLIENT-ONLY path, a deferred-feature caveat, a "when not to use." The colour earns its place only when the point would be lost inline.
-- **Deep or optional asides** a reader can skip → collapsible `??? note`.
+- **Footguns and gotchas** → `!!! warning "Gotcha — …"`, expanded, inline beside the risky step. A footgun the reader scrolls past unread has failed at its one job.
+- **Notes, heads-ups, "why this matters", "when not to"** → `!!! note "…"`, expanded.
+- **Suggested experiments** → `!!! tip "Try it"` — the what-to-try edit beside a live cell or worked example.
+- **Persona deltas** (`??? info "Coming from React?"`, `??? info "For JavaScript developers"`) and **v1→v2 deltas** (`??? info "From re-frame v1"`) → **collapsed** `???` blocks. They're frequent, skippable, and reader-specific; collapsing keeps the page's vertical rhythm for every reader they don't address. A page must read complete with all of them collapsed.
+- **Deep or optional asides** → collapsed `??? note "Going deeper…"`.
 
-Admonition bodies are indented four spaces with a blank line after the marker — mis-indentation breaks the build.
+Give each admonition a title (what used to be the bold lead — trimmed to a line; when the lead is too long for a title, use the bare type and keep the lead bolded in the body). Bodies are indented four spaces with a blank line after the marker — mis-indentation breaks the build. The **one exception** that stays a plain `> **…**` blockquote is the page's single quotable takeaway: that's a pull quote, not a callout.
 
 ## Tiers and modes
 
@@ -65,6 +66,14 @@ Paths below are relative to `docs/`. This table maps the **core guide**; the dom
 | `core/AUTHORING.md` | meta | index | This contract |
 
 A new page must name its tier and mode before drafting starts. If it doesn't fit one row, it's two pages.
+
+## Progressive structure
+
+A learning track is read top-to-bottom in the left nav, so the nav itself must carry the progression:
+
+- **Number the pages of a sequential track** — `"1. Events and the cascade"`, `"2. app-db: state in one place"`, … — so a reader always knows where they are and what's next. The loop pages and the tutorial parts do this; a future sequential track should too.
+- **Give every nav label a descriptive tail** (`"Frames: isolated worlds"`, not `"Frames"`). The reader should be able to pick their page from the nav alone, without opening three wrong ones first.
+- **Order pages so each leans only on what came before it**, and open each page by placing it: one sentence on what the reader just learned and what this page adds. The prev/next buttons carry the navigation; the opening sentence carries the *thread*.
 
 ## Canon apps — per corpus
 
@@ -89,11 +98,16 @@ Contributors still *verify* against the spec and the implementation — see [Sni
 
 Every domain page **opens by naming its ecosystem anchor** — TanStack Query, XState v5, Redux, Storybook, React Router, re-frame v1 — and the deliberate divergences. The reader arrives with a mental model; teach the difference, not the basics.
 
-Per-persona callouts are bold-lead blockquotes, **one sentence each, at most two per section, never load-bearing** (the page must read complete with every callout skipped):
+Per-persona callouts are collapsed `??? info` admonitions (see [Callouts](#callouts)), **short, at most two per section, never load-bearing** (the page must read complete with every one of them collapsed):
 
-> **Coming from TanStack Query?** A resource is your query — except reads are subscriptions and fetches are caused by routes and events, never by render.
+```markdown
+??? info "Coming from TanStack Query?"
 
-The **v1 delta callout** (`> **Coming from re-frame v1?** …`) is the standing instance of this device: one sentence on what moved, linking to [From re-frame v1](25-from-re-frame-v1.md) for the full delta. Retired v1 surfaces (`inject-cofx`, `:rf.world/inputs`) appear *only* on that migration page, marked superseded — never in teaching prose elsewhere.
+    A resource is your query — except reads are subscriptions and fetches
+    are caused by routes and events, never by render.
+```
+
+The **v1 delta callout** (`??? info "From re-frame v1"`) is the standing instance of this device: what moved, linking to [From re-frame v1](25-from-re-frame-v1.md) for the full delta. Retired v1 surfaces (`inject-cofx`, `:rf.world/inputs`) appear *only* on that migration page, marked superseded — never in teaching prose elsewhere.
 
 ## Snippets are production code
 
@@ -107,7 +121,7 @@ Readers copy-paste; nobody reads the disclaimer. So every snippet is complete, i
 
 Pages may embed editable, in-browser code via two fences (the info string is the only difference from a static block): ` ```cljs ` evaluates forms and prints the last value — pure ClojureScript teaching only, no re-frame; ` ```cljs-rf2 ` **mounts the last form as a live component** against re-frame2's real public API. For guide pages you almost always want `cljs-rf2`.
 
-Use them **sparingly** — one or two per page, only where editing the code teaches more than reading it: the counter and its small variations, a subscription graph, a single derivation. A full app like RealWorld can't be a cell, so keep those static and link to the worked example. Section shape: a sentence of *why* → the cell → a named *what-to-try* edit with its expected outcome. A live cell with no suggested experiment is a slow screenshot.
+Reach for a live cell **wherever editing teaches more than reading** — the counter and its small variations, a subscription graph pruning, a run-to-completion drain, a single derivation. A concepts page that never lets the reader poke its idea is leaving teaching on the table; most loop and concept pages should carry at least one cell. The limits are real, though: keep each cell small and self-contained, stick to surfaces the playground bundle actually provides (the `reg-event` / `reg-sub` / `dispatch` / `subscribe` core — the optional artefacts, flows and machines aside, may not be loaded), and keep a full app like RealWorld static with a link to the worked example. Section shape: a sentence of *why* → the cell → a `!!! tip "Try it"` naming an edit and its expected outcome. A live cell with no suggested experiment is a slow screenshot.
 
 The `cljs-rf2` rules, each of which bites the first time:
 
@@ -125,7 +139,7 @@ The `cljs-rf2` rules, each of which bites the first time:
 - **Do → observe → explain.** Any page whose example dispatches something closes the loop with an observation step: *"Open Xray: the submit's event row shows the validation branch — no request left."* Phrase affordances generally (the event row, the epoch ledger, the app-db view); do not invent Xray UI names — verify in `tools/xray/spec/` before using a specific one.
 - **The war story.** Where a feature exists because a production failure class exists, tell it as a lived story — concrete, second-person, ending in the mechanism that makes the failure *structurally impossible* (canonical instance: the test that's green every afternoon and red the one time CI crosses midnight, until the clock becomes a recorded fact). At most one per page; it motivates, the mechanism teaches.
 - **"For the categorically curious."** re-frame2's category-theory grounding is a design tool, not teaching vocabulary — *translate, don't transplant*. The deeper frame goes only in a collapsed `<details markdown="1"><summary>For the categorically curious</summary>…</details>` block: always skippable, never load-bearing, at most one per concept, ~6 lines, every term glossed in the same breath.
-- **Asides and footguns are bold-lead blockquotes** (`> **Heads-up.** …`, `> **Gotcha — …**`) — see [Callouts](#callouts); reserve `!!!` boxes for the rare load-bearing warning.
+- **Asides, footguns, and persona deltas are admonitions** — see [Callouts](#callouts) for the expanded-vs-collapsed split. The only bold-lead blockquote left on a page is its single pull-quote takeaway.
 - **No bead references in prose.** Pages state current truth, not the decision trail; tracker-id citations belong in the tracker, not in the page. Unlinked normative ids are fine — a migration-rule id, or a spec section id cited as *text* — because those are normative, not historical; but never a *hyperlink* into `spec/`, which the standalone-corpus rule forbids.
 - **Honesty.** Say when *not* to use a feature; mark deferred things (timed polling, infinite feeds) and CLIENT-ONLY paths; no marketing voice. The test for every paragraph: could a tired engineer act on it at 11pm mid-incident?
 

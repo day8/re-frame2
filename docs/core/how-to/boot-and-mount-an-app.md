@@ -221,11 +221,17 @@ safe.
 
 Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../concepts/errors.md) rather than a blank page.
 
-> **Gotcha — touching the substrate before `init!`.** `rf/init!` installs the [adapter](../glossary.md#adapter); until it runs there is nothing to render or dispatch through. A `render`, `dispatch`, or `subscribe` that beats `(rf/init! …)` — an event fired from a top-level form, a `mount!` that ran before `run` — throws `:rf.error/no-adapter-installed`, naming the call. Install the adapter first; in the shapes above, `run` does it on its first line.
+!!! warning "Gotcha — touching the substrate before `init!`"
 
-> **Gotcha — `{:frame …}` needs a frame that already exists.** The scope shape only *scopes* a frame someone else created; it creates nothing. Point `[rf/frame-provider {:frame :checkout} …]` at a frame that was never `reg-frame`'d (nor ensured by an `{:id}` provider) and it throws `:rf.error/frame-provider-frame-absent`. When the subtree should bring its own frame into being, use the **ensure** shape `{:id …}` instead — that's the whole difference between [the two shapes](#two-frame-shapes).
+    `rf/init!` installs the [adapter](../glossary.md#adapter); until it runs there is nothing to render or dispatch through. A `render`, `dispatch`, or `subscribe` that beats `(rf/init! …)` — an event fired from a top-level form, a `mount!` that ran before `run` — throws `:rf.error/no-adapter-installed`, naming the call. Install the adapter first; in the shapes above, `run` does it on its first line.
 
-> **Gotcha — a registration namespace you forgot to require.** A `reg-event` or `reg-sub` runs only when its namespace loads, so a missing `require` means the registration never happened. Drop `counter.events` from the entry `ns` and the first `[:counter/inc]` dispatch — or `[:counter/value]` subscribe — is a loud `:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming the missing id, not a silent dead button. The fix is the require list in the `ns` form above.
+!!! warning "Gotcha — `{:frame …}` needs a frame that already exists"
+
+    The scope shape only *scopes* a frame someone else created; it creates nothing. Point `[rf/frame-provider {:frame :checkout} …]` at a frame that was never `reg-frame`'d (nor ensured by an `{:id}` provider) and it throws `:rf.error/frame-provider-frame-absent`. When the subtree should bring its own frame into being, use the **ensure** shape `{:id …}` instead — that's the whole difference between [the two shapes](#two-frame-shapes).
+
+!!! warning "Gotcha — a registration namespace you forgot to require"
+
+    A `reg-event` or `reg-sub` runs only when its namespace loads, so a missing `require` means the registration never happened. Drop `counter.events` from the entry `ns` and the first `[:counter/inc]` dispatch — or `[:counter/value]` subscribe — is a loud `:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming the missing id, not a silent dead button. The fix is the require list in the `ns` form above.
 
 ## Worked examples
 
@@ -237,9 +243,11 @@ Boot is where the "did you wire it up?" mistakes surface, and each one [fails lo
 The UIx and Helix examples use the same lifecycle. Only the adapter, root
 creation, and render calls change.
 
-> **From re-frame v1.** The old `mount-root` pattern rendered again after a hot
-> reload while global app-db survived as a top-level value. In re-frame2, the
-> state container is explicit: a frame. The provider ensures or scopes that
-> frame, and `:initial-events` seed it through the normal event cascade.
+??? info "From re-frame v1"
+
+    The old `mount-root` pattern rendered again after a hot
+    reload while global app-db survived as a top-level value. In re-frame2, the
+    state container is explicit: a frame. The provider ensures or scopes that
+    frame, and `:initial-events` seed it through the normal event cascade.
 
 The full frame lifecycle is covered in [Frames](../concepts/frames.md).

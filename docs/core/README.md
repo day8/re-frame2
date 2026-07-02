@@ -4,7 +4,9 @@ re-frame2 is a data-first framework for building React applications in ClojureSc
 
 This page doesn't teach any of that. Its whole job is to be a signpost: find the door that fits you, walk through it, and the rest of the guide unfolds from there. Everything below is one click deeper.
 
-> **The fastest way to "get it" is to run the counter — five minutes, no theory.** Read first if you must, but the loop lands faster when you've watched it spin once.
+!!! note
+
+    **The fastest way to "get it" is to run the counter — five minutes, no theory.** Read first if you must, but the loop lands faster when you've watched it spin once.
 
 ## Pick your entry point
 
@@ -18,20 +20,26 @@ Three readers, three doors. Pick the row that's you and follow the first link; t
 
 There's one reader this guide deliberately *doesn't* serve: someone learning UI programming from scratch. It teaches re-frame2 by *difference* — "it's like the thing you already use, except…" — so it assumes you've shipped something with React or Redux before. If you haven't, this is the wrong first book.
 
-> **Coming from the JavaScript ecosystem?** Bring your mental models — the guide is built on top of them. Most concept pages open by naming the JS tool that solves the same problem, then teach only what's *different*:
->
-> | You know… | re-frame2 calls it | The difference, in one line |
-> |---|---|---|
-> | Redux selectors / `useSelector` | [subscriptions](glossary.md#subscription) | Named, cached derivations on a graph — dependency tracking is automatic, no deps array. |
-> | TanStack Query | [resources](../resources/glossary.md#resource) | The cache lives *in* your state, where any sub can read it and Xray can show it. |
-> | XState | [machines](../machines/glossary.md#machine) | A statechart registered like an event handler; its live state is ordinary readable state. |
-> | React Router | [routing](../routing/glossary.md#navigate) | A route is a registry entry, navigating is dispatching an event, the URL is just a sub. |
->
-> So the quickest way in really is the [Quickstart](quickstart.md): build the counter, recognise the loop, and let each later page click onto something you already know.
+??? info "Coming from the JavaScript ecosystem?"
 
-> **Coming from re-frame v1?** Most instincts carry over unchanged — events are still plain data, subscriptions still derive, effects still describe what should happen. What's gone is the *global* assumption: there's no single ambient `app-db` or registry anymore. State now lives inside [frames](concepts/frames.md), and that one change reaches into everything downstream. [From re-frame v1](25-from-re-frame-v1.md) skips the basics and lists only the deltas — read that first, not this whole guide.
+    Bring your mental models — the guide is built on top of them. Most concept pages open by naming the JS tool that solves the same problem, then teach only what's *different*:
 
-> **Rusty on Clojure, or never written a line?** You don't need fluency to follow along — the loop is *data*, not syntax. But if the parentheses are getting in the way, [ClojureScript for non-Clojurians](../cljs/index.md) is a fast primer aimed squarely at JS developers: just enough syntax to read every example here without squinting.
+    | You know… | re-frame2 calls it | The difference, in one line |
+    |---|---|---|
+    | Redux selectors / `useSelector` | [subscriptions](glossary.md#subscription) | Named, cached derivations on a graph — dependency tracking is automatic, no deps array. |
+    | TanStack Query | [resources](../resources/glossary.md#resource) | The cache lives *in* your state, where any sub can read it and Xray can show it. |
+    | XState | [machines](../machines/glossary.md#machine) | A statechart registered like an event handler; its live state is ordinary readable state. |
+    | React Router | [routing](../routing/glossary.md#navigate) | A route is a registry entry, navigating is dispatching an event, the URL is just a sub. |
+
+    So the quickest way in really is the [Quickstart](quickstart.md): build the counter, recognise the loop, and let each later page click onto something you already know.
+
+??? info "From re-frame v1"
+
+    Most instincts carry over unchanged — events are still plain data, subscriptions still derive, effects still describe what should happen. What's gone is the *global* assumption: there's no single ambient `app-db` or registry anymore. State now lives inside [frames](concepts/frames.md), and that one change reaches into everything downstream. [From re-frame v1](25-from-re-frame-v1.md) skips the basics and lists only the deltas — read that first, not this whole guide.
+
+!!! note "Rusty on Clojure, or never written a line?"
+
+    You don't need fluency to follow along — the loop is *data*, not syntax. But if the parentheses are getting in the way, [ClojureScript for non-Clojurians](../cljs/index.md) is a fast primer aimed squarely at JS developers: just enough syntax to read every example here without squinting.
 
 ## The shape of the guide
 
@@ -58,6 +66,10 @@ Two habits run through every tier. Worth knowing up front, because they shape ho
 - **Do, observe, explain.** The runtime is inspectable by design, so most pages follow an action with "now open [Xray](glossary.md#xray) and watch what it caused" *before* they explain why. You see the effect before you read the theory — which, it turns out, sticks better than the other way round.
 - **Complete where you stand.** Each page teaches its whole surface — the happy path *and* the sharp edges — and links sideways to the page that owns an idea rather than re-explaining it. When you want the exact shape of a public function, the [API reference](../api/README.md) is the catalogue; the guide never sends you anywhere else to finish a thought.
 
-> **Going deeper — the one big idea.** The whole guide is a single idea unfolding: state is a *value*, the UI is a pure function of that value, and everything in between is data you can inspect. If you'd rather understand *why* the pieces sit where they do before you build — why views render last, why effects live at the edge, why there's no global db — the [Explanation](explanation/inside-out.md) shelf is written for exactly that mood. It's strictly optional: you can ship a real app on the loop and the tutorial alone, then circle back to the *why* when curiosity (or a code review) demands it.
+??? note "Going deeper — the one big idea"
 
-> **Pre-alpha, and honest about it.** re-frame2 is pre-alpha — surfaces are still settling, and a few features aren't here yet. The guide flags deferred features and client-only paths wherever they matter, so you won't build on a placeholder and find out the hard way.
+    The whole guide is a single idea unfolding: state is a *value*, the UI is a pure function of that value, and everything in between is data you can inspect. If you'd rather understand *why* the pieces sit where they do before you build — why views render last, why effects live at the edge, why there's no global db — the [Explanation](explanation/inside-out.md) shelf is written for exactly that mood. It's strictly optional: you can ship a real app on the loop and the tutorial alone, then circle back to the *why* when curiosity (or a code review) demands it.
+
+!!! note "Pre-alpha, and honest about it"
+
+    re-frame2 is pre-alpha — surfaces are still settling, and a few features aren't here yet. The guide flags deferred features and client-only paths wherever they matter, so you won't build on a placeholder and find out the hard way.

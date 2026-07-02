@@ -2,7 +2,7 @@
 
 You've got a working app and one task in front of you. Each page here is a recipe for exactly that task — and nothing else. Goal first, then the steps, then the complete code, then the working result, in that order, so you never have to hold a half-built picture in your head. No theory in the way: by the time you're reaching for a recipe you don't need it sold to you again — you need it done.
 
-> **Find the task, follow the recipe, link down for the contract.**
+> **Find the task, follow the recipe.**
 
 These recipes assume you've already built something — the [quick start](../quickstart.md) gets you there — and that the loop is familiar. Every dispatch sets off one [**event cascade**](../glossary.md#event-cascade): the fixed, ordered run — [handler](../glossary.md#event-handler) → [effect map](../glossary.md#effect-map) → effects → derivations → view → DOM — that the *six dominoes* name as a first-contact mnemonic. [The model](../concepts/index.md) walks all six in a single page, and it's worth the few minutes, because every recipe below is one stage of that cascade filled in for a real feature. Each recipe links to the concept page that owns the *why*, right where it's relevant.
 
@@ -43,7 +43,9 @@ When the app does something you didn't ask for, you don't reach for `println` �
 | see exactly why the app just did that | [Debug with Xray](debug-with-xray.md) |
 | find the view that re-renders too much, and stop it | [Find and fix a slow view](fix-a-slow-view.md) |
 
-> **Want to poke at the running app instead of reading a trace after the fact?** Several of these tasks have a *live* counterpart: attach to a running [frame](../glossary.md#frame), read its [app-db](../glossary.md#app-db), dispatch events, and hot-swap a handler from your editor through the Tool-Pair surface the pair MCP rides. That's pairing against a live runtime rather than following a recipe — the recipes here cover the after-the-fact read; the live path is its own surface.
+!!! note
+
+    **Want to poke at the running app instead of reading a trace after the fact?** Several of these tasks have a *live* counterpart: attach to a running [frame](../glossary.md#frame), read its [app-db](../glossary.md#app-db), dispatch events, and hot-swap a handler from your editor through the Tool-Pair surface the pair MCP rides. That's pairing against a live runtime rather than following a recipe — the recipes here cover the after-the-fact read; the live path is its own surface.
 
 ## Ship it
 
@@ -54,9 +56,13 @@ When the app does something you didn't ask for, you don't reach for `println` �
 | set up dev and production builds — tools in, tools out | [Configure dev and production builds](configure-dev-and-prod.md) |
 | swap the substrate (the React-family rendering layer) — the loop is identical on all of them | [Use UIx, Helix, or reagent-slim](use-uix-helix-or-slim.md) |
 
-> **For JavaScript developers.** Treat this section the way you'd treat the "Recipes" or "Guides" part of any framework's docs — [React](https://react.dev)'s "you might not need an effect", the Rails guide's "how do I do file uploads". They're task-shaped, copy-pasteable, and deliberately opinionated: one good way, shown fully, rather than a tour of the option space. When you want every option on a surface, the [API reference](../../api/README.md) carries the exact shapes.
+??? info "For JavaScript developers"
 
-> **From re-frame v1.** v1's recipes lived in a single flat wiki page — a long scroll you searched with Ctrl-F. Here they're one task per page, grouped by phase, each linking to the concept page that owns its why. The shape of an event handler hasn't changed; what's new is that several recipes have a live pairing counterpart (see the Tool-Pair note above) that v1 never offered.
+    Treat this section the way you'd treat the "Recipes" or "Guides" part of any framework's docs — [React](https://react.dev)'s "you might not need an effect", the Rails guide's "how do I do file uploads". They're task-shaped, copy-pasteable, and deliberately opinionated: one good way, shown fully, rather than a tour of the option space. When you want every option on a surface, the [API reference](../../api/README.md) carries the exact shapes.
+
+??? info "From re-frame v1"
+
+    v1's recipes lived in a single flat wiki page — a long scroll you searched with Ctrl-F. Here they're one task per page, grouped by phase, each linking to the concept page that owns its why. The shape of an event handler hasn't changed; what's new is that several recipes have a live pairing counterpart (see the Tool-Pair note above) that v1 never offered.
 
 ## Can't find your task?
 
@@ -66,4 +72,6 @@ A recipe answers "how do I do X." Some questions sit a step *before* that — th
 - Your task spans several features and you'd rather watch one app grow through them in order? The [RealWorld tutorial](../../resources/tutorial/index.md) builds auth, feeds, forms, and invalidation end to end — the same pieces as these recipes, assembled into one running app.
 - For the exact shape of any public function, the [API reference](../../api/README.md) is the complete catalogue.
 
-> **Why split recipes from design decisions at all?** Because they fail differently. A recipe you can follow *wrong* — and you'll know, because the result won't match the page; the failure is local and reversible. A design decision you can follow *right* and still regret six months later, when the value you parked in the wrong place is wired into forty subscriptions; the failure is non-local and expensive to unwind. Recipes are reversible, placement isn't — so the two get different pages, different shapes, and different amounts of your attention.
+!!! note "Why split recipes from design decisions at all?"
+
+    Because they fail differently. A recipe you can follow *wrong* — and you'll know, because the result won't match the page; the failure is local and reversible. A design decision you can follow *right* and still regret six months later, when the value you parked in the wrong place is wired into forty subscriptions; the failure is non-local and expensive to unwind. Recipes are reversible, placement isn't — so the two get different pages, different shapes, and different amounts of your attention.

@@ -8,7 +8,9 @@ This page builds up from the smallest piece. First the shape of a single trace e
 
 If you take one idea away, take this one:
 
-> **Every tool is a thin presentation over the same runtime facts.** Xray, Story, the pair MCP, machines-viz, and any listener you write all read one trace stream and one [epoch](../glossary.md#epoch) history. If two of them ever disagree about a cascade, one of them is broken — there is no second truth.
+!!! note "Every tool is a thin presentation over the same runtime facts"
+
+    Xray, Story, the pair MCP, machines-viz, and any listener you write all read one trace stream and one [epoch](../glossary.md#epoch) history. If two of them ever disagree about a cascade, one of them is broken — there is no second truth.
 
 ## One wire: the trace stream
 
@@ -46,7 +48,9 @@ You never construct these — the runtime emits them, and your job (more often a
 
 Both of these are designed to grow without breaking anyone. New `:op-type` values get added over time, so a tool simply ignores what it doesn't recognise; new tag keys can arrive later without disturbing a tool that only reads the old ones.
 
-> **Coming from OpenTelemetry?** The trace stream is the same idea — structured events on a wire, with interchangeable consumers reading them — with two differences. Delivery is synchronous and in-process (no collector, no network hop), and the whole wire is [elided](../glossary.md#elide) from production builds. One instinct to unlearn: OTel gives you *spans*, a start/end pair with a `:duration` and a `:child-of` parent. re-frame2's trace is deliberately **event-at-a-time** — one map per moment, no separate end record. Correlation rides in the tags instead (next), which keeps the emit site cheap and the stream uniform: every entry is the same kind of thing.
+??? info "Coming from OpenTelemetry?"
+
+    The trace stream is the same idea — structured events on a wire, with interchangeable consumers reading them — with two differences. Delivery is synchronous and in-process (no collector, no network hop), and the whole wire is [elided](../glossary.md#elide) from production builds. One instinct to unlearn: OTel gives you *spans*, a start/end pair with a `:duration` and a `:child-of` parent. re-frame2's trace is deliberately **event-at-a-time** — one map per moment, no separate end record. Correlation rides in the tags instead (next), which keeps the emit site cheap and the stream uniform: every entry is the same kind of thing.
 
 ### Two properties that shape everything downstream
 
@@ -54,7 +58,9 @@ Both of these are designed to grow without breaking anyone. New `:op-type` value
 
 **Cascades are correlated, not inferred.** Every trace event emitted inside one event's cascade carries the same `:rf.trace/dispatch-id` in its tags. So "everything that click did" is a filter, not a guess. When a handler's effects dispatch a child event, the child cascade's opening `:rf.event/dispatched` carries `:rf.trace/parent-dispatch-id` pointing back at its cause. Walk those links and you have the causal tree: *this* dispatch happened because *that* one did. One dispatch = one cascade = one [epoch](../glossary.md#epoch) — three names for the same unit of work, seen from three vantage points. (*Epoch* is just the name for the before-and-after state record one cascade leaves behind; we get to it [below](#the-epoch-history-what-the-app-was).)
 
-> **You can put your own events on the wire.** If a tool you're writing wants its own milestones in the same stream the framework emits to, call `(rf/emit-trace-event! op-type operation tags)`. The runtime stamps `:id` and `:time`, routes it into the in-flight frame's history, and fans it out to every listener — exactly like a framework emit. Stay in your own namespace for `:op-type` and the tag keys — the `:rf.*` namespaces are framework-owned. Like every other trace emit, the call is elided in production.
+!!! note "You can put your own events on the wire"
+
+    If a tool you're writing wants its own milestones in the same stream the framework emits to, call `(rf/emit-trace-event! op-type operation tags)`. The runtime stamps `:id` and `:time`, routes it into the in-flight frame's history, and fans it out to every listener — exactly like a framework emit. Stay in your own namespace for `:op-type` and the tag keys — the `:rf.*` namespaces are framework-owned. Like every other trace emit, the call is elided in production.
 
 ## The buffer: the last fifty things your app did
 
@@ -83,9 +89,13 @@ One knob sets the depth:
 
 That sets the process default. A frame that wants its own retention sets `:rf.trace/cascades-retained` in its `reg-frame` metadata. And when you want to start a session from a clean slate — between two recordings, say — `(rf/clear-trace-buffer! :app)` empties the named frame's ring without touching anyone else's.
 
-> **Coming from Redux DevTools?** This ring is the action log you scroll back through after something looks wrong — except it isn't a browser-extension bolt-on snooping on dispatches. It's a buffer the framework keeps natively, per isolated frame, and (the next section) it diffs state and time-travels too.
+??? info "Coming from Redux DevTools?"
 
-> **Why cascade bundles, not raw events?** The default `trace-buffer` return is already grouped into per-cascade maps — the raw events folded into `:handler` / `:fx` / `:subs` / `:renders` slots — because that's the shape a tool actually wants to render. If you need the pre-grouped raw stream (you're re-folding it yourself, or chasing one specific emit), pass `{:flat true}` and you'll get plain trace events back instead. The storage is genuinely cascade-keyed either way; `:flat` just flattens the slots on the way out.
+    This ring is the action log you scroll back through after something looks wrong — except it isn't a browser-extension bolt-on snooping on dispatches. It's a buffer the framework keeps natively, per isolated frame, and (the next section) it diffs state and time-travels too.
+
+!!! note "Why cascade bundles, not raw events?"
+
+    The default `trace-buffer` return is already grouped into per-cascade maps — the raw events folded into `:handler` / `:fx` / `:subs` / `:renders` slots — because that's the shape a tool actually wants to render. If you need the pre-grouped raw stream (you're re-folding it yourself, or chasing one specific emit), pass `{:flat true}` and you'll get plain trace events back instead. The storage is genuinely cascade-keyed either way; `:flat` just flattens the slots on the way out.
 
 ### Reading a slice, not the whole ring
 
@@ -108,7 +118,9 @@ That sets the process default. A frame that wants its own retention sets `:rf.tr
 
 The full vocabulary is small: `:event-id`, `:origin`, `:dispatch-id`, `:between [t0 t1]`, `:since-ms`, and the `:flat`-only `:operation` / `:op-type` / `:severity` / `:since` / `:source` / `:handler-id` keys. Cascade-level keys (`:event-id`, `:origin`, `:dispatch-id`, `:between`, `:pred`) work on bundle reads; the per-event keys require `:flat true`.
 
-> **The corner cases are forgiving by design.** Reading a frame that doesn't exist — or was already destroyed — returns `[]`, not an error, mirroring how `(rf/app-db-value <unknown>)` returns `nil`. And `{:cascades-retained 0}` turns the ring *off* without turning the surface off: `trace-buffer` returns `[]`, but live listeners keep firing. That's the right setting when you only ever consume the live stream and don't want to pay for retention.
+!!! note "The corner cases are forgiving by design"
+
+    Reading a frame that doesn't exist — or was already destroyed — returns `[]`, not an error, mirroring how `(rf/app-db-value <unknown>)` returns `nil`. And `{:cascades-retained 0}` turns the ring *off* without turning the surface off: `trace-buffer` returns `[]`, but live listeners keep firing. That's the right setting when you only ever consume the live stream and don't want to pay for retention.
 
 ### The epoch history: what the app *was*
 
@@ -124,9 +136,13 @@ Next to the trace ring (what the app *did*) sits the **epoch history** (what the
 
 Because each record holds real before-and-after state, [time travel](../glossary.md#time-travel) falls out for free: `(rf/restore-epoch! frame-id epoch-id)` rewinds a frame to exactly the state it held then — both partitions, [app-db](../glossary.md#app-db) and [runtime-db](../glossary.md#runtime-db) (machine snapshots, the route slice), in one atomic write. This isn't a special debug build; it's the direct consequence of state being one immutable value per frame.
 
-> **Coming from Redux DevTools?** This is the state-diff-and-time-travel feature — but it's not a wrapper that re-runs reducers from a recorded action log. Each epoch record *holds the actual immutable db value*, before and after, so a rewind is one assignment, not a replay. That's the payoff of [app-db](app-db.md) being a single immutable value per frame.
+??? info "Coming from Redux DevTools?"
 
-> **Time travel only lands on clean states.** `restore-epoch!` refuses any epoch whose cascade didn't settle cleanly — a halted or rolled-back cascade has no coherent "after" to rewind to, so the runtime declines rather than restore a half-applied state. (Epoch records carry an `:outcome` field that says how the cascade ended; more on that below.)
+    This is the state-diff-and-time-travel feature — but it's not a wrapper that re-runs reducers from a recorded action log. Each epoch record *holds the actual immutable db value*, before and after, so a rewind is one assignment, not a replay. That's the payoff of [app-db](app-db.md) being a single immutable value per frame.
+
+!!! note "Time travel only lands on clean states"
+
+    `restore-epoch!` refuses any epoch whose cascade didn't settle cleanly — a halted or rolled-back cascade has no coherent "after" to rewind to, so the runtime declines rather than restore a half-applied state. (Epoch records carry an `:outcome` field that says how the cascade ended; more on that below.)
 
 ## Your listener in eight lines
 
@@ -144,7 +160,9 @@ Everything the fancy panels do starts with this one API, and the nice part is th
 
 That's a working error logger. It receives *every* trace event and prints the errors; `(rf/unregister-listener! :trace :my-app/error-logger)` removes it again. The `:sensitive?` guard there isn't decoration — and it earns its own callout.
 
-> **Gotcha — gate before anything leaves the box.** A listener sees sensitive payloads in the clear — the runtime does not redact what it hands you. The moment your listener forwards data off-box (a network call, a third-party logger, even a console that gets captured into a log), check `:sensitive?` and drop or scrub the marked events. [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) is the full story.
+!!! warning "Gotcha — gate before anything leaves the box"
+
+    A listener sees sensitive payloads in the clear — the runtime does not redact what it hands you. The moment your listener forwards data off-box (a network call, a third-party logger, even a console that gets captured into a log), check `:sensitive?` and drop or scrub the marked events. [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) is the full story.
 
 Three contract details start to matter once tools stack up:
 
@@ -154,14 +172,16 @@ Three contract details start to matter once tools stack up:
 
 There's also a test-time helper, `(rf/clear-listeners! :trace)`, which drops *every* listener on a stream atomically — the framework's own test fixtures use it to hand each test a clean registry. Ordinary application code unregisters its own listeners by key; reach for `clear-listeners!` only from test setup.
 
-> **Gotcha — wrap dev-only listeners in the elision guard.** The `:trace` and `:epoch` streams are elided in production (next section), so registering against them there is dead weight at best. Match the framework's own posture and gate your registration site on the same flag the runtime uses, so the whole call drops out of an `:advanced` build:
->
-> ```clojure
-> (when ^boolean re-frame.interop/debug-enabled?
->   (rf/register-listener! :trace :my-app/recorder my-callback))
-> ```
->
-> The same guard belongs around `trace-buffer`, `clear-trace-buffer!`, the epoch reads, and the `configure!` calls — every dev-only call site in user code.
+!!! warning "Gotcha — wrap dev-only listeners in the elision guard"
+
+    The `:trace` and `:epoch` streams are elided in production (next section), so registering against them there is dead weight at best. Match the framework's own posture and gate your registration site on the same flag the runtime uses, so the whole call drops out of an `:advanced` build:
+
+    ```clojure
+    (when ^boolean re-frame.interop/debug-enabled?
+      (rf/register-listener! :trace :my-app/recorder my-callback))
+    ```
+
+    The same guard belongs around `trace-buffer`, `clear-trace-buffer!`, the epoch reads, and the `configure!` calls — every dev-only call site in user code.
 
 ### The `:epoch` stream: assembled cascades, not raw events
 
@@ -178,9 +198,13 @@ The same verb drives three more streams, distinguished by that leading keyword. 
 
 One subtlety the cascade-shaped view buys you: the `:epoch` callback fires once per *dequeued event*, not once per drain. If a handler's `:fx` dispatched a child event, the parent and the child are two separate epochs, and your callback fires twice — once each. The exception is work a [state machine](../../machines/concepts.md) does to itself: when a transition fires its own follow-up steps (an internal event it raises, or an automatic transition it takes immediately), those ride *inside* the triggering event's epoch rather than firing the callback again. So one user event stays one epoch, however much internal machinery it kicked off.
 
-> **Halted cascades show up here too.** The `:epoch` stream is the devtools surface for *failed* cascades, not just clean ones — so the callback fires for halted drains as well, and each record's `:outcome` field tells you how it ended: `:ok` for a clean settle, `:halted-depth` if the cascade hit the re-entrancy depth guard, `:halted-destroy` if the frame was torn down mid-cascade. A partial record still carries whatever the runtime captured up to the halt, plus a `:halt-reason` descriptor. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of the callback — and remember `restore-epoch!` refuses anything that isn't `:ok`.
+!!! note "Halted cascades show up here too"
 
-> **Tool-Pair alias.** If you've read the Tool-Pair spec or the pair MCP code you'll also see `register-epoch-listener!` / `unregister-epoch-listener!`. Those are just named aliases for the `:epoch` stream of `register-listener!` — same machinery, same semantics. Use whichever reads better at the call site; the stream-keyword form keeps the four observation feeds under one verb.
+    The `:epoch` stream is the devtools surface for *failed* cascades, not just clean ones — so the callback fires for halted drains as well, and each record's `:outcome` field tells you how it ended: `:ok` for a clean settle, `:halted-depth` if the cascade hit the re-entrancy depth guard, `:halted-destroy` if the frame was torn down mid-cascade. A partial record still carries whatever the runtime captured up to the halt, plus a `:halt-reason` descriptor. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of the callback — and remember `restore-epoch!` refuses anything that isn't `:ok`.
+
+!!! note "Tool-Pair alias"
+
+    If you've read the Tool-Pair spec or the pair MCP code you'll also see `register-epoch-listener!` / `unregister-epoch-listener!`. Those are just named aliases for the `:epoch` stream of `register-listener!` — same machinery, same semantics. Use whichever reads better at the call site; the stream-keyword form keeps the four observation feeds under one verb.
 
 The remaining two streams — `:events` and `:errors` — are different in kind: they're the **always-on** integration hooks that survive into production. That's the whole story of what ships and what doesn't, so it gets its own section.
 
@@ -188,7 +212,9 @@ The remaining two streams — `:events` and `:errors` — are different in kind:
 
 Everything above is development machinery, and none of it ships — the whole dev wire is [**elided**](../glossary.md#elide) from production builds. The entire dev trace surface — the `:trace` and `:epoch` streams, the rings, the epoch history, the listener registries behind them — sits behind one compile-time flag (`goog.DEBUG`, a constant the ClojureScript toolchain sets to `false` for production). In an `:advanced` production build, the Closure compiler — the optimising compiler ClojureScript ships through — sees the flag is constantly `false`, so dead-code elimination (DCE) removes every branch guarded by it. The emit calls don't just become no-ops; they're elided entirely, so production bundles carry zero trace code and zero trace cost.
 
-> **Gotcha — JVM builds default the gate on.** There's no Closure compiler on the JVM, so the same gate defaults *on* there — which is right for tests and the REPL, but means a production JVM process, an SSR host especially, must set `-Dre-frame.debug=false` explicitly. The flag also reads the `RE_FRAME_DEBUG` environment variable, and accepts the usual false-y vocabulary (`false`, `0`, `no`, `off`, empty) case-insensitively. See [configure dev and production builds](../how-to/configure-dev-and-prod.md).
+!!! warning "Gotcha — JVM builds default the gate on"
+
+    There's no Closure compiler on the JVM, so the same gate defaults *on* there — which is right for tests and the REPL, but means a production JVM process, an SSR host especially, must set `-Dre-frame.debug=false` explicitly. The flag also reads the `RE_FRAME_DEBUG` environment variable, and accepts the usual false-y vocabulary (`false`, `0`, `no`, `off`, empty) case-insensitively. See [configure dev and production builds](../how-to/configure-dev-and-prod.md).
 
 What survives is deliberately narrow: an **always-on error substrate**, kept separate from the dev trace wire. It fires one tight structured [error record](../glossary.md#error-record) per production-reachable runtime failure — the error's id, the event and frame context, but never raw values. This is how a handler exception in production reaches Sentry or Datadog *knowing what the user was doing*, instead of arriving as a bare `window.onerror`. (A sibling substrate emits one record per processed event, for throughput-and-latency dashboards.)
 
@@ -242,11 +268,17 @@ Which app-db paths count as sensitive isn't guessed — a handler classifies the
 
 The wiring recipe is [report errors in production](../how-to/report-errors-in-production.md); what counts as an error, and how the framework recovers, is [errors](errors.md).
 
-> **Coming from the Sentry / Datadog SDKs?** The mental split is: the dev trace wire is rich and elided, while the production error substrate is narrow and always-on. Don't reach for `register-listener!`'s `:trace` stream to feed a hosted monitor — it works in dev and hears *nothing* in production, because the emit sites it would listen to no longer exist. **For production telemetry, you want a sink, not a trace listener.** The sink is also the one that redacts for you, which a raw stream listener never does.
+??? info "Coming from the Sentry / Datadog SDKs?"
 
-> **Sink for production, listener for an advanced cross-frame hook.** The frame-owned `:observability :errors` sink is the normal production error route, and it's the safe one — projected per-frame before you see it. The raw `:errors` stream of `register-listener!` is the advanced corpus-wide alternative: one fan-out across *every* frame, delivering an *unprojected* record (the `:event` is elided but the `:exception` rides raw and no frame egress policy applies). Reach for it only when you genuinely need a single cross-frame hook or a record the sink route can't carry — and accept that you're then responsible for the trust boundary yourself.
+    The mental split is: the dev trace wire is rich and elided, while the production error substrate is narrow and always-on. Don't reach for `register-listener!`'s `:trace` stream to feed a hosted monitor — it works in dev and hears *nothing* in production, because the emit sites it would listen to no longer exist. **For production telemetry, you want a sink, not a trace listener.** The sink is also the one that redacts for you, which a raw stream listener never does.
 
-> **Want timing in production, too?** There's a third production-survivable surface besides `:events` and `:errors`: a Performance API channel, off by default, that brackets the four hot paths (event dispatch, sub recompute, fx walk, render) in `performance.mark` / `performance.measure` calls. Flip it on at build time with `:closure-defines {re-frame.performance/enabled? true}` and any `PerformanceObserver` — including your APM's — reads the User-Timing entries. It's a compile-time flag distinct from `goog.DEBUG`, so you can ship timing without shipping the whole dev wire. [Find and fix a slow view](../how-to/fix-a-slow-view.md) shows the entries in use.
+!!! note "Sink for production, listener for an advanced cross-frame hook"
+
+    The frame-owned `:observability :errors` sink is the normal production error route, and it's the safe one — projected per-frame before you see it. The raw `:errors` stream of `register-listener!` is the advanced corpus-wide alternative: one fan-out across *every* frame, delivering an *unprojected* record (the `:event` is elided but the `:exception` rides raw and no frame egress policy applies). Reach for it only when you genuinely need a single cross-frame hook or a record the sink route can't carry — and accept that you're then responsible for the trust boundary yourself.
+
+!!! note "Want timing in production, too?"
+
+    There's a third production-survivable surface besides `:events` and `:errors`: a Performance API channel, off by default, that brackets the four hot paths (event dispatch, sub recompute, fx walk, render) in `performance.mark` / `performance.measure` calls. Flip it on at build time with `:closure-defines {re-frame.performance/enabled? true}` and any `PerformanceObserver` — including your APM's — reads the User-Timing entries. It's a compile-time flag distinct from `goog.DEBUG`, so you can ship timing without shipping the whole dev wire. [Find and fix a slow view](../how-to/fix-a-slow-view.md) shows the entries in use.
 
 ## The tools: four presentations, zero second truths
 
@@ -306,4 +338,6 @@ One subtlety with a production reach: the always-on `:events` stream honours thi
 
 This is the mechanism behind "a devtool in its own frame can storm its own subscriptions without polluting your app frame's history" — the per-frame ring isolates the *storage*, and this flag suppresses the tool frame's *emission* entirely. Both flags sit inside the same dev-only elision gate as everything else here, so they cost nothing in production (which emits no trace anyway).
 
-> **Going deeper.** The wire is a *free monoid* of trace events — an append-only sequence with one associative operation (concatenation) and an identity (the empty stream). Every tool is then a *fold* over that sequence: Xray folds it into an epoch ledger, a metrics sink folds it into counters, `group-cascades` folds the flat ring into bundles. Because a fold is determined entirely by its accumulator and step function — and the underlying sequence is the same for everyone — two correct folds over one stream *cannot* disagree about a shared question; they can only project different facets. "One truth, many presentations" isn't a discipline the tools agree to uphold. It's an algebraic property of building every reader as a fold over a single shared sequence. The dispatch-id correlation adds a second structure on top: it makes the stream not just a flat sequence but a *forest* (each cascade a tree rooted at its dispatched event, child cascades hanging off `:parent-dispatch-id`), so causal queries are tree walks rather than scans.
+??? note "Going deeper"
+
+    The wire is a *free monoid* of trace events — an append-only sequence with one associative operation (concatenation) and an identity (the empty stream). Every tool is then a *fold* over that sequence: Xray folds it into an epoch ledger, a metrics sink folds it into counters, `group-cascades` folds the flat ring into bundles. Because a fold is determined entirely by its accumulator and step function — and the underlying sequence is the same for everyone — two correct folds over one stream *cannot* disagree about a shared question; they can only project different facets. "One truth, many presentations" isn't a discipline the tools agree to uphold. It's an algebraic property of building every reader as a fold over a single shared sequence. The dispatch-id correlation adds a second structure on top: it makes the stream not just a flat sequence but a *forest* (each cascade a tree rooted at its dispatched event, child cascades hanging off `:parent-dispatch-id`), so causal queries are tree walks rather than scans.

@@ -30,11 +30,17 @@ There is exactly one container of application state: [**app-db**](../glossary.md
 
 Notice what dissolves. There is no "lifting state up," because state was never down in the components in the first place — there is nothing to lift. A view is a render function from subscription values to [**hiccup**](../glossary.md#hiccup), and that is its entire job. It doesn't start anything. It doesn't fetch. It doesn't own anything. Nothing *originates* in a view — it's derived from state, not the home of it.
 
-> **For JavaScript developers.** Map the cascade onto what you already run in your head. The **event** is your action object. The **event handler** is your reducer — but with effects pulled out of it. The **subscription** is your selector. The **view** is your component, minus everything except the `return`. The unfamiliar move isn't any one of those pieces; it's that re-frame2 takes the pieces that normally live *inside* the component — the dispatch wiring, the selectors, the data-fetching effect — and lifts every one of them *out*, so the component is left with nothing to do but render. The callout below makes the analogy precise for Redux users.
+??? info "For JavaScript developers"
 
-> **Coming from Redux?** You already believe most of this. Redux moved state into one store and made reducers pure — re-frame2 keeps that and finishes the job. The difference is what happens *around* the store. In Redux, `useSelector`, `useDispatch`, and your data-fetching middleware still live inside the component, so the component is still where state, effects, and rendering meet. re-frame2 pulls every one of those out: subscriptions, effects, and the [dispatch](../glossary.md#dispatch) path all live outside the view, and the view is left with nothing to do but render. Redux got the store right and stopped at the component door; the inversion walks through it.
+    Map the cascade onto what you already run in your head. The **event** is your action object. The **event handler** is your reducer — but with effects pulled out of it. The **subscription** is your selector. The **view** is your component, minus everything except the `return`. The unfamiliar move isn't any one of those pieces; it's that re-frame2 takes the pieces that normally live *inside* the component — the dispatch wiring, the selectors, the data-fetching effect — and lifts every one of them *out*, so the component is left with nothing to do but render. The callout below makes the analogy precise for Redux users.
 
-> **From re-frame v1.** This philosophy is unchanged from the original — the inversion *is* re-frame, and v1 already had it. What v2 adds sits on top of this foundation rather than altering it; the whole delta is laid out in [From re-frame v1](../25-from-re-frame-v1.md).
+??? info "Coming from Redux?"
+
+    You already believe most of this. Redux moved state into one store and made reducers pure — re-frame2 keeps that and finishes the job. The difference is what happens *around* the store. In Redux, `useSelector`, `useDispatch`, and your data-fetching middleware still live inside the component, so the component is still where state, effects, and rendering meet. re-frame2 pulls every one of those out: subscriptions, effects, and the [dispatch](../glossary.md#dispatch) path all live outside the view, and the view is left with nothing to do but render. Redux got the store right and stopped at the component door; the inversion walks through it.
+
+??? info "From re-frame v1"
+
+    This philosophy is unchanged from the original — the inversion *is* re-frame, and v1 already had it. What v2 adds sits on top of this foundation rather than altering it; the whole delta is laid out in [From re-frame v1](../25-from-re-frame-v1.md).
 
 ## Boring views are the point
 
@@ -75,11 +81,17 @@ Neither of those touches the DOM, a clock, the network, or a component. So neith
 
 That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../how-to/test-an-event-handler.md) walks the pattern in full; [the cascade](../concepts/events-and-the-cascade.md) shows the same two functions in their runtime habitat.
 
-> **For JavaScript developers.** Compare the React version, where the increment, the state it lives in, and the render are the same component — to test the increment logic you must mount the component and simulate a click, because the logic has no existence apart from the component. Here the logic *is* a plain function with a name in a registry, so the test is a function call with two literals. That's the difference between testing behaviour and testing a rendering of behaviour.
+??? info "For JavaScript developers"
 
-> **Where does `handler-meta` come from?** It reads the registry back — given a kind (`:event`, `:sub`, …) and an id, it hands back the registration map, whose `:handler-fn` is your function. You rarely reach for it outside tests, because in an app the runtime looks handlers up for you; its reason to be public is that "test it as a plain function" is a first-class promise, not a hack.
+    Compare the React version, where the increment, the state it lives in, and the render are the same component — to test the increment logic you must mount the component and simulate a click, because the logic has no existence apart from the component. Here the logic *is* a plain function with a name in a registry, so the test is a function call with two literals. That's the difference between testing behaviour and testing a rendering of behaviour.
 
-> **Gotcha — a typo'd id returns `nil`, not a clean error.** `handler-meta` returns `nil` for an id it doesn't know, so `(:handler-fn nil)` is also `nil`, and the *next* line blows up with "nil is not a function" rather than "no such handler." If a handler you *know* you registered comes back `nil`, suspect the id spelling or a missing `:require`.
+!!! note "Where does `handler-meta` come from?"
+
+    It reads the registry back — given a kind (`:event`, `:sub`, …) and an id, it hands back the registration map, whose `:handler-fn` is your function. You rarely reach for it outside tests, because in an app the runtime looks handlers up for you; its reason to be public is that "test it as a plain function" is a first-class promise, not a hack.
+
+!!! warning "Gotcha — a typo'd id returns `nil`, not a clean error"
+
+    `handler-meta` returns `nil` for an id it doesn't know, so `(:handler-fn nil)` is also `nil`, and the *next* line blows up with "nil is not a function" rather than "no such handler." If a handler you *know* you registered comes back `nil`, suspect the id spelling or a missing `:require`.
 
 ## Why your architecture shouldn't be Turing complete
 
@@ -97,13 +109,17 @@ Those aren't four ad-hoc rules; they're a deliberate ladder, and the spec names 
 
 Full power in the language, where you compute things. Minimum power in the architecture, where you have to understand things.
 
-> **Going deeper.** The five layers form a ladder, not a checklist: each rung is meaningful only because the rung below it holds. Discreteness is what *lets* a state be well-defined enough to schema-check; the fixed cascade is the finite-state machine those discrete states transition through; purity is what makes each transition a function rather than an event in time; the data DSLs are what make the whole thing inspectable from outside. The reason *data*-based DSLs (as against *string* DSLs) earn their rung is algebraic — values compose, diff, lint, and round-trip cleanly, with no parse step between you and the structure, which is precisely what lets a tool read your app's behaviour without running it. Dijkstra named the underlying bet decades ago: *"Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed."* The whole ladder is a campaign to turn processes-in-time into static relations you can look at.
+??? note "Going deeper"
+
+    The five layers form a ladder, not a checklist: each rung is meaningful only because the rung below it holds. Discreteness is what *lets* a state be well-defined enough to schema-check; the fixed cascade is the finite-state machine those discrete states transition through; purity is what makes each transition a function rather than an event in time; the data DSLs are what make the whole thing inspectable from outside. The reason *data*-based DSLs (as against *string* DSLs) earn their rung is algebraic — values compose, diff, lint, and round-trip cleanly, with no parse step between you and the structure, which is precisely what lets a tool read your app's behaviour without running it. Dijkstra named the underlying bet decades ago: *"Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed."* The whole ladder is a campaign to turn processes-in-time into static relations you can look at.
 
 ## The ceremony is real
 
 Now the honest part, because it's only fair to put it plainly. A counter in plain React is `useState(5)` and two `onClick`s — six lines. The same counter in re-frame2 is about thirty: a handful of event registrations, a subscription, namespaced ids, and a seed dispatch (one event fired at startup to put the counter's initial value into app-db, since app-db — not the view — is where state lives).
 
-> **If your whole app is a counter, use `useState`.** At counter scale the ceremony is pure overhead, and no framework essay should talk you out of the simpler tool. Godspeed.
+!!! note "If your whole app is a counter, use `useState`"
+
+    At counter scale the ceremony is pure overhead, and no framework essay should talk you out of the simpler tool. Godspeed.
 
 The ceremony is a fixed cost per feature. The claim is that it amortises: the same shape that feels like bureaucracy at thirty lines is the only thing keeping you sane at thirty thousand. That claim needs to be specific to be believable, so here it is.
 
@@ -117,9 +133,13 @@ The boundedness isn't a vibe; it's structural, and you can name the reason. Beca
 
 That's what the ceremony buys. Not elegance — boundedness.
 
-> **Gotcha — the enumeration stays honest because the runtime won't quietly invent a place.** "A grep finds all of them" only holds if a *miss* is loud. So re-frame2 [fails loud, not silent](../glossary.md#fail-loud-not-silent): when it recognises a value as input but can't honour it, it raises a structured [error record](../glossary.md#error-record) keyed by a reserved `:rf.error/*` category — never a `nil` or a no-op. Dispatch an id nobody registered and you get `:rf.error/no-such-handler` (the trace names the exact id), not a button that silently does nothing. Return an effect for an fx-id nobody registered and you get `:rf.error/no-such-fx`. Declare a coeffect with no supplier and the requirement fails with `:rf.error/unregistered-cofx` *before* the handler runs. Return an effect map with a stray top-level key beyond `:db`/`:fx` and you get `:rf.error/effect-map-shape` — the bad key is named and dropped, your `:db` still lands. The point isn't the catalogue — it's that a typo can't smuggle in a new "place" where state hides; it surfaces as a named failure at the boundary. [Errors](../concepts/errors.md) is the full catalogue and the branch-on-category discipline.
+!!! warning "Gotcha"
 
-> **Going deeper.** "Enumerable" is the load-bearing word, and it's a property you get *for free* from the constraints, not one you have to maintain. In a Turing-complete architecture the set of writers to a piece of state is, in general, undecidable — any code that can reach a reference can write through it, and aliasing makes "who can reach this?" a question no grep can answer. Collapsing writes to one mechanism (registered handlers) over one container (app-db) turns an undecidable question into a finite enumeration: the writers are a literal, searchable list. That's the same move the five-layer ladder makes everywhere — trade expressive power you weren't using for a decidable answer to a question you ask constantly.
+    "A grep finds all of them" only holds if a *miss* is loud. So re-frame2 [fails loud, not silent](../glossary.md#fail-loud-not-silent): when it recognises a value as input but can't honour it, it raises a structured [error record](../glossary.md#error-record) keyed by a reserved `:rf.error/*` category — never a `nil` or a no-op. Dispatch an id nobody registered and you get `:rf.error/no-such-handler` (the trace names the exact id), not a button that silently does nothing. Return an effect for an fx-id nobody registered and you get `:rf.error/no-such-fx`. Declare a coeffect with no supplier and the requirement fails with `:rf.error/unregistered-cofx` *before* the handler runs. Return an effect map with a stray top-level key beyond `:db`/`:fx` and you get `:rf.error/effect-map-shape` — the bad key is named and dropped, your `:db` still lands. The point isn't the catalogue — it's that a typo can't smuggle in a new "place" where state hides; it surfaces as a named failure at the boundary. [Errors](../concepts/errors.md) is the full catalogue and the branch-on-category discipline.
+
+??? note "Going deeper"
+
+    "Enumerable" is the load-bearing word, and it's a property you get *for free* from the constraints, not one you have to maintain. In a Turing-complete architecture the set of writers to a piece of state is, in general, undecidable — any code that can reach a reference can write through it, and aliasing makes "who can reach this?" a question no grep can answer. Collapsing writes to one mechanism (registered handlers) over one container (app-db) turns an undecidable question into a finite enumeration: the writers are a literal, searchable list. That's the same move the five-layer ladder makes everywhere — trade expressive power you weren't using for a decidable answer to a question you ask constantly.
 
 ## One impure spot, one wire
 
@@ -131,8 +151,12 @@ Circle back to the React question this essay opened on — *"what changed this p
 
 [Observability: one wire, every tool](../concepts/observability.md) is the full tour.
 
-> **Two honest limits on the wire.** First, the rich trace wire is production-[elided](../glossary.md#elide): the whole emit substrate sits behind a `goog.DEBUG` gate (the JVM mirror is `-Dre-frame.debug`) that the Closure compiler dead-code-eliminates in `:advanced` builds. What you ship to users keeps a separate, deliberately smaller channel — two always-on streams (`:events` and `:errors`) that survive elision — so production tells you *that* an event ran and *whether* it failed, without the rich per-stage detail (db snapshots, render args, derivation values) the dev trace carries. Build your monitoring on the always-on streams. Second, revertibility ends at the effect boundary: the framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
+!!! note "Two honest limits on the wire"
+
+    First, the rich trace wire is production-[elided](../glossary.md#elide): the whole emit substrate sits behind a `goog.DEBUG` gate (the JVM mirror is `-Dre-frame.debug`) that the Closure compiler dead-code-eliminates in `:advanced` builds. What you ship to users keeps a separate, deliberately smaller channel — two always-on streams (`:events` and `:errors`) that survive elision — so production tells you *that* an event ran and *whether* it failed, without the rich per-stage detail (db snapshots, render args, derivation values) the dev trace carries. Build your monitoring on the always-on streams. Second, revertibility ends at the effect boundary: the framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
 
 ## When not to use it
 
-> **Pre-alpha, and there's a floor below which this doesn't pay.** re-frame2's contracts are still settling, and this guide says so wherever it matters. Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.
+!!! note "Pre-alpha, and there's a floor below which this doesn't pay"
+
+    re-frame2's contracts are still settling, and this guide says so wherever it matters. Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.

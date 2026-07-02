@@ -167,22 +167,25 @@ nav:
     # deeper/feature concepts -> how-to recipes -> explanation shelf -> v1
     # migration -> glossary -> API reference. The fundamentals come BEFORE the
     # tutorial so the reader meets the one-way loop before a real domain.
-    - "Quickstart": core/quickstart.md
-    - "The loop":
+    # The loop pages are NUMBERED in cascade order (events -> effects ->
+    # subs -> views, with app-db as the centre) and every label carries a
+    # descriptive tail, so the nav itself reads as the learning track.
+    - "Quickstart: a counter in five minutes": core/quickstart.md
+    - "The loop, one piece at a time":
       - core/concepts/index.md
-      - "Events and the cascade": core/concepts/events-and-the-cascade.md
-      - "app-db": core/concepts/app-db.md
-      - "Subscriptions": core/concepts/subscriptions.md
-      - "Views": core/concepts/views.md
-      - "Effects and coeffects": core/concepts/effects-and-coeffects.md
-    - "More concepts":
-      - "Frames": core/concepts/frames.md
-      - "Flows": core/concepts/flows.md
-      - "Interceptors": core/concepts/interceptors.md
-      - "Images": core/concepts/images.md
-      - "Errors": core/concepts/errors.md
-      - "Observability": core/concepts/observability.md
-    - "How-to":
+      - "1. Events and the cascade": core/concepts/events-and-the-cascade.md
+      - "2. app-db: state in one place": core/concepts/app-db.md
+      - "3. Effects and coeffects: the world": core/concepts/effects-and-coeffects.md
+      - "4. Subscriptions: derived values": core/concepts/subscriptions.md
+      - "5. Views: render the data": core/concepts/views.md
+    - "Beyond the loop":
+      - "Frames: isolated worlds": core/concepts/frames.md
+      - "Flows: derived values for handlers": core/concepts/flows.md
+      - "Interceptors: cross-cutting behaviour": core/concepts/interceptors.md
+      - "Images: a frame's registrations": core/concepts/images.md
+      - "Errors: failures as data": core/concepts/errors.md
+      - "Observability: one wire, every tool": core/concepts/observability.md
+    - "How-to recipes":
       - core/how-to/index.md
       - "Boot and mount an app": core/how-to/boot-and-mount-an-app.md
       - "Add auth": core/how-to/add-auth.md
@@ -197,8 +200,8 @@ nav:
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
       - "Use UIx, Helix, or slim": core/how-to/use-uix-helix-or-slim.md
-    - "Explanation":
-      - "Inside-out: why it's built this way": core/explanation/inside-out.md
+    - "Why it's built this way":
+      - "Inside-out: why views come last": core/explanation/inside-out.md
       - "One graph: derivations and algebra views": core/derivations-and-algebra-views.md
       - "Where should this value live?": core/where-state-lives.md
     - "From re-frame v1":

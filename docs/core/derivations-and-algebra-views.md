@@ -2,7 +2,9 @@
 
 You're reading a re-frame2 app you didn't write. A tool has just drawn its dependency graph — subscriptions, a flow, a resource cache, a machine — as one picture, and you want to know what you're looking at. This page is the model that makes the picture legible. It fits in one sentence:
 
-> **A subscription, a flow, a resource, and a machine are the same thing seen four ways** — one node in one dependency graph rooted at your state, distinguished only by *where its value is kept* and *when it's recomputed*.
+!!! note
+
+    **A subscription, a flow, a resource, and a machine are the same thing seen four ways** — one node in one dependency graph rooted at your state, distinguished only by *where its value is kept* and *when it's recomputed*.
 
 You don't need this page to *write* an app. [Where should this value live?](where-state-lives.md) routes any value to the right home with four questions and no theory. This page is for *reading* apps — yours six months from now, or somebody else's tomorrow — when the graph a tool draws has to make sense without opening every source file.
 
@@ -12,7 +14,9 @@ The anchor here is a spreadsheet. Every cell is either an entered value or a for
 
 re-frame2's [subscriptions](concepts/subscriptions.md) are exactly spreadsheet cells. (A subscription is the read side of your app: a *derivation* — a value computed from other values by a pure function, which is all "derivation" means anywhere on this page.) You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
 
-> **Coming from Solid / Vue / Preact signals?** The JS world rediscovered the spreadsheet as the **signals graph** — `createMemo`, `computed`, signals — where a derived value declares its inputs and recomputes when those inputs move. A re-frame2 subscription is one of those derived signals. If you've reached for `useMemo` to avoid recomputing a value on every render, you already have the intuition: declare the inputs, let the framework decide when to recompute.
+??? info "Coming from Solid / Vue / Preact signals?"
+
+    The JS world rediscovered the spreadsheet as the **signals graph** — `createMemo`, `computed`, signals — where a derived value declares its inputs and recomputes when those inputs move. A re-frame2 subscription is one of those derived signals. If you've reached for `useMemo` to avoid recomputing a value on every render, you already have the intuition: declare the inputs, let the framework decide when to recompute.
 
 This page adds one bigger claim, and it's the deliberate divergence from the signals world: **flows, resources, route state, and machines are nodes in the same graph.** A flow is a cell that writes its result back into the sheet. A resource is a cell whose authoritative value lives on a server — locally you hold a copy that can go stale. A machine is a cell with memory, where its next value depends on its current one. The signals ecosystem never wrote that unification down as one model; re-frame2 does.
 
@@ -51,7 +55,9 @@ That's the entire reason the algebra exists. Hold onto this one sentence and the
 
 > The difference between a subscription and a flow is **not the function; it is policy over the same dependency graph.**
 
-> **From re-frame v1.** In v1 you had subscriptions and (later) flows, but they felt like two separate subsystems — a sub was a `reg-sub`, a flow was a thing you bolted on. re-frame2 says out loud what was always true: they are the *same* node under different storage-and-evaluation policy. You still write `reg-sub` and `reg-flow` for the same ergonomic reasons; what's new is that the framework — and any tool reading it — treats them as one graph.
+??? info "From re-frame v1"
+
+    In v1 you had subscriptions and (later) flows, but they felt like two separate subsystems — a sub was a `reg-sub`, a flow was a thing you bolted on. re-frame2 says out loud what was always true: they are the *same* node under different storage-and-evaluation policy. You still write `reg-sub` and `reg-flow` for the same ergonomic reasons; what's new is that the framework — and any tool reading it — treats them as one graph.
 
 ## The five questions every node answers
 
@@ -71,9 +77,13 @@ The four `:storage` classes are just the four places a value can sit, and you'll
 
 That's the whole vocabulary. The five source forms you actually write — `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine` — each **lower** to this one shape, called the node's **algebra view**. ("Lower" is borrowed from compilers: a higher-level form you wrote is translated down into a simpler, uniform shape a machine can reason about — here, the five questions above.)
 
-> **You never write the algebra view.** There is no `reg-fact` and no `reg-derivation`. The view is *derived* from the registration you already wrote, and that's the point: a tool can answer "where does this value come from, when does it run, where does it live, who owns it?" without reading your function bodies. The source forms stay the things humans write; the algebra view is what a tool reads.
+!!! note "You never write the algebra view"
 
-> **Going deeper — two superkinds, nothing more.** "Derivation" and "process" are the two superkinds of the algebra. A **derivation** computes a fact from declared inputs with a pure function — it has no memory beyond its output. A **process** is a derivation that *also* has state, a lifecycle, and commands over time: it reacts to events, async replies, route changes, and timers. Subscriptions and flows are derivations; resources, routes, and machines are processes. The whole hierarchy is exactly those two — a tool that understands only `:derivation` and `:process` can still classify every node in the graph. Everything finer is a *refinement*, and refinements never invent a third superkind.
+    There is no `reg-fact` and no `reg-derivation`. The view is *derived* from the registration you already wrote, and that's the point: a tool can answer "where does this value come from, when does it run, where does it live, who owns it?" without reading your function bodies. The source forms stay the things humans write; the algebra view is what a tool reads.
+
+??? note "Going deeper — two superkinds, nothing more"
+
+    "Derivation" and "process" are the two superkinds of the algebra. A **derivation** computes a fact from declared inputs with a pure function — it has no memory beyond its output. A **process** is a derivation that *also* has state, a lifecycle, and commands over time: it reacts to events, async replies, route changes, and timers. Subscriptions and flows are derivations; resources, routes, and machines are processes. The whole hierarchy is exactly those two — a tool that understands only `:derivation` and `:process` can still classify every node in the graph. Everything finer is a *refinement*, and refinements never invent a third superkind.
 
 ## One node, opened up
 
@@ -126,7 +136,9 @@ So far the subscription's inputs were fixed. But some subscriptions compute thei
 
 This is the **don't-execute rule**: static inspection never runs your input, param, or scope functions. It reads declarations only — which is what makes a static graph safe to compute anywhere (tests, docs, an editor) with no side effects and no runtime assumptions. A `:parametric` edge set contributes no static edges; the realized ones appear only in the live graph, observed from the running app.
 
-> **Coming from SQL?** Think of `EXPLAIN` on a parameterized query versus the actual rows a given parameter binding returns. The static graph is the query plan — derived from declarations, runnable offline, the same for every parameter. The live graph is the result for a *concrete* binding — one node per realized query vector, edges and all. A `:parametric` node is the framework refusing to guess at plan time what only a real binding can answer.
+??? info "Coming from SQL?"
+
+    Think of `EXPLAIN` on a parameterized query versus the actual rows a given parameter binding returns. The static graph is the query plan — derived from declarations, runnable offline, the same for every parameter. The live graph is the result for a *concrete* binding — one node per realized query vector, edges and all. A `:parametric` node is the framework refusing to guess at plan time what only a real binding can answer.
 
 ## Processes: nodes with state and a lifecycle
 
@@ -153,11 +165,17 @@ A resource is a fact whose authoritative value lives on a server, with a local c
 
 The view makes a split explicit that folklore usually muddles. **`:storage` always names the local home** — here, the runtime-db cache entry. **`:authority` names whose fact it really is** — an external server.
 
-> **Gotcha — "remote" is not a storage class.** This is the one place people reliably tie themselves in knots. Locally you *always* hold a representation; the truth living on a server doesn't move it out of your `:storage`. So `:storage` is `:runtime-db` (where your copy sits) and `:authority` is the remote server (whose fact it is) — two separate axes, never collapsed into one. A graph that printed "storage: remote" would be telling you nothing about where the bytes actually are.
+!!! warning "Gotcha — 'remote' is not a storage class"
 
-> **Coming from TanStack Query?** Your query cache is exactly this split, just unnamed. The server is the `:authority`; the `queryCache` is the local `:storage`; `isLoading` / `data` / `error` are read selectors over one cache entry; and the staleness/refetch policy is the entry's `:evaluation`. re-frame2 writes those four facts down as fields instead of leaving them implicit in a hook's behaviour — which is the whole reason a tool can draw a resource the same way it draws a subscription.
+    This is the one place people reliably tie themselves in knots. Locally you *always* hold a representation; the truth living on a server doesn't move it out of your `:storage`. So `:storage` is `:runtime-db` (where your copy sits) and `:authority` is the remote server (whose fact it is) — two separate axes, never collapsed into one. A graph that printed "storage: remote" would be telling you nothing about where the bytes actually are.
 
-> **Going deeper — where the non-serializable leftovers go.** An in-flight request handle or a timer can't be serialized into durable state, so they're classed `:host-transient`: outside durable frame state, torn down at their lifecycle boundary. They never become the *only* copy of a fact — replay and restore depend on the durable `:runtime-db` entry, not the live socket. In a live resource view you'll see them surface as `:host-transient [[:rf.http/in-flight :work/id-123]]` and a `:work-ledger` summary (the in-flight attempt's identity, owners, causes, and transport) — present only while a fetch is actually in flight, gone once it settles.
+??? info "Coming from TanStack Query?"
+
+    Your query cache is exactly this split, just unnamed. The server is the `:authority`; the `queryCache` is the local `:storage`; `isLoading` / `data` / `error` are read selectors over one cache entry; and the staleness/refetch policy is the entry's `:evaluation`. re-frame2 writes those four facts down as fields instead of leaving them implicit in a hook's behaviour — which is the whole reason a tool can draw a resource the same way it draws a subscription.
+
+??? note "Going deeper — where the non-serializable leftovers go"
+
+    An in-flight request handle or a timer can't be serialized into durable state, so they're classed `:host-transient`: outside durable frame state, torn down at their lifecycle boundary. They never become the *only* copy of a fact — replay and restore depend on the durable `:runtime-db` entry, not the live socket. In a live resource view you'll see them surface as `:host-transient [[:rf.http/in-flight :work/id-123]]` and a `:work-ledger` summary (the in-flight attempt's identity, owners, causes, and transport) — present only while a fetch is actually in flight, gone once it settles.
 
 ### Buying back static visibility: named resolvers
 
@@ -177,7 +195,9 @@ The don't-execute rule says static inspection won't *run* your scope function �
 
 The lesson generalizes, and it's the trade the whole algebra makes:
 
-> **Declaring a dependency as *data*, rather than burying it in a function body, is what lets a tool see it before the app runs.** An inline function is opaque to static analysis on purpose; a named, data-described resolver hands the same information to the graph for free. The more you say in data, the more a tool can answer without executing you.
+!!! note
+
+    **Declaring a dependency as *data*, rather than burying it in a function body, is what lets a tool see it before the app runs.** An inline function is opaque to static analysis on purpose; a named, data-described resolver hands the same information to the graph for free. The more you say in data, the more a tool can answer without executing you.
 
 ### Machines: a node with memory
 
@@ -207,7 +227,9 @@ A machine's `:inputs` are the event ids its transition table listens for — eve
 
 That `:checkout/progress` selector's algebra view is an `:ephemeral`, `:on-demand` derivation like any other. It carries the `:machine-selector` refinement and an edge back to the machine it reads — so machines never become a second subscription system. And the selector's target is *precise*: the graph mines the machine ids it reads from its static `[:rf/machine …]` inputs, so in a multi-machine app each `:selector` edge runs from exactly the machine the selector names, never the cross product of every machine against every selector ([State machines](../machines/concepts.md)).
 
-> **Going deeper — spawned actors in the live graph.** The static graph reports one node per registered machine *type*. But a spawned actor has no per-instance registration — its liveness *is* the presence of its snapshot in runtime-db. So the live graph reports one node per *concrete* snapshot, resolving each instance's type from the snapshot's reserved type discriminator and surfacing its current `:state`. This is the machine version of the parametric/realized split you saw for subscriptions: the static graph knows the *types* you registered, the live graph knows the *instances* actually running.
+??? note "Going deeper — spawned actors in the live graph"
+
+    The static graph reports one node per registered machine *type*. But a spawned actor has no per-instance registration — its liveness *is* the presence of its snapshot in runtime-db. So the live graph reports one node per *concrete* snapshot, resolving each instance's type from the snapshot's reserved type discriminator and surfacing its current `:state`. This is the machine version of the parametric/realized split you saw for subscriptions: the static graph knows the *types* you registered, the live graph knows the *instances* actually running.
 
 ### Routes: the same fact, every route
 
@@ -258,7 +280,9 @@ Third, **the whole-value law**: every derivation must be correct as a function t
 
 And a fourth thing worth knowing when you read a *real* graph: **the families are optional, and a missing one just isn't there.** Flows, resources, routes, and machines each live in a separate artefact that core doesn't depend on. An app with no resources contributes no resource nodes; a no-machines app draws no machine processes. The graph you read is the union of whatever families that app actually loaded — so a sparse graph isn't a broken graph, it's an app that uses fewer of the homes.
 
-> **Going deeper — the whole-value law as a contract.** The law is what lets conformance tests verify a node by recomputing it, and lets a tool trust declared edges and classifications without executing your app code. It also pins down what optimizations are *allowed*: anything that preserves the observable value (memoization, equality pruning, dirty checks, deltas) is legal; anything that changes it is a bug, not a feature. The composer that stitches the per-family views together reaches each family through a contributor seam and simply skips any family that isn't present — which is why the graph degrades gracefully to whatever the app loaded.
+??? note "Going deeper — the whole-value law as a contract"
+
+    The law is what lets conformance tests verify a node by recomputing it, and lets a tool trust declared edges and classifications without executing your app code. It also pins down what optimizations are *allowed*: anything that preserves the observable value (memoization, equality pruning, dirty checks, deltas) is legal; anything that changes it is a bug, not a feature. The composer that stitches the per-family views together reaches each family through a contributor seam and simply skips any family that isn't present — which is why the graph degrades gracefully to whatever the app loaded.
 
 To see one live, open [Xray](glossary.md#xray) on a running app. The panel that draws the dependency graph renders exactly this assembled view — one node per algebra view, one arrow per edge record — even though the mechanisms underneath are a subscription cache, a flow, a resource cache, a route slice, and a machine snapshot. [Debug with Xray](how-to/debug-with-xray.md) shows the workflow.
 
@@ -273,9 +297,13 @@ Reading a healthy graph is the common case. But the algebra also shapes how the 
 - **Unresolved resource scope** — a scope resolver that can't produce a key (its `:from-db` source is absent, say), surfaced as `:rf.error/resource-sub-unresolved-scope`. The resource can't form its `[cache-scope resource-id canonical-params]` identity, so it can't cache — and a [scope](../resources/glossary.md#scope) that can't resolve raises rather than serving the wrong principal's data. (A resource registered with no scope policy at all is the sibling `:rf.error/resource-missing-scope-policy`.)
 - **Stale reply suppressed** — not an error so much as a *visible non-event*: an async reply arrived for a request a newer navigation or fetch already superseded, and the process dropped it by declared identity. The graph can show you that suppression happened — which is exactly the thing that's invisible (and maddening) when a framework swallows it silently.
 
-> **Why this matters for reading apps.** The whole point of the algebra is that a tool can describe your app from declarations alone. That same property is what makes its errors legible: an "unknown input fact" message can name the *fact*, an illegal-write message can name the *storage class*, a missing-owner message can name the *lifecycle*. You debug against the model on this page, not against a stack trace through framework internals. The error vocabulary itself (`:rf.error/*`, `:rf.warning/*`) is the one closed catalogue [Errors](concepts/errors.md) teaches you to read; this page is just the map that makes those messages mean something.
+!!! note "Why this matters for reading apps"
 
-> **No public graph-accessor yet (pre-alpha).** The assembled shape is consumed internally — by Xray and the conformance fixtures — and a public name ships only once the shape survives real use. What you can rely on today is the model: the classifications on this page are normative, and they are what the tools render.
+    The whole point of the algebra is that a tool can describe your app from declarations alone. That same property is what makes its errors legible: an "unknown input fact" message can name the *fact*, an illegal-write message can name the *storage class*, a missing-owner message can name the *lifecycle*. You debug against the model on this page, not against a stack trace through framework internals. The error vocabulary itself (`:rf.error/*`, `:rf.warning/*`) is the one closed catalogue [Errors](concepts/errors.md) teaches you to read; this page is just the map that makes those messages mean something.
+
+!!! note "No public graph-accessor yet (pre-alpha)"
+
+    The assembled shape is consumed internally — by Xray and the conformance fixtures — and a public name ships only once the shape survives real use. What you can rely on today is the model: the classifications on this page are normative, and they are what the tools render.
 
 ## Advanced
 
