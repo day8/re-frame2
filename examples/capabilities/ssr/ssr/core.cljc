@@ -286,9 +286,15 @@
                  ;; recomputes the hash after its first render, and if the two
                  ;; don't match, the runtime raises :rf.ssr/hydration-mismatch
                  ;; instead of quietly serving a subtly-broken page.
+                 ;; No `:doctype?` here — this handler wraps a *fragment*
+                 ;; (`<div id='app'>…</div>`) inside its own hand-written
+                 ;; document envelope below, which already opens with
+                 ;; `<!DOCTYPE html>`. `:doctype?` is for a root view that
+                 ;; renders the whole `[:html …]` document; asking for it here
+                 ;; would prefix a *second* doctype onto the fragment and nest
+                 ;; it inside `<div id='app'>`.
                  html     (rf/render-to-string hiccup
-                                               {:doctype?    true
-                                                :emit-hash?  true})
+                                               {:emit-hash? true})
                  ;; The same hash also rides in the payload, so something
                  ;; without a DOM to parse — a server log line, a CDN cache key
                  ;; — can read it straight.
