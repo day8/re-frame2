@@ -38,7 +38,7 @@ Now, what the registration buys you. From this point on, after every event handl
 
 !!! note "One require wires the validator"
 
-    Why did the snippet `require` `re-frame.schemas` with no alias and never call it? Because the *require itself* is the wiring: pulling that artefact in installs the Malli validator under the hood, which is what turns a registered schema into a live check. So a registration is never a silent no-op — once the artefact is loaded, **a schema you register is a schema that fires.** Leave the artefact out and your registrations still *record* (tools can read them) but never *check* anything — the deliberate soft-pass default, so a first-time reader isn't blocked by a missing optional dependency. In a real app you require it once at boot and never think about it again.
+    Why did the snippet `require` `re-frame.schemas` with no alias and never call it? Because the *require itself* is the wiring: pulling that artefact in installs the Malli validator under the hood, which is what turns a registered schema into a live check. So a registration is never a silent no-op — once the artefact is loaded, **a schema you register is a schema that fires.** And there's no inert half-state to fall into: leave the artefact off the classpath and `reg-app-schema` itself [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/schemas-artefact-missing`, rather than recording a schema that silently validates nothing. In a real app you require it once at boot and never think about it again.
 
 ??? info "From re-frame v1"
 
@@ -292,7 +292,7 @@ A validation failure ships the failing value verbatim — that's what makes it d
 
 !!! warning "Gotcha — a schema flag is a *trace* policy, not an *egress* policy"
 
-    Marking a slot `:sensitive?` / `:large?` controls only what the **validation-failure trace** carries — it does *not* classify what your app sends across the wire in normal operation. Durable wire classification is declared on the frame (`reg-frame` `:sensitive` / `:large`), a separate mechanism. [Keep secrets out of traces](keep-secrets-out-of-traces.md) covers the whole privacy surface; the schema flags here are its path-level, validation-time corner.
+    Marking a slot `:sensitive?` / `:large?` controls only what the **validation-failure trace** carries — it does *not* classify what your app sends across the wire in normal operation. Durable wire classification is a separate mechanism: the commit-plane effects a handler returns alongside `:db` (`{:db … :sensitive [[:auth :token]]}`). [Keep secrets out of traces](keep-secrets-out-of-traces.md) covers the whole privacy surface; the schema flags here are its path-level, validation-time corner.
 
 ## In production, the checks vanish
 

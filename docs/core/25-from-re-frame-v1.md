@@ -1,4 +1,4 @@
-# 25 - From re-frame v1
+# From re-frame v1
 
 You have a re-frame v1 app and a migration to plan, and the real question on your mind is probably "how big a deal is this?" The reassuring answer: most of your code is already v2 code. This chapter is the map. It shows you the one tool that does the work, then walks the handful of things that genuinely changed — so that when you read a migration diff you can slot every line into a category instead of squinting at it.
 
@@ -6,7 +6,7 @@ We'll build up in three moves. First, the good news and the tool that drives the
 
 ## The good news first
 
-The bones are identical. v1's signature shape — the [**event cascade**](glossary.md#event-cascade), the one-way run a dispatched [event](glossary.md#event) sets off as it falls through the *six dominoes* (event handling, effects, coeffects, the [app-db](glossary.md#app-db) commit, and back out to the subscriptions that views read) — is the same shape in v2. Walk it piece by piece and nothing has moved:
+The bones are identical. v1's signature shape — the [**event cascade**](glossary.md#event-cascade), the one-way run a dispatched [event](glossary.md#event) sets off as it falls through the *six dominoes* (dispatch → event handler → effects → derivations → view → DOM) — is the same shape in v2. Walk it piece by piece and nothing has moved:
 
 - [Events](glossary.md#event) — the data describing what happened — are still data.
 - [Event handlers](glossary.md#event-handler) are still pure functions of state.
@@ -43,7 +43,7 @@ re-frame2 is **pay-as-you-go**: capabilities ship as separate artefacts, so unus
 
 1. **Swap the core coord.** Remove `re-frame/re-frame`. Add `day8/re-frame2`.
 2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or the matching UIx/Helix adapter if you've already moved off Reagent. ([Chapter 22 — Adapters](how-to/use-uix-helix-or-slim.md) is the [substrate](glossary.md#substrate) story in full.)
-3. **Add per-feature artefacts only for features you actually use.** Don't add them all "to be safe" — the skill tells you which ones the codebase trips. The split is `day8/re-frame2-{machines, flows, routing, http, ssr, schemas, epoch}`, and an app that doesn't use flows doesn't carry flow code.
+3. **Add per-feature artefacts only for features you actually use.** Don't add them all "to be safe" — the skill tells you which ones the codebase trips. The split is `day8/re-frame2-{machines, flows, routing, http, resources, ssr, schemas, epoch}`, and an app that doesn't use flows doesn't carry flow code.
 4. **Don't bump anything else in the same change.** Keep React, shadow-cljs, and the rest on their current versions until the migration settles. A migration that is also a dependency upgrade is two bugs wearing one diff — separate failure modes are far easier to debug separately.
 
 The skill handles every part of this. The list is here so you know what's coming.
@@ -100,7 +100,7 @@ Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` shorthands fold into t
 
 !!! warning "Gotcha — `:dispatch` is the one place the *timing* genuinely changes"
 
-    This is the rare migration category that isn't strictness — it's a real behavioural shift, so it's flagged for you to think about, never rewritten blind. v2 [drains run-to-completion](glossary.md#drain--run-to-completion): every event dispatched *during* a handler (a `:dispatch` effect, or a bare `dispatch` from inside a handler body) drains to a fixed point **before any view re-renders**. In v1 those re-dispatches landed on a later tick, so a view could render the intermediate state in between. The vast majority of code doesn't notice. What does: an animation/wizard chain that *relied* on a flash of intermediate render between steps, and any test that peeked at the router queue after a dispatch (it's already drained — empty). Reframe such tests around the *resulting* app-db state or the effects observed, not queue contents. A pathologically long synchronous chain can also trip the per-frame drain-depth limit (default 100) with a `:drain-depth-exceeded` error; raise it with `{:drain-depth N}` on the frame, or break the chain with `:dispatch-later`.
+    This is the rare migration category that isn't strictness — it's a real behavioural shift, so it's flagged for you to think about, never rewritten blind. v2 [drains run-to-completion](glossary.md#drain--run-to-completion): every event dispatched *during* a handler (a `:dispatch` effect, or a bare `dispatch` from inside a handler body) drains to a fixed point **before any view re-renders**. In v1 those re-dispatches landed on a later tick, so a view could render the intermediate state in between. The vast majority of code doesn't notice. What does: an animation/wizard chain that *relied* on a flash of intermediate render between steps, and any test that peeked at the router queue after a dispatch (it's already drained — empty). Reframe such tests around the *resulting* app-db state or the effects observed, not queue contents. A pathologically long synchronous chain can also trip the per-frame drain-depth limit (default 100) with a `:rf.error/drain-depth-exceeded` error; raise it with `{:drain-depth N}` on the frame, or break the chain with `:dispatch-later`.
 
 ### Framework keywords move to the `:rf/*` root
 
@@ -245,6 +245,8 @@ One mechanical rewrite touches *every* `reg-cofx` a v1 app wrote, ambient or rec
 
 (`inject-cofx` itself doesn't quietly disappear, either — a stale call fails loud with `:rf.error/inject-cofx-removed`, naming `:rf.cofx/requires` as the replacement.)
 
+The same surgery applies on the way *out*: **`reg-fx` handlers gain a context argument.** A v1 effect handler was a one-arg `(fn [value] …)`; v2's contract is binary — `(fn [ctx args] …)`, where `ctx` carries `:frame` (the frame the originating event ran in) and `:event`, and `args` is the config your handlers build. A v1 handler pasted in unchanged destructures the ctx map as if it were its config and reads `nil`s — add the leading `_ctx` argument as you port each one.
+
 The signature change is *unconditional* — it applies whether or not the fact is recordable, and whether the supplier takes call-site arguments (`(fn [k] v)`, declared `[[:viewport k]]`) or none. A cofx that only measures a diagnostic or transient fact (a viewport width, a non-durable display preference) stays **ambient**: register it without `:recordable?` and it simply re-runs on replay. The `:recordable?` grade bites only when the value feeds a *durable* write.
 
 !!! note "Why this matters"
@@ -332,7 +334,7 @@ You reach past that only when v2 gives you a shape v1 didn't have. The public co
 
 (let [frame (rf/make-frame {:images [base testing]})]   ;; later image wins
   (rf/frame-shadows frame))
-;; => [{:registration [:cofx :clock], :defined-in :app/base, :shadowed-by :app/doubles}]
+;; => [{:registration [:cofx :clock], :image :app/base, :shadowed-by :app/doubles}]
 ```
 
 ## The devtools moved house

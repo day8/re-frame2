@@ -82,7 +82,6 @@ The `:recovery` vocabulary is small and readable on sight:
 - `:logged-and-skipped` — the offending input is dropped; siblings still apply.
 - `:warned-and-replaced` — last-write-wins on a conflicting set; advisory only.
 - `:skipped` — a platform-gated effect documented out, not really an error.
-- `:retried` — the runtime retried within a bound and surfaced the result.
 - `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `dispatch` to a misspelled fx-id, a [resource](../../resources/glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
 
 Plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. Every category carries its assigned recovery verb in the dossier itself, so you read it off the record rather than memorising the assignment.
@@ -96,7 +95,7 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 
 !!! note "No app-policy error hook"
 
-    There is no `reg-event-error-handler`. Observation lives on a [listener](../glossary.md#listener) on the error channel (the `:errors` stream covered at the end of this page); there is no app-policy recovery hook — recovery is a framework-owned typed default, not an app concern. The [migration page](../25-from-re-frame-v1.md) maps the translation from re-frame v1.
+    There is no `reg-event-error-handler`. Observation lives on a [listener](../glossary.md#listener) on the error channel (the `:errors` stream covered at the end of this page); there is no app-policy recovery hook — recovery is a framework-owned typed default, not an app concern. Coming from a v1 app that installed an error hook, the [migration guide](../25-from-re-frame-v1.md) maps the translation.
 
 !!! note "One category, three modes"
 
@@ -104,7 +103,7 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 
 !!! warning "Gotcha"
 
-    If you guard an [app-db](../glossary.md#app-db) path, an event, or an HTTP `:decode` step with a [schema](../glossary.md#schema), a value that fails it emits `:rf.error/schema-validation-failure` with recovery `:no-recovery` — it halts to surface the bug *early*, where the bad value was produced. The `:where` tag names the boundary that caught it (`:event` / `:app-db` / `:sub-return` / `:fx-args` / `:cofx` / …) and `:explain` carries the Malli explanation. The surprise is the asymmetry: production builds [*elide*](../glossary.md#elide) the check entirely, so this category fires **only in dev**. Treat schema checks as a development assertion that hardens your data at its source, not as a runtime gate you can lean on in production. (A *malformed registered schema* — a structurally broken Malli form — is the separate `:rf.error/malformed-schema`, which fails closed and rolls the commit back.)
+    If you guard an [app-db](../glossary.md#app-db) path, an event, or an HTTP `:decode` step with a [schema](../glossary.md#schema), a value that fails it emits `:rf.error/schema-validation-failure` with recovery `:no-recovery` — it halts to surface the bug *early*, where the bad value was produced. The `:where` tag names the boundary that caught it (`:event` / `:app-db` / `:sub-return` / `:fx-args` / `:cofx` / …) and `:explain` carries the Malli explanation. (One boundary is softer: at `:where :flow-output` the record is observational — the flow's value still commits; [Flows](flows.md) explains why.) The surprise is the asymmetry: production builds [*elide*](../glossary.md#elide) the check entirely, so this category fires **only in dev**. Treat schema checks as a development assertion that hardens your data at its source, not as a runtime gate you can lean on in production. (A *malformed registered schema* — a structurally broken Malli form — is the separate `:rf.error/malformed-schema`, which fails closed and rolls the commit back.)
 
 ## The failures you'll actually meet
 
@@ -227,7 +226,7 @@ The same move covers every category: `dispatch-sync` for event errors, a [sub](.
 
 !!! note "One verb, four streams"
 
-    That first argument to `register-listener!` is a stream selector, and it's worth knowing the whole set because it's how the dossier model connects to everything around it. `:trace` is the dev tap you just used — [elided](../glossary.md#elide) out of production builds, the firehose [Xray](../glossary.md#xray) drinks from. `:errors` is the **always-on error channel**: the same structured records, but it survives production, fans across every frame, and is *not* projected under any frame's egress policy. That's the channel the dossier promised earlier — and it's why wiring Sentry in production is just `(rf/register-listener! :errors ::sentry report!)` with a privacy-[projected](../glossary.md#project-egress) record, exactly as the [how-to](../how-to/report-errors-in-production.md) walks through. The remaining two — `:events` (an always-on per-event integration hook) and `:epoch` (drain-settle [epoch](../glossary.md#epoch) records for time-travel tooling) — are the [observability](observability.md) page's territory. One closed vocabulary; pass an unknown stream and you get a loud `:rf.error/unknown-listener-stream`, no silent default.
+    That first argument to `register-listener!` is a stream selector, and it's worth knowing the whole set because it's how the dossier model connects to everything around it. `:trace` is the dev tap you just used — [elided](../glossary.md#elide) out of production builds, the firehose [Xray](../glossary.md#xray) drinks from. `:errors` is the **always-on error channel**: the same structured records, but it survives production, fans across every frame, and is *not* projected under any frame's egress policy. That's the channel the dossier promised earlier — and it's why wiring Sentry in production is just `(rf/register-listener! :errors ::sentry report!)`. Mind one thing: the corpus-wide record arrives *unprojected* (only the event vector is wire-elided), so scrubbing before shipping is on you — the [how-to](../how-to/report-errors-in-production.md) walks the scrub and when to prefer a frame-declared sink instead. The remaining two — `:events` (an always-on per-event integration hook) and `:epoch` (drain-settle [epoch](../glossary.md#epoch) records for time-travel tooling) — are the [observability](observability.md) page's territory. One closed vocabulary; pass an unknown stream and you get a loud `:rf.error/unknown-listener-stream`, no silent default.
 
 ## Advanced
 

@@ -119,7 +119,7 @@ The cell above writes the view as a plain `defn`, and that genuinely *is* a view
 
 A `reg-view` and a `defn` define the **same render function**. `reg-view` adds exactly two things on top:
 
-1. **A registry entry.** The view is registered — in the process-wide [registrar](../glossary.md#registrar), the one table every `reg-*` form writes to — under an auto-derived id: `(keyword *ns* 'qty-stepper)`, which pairs the current namespace (`*ns*` is Clojure's name for "the file you're in") with the symbol, giving e.g. `:my.app/qty-stepper`. That id is what lets tooling list the view, jump to its source, and resolve a rendered DOM node back to the view that produced it.
+1. **A registry entry.** The view is registered — in the process-wide [registrar](../glossary.md#registrar), the one table every `reg-*` form writes to — under an auto-derived id pairing the current namespace with the symbol — in `my.app`, `qty-stepper` registers as `:my.app/qty-stepper`. That id is what lets tooling list the view, jump to its source, and resolve a rendered DOM node back to the view that produced it.
 
 2. **Frame-aware injection.** Inside the body, the unqualified `dispatch` and `subscribe` are locals, bound to the [frame](../glossary.md#frame) — the isolated re-frame2 world — that the view renders under. That binding is what lets the same view mount in several isolated frames at once, each reading and writing only its own world.
 
@@ -211,7 +211,7 @@ That isn't an oversight — it's [frame identity is carried, not found](../gloss
     - `reg-view*`, the plain-fn surface beneath the macro, registers a view from a **computed id** or a non-`defn` render fn.
     - `(rf/view id)` resolves a registered view by id at render time.
 
-    That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference under [Tooling / host view registration](../../api/re-frame.core.md).
+    That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference's [Views section](../../api/re-frame.core.md#views).
 
 ## The one rule: views compute hiccup only
 

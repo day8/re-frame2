@@ -61,7 +61,7 @@ There's deliberately no registry and no auto-install here, because the project h
 
 !!! note "Install once, install one"
 
-    Calling `init!` a second time after an adapter is already installed raises `:rf.error/adapter-already-installed` — the runtime won't silently swap substrates underneath a running app. One adapter, installed once, for the life of the runtime.
+    Calling `init!` a second time after an adapter is already installed is an idempotent no-op — the first adapter wins and the second spec is ignored, so the runtime never swaps substrates underneath a running app. One adapter, installed once, for the life of the runtime.
 
 ??? note "Going deeper: what is an adapter, really?"
 
@@ -111,7 +111,7 @@ Three rules govern every UIx and Helix component, and once they click you won't 
 
 ??? info "For JavaScript developers"
 
-    `use-subscribe` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe frame-id [:q])`.
+    `use-subscribe` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe [:q] {:frame f})`.
 
 ## Step 3 — Why callbacks dispatch off the frame api
 
@@ -127,13 +127,13 @@ And the frame api gives you more than just a dispatch function — it's a small 
 {:frame         :rf/default
  :dispatch      (fn ([event]) ([event opts]))   ;; async-dispatch into the captured frame
  :dispatch-sync (fn ([event]) ([event opts]))   ;; synchronous variant — drains before returning
- :subscribe     (fn [query-v])}                 ;; one-shot read (not reactive — see below)
+ :subscribe     (fn [query-v])}                 ;; frame-locked reaction — deref it (see below)
 ```
 
 You'll most often pull `:dispatch` straight off that map (that's what `(:dispatch (rf/capture-frame))` in the view above is doing), but all four entries are there:
 
 - `:dispatch-sync` is the one you want when an event must settle before the next line runs (initialisation, a confirm-then-read flow).
-- `:subscribe` is a plain frame-locked *read* of a sub's current value — handy inside a callback where you need to peek at state without making the component reactive on it. (For *reactive* reads that re-render the component, use the `use-subscribe` hook from Step 2, not the frame api's `:subscribe`.)
+- `:subscribe` returns the frame-locked *reaction* for a query — deref it for the current value. That's the shape for peeking at state inside a callback without making the component reactive on it (a deref outside render registers no dependency). For a one-shot value with no reaction at all, `rf/subscribe-once` is the sibling; for *reactive* reads that re-render the component, use the `use-subscribe` hook from Step 2.
 
 The captured frame is authoritative: a per-call `:frame` in the dispatch opts can't override it — the frame api is locked to one frame for life.
 
@@ -258,13 +258,13 @@ Once you've seen all four substrates, the whole port collapses to one table. The
 |---|---|---|---|
 | Events, subs, fx, app-db | identical | identical | identical |
 | Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-subscribe [:q])` | `(helix-adapter/use-subscribe [:q])` |
-| Read a sub from an explicit frame | `@(subscribe f [:q])` | `(uix-adapter/use-subscribe f [:q])` | `(helix-adapter/use-subscribe f [:q])` |
+| Read a sub from an explicit frame | `@(subscribe [:q] {:frame f})` | `(uix-adapter/use-subscribe f [:q])` | `(helix-adapter/use-subscribe f [:q])` |
 | Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (rf/capture-frame))` | `(:dispatch (rf/capture-frame))` |
 | View form | `reg-view` + hiccup | `defui` + `$` | `defnc` + `helix.dom` |
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` | `(rf/reg-view* id render-fn)` |
 | Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` | `($ helix-adapter/frame-provider {:frame f} ($ app))` |
 | Ensure a named frame | `[rf/frame-provider {:id f :images […]} [app]]` | `($ uix-adapter/frame-provider {:id f :images […]} ($ app))` | `($ helix-adapter/frame-provider {:id f :images […]} ($ app))` |
-| Flush renders in a test | Reagent's own `r/flush!` / `act` harness | `(uix-adapter/flush-views!)` | `(helix-adapter/flush-views!)` |
+| Flush renders in a test | `r/flush` (stock) / `flush-views!` (slim) | `(uix-adapter/flush-views!)` | `(helix-adapter/flush-views!)` |
 
 There's one Reagent footgun that doesn't port at all, and that's good news: the lazy-seq deref trap — the *"Reactive deref not supported in lazy seq, it should be wrapped in doall"* warning. It exists because Reagent tracks derefs *during* render, and a lazy seq can defer a deref until after render has finished. On Reagent the fix is to realise the seq inside the render fn — `(doall (for …))`, `(mapv child @sub)`, or `(into [:<>] (map child) @sub)`.
 

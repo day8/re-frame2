@@ -276,25 +276,25 @@ Strictly, the drain is per [**frame**](../glossary.md#frame) — an isolated wor
 
 ??? info "From re-frame v1"
 
-    There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-cascade to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite). The v1 use case — "show this, *then* run the heavy block" — is served by a `dispatch-later` with `{:ms 0}` or an after-render effect, which lets one paint land before the next event runs.
+    There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-cascade to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite). The v1 use case — "show this, *then* run the heavy block" — is served by a `dispatch-later` with `{:ms 0}`, which lets one paint land before the next event runs.
 
 ### When the cascade won't stop
 
 Run-to-completion is unconditional, which raises an obvious question: what if a handler dispatches an event whose handler dispatches the first one again? An infinite cascade would spin the drain forever. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](../glossary.md#error-record):
 
 ```clojure
-{:operation  :rf.error/drain-depth-exceeded
- :frame      :main
- :depth      100                       ; events already settled this drain
- :queue-size 7                         ; events dropped, unrun
- :last-event [:the-event-that-tripped-it]}
+{:operation :rf.error/drain-depth-exceeded
+ :frame     :main
+ :tags      {:depth      100                    ; events already settled this drain
+             :queue-size 7                      ; events dropped, unrun
+             :last-event [:the-last-event-that-ran]}}
 ```
 
 The important part is what survives. Atomicity in re-frame2 is per [**event**](../glossary.md#commit), not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent.
 
 !!! note "The bound is per-frame and tunable"
 
-    Test and story frames set a tighter `:drain-depth` (so a runaway cascade fails fast rather than spinning to the production limit); you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
+    Story frames set a tighter `:drain-depth` (`16` — a live demo should fail fast), while the `:test` preset pins the framework default (`100`) explicitly onto the frame's metadata; you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
 
 ### Dispatching from outside the cascade
 
@@ -306,7 +306,7 @@ One more entry point completes the picture. Inside a handler, you never call `di
 ;; By the time this line returns, the whole cascade has settled.
 ```
 
-`dispatch-sync` runs the event through the same run-to-completion drain as `dispatch`, but it *blocks* until the drain settles, instead of scheduling it for the next microtask and returning immediately. That's exactly what you want when the next line of a test needs to assert on the settled state, or when boot code must finish initialising before rendering begins.
+`dispatch-sync` runs the event through the same run-to-completion drain as `dispatch`, but it *blocks* until the drain settles, instead of scheduling the drain asynchronously (a later tick) and returning immediately. That's exactly what you want when the next line of a test needs to assert on the settled state, or when boot code must finish initialising before rendering begins.
 
 !!! warning "Gotcha — `dispatch-sync` is an *outside* call only"
 

@@ -52,6 +52,7 @@ The guide is layered by *how much you have to read before you can do something u
 | **Tutorial** | Build RealWorld end to end — pages, server data, auth, writes, tests — one app, start to finish | [Build RealWorld](../resources/tutorial/index.md) |
 | **More concepts** | Everything built *on* the loop — interceptors, frames, images, flows, machines, HTTP, resources, routing, SSR, errors, observability | [Interceptors](concepts/interceptors.md) |
 | **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |
+| **Testing** | Handlers, subscriptions, views, and whole cascades — each tested as the pure function it is | [Testing](testing/index.md) |
 | **Explanation** | The *why* behind the design — for when you're curious, not blocked | [Inside out: why views come last](explanation/inside-out.md) |
 | **Migration** | What changed from re-frame v1, and how to port | [From re-frame v1](25-from-re-frame-v1.md) |
 | **Reference** | The exact surface — every public function, and the vocabulary the guide speaks | [API reference](../api/README.md) and [Glossary](glossary.md) |

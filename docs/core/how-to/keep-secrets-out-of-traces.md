@@ -334,7 +334,7 @@ On-box panels render under the `:rf.egress/local-redacted` profile, so your dev 
 Three sentinel shapes to recognise:
 
 - `:rf/redacted` — sensitive; opaque, no type, no size, no reveal.
-- `:rf/large {:bytes N :head "…"}` — large; drillable on-box, elided off-box. (The underlying wire marker is `:rf.size/large-elided`, carrying `:path` / `:bytes` / `:type` / `:reason` / a `:handle` for re-fetch; the rich form is the display rendering of it.)
+- `{:rf.size/large-elided {:path … :bytes … :type … :reason … :handle …}}` — large; that map is what Xray's diff view actually shows you, drillable on-box and elided off-box. (A tool *may* render it compactly as `:rf/large {:bytes N :head "…"}` — treat that as a display form of the same marker.)
 - `:rf/redacted {:bytes N}` — both; sensitive wins, so only the size *may* show (and the reference suppresses even that — don't depend on `:bytes` riding alongside `:rf/redacted`).
 
 A large marker *may* offer a guarded click-to-expand (a size-confirmed re-fetch via its `:handle`); a redacted marker never may. If you genuinely need to see a sensitive value on-box, that's the trusted-local `:rf.egress/local-raw` opt-in — and revealing it is **itself an audited, trace-visible operator act**, not a quiet global toggle. There is no process-wide `show-sensitive?` switch; visibility is per (tool, frame) pair.

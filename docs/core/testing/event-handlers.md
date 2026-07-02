@@ -140,9 +140,9 @@ Two dispatch options do the work that the literal coeffects map did back in sect
 
 ### When a required coeffect is missing: a loud failure, by design
 
-There's a failure mode here that catches people, and it's a *feature*. If a handler **declares** a recordable coeffect that the framework can't safely mint for you, and the dispatch doesn't supply it, the dispatch [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/missing-required-cofx` rather than quietly minting a value your test didn't choose.
+There's a failure mode here that catches people, and it's a *feature* — of the **`:test` preset**. Under the router's default `:live` mint policy — what a plain `(rf/make-frame {})` rides — a handler that declares a generator-backed fact the dispatch didn't supply gets a freshly-minted value, silently. A `{:preset :test}` frame flips the mint policy to `:strict`: the same dispatch now [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/missing-required-cofx` rather than quietly minting a value your test didn't choose.
 
-`:rf/time-ms` is the exception that always succeeds — the router stamps every event with an enqueue time when it's dispatched, so the clock is never *missing*; the runtime can always mint it. The strict failure fires for a fact the runtime *can't* safely mint on its own — typically one backed by a **generator**: a function you registered with `reg-cofx` that produces a fresh value each time (a new id, a random number). The framework won't run that generator behind your test's back, because the value it makes is one your test didn't choose. So if you declare such a fact and don't supply it, the dispatch refuses to proceed:
+`:rf/time-ms` is the exception that always succeeds — the router stamps every event with an enqueue time when it's dispatched, so the clock is never *missing*; the runtime can always mint it. The strict failure fires for a fact the runtime *can't* safely mint on its own — typically one backed by a **generator**: a function you registered with `reg-cofx` that produces a fresh value each time (a new id, a random number). A strict frame won't run that generator behind your test's back, because the value it makes is one your test didn't choose. So declare such a fact, don't supply it, and the dispatch refuses to proceed:
 
 ```clojure
 (rf/reg-event :comment/create
@@ -150,18 +150,19 @@ There's a failure mode here that catches people, and it's a *feature*. If a hand
   (fn [{:keys [db app/new-id]} [_ body]]
     {:db (assoc-in db [:comments new-id] {:body body})}))
 
-;; A :test-preset frame is strict-mint by default. Supply the id, or the
+;; A {:preset :test} frame is strict-mint by default. Supply the id, or the
 ;; dispatch fails with :rf.error/missing-required-cofx — it will NOT silently
 ;; mint a different id than production would.
-(rf/dispatch-sync [:comment/create "Great article!"]
-                  {:frame f :rf.cofx {:app/new-id "id-123"}})
+(rf/with-new-frame [f (rf/make-frame {:preset :test})]
+  (rf/dispatch-sync [:comment/create "Great article!"]
+                    {:rf.cofx {:app/new-id "id-123"}}))
 ```
 
 This is exactly the trap you want sprung. A silently-minted random value would make the test green against a state production will never produce — green-and-wrong, the worst colour a test can be. The fix is always one of two moves: supply the fact in `:rf.cofx` (the deterministic path, almost always what you want), or, when you genuinely want a fresh value per run, opt back into live minting with `{:rf.cofx/mint-policy :explicit-live}` as a dispatch opt.
 
 !!! note "The `:test` frame preset bundles the deterministic defaults"
 
-    Rather than spell out each test-friendly setting on every frame, ask for the bundle: `(rf/reg-frame :my-test {:preset :test})` — or `:preset :test` on the advanced `re-frame.frame/make-frame` — expands to three fixed entries. It redirects `:rf.http/managed` to a canned-success stub, so a test frame never reaches the network; it sets `:rf.cofx/mint-policy :strict`, the strict-mint behaviour above; and it carries `:drain-depth 100`, the framework default, surfaced so tooling can read "this is a test frame" off the frame's metadata. Reach for the preset when you want those defaults without naming them one by one.
+    Rather than spell out each test-friendly setting on every frame, ask for the bundle: `{:preset :test}` on `rf/make-frame` (or `rf/reg-frame`) expands to three fixed entries. It redirects `:rf.http/managed` to a canned-success stub, so a test frame never reaches the network (the stub registers from `re-frame.http.test-support` — add that to the test ns requires); it sets `:rf.cofx/mint-policy :strict`, the strict-mint behaviour above; and it carries `:drain-depth 100`, the framework default, surfaced so tooling can read "this is a test frame" off the frame's metadata. Reach for the preset when you want those defaults without naming them one by one.
 
 ### Seeding state: the frame boots it, the body tests it
 

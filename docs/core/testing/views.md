@@ -37,9 +37,9 @@ Give the nodes you'll assert on a stable address at the view site — `th/testid
 
 `find-by-testid` returns the first node carrying that `:data-testid`; `text-content` collects the string leaves under it. Their generic siblings — `find-by-attr`, `find-all-by-testid`, `find-by-testid-prefix`, `attrs`, `children` — cover lists and custom attributes ("every node whose testid starts with `row-`").
 
-!!! warning "Gotcha — a tree that nests other views needs expanding"
+!!! note "Nested views expand for you"
 
-    A view that renders another view returns it as a *component reference* — `[cart-line item]`, a vector whose head is a function, not a tag. `th/expand-tree` recursively expands those references so your walk sees the real tags underneath. Run it first whenever you assert *through* a child view.
+    A view that renders another view returns it as a *component reference* — `[cart-line item]`, a vector whose head is a function, not a tag. The finders and `text-content` expand those references as they walk, so asserting *through* a child view just works. `th/expand-tree` is the same expansion as a standalone step — reach for it when you want the fully-expanded tree as a value (to `let`-bind once for several assertions, or to walk by hand).
 
 ??? info "Coming from React Testing Library?"
 

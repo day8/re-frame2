@@ -20,7 +20,7 @@ One habit runs through every page: **setup rides the frame's construction; the b
 They don't get pages here, and that's deliberate: they are the app's **designed impure edges** — a `reg-fx` body touches the host, a `reg-cofx` supplier reads it — so "unit-test it as a pure function" doesn't apply. What you test instead is everything *around* them, at the seams the framework gives you:
 
 - **Coeffects are supplied as data** — `{:rf.cofx {:rf/time-ms …}}` on the dispatch pins any world fact a handler declared, no supplier involved. [Cascades](cascades.md) covers it.
-- **Effects are redirected as data** — `:fx-overrides` captures or stubs any fx-id for one dispatch (or a whole frame), so you assert on the exact args map your handler built without performing anything. Also [Cascades](cascades.md).
+- **Effects are redirected as data** — `:fx-overrides` captures or stubs any app fx-id for one dispatch (or a whole frame) — a handful of state-installing reserved fxs excepted, see [Cascades](cascades.md) — so you assert on the exact args map your handler built without performing anything.
 - An edge with **real logic in its body** is still just a two-arg function — call it directly with a stub frame context when it earns a test — but keep those bodies thin on purpose: the thinner the edge, the more of its behaviour the seam tests above already cover.
 
 ## The neighbours

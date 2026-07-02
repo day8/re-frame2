@@ -49,7 +49,7 @@ One [effect handler](../glossary.md#effect-handler), two behaviours, called from
 
 !!! warning "Gotcha — this effect is client-only"
 
-    Under [SSR](../../ssr/glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and an `:auth.session/persist` row is a no-op rather than a crash.
+    Under [SSR](../../ssr/glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — the registration exists everywhere, but on a server drain the runtime *skips* the row, leaving a `:rf.fx/skipped-on-platform` trace instead of crashing on a missing `localStorage`.
 
 !!! note
 
@@ -130,11 +130,11 @@ Upgrade the form's `:form.login/submit-success` to an fx handler that stores the
 
 One token, one home. The classified `[:auth :token]` path holds it; the user map ships with `:token` stripped, so the JWT isn't *also* sitting unclassified at `[:auth :user :token]`, ready to leak to every off-box record. The decorator in step 3 always reads from `[:auth :token]`, never from the user.
 
-The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../../resources/glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed`'s retry is also closed to a fixed category set and writes never auto-retry — reads do.) Register is the same wiring with a different URL and draft.
+The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../../resources/glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed` retry is entirely opt-in — nothing retries unless the request carries a `:retry` block, and the retryable categories are a closed set; the convention is retry policies on idempotent reads, never on writes.) Register is the same wiring with a different URL and draft.
 
 !!! warning "Gotcha — keep the credential out of the trace on the way *in*, too"
 
-    The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its event vector, classify that argument on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[1 :password]]} …)` — registration-metadata classification redacts the payload at trace egress while the handler body still sees the real value (the [data-classification](../glossary.md#data-classification) model).
+    The slice protects the token *after* commit, but the submitted password rides the *transient event payload* on its way in. If `:form.login/submit` carries the password in its arg-map, classify that key on the registration so it never lands in a trace row: `(rf/reg-event :form.login/submit {:sensitive [[:password]]} …)` — paths are rooted at the event's **arg-map** (the vector's second element), and the redaction happens at trace egress while the handler body still sees the real value (the [data-classification](../glossary.md#data-classification) model). One sharp edge: only the arg-map is reachable — a secret passed as a bare *positional* argument (`[:auth/login "user" "secret"]`) has no declarable path and ships raw, so keep credentials in the arg-map.
 
 ??? note "Going deeper — when to reach for a machine"
 
@@ -155,8 +155,12 @@ Instead, write it **once**, as an HTTP interceptor (they belong to [managed HTTP
                       (str "Token " token)))))  ;; "Token" is RealWorld's scheme; yours may be "Bearer"
 
 ;; Register at app boot, before the first authenticated request can fire.
-(rf/reg-http-interceptor :my-app/bearer-auth
-  {:before bearer-auth})
+;; The chain is PER-FRAME (an interceptor registered against frame A never
+;; fires for frame B's requests), and registration is frame-scoped — a bare
+;; top-level call fails loud with :rf.error/no-frame-context.
+(rf/with-frame :rf/default
+  (rf/reg-http-interceptor :my-app/bearer-auth
+    {:before bearer-auth}))
 ```
 
 This is the production shape, and three small choices make it so:
@@ -174,18 +178,19 @@ That's all step 3 needs. But the same seam has a *response* side, and it's where
 ;; is a *failure* reply, so the HTTP status lives inside the failure map
 ;; (under :failure), keyed by the framework-owned failure :kind — never at
 ;; the top level. Branch on the structured :kind, never a stringified message.
-(rf/reg-http-interceptor :my-app/expired-session
-  {:after (fn [ctx response]
-            (when (and (= :failure (:kind response))
-                       (= :rf.http/http-4xx (get-in response [:failure :kind]))
-                       (= 401 (get-in response [:failure :status])))
-              ;; token went stale server-side. Dispatch into THIS request's
-              ;; frame — the reply runs in a transport callback, so a bare
-              ;; (rf/dispatch …) can hit :rf.error/no-frame-context; carry the
-              ;; frame from ctx (the same "identity is carried, not found" rule
-              ;; the :before decorator leans on).
-              (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
-            response)})                          ;; :after MUST return the response
+(rf/with-frame :rf/default
+  (rf/reg-http-interceptor :my-app/expired-session
+    {:after (fn [ctx response]
+              (when (and (= :failure (:kind response))
+                         (= :rf.http/http-4xx (get-in response [:failure :kind]))
+                         (= 401 (get-in response [:failure :status])))
+                ;; token went stale server-side. Dispatch into THIS request's
+                ;; frame — the reply runs in a transport callback, so a bare
+                ;; (rf/dispatch …) can hit :rf.error/no-frame-context; carry the
+                ;; frame from ctx (the same "identity is carried, not found" rule
+                ;; the :before decorator leans on).
+                (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
+              response)}))                       ;; :after MUST return the response
 ```
 
 An interceptor map carries **`:before`**, **`:after`**, or both — supply at least one, or registration is rejected fail-loud with `:rf.error/http-bad-interceptor`. (A no-op interceptor is almost always a typo, so the framework refuses to register it rather than letting it sit there doing nothing.)
@@ -290,7 +295,7 @@ The init event from step 1 restores the saved session and classifies the token p
 ;; Adapted from examples/real-apps/realworld_http/auth.cljs
 ;; The init event reads the saved token (step 1's provided cofx), seeds the
 ;; slice, and classifies the durable token path :sensitive via the commit-plane
-;; classification effect (EP-0025) — returned alongside :db. Frames always start
+;; classification effect — returned alongside :db. Frames always start
 ;; with app-db = {}, so the slice is built by this event, not a :db config key.
 (rf/reg-event :auth/init
   {:rf.cofx/requires [:auth.session/token]}        ;; ask for the saved JWT by name
@@ -359,7 +364,7 @@ To clear *a user's* cached reads you need a way to name "this user's scope." Tha
 Now logout itself. There's one subtlety, and the ordering is the whole game: resolve the *old* scope from the coeffect `db` **before** you clear the auth slice. After the clear, the identity the scope derives from is gone.
 
 ```clojure
-;; Scope resolution per Spec 016; :my-app/session is the resolver registered above.
+;; Scope resolution — :my-app/session is the resolver registered above.
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
     (let [old-scope (rf/resolve-resource-scope db :my-app/session)]   ;; pure helper, resolved against cofx db
