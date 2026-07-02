@@ -201,7 +201,7 @@ The request goes out as data and the reply comes back as data, so a test needs n
       (is (= :error (get-in (rf/app-db-value f) [:article :status]))))))
 ```
 
-The stubbed reply has the exact envelope a live request produces, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a cascade](../core/how-to/test-a-cascade.md) is the full recipe.
+The stubbed reply has the exact envelope a live request produces, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a cascade](../core/testing/cascades.md) is the full recipe.
 
 > **Do, observe.** Run the app with [Xray](../core/how-to/debug-with-xray.md) open. Dispatch `[:article/load "intro"]`: you'll see the issuing event row, the request going out on the [trace stream](../core/glossary.md#trace-stream), and the reply arriving as an ordinary event row of its own — two ledger entries, one round trip. Then re-fire a `:request-id` request before its reply lands and watch the superseded completion get recorded as stale, never dispatched.
 

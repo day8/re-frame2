@@ -187,4 +187,4 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
 - [re-frame.core.md](re-frame.core.md) — the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `compute-sub`, `sub-topology`) and the registrar-introspection API (`registrations`, `handler-meta`).
 - [re-frame.test-helpers.md](re-frame.test-helpers.md) — the sibling view-tree assertion namespace (hiccup walkers plus the `testid` authoring helper).
 - [re-frame.http.md](re-frame.http.md) — HTTP test stubs for tests that exercise managed requests.
-- [Test an event handler](../core/how-to/test-an-event-handler.md) and [Test a full cascade](../core/how-to/test-a-cascade.md) — the practical how-to guides for the testing surface.
+- [Test an event handler](../core/testing/event-handlers.md) and [Test a full cascade](../core/testing/cascades.md) — the practical how-to guides for the testing surface.
