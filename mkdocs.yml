@@ -228,7 +228,6 @@ nav:
       - "re-frame.adapter.helix": api/re-frame.adapter.helix.md
       - "re-frame.test-support": api/re-frame.test-support.md
       - "re-frame.test-helpers": api/re-frame.test-helpers.md
-      - "Normative reference": spec/API.md
 
   - Machines:
     - machines/index.md
