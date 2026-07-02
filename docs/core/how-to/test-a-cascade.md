@@ -184,6 +184,8 @@ This is redirect-not-mock in a single frame. The override receives the **exact a
 
 > **The override fn takes two args.** An `:fx-overrides` value is either another registered fx-id (a keyword) or a function `(fn [frame-ctx args] ...)`. The first arg is the frame context; the second is the **effect's args map** — for `:rf.http/managed` that's `{:request {...} :on-success [...] :on-failure [...]}`. Returning a value is fine but ignored; the override runs for its capture or its (stubbed) effect, exactly like an ordinary `reg-fx` handler. The `_` prefixes above are just "I'm not reading this arg."
 
+> **Testing your own `reg-fx`.** The same two-arg shape means an effect handler you wrote is directly callable — hand it a stub frame context and a literal args map when its body has logic worth pinning. But keep that body thin on purpose: the more of an effect's behaviour lives in the *args your handlers build*, the more of it the capture test above already covers, and the less lives in the one function only a real host can prove.
+
 > **Gotcha — frames isolate `app-db`, not registrations.** A fresh frame gets its own state and its own queue, but handlers live in a *process-global* [registrar](../glossary.md#registrar) — registering `:session/login` registers it for everyone. If your tests `(rf/reg-event ...)` in their bodies rather than requiring app namespaces, add `(use-fixtures :each (ts/make-reset-runtime-fixture))` — from `re-frame.test-support` — once per file, so one test's registrations can't leak into the next. Requiring `my-app.session` (as the tests above do) sidesteps the issue entirely: those registrations are stable for the whole run.
 
 ### The `:test` preset — deterministic defaults in one key
