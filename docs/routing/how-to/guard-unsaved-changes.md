@@ -45,6 +45,8 @@ The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when 
      [:button {:on-click #(dispatch [:rf.route/continue])} "Discard & leave"]]))
 ```
 
+(`routing/sub-pending-navigation` is read sugar from the routing namespace — add `[re-frame.routing :as routing]` to your ns. The vector form `@(subscribe [:rf/pending-navigation])` reads the same slot.)
+
 The reader's choice is itself a dispatch:
 
 - `:rf.route/continue` — proceed with the parked navigation (it commits now).

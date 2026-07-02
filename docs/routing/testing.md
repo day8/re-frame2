@@ -38,7 +38,7 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
 
 !!! warning "Gotcha — the nil-policy asymmetry is worth a test of its own"
 
-    A `nil` **path** param throws `:rf.error/route-url-validation` territory (`:rf.error/missing-route-param` — there's no URL without the segment); a `nil` **query** param is *silently elided* (`{:page nil}` just omits the key). If your app leans on the elision — "only add `?sort=` when chosen" — pin it: `(is (= "/search?q=x" (routing/route-url :app/search {} {:q "x" :sort nil})))`.
+    A `nil` **path** param is a hard error — `route-url` throws `:rf.error/missing-route-param`, because there's no URL to build without the segment; a `nil` **query** param is *silently elided* (`{:page nil}` just omits the key). If your app leans on the elision — "only add `?sort=` when chosen" — pin it: `(is (= "/search?q=x" (routing/route-url :app/search {} {:q "x" :sort nil})))`.
 
 ## 2. Navigation through a test frame
 

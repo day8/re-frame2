@@ -26,7 +26,7 @@ What a [route](#route) declares it needs on entry — `:on-match` [events](../co
 
 ### **route guard**
 
-A `:can-leave` predicate consulted before leaving a [route](#route); a `false` parks the navigation as *pending* so your [view](../core/glossary.md#view) can render a "discard changes?" prompt, resolved by dispatching `:rf.route/continue` or `:rf.route/cancel`. The idiomatic home for unsaved-changes and auth-redirect logic.
+A `:can-leave` guard subscription (strict boolean: `true` means leaving is fine) consulted before leaving a [route](#route); a `false` parks the navigation as *pending* so your [view](../core/glossary.md#view) can render a "discard changes?" prompt, resolved by dispatching `:rf.route/continue` or `:rf.route/cancel`. The idiomatic home for unsaved-changes prompts — gating *entry* (an auth redirect) is an ordinary interceptor over the navigation events instead ([Require sign-in on a route](how-to/require-sign-in-on-a-route.md)).
 
 ### **not-found**
 
@@ -34,4 +34,4 @@ The reserved [route](#route) (`:rf.route/not-found`) the runtime activates when 
 
 ### **url-bound?**
 
-The flag declaring that *this* [frame](../core/glossary.md#frame) owns the browser address bar. Exactly one frame is url-bound; its navigations write the URL and back/forward (popstate) dispatch to it, while other frames route in-memory only — which is how a sidecar like [Xray](../core/glossary.md#xray) coexists without fighting over the URL.
+The flag declaring that *this* [frame](../core/glossary.md#frame) owns the browser address bar. At most one frame is url-bound at a time (none is legal — URL pushes then no-op); its navigations write the URL and back/forward (popstate) dispatch to it, while other frames route in-memory only — which is how a sidecar like [Xray](../core/glossary.md#xray) coexists without fighting over the URL.

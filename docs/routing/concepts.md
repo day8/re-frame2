@@ -18,8 +18,10 @@ Read these three moves and you've read the whole framework's idea of routing. Ev
 ;; Adapted from examples/capabilities/routing/routing/core.cljs
 (ns app.core
   (:require [re-frame.core :as rf]
-            [re-frame.routing]))   ;; ships in day8/re-frame2-routing; requiring it
-                                   ;; at boot is what makes reg-route available
+            ;; Ships in day8/re-frame2-routing. Requiring it at boot is what makes
+            ;; reg-route available; the alias serves the routing-namespace helpers
+            ;; you'll meet below (sub-route, route-url, match-url).
+            [re-frame.routing :as routing]))
 
 ;; 1. A route is data in the registry.
 (rf/reg-route :app/home
@@ -216,6 +218,8 @@ The current route lives in **runtime-db** — the framework-owned partition besi
 ```
 
 Nine subscriptions, every one a plain read — no special routing API in views. `:rf/route` is the whole slice; the rest are projections of it you'll reach for far more often. The [API reference](../api/re-frame.routing.md#subscriptions) lists each with its return shape.
+
+Two of those reads are per-frame singletons, so `re-frame.routing` also ships named read sugar for them: `(routing/sub-route)` over `[:rf/route]` and `(routing/sub-pending-navigation)` over `[:rf/pending-navigation]` — the same reaction, fewer brackets. The vector forms stay canonical; the sugar just tidies the two reads every app makes.
 
 `:transition` is a tiny state machine the runtime drives for you: `:loading` while a route's loaders drain, `:error` if one fails, `:idle` otherwise. So a global progress bar is just a view over `:rf.route/transition`, and an error banner is a view over `:rf.route/error`. You never wire per-page loading state again — it's a property of the slice, the same on every page:
 

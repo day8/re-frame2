@@ -177,6 +177,22 @@ The read-side surface over the route registry and the live route slice — the s
   ```
 - **Description**: The layer-1 sub fn behind `:rf/route` — reads the route slice from `[:rf.runtime/routing :current]`. Exposed publicly so external callers (smoke tests, tooling) read the slice without re-deriving the path.
 
+### `sub-route`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (re-frame.routing/sub-route)        ;; → reaction over the route slice, or nil
+  (re-frame.routing/sub-route opts)   ;; opts {:frame <id-or-frame>}
+  ```
+- **Description**: Named read sugar over `[:rf/route]`. Returns a reaction over the route slice `{:route-id :params :query :fragment :transition :error :nav-token}`, or `nil` before the first navigation. Zero-arity is the primary form (the route is a per-frame singleton); the 1-arity `opts` carries `{:frame …}` to target an explicit (e.g. non-default url-bound) frame. The vector form remains the canonical registered sub. Lives on `re-frame.routing` (not `re-frame.core`) so a non-routing app's production bundle carries no route keyword strings.
+
+```clojure
+(require '[re-frame.routing :as routing])
+
+(:route-id @(routing/sub-route))   ;; the active route id, or nil pre-navigation
+```
+
 ### `sub-pending-navigation`
 
 - **Kind**: function
@@ -348,12 +364,12 @@ These are the standard events the runtime dispatches (or you dispatch) around ro
 
 ### Subscriptions
 
-The full `:rf/route` slice is `{:id :params :query :transition :error}`. The standard subs are projections of that slice plus a couple of conveniences.
+The full `:rf/route` slice is `{:route-id :params :query :fragment :transition :error :nav-token}`. The standard subs are projections of that slice plus a couple of conveniences.
 
 | Sub | Returns |
 |---|---|
-| `:rf/route` | The full `:rf/route` slice `{:id :params :query :transition :error}` |
-| `:rf.route/id` | Current route id |
+| `:rf/route` | The full `:rf/route` slice `{:route-id :params :query :fragment :transition :error :nav-token}`. Named read sugar: [`sub-route`](#sub-route). |
+| `:rf.route/id` | Current route id (the slice's `:route-id`) |
 | `:rf.route/params` | Current path params |
 | `:rf.route/query` | Current query params |
 | `:rf.route/transition` | `:idle` / `:loading` / `:error` |
