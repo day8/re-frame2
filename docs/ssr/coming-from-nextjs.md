@@ -14,9 +14,9 @@ So read this page as a translation table, not a feature comparison. The capabili
 | Client Component (`"use client"`) | The same view, after [hydration](glossary.md#hydration). There's no second flavour; browser-only *effects* are gated with `:platforms #{:client}`. |
 | `"use server"` / `"use client"` directives | [`:platforms`](concepts.md#platforms--one-handler-gated-per-runtime) on an effect or coeffect — declared once on the *capability*, not at every import site. |
 | `getServerSideProps` / a route loader | Your ordinary events firing in the per-request frame's `:initial-events`. The "loader" is just dispatch + [drain](../core/glossary.md#drain--run-to-completion). |
-| `Promise.all` of N fetches in a loader | [Pattern-SSR-Loaders](../../spec/Pattern-SSR-Loaders.md) — a [machine](../machines/glossary.md#machine) fans fetches out with `:spawn-all`, joins on complete. Same site drives client-nav fetch. |
+| `Promise.all` of N fetches in a loader | [The SSR loader pattern](concepts.md#two-patterns-in-brief) — a [machine](../machines/glossary.md#machine) fans fetches out with `:spawn-all`, joins on complete. Same site drives client-nav fetch. |
 | A route's `loader` (App Router) | A re-frame2 route [loader](../routing/glossary.md#loader), which compiles to those `:initial-events` server-side. |
-| Server Action (form `action={fn}`) | [Pattern-FormAction](../../spec/Pattern-FormAction.md) — a real `method="POST"` form routes to the *same* [event](../core/glossary.md#event) the client's `:on-submit` dispatches. |
+| Server Action (form `action={fn}`) | [The form-action pattern](concepts.md#two-patterns-in-brief) — a real `method="POST"` form routes to the *same* [event](../core/glossary.md#event) the client's `:on-submit` dispatches. |
 | `hydrateRoot` (React 18) | [`ssr/hydrate!`](glossary.md#hydration) — but the server's *state* rides along explicitly in the payload, installed by `:rf/hydrate` before the first render. |
 | Reading `cookies()` / `headers()` | A declared [coeffect](../core/glossary.md#coeffect): `:rf.cofx/requires [:rf.server/request]`, value flat in the handler's coeffects. |
 | `redirect()` / `notFound()` | The data effects `:rf.server/redirect` / a routing miss your [error projector](concepts.md#when-the-server-throws) maps to `404`. |
@@ -43,7 +43,7 @@ re-frame2 doesn't have that boundary because it doesn't have that entanglement. 
 
 Next.js gives data-fetching its own ceremony: `getServerSideProps`, or an App Router `loader`, a function with a privileged signature that runs only on the server and hands props down. It's a distinct concept you learn, with its own caching rules and its own relationship to the component tree.
 
-In re-frame2 the [loader](../routing/glossary.md#loader) is not a special function. The per-request [frame](../core/glossary.md#frame) fires its `:initial-events`, the runtime [drains](../core/glossary.md#drain--run-to-completion) — runs every event those events trigger, to a fixed point — and *then* renders. The "loader" is your ordinary [events](../core/glossary.md#event) and [effects](../core/glossary.md#effect), the same ones the client dispatches on navigation. The payoff is that there's no second code path to keep in sync: server fetch and client-nav fetch are the *identical* machine (see [Pattern-SSR-Loaders](../../spec/Pattern-SSR-Loaders.md)), only the spawn site moves. You don't maintain a server-flavoured fetch and a client-flavoured one and pray they agree.
+In re-frame2 the [loader](../routing/glossary.md#loader) is not a special function. The per-request [frame](../core/glossary.md#frame) fires its `:initial-events`, the runtime [drains](../core/glossary.md#drain--run-to-completion) — runs every event those events trigger, to a fixed point — and *then* renders. The "loader" is your ordinary [events](../core/glossary.md#event) and [effects](../core/glossary.md#effect), the same ones the client dispatches on navigation. The payoff is that there's no second code path to keep in sync: server fetch and client-nav fetch are the *identical* machine (the [SSR loader pattern](concepts.md#two-patterns-in-brief)), only the spawn site moves. You don't maintain a server-flavoured fetch and a client-flavoured one and pray they agree.
 
 ### Hydration is verified, not hoped-for
 
@@ -71,4 +71,4 @@ re-frame2's [`:rf/suspense-boundary`](concepts.md#streaming-rfsuspense-boundary)
 
 ---
 
-The honest summary: if you liked Next.js's *goals*, you'll be at home. If you spent real time wrestling its *boundary* — the Server/Client seam, the "why won't this import," the silent prop that leaked — that wrestling is the part that's gone. The full contract lives in [Spec 011 — SSR & Hydration](../../spec/011-SSR.md).
+The honest summary: if you liked Next.js's *goals*, you'll be at home. If you spent real time wrestling its *boundary* — the Server/Client seam, the "why won't this import," the silent prop that leaked — that wrestling is the part that's gone.

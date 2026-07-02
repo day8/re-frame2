@@ -4,6 +4,15 @@ Ship HTML before the JavaScript loads, then let the client take over — without
 
 On the server, [`render-to-string`](glossary.md#render-to-string) runs your real views in a per-request [frame](../core/glossary.md#frame) and emits HTML plus a serialized state payload. On the client, [hydration](glossary.md#hydration) adopts that HTML and installs the state instead of re-rendering from scratch — and a [hydration mismatch](glossary.md#hydration-mismatch) is *located and traced*, not silently patched.
 
+## In this section
+
+- **[Concepts](concepts.md)** — the whole story, built to read straight down: why the same code runs on a JVM, the smallest server, the client that hydrates it, then the richer pieces — the payload allowlist, response control, head metadata, error projection, and streaming.
+- **[Examples](examples.md)** — runnable end-to-end SSR apps in the repo.
+- **[Glossary](glossary.md)** — the section's vocabulary, one definition each.
+- **[Coming from Next.js](coming-from-nextjs.md)** — the translation table and the deliberate divergences.
+
+The API-level surface lives in [re-frame.ssr](../api/re-frame.ssr.md) and [re-frame.ssr.ring](../api/re-frame.ssr.ring.md): the guide teaches, the reference is where you look things up.
+
 ```clojure
 ;; server (JVM): your real views, in a per-request frame, no DOM
 (rf.ssr/render-to-string [app-view] {:db initial-db})

@@ -289,11 +289,14 @@ nav:
     - "Coming from React Router": routing/coming-from-react-router.md
 
   - SSR:
+    # Concepts is the read-straight-down guide (no separate tutorial yet —
+    # rf2-v7nkg6 tracks that gap); Examples before Glossary; the Next.js
+    # translation last, like the other coming-from pages.
     - ssr/index.md
     - "Concepts": ssr/concepts.md
-    - "Coming from Next.js": ssr/coming-from-nextjs.md
-    - "Glossary": ssr/glossary.md
     - "Examples": ssr/examples.md
+    - "Glossary": ssr/glossary.md
+    - "Coming from Next.js": ssr/coming-from-nextjs.md
 
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).

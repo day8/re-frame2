@@ -343,12 +343,12 @@ The wiring mirrors what you've already seen, with streaming counterparts: `strea
 
     A page without independently-slow regions gains nothing over plain `ssr-handler`. And a `:rf/suspense-boundary` that reaches the non-streaming emitter fails loudly rather than rendering a phantom element.
 
-## Two patterns, linked
+## Two patterns, in brief
 
-Two compositions of these primitives are common enough to have canonical write-ups. They're conventions over what you already know, not new machinery:
+Two compositions of these primitives are common enough to deserve names. They're conventions over what you already know, not new machinery:
 
-- **[Pattern-SSR-Loaders](../../spec/Pattern-SSR-Loaders.md)** — N parallel data fetches before render, the `Promise.all` of a Next.js loader. A [state machine](../machines/glossary.md#machine) spawned from the frame's `:initial-events` fans out HTTP-fetching children with `:spawn-all`, joins on all-complete, writes the slices. Wall-clock cost drops from the sum of the fetches to the max. The same machine drives client-side navigation fetch; only the spawn site moves. (This is what a route's [loader](../routing/glossary.md#loader) compiles down to when it runs server-side.)
-- **[Pattern-FormAction](../../spec/Pattern-FormAction.md)** — form POSTs that work before JS loads. The form renders with a real `method="POST"` and `action`. The server routes POST to the same domain event the client's `:on-submit` dispatches after hydration. Validation runs server-side via the event's schema, and success answers with `[:rf.server/redirect {:status 303 ...}]`. One handler tree, both entry points. Where the pattern reads the request, the spelling is the one you saw above: `:rf.cofx/requires [:rf.server/request]` on the registration, the value flat in the coeffects map.
+- **The SSR loader** — N parallel data fetches before render, the `Promise.all` of a Next.js loader. A [state machine](../machines/glossary.md#machine) spawned from the frame's `:initial-events` fans out HTTP-fetching children with `:spawn-all`, joins on all-complete, writes the slices. Wall-clock cost drops from the sum of the fetches to the max. The same machine drives client-side navigation fetch; only the spawn site moves. (This is what a route's [loader](../routing/glossary.md#loader) compiles down to when it runs server-side.)
+- **The form action** — form POSTs that work before JS loads. The form renders with a real `method="POST"` and `action`. The server routes POST to the same domain event the client's `:on-submit` dispatches after hydration. Validation runs server-side via the event's schema, and success answers with `[:rf.server/redirect {:status 303 ...}]`. One handler tree, both entry points. Where the pattern reads the request, the spelling is the one you saw above: `:rf.cofx/requires [:rf.server/request]` on the registration, the value flat in the coeffects map.
 
 ## What you give up
 
@@ -360,4 +360,4 @@ SSR isn't free of rules, and pretending otherwise would just move the surprise d
 
 Good React developers follow these by instinct. Here they're architecture: enforced by the platform gate and caught by the hash.
 
-The full contract — the complete `:rf.server/*` schema set, the payload scope, and the hydration protocol — lives in [Spec 011 — SSR & Hydration](../../spec/011-SSR.md).
+The API-level surface — every `:rf.server/*` effect with its args schema, the handler constructor options, and the hydration functions — is catalogued in [re-frame.ssr](../api/re-frame.ssr.md) and [re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
