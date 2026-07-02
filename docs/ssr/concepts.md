@@ -1,46 +1,62 @@
 # Server-side rendering
 
-You want real HTML on the wire before a single byte of JavaScript loads — so crawlers and link unfurlers can read it, and the first paint lands fast. Then, once the JavaScript *does* load, you want it to **hydrate**: take over that already-painted HTML and wake it into the live, interactive app — adopting the existing DOM in place rather than throwing it away and re-rendering, so the user sees no flash. And you want all of that *without* maintaining a second, server-flavoured copy of your application. That last clause is where most stacks quietly buckle.
+You want three things from SSR. Real HTML on the wire before any JavaScript loads, so crawlers can read it and the first paint lands fast. A client that **hydrates** — takes over that already-painted HTML and wakes it into the live app, with no flash and no re-fetch. And you want both *without* maintaining a second, server-flavoured copy of your application — which is where most stacks quietly buckle.
 
-re-frame2 gets you there by running the same [event handlers](../core/glossary.md#event-handler), the same [subscriptions](../core/glossary.md#subscription), and the same [views](../core/glossary.md#view) on the JVM, against a per-request [frame](../core/glossary.md#frame) — one isolated, running instance of your app. The only difference is the output: a string instead of a DOM. **There's one app. It runs twice.**
+re-frame2's answer: run the same [event handlers](../core/glossary.md#event-handler), the same [subscriptions](../core/glossary.md#subscription), and the same [views](../core/glossary.md#view) on the JVM, against a per-request [frame](../core/glossary.md#frame) — one isolated, running instance of your app. The only difference is the output: a string instead of a DOM. **There's one app. It runs twice.**
 
-This page builds that up one step at a time: first *why* the same code can run on a server at all, then the smallest server you can wire, then the client that hydrates it, and finally the richer pieces — response control, head metadata, error handling, and streaming — each in its own section. A beginner can read straight down the main text and stop whenever they have enough.
+This page is the model, in the order the ideas depend on each other: why the same code can run on a server at all, what one request does from arrival to teardown, the two halves of the handshake (the server's payload, the client's hydrate), and then the production concerns one at a time — the mismatch detector, platform gating, response control, head metadata, error handling, streaming. If you'd rather *build* it first and read the model after, do the [tutorial](tutorial.md) — it wires everything on this page end to end, by hand.
 
-> **For JavaScript developers.** Coming from Next.js or Remix? You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming. There's no separate server layer to learn. A "loader" is your ordinary event handlers running in a per-request [frame](../core/glossary.md#frame). Streaming is one hiccup marker, not a component API.
+> **For JavaScript developers.** Coming from Next.js or Remix? You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming — and you drop the separate server layer. A "loader" is your ordinary event handlers running in a per-request frame. Streaming is one hiccup marker, not a component API. [Coming from Next.js](coming-from-nextjs.md) is the full translation.
 
 ## Why the same code runs on a JVM
 
-SSR is hard in most stacks because the app is entangled with the browser: `window`, `document`, side-effects firing in the middle of render. re-frame2 sidesteps all three, and the reason is the quiet punchline of the whole page — *it didn't do this for SSR's sake*. The framework committed to these properties for testing, replay, and observability long before anyone asked it to render on a server. SSR just falls out of them, the way a free dessert falls out of ordering the prix fixe:
+SSR is hard in most stacks because the app is entangled with the browser: `window`, `document`, side effects firing in the middle of render. re-frame2 never had that entanglement — and not because of SSR. The framework committed to three properties for testing, replay, and observability, long before rendering on a server was on the table. SSR simply falls out of them:
 
 - **Event handlers are pure.** An [event](../core/glossary.md#event) is an inert "something happened" fact; its [handler](../core/glossary.md#event-handler) is `(coeffects, event) → effect map`. No `window`, no lifecycle. A JVM runs them fine.
 - **Subscriptions are pure derivations.** State in, value out — nodes on [the derivation graph](../core/glossary.md#the-derivation-graph), rooted at app-db.
 - **The render-tree is data.** [Hiccup](../core/glossary.md#hiccup) is nested vectors and maps, and [`render-to-string`](glossary.md#render-to-string) is a pure function from hiccup to an HTML string — no React, no DOM, no JS runtime.
 
-None of these three were bolted on *for* SSR. They're the constraints the rest of the framework already lives by, which means turning SSR on costs you nothing structurally new to learn.
+So the question "can this code run on the server?" is answered once, structurally — yes, all of it, because none of it can reach the browser directly. The only genuinely one-sided code is impure work (a `localStorage` write, a focus trap), and that is declared, not branched around — [`:platforms`](#platforms--one-handler-gated-per-runtime), below.
 
 The SSR surface ships as its own artefact (`day8/re-frame2-ssr`, plus `day8/re-frame2-ssr-ring` for the Ring host adapter), so apps that never render server-side carry not one byte of it in their client bundle.
 
-> **For JavaScript developers.** In a typical Next.js codebase the same component renders on both sides, but you litter it with `typeof window === 'undefined'` guards because the *component itself* is entangled with the browser. Here the entanglement was never there — handlers and views are pure by construction, so the "does this run on the server?" question is answered once, declaratively (you'll see `:platforms` below), instead of at every call site.
+> **For JavaScript developers.** In a typical Next.js codebase the same component renders on both sides, but you litter it with `typeof window === 'undefined'` guards because the *component itself* is entangled with the browser. Here the "does this run on the server?" question never reaches your components at all.
 
 ## A request, start to finish
 
-Before wiring anything, here's the shape of a single request. The host adapter runs all of it for you; knowing the steps makes the code below read as narration rather than magic:
+One request, from arrival to teardown. The host adapter runs all of it for you; hold this shape and every section below slots into it:
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant H as Host adapter (Ring)
+    participant F as Per-request frame (JVM)
+    B->>H: GET /articles/intro
+    H->>F: create frame · stash the request
+    F->>F: :initial-events fire — drain to a settled app-db
+    F->>H: render-to-string → HTML + state payload
+    H->>B: HTML + <script id="__rf_payload">
+    H->>F: destroy the frame (finally)
+    B->>B: JS boots → hydrate! installs the payload → verify hash
+```
+
+In words:
 
 1. An HTTP request arrives. The host adapter creates a **frame for this request** and stashes the request map where handlers can read it.
 2. The frame's `:initial-events` fire in order: read the session, set the route, start data fetches.
-3. The runtime **drains**: it keeps processing events until no more are queued — every [dispatch](../core/glossary.md#dispatch) one of those events triggered runs its own [event cascade](../core/glossary.md#event-cascade), and every dispatch *those* triggered, until the queue settles and app-db stops changing (the runtime's [run-to-completion](../core/glossary.md#drain--run-to-completion) guarantee). (We call that settled point a *fixed point*.)
+3. The runtime **drains**: it keeps processing events — and every event those events dispatch — until the queue settles and app-db stops changing (the [run-to-completion](../core/glossary.md#drain--run-to-completion) guarantee). The settled state is what gets rendered, never a half-loaded intermediate.
 4. The root view renders to hiccup; `render-to-string` turns it into HTML.
 5. The server ships the HTML **plus** a serialised state payload.
 6. The client boots, dispatches `:rf/hydrate` with that payload, and renders. Its first render matches the server's HTML, so the existing DOM is adopted, not replaced.
-7. The per-request frame is destroyed (in a `finally` — every exit path).
+7. The per-request frame is destroyed — in a `finally`, on every exit path.
 
-Steps 2–4 run the handlers, subs, and views you already wrote, so there's no separate "server code" to keep in sync with the client. The per-request frame is *exactly* the frame from [Frames: isolated worlds](../core/concepts/frames.md) — nothing special, no SSR-only variant.
+Steps 2–4 run the handlers, subs, and views you already wrote; there's no separate "server code" to keep in sync with the client. And the per-request frame is *exactly* the frame from [Frames: isolated worlds](../core/concepts/frames.md) — no SSR-only variant.
 
-> **Why this matters.** Because each request gets its own frame, a hundred concurrent requests are a hundred isolated [app-dbs](../core/glossary.md#app-db) that cannot see, race, or corrupt one another. The thing that made [frames](../core/glossary.md#frame) good for testing N apps in one process is the same thing that makes them safe under server load — you get request isolation for free, not as a bolted-on server feature.
+> **Why this matters.** Because each request gets its own frame, a hundred concurrent requests are a hundred isolated [app-dbs](../core/glossary.md#app-db) that cannot see, race, or corrupt one another. The isolation that made frames good for testing is the same thing that makes them safe under server load — request isolation comes free, not as a bolted-on server feature.
 
 ## The simplest server
 
-Wire the Ring adapter once. It owns the whole lifecycle — frame create, drain, render, payload, response, teardown — and runs the seven steps above for you:
+Wire the Ring adapter once. It owns the whole lifecycle above — frame create, drain, render, payload, response, teardown:
 
 ```clojure
 (require '[ring.adapter.jetty :as jetty]
@@ -57,17 +73,17 @@ Wire the Ring adapter once. It owns the whole lifecycle — frame create, drain,
 
 Three opts do the work:
 
-- **`:initial-events`** is the per-request setup vector — the same setup vector you write on a [frame](../core/glossary.md#frame). The adapter lowers it verbatim into the per-request frame's `:initial-events` for you. It accepts a vector of events directly, or a `(fn [request] -> initial-events-vector)` when you need to derive the setup from the Ring request.
-- **`:root-view`** is the view ref the adapter renders to HTML once the frame settles.
-- **`:payload`** is the allowlist of top-level app-db keys to serialise onto the wire for the client to hydrate from. It's a security boundary; we'll come back to it.
+- **`:initial-events`** — the per-request setup vector, lowered verbatim into the per-request frame's `:initial-events` (step 2 of the lifecycle). It accepts a vector of events, or a `(fn [request] → initial-events-vector)` when the setup must be derived from the Ring request.
+- **`:root-view`** — the view ref the adapter renders once the frame settles (step 4).
+- **`:payload`** — the allowlist of top-level app-db keys to serialise for the client (step 5). It's a security boundary with its [own section below](#payload--the-fail-closed-allowlist).
 
-That's a working SSR server. Everything below refines it.
+That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `reg-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter feels like magic.)
 
-> **From re-frame v1.** v1 had no first-class SSR story — you reached for community libraries and hand-rolled the server/client split. Here it's one handler constructor over the *same* events and views the client runs. Also note: the old frame keys `:on-create` / `:initial-db` are retired; per-request setup is `:initial-events`, an ordered vector of events resolved at frame creation. Supplying `:on-create` now [fails loud](../core/glossary.md#fail-loud-not-silent) (`:rf.error/on-create-retired`).
+> **From re-frame v1.** v1 had no first-class SSR story — you reached for community libraries and hand-rolled the server/client split. Here it's one handler constructor over the *same* events and views the client runs. Also note: the old frame keys `:on-create` / `:initial-db` are retired; per-request setup is `:initial-events`, and supplying `:on-create` [fails loud](../core/glossary.md#fail-loud-not-silent) (`:rf.error/on-create-retired`).
 
 ### Reading the request
 
-Handlers read the request the way they read any other outside fact — through a declared [coeffect](../core/glossary.md#coeffect):
+Handlers read the request the way they read any outside fact — through a declared [coeffect](../core/glossary.md#coeffect):
 
 ```clojure
 ;; Adapted from examples/capabilities/ssr/ssr/core.cljc
@@ -82,34 +98,38 @@ Handlers read the request the way they read any other outside fact — through a
                              :on-success [:articles/loaded]}]]}))
 ```
 
-Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arrives flat under `:rf.server/request` in the coeffects. It carries `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params`, `:session`, `:cookies`. The `[:rf.route/handle-url-change ...]` dispatch hands the URL to the same [routing](../routing/concepts.md) machinery the client uses, so the route resolves through the code you already trust.
+Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arrives flat under `:rf.server/request` — `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params`, `:session`, `:cookies`. The `[:rf.route/handle-url-change ...]` dispatch hands the URL to the same [routing](../routing/concepts.md) machinery the client uses, so the route resolves through the code you already trust.
 
 !!! note "`:rf/server-init` is a reserved name you fill in"
 
     `:rf/server-init` is a pattern-reserved name the framework documents and you supply the body for. It is not licence to register your own events under the reserved `:rf/*` root.
 
-> **Going deeper — the request read is *ambient*, and replay cares.** [Time-travel](../core/concepts/observability.md) replays a run only if every input a handler used was captured; the request coeffect is the exception. It reads the per-request slot the host stashed, and — like `localStorage` or the wall clock — its value is **never recorded**. That makes it an *[ambient](../core/glossary.md#recordable-vs-ambient-coeffects)* coeffect, not a *recordable* one stamped onto the [event envelope](../core/glossary.md#event-envelope).
->
-> So the rule is precise: an ambient read is fine for a **non-durable** decision (branch on `:request-method`, peek at a header to pick a code path) but **not** for a value you fold into durable state. Here's why the second case breaks: on replay the framework re-runs the live supplier rather than re-presenting the value the recorded run saw — and after the per-request frame is torn down, that supplier reads `nil`. So `(assoc db :session-user (-> request :session :user))` directly off the ambient read makes a *durable write whose input was never recorded*, and a replay reconstructs a different app-db.
->
-> The fix is to make the durable fact **recordable** — move the sanitised projection (never the whole request map, which carries `Cookie` / `Authorization` / raw bodies) onto the dispatch itself. Two shapes are legal:
->
-> ```clojure
-> ;; (a) ride the derived fact in on the event payload — recorded as part of :event.
-> ;;     The host computes the projection at the boundary and dispatches it:
-> ;;     :initial-events [[:auth/server-init {:user (extract-user request)}]]
-> (rf/reg-event :auth/server-init
->   {:platforms #{:server}}
->   (fn [{:keys [db]} [_ {:keys [user]}]]
->     {:db (assoc db :auth/user user)}))           ;; durable write, recorded input
->
-> ;; (b) declare a provided recordable cofx the host stamps onto the boot token.
-> ;;     A record missing it fails LOUD with :rf.error/missing-required-cofx,
-> ;;     never a silent re-read of the host.
-> (rf/reg-cofx :auth.session/user {:recordable? true :provided? true} ...)
-> ```
->
-> The whole request map must **never** ride the causal token — recording a secret makes it durable, not safe. Stamp only the sanitised derived projection. Keep `:rf.server/request` for the reads that don't fold into durable state.
+One rule governs this coeffect, and it's worth stating plainly before the fine print: **use the request for decisions, but when a request-derived fact needs to live in app-db, put that fact on an event's payload rather than copying it from the ambient read.** The handler above breaks this rule on its first line — deliberately, so the collapsible below has something concrete to fix.
+
+??? note "Going deeper — why a durable write must be recorded, and how to fix it"
+
+    [Time-travel](../core/concepts/observability.md) replays a run only if every input a handler used was captured. The request coeffect is the exception: like `localStorage` or the wall clock, it reads a live per-request slot and its value is **never recorded** — an *[ambient](../core/glossary.md#recordable-vs-ambient-coeffects)* coeffect, not a *recordable* one stamped onto the [event envelope](../core/glossary.md#event-envelope).
+
+    An ambient read is fine for a **non-durable** decision (branch on `:request-method`, peek at a header to pick a code path). It is **not** fine for a value you fold into durable state: on replay the framework re-runs the live supplier rather than re-presenting the value the recorded run saw — and after the per-request frame is torn down, that supplier reads `nil`. So `(assoc db :session-user (-> request :session :user))` is a durable write whose input was never recorded, and a replay reconstructs a different app-db.
+
+    The fix is to make the durable fact **recordable** — move the sanitised projection (never the whole request map, which carries `Cookie` / `Authorization` / raw bodies) onto the dispatch itself. Two shapes are legal:
+
+    ```clojure
+    ;; (a) ride the derived fact in on the event payload — recorded as part of :event.
+    ;;     The host computes the projection at the boundary and dispatches it:
+    ;;     :initial-events [[:auth/server-init {:user (extract-user request)}]]
+    (rf/reg-event :auth/server-init
+      {:platforms #{:server}}
+      (fn [{:keys [db]} [_ {:keys [user]}]]
+        {:db (assoc db :auth/user user)}))           ;; durable write, recorded input
+
+    ;; (b) declare a provided recordable cofx the host stamps onto the boot token.
+    ;;     A record missing it fails LOUD with :rf.error/missing-required-cofx,
+    ;;     never a silent re-read of the host.
+    (rf/reg-cofx :auth.session/user {:recordable? true :provided? true} ...)
+    ```
+
+    The whole request map must **never** ride the causal token — recording a secret makes it durable, not safe. Stamp only the sanitised derived projection, and keep `:rf.server/request` for the reads that don't fold into durable state.
 
 ### `:payload` — the fail-closed allowlist
 
@@ -117,21 +137,32 @@ Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arriv
 
 Forget to set `:payload` at all and you get a loud error at boot (`:rf.error/ssr-missing-payload-policy`) — not a quiet leak on the first request. If you genuinely want to ship the whole app-db, you say so out loud with the explicit keyword `:rf.ssr.payload/whole-app-db`.
 
-> **Why this matters.** A *denylist* ("ship everything except these") was considered and rejected on purpose: it leaks every new server-only key the instant you introduce one, which is exactly the bug an allowlist exists to prevent. This is [fail-closed](../core/glossary.md#fail-loud-not-silent) in its purest form — at a security boundary the framework would rather stop you cold at boot than surprise you in production.
+> **Why this matters.** A *denylist* ("ship everything except these") was considered and rejected on purpose: it leaks every new server-only key the instant you introduce one, which is exactly the bug an allowlist exists to prevent. This is [fail-closed](../core/glossary.md#fail-loud-not-silent) at a security boundary — the framework would rather stop you cold at boot than surprise you in production.
 
-> **Going deeper — the three distinct boot-time errors.** The allowlist accepts any sequential of keywords — a literal vector is canonical, but a computed `(filterv …)` or `(keep …)` works too. Three boot-time errors keep three different mistakes distinct, so you can tell them apart at construction time:
->
-> - an **empty** allowlist (`[]`) falls into the missing-policy bucket (`:rf.error/ssr-missing-payload-policy`) — shipping zero keys is almost certainly a slip, not intent;
-> - an **unknown** policy keyword surfaces as `:rf.error/ssr-unknown-payload-policy`;
-> - a **string typo for a keyword** — `["public/articles"]` instead of `[:public/articles]` — fails loud as `:rf.error/ssr-malformed-payload-allowlist` (carrying the offending entries under `:bad-entries`) rather than silently shipping a wrong slice.
->
-> A **set** is rejected on purpose; the allowlist is an *ordered* key selection, not a set. The selector is collection-vs-keyword — a sequential can never be confused with the whole-app-db keyword — so there's nothing to arbitrate.
+??? note "The three boot-time payload errors, kept distinct"
+
+    The allowlist accepts any sequential of keywords — a literal vector is canonical, but a computed `(filterv …)` or `(keep …)` works too. Three boot-time errors keep three different mistakes distinct, so you can tell them apart at construction time:
+
+    - an **empty** allowlist (`[]`) falls into the missing-policy bucket (`:rf.error/ssr-missing-payload-policy`) — shipping zero keys is almost certainly a slip, not intent;
+    - an **unknown** policy keyword surfaces as `:rf.error/ssr-unknown-payload-policy`;
+    - a **string typo for a keyword** — `["public/articles"]` instead of `[:public/articles]` — fails loud as `:rf.error/ssr-malformed-payload-allowlist` (carrying the offending entries under `:bad-entries`) rather than silently shipping a wrong slice.
+
+    A **set** is rejected on purpose; the allowlist is an *ordered* key selection, not a set. The selector is collection-vs-keyword — a sequential can never be confused with the whole-app-db keyword — so there's nothing to arbitrate.
 
 The same constructor accepts the rest of the lifecycle opts: the two error opts (`:error-view`, `:on-error`, [covered below](#when-the-server-throws)) and the caller-trusted shell hooks for bespoke head/body fragments (`:head`, `:body-end`, `:script-src`, `:app-element-id`).
 
 ## The client side: hydrate, then verify
 
-The client's job is to land in the state the server finished in, without redoing the work. [`ssr/hydrate!`](glossary.md#hydration) (from `re-frame.ssr`) does three steps in the mandated order: **read** the embedded payload, **dispatch** `[:rf/hydrate payload]` before the first render, **verify** the render-tree hash against the server's.
+The client's job is to land in the state the server finished in, without redoing the work. What it has to work with is the **payload** — the last thing the server shipped, sitting in the page as a `<script id="__rf_payload">` of EDN:
+
+```clojure
+{:rf/version     1                ;; pattern-protocol version (deploy-drift check, below)
+ :rf/app-db      {…}              ;; your state, filtered by the allowlist
+ :rf/runtime-db  {…}              ;; the framework's serialisable slice — the route, machine snapshots
+ :rf/render-hash "a3f29c01"}      ;; a structural fingerprint of the server's render tree
+```
+
+[`ssr/hydrate!`](glossary.md#hydration) (from `re-frame.ssr`) consumes it in three steps, in a mandated order: **read** the embedded payload, **hydrate** — dispatch `[:rf/hydrate payload]` *before* the first render — and **verify** the render-tree hash against the server's:
 
 ```clojure
 ;; Adapted from examples/capabilities/ssr/ssr/core.cljc
@@ -152,22 +183,28 @@ The client's job is to land in the state the server finished in, without redoing
      [(rf/view :app/root)]]))
 ```
 
-Two things to hold onto:
+Two rules to hold onto:
 
-- **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider {:frame …}`. That's [frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found), applied at boot. An absent `:frame` raises `:rf.error/no-frame-context`; the runtime never invents a default. The payload can also carry a `:rf/frame-id` (the frame the *server* rendered under) — it's validation evidence, not a target. If it's present and disagrees with the `:frame` you passed, hydration fails closed with `:rf.error/hydration-frame-id-mismatch` rather than installing the server's slice into the wrong frame; if it's absent (the common case — the server renders under a per-request frame the client can't name ahead of time), your explicit `:frame` just stands.
-- **Hydration replaces; the server is authoritative.** `:rf/hydrate` installs the server's [app-db](../core/glossary.md#app-db) *and* its serialisable [runtime-db](../core/glossary.md#runtime-db) slice (machine snapshots, the route) in one atomic step — [both partitions](../core/glossary.md#the-two-partitions) at once — replacing whatever the client pre-seeded. A malformed payload is rejected wholesale (fail-closed); a missing one just means a normal client-only load — that's the `when-not` branch above.
+- **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider {:frame …}`. That's [frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found), applied at boot. An absent `:frame` raises `:rf.error/no-frame-context`; the runtime never invents a default.
+- **Hydration replaces; the server is authoritative.** `:rf/hydrate` installs the server's [app-db](../core/glossary.md#app-db) *and* its serialisable [runtime-db](../core/glossary.md#runtime-db) slice in one atomic step — [both partitions](../core/glossary.md#the-two-partitions) at once — replacing whatever the client pre-seeded. A malformed payload is rejected wholesale (fail-closed); a missing one just means a normal client-only load — the `when-not` branch above.
+
+??? note "Going deeper — replace-not-merge, frame-id evidence, and the malformed-payload rules"
+
+    **Why replace, not merge.** The merge policy is locked to *replace the whole frame-state* (app-db **and** the serialisable runtime-db projection) because a defaulting merge would bury "which side won?" bugs at every key. If you need client-only state to survive hydration, the customisation point is *re-registering* `:rf/hydrate` with your own explicit merge — you own the order and the semantics.
+
+    **The payload is untrusted transport input.** A non-map payload, or a present-but-not-a-map app-db / runtime-db slice, is rejected wholesale (`:rf.error/malformed-hydration-payload`) and the client's existing state is left untouched. A *wholly absent* slice is not malformed — it's the documented client-only first-load fallback.
+
+    **`:rf/frame-id` is evidence, not a target.** The payload may carry the frame id the *server* rendered under. It's validation evidence: if present and it disagrees with the `:frame` you passed, hydration fails closed with `:rf.error/hydration-frame-id-mismatch` rather than installing the server's slice into the wrong frame. If absent — the common case, since the server renders under a per-request frame the client can't name ahead of time — your explicit `:frame` just stands.
 
 > **Coming from React?** This is `hydrateRoot` with the gloss removed. React hydrates by walking the DOM and reattaching listeners, and trusts that your component re-renders the same tree. Here the server's *state* rides along explicitly in the payload, `:rf/hydrate` installs it before the first render, and then the substrate [adapter](../core/glossary.md#adapter) attaches listeners to the existing DOM. You never re-fetch on the client to "catch up" — the state the server computed is already in app-db.
 
-> **Going deeper — why replace, not merge.** The merge policy is locked to *replace the whole frame-state* (app-db **and** the serialisable runtime-db projection) because a defaulting merge would bury "which side won?" bugs at every key. If you need client-only state to survive hydration, the customisation point is *re-registering* `:rf/hydrate` with your own explicit merge — you own the order and the semantics. The payload is also treated as an untrusted transport input: a non-map payload, or a present-but-not-a-map app-db / runtime-db slice, is rejected wholesale (`:rf.error/malformed-hydration-payload`) and the client's existing state is left untouched. A *wholly absent* slice is not malformed — it's the documented client-only first-load fallback.
+Server state declared as a [resource](../resources/glossary.md#resource) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch — see the [resources SSR example](../../examples/capabilities/ssr/resources_ssr).
 
-Server state declared as a [resource](../resources/glossary.md#resource) (a value the framework fetches and caches for you) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch. See the [resources SSR example](../../examples/capabilities/ssr/resources_ssr).
-
-A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have. (Non-blocking route resources don't hold up the render; whatever's settled at render time serialises, and anything still in flight refetches on the client.) That wait has a deadline: if a blocking fetch hangs past the render budget, the runtime settles it as a structured first-load failure — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view sees a clean `:error` rather than a hung page — and records `:rf.error/resource-ssr-blocking-timeout`. A server has one render moment; a blocking resource that can't resolve in time fails closed instead of stalling the request.
+A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have. (Non-blocking route resources don't hold up the render; whatever's settled at render time serialises, and anything still in flight refetches on the client.) That wait has a deadline: a blocking fetch that hangs past the render budget settles as a structured first-load failure — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view sees a clean `:error` rather than a hung page — and records `:rf.error/resource-ssr-blocking-timeout`. A server has one render moment; a blocking resource that can't resolve in time fails closed instead of stalling the request.
 
 ### Deploy-drift checks come along for free
 
-The payload doesn't only carry state — it carries a couple of stamps that catch the classic "the server and the client are running different code" bug. As part of `:rf/hydrate`'s effects, the framework fires two client-only compatibility checks, and both are **best-effort** — they emit a trace and let hydration proceed; they never throw and never block the page:
+The payload also carries a couple of stamps that catch the classic "the server and the client are running different code" bug. As part of `:rf/hydrate`'s effects, the framework fires two client-only compatibility checks, and both are **best-effort** — they emit a trace and let hydration proceed; they never throw and never block the page:
 
 - **`:rf.ssr/check-version`** compares the payload's pattern-protocol version (`:rf/version`, an integer) against the client's. A mismatch emits a `:rf.ssr/version-mismatch` trace — your "the server bundle is a deploy ahead of the client" alarm.
 - **`:rf.ssr/check-schema-digest`** (fired only when the payload carries a digest) hashes the client's registered `app-schema` set and compares it to the server's. A mismatch emits `:rf.ssr/schema-digest-mismatch` — the server is validating against a different schema set than the client's bundle.
@@ -176,9 +213,9 @@ If the runtime can't find the client-side value to compare against (no version h
 
 ## When the renders disagree
 
-Sometimes the client's first render *doesn't* match the server's HTML. This is the classic SSR bug — a [hydration mismatch](glossary.md#hydration-mismatch) — and in most stacks it produces a content flash, a console warning nobody reads, and a collective shrug. The causes are almost always mundane: a date rendered in two timezones, a bit of state the server set but the client never read, an unordered map that happens to serialise in two different orders.
+Sometimes the client's first render *doesn't* match the server's HTML. This is the classic SSR bug — a [hydration mismatch](glossary.md#hydration-mismatch) — and in most stacks it produces a content flash and a console warning nobody reads. The causes are almost always mundane: a date rendered in two timezones, a bit of state the server set but the client never read, an unordered map that happens to serialise in two different orders.
 
-re-frame2 refuses to shrug. The server embeds a structural hash of its render-tree; the client computes the same hash on its own first render and compares. On disagreement, a structured [trace event](../core/glossary.md#trace-event) fires — telling you not just *that* it diverged but *where*:
+re-frame2 treats it as a located, debuggable failure. The server embeds a structural hash of its render-tree (the `:rf/render-hash` you saw in the payload); the client computes the same hash on its own first render and compares. On disagreement, a structured [trace event](../core/glossary.md#trace-event) fires — telling you not just *that* it diverged but *where*:
 
 ```clojure
 {:operation :rf.ssr/hydration-mismatch
@@ -188,7 +225,7 @@ re-frame2 refuses to shrug. The server embeds a structural hash of its render-tr
              :first-diff-path [:articles 0 :date]}}   ;; where, not just whether
 ```
 
-The default recovery is **warn and replace**: log it, render the client's view, so the user never sees a broken page. Per-frame strict mode (`:ssr {:on-mismatch :hard-error}`) escalates it to a thrown structured exception for dev and CI.
+The default recovery is **warn and replace**: log it, render the client's view, so the user never sees a broken page. Per-frame strict mode (`:ssr {:on-mismatch :hard-error}`) escalates it to a thrown structured exception for dev and CI. (The [tutorial's Step 5](tutorial.md) trips this on purpose, which is the fastest way to internalise it.)
 
 !!! note "The mismatch trace is dev-only — instrument deliberately for production"
 
@@ -213,7 +250,7 @@ The default is universal (`#{:server :client}`). When a server-side drain meets 
 
 The same gate runs on the *input* side. A [coeffect](../core/glossary.md#coeffect) can carry `:platforms` too — `:rf.server/request` is `#{:server}` — so on the client (after hydration, when the same handler runs again) the runtime simply doesn't supply it, emitting `:rf.cofx/skipped-on-platform`. That coeffect's key is absent from the coeffects map; the rest of the handler runs as normal. So a setup handler that reads the request server-side doesn't blow up client-side — it just doesn't see a request there, which is exactly right.
 
-> **For JavaScript developers.** This is the declarative answer to the `typeof window === 'undefined'` guards scattered through a Next.js codebase. Instead of *branching inside* every component or handler that touches the browser, you tag the *effect* once with the platforms it's allowed on, and the resolver enforces it. The handler stays runtime-agnostic; there is no `if (isServer)` anywhere in your business logic.
+> **For JavaScript developers.** This is the declarative answer to the `typeof window === 'undefined'` guards scattered through a Next.js codebase. Instead of *branching inside* every component or handler that touches the browser, you tag the *effect* once with the platforms it's allowed on, and the resolver enforces it. There is no `if (isServer)` anywhere in your business logic.
 
 ## Controlling the response — `:rf.server/*`
 
@@ -312,7 +349,7 @@ The projector you register is named in the frame's `:ssr {:public-error-id :myap
 
 ## Streaming: `:rf/suspense-boundary`
 
-This is the advanced slice — the direct analogue of React 18 streaming and Next.js's `loading.js`. The idea is the same: don't make the whole page wait on its slowest subscription. Ship a usable shell on the first byte, with skeletons where the slow regions will be, then stream each region in as its data resolves. In React that's a `<Suspense>` boundary with a `fallback`. In re-frame2 it's one declarative hiccup marker that should look familiar. Here's a Conduit article page whose body lands fast but whose comment thread and author-feed sidebar are slow:
+This is the advanced slice — the direct analogue of React 18 streaming and Next.js's `loading.js`. The idea is the same: don't make the whole page wait on its slowest subscription. Ship a usable shell on the first byte, with skeletons where the slow regions will be, then stream each region in as its data resolves. In React that's a `<Suspense>` boundary with a `fallback`. In re-frame2 it's one declarative hiccup marker. Here's a Conduit article page whose body lands fast but whose comment thread and author-feed sidebar are slow:
 
 ```clojure
 ;; Adapted from examples/capabilities/ssr/ssr_streaming/core.cljc
