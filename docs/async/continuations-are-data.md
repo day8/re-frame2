@@ -36,10 +36,6 @@ Under `async/await`, the continuation is a **closure**. Write `const quote = awa
 
 That event vector — `[:article/loaded]` — has none of those properties. It *has* a name (it *is* a name). It serializes. It survives a reload. And, as we're about to see, it never reads a stale world.
 
-??? info "From re-frame v1"
-
-    re-frame v1 already pointed this direction — effectful handlers returned `{:dispatch [:some-event]}` rather than calling code inline, and the original `:http-xhrio` effect took `:on-success` / `:on-failure` event vectors. v2 keeps that spelling and makes it the *whole framework's* spine: every [managed](../resources/glossary.md#managed-http) async surface — HTTP, [resources](../resources/concepts.md), mutations, [machines](../machines/concepts.md) — addresses its reply by a named event. The bare `(rf/dispatch …)` inside a `.then` callback that v1 tolerated now fails loud (see the trap below) — there's a sanctioned managed effect for every async job.
-
 ## The bug this kills: the stale-world trap
 
 The fourth closure property — "closes over the world as it was" — isn't an inconvenience. It's a correctness trap, and it's the part that actually bites people. Here's the shape someone writes in their first week, adapted from real migration code:

@@ -16,7 +16,7 @@ Every guide page commits to all five:
 2. **One load-bearing takeaway** a reader could quote from memory a week later, set as the page's single bold pull-quote blockquote (`> **…**` — this page's is above, and it's the only blockquote form left in the corpus). One per page; a page with three slogans has none.
 3. **Reader-first ordering.** Goal → working code → explanation. Result before mechanism, mechanism before theory. Never open with internals.
 4. **Adjacency.** Examples sit beside the explanation they serve; warnings sit beside the risky step; the common mistake appears where the reader is about to make it — not in a pitfalls appendix.
-5. **No ceremony footer.** No "You can now" / "what you learned" checklist, no "In this section" preamble, no "What's next" paragraph — navigation is the left nav plus Material's prev/next buttons, and a genuinely useful cross-link belongs inline in the prose where it's relevant, not parked at the bottom.
+5. **No navigation ceremony — MkDocs already provides it.** Every page renders through MkDocs Material, which supplies the left-hand navigation and prev/next buttons at the foot of every page. So: no "What's next" / "Where next" sections at the bottom, no "You can now" / "what you learned" checklists — and on **index and introduction pages** specifically, no "In this section" enumeration that mirrors the LHS menu the reader is already looking at. An index page routes by adding *judgment* (which door for which reader, and why), never by restating the nav. A genuinely useful cross-link belongs inline in the prose where it's relevant, not parked at the bottom.
 
 Mode rules, stated as what each mode *forbids*: a **tutorial** page never catalogues alternatives ("you could also…" is a how-to's job); a **how-to** page assumes competence and never teaches a concept beyond a link; an **explanation** page carries no task steps; an **index** page routes and never teaches. Quality bar for foundational pages: a concrete reader problem, a complete listing, a walkthrough, a common mistake, and a checkpoint the reader can run or reason through.
 
@@ -140,7 +140,7 @@ Per-persona callouts are collapsed `??? info` admonitions (see [Callouts](#callo
     are caused by routes and events, never by render.
 ```
 
-The **v1 delta callout** (`??? info "From re-frame v1"`) is the standing instance of this device: what moved, linking to [From re-frame v1](25-from-re-frame-v1.md) for the full delta. Retired v1 surfaces (`inject-cofx`, `:rf.world/inputs`) appear *only* on that migration page, marked superseded — never in teaching prose elsewhere.
+The **v1 delta callout** (`??? info "From re-frame v1"`) is the standing instance of this device — but it is earned **only where the v1 instinct would actively mislead**: a retired surface that now errors (`inject-cofx`, `reg-event-db`, `:initial-db`), a behaviour that genuinely changed underfoot (run-to-completion timing), a reflex that now fails loud. "Same as v1 in spirit" and "v1 didn't have this" deliver nothing — a v1 veteran already knows what v1 lacked — and get cut. Most pages need **zero**; the [migration page](25-from-re-frame-v1.md) is the complete delta that audience will actually read. When one is earned: what moved, one link, done. Retired v1 surfaces (`inject-cofx`, `:rf.world/inputs`) appear *only* on that migration page, marked superseded — never in teaching prose elsewhere.
 
 ## Snippets are production code
 

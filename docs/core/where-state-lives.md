@@ -159,10 +159,6 @@ Staleness and invalidation come built in too: ensuring a stale entry refetches i
 
     A subscription can't run a `(route, ctx)` resolver — it's pure — so a `:rf.scope/from-caller` resource that a route ensured under one scope, then a view subscribes to *without* passing the same `:scope`, fails closed. If the scope is unresolvable you get a loud `:rf.error/resource-sub-unresolved-scope`; if it resolves to a *different* key the view reads `:idle` forever (a permanent skeleton), and the framework emits a dev warning naming the active scope you probably meant. The fix is always the same: subscribe with the same `:scope` the owning route or event ensured under.
 
-??? info "From re-frame v1"
-
-    This is the biggest change from v1. There, server data was hand-rolled: a `:http-xhrio` effect, a success handler that `assoc`-ed the body into `app-db`, a failure handler that set `:error?`, and a `:loading?` boolean you flipped by hand — re-implemented per feature, races and all, with no shared cache, no dedupe, no leak boundary. A resource folds that entire recurring chore into one registration the runtime owns. Identity, staleness, dedupe, invalidation, and the cross-user scope boundary stop being your code.
-
 ### Question 4 — does it have its own lifecycle? Then it's a machine
 
 The user clicks **Checkout**. Now you're not modelling a value anymore — you're modelling a *process*: idle, then validating, then awaiting payment, then done, or failed-and-retrying. There are rules about which state may follow which, a timeout, and cancellation. The load-bearing question has shifted to "**what state are we in, and what moves us to the next one?**" That's a [machine](../machines/glossary.md#machine). You can usually spot the smell that precedes one:
@@ -200,10 +196,6 @@ Now checkout can only ever be in a state it can legally reach. The timeout belon
 !!! note "An event a state doesn't handle is a no-op, not a crash"
 
     Dispatch `:checkout/paid` while the machine is `:idle` and nothing happens — the snapshot is unchanged and the runtime emits one benign `:rf.machine.event/unhandled-no-op` trace (XState-parity: an unhandled event is a no-op). So you never have to guard every dispatch with "are we even in the right state?" — the machine simply ignores what it has no transition for, and you can still see the ignored event in the trace if you're hunting a missed wire. Two contrasts worth knowing: a transition is also *not selected* if its `:guard` predicate returns false (lower-priority transitions for the same event stay eligible), and a state with `{}` for a body (like `:complete`) is a legal terminal — it simply has no outgoing transitions.
-
-??? info "From re-frame v1"
-
-    v1 had no machines — a multi-step process was the boolean trio above, or a single `:checkout/step` keyword that every handler read and reassigned with no enforced transition table. A machine makes the transitions *data*, makes illegal states unrepresentable, and gives timers a home that cancels them for you. It's the same finite-state process you were already (badly) encoding, finally written somewhere the framework can check it.
 
 ??? note "Going deeper"
 

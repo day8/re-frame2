@@ -38,10 +38,6 @@ Notice what dissolves. There is no "lifting state up," because state was never d
 
     You already believe most of this. Redux moved state into one store and made reducers pure — re-frame2 keeps that and finishes the job. The difference is what happens *around* the store. In Redux, `useSelector`, `useDispatch`, and your data-fetching middleware still live inside the component, so the component is still where state, effects, and rendering meet. re-frame2 pulls every one of those out: subscriptions, effects, and the [dispatch](../glossary.md#dispatch) path all live outside the view, and the view is left with nothing to do but render. Redux got the store right and stopped at the component door; the inversion walks through it.
 
-??? info "From re-frame v1"
-
-    This philosophy is unchanged from the original — the inversion *is* re-frame, and v1 already had it. What v2 adds sits on top of this foundation rather than altering it; the whole delta is laid out in [From re-frame v1](../25-from-re-frame-v1.md).
-
 ## Boring views are the point
 
 This is the part that surprises every React-shaped brain on first contact, so don't be thrown by it. Your views are going to be boring. Structurally boring. Can't-get-into-a-weird-state boring. That isn't a limitation the framework apologises for — it's the design objective. The most bug-prone real estate in a typical frontend is where state, effects, and rendering tangle together inside components, and re-frame2 simply evicts all of it. Views render, and that's the whole story.

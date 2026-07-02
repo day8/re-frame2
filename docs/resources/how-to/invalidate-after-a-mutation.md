@@ -393,6 +393,3 @@ Save an article with the list and detail pages mounted, then open [Xray](../../c
 
 The full read→write→invalidate→refetch loop runs live in [the RealWorld resources example](../../../examples/real-apps/realworld_resources).
 
-??? info "From re-frame v1"
-
-    None of this existed in v1. There was no managed server-state layer at all — you fetched in an [effect handler](../../core/glossary.md#effect-handler), hand-wrote the reply into [app-db](../../core/glossary.md#app-db) yourself, and there was no cache, so nothing ever went "stale." Invalidation was a phrase you didn't need because you owned every byte of the read path. The cost was that every screen reinvented loading flags, every write hand-coded which views to refresh, and a stale read was a bug you wrote, not a state the framework tracked. re-frame2's resources move that whole concern under the framework: the write *declares* what it breaks (`:invalidates`), and the read path refetches. The v1 instinct to reach for an effect that pokes `app-db` after a save is the exact thing this page replaces.

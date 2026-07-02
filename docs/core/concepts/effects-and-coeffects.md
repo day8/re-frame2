@@ -55,10 +55,6 @@ A state change, an HTTP POST, a storage write, and a follow-up dispatch — stil
 
     `:fx` is what thunks, sagas, and middleware do — minus the machinery. No middleware ordering, no generator runtime. The handler returns data and one interpreter loop executes it.
 
-??? info "From re-frame v1"
-
-    There's now exactly one event form — `reg-event` — and a db update is just the `:db` effect in the map every handler returns. No separate db-only registration: "I only touch state" is `{:db …}` and nothing else, the *same map shape* as a handler that also fires three effects. The top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` effect keys are gone too — everything rides in `:fx` as ordinary rows, so you learn one grammar instead of two.
-
 !!! warning "Gotcha — `:db` and `:fx` are the whole top level"
 
     Application handlers return exactly those two keys; anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](../glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — the error message points you at wrapping it as an `:fx` row.
@@ -337,6 +333,3 @@ You stub effects with the symmetric move on the output side: **`:fx-overrides`**
 
 Overrides can also be pinned per frame at construction — `(rf/make-frame {:fx-overrides {…}})` — so an entire test frame, Story canvas, or SSR render runs against stubbed effects without touching any dispatch site. Ambient coeffects are the one place you re-register a *supplier* (legal precisely because ambient facts never feed durable state); recordable facts you supply as data, never by swapping a mechanism.
 
-??? info "From re-frame v1"
-
-    The v1 escape hatches are gone, loudly. Calling `rf/inject-cofx` is a hard error (`:rf.error/inject-cofx-removed`) that names `:rf.cofx/requires` as the replacement, and supplying a `:dispatched-at` dispatch opt is a hard error (`:rf.error/dispatched-at-retired`) that points you at `:rf/time-ms` on the `:rf.cofx` envelope. Both fire in production too — they're correctness contracts, not dev-only nags — so an old habit can't silently no-op.

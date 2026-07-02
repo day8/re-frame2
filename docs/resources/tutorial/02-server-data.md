@@ -14,10 +14,6 @@ That is the whole trick. The route *causes* the fetch, a subscription *reads* th
 
     A re-frame2 *[resource](../glossary.md#resource)* is `useQuery`'s keyed, cached, deduplicated read — same idea, with one structural difference you'll feel immediately: the component doesn't fetch on mount. There's no `useQuery(...)` call buried inside the view that quietly kicks off a request the first time React renders it. The *route* causes the fetch; the view only reads what's there. That inversion is the whole point of this part.
 
-??? info "From re-frame v1"
-
-    In v1 a server read was a hand-rolled chain of events: a `:get-articles` event firing an `:http-xhrio` effect, an `:articles-loaded` event to stash the response in app-db, an `:articles-failed` event for the error, and a flag in app-db you flipped to drive a spinner. Every read re-implemented loading, caching, and staleness by hand. re-frame2 makes a server read a *declared* thing — a **resource** — and the runtime owns the fetch/cache/staleness bookkeeping behind the same subscription shape you already know. The four-event boilerplate is gone.
-
 ## Step 1 — add the resources artefact and point at an API
 
 Resources ship as their own optional artefact, the way routing did in Part 1 — you only pay for the machinery you use. Add it, plus the managed-HTTP transport it sits on top of (the piece that actually talks to the network). Add both deps and restart `npm run dev`:

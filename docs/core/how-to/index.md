@@ -47,10 +47,6 @@ When the app does something you didn't ask for, you don't reach for `println` �
 
     Treat this section the way you'd treat the "Recipes" or "Guides" part of any framework's docs — [React](https://react.dev)'s "you might not need an effect", the Rails guide's "how do I do file uploads". They're task-shaped, copy-pasteable, and deliberately opinionated: one good way, shown fully, rather than a tour of the option space. When you want every option on a surface, the [API reference](../../api/README.md) carries the exact shapes.
 
-??? info "From re-frame v1"
-
-    v1's recipes lived in a single flat wiki page — a long scroll you searched with Ctrl-F. Here they're one task per page, grouped by phase, each linking to the concept page that owns its why. The shape of an event handler hasn't changed; what's new is that several recipes have a live pairing counterpart (see the Tool-Pair note above) that v1 never offered.
-
 ## Can't find your task?
 
 A recipe answers "how do I do X." Some questions sit a step *before* that — they're design decisions, not tasks, and a recipe is the wrong shape for them. Those live elsewhere:

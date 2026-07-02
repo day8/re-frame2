@@ -111,10 +111,6 @@ Whatever appears there is what your literal map (or your dispatch, below) suppli
 
     Time is a declared fact like any other; there is no implicit clock. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]` and reads it flat. A test supplies `{:rf/time-ms 1781078400123}` in the literal map, and the answer is identical at 14:00 and at 23:59:59. There's no `js/Date` to monkey-patch, because the handler never reads one. (Every `reg-event` may declare requires — there's no second-class form that needing the world forces you to convert away from.)
 
-??? info "From re-frame v1"
-
-    The interceptor-based coeffect injection is gone. Declaration moved into registration metadata (`:rf.cofx/requires`), and tests supply values on the dispatch instead of stubbing handlers or registering test cofx-injectors. The full delta is in [From re-frame v1](../../core/25-from-re-frame-v1.md).
-
 ??? note "Going deeper"
 
     The input map (coeffects) and the output map (effects) are both *plain data*, and the handler is a pure function between them. That makes a handler a morphism in the most boring, most useful sense: testing it is exactly testing `f(input) = output`, with no observation of effects on the side. The runtime's job is to *interpret* the returned effect data — your test skips the interpreter and inspects the description. It's the same separation a free monad buys you — build a program as a value, run it later — arrived at without a gram of type machinery: the effect map *is* the program, and `dispatch` *is* the interpreter.
@@ -201,10 +197,6 @@ There's a [partition](../../core/glossary.md#the-two-partitions) wrinkle the cas
 ??? note "Going deeper — layered subs come along for free"
 
     That `:auth.login-form/can-submit?` sub is **layered** — defined `:<- [:auth.login-form/slice]`, so it reads through another sub. `compute-sub` resolves the chain transitively: it computes the input sub against `db` first, depth-first, then runs the outer body against that value — all without spinning up the cache. Same for a parametric `input-fn` sub. You test the top sub and the whole [derivation graph](../../core/glossary.md#the-derivation-graph) underneath it comes along, exactly as the running app composes it. The cache the live app uses is an *optimisation* layered over this pure composition, not part of its meaning — which is precisely why you can drop it on the JVM and still get the right answer.
-
-??? info "From re-frame v1"
-
-    You never call `@(rf/subscribe …)` in these tests. `subscribe` needs a live reactive cache and an installed adapter — overhead for an assertion against a value. `compute-sub` is the pure, headless form. (If you genuinely want "what would the running frame see *right now*, cache and all", there's `rf/subscribe-once` — current value, synchronously, no live ratom left dangling — but for unit tests `compute-sub` is the right tool.)
 
 ## 5. Test the view, not just the state
 

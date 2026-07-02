@@ -55,10 +55,6 @@ That's the entire reason the algebra exists. Hold onto this one sentence and the
 
 > The difference between a subscription and a flow is **not the function; it is policy over the same dependency graph.**
 
-??? info "From re-frame v1"
-
-    In v1 you had subscriptions and (later) flows, but they felt like two separate subsystems — a sub was a `reg-sub`, a flow was a thing you bolted on. re-frame2 says out loud what was always true: they are the *same* node under different storage-and-evaluation policy. You still write `reg-sub` and `reg-flow` for the same ergonomic reasons; what's new is that the framework — and any tool reading it — treats them as one graph.
-
 ## The five questions every node answers
 
 Every declared fact in re-frame2 — subscription, flow, resource read, route fact, machine selector — answers the *same five questions*. Learn to ask these five of any node and you can read any graph:

@@ -209,10 +209,6 @@ That's the whole boot. Four moves: install the substrate, register the frame, se
 
     Move 1 (`init!`) is roughly `applyMiddleware` — it wires the runtime to a substrate. Move 2 (`reg-frame`) is `createStore`. Move 3 is your initial-state argument to `createStore`, except expressed as an event rather than a literal. Move 4 is `<Provider store={...}>`. The big difference: re-frame2 makes you name the store (the frame) explicitly, because a re-frame2 app can run several stores side by side, fully isolated.
 
-??? info "From re-frame v1"
-
-    Moves 2–4 are the new part: there's no implicit global frame any more, so the app says — once, at the root — which frame it runs in. v1 dispatched into an ambient singleton you never named; v2 makes that frame explicit, which is exactly what later lets the *same* views run in two isolated frames side by side. The events, subs, and views in this file should look familiar; only the boot has changed.
-
 ### A more idiomatic seed: `:initial-events`
 
 The manual Move 3 (`with-frame` + `dispatch-sync`) is worth meeting first because it makes the seeding visible. But there's a second, more idiomatic way: hand `reg-frame` an `:initial-events` vector and let it run the boot events *for* you, synchronously, as part of registration.

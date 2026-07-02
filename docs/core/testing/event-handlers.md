@@ -103,10 +103,6 @@ Look at what *didn't* happen here, because this is the part that trips people up
 
     **The coeffects map carries exactly what the handler declared — plus `:db` and `:event`.** A handler receives `:db`, the leaves it named in `:rf.cofx/requires`, and — if its destructuring reads it — the whole event vector under `:event`. (Most handlers destructure the event vector as the second argument, as above, and never need `:event`.) Nothing *undeclared* is ever delivered, which is the whole point: the coeffects map is a closed, hand-buildable input. If your handler reaches for a key you didn't supply, that's a clear signal the test's input map is incomplete — read the `:rf.cofx/requires` vector off the registry and supply each leaf.
 
-??? info "From re-frame v1"
-
-    Nothing is injected by interceptor anymore — the `:rf.cofx/requires` vector in the metadata is the whole mechanism, and the facts arrive flat in the coeffects map, not nested under `:coeffects`. The old "register a `:db` coeffect interceptor, chain it onto the handler" dance is gone. [From re-frame v1](../25-from-re-frame-v1.md) has the full delta.
-
 ??? note "Going deeper"
 
     Declaring the world up front makes the handler a *reader* in the functional sense: a function from an environment (the coeffects map) to a value (the effect map), `cofx -> fx`. The framework is the interpreter that builds the environment and runs the effects; your handler is pure description in between. That's why the test needs no mocks — you're calling a pure function with a literal environment, exactly the way you'd test any `(f input) => output`. The `:rf.cofx/requires` vector is, in effect, the function's *type signature* for its environment — and it's machine-readable, right off the registrar.
