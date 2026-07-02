@@ -1,6 +1,6 @@
 # Guide authoring contract
 
-> **Who this is for.** Contributors writing or revising pages under `docs/core/`. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every guide page is held to, and the gates that enforce it.
+> **Who this is for.** Contributors writing or revising any page under `/docs` — the core guide (`docs/core/`) and the machines, async, resources, routing, and ssr corpora alike. They all hold to the same standards now: a simple, direct voice; a standalone corpus with no spec links; no ceremony footers; delta teaching; the live-cell rules. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every docs page is held to, and the gates that enforce it.
 
 The guide is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate divergences. First, **reference is thin and separate**: the exact API shape lives in the [API reference](../api/README.md) (`docs/api/`) and the vocabulary in the [glossary](glossary.md). A guide page that starts accumulating option tables and precedence rules is absorbing reference weight — move it to the API reference, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
 
@@ -22,6 +22,8 @@ Mode rules, stated as what each mode *forbids*: a **tutorial** page never catalo
 
 ## Voice
 
+**Use a simple, direct, and clear voice.** That is the rule; everything below is how to hit it.
+
 Write like **a friendly senior developer who's good at explaining things** — one who knows the material well enough not to show off. The reader knows React or Redux but is new to re-frame2; meet them as a knowledgeable colleague explaining over coffee, not as a terse README and not as an essay. The test: would it sound natural said aloud, and could a tired engineer follow it at 11pm?
 
 - **Explain the why, not just the what.** After an instruction, a short *because* / *which means* / *so that* clause earns its keep. A senior dev tells you why a thing works, briefly.
@@ -38,42 +40,42 @@ A reader goes top to bottom. The first time a page uses a core term — `app-db`
 
 ## Callouts
 
-Leverage MkDocs Material, but match the box to the signal:
+Match the device to the signal — and match the corpus, which reaches for a **bold-lead blockquote** far more often than a coloured box:
 
 - **Persona deltas** (`> **Coming from React?** …`) stay **light bold blockquotes**. They're frequent and skippable; a coloured box each time is just noise.
-- **Warnings / footguns** → `!!! warning`. Rare and high-signal, so the box and colour earn their place.
-- **Heads-up / honesty / "when not to use" / CLIENT-ONLY / deferred** → `!!! note`.
+- **Footguns and gotchas** → a **bold-lead `> **Gotcha — …**` blockquote**, inline beside the risky step. This is the corpus's overwhelming choice — bold-lead gotchas outnumber `!!!` boxes better than ten to one — and it keeps the warning in the reader's flow rather than in a box they skim past.
+- **`!!! warning` / `!!! note` boxes are the exception**, reserved for the rare, genuinely load-bearing point that must not be missed — a CLIENT-ONLY path, a deferred-feature caveat, a "when not to use." The colour earns its place only when the point would be lost inline.
 - **Deep or optional asides** a reader can skip → collapsible `??? note`.
 
 Admonition bodies are indented four spaces with a blank line after the marker — mis-indentation breaks the build.
 
-## Live code cells
-
-Small, self-contained examples should run in the browser, not just sit there. A fenced block tagged ` ```cljs-rf2 ` is mounted by the docs playground as a live, editable cell — no install. The cell dialect is functions-only: plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`, a `(require …)` form instead of `ns`, and a trailing hiccup form (`[counter]`) as the thing to render. Reach for a live cell where editing teaches more than reading — the counter and its small variations, a subscription graph, a single derivation. A full app like RealWorld can't be a cell, so keep those static and link to the worked example.
-
 ## Tiers and modes
+
+Paths below are relative to `docs/`. This table maps the **core guide**; the domain corpora (`machines/`, `async/`, `resources/`) mirror the same concepts → tutorial → how-to → reference shape inside their own tab.
 
 | Where | Tier | Mode | Job |
 |---|---|---|---|
-| `README.md` | start | index | Route readers; teach nothing |
-| `quickstart.md` | start | start | Pixels in five minutes |
-| `tutorial/` | tutorial | tutorial | Build RealWorld end to end |
-| `concepts/`, `where-state-lives.md` | concepts | explanation | The mental model, one piece per page |
-| `how-to/` | how-to | how-to | One task, complete code, done |
-| `explanation/`, `derivations-and-algebra-views.md` | explanation | explanation | The why — for the curious, not the blocked |
-| `25-from-re-frame-v1.md` | migration | migration | v1 deltas, not basics |
-| `AUTHORING.md` | meta | index | This contract |
+| `core/README.md` | start | index | Route readers; teach nothing |
+| `core/quickstart.md` | start | start | Pixels in five minutes |
+| `resources/tutorial/` (its own tab) | tutorial | tutorial | Build RealWorld end to end |
+| `core/concepts/`, `core/where-state-lives.md` | concepts | explanation | The mental model, one piece per page |
+| `core/how-to/` | how-to | how-to | One task, complete code, done |
+| `core/explanation/`, `core/derivations-and-algebra-views.md` | explanation | explanation | The why — for the curious, not the blocked |
+| `core/25-from-re-frame-v1.md` | migration | migration | v1 deltas, not basics |
+| `core/AUTHORING.md` | meta | index | This contract |
 
 A new page must name its tier and mode before drafting starts. If it doesn't fit one row, it's two pages.
 
-## The two-app canon
+## Canon apps — per corpus
 
-The guide orbits exactly two applications, and the boundary between them is deliberate:
+Each corpus orbits a small, fixed cast of apps rather than inventing throwaways, and names its own ecosystem anchor in its opening (see [Delta teaching](#delta-teaching)). The **core guide** holds to a two-app canon; the domain corpora each carry their own:
 
-- **The counter** (with its odd/even badge and last-clicked timestamp) carries the start tier and the concepts pages, for as long as it can stretch. It's the ecosystem's shared hello-world — Elm's counter, the Redux counter — so 100% of the reader's attention goes to *our* idioms, not the domain.
-- **RealWorld** (conduit: articles, feeds, favorites, auth) carries the tutorial and the how-tos. **The switch point is the moment server data enters the picture** — the counter has no server, and faking one would teach a shape we'd reject in review.
+- **Core guide — the counter, then RealWorld.** The **counter** (odd/even badge, last-clicked timestamp) carries the start tier and the concepts pages, for as long as it can stretch: it's the ecosystem's shared hello-world — Elm's counter, the Redux counter — so 100% of the reader's attention goes to *our* idioms, not the domain. **RealWorld** (conduit: articles, feeds, favorites, auth) carries the tutorial and the how-tos. **The switch point is the moment server data enters the picture** — the counter has no server, and faking one would teach a shape we'd reject in review.
+- **Machines — XState, a login and a websocket.** Anchor on XState; the canonical machines are the **login** flow (idle → submitting → authed / error / locked-out) and the **websocket** lifecycle (connecting → connected → dropped → reconnecting).
+- **Resources — TanStack Query, RealWorld.** Anchor on TanStack Query (RTK Query and SWR are the same family); reuse RealWorld's server nouns (articles, feeds, profiles) rather than inventing a third domain.
+- **Async (HTTP) — RealWorld's server nouns.** The managed-request corpus continues RealWorld's articles and feeds as its running domain, taught against the managed-request model.
 
-Concepts pages whose domain is inherently server-shaped (resources, HTTP, routing) borrow RealWorld's nouns rather than inventing a third domain. Small inline examples are fine anywhere; the *narrative* belongs to the canon. No throwaway example apps.
+Routing and SSR likewise borrow RealWorld's nouns rather than inventing a domain. Small inline examples are fine anywhere; the *narrative* belongs to each corpus's canon. No throwaway example apps.
 
 ## A standalone corpus — no spec links
 
@@ -105,7 +107,7 @@ Readers copy-paste; nobody reads the disclaimer. So every snippet is complete, i
 
 Pages may embed editable, in-browser code via two fences (the info string is the only difference from a static block): ` ```cljs ` evaluates forms and prints the last value — pure ClojureScript teaching only, no re-frame; ` ```cljs-rf2 ` **mounts the last form as a live component** against re-frame2's real public API. For guide pages you almost always want `cljs-rf2`.
 
-Use them **sparingly** — one or two per page, only where editing the code teaches more than reading it. Section shape: a sentence of *why* → the cell → a named *what-to-try* edit with its expected outcome. A live cell with no suggested experiment is a slow screenshot.
+Use them **sparingly** — one or two per page, only where editing the code teaches more than reading it: the counter and its small variations, a subscription graph, a single derivation. A full app like RealWorld can't be a cell, so keep those static and link to the worked example. Section shape: a sentence of *why* → the cell → a named *what-to-try* edit with its expected outcome. A live cell with no suggested experiment is a slow screenshot.
 
 The `cljs-rf2` rules, each of which bites the first time:
 
@@ -123,20 +125,20 @@ The `cljs-rf2` rules, each of which bites the first time:
 - **Do → observe → explain.** Any page whose example dispatches something closes the loop with an observation step: *"Open Xray: the submit's event row shows the validation branch — no request left."* Phrase affordances generally (the event row, the epoch ledger, the app-db view); do not invent Xray UI names — verify in `tools/xray/spec/` before using a specific one.
 - **The war story.** Where a feature exists because a production failure class exists, tell it as a lived story — concrete, second-person, ending in the mechanism that makes the failure *structurally impossible* (canonical instance: the test that's green every afternoon and red the one time CI crosses midnight, until the clock becomes a recorded fact). At most one per page; it motivates, the mechanism teaches.
 - **"For the categorically curious."** re-frame2's category-theory grounding is a design tool, not teaching vocabulary — *translate, don't transplant*. The deeper frame goes only in a collapsed `<details markdown="1"><summary>For the categorically curious</summary>…</details>` block: always skippable, never load-bearing, at most one per concept, ~6 lines, every term glossed in the same breath.
-- **Asides are bold-lead blockquotes** (`> **Heads-up.** …`), not `!!!` admonitions — match the corpus.
-- **No bead references in prose.** Pages state current truth, not the decision trail; tracker-id citations belong in the tracker, not in the page. Spec section anchors and migration-rule ids are fine — those are normative, not historical.
+- **Asides and footguns are bold-lead blockquotes** (`> **Heads-up.** …`, `> **Gotcha — …**`) — see [Callouts](#callouts); reserve `!!!` boxes for the rare load-bearing warning.
+- **No bead references in prose.** Pages state current truth, not the decision trail; tracker-id citations belong in the tracker, not in the page. Unlinked normative ids are fine — a migration-rule id, or a spec section id cited as *text* — because those are normative, not historical; but never a *hyperlink* into `spec/`, which the standalone-corpus rule forbids.
 - **Honesty.** Say when *not* to use a feature; mark deferred things (timed polling, infinite feeds) and CLIENT-ONLY paths; no marketing voice. The test for every paragraph: could a tired engineer act on it at 11pm mid-incident?
 
 ## The gates
 
-Four gates keep the contract from rotting — the guide is maintained like product code:
+The contract's own honesty rule applies to this list too. What CI actually enforces on every docs PR isn't these four — it's the **`mkdocs build --strict` build**, the **link + anchor validator** (`scripts/check_doc_slugs.py`), and the **residue scans** (retired `inject-cofx` / `:rf.world/inputs`, retired composition vocabulary, retired image keys), all in `.github/workflows/docs.yml`. The four gates below are the *intent* that keeps the guide from rotting; three are human discipline and one is only partly machine-checked, marked honestly:
 
-1. **Per-PR staleness rule.** Every feature-touching PR updates the affected guide page(s) or states explicitly in the PR why the guide is unchanged — the same discipline already enforced for `tools/xray/spec/`, extended to the guide.
-2. **The cold-agent test.** A fresh AI agent, given only the **quickstart + tutorial** and an empty project, must produce a working app. Every stall or hallucination is a documentation bug *with a repro*. Concepts and how-tos are deliberately out of scope — the agent reaching for them is itself a tutorial-tier finding.
-3. **Time-to-pixels.** From setup start to first render in under five minutes, measured against the setup section of [the tutorial's index](../resources/tutorial/index.md). The quickstart's live cells are zero-install and don't count toward the budget.
-4. **Snippets compile in CI.** Snippets cited from `examples/` files compile because their sources do; the citation comment is what lets the gate map a page to its compiled source. Hand-written snippets without a source file get the symbol-verification rule as their floor — prefer promoting them into an example.
+1. **Per-PR staleness rule** *(review discipline, not automated)*. Every feature-touching PR updates the affected guide page(s) or states explicitly in the PR why the guide is unchanged — the same convention already asked for `tools/xray/spec/`. No workflow fails a PR for stale docs; a reviewer holds the line.
+2. **The cold-agent test** *(periodic manual audit, not automated)*. A fresh AI agent, given only the **quickstart + tutorial** and an empty project, must produce a working app. Every stall or hallucination is a documentation bug *with a repro*. Run by hand, not on every PR. Concepts and how-tos are deliberately out of scope — the agent reaching for them is itself a tutorial-tier finding.
+3. **Time-to-pixels** *(manual measurement, not automated)*. From setup start to first render in under five minutes, measured by hand against the setup section of [the tutorial's index](../resources/tutorial/index.md). The quickstart's live cells are zero-install and don't count toward the budget.
+4. **Snippets compile in CI** *(partly automated)*. The `examples/` sources a snippet is copied from *do* compile in CI (`npm run test:examples-compile`), so a cited snippet's source can't silently break. What CI does **not** do is extract the doc's copy and recompile it — keeping the page's copy in sync with its cited source, and verifying every hand-written symbol against `spec/API.md` + `core.cljc`, is still the author's job. Prefer promoting a hand-written snippet into an example so the compile gate covers it.
 
 ## Mechanics
 
-Write Markdown for MkDocs Material. Pages live under `docs/core/`; the nav is explicit in `mkdocs.yml` and a new page must be added there by hand, next to its siblings (this page stays out of the nav). Build locally with `mkdocs build --strict` before opening a PR; if the page has live cells, load it and click them.
+Write Markdown for MkDocs Material. Pages live under `/docs` — the core guide (`docs/core/`) and the domain corpora (`docs/machines/`, `docs/async/`, `docs/resources/`, `docs/routing/`, `docs/ssr/`); the nav is explicit in `mkdocs.yml` and a new page must be added there by hand, next to its siblings (this page stays out of the nav). Build locally with `mkdocs build --strict` before opening a PR; if the page has live cells, load it and click them.
 
