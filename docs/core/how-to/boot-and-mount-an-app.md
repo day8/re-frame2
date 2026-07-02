@@ -242,5 +242,4 @@ creation, and render calls change.
 > state container is explicit: a frame. The provider ensures or scopes that
 > frame, and `:initial-events` seed it through the normal event cascade.
 
-The full frame lifecycle is covered in [Frames](../concepts/frames.md) and
-[`spec/002-Frames.md`](../../../spec/002-Frames.md).
+The full frame lifecycle is covered in [Frames](../concepts/frames.md).

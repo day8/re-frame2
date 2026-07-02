@@ -61,7 +61,7 @@ The prefix names the owning subsystem:
 
 The vocabulary is stable and additive: existing categories are never renamed or repurposed. Pin a test to `:rf.error/no-such-fx` and it still means that next year.
 
-The full catalogue — every category, its trigger, its `:tags` payload, its recovery default — is one table in [spec 009](../../../spec/009-Instrumentation.md#error-event-catalogue). Treat it like an HTTP status-code list: look a category up when you meet it, rather than studying it cold.
+The catalogue itself — every category, its trigger, its `:tags` payload, its recovery default — is a closed reference table, and every dossier names its own category, so you meet entries one at a time in the trace rather than studying the list cold. Treat it like HTTP status codes: look a category up when you meet it.
 
 ## Recovery is typed — and it isn't yours
 
@@ -79,7 +79,7 @@ The `:recovery` vocabulary is small and readable on sight:
 - `:retried` — the runtime retried within a bound and surfaced the result.
 - `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `dispatch` to a misspelled fx-id, a [resource](../../resources/glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
 
-Plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. The per-category assignments live in [the catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).
+Plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. Every category carries its assigned recovery verb in the dossier itself, so you read it off the record rather than memorising the assignment.
 
 Four of those defaults shape how your app degrades, so they're worth knowing by heart:
 

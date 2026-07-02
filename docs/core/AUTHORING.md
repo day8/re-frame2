@@ -2,7 +2,7 @@
 
 > **Who this is for.** Contributors writing or revising pages under `docs/core/`. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every guide page is held to, and the gates that enforce it.
 
-The guide is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate divergences. First, **reference is not a guide mode at all**: the normative reference lives in `spec/` (AI-targeted, exhaustive, boring on purpose), and guide pages link down into it directly — there is no reference shelf inside the guide. A guide page that starts accumulating option tables and precedence rules is absorbing weight the spec already owns — move the weight, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
+The guide is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate divergences. First, **reference is thin and separate**: the exact API shape lives in the [API reference](../api/README.md) (`docs/api/`) and the vocabulary in the [glossary](glossary.md). A guide page that starts accumulating option tables and precedence rules is absorbing reference weight — move it to the API reference, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
 
 Which yields the rule everything else here serves:
 
@@ -14,9 +14,9 @@ Every guide page commits to all five:
 
 1. **One job, one mode.** The page is exactly one of *start / tutorial / how-to / explanation / index*, and its opening states the reader's problem — what brought them here, what they can do afterward — in a sentence or two.
 2. **One load-bearing takeaway** a reader could quote from memory a week later (this page's is the blockquote above). One per page; a page with three slogans has none.
-3. **Reader-first ordering.** Goal → working code → explanation → spec link. Result before mechanism, mechanism before theory, theory before citation. Never open with internals.
+3. **Reader-first ordering.** Goal → working code → explanation. Result before mechanism, mechanism before theory. Never open with internals.
 4. **Adjacency.** Examples sit beside the explanation they serve; warnings sit beside the risky step; the common mistake appears where the reader is about to make it — not in a pitfalls appendix.
-5. **The footer.** A **"You can now:"** bullet list — capabilities the reader earned, not topics covered. No "Next:" paragraph; navigation is the left nav and Material's prev/next buttons (see [§The footer](#the-footer)).
+5. **No ceremony footer.** No "You can now" / "what you learned" checklist, no "In this section" preamble, no "What's next" paragraph — navigation is the left nav plus Material's prev/next buttons, and a genuinely useful cross-link belongs inline in the prose where it's relevant, not parked at the bottom.
 
 Mode rules, stated as what each mode *forbids*: a **tutorial** page never catalogues alternatives ("you could also…" is a how-to's job); a **how-to** page assumes competence and never teaches a concept beyond a link; an **explanation** page carries no task steps; an **index** page routes and never teaches. Quality bar for foundational pages: a concrete reader problem, a complete listing, a walkthrough, a common mistake, and a checkpoint the reader can run or reason through.
 
@@ -47,10 +47,6 @@ Leverage MkDocs Material, but match the box to the signal:
 
 Admonition bodies are indented four spaces with a blank line after the marker — mis-indentation breaks the build.
 
-## The footer
-
-End with a **"You can now:"** checklist — the capabilities the reader earned, not the topics you covered. That is the whole footer. **No "Next:" paragraph:** navigation is the left nav plus Material's prev/next buttons (`navigation.footer`), and a genuinely useful cross-link belongs inline in the prose where it's relevant, not parked at the bottom.
-
 ## Live code cells
 
 Small, self-contained examples should run in the browser, not just sit there. A fenced block tagged ` ```cljs-rf2 ` is mounted by the docs playground as a live, editable cell — no install. The cell dialect is functions-only: plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`, a `(require …)` form instead of `ns`, and a trailing hiccup form (`[counter]`) as the thing to render. Reach for a live cell where editing teaches more than reading — the counter and its small variations, a subscription graph, a single derivation. A full app like RealWorld can't be a cell, so keep those static and link to the worked example.
@@ -79,18 +75,13 @@ The guide orbits exactly two applications, and the boundary between them is deli
 
 Concepts pages whose domain is inherently server-shaped (resources, HTTP, routing) borrow RealWorld's nouns rather than inventing a third domain. Small inline examples are fine anywhere; the *narrative* belongs to the canon. No throwaway example apps.
 
-## Spec links
+## A standalone corpus — no spec links
 
-The guide teaches the model and the happy path, then **links down** into spec for completeness — it never duplicates spec content in friendlier voice (that's how 74KB chapters happen). The link placement rule: **teach first, link after**. A spec link carries completeness, never the lesson.
+The guide is the documentation for the ClojureScript implementation, and it is designed to be **complete and readable on its own. Never link into `spec/`.** When a spec concept matters to a reader, repeat it here with a ClojureScript-implementation flavour, in the page that owns the topic — don't send the reader down. Where a page wants "the exact shape of every option," that weight belongs in the [API reference](../api/README.md); where it wants a definition, the [glossary](glossary.md).
 
-A spec link is wrong when it's a "see the spec for the full story" dodge replacing an explanation the page owes the reader, or a parenthetical citation ("(per Spec 010)") — citations belong in the spec.
+Guide → guide links are plain sibling-relative and encouraged. Links to `examples/` targets become GitHub blob URLs (examples are not staged into the site).
 
-**Link form** — write the GitHub-correct relative path; the build hook rewrites it for the staged site, so never hand-write the staged path:
-
-- From a **depth-3** page (`tutorial/`, `concepts/`, `how-to/`, `explanation/`), a spec link's target is `../../../spec/008-Testing.md`.
-- From a **depth-2** page (`docs/core/X.md`), it's `../../spec/API.md`.
-- Same rule for `migration/` and `examples/` targets at the matching depth (examples links become GitHub blob URLs — examples are not staged into the site).
-- Guide → guide links are plain sibling-relative and encouraged.
+Contributors still *verify* against the spec and the implementation — see [Snippets are production code](#snippets-are-production-code). The rule is about reader-facing links, not about where truth is checked.
 
 ## Delta teaching
 
@@ -149,11 +140,3 @@ Four gates keep the contract from rotting — the guide is maintained like produ
 
 Write Markdown for MkDocs Material. Pages live under `docs/core/`; the nav is explicit in `mkdocs.yml` and a new page must be added there by hand, next to its siblings (this page stays out of the nav). Build locally with `mkdocs build --strict` before opening a PR; if the page has live cells, load it and click them.
 
----
-
-**You can now:**
-
-- name a new page's tier and mode before drafting, and split it when it can't state one job
-- write a page that passes the contract: reader-problem opening, one quotable takeaway, adjacency, a you-can-now footer with ≤2 links
-- pick the right canon app (counter until server data appears, RealWorld after), source snippets from named `examples/` files, and link down into spec at the right depth
-- author a `cljs-rf2` cell that mounts, deploy the standing devices, and know which of the four gates will check your work

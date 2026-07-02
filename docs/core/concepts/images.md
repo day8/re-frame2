@@ -237,7 +237,7 @@ State setup is a *frame* concern — `:initial-events` (e.g. a leading `[:rf/set
 
 > **Coming from Jest mocks or MSW?** If you've used `jest.mock` module mocks or MSW handlers, you know the pain of mutating a shared module registry and remembering to reset it between tests. The image avoids that entirely: the test double is a *value* you compose into a *fresh* frame, so there's no global to dirty and nothing to reset — the frame is discarded when the test ends.
 
-> **Going deeper.** The frame rides in the `{:frame …}` opts map — the uniform last-argument envelope `dispatch-sync` / `subscribe` accept (see [the multi-frame surface](../../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent)). There is no positional `(dispatch-sync frame event)` form; the frame travels in the opts map. The opt accepts a frame **value** (the token `make-frame` returns) or a frame **id** keyword interchangeably. Targeting the frame value directly is the test/harness path; mounted product code targets a frame *id* through the same opt. Both are covered in [Frames](frames.md).
+> **Going deeper.** The frame rides in the `{:frame …}` opts map — the uniform last-argument envelope `dispatch-sync` / `subscribe` accept. There is no positional `(dispatch-sync frame event)` form; the frame travels in the opts map. The opt accepts a frame **value** (the token `make-frame` returns) or a frame **id** keyword interchangeably. Targeting the frame value directly is the test/harness path; mounted product code targets a frame *id* through the same opt. Both are covered in [Frames](frames.md).
 
 ## Overriding a registration is a later image
 

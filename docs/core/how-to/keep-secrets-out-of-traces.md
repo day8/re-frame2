@@ -139,7 +139,7 @@ The framework ships an **immutable built-in denylist** — `Authorization`, `Pro
   managed-http-handler)
 ```
 
-Carriers are **process-global** (one registration, not per-frame), and a malformed `:carriers` block fails loud with `:rf.error/bad-classification`. Full reference: [Spec 014 §HTTP carriers](../../../spec/014-HTTPRequests.md#http-carriers-ep-0025).
+Carriers are **process-global** (one registration, not per-frame), and a malformed `:carriers` block fails loud with `:rf.error/bad-classification`.
 
 ## Classify subsystem data on the subsystem
 
@@ -239,7 +239,7 @@ A profile names the *boundary* the data is crossing — *who is about to look at
 | `:rf.egress/ssr-hydration` | the projection applied *after* the SSR allowlist (defence-in-depth) |
 | `:rf.egress/public-error` | client-safe server error responses; never internal raw values |
 
-The profile matrix is in [Spec 015](../../../spec/015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional); the wider posture-by-surface matrices are in [Spec 009](../../../spec/009-Instrumentation.md#production-debugging-what-remains).
+The table above is the working set; each profile names how far data travels and resolves to a floor the flags below can override.
 
 > **Going deeper.** Beneath the profiles sit advanced `:rf.size/*` override flags — `:rf.size/include-sensitive?`, `:rf.size/include-large?`, `:rf.size/include-digests?`, `:rf.size/threshold-bytes`. A profile resolves to a *floor* and an explicit flag overlays it. You rarely reach for them; the profile is the public choice.
 
@@ -289,7 +289,7 @@ Two surfaces that aren't part of the everyday flow but are worth knowing exist: 
 
 If you run [SSR](../../ssr/concepts.md), the server hands the client a **hydration payload** — a serialised slice of app-db the browser adopts on first render. That's production egress to an untrusted client, so it's a boundary the same classification guards. But SSR is **allowlist-first**, which is the stronger posture: it asks *"which state is allowed to cross?"*, not *"which leaves are sensitive?"*. You name the slice that may ship; **unlisted state does not cross even if you never classified it**, and a frame that renders on the server with no payload policy at all **fails closed** (`:rf.error/ssr-missing-payload-policy`) rather than shipping app-db whole.
 
-Classification then composes on top as **defence-in-depth**: a sensitive child of an allowlisted slice is *still redacted* unless the SSR policy explicitly permits it. The `:rf.egress/ssr-hydration` profile from the table above is exactly the projection applied **after** the allowlist — never a parallel mechanism. (The per-frame classification registry is itself kept off the hydration wire — a classified path can embed a sensitive id like `[:by-id "user-secret" :token]`, so the declaration keys *are* sensitive structure — and the client rebuilds its own identical registry from the same app image on mount.) The allowlist opt lives on the SSR host surface, not here; see [the SSR concept page](../../ssr/concepts.md) and [Spec 011](../../../spec/011-SSR.md) for its exact shape.
+Classification then composes on top as **defence-in-depth**: a sensitive child of an allowlisted slice is *still redacted* unless the SSR policy explicitly permits it. The `:rf.egress/ssr-hydration` profile from the table above is exactly the projection applied **after** the allowlist — never a parallel mechanism. (The per-frame classification registry is itself kept off the hydration wire — a classified path can embed a sensitive id like `[:by-id "user-secret" :token]`, so the declaration keys *are* sensitive structure — and the client rebuilds its own identical registry from the same app image on mount.) The allowlist opt lives on the SSR host surface, not here; see [the SSR concept page](../../ssr/concepts.md) for its exact shape.
 
 ### Classification and time-travel — epoch records stay raw
 

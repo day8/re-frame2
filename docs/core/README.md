@@ -14,7 +14,7 @@ Three readers, three doors. Pick the row that's you and follow the first link; t
 |---|---|---|
 | **A React/JS developer** who knows the ecosystem — Redux, TanStack Query, XState, React Router — but maybe not Clojure. | [Quickstart: a counter in five minutes](quickstart.md) | The [RealWorld tutorial](../resources/tutorial/index.md). Every concept page opens by naming the tool you already reach for, then teaches only the *delta*. |
 | **A re-frame v1 veteran.** Most of your instincts survive intact. The *global* assumptions don't. | [From re-frame v1](25-from-re-frame-v1.md) — deltas, not basics. | [Frames: isolated worlds](concepts/frames.md) — the one idea that ripples through everything else. |
-| **An AI agent** working on a re-frame2 app. | [The spec](../../spec/README.md) — the normative contract, written for AI and implementors. | The guide pages are self-contained and speak the spec's vocabulary, so they chunk cleanly. Where guide and spec disagree, the spec wins. |
+| **An AI agent** working on a re-frame2 app. | The same doors as a human — start at the [Quickstart](quickstart.md). | The pages are self-contained and chunk cleanly: every term is defined at first use, the [glossary](glossary.md) carries the whole vocabulary, and the [API reference](../api/README.md) has every public function. |
 
 There's one reader this guide deliberately *doesn't* serve: someone learning UI programming from scratch. It teaches re-frame2 by *difference* — "it's like the thing you already use, except…" — so it assumes you've shipped something with React or Redux before. If you haven't, this is the wrong first book.
 
@@ -46,7 +46,7 @@ The guide is layered by *how much you have to read before you can do something u
 | **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |
 | **Explanation** | The *why* behind the design — for when you're curious, not blocked | [Inside out: why views come last](explanation/inside-out.md) |
 | **Migration** | What changed from re-frame v1, and how to port | [From re-frame v1](25-from-re-frame-v1.md) |
-| **Reference** | The normative contracts the guide links down into — every shape, every option, owned by the spec | [The spec](../../spec/README.md) |
+| **Reference** | The exact surface — every public function, and the vocabulary the guide speaks | [API reference](../api/README.md) and [Glossary](glossary.md) |
 
 Two things about that order are deliberate, because they change how you should read it:
 
@@ -56,7 +56,7 @@ Two things about that order are deliberate, because they change how you should r
 Two habits run through every tier. Worth knowing up front, because they shape how the pages read:
 
 - **Do, observe, explain.** The runtime is inspectable by design, so most pages follow an action with "now open [Xray](glossary.md#xray) and watch what it caused" *before* they explain why. You see the effect before you read the theory — which, it turns out, sticks better than the other way round.
-- **Link down, never duplicate.** Guide pages teach the model and the happy path; the exhaustive contract lives in the [spec](../../spec/README.md). Rather than restate it (and watch the copy rot the moment the spec moves), pages link *into* it. When you want the complete list of options, you follow the link.
+- **Complete where you stand.** Each page teaches its whole surface — the happy path *and* the sharp edges — and links sideways to the page that owns an idea rather than re-explaining it. When you want the exact shape of a public function, the [API reference](../api/README.md) is the catalogue; the guide never sends you anywhere else to finish a thought.
 
 > **Going deeper — the one big idea.** The whole guide is a single idea unfolding: state is a *value*, the UI is a pure function of that value, and everything in between is data you can inspect. If you'd rather understand *why* the pieces sit where they do before you build — why views render last, why effects live at the edge, why there's no global db — the [Explanation](explanation/inside-out.md) shelf is written for exactly that mood. It's strictly optional: you can ship a real app on the loop and the tutorial alone, then circle back to the *why* when curiosity (or a code review) demands it.
 
