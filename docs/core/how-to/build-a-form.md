@@ -12,7 +12,7 @@ We'll build the simplest thing that works first — a login form that validates 
 
 > **From re-frame v1.** v1 shipped no forms library, and neither does v2 — a form was, and still is, hand-rolled from the same primitives as everything else. What's new is that the hand-rolling now follows a *named convention* (this slice shape), the writes are [schema](../glossary.md#schema)-guarded so a malformed draft fails at the handler that wrote it, and handlers return an [effect map](../glossary.md#effect-map) — `(fn [{:keys [db]} _] {:db ...})` instead of v1's `reg-event-db` `(fn [db _] ...)`. If you wrote forms in v1, you already know the moves; this page just gives them a standard skeleton.
 
-> **Coming from React Hook Form or Formik?** re-frame2 ships no `<Form>`, no `register()`, no `useForm`. A form is a *convention* built from the same events, subs, and schemas as everything else: state lives in [app-db](../glossary.md#app-db) (every keystroke is an inspectable event), the "validation resolver" is the Malli schema that guards the slice, and errors are subs. The normative reference card is [Pattern-Forms](../../../spec/Pattern-Forms.md).
+> **Coming from React Hook Form or Formik?** re-frame2 ships no `<Form>`, no `register()`, no `useForm`. A form is a *convention* built from the same events, subs, and schemas as everything else: state lives in [app-db](../glossary.md#app-db) (every keystroke is an inspectable event), the "validation resolver" is the Malli schema that guards the slice, and errors are subs.
 
 ## 1. Create the slice — seven keys
 
@@ -356,7 +356,7 @@ To watch it work, open [Xray](../glossary.md#xray), type a few characters, and s
 
 ## 5. Audit it — the five-minute conformance check
 
-Run this list on any form before you call it done (the normative card in [Pattern-Forms](../../../spec/Pattern-Forms.md) carries the same list):
+Run this list on any form before you call it done:
 
 - Slice has the seven standard keys; slice and draft are both schema-bound.
 - All seven events registered; nothing form-shaped happens outside them.
@@ -418,4 +418,4 @@ Not everything that takes input is a form, and reaching for the slice when you d
 > - **A single toggle or stepper.** Giving one checkbox a `:draft`, `:status`, and `:errors` is theatre. Just write the value on change and move on.
 > - **One button.** A "favorite" posts a request and updates on reply — a plain event, or a [mutation](../../resources/glossary.md#mutation) ([invalidate after a mutation](../../resources/how-to/invalidate-after-a-mutation.md)). (A mutation is a managed server write that knows which cached reads to refresh afterwards.)
 
-Two variations are worth naming. A **multi-step wizard** keeps this exact slice and puts a [state machine](../../machines/concepts.md) on top for step transitions — the machine owns "which step," the slice owns "what's typed," and they don't fight over the boundary. And under [**SSR**](../../ssr/concepts.md) the same slice powers a no-JS `method="POST"` form: the server validates with the same schema and re-renders errors into the same slice, while the client's `:on-submit` is purely additive — progressive enhancement falls out for free ([Pattern-FormAction](../../../spec/Pattern-FormAction.md) is the server-POST recipe).
+Two variations are worth naming. A **multi-step wizard** keeps this exact slice and puts a [state machine](../../machines/concepts.md) on top for step transitions — the machine owns "which step," the slice owns "what's typed," and they don't fight over the boundary. And under [**SSR**](../../ssr/concepts.md) the same slice powers a no-JS `method="POST"` form: the server validates with the same schema and re-renders errors into the same slice, while the client's `:on-submit` is purely additive — progressive enhancement falls out for free.

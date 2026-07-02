@@ -34,7 +34,7 @@ Because hiccup is just data, views compose like any other values: a function can
 
 > **For JavaScript developers.** Template strings can do none of this. They don't compose, they don't diff, and string-built markup is where injection bugs come from. Hiccup is closer in spirit to React's `createElement` calls — a tree of data describing the UI — except it's plain literals you can map, filter, and pass around, with no build-time transform.
 
-> **Going deeper.** The full render-tree contract — what a conformant render-tree must be, and what survives serialisation across the JVM/browser boundary for SSR — is [spec 004 — Views](../../../spec/004-Views.md). Hiccup is the CLJS render-tree; other hosts use their own shape behind the same contract.
+> **Going deeper.** Hiccup is the ClojureScript render-tree — the shape that survives serialisation across the JVM/browser boundary, which is what lets [server-side rendering](../../ssr/concepts.md) render the same views without a browser. Other hosts use their own render-tree shape behind the same contract.
 
 ## Subscribe in, dispatch out
 
@@ -156,7 +156,7 @@ In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]`
 
 A plain `defn` view still works — but only when it renders *inside* a frame scope it can read. The qualified `rf/dispatch` / `rf/subscribe` resolve their frame from the surrounding React context, and a mounted app's [frame-provider](../glossary.md#frame-provider) — the bit of React context that broadcasts "the frame to render under" to the views inside it — hands that frame only to **registered** views. An unregistered `defn` that derefs `rf/subscribe` under a non-default provider fails loud with a named [error record](../glossary.md#error-record): `:rf.error/no-frame-context`.
 
-That isn't an oversight — it's [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) doing its job. An operation reads its frame from scope; the runtime never invents one. So the reverse rewrite — turning a `reg-view` into a `defn` — is not free. If a view genuinely must stay an unregistered plain fn, it captures a [`(rf/capture-frame)`](../glossary.md#capture-frame) at render time and uses its bound ops instead. The full rule is in [spec 004](../../../spec/004-Views.md).
+That isn't an oversight — it's [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) doing its job. An operation reads its frame from scope; the runtime never invents one. So the reverse rewrite — turning a `reg-view` into a `defn` — is not free. If a view genuinely must stay an unregistered plain fn, it captures a [`(rf/capture-frame)`](../glossary.md#capture-frame) at render time and uses its bound ops instead.
 
 > **A view that runs setup on mount.** If a screen needs an event to fire when its frame comes up — load the cart, hydrate a form — don't `dispatch` from the render body. That couples reads to writes and, under a reactive substrate, can loop the render. Name the setup as an event and list it in the frame's `:initial-events`:
 >
@@ -180,7 +180,7 @@ That isn't an oversight — it's [frame identity is carried, not found](../gloss
 >
 > Prefer Form-1 + a frame `:initial-events` step over Form-2 for *stable* setup — the outer fn hides a mount-time side effect that doesn't appear at the call site. Reach for Form-2 only when the setup truly needs the per-mount props.
 >
-> **Form-3** (`reagent.core/create-class`, with `:component-did-mount` / `:component-will-unmount`) is the escape hatch for wrapping a stateful imperative library (a chart, a map, a code editor) that owns its own DOM. It is *out of scope for the `reg-view` macro* — register it through `reg-view*` instead, where the body can be any callable. Full detail in [spec 004 §Form-1, Form-2, Form-3](../../../spec/004-Views.md#form-1-form-2-form-3-components).
+> **Form-3** (`reagent.core/create-class`, with `:component-did-mount` / `:component-will-unmount`) is the escape hatch for wrapping a stateful imperative library (a chart, a map, a code editor) that owns its own DOM. It is *out of scope for the `reg-view` macro* — register it through `reg-view*` instead, where the body can be any callable.
 
 ??? note "Tooling and library registration: `reg-view*` and `(rf/view id)`"
 
@@ -189,7 +189,7 @@ That isn't an oversight — it's [frame identity is carried, not found](../gloss
     - `reg-view*`, the plain-fn surface beneath the macro, registers a view from a **computed id** or a non-`defn` render fn.
     - `(rf/view id)` resolves a registered view by id at render time.
 
-    That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference under [Tooling / host view registration](../../api/re-frame.core.md); the contract is in [spec 004](../../../spec/004-Views.md).
+    That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference under [Tooling / host view registration](../../api/re-frame.core.md).
 
 ## The one rule: views compute hiccup only
 
@@ -264,7 +264,7 @@ Rule of thumb: if a synthetic prop exists for what you need, use it. If one does
 
     Inside a `reg-view` body the injected `dispatch` happens to survive, because it captured its frame at render time. But the imperative attach is wrong there too: render bodies re-run, each run adds another listener, and nothing ever removes them. Attach through the attrs map either way.
 
-> **Going deeper.** The runtime fails fast rather than synthesising a default frame, and the carried-frame mechanism (a [capture-frame](../glossary.md#capture-frame) closing over the right world) lets a registered effect's closure dispatch back into it — the *carried invariant*. The full account is in [Frames: isolated worlds](frames.md) and [spec 004](../../../spec/004-Views.md).
+> **Going deeper.** The runtime fails fast rather than synthesising a default frame, and the carried-frame mechanism (a [capture-frame](../glossary.md#capture-frame) closing over the right world) lets a registered effect's closure dispatch back into it — the *carried invariant*. The full account is in [Frames: isolated worlds](frames.md).
 
 ## Targeting a different frame, deliberately
 
@@ -281,7 +281,7 @@ This is the deliberate escape hatch, not the daily path — reaching across fram
 
 ## The substrate seam, in one paragraph
 
-Everything upstream of the view — handlers, subscriptions, effects, `app-db` itself — is operations on Clojure data, and never names a rendering library. The one place re-frame2 touches React is the seam where hiccup becomes pixels and a click becomes a dispatch. That seam is an [adapter](../glossary.md#adapter): a small map of functions named once at boot, `(rf/init! reagent-adapter/adapter)`. The adapter is a *value*; the rendering library it binds to — Reagent, UIx, Helix, reagent-slim — is the [substrate](../glossary.md#substrate). Port an app from one substrate to another and your handlers, subs, and `app-db` don't change by a character. Only the `init!` line and the view bodies' notation change, because the view body is the one place the substrate is visible. The practical how-to is [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md); the adapter contract itself is [spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md).
+Everything upstream of the view — handlers, subscriptions, effects, `app-db` itself — is operations on Clojure data, and never names a rendering library. The one place re-frame2 touches React is the seam where hiccup becomes pixels and a click becomes a dispatch. That seam is an [adapter](../glossary.md#adapter): a small map of functions named once at boot, `(rf/init! reagent-adapter/adapter)`. The adapter is a *value*; the rendering library it binds to — Reagent, UIx, Helix, reagent-slim — is the [substrate](../glossary.md#substrate). Port an app from one substrate to another and your handlers, subs, and `app-db` don't change by a character. Only the `init!` line and the view bodies' notation change, because the view body is the one place the substrate is visible. The practical how-to is [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
 
 ## When something renders wrong
 

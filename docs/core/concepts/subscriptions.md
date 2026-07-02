@@ -172,7 +172,7 @@ The choice between the two forms is sharp: **use `:<-` for static inputs; reach 
 
 A few things keep this form predictable. The first trips people up, so it leads:
 
-> **Gotcha — the input function returns *data*, not live subs.** It returns query vectors, never `subscribe` calls. It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape fails loud rather than guessing; the full return grammar and error ids live in the [API reference](../../../spec/API.md#reg-sub-input-production-modes).
+> **Gotcha — the input function returns *data*, not live subs.** It returns query vectors, never `subscribe` calls. It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape fails loud rather than guessing — the next section has the whole grammar.
 
 The other two predictability rules are gentler:
 
@@ -213,7 +213,7 @@ These aren't silent coercions — they [fail loud](../glossary.md#fail-loud-not-
 - A **bad return value** from the input function signals `:rf.error/sub-input-fn-bad-return` when the concrete subscription is first materialised.
 - A **throw inside the input function** signals `:rf.error/sub-input-fn-exception`.
 
-All three are catalogued in [Errors and recovery](errors.md) and the spec's [error-event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). When something computes the wrong thing, that's where to look first.
+All three are catalogued in [Errors and recovery](errors.md). When something computes the wrong thing, that's where to look first.
 
 ## Registration metadata: docs, schema, and classification
 
@@ -237,7 +237,7 @@ The keys you'll reach for:
 - **`:schema`** — a [Malli](https://github.com/metosin/malli) [schema](../glossary.md#schema) (or your implementation's equivalent) describing the sub's **output**. When present, the runtime validates the computed value against it at the `:sub-return` validation boundary — a fail-loud guard that catches a derivation quietly producing the wrong shape, long before a view chokes on it. (`:schema` is the canonical key.) The full schema-everywhere story is in [Validate with schemas](../how-to/validate-with-schemas.md).
 - **`:tags`** — a set of keywords for your own grouping and tooling.
 
-Two metadata keys are specific to subscriptions, both from the [data-classification](../glossary.md#data-classification) model ([EP-0025](../../../spec/015-Data-Classification.md)). They classify the sub's **own output** so the observability pipeline knows what to redact or summarise when it captures a value into a trace:
+Two metadata keys are specific to subscriptions, both from the [data-classification](../glossary.md#data-classification) model. They classify the sub's **own output** so the observability pipeline knows what to redact or summarise when it captures a value into a trace:
 
 - **`:sensitive`** — a vector of paths into the output shape that hold sensitive data (`[[]]` marks the whole output). A sub deriving a token, a card number, or a session secret should classify it so it's elided from traces and recordings.
 - **`:large`** — a vector of paths into the output that are big enough to summarise rather than capture verbatim (a 5,000-row table, a decoded blob).
@@ -282,7 +282,7 @@ There's a sharper, more robust variant when the `db` shape matters. Instead of h
     (is (= 2 (count (rf/compute-sub [:cart/items] (rf/app-db-value f)))))))
 ```
 
-> **Two styles, one rule of thumb.** `compute-sub` against a literal `db` is the escape hatch for very simple readers where the dispatch path adds nothing. For anything that depends on the *shape* events produce, dispatch real events into a frame and read `(rf/app-db-value f)` — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter. The full testing matrix is in [Test an event handler](../how-to/test-an-event-handler.md) and [Spec 008 §Sub testing](../../../spec/008-Testing.md#sub-testing--compute-sub-vs-dispatch-sync--app-db-value).
+> **Two styles, one rule of thumb.** `compute-sub` against a literal `db` is the escape hatch for very simple readers where the dispatch path adds nothing. For anything that depends on the *shape* events produce, dispatch real events into a frame and read `(rf/app-db-value f)` — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter. The full testing matrix is in [Test an event handler](../how-to/test-an-event-handler.md).
 
 > **For JavaScript developers.** This is the payoff of computation functions being pure. There is no React Testing Library, no `renderHook`, no jsdom, no provider wrapper to set up — a subscription test is a plain function call asserting on a plain value, and it runs on the JVM at unit-test speed. The reactive runtime exists only to *cache and notify* in a live app; the *logic* is just data in, data out, testable in isolation.
 
@@ -307,7 +307,7 @@ The framework registers a handful of subscriptions for you — you read subsyste
 - **`[:rf/machine <machine-id>]`** returns a [state machine](../../machines/glossary.md#machine)'s [snapshot](../../machines/glossary.md#snapshot) `{:state :data}` (or `nil` before it's initialised). It's the canonical way to drive a view off a machine.
 - The router publishes a family — **`:rf/route`** (the whole route slice), **`:rf.route/id`**, **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**, **`:rf.route/chain`**, and more — covered in [Routing](../../routing/concepts.md).
 
-These follow the [reserved-namespace convention](../../../spec/Conventions.md): anything under `:rf/…` or `:rf.<subsystem>/…` is framework-owned. Keep your own subs out of that namespace and the two never collide.
+These follow the reserved-namespace convention: anything under `:rf/…` or `:rf.<subsystem>/…` is framework-owned. Keep your own subs out of that namespace and the two never collide.
 
 ## When a subscription is the wrong tool
 
@@ -328,7 +328,7 @@ Three corners you won't need on day one, but will want when something goes sidew
 
 ### When a computation throws
 
-A computation function is just code, and code can throw — a `nil` where you assumed a map, a divide-by-zero in a derived total. re-frame2 treats that as a [fail-loud](../glossary.md#fail-loud-not-silent) event, not a crash: it emits `:rf.error/sub-exception` and **recovers the sub to `nil`**, so the throw can't take down the render. The record is always-on (it reaches your production error listeners — Sentry, Datadog), and its `:where` tag tells you which path threw: `:reactive` for the live cache path a view drives, `:compute-sub` for the pure test/SSR path. Both surface the same way, so a sub that throws mid-render-to-string projects a fail-closed 5xx rather than shipping a silent 200 with `nil`-shaped HTML. Recovery is the framework's built-in "return `nil`"; there's no per-frame recovery policy to configure. The full catalogue entry is in [Errors and recovery](errors.md) and the [error-event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).
+A computation function is just code, and code can throw — a `nil` where you assumed a map, a divide-by-zero in a derived total. re-frame2 treats that as a [fail-loud](../glossary.md#fail-loud-not-silent) event, not a crash: it emits `:rf.error/sub-exception` and **recovers the sub to `nil`**, so the throw can't take down the render. The record is always-on (it reaches your production error listeners — Sentry, Datadog), and its `:where` tag tells you which path threw: `:reactive` for the live cache path a view drives, `:compute-sub` for the pure test/SSR path. Both surface the same way, so a sub that throws mid-render-to-string projects a fail-closed 5xx rather than shipping a silent 200 with `nil`-shaped HTML. Recovery is the framework's built-in "return `nil`"; there's no per-frame recovery policy to configure. The full catalogue entry is in [Errors and recovery](errors.md).
 
 ### When a schema'd sub computes the wrong shape
 

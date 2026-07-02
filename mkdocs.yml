@@ -165,7 +165,7 @@ nav:
     # Human-first structure: quickstart (a taste) -> the loop (the model,
     # on the counter) -> the RealWorld tutorial (build something real) -> the
     # deeper/feature concepts -> how-to recipes -> explanation shelf -> v1
-    # migration -> a thin index into spec/. The fundamentals come BEFORE the
+    # migration -> glossary -> API reference. The fundamentals come BEFORE the
     # tutorial so the reader meets the one-way loop before a real domain.
     - "Quickstart": core/quickstart.md
     - "The loop":
@@ -176,10 +176,10 @@ nav:
       - "Views": core/concepts/views.md
       - "Effects and coeffects": core/concepts/effects-and-coeffects.md
     - "More concepts":
-      - "Interceptors": core/concepts/interceptors.md
       - "Frames": core/concepts/frames.md
-      - "Images": core/concepts/images.md
       - "Flows": core/concepts/flows.md
+      - "Interceptors": core/concepts/interceptors.md
+      - "Images": core/concepts/images.md
       - "Errors": core/concepts/errors.md
       - "Observability": core/concepts/observability.md
     - "How-to":

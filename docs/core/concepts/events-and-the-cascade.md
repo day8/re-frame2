@@ -31,7 +31,7 @@ This is the first load-bearing idea, and it's the one that trips people up comin
 
 > **For JavaScript developers.** A DOM `on-click` usually *does* the work — mutate state, kick off a fetch, maybe both. Here the `on-click` does exactly one thing: it hands a value to `dispatch` and returns. Think of it less like calling a function and more like posting a message to a queue. Whatever the increment *means* lives somewhere else entirely, and the button neither knows nor cares.
 
-> **The canonical shape.** Best practice is `[<id>]` for a trivial event, `[<id> <scalar>]` for one argument, and `[<id> {<k> <v>}]` when you have several — a single map payload rather than positional args. The runtime still *tolerates* variadic `[<id> a b c]` for migration and convenience, but the linter nudges new code toward the map form, because a named map is easier to read, grow, and destructure than a positional tail. (The full convention lives in [Conventions §Canonical event-vector shape](../../../spec/Conventions.md#canonical-event-vector-shape-best-practice).)
+> **The canonical shape.** Best practice is `[<id>]` for a trivial event, `[<id> <scalar>]` for one argument, and `[<id> {<k> <v>}]` when you have several — a single map payload rather than positional args. The runtime still *tolerates* variadic `[<id> a b c]` for migration and convenience, but the linter nudges new code toward the map form, because a named map is easier to read, grow, and destructure than a positional tail.
 
 ## One click, in slow motion
 
@@ -173,7 +173,7 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold, 
 3. **Each row runs to (synchronous) completion before the next.** No interleaving. *Async* work a row kicks off — an outbound request, a `dispatch-later` timer — isn't awaited; "complete" means the effect handler returned.
 4. **Effects see the post-`:db` state.** Because `:db` committed first, a `[:dispatch [:react-to-new-state]]` row dispatches an event whose handler reads the *new* app-db. This is the legitimate way to chain: write state, then dispatch the event that builds on it.
 
-> **Gotcha — an effect throwing does NOT halt the others.** If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, and each error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit (which happened first) is kept. This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, don't express that as two sibling rows; lift the dependent step into a `:dispatch` chain so it observes the result via the queue. (Full contract: [002 §`:fx` ordering and atomicity guarantees](../../../spec/002-Frames.md#fx-ordering-and-atomicity-guarantees).)
+> **Gotcha — an effect throwing does NOT halt the others.** If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, and each error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit (which happened first) is kept. This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, don't express that as two sibling rows; lift the dependent step into a `:dispatch` chain so it observes the result via the queue.
 
 ## The ledger
 
@@ -195,7 +195,7 @@ Hold the promise and a cluster of features stops looking like separate tricks:
 
 ## Run to completion
 
-One scheduling rule deserves a hard stop, because most frameworks choose the other way. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full cascade. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the render boundary arrive. This is the dispatch semantics, not a mode; there is no opt-out. (The normative drain contract lives in [the frames spec](../../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics).)
+One scheduling rule deserves a hard stop, because most frameworks choose the other way. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full cascade. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the render boundary arrive. This is the dispatch semantics, not a mode; there is no opt-out.
 
 What it buys is coherence. If submitting a form dispatches three follow-up events, the view does not glimpse the state after each one. It sees one settled state, once. Either the form is submitting or it's failed, never both in one paint. The flicker-of-intermediate-state bug, familiar from systems where any update can interleave with any render, is structurally absent.
 
@@ -222,7 +222,7 @@ Run-to-completion is unconditional, which raises an obvious question: what if a 
  :last-event [:the-event-that-tripped-it]}
 ```
 
-The important part is what survives. Atomicity in re-frame2 is per [**event**](../glossary.md#commit), not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent. (The exact halt contract: [002 §Run-to-completion](../../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics).)
+The important part is what survives. Atomicity in re-frame2 is per [**event**](../glossary.md#commit), not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent.
 
 > **The bound is per-frame and tunable.** Test and story frames set a tighter `:drain-depth` (so a runaway cascade fails fast rather than spinning to the production limit); you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
 

@@ -158,7 +158,7 @@ Recordable facts ride in one **flat** map on every dispatch [envelope](../glossa
  :rf.cofx {:rf/time-ms 1781078400123}}
 ```
 
-Each child dispatch gets its own fresh stamp, because every event is its own causal token. (The normative contract is [`spec/002-Frames.md`](../../../spec/002-Frames.md).)
+Each child dispatch gets its own fresh stamp, because every event is its own causal token.
 
 > **Coming from XState?** A recordable coeffect is the same idea as reading recorded history instead of the live clock, applied to an event handler: a value stamped once and frozen, so a re-run lands in the same state.
 

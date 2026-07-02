@@ -84,7 +84,7 @@ This is the same `:coeffects` / `:effects` pair you met in [effects and coeffect
 
 That's why our logger's `:before` could read `:event` but our undo example (later) needs `:after` to compare the before-`:db` against the after-`:db`.
 
-> **Going deeper.** The context is a *comonad*-flavoured value: every stage is a function `context -> context`, and composing the whole chain is just folding those functions over one threaded value. Because the value is immutable and each stage is total (`ctx` in, `ctx` out), the chain is a pure transformation — which is exactly what lets [replay, time-travel](../glossary.md#time-travel), and deterministic tests re-run it against recorded inputs and get the same answer every time. The runtime also stages a few framework keys (the [dispatch envelope](../glossary.md#event-envelope) among them) for generic tooling; the normative inventory lives in [the frames spec](../../../spec/002-Frames.md).
+> **Going deeper.** The context is a *comonad*-flavoured value: every stage is a function `context -> context`, and composing the whole chain is just folding those functions over one threaded value. Because the value is immutable and each stage is total (`ctx` in, `ctx` out), the chain is a pure transformation — which is exactly what lets [replay, time-travel](../glossary.md#time-travel), and deterministic tests re-run it against recorded inputs and get the same answer every time. The runtime also stages a few framework keys (the [dispatch envelope](../glossary.md#event-envelope) among them) for generic tooling.
 
 ## The sandwich: how a chain runs
 
@@ -355,4 +355,4 @@ Errors collect on the context — the first throw under `:rf/interceptor-error`,
 - `:rf.error/coeffect-exception` — a coeffect supplier threw during context assembly (before any `:before` ran).
 - `:rf.error/interceptor-exception` — one of *your* interceptor slots threw; it carries the failing interceptor's `:id` and a `:phase` tag that says `:before` or `:after`.
 
-An `:after` that throws is recorded but does **not** abort the remaining `:after` stages — the runtime still drives the rest of the teardown, so one buggy cleanup can't strand the others. The error pages these feed are covered in [errors](errors.md); the normative chain-execution contract is in [the frames spec](../../../spec/002-Frames.md).
+An `:after` that throws is recorded but does **not** abort the remaining `:after` stages — the runtime still drives the rest of the teardown, so one buggy cleanup can't strand the others. The error pages these feed are covered in [errors](errors.md).

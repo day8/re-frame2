@@ -72,7 +72,7 @@ Either accepts the conventional false-y vocabulary — `false`, `0`, `no`, `off`
 
 The flag is read **once**, at namespace load, so set it before `re-frame.interop` loads — i.e. as a real process-level setting, not something you `System/setProperty` after the app has booted. With it off, every JVM-side dev surface drops to the same no-op floor that Closure DCE gives an `:advanced` + `goog.DEBUG=false` browser build: no trace rings, no epoch history retaining user input. The always-on event/error streams and the SSR error projector — the registered projector that turns a server-render failure into a safe, public-facing error page — keep firing; they exist precisely for this posture.
 
-> **Going deeper.** The browser path elides code; the JVM path can't (no Closure pass), so it reads `re-frame.debug` *once* into a plain `def` at namespace load and branches on that constant for the process lifetime. Reading once is deliberate: a per-call check would be a hot-path tax, and a value that can change mid-run would make "is tracing on?" ambiguous. The contract is the same on both substrates — *gated off ⇒ no retention of user input* — only the mechanism differs: DCE on CLJS, a load-time constant on the JVM ([Security.md §Production gates](../../../spec/Security.md#production-gates)).
+> **Going deeper.** The browser path elides code; the JVM path can't (no Closure pass), so it reads `re-frame.debug` *once* into a plain `def` at namespace load and branches on that constant for the process lifetime. Reading once is deliberate: a per-call check would be a hot-path tax, and a value that can change mid-run would make "is tracing on?" ambiguous. The contract is the same on both substrates — *gated off ⇒ no retention of user input* — only the mechanism differs: DCE on CLJS, a load-time constant on the JVM.
 
 ## 4. The dev knobs: three buckets, one rule
 
@@ -134,7 +134,7 @@ Its safety-relevant knob is `:drain-depth`, which comes up next in the guardrail
 
 > **Coming from React?** No `.env` files, no `process.env` reads scattered through the app, no a-context-provider-here-a-prop-there config drift. The closest analogy is a single typed config object — except it's split by *lifetime*: process-global data, swappable services, and per-instance overrides each have their own setter, so two pieces of config can never disagree about who owns a key.
 
-Tune narrowly, usually for one debug session. If the knob you want isn't here, it doesn't exist — new knobs arrive by spec change, not by accumulating flags. Full catalogue: [API.md §Configure keys](../../../spec/API.md#configure-keys).
+Tune narrowly, usually for one debug session. If the knob you want isn't here, it doesn't exist — new knobs arrive by design change, not by accumulating flags. The full key catalogue is [`configure!` in the API reference](../../api/re-frame.core.md).
 
 ## 5. The guardrails you can't turn off
 
@@ -148,9 +148,9 @@ These run in every build, dev and production alike. Each one [fails loud](../glo
 - **Editor-URI scheme rejection** — click-to-source links refuse `javascript:` / `data:` / `vbscript:` schemes (everything else — `vscode:`, `idea:`, `cursor:`, future editor schemes — passes), so a custom editor template can't run script in your dev tab.
 - **The `:rf/*` reserved namespace** — registering anything under an `:rf`-prefixed id is refused territory; one prefix answers "is this framework-owned?".
 
-> **Why always-on, not dev-only?** A guardrail that only runs in development is a guardrail you've disabled for the exact users who can attack you. Each of these defends a *production* threat — a recursive dispatch DoS, a keyword-interning DoS, header injection — so each survives `goog.DEBUG=false` by design. The full threat model behind each lives in [Security.md](../../../spec/Security.md).
+> **Why always-on, not dev-only?** A guardrail that only runs in development is a guardrail you've disabled for the exact users who can attack you. Each of these defends a *production* threat — a recursive dispatch DoS, a keyword-interning DoS, header injection — so each survives `goog.DEBUG=false` by design.
 
-The elision mechanism and the production observability matrix are in [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code).
+The elision mechanism itself — what disappears from a production build, and the two always-on streams that survive — is [Observability](../concepts/observability.md#production-the-wire-disappears--errors-dont)'s territory.
 
 ## The pre-ship checklist
 

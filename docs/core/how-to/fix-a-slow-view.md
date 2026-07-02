@@ -132,7 +132,7 @@ Second, the inline `#(dispatch …)` on the button is correct as written: on a D
 
 > **For JavaScript developers.** "Hand each row an id and let it subscribe to its own slice" is the same instinct as a Redux `connect`-per-row or a per-item `useSelector(s => s.articles[id])` — push the selector down to the leaf so a single-item change can't invalidate the list. The difference: you don't wrap anything in `memo`, and you don't worry about selector identity. The per-slug sub *is* the memo boundary, and it's keyed by the whole [query vector](../glossary.md#query-vector) for free.
 
-> **"But now I have 200 subscriptions — won't they leak?"** No. A subscription's cache key is its whole query vector, so `[:article/by-slug "abc"]` and `[:article/by-slug "xyz"]` are distinct cached entries, and equal subscriptions from multiple readers share one entry. Each entry is ref-counted: when the last reader of a query vector goes away — a row unmounts, the feed shrinks — the entry is evicted *in the same tick*, its reaction disposed, and a `:rf.sub/dispose` trace fires. Scroll a virtualised feed and the per-slug subs come and go with the rows; nothing accumulates. (Mechanics in [spec 006 §Reference counting and disposal](../../../spec/006-ReactiveSubstrate.md#reference-counting-and-disposal).)
+> **"But now I have 200 subscriptions — won't they leak?"** No. A subscription's cache key is its whole query vector, so `[:article/by-slug "abc"]` and `[:article/by-slug "xyz"]` are distinct cached entries, and equal subscriptions from multiple readers share one entry. Each entry is ref-counted: when the last reader of a query vector goes away — a row unmounts, the feed shrinks — the entry is evicted *in the same tick*, its reaction disposed, and a `:rf.sub/dispose` trace fires. Scroll a virtualised feed and the per-slug subs come and go with the rows; nothing accumulates. (The mechanics are in [Subscriptions → Lifecycle](../concepts/subscriptions.md#lifecycle-a-sub-exists-only-while-something-watches-it).)
 
 ### Stable callbacks — only with a measurement
 
@@ -229,7 +229,7 @@ new PerformanceObserver((list) => {
 }).observe({ type: 'measure', buffered: true });   // buffered: replay entries from before this observer attached
 ```
 
-Entry shapes, the observer contract, the bounded-buffer caveat, and the elision guarantees are in [spec 009 — Instrumentation](../../../spec/009-Instrumentation.md).
+The channel is off by default and rides its own compile-time flag, distinct from the dev-trace gate — [Observability](../concepts/observability.md#production-the-wire-disappears--errors-dont) covers what ships and what doesn't.
 
 > **For JavaScript developers.** `rf:` measures are plain [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing) `measure` entries — the same ones React emits, the same ones your APM (Datadog RUM, Sentry, New Relic) already ingests. There's no re-frame2-specific tooling to install on the production side: it's `performance.getEntriesByType('measure')` and a `PerformanceObserver`, exactly as you'd instrument any web app. The framework just gives every event, sub, fx, and render a stable, namespaced entry name for free.
 
