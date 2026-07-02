@@ -4,9 +4,13 @@ Your app shows articles, feeds, profiles. That data's real home is a server, so 
 
 This page builds that idea up one step at a time. We'll register a single server read, trigger a fetch from a route, read the result passively from a view, and render the five statuses the read can be in. Once that loop is solid we'll layer on the harder questions — whose cache is this, what happens at logout, how a write keeps reads honest — each with a small example first. It's the full model behind what [Part 2 of the tutorial](tutorial/02-server-data.md) builds, and the page the rest of this section leans on for definitions.
 
-> **Coming from TanStack Query?** You already know the shape: a keyed cache of server reads with staleness, request deduplication, invalidation, and garbage collection. (RTK Query and SWR are the same family.) Keep that mental model — it carries you most of the way. Three deliberate differences are flagged as `> **Coming from TanStack Query?**` callouts as we go: views never fetch, scope is a required key segment, and invalidation is causal rather than an imperative call you remember to make.
+??? info "Coming from TanStack Query?"
 
-> **Resources are optional — don't reach for them on day one.** Resources ship as a separate, opt-in library (the Maven coordinate `day8/re-frame2-resources`; you switch it on by requiring `re-frame.resources` once at boot). An app with one or two reads is perfectly happy with [a managed HTTP request](../async/http.md) and a small [app-db](../core/glossary.md#app-db) slice, and that's the simpler choice. Reach for resources when cached server reads start *multiplying*; [Where should this value live?](../core/where-state-lives.md) has the decision table.
+    You already know the shape: a keyed cache of server reads with staleness, request deduplication, invalidation, and garbage collection. (RTK Query and SWR are the same family.) Keep that mental model — it carries you most of the way. Three deliberate differences are flagged as `> **Coming from TanStack Query?**` callouts as we go: views never fetch, scope is a required key segment, and invalidation is causal rather than an imperative call you remember to make.
+
+!!! note "Resources are optional — don't reach for them on day one"
+
+    Resources ship as a separate, opt-in library (the Maven coordinate `day8/re-frame2-resources`; you switch it on by requiring `re-frame.resources` once at boot). An app with one or two reads is perfectly happy with [a managed HTTP request](../async/http.md) and a small [app-db](../core/glossary.md#app-db) slice, and that's the simpler choice. Reach for resources when cached server reads start *multiplying*; [Where should this value live?](../core/where-state-lives.md) has the decision table.
 
 ## The cache you don't own
 
@@ -16,7 +20,9 @@ A **[resource](glossary.md#resource)** — a named server read you register once
 
 That cache lives in **[runtime-db](../core/glossary.md#runtime-db)** — the framework-owned half of a [frame](../core/glossary.md#frame) (one running instance of your app), addressed by the projection path `:rf.db/runtime`. The resource cache is one runtime-db subsystem, addressed `:rf.runtime/resources`; [app-db](../core/concepts/app-db.md) introduces [the two partitions](../core/glossary.md#the-two-partitions) in full. It is **not** your app-db — so an ordinary [event handler](../core/glossary.md#event-handler) can't reach in and wipe it by accident. You read it through [subscriptions](../core/glossary.md#subscription) and change it only through [events](../core/glossary.md#event). Same in / out discipline as the rest of re-frame2; only the storage moved next door.
 
-> **Coming from re-frame v1.** You hand-built this: an event fires the HTTP effect, writes a `{:status :data :error}` slice into app-db, and a sub reads it back. Resources keep that causal shape — reads are subs, fetches are events — and move the per-read bookkeeping into the framework.
+??? info "From re-frame v1"
+
+    You hand-built this: an event fires the HTTP effect, writes a `{:status :data :error}` slice into app-db, and a sub reads it back. Resources keep that causal shape — reads are subs, fetches are events — and move the per-read bookkeeping into the framework.
 
 ## Your first resource: register it
 
@@ -42,9 +48,13 @@ Two keys carry the minimum model. `:params-schema` defines the read's *identity*
 
 `reg-resource` records a handler in the [registrar](../core/glossary.md#registrar), exactly like `reg-event` or `reg-sub` does. It does **not** fetch anything, and it does **not** read any cache; it only teaches the runtime *how* to. The cache fills only when a *cause* fires, and a [view](../core/glossary.md#view) only ever sees it through a subscription.
 
-> **Gotcha — the metadata is the middle slot; the request is the third.** The shape is a strict 3-slot grammar: `(rf/reg-resource resource-id metadata request-fn)`. The `:request` fetch function is the **third** slot, *never* a `:request` key inside the metadata map. Putting it in the metadata is a loud `:rf.error/invalid-resource-spec`, not a silent no-op. `reg-mutation` (later) follows the same three-slot shape.
+!!! warning "Gotcha — the metadata is the middle slot; the request is the third"
 
-> **Gotcha — the `_ctx` second argument is reserved, currently `nil`.** Every author-supplied function this artefact calls (`:request`, a scope resolver's `:resolve`) receives a trailing `ctx` that is **literal nil** in this slice — declared for forward-compatibility, not to be relied on. Derive your request from `params` and your scope from declared `:inputs`, never from `ctx`. (The one exception is a route-resource `:params` / `:scope` / `:when` function, which carries a populated route context, because route-entry planning has a real match to thread.)
+    The shape is a strict 3-slot grammar: `(rf/reg-resource resource-id metadata request-fn)`. The `:request` fetch function is the **third** slot, *never* a `:request` key inside the metadata map. Putting it in the metadata is a loud `:rf.error/invalid-resource-spec`, not a silent no-op. `reg-mutation` (later) follows the same three-slot shape.
+
+!!! warning "Gotcha — the `_ctx` second argument is reserved, currently `nil`"
+
+    Every author-supplied function this artefact calls (`:request`, a scope resolver's `:resolve`) receives a trailing `ctx` that is **literal nil** in this slice — declared for forward-compatibility, not to be relied on. Derive your request from `params` and your scope from declared `:inputs`, never from `ctx`. (The one exception is a route-resource `:params` / `:scope` / `:when` function, which carries a populated route context, because route-entry planning has a real match to thread.)
 
 ## Cause it to fetch from a route
 
@@ -64,9 +74,13 @@ On entry, the runtime ensures the resource with the route as its **owner** — t
 
 Navigate to an article page with [Xray](../core/glossary.md#xray) (the dev inspector) open and you can watch the whole [event cascade](../core/glossary.md#event-cascade): the route-entry event row shows the ensure it caused, and the Resources panel shows the entry move from `:idle` through `:loading` to `:loaded`. Visit the same article a second time and you get a cache hit — no network row at all.
 
-> **Coming from TanStack Query?** Difference one of three: **views never fetch.** With `useQuery`, the component fetches on mount. Here a *route entry or event* causes the fetch; the view only reads. That separation is what lets the same view render on the server, in a test, or after a cache hit with no network at all — the render never has a side effect hiding inside it.
+??? info "Coming from TanStack Query?"
 
-> **Coming from re-frame v1.** A route containing `:resources` only validates because the resources artefact teaches the router about that key. The router rejects unknown bare route-metadata keys by default — so if you forget to `(:require [re-frame.resources])` at boot, a route with `:resources` is correctly rejected at registration. That's the [fail-loud](../core/glossary.md#fail-loud-not-silent) ethos: a typo'd or un-loaded feature fails at registration, not as a mysterious empty page. `:resources` sits *beside* `:on-match` (still the canonical hook for arbitrary route-entry work), not in place of it.
+    Difference one of three: **views never fetch.** With `useQuery`, the component fetches on mount. Here a *route entry or event* causes the fetch; the view only reads. That separation is what lets the same view render on the server, in a test, or after a cache hit with no network at all — the render never has a side effect hiding inside it.
+
+??? info "From re-frame v1"
+
+    A route containing `:resources` only validates because the resources artefact teaches the router about that key. The router rejects unknown bare route-metadata keys by default — so if you forget to `(:require [re-frame.resources])` at boot, a route with `:resources` is correctly rejected at registration. That's the [fail-loud](../core/glossary.md#fail-loud-not-silent) ethos: a typo'd or un-loaded feature fails at registration, not as a mysterious empty page. `:resources` sits *beside* `:on-match` (still the canonical hook for arbitrary route-entry work), not in place of it.
 
 ## Read it from a view
 
@@ -89,9 +103,13 @@ A view reads the entry passively, through an ordinary subscription, and never fe
 
 That three-branch `cond` is the canonical render shape, and the next section explains the statuses it's switching on. The thing to notice now is that the view does nothing but *read and render* — no fetch, no effect.
 
-> **Coming from TanStack Query?** There is no `:select` key, and that's deliberate. `useQuery` lets you pass `select` to derive a slice. Here a projection is just an ordinary subscription layered over `[:rf.resource/data …]`, the same way you'd derive anything else in [the derivation graph](../core/glossary.md#the-derivation-graph) — which already gives you memoised, shared, re-render-minimal derivations for free. A query-local `:select` would be a worse version of a thing you already have.
+??? info "Coming from TanStack Query?"
 
-> **Gotcha — no subscription ever fetches.** This is the rule that surprises query-library refugees most. A subscription that finds no entry reads `:idle` and *stays* `:idle` until a route entry, an event, or a [machine](../machines/glossary.md#machine) causes the fetch. So "I registered the resource but my view is a permanent skeleton" almost always means a cause hasn't fired yet — you're missing a cause, not a sub.
+    There is no `:select` key, and that's deliberate. `useQuery` lets you pass `select` to derive a slice. Here a projection is just an ordinary subscription layered over `[:rf.resource/data …]`, the same way you'd derive anything else in [the derivation graph](../core/glossary.md#the-derivation-graph) — which already gives you memoised, shared, re-render-minimal derivations for free. A query-local `:select` would be a worse version of a thing you already have.
+
+!!! warning "Gotcha — no subscription ever fetches"
+
+    This is the rule that surprises query-library refugees most. A subscription that finds no entry reads `:idle` and *stays* `:idle` until a route entry, an event, or a [machine](../machines/glossary.md#machine) causes the fetch. So "I registered the resource but my view is a permanent skeleton" almost always means a cause hasn't fired yet — you're missing a cause, not a sub.
 
 ### Three lanes — registering, causing, projecting
 
@@ -121,7 +139,9 @@ Two invariants keep views simple. First, **`:error` is reserved for first-load f
 
 The derived booleans — `:loading?`, `:fetching?`, `:has-data?`, `:stale?` — exist so a view never has to reverse-engineer those two rules. That's why the canonical `cond` reads them directly rather than matching on `:status`.
 
-> **Going deeper.** That status enum is the *data lifecycle* only — a real page renders from this cache entry *plus* its own app-db (cardinality, form, and domain state), so the page's render decision is one derivation over both. [Part 2](tutorial/02-server-data.md) builds that full set of nine page states.
+??? note "Going deeper"
+
+    That status enum is the *data lifecycle* only — a real page renders from this cache entry *plus* its own app-db (cardinality, form, and domain state), so the page's render decision is one derivation over both. [Part 2](tutorial/02-server-data.md) builds that full set of nine page states.
 
 ## The full read and command surface
 
@@ -161,7 +181,9 @@ You now have the working loop. Here is the rest of the vocabulary, in one place,
 
 The most common one after `ensure` is **`:rf.resource/refetch`** — your "pull to refresh" / manual refresh button. It forces a new generation and supersedes any in-flight attempt, so a user mashing the refresh button never stacks requests. Pass a `:cause [:manual :article/refresh]` so the trace can explain the fetch; don't pass an `:owner` (a refresh keeps nothing alive — it just refreshes what's already owned).
 
-> **Going deeper — `resource-state` and `mutation-state` are tool/test projections, not a second app-read API.** You'll also find direct functions — `(rf/resource-state {:resource … :scope … :params … :frame …})`, `(rf/resources {:frame …})`, `(rf/resource-meta :realworld/article)`, `(rf/mutation-state {:instance … :frame …})`, `(rf/mutations {:frame …})`. The `*-meta` functions project the *registration*; `*-state` / `resources` / `mutations` project the *same runtime state* the `[:rf.resource/*]` subscriptions read, but as a one-shot, non-reactive snapshot at an explicit frame. They exist for tools (Xray), unit tests, and SSR serialization — places with no reactive subscription context. **In a view, always project through a subscription:** a `resource-state` call won't re-render when the data changes, so reaching for it in UI is reading the right value through the wrong lane. (And `:frame` is an explicit, app-registered frame id — there's no ambient default, so a frameless introspection call with no resolvable context [fails closed](../core/glossary.md#fail-loud-not-silent) rather than peeking at the wrong frame.)
+??? note "Going deeper"
+
+    You'll also find direct functions — `(rf/resource-state {:resource … :scope … :params … :frame …})`, `(rf/resources {:frame …})`, `(rf/resource-meta :realworld/article)`, `(rf/mutation-state {:instance … :frame …})`, `(rf/mutations {:frame …})`. The `*-meta` functions project the *registration*; `*-state` / `resources` / `mutations` project the *same runtime state* the `[:rf.resource/*]` subscriptions read, but as a one-shot, non-reactive snapshot at an explicit frame. They exist for tools (Xray), unit tests, and SSR serialization — places with no reactive subscription context. **In a view, always project through a subscription:** a `resource-state` call won't re-render when the data changes, so reaching for it in UI is reading the right value through the wrong lane. (And `:frame` is an explicit, app-registered frame id — there's no ambient default, so a frameless introspection call with no resolvable context [fails closed](../core/glossary.md#fail-loud-not-silent) rather than peeking at the wrong frame.)
 
 ## Freshness and lifetime: the policy keys
 
@@ -196,7 +218,9 @@ The full **registration metadata** is small and worth knowing in one glance. The
 | `:transport` | no | `:rf.http/managed` is the only built-in (and the default); the model is transport-neutral so a later transport can plug in. |
 | `:infinite` | no | `true` registers a load-more / infinite-scroll feed instead of a keyed cache — a different kind, with its own `:next-page-param` / `:page->items` keys and `load-more` surface. See [Infinite feeds](#infinite-feeds-accumulate-pages-with-infinite). |
 
-> **Gotcha — the `:request` function describes the domain request only.** It MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`: the runtime owns reply addressing (it threads those from the scoped key and current generation, which is what makes stale-reply suppression airtight), and an args map that supplies them is rejected. Cross-cutting decoration — auth headers, tracing, a base URL, a default retry — belongs in a frame-registered `reg-http-interceptor` that decorates *every* managed request, not copied into each resource's `:request`.
+!!! warning "Gotcha — the `:request` function describes the domain request only"
+
+    It MUST NOT supply `:request-id`, `:on-success`, or `:on-failure`: the runtime owns reply addressing (it threads those from the scoped key and current generation, which is what makes stale-reply suppression airtight), and an args map that supplies them is rejected. Cross-cutting decoration — auth headers, tracing, a base URL, a default retry — belongs in a frame-registered `reg-http-interceptor` that decorates *every* managed request, not copied into each resource's `:request`.
 
 ## The scoped key: a leak boundary that fails closed
 
@@ -239,9 +263,13 @@ There's one honest consequence of "subscriptions are passive": a re-keyed subscr
 
 There is a third `:scope` policy for the resource that legitimately has *no* fixed answer of its own — **`:rf.scope/from-caller`**. Instead of declaring `:rf.scope/global` or naming a resolver, the resource *defers the scope to its use site*: every `ensure` / refetch / `:rf.resource/state` call MUST supply `:scope` on the payload (or a route resolver must supply it). This suits a reusable read that different callers legitimately scope differently — the resource owns no scope policy, so it demands one at every call. It keeps the same fail-closed floor: a `from-caller` resource reached with no payload `:scope` and no route resolver is a loud use-time error, `:rf.error/resource-scope-required-from-caller` — never a silent global read.
 
-> **Coming from TanStack Query?** Difference two of three: **scope is a required, structural key segment.** In a query-key library the viewer id is one segment you assemble by hand at every call site — forget it once and one user silently reads another's cache. Here scope is a required declaration at registration, with no default. A read that can't resolve its scope raises a structured error; it **never** falls through to a silent shared read. The failure mode is loud, not leaky.
+??? info "Coming from TanStack Query?"
 
-> **Going deeper — the shape of the whole boundary.** A scope you *forgot* is a registration or read error; a scope you got *wrong* is a dev warning at the moment it bites; a scope you supplied with a *typo* (a `:rf.scope/*` keyword outside the closed enum) is rejected loudly wherever it appears. There is, by construction, no path from any of these to "served another user's cache." The full table of these signals is in [When it fails loud](#when-it-fails-loud--the-errors-and-warnings) below — but the property worth carrying now is that every footgun on this boundary has been moved from "silent leak" to "loud failure."
+    Difference two of three: **scope is a required, structural key segment.** In a query-key library the viewer id is one segment you assemble by hand at every call site — forget it once and one user silently reads another's cache. Here scope is a required declaration at registration, with no default. A read that can't resolve its scope raises a structured error; it **never** falls through to a silent shared read. The failure mode is loud, not leaky.
+
+??? note "Going deeper — the shape of the whole boundary"
+
+    A scope you *forgot* is a registration or read error; a scope you got *wrong* is a dev warning at the moment it bites; a scope you supplied with a *typo* (a `:rf.scope/*` keyword outside the closed enum) is rejected loudly wherever it appears. There is, by construction, no path from any of these to "served another user's cache." The full table of these signals is in [When it fails loud](#when-it-fails-loud--the-errors-and-warnings) below — but the property worth carrying now is that every footgun on this boundary has been moved from "silent leak" to "loud failure."
 
 ## Logout is one causal event
 
@@ -261,7 +289,9 @@ The classic cross-session leak — user B sees user A's dashboard — has a stru
 
 `clear-scope` removes every entry in that scope, releases its owners, and aborts or suppresses its in-flight requests. It leaves every other scope untouched, including still-valid global reads like article lists.
 
-> **Coming from TanStack Query?** In the query-key world, logout is either `queryClient.clear()` (which drops the *global* cache too) or a hand-maintained list of keys to forget — both more brittle than clearing one scope. Here the leak boundary you declared at registration *is* the teardown boundary at logout.
+??? info "Coming from TanStack Query?"
+
+    In the query-key world, logout is either `queryClient.clear()` (which drops the *global* cache too) or a hand-maintained list of keys to forget — both more brittle than clearing one scope. Here the leak boundary you declared at registration *is* the teardown boundary at logout.
 
 ## Owners and causes, and the refetch rules
 
@@ -332,7 +362,9 @@ The route example earlier ensured a single resource. A real page often needs sev
 
 `:keep-previous? true` on a paginated list keeps the prior page visible while the next one loads, so paging never flashes a skeleton ([Paginate a feed](how-to/paginate-a-feed.md) is the recipe). The prior data arrives in the new entry's `:rf.resource/state` projection as `:previous?`, `:previous-key`, and `:previous-data` — a *read* from the old key, never merged into the new entry, so it can't pollute the new key's tags.
 
-> **Coming from TanStack Query?** `:after` orders *dispatch*, not data. If you've used `enabled` to chain dependent queries, hold the shape but adjust the promise: `:after` guarantees the *ensure* of a dependent entry is dispatched after the one it names — so the dependency's fetch kicks off first — but the route plan is a pure synchronous planner that resolves *every* entry's params at route entry, before anything settles. A later entry's params therefore **cannot** depend on an earlier entry's loaded *data* (that's a data-waterfall, a deferred slice). `:after` must target a route-local `:id`; a dangling target or a cycle is a loud route-planning error, never a silent fall-back to declaration order.
+??? info "Coming from TanStack Query?"
+
+    `:after` orders *dispatch*, not data. If you've used `enabled` to chain dependent queries, hold the shape but adjust the promise: `:after` guarantees the *ensure* of a dependent entry is dispatched after the one it names — so the dependency's fetch kicks off first — but the route plan is a pure synchronous planner that resolves *every* entry's params at route entry, before anything settles. A later entry's params therefore **cannot** depend on an earlier entry's loaded *data* (that's a data-waterfall, a deferred slice). `:after` must target a route-local `:id`; a dangling target or a cycle is a loud route-planning error, never a silent fall-back to declaration order.
 
 ## Writes invalidate by tag — causally
 
@@ -354,7 +386,9 @@ A read is half the story; eventually you favorite an article, post a comment, ed
      :decode  :json}))
 ```
 
-> **Coming from TanStack Query?** Difference three of three: **invalidation is causal.** In TanStack Query, keeping reads honest after a write is an imperative `queryClient.invalidateQueries(...)` you remember to make in `onSuccess`. Here it's a declared consequence of a named write, visible on the event record — there's nothing to remember and nothing to forget.
+??? info "Coming from TanStack Query?"
+
+    Difference three of three: **invalidation is causal.** In TanStack Query, keeping reads honest after a write is an imperative `queryClient.invalidateQueries(...)` you remember to make in `onSuccess`. Here it's a declared consequence of a named write, visible on the event record — there's nothing to remember and nothing to forget.
 
 A mutation's success-phase plan has four declarative arms, and they run in a fixed order before the success-time invalidation:
 
@@ -367,18 +401,20 @@ The `target` in `:populates` / `:patches` / `:removes` is a **map** — `{:resou
 
 Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success` (the default), `:before-request`, `:after-failure`, or `:after-settle`. Entries with live owners refetch; unowned entries are marked stale and refetch when next ensured. Invalidation is **scoped by default**, so a write can't accidentally stale another tenant's cache.
 
-> **Gotcha — match the scope or the invalidation silently misses.** A mutation's `:invalidates` matches only entries *in the mutation's resolved scope*. If a `:rf.scope/global`-defaulted mutation invalidates a tag owned by a session-scoped read (or the reverse), no entry matches, nothing refreshes, and **no error is raised** — it's a legitimate "no match in this scope." When a write affects session- or tenant-scoped reads, name the matching scope on the execute payload, or — cleaner — use the **per-target descriptor form**, where each descriptor carries its own scope:
->
-> ```clojure
-> :invalidates
-> (fn [{:keys [slug]} _result]
->   [{:scope :rf.scope/global              ;; global facts
->     :tags  #{[:article slug] [:article-list]}}
->    {:scope {:from-db :realworld/session} ;; viewer-relative facts
->     :tags  #{[:feed]}}])
-> ```
->
-> In dev, a mismatch trips a `:rf.warning/mutation-scope-mismatch` warning at the moment it misses, so the silent case becomes loud. The genuinely-broad "invalidate this tag wherever it lives" operation is the separate, *audited* `:cross-scope? true` escape — it must carry a `:cause` and shows up in Xray.
+!!! warning "Gotcha — match the scope or the invalidation silently misses"
+
+    A mutation's `:invalidates` matches only entries *in the mutation's resolved scope*. If a `:rf.scope/global`-defaulted mutation invalidates a tag owned by a session-scoped read (or the reverse), no entry matches, nothing refreshes, and **no error is raised** — it's a legitimate "no match in this scope." When a write affects session- or tenant-scoped reads, name the matching scope on the execute payload, or — cleaner — use the **per-target descriptor form**, where each descriptor carries its own scope:
+
+    ```clojure
+    :invalidates
+    (fn [{:keys [slug]} _result]
+      [{:scope :rf.scope/global              ;; global facts
+        :tags  #{[:article slug] [:article-list]}}
+       {:scope {:from-db :realworld/session} ;; viewer-relative facts
+        :tags  #{[:feed]}}])
+    ```
+
+    In dev, a mismatch trips a `:rf.warning/mutation-scope-mismatch` warning at the moment it misses, so the silent case becomes loud. The genuinely-broad "invalidate this tag wherever it lives" operation is the separate, *audited* `:cross-scope? true` escape — it must carry a `:cause` and shows up in Xray.
 
 ### Running a mutation and reading its state
 
@@ -416,7 +452,9 @@ A view reads the instance's progress through `:rf.mutation/state` (or the narrow
 
 `:rf.mutation/state` projects `{:status :result :error :pending? :success? :error? :settled? :optimistic?}`. A failed write settles `:error` (there's no `:refresh-error` analogue — a write has no last-known-good to keep). `[:rf.mutation/clear {:instance …}]` is the causal reset: it clears the instance row and best-effort aborts in-flight work — the idiom for "dismiss this error and let the form retry cleanly."
 
-> **Going deeper — `:reply-to` is a call-site event target, not a callback.** A verified mutation reply is ordinary causal input, so a continuation can only drive durable state by dispatching an event — never by returning effects from a callback (that would escape the event tape, interceptors, and replay). When the reply is accepted, the runtime dispatches your `:reply-to` target with the canonical reply map *appended* as the final argument: `:reply-to [:favorite/replied slug]` dispatches `[:favorite/replied slug reply]`. The reply map carries `:status`, `:value` (on `:ok`), `:error` (on `:error`), `:mutation`, `:instance`, `:affected-keys`, and the carried frame stamp. The continuation fires **exactly once for an accepted terminal reply** and **never** for a stale/superseded one (a re-execute under the same instance, or a `:rf.mutation/clear`) — you inherit stale-suppression for free. By the time it runs, cache consequences and the instance row are already settled, so a `:reply-to` handler sees the world fully reconciled. Use it for workflow that *isn't* cache state — a toast, a redirect, focusing the next field.
+??? note "Going deeper — `:reply-to` is a call-site event target, not a callback"
+
+    A verified mutation reply is ordinary causal input, so a continuation can only drive durable state by dispatching an event — never by returning effects from a callback (that would escape the event tape, interceptors, and replay). When the reply is accepted, the runtime dispatches your `:reply-to` target with the canonical reply map *appended* as the final argument: `:reply-to [:favorite/replied slug]` dispatches `[:favorite/replied slug reply]`. The reply map carries `:status`, `:value` (on `:ok`), `:error` (on `:error`), `:mutation`, `:instance`, `:affected-keys`, and the carried frame stamp. The continuation fires **exactly once for an accepted terminal reply** and **never** for a stale/superseded one (a re-execute under the same instance, or a `:rf.mutation/clear`) — you inherit stale-suppression for free. By the time it runs, cache consequences and the instance row are already settled, so a `:reply-to` handler sees the world fully reconciled. Use it for workflow that *isn't* cache state — a toast, a redirect, focusing the next field.
 
 The operational details — instance-keyed pending state, the full `:reply-to` reply-map fields, seeding the cache from the reply — live in [Part 4](tutorial/04-mutations-and-invalidation.md) and [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
 
@@ -458,15 +496,21 @@ Settle is deterministic, decided on recorded facts (the generation acceptance ve
 
 A view renders the in-flight optimistic state from the instance sub's derived **`:optimistic?`** flag.
 
-> **Coming from TanStack Query?** This is the re-frame2 counterpart of `onMutate`/`onError` rollback (and SWR's `optimisticData` + `rollbackOnError`). The one deliberate divergence is a *contested* rollback — a concurrent write landed on the entry between your apply and the failure. `:on-conflict` governs it: the default **`:invalidate`** declines to restore a now-stale inverse and instead marks the entry stale so the read path refetches the authoritative value (re-frame2's deliberate departure from the query libraries' unconditional context-restore); `:force` restores the inverse anyway (the single-writer escape, with a tooling warning).
+??? info "Coming from TanStack Query?"
 
-> **Going deeper.** The settle decision runs entirely on recorded facts — the generation acceptance verdict and the per-entry `:revision` the conflict check compares against — so it never depends on the wall clock. A malformed optimistic descriptor (a bad target, a scope that doesn't resolve) is warned and skipped per descriptor rather than half-applying the plan.
+    This is the re-frame2 counterpart of `onMutate`/`onError` rollback (and SWR's `optimisticData` + `rollbackOnError`). The one deliberate divergence is a *contested* rollback — a concurrent write landed on the entry between your apply and the failure. `:on-conflict` governs it: the default **`:invalidate`** declines to restore a now-stale inverse and instead marks the entry stale so the read path refetches the authoritative value (re-frame2's deliberate departure from the query libraries' unconditional context-restore); `:force` restores the inverse anyway (the single-writer escape, with a tooling warning).
+
+??? note "Going deeper"
+
+    The settle decision runs entirely on recorded facts — the generation acceptance verdict and the per-entry `:revision` the conflict check compares against — so it never depends on the wall clock. A malformed optimistic descriptor (a bad target, a scope that doesn't resolve) is warned and skipped per descriptor rather than half-applying the plan.
 
 ## SSR and hydration
 
 On the server, each request renders in its own [frame](../core/glossary.md#frame) — which matters, because a process-global cache would itself be a cross-user leak. Blocking route resources are the render's wait point. Every durable entry present at serialize time rides the projection, not just the blocking ones — a non-blocking resource that happened to settle before render serializes exactly like a blocking one, and one still in flight simply has no `:data` to ship yet (the client refetches it on hydration if the route still needs it). The settled entries are serialized (sensitive data redacted) and shipped with the page, and on the client, [hydration](../ssr/glossary.md#hydration) installs them under the same freshness rules. A hydrated entry that's still fresh is **not** refetched, so there's no duplicate-fetch flash on first paint; a stale one background-refreshes by policy. Hydration never crosses scopes — the serialized scope and the client's resolved scope must agree before hydrated data is usable. The mental model is in [Server-side rendering](../ssr/concepts.md), and `examples/capabilities/ssr/resources_ssr/` is the worked demo.
 
-> **Gotcha — a blocking SSR resource needs a deadline, not an open wait.** `:blocking? true` holds the render until the read settles, so a slow upstream can't be allowed to hang the request forever. A blocking resource that exceeds the render deadline settles as a structured first-load failure for that SSR frame — an `:error` envelope `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}` (the `:kind` stays inside the closed `:rf.http/*` taxonomy; the `:reason` lets your [error projector](../core/glossary.md#registration) tell an SSR-deadline failure apart from a genuine upstream timeout). The renderer then chooses error markup, a skeleton, or an app fallback; the client picks the read up again on hydration.
+!!! warning "Gotcha — a blocking SSR resource needs a deadline, not an open wait"
+
+    `:blocking? true` holds the render until the read settles, so a slow upstream can't be allowed to hang the request forever. A blocking resource that exceeds the render deadline settles as a structured first-load failure for that SSR frame — an `:error` envelope `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}` (the `:kind` stays inside the closed `:rf.http/*` taxonomy; the `:reason` lets your [error projector](../core/glossary.md#registration) tell an SSR-deadline failure apart from a genuine upstream timeout). The renderer then chooses error markup, a skeleton, or an app fallback; the client picks the read up again on hydration.
 
 ## When it fails loud — the errors and warnings
 
@@ -534,11 +578,17 @@ A view reads the feed through a small infinite-specific projection family — al
 
 `:rf.resource/items` is the headline read — the flat list every feed view wants (the thing a TanStack user reaches for `.flatMap(p => p.items)` to get). The narrower `:rf.resource/pages`, `:has-next-page?`, `:fetching-next?`, `:page-count`, and `:page-error` exist so a view subscribes to just the fact it cares about. A worked feed view renders `:items`, shows a spinner while `:fetching-next?`, a "Load more" button (dispatching `:rf.resource/load-more`) while `:has-next-page?`, and an end-of-feed marker otherwise.
 
-> **Coming from TanStack Query?** This is `useInfiniteQuery`. `:next-page-param` is `getNextPageParam(lastPage, allPages)` — with two deliberate alignments: re-frame2 standardises the terminal on **`nil`** (not `undefined` / an empty page) and additionally hands you `:has-next-page?` so a view never re-derives "are we at the end". The merge that TanStack leaves to your render (`pages.flatMap(...)`) is the framework-owned, memoised `:rf.resource/items` here.
+??? info "Coming from TanStack Query?"
 
-> **Gotcha — the third error channel: `:page-error`.** A *load-more* page-fetch failure is **not** a feed first-load failure and **not** a whole-feed refresh failure. The feed stays `:loaded`, **keeps every accumulated page**, and records the failure in `:page-error` — so the view shows "couldn't load more — retry" without losing the list the user already scrolled. It's cleared by the next successful load-more or whole-feed load. (First-load failure is still `:error`; a failed background refresh of the whole feed is still `:refresh-error`.)
+    This is `useInfiniteQuery`. `:next-page-param` is `getNextPageParam(lastPage, allPages)` — with two deliberate alignments: re-frame2 standardises the terminal on **`nil`** (not `undefined` / an empty page) and additionally hands you `:has-next-page?` so a view never re-derives "are we at the end". The merge that TanStack leaves to your render (`pages.flatMap(...)`) is the framework-owned, memoised `:rf.resource/items` here.
 
-> **Gotcha — `:page->items` is required, not guessed.** If a page is already a vector it flattens by identity. If a page is *enveloped* (`{:items [...] :page-info {…}}`), you **must** declare a `:page->items` accessor — a keyword key or `(fn [page] …)`; the framework will not guess `:items` / `:data`. A non-vector page with no accessor is a loud registration error (`:rf.error/infinite-missing-page-accessor`), the same fail-loud floor as a missing `:next-page-param` (`:rf.error/infinite-missing-next-page-param`).
+!!! warning "Gotcha — the third error channel: `:page-error`"
+
+    A *load-more* page-fetch failure is **not** a feed first-load failure and **not** a whole-feed refresh failure. The feed stays `:loaded`, **keeps every accumulated page**, and records the failure in `:page-error` — so the view shows "couldn't load more — retry" without losing the list the user already scrolled. It's cleared by the next successful load-more or whole-feed load. (First-load failure is still `:error`; a failed background refresh of the whole feed is still `:refresh-error`.)
+
+!!! warning "Gotcha — `:page->items` is required, not guessed"
+
+    If a page is already a vector it flattens by identity. If a page is *enveloped* (`{:items [...] :page-info {…}}`), you **must** declare a `:page->items` accessor — a keyword key or `(fn [page] …)`; the framework will not guess `:items` / `:data`. A non-vector page with no accessor is a loud registration error (`:rf.error/infinite-missing-page-accessor`), the same fail-loud floor as a missing `:next-page-param` (`:rf.error/infinite-missing-next-page-param`).
 
 A few load-bearing edges: an `:rf.resource/ensure` (or a blocking route entry) on an infinite resource fetches **page 0 only** — it doesn't re-fetch the accumulation. A `:refetch` of a feed defaults to **window-preserving** (the visible pages stay rendered until their replacement succeeds, so a focus/reconnect refetch never collapses the feed back to page 0); `:refetch-all-pages?` and `:refetch-window` are the opt-ins. And a mutation that touches one item *inside* a feed invalidates the **whole feed** in this slice (coarse but correct) rather than patching one element in place. Two edges are named but deferred or niche: a backward `:rf.resource/load-prev` is reserved for a later slice, and a per-page `:page-data-schema` carries the egress classification for page data. [Paginate a feed](how-to/paginate-a-feed.md) is the worked recipe for both pagination shapes.
 
@@ -550,4 +600,6 @@ Resources earn their keep when cached server reads multiply. When they don't, re
 - **Login and other commands.** Auth is a [state machine](../machines/glossary.md#machine) driving a write — don't contort it into a cached read.
 - **GraphQL.** The transport is HTTP-only for now; GraphQL is a planned later phase.
 
-> **Don't avoid resources just because a write needs to feel instant.** A mutation *can* flip the UI immediately and reconcile when the server replies — see [Optimistic writes commit, roll back, or reconcile](#optimistic-writes-commit-roll-back-or-reconcile) above. That's a property of the mutation, not a reason to keep server state out of the cache.
+!!! note "Don't avoid resources just because a write needs to feel instant"
+
+    A mutation *can* flip the UI immediately and reconcile when the server replies — see [Optimistic writes commit, roll back, or reconcile](#optimistic-writes-commit-roll-back-or-reconcile) above. That's a property of the mutation, not a reason to keep server state out of the cache.

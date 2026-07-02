@@ -13,7 +13,9 @@ And one thing genuinely shifts:
 
 If you internalise just that last bullet, the table below is mostly vocabulary.
 
-> **Parity reference: the XState v6 direction.** Where this page says "XState," the behavioural baseline is the **v6** design direction (plain guard/action functions over a declarative topology, broader optional schemas, explicit timeouts, choice states, private internal events, event-shaped completion) — not v5's helper-creator API. The posture is *behavioural parity, not API mimicry*: re-frame2 aligns semantics and records each intentional divergence rather than cloning JavaScript runtime shapes. When your training recalls a v5 helper (`assign`, `sendTo`, `raise`, `and`/`or`/`not`/`stateIn`, `setup()`), reach for the data-first re-frame2 form below.
+!!! note "Parity reference: the XState v6 direction"
+
+    Where this page says "XState," the behavioural baseline is the **v6** design direction (plain guard/action functions over a declarative topology, broader optional schemas, explicit timeouts, choice states, private internal events, event-shaped completion) — not v5's helper-creator API. The posture is *behavioural parity, not API mimicry*: re-frame2 aligns semantics and records each intentional divergence rather than cloning JavaScript runtime shapes. When your training recalls a v5 helper (`assign`, `sendTo`, `raise`, `and`/`or`/`not`/`stateIn`, `setup()`), reach for the data-first re-frame2 form below.
 
 ## The mapping
 

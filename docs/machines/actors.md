@@ -57,7 +57,9 @@ The map under `:spawn` accepts:
 
 `:on-done` / `:on-error` are the completion story — they pair with the child declaring a `:final?` leaf, and they get [their own section below](#when-a-child-finishes). The [API reference](../api/re-frame.machines.md) lists the exact shapes.
 
-> **One `:spawn` per state.** A state node carries at most one `:spawn` — for multiple children, use a compound state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all) for parallelism. Events aren't auto-forwarded to children — forward them explicitly with `:fx [[:dispatch [child-id ev]]]`. To observe a child's snapshot, read it with the `[:rf/machine actor-id]` subscription.
+!!! note "One `:spawn` per state"
+
+    A state node carries at most one `:spawn` — for multiple children, use a compound state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all) for parallelism. Events aren't auto-forwarded to children — forward them explicitly with `:fx [[:dispatch [child-id ev]]]`. To observe a child's snapshot, read it with the `[:rf/machine actor-id]` subscription.
 
 ---
 
@@ -92,7 +94,9 @@ The child reads these as ordinary `:data` lookups inside its actions. Here's the
     :open    {:on {:send {:action :send-via-socket}}}}})
 ```
 
-> **Addressing the parent.** A child can address its parent without being told who it is — the runtime stamps `:rf/parent-id` and the child reads it. **Caveat:** the stamp is written **only on the declarative `:spawn` / `:spawn-all` path**. A *hand-emitted* `[:rf.machine/spawn …]` (next section) records only `:rf/self-id` — there's no structural parent — so a hand-spawned child must be handed a correspondent address through its `:data`.
+!!! note "Addressing the parent"
+
+    A child can address its parent without being told who it is — the runtime stamps `:rf/parent-id` and the child reads it. **Caveat:** the stamp is written **only on the declarative `:spawn` / `:spawn-all` path**. A *hand-emitted* `[:rf.machine/spawn …]` (next section) records only `:rf/self-id` — there's no structural parent — so a hand-spawned child must be handed a correspondent address through its `:data`.
 
 ---
 
@@ -257,7 +261,9 @@ The runtime knows how to release exactly **three** framework-managed resource ki
 - **Armed `:after` timers** the actor scheduled — cancelled, so a killed worker won't wake up later.
 - **`:rf.resource/*` owner leases** the actor holds.
 
-> **Auto-cancel covers three resource kinds.** re-frame2 auto-cancels exactly the three kinds above — the ones the framework manages, and so knows how to release. **Anything else** the child holds — a raw `setInterval`, a `js/WebSocket`, a Web Worker, a third-party SDK subscription — you release yourself, in the child's **`:exit` action**. It runs on every destroy cascade, so one line covers all five triggers:
+!!! note "Auto-cancel covers three resource kinds"
+
+    re-frame2 auto-cancels exactly the three kinds above — the ones the framework manages, and so knows how to release. **Anything else** the child holds — a raw `setInterval`, a `js/WebSocket`, a Web Worker, a third-party SDK subscription — you release yourself, in the child's **`:exit` action**. It runs on every destroy cascade, so one line covers all five triggers:
 
 ```clojure
 {:connected

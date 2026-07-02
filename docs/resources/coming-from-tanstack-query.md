@@ -208,7 +208,9 @@ re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in te
 
 The two whole-view-model reads also carry an additive named sugar — `@(resources/sub-resource query)` for `[:rf.resource/state …]` and `@(resources/sub-mutation instance-id)` for `[:rf.mutation/state …]` — each expanding to exactly the subscription above; in a view that's the form you'd reach for now. The narrower projection subs (`[:rf.resource/data …]`) and the single-fact reads have no sugar — they stay vectors.
 
-> **The whole `rf/` resource surface is the optional Resources artefact** — late-bound by `day8/re-frame2-resources`, absent from an app that never requires it. The introspection accessors (`rf/resource-meta`, `rf/resource-state`, `rf/resources`) are the tool/test projection lane, not an app-read API; a view that reaches for them instead of a subscription is a category error (they take a one-shot snapshot and never re-render).
+!!! note "The whole `rf/` resource surface is the optional Resources artefact"
+
+    — late-bound by `day8/re-frame2-resources`, absent from an app that never requires it. The introspection accessors (`rf/resource-meta`, `rf/resource-state`, `rf/resources`) are the tool/test projection lane, not an app-read API; a view that reaches for them instead of a subscription is a category error (they take a one-shot snapshot and never re-render).
 
 Three command names earn a sentence each, because a query-library reader reaches for them and the mapping isn't obvious:
 

@@ -6,7 +6,9 @@ re-frame2's answer: run the same [event handlers](../core/glossary.md#event-hand
 
 This page is the model, in the order the ideas depend on each other: why the same code can run on a server at all, what one request does from arrival to teardown, the two halves of the handshake (the server's payload, the client's hydrate), and then the production concerns one at a time — the mismatch detector, platform gating, response control, head metadata, error handling, streaming. If you'd rather *build* it first and read the model after, do the [tutorial](tutorial.md) — it wires everything on this page end to end, by hand.
 
-> **For JavaScript developers.** Coming from Next.js or Remix? You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming — and you drop the separate server layer. A "loader" is your ordinary event handlers running in a per-request frame. Streaming is one hiccup marker, not a component API. [Coming from Next.js](coming-from-nextjs.md) is the full translation.
+??? info "For JavaScript developers"
+
+    Coming from Next.js or Remix? You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming — and you drop the separate server layer. A "loader" is your ordinary event handlers running in a per-request frame. Streaming is one hiccup marker, not a component API. [Coming from Next.js](coming-from-nextjs.md) is the full translation.
 
 ## Why the same code runs on a JVM
 
@@ -20,7 +22,9 @@ So the question "can this code run on the server?" is answered once, structurall
 
 The SSR surface ships as its own artefact (`day8/re-frame2-ssr`, plus `day8/re-frame2-ssr-ring` for the Ring host adapter), so apps that never render server-side carry not one byte of it in their client bundle.
 
-> **For JavaScript developers.** In a typical Next.js codebase the same component renders on both sides, but you litter it with `typeof window === 'undefined'` guards because the *component itself* is entangled with the browser. Here the "does this run on the server?" question never reaches your components at all.
+??? info "For JavaScript developers"
+
+    In a typical Next.js codebase the same component renders on both sides, but you litter it with `typeof window === 'undefined'` guards because the *component itself* is entangled with the browser. Here the "does this run on the server?" question never reaches your components at all.
 
 ## A request, start to finish
 
@@ -52,7 +56,9 @@ In words:
 
 Steps 2–4 run the handlers, subs, and views you already wrote; there's no separate "server code" to keep in sync with the client. And the per-request frame is *exactly* the frame from [Frames: isolated worlds](../core/concepts/frames.md) — no SSR-only variant.
 
-> **Why this matters.** Because each request gets its own frame, a hundred concurrent requests are a hundred isolated [app-dbs](../core/glossary.md#app-db) that cannot see, race, or corrupt one another. The isolation that made frames good for testing is the same thing that makes them safe under server load — request isolation comes free, not as a bolted-on server feature.
+!!! note "Why this matters"
+
+    Because each request gets its own frame, a hundred concurrent requests are a hundred isolated [app-dbs](../core/glossary.md#app-db) that cannot see, race, or corrupt one another. The isolation that made frames good for testing is the same thing that makes them safe under server load — request isolation comes free, not as a bolted-on server feature.
 
 ## The simplest server
 
@@ -79,7 +85,9 @@ Three opts do the work:
 
 That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `reg-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter feels like magic.)
 
-> **From re-frame v1.** v1 had no first-class SSR story — you reached for community libraries and hand-rolled the server/client split. Here it's one handler constructor over the *same* events and views the client runs. Also note: the old frame keys `:on-create` / `:initial-db` are retired; per-request setup is `:initial-events`, and supplying `:on-create` [fails loud](../core/glossary.md#fail-loud-not-silent) (`:rf.error/on-create-retired`).
+??? info "From re-frame v1"
+
+    v1 had no first-class SSR story — you reached for community libraries and hand-rolled the server/client split. Here it's one handler constructor over the *same* events and views the client runs. Also note: the old frame keys `:on-create` / `:initial-db` are retired; per-request setup is `:initial-events`, and supplying `:on-create` [fails loud](../core/glossary.md#fail-loud-not-silent) (`:rf.error/on-create-retired`).
 
 ### Reading the request
 
@@ -137,7 +145,9 @@ One rule governs this coeffect, and it's worth stating plainly before the fine p
 
 Forget to set `:payload` at all and you get a loud error at boot (`:rf.error/ssr-missing-payload-policy`) — not a quiet leak on the first request. If you genuinely want to ship the whole app-db, you say so out loud with the explicit keyword `:rf.ssr.payload/whole-app-db`.
 
-> **Why this matters.** A *denylist* ("ship everything except these") was considered and rejected on purpose: it leaks every new server-only key the instant you introduce one, which is exactly the bug an allowlist exists to prevent. This is [fail-closed](../core/glossary.md#fail-loud-not-silent) at a security boundary — the framework would rather stop you cold at boot than surprise you in production.
+!!! note "Why this matters"
+
+    A *denylist* ("ship everything except these") was considered and rejected on purpose: it leaks every new server-only key the instant you introduce one, which is exactly the bug an allowlist exists to prevent. This is [fail-closed](../core/glossary.md#fail-loud-not-silent) at a security boundary — the framework would rather stop you cold at boot than surprise you in production.
 
 ??? note "The three boot-time payload errors, kept distinct"
 
@@ -196,7 +206,9 @@ Two rules to hold onto:
 
     **`:rf/frame-id` is evidence, not a target.** The payload may carry the frame id the *server* rendered under. It's validation evidence: if present and it disagrees with the `:frame` you passed, hydration fails closed with `:rf.error/hydration-frame-id-mismatch` rather than installing the server's slice into the wrong frame. If absent — the common case, since the server renders under a per-request frame the client can't name ahead of time — your explicit `:frame` just stands.
 
-> **Coming from React?** This is `hydrateRoot` with the gloss removed. React hydrates by walking the DOM and reattaching listeners, and trusts that your component re-renders the same tree. Here the server's *state* rides along explicitly in the payload, `:rf/hydrate` installs it before the first render, and then the substrate [adapter](../core/glossary.md#adapter) attaches listeners to the existing DOM. You never re-fetch on the client to "catch up" — the state the server computed is already in app-db.
+??? info "Coming from React?"
+
+    This is `hydrateRoot` with the gloss removed. React hydrates by walking the DOM and reattaching listeners, and trusts that your component re-renders the same tree. Here the server's *state* rides along explicitly in the payload, `:rf/hydrate` installs it before the first render, and then the substrate [adapter](../core/glossary.md#adapter) attaches listeners to the existing DOM. You never re-fetch on the client to "catch up" — the state the server computed is already in app-db.
 
 Server state declared as a [resource](../resources/glossary.md#resource) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch — see the [resources SSR example](../../examples/capabilities/ssr/resources_ssr).
 
@@ -231,7 +243,9 @@ The default recovery is **warn and replace**: log it, render the client's view, 
 
     That trace rides the dev trace surface, so it's [elided](../core/glossary.md#elide) from production client builds like the rest of the trace stream. The hash comparison itself still runs (disable it with `:ssr {:detect-mismatch? false}` to reclaim the first-render work). To watch for drift in production you instrument deliberately: the strict-mode exception carries both hashes, so the boot site can catch it around `hydrate!` and ship it through your [observability](../core/concepts/observability.md) sinks.
 
-> **Going deeper — the hash is structural, not textual.** Byte-for-byte HTML equality is *not* required: different serialisers emit semantically-equivalent strings that differ in attribute order or whitespace. The contract is structural — the FNV-1a hash runs over a canonical-EDN traversal of the render-tree (depth-first, attribute maps in sorted-key order, nil pruned). FNV-1a is fast and carries zero platform dependencies (no `crypto`). The hash is a tamper-evident structural marker between *one* server and *one* client of the same build, not a security primitive.
+??? note "Going deeper — the hash is structural, not textual"
+
+    Byte-for-byte HTML equality is *not* required: different serialisers emit semantically-equivalent strings that differ in attribute order or whitespace. The contract is structural — the FNV-1a hash runs over a canonical-EDN traversal of the render-tree (depth-first, attribute maps in sorted-key order, nil pruned). FNV-1a is fast and carries zero platform dependencies (no `crypto`). The hash is a tamper-evident structural marker between *one* server and *one* client of the same build, not a security primitive.
 
 ## `:platforms` — one handler, gated per runtime
 
@@ -250,7 +264,9 @@ The default is universal (`#{:server :client}`). When a server-side drain meets 
 
 The same gate runs on the *input* side. A [coeffect](../core/glossary.md#coeffect) can carry `:platforms` too — `:rf.server/request` is `#{:server}` — so on the client (after hydration, when the same handler runs again) the runtime simply doesn't supply it, emitting `:rf.cofx/skipped-on-platform`. That coeffect's key is absent from the coeffects map; the rest of the handler runs as normal. So a setup handler that reads the request server-side doesn't blow up client-side — it just doesn't see a request there, which is exactly right.
 
-> **For JavaScript developers.** This is the declarative answer to the `typeof window === 'undefined'` guards scattered through a Next.js codebase. Instead of *branching inside* every component or handler that touches the browser, you tag the *effect* once with the platforms it's allowed on, and the resolver enforces it. There is no `if (isServer)` anywhere in your business logic.
+??? info "For JavaScript developers"
+
+    This is the declarative answer to the `typeof window === 'undefined'` guards scattered through a Next.js codebase. Instead of *branching inside* every component or handler that touches the browser, you tag the *effect* once with the platforms it's allowed on, and the resolver enforces it. There is no `if (isServer)` anywhere in your business logic.
 
 ## Controlling the response — `:rf.server/*`
 
@@ -283,7 +299,9 @@ A few things worth knowing before you reach for these.
 
 **`:rf.server/redirect` truncates the render.** If a redirect fires anywhere in the drain — a setup step, a route handler, a downstream cascade — the runtime sets `:redirect`, **skips the HTML render entirely** (no body), and skips the hydration payload (there's no client to hydrate). The host emits a status-and-`Location` response with no body. Last-write-wins on multiple redirects, with a `:rf.warning/multiple-redirects` trace.
 
-> **Gotcha — header injection fails loud.** A `\r` or `\n` smuggled into a header value is a response-splitting attack, so the framework does **not** quietly strip it: `:rf.server/set-header` / `:rf.server/append-header` throw `:rf.error/header-invalid-value`, `:rf.server/redirect` throws `:rf.error/redirect-invalid-location` on CRLF/NUL in `:location`, and `:rf.server/set-cookie` CRLF-checks *every* attribute (`:name`, `:value`, `:domain`, `:path`, …) before the adapter serialises the line. Build a cookie from a partner-supplied tenant string and the check has your back. The policy is fail-fast over strip-and-warn — silent normalisation masks the bug and lets the downstream-encoded vector through.
+!!! warning "Gotcha — header injection fails loud"
+
+    A `\r` or `\n` smuggled into a header value is a response-splitting attack, so the framework does **not** quietly strip it: `:rf.server/set-header` / `:rf.server/append-header` throw `:rf.error/header-invalid-value`, `:rf.server/redirect` throws `:rf.error/redirect-invalid-location` on CRLF/NUL in `:location`, and `:rf.server/set-cookie` CRLF-checks *every* attribute (`:name`, `:value`, `:domain`, `:path`, …) before the adapter serialises the line. Build a cookie from a partner-supplied tenant string and the check has your back. The policy is fail-fast over strip-and-warn — silent normalisation masks the bug and lets the downstream-encoded vector through.
 
 `:rf.server/redirect` **trusts its caller**, which is fine for a location you control.
 
@@ -322,7 +340,9 @@ The head fn has the exact shape and discipline of a [sub](../core/glossary.md#su
 - **No `:head` is fine.** Routes without one get a sensible default: `<title>` from frame metadata, plus `charset` and `viewport`.
 - **It's covered by the mismatch detector, on both sides.** The head rides the same render-tree hash as the body, so a head mismatch surfaces through the same detector you met above. And on the client the head recomputes from the hydrated app-db plus the route slice — so an SPA that changes routes after load keeps its `<title>` and `<meta>` current.
 
-> **Gotcha — JSON-LD escaping is handled for you.** String values inlined into a `<script type="application/ld+json">` body have every `<` re-encoded so an attacker-supplied product title can't close the script tag and pivot into HTML. You write data; the emitter applies the position-correct escape at every leaf.
+!!! warning "Gotcha — JSON-LD escaping is handled for you"
+
+    String values inlined into a `<script type="application/ld+json">` body have every `<` re-encoded so an attacker-supplied product title can't close the script tag and pivot into HTML. You write data; the emitter applies the position-correct escape at every leaf.
 
 ## When the server throws
 
@@ -345,7 +365,9 @@ The framework ships a default projector that maps the obvious cases — a routin
 
 The projector you register is named in the frame's `:ssr {:public-error-id :myapp/public-error}` metadata (so a server-rendering frame and a dev-tooling frame in one process can run different ones). The error page is a registered view that receives the *public* shape — it physically cannot leak the internal trace, because the trace never reaches it. In dev (`:ssr {:dev-error-detail? true}`) the public shape carries an extra `:details` with the full trace for the developer; in prod that key is simply absent. The rich trace still flows to your monitoring sinks unchanged — projection only governs the HTTP boundary, never the always-on [error records](../core/glossary.md#error-record) your listeners depend on. The full error story lives in the [error dossier](../core/concepts/errors.md).
 
-> **Why this matters — two error opts, two jobs.** The Ring handler exposes `:error-view` *and* `:on-error`, and a robust deployment wires both. `:error-view` is the **projected page** — it fires for a failure the projector caught (drain or render), takes the sanitised `:rf/public-error` map, and renders hiccup. `:on-error` is the **transport net** — it fires for a Ring-layer failure the projector can't see (per-request frame setup throw, a header-materialise throw), takes the raw `(request throwable)`, and returns a verbatim Ring response. Both are bug-contained: a buggy `:error-view` falls back to the default template, a buggy `:on-error` falls back to the locked topology-safe 500 — neither can bypass the error boundary.
+!!! note "Why this matters — two error opts, two jobs"
+
+    The Ring handler exposes `:error-view` *and* `:on-error`, and a robust deployment wires both. `:error-view` is the **projected page** — it fires for a failure the projector caught (drain or render), takes the sanitised `:rf/public-error` map, and renders hiccup. `:on-error` is the **transport net** — it fires for a Ring-layer failure the projector can't see (per-request frame setup throw, a header-materialise throw), takes the raw `(request throwable)`, and returns a verbatim Ring response. Both are bug-contained: a buggy `:error-view` falls back to the default template, a buggy `:on-error` falls back to the locked topology-safe 500 — neither can bypass the error boundary.
 
 ## Streaming: `:rf/suspense-boundary`
 
@@ -372,9 +394,13 @@ Failure isolation comes for free with the boundaries. If one boundary's render t
 
 The wiring mirrors what you've already seen, with streaming counterparts: `stream-handler` (from `re-frame.ssr.ring.streaming`) in place of `ssr-handler`, and an opt-in client install (`ssr/streaming-install!`, same carried `:frame`) that swaps fallbacks for resolved chunks as they arrive.
 
-> **Going deeper — the deltas are a speed prop; the final payload is the correctness lock.** Each streamed chunk carries a speculative per-subtree app-db delta so the region paints early. The *final* chunk is the canonical full payload, and that's the safety net: if the speculative deltas and the canonical payload ever disagree, the payload wins, every time. You get the latency of streaming with the correctness guarantee of a single authoritative `:rf/hydrate`.
+??? note "Going deeper"
 
-> **Gotcha — each boundary `:id` must be unique.** The `:id` is how the client matches a streamed-in chunk to its placeholder, so you pick it (the runtime never autogenerates one) and it must be stable across the render. Reuse the same `:id` on two boundaries and the runtime can't tell them apart on the wire: it emits `:rf.error/suspense-boundary-duplicate-id`, keeps only the last-registered subtree's chunk, and leaves the earlier boundary stuck on its fallback. It's fail-soft (no 500, just a visible trace and one region that never resolves) — but it's a bug worth catching in dev.
+    Each streamed chunk carries a speculative per-subtree app-db delta so the region paints early. The *final* chunk is the canonical full payload, and that's the safety net: if the speculative deltas and the canonical payload ever disagree, the payload wins, every time. You get the latency of streaming with the correctness guarantee of a single authoritative `:rf/hydrate`.
+
+!!! warning "Gotcha — each boundary `:id` must be unique"
+
+    The `:id` is how the client matches a streamed-in chunk to its placeholder, so you pick it (the runtime never autogenerates one) and it must be stable across the render. Reuse the same `:id` on two boundaries and the runtime can't tell them apart on the wire: it emits `:rf.error/suspense-boundary-duplicate-id`, keeps only the last-registered subtree's chunk, and leaves the earlier boundary stuck on its fallback. It's fail-soft (no 500, just a visible trace and one region that never resolves) — but it's a bug worth catching in dev.
 
 !!! note "Don't reach for streaming by default"
 

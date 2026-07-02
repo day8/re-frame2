@@ -4,7 +4,9 @@ Some state isn't a value you read — it's a *question*: what state are we even 
 
 A **[machine](glossary.md#machine)** makes that shape first-class, so you stop reconstructing it from code scattered across handlers. This page lays out the whole model at once. To *build* a machine step by step instead — turning it on, then adding a guard, an action, an async call, a view, and a test — start with the [tutorial](tutorial.md).
 
-> **Deciding where a value should live?** A machine is the right home when a value has a *lifecycle* — named states, timers, retries, cancellation — not just a value you read. [Where should this value live?](../core/where-state-lives.md) has the full decision procedure, and machine is the last of [the four homes](../core/glossary.md#the-four-homes-where-state-lives) you reach for.
+!!! note "Deciding where a value should live?"
+
+    A machine is the right home when a value has a *lifecycle* — named states, timers, retries, cancellation — not just a value you read. [Where should this value live?](../core/where-state-lives.md) has the full decision procedure, and machine is the last of [the four homes](../core/glossary.md#the-four-homes-where-state-lives) you reach for.
 
 ## A machine at a glance
 
@@ -77,7 +79,9 @@ Five states. `:idle` starts. Submit takes it to `:submitting`; from there succes
 
 Both are referenced from the table *by id*; their implementations sit once, up top, in the `:guards` / `:actions` maps. Because the whole flow is one value, you can pretty-print it, render it as a diagram, or add a `:two-factor` state with one new node and its arrows — the existing nodes don't move.
 
-> **Build it by hand.** The [tutorial](tutorial.md) constructs exactly this machine step by step — turn machines on, add a guard, an action, a real server call, a view per state, and a pure-function test — one idea at a time.
+!!! note "Build it by hand"
+
+    The [tutorial](tutorial.md) constructs exactly this machine step by step — turn machines on, add a guard, an action, a real server call, a view per state, and a pure-function test — one idea at a time.
 
 ## Registering and running it
 
@@ -98,13 +102,21 @@ So every event reaches the machine through the same `dispatch` and the same [eve
 
 `[:rf/machine <id>]` is an ordinary [query vector](../core/glossary.md#query-vector), so it's traceable like the rest of your [derivation graph](../core/glossary.md#the-derivation-graph), and named projections chain off it — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](../core/concepts/subscriptions.md).
 
-> **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so an app without machines builds a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot; forget it and `reg-machine` throws `:rf.error/machines-artefact-missing`, naming the artefact to add. (`reg-machine` is the source-stamping macro; the plain-fn `reg-machine*` and the `def`-shaped `defmachine` are in [`re-frame.machines`](../api/re-frame.machines.md).)
+!!! note "One-time setup"
 
-> **Where the snapshot lives.** The snapshot lives in the [frame](../core/glossary.md#frame)'s **[runtime-db](../core/glossary.md#runtime-db)** — the framework's half of [the two partitions](../core/glossary.md#the-two-partitions), kept apart from the app data you own. Because it's just a value riding the frame, [undo, time-travel](../core/glossary.md#time-travel), persistence, and SSR [hydration](../ssr/glossary.md#hydration) all work on machines for free.
+    Machines ship in their own artefact, `day8/re-frame2-machines`, so an app without machines builds a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot; forget it and `reg-machine` throws `:rf.error/machines-artefact-missing`, naming the artefact to add. (`reg-machine` is the source-stamping macro; the plain-fn `reg-machine*` and the `def`-shaped `defmachine` are in [`re-frame.machines`](../api/re-frame.machines.md).)
 
-> **Async composes for free.** `:issue-request` names its reply events machine-wrapped — `:on-success [:auth.login/flow [:auth.login/success]]`, written one element short on purpose. When the request returns, [managed HTTP](../async/http.md) *appends* its reply to that inner event, so it lands back *inside* the machine as `[:auth.login/success {:kind :success :value v}]` — exactly the event `:store-session` destructures. A machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
+!!! note "Where the snapshot lives"
 
-> **Coming from re-frame v1?** Machines don't exist in v1 — the keyword-in-app-db + `cond` pattern *is* the v1 shape this replaces. There's nothing to unlearn; you're promoting an informal pattern to first-class data. See [From re-frame v1](../core/25-from-re-frame-v1.md).
+    The snapshot lives in the [frame](../core/glossary.md#frame)'s **[runtime-db](../core/glossary.md#runtime-db)** — the framework's half of [the two partitions](../core/glossary.md#the-two-partitions), kept apart from the app data you own. Because it's just a value riding the frame, [undo, time-travel](../core/glossary.md#time-travel), persistence, and SSR [hydration](../ssr/glossary.md#hydration) all work on machines for free.
+
+!!! note "Async composes for free"
+
+    `:issue-request` names its reply events machine-wrapped — `:on-success [:auth.login/flow [:auth.login/success]]`, written one element short on purpose. When the request returns, [managed HTTP](../async/http.md) *appends* its reply to that inner event, so it lands back *inside* the machine as `[:auth.login/success {:kind :success :value v}]` — exactly the event `:store-session` destructures. A machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
+
+??? info "From re-frame v1"
+
+    Machines don't exist in v1 — the keyword-in-app-db + `cond` pattern *is* the v1 shape this replaces. There's nothing to unlearn; you're promoting an informal pattern to first-class data. See [From re-frame v1](../core/25-from-re-frame-v1.md).
 
 ## See one run
 
@@ -141,13 +153,17 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 [turnstile-view]
 ```
 
-> **Try it.** Push while `:locked` — nothing opens, but the push counter climbs (a self-transition running an action). Then add a third state: give `:unlocked` an `:on {:break {:target :broken}}`, add `:broken {:on {}}` to `:states`, add a button dispatching `[:turnstile/flow [:break]]`, re-evaluate. You added a reachable state by editing *one value* — no new handler, no `cond` surgery.
+!!! tip "Try it"
+
+    Push while `:locked` — nothing opens, but the push counter climbs (a self-transition running an action). Then add a third state: give `:unlocked` an `:on {:break {:target :broken}}`, add `:broken {:on {}}` to `:states`, add a button dispatching `[:turnstile/flow [:break]]`, re-evaluate. You added a reachable state by editing *one value* — no new handler, no `cond` surgery.
 
 ### One thing that *won't* throw: the unhandled event
 
 If the current state has no transition for an event, it's a **silent no-op** — nothing throws, the snapshot doesn't move. Try it in the turnstile: dispatch `[:turnstile/flow [:wat]]`, an event no state handles, and the machine simply ignores it. (This is different from the `:push`-while-`:locked` case earlier: that state *does* declare a `:push` transition, so its action ran — here there's no transition at all.) The runtime still emits a benign `:rf.machine.event/unhandled-no-op` trace, so a debugger can show the event arrived and was dropped.
 
-> **Fail-loud is the rule elsewhere.** The unhandled event is the one silent no-op. Almost everything *else* that's wrong (a guard referencing an undefined name, a target naming a missing state) [fails loud](../core/glossary.md#fail-loud-not-silent) — but at *registration* time, not on the unlucky dispatch. More on that fail-loud / silent-no-op split below.
+!!! note "Fail-loud is the rule elsewhere"
+
+    The unhandled event is the one silent no-op. Almost everything *else* that's wrong (a guard referencing an undefined name, a target naming a missing state) [fails loud](../core/glossary.md#fail-loud-not-silent) — but at *registration* time, not on the unlucky dispatch. More on that fail-loud / silent-no-op split below.
 
 ## Guards and actions
 
@@ -213,7 +229,9 @@ Both `:guard` and `:action` accept **either** a keyword (resolved through the `:
 
 **Reach for the keyword by default; inline only for a one-line triviality.** The id is a *name* — a stable, reusable handle that trace rows print, that a diagram arrow is labelled with, that a test can stub, that an AI can address and jump to source for. An anonymous closure has none of that. (Inline fns aren't second-class for *tooling* — in dev the `reg-machine` macro co-locates their source text, so a visualiser still renders the body — they're just unnamed.) Compound or reused logic always earns a name.
 
-> **Fail-loud, not silent.** Reference a `:guard` / `:action` keyword the machine's maps don't define and registration throws (`:rf.error/machine-unresolved-guard` / `…-unresolved-action`); a `:target` naming a state not in `:states` is `:rf.error/machine-unresolved-target`. These are caught at `reg-machine` time, not on the unlucky dispatch that first hits the bad arrow — a [fail-loud](../core/glossary.md#fail-loud-not-silent), not silent, posture. The one thing that is genuinely *not* an error is an event the current state has no transition for — that's the silent no-op you met just above.
+!!! note "Fail-loud, not silent"
+
+    Reference a `:guard` / `:action` keyword the machine's maps don't define and registration throws (`:rf.error/machine-unresolved-guard` / `…-unresolved-action`); a `:target` naming a state not in `:states` is `:rf.error/machine-unresolved-target`. These are caught at `reg-machine` time, not on the unlucky dispatch that first hits the bad arrow — a [fail-loud](../core/glossary.md#fail-loud-not-silent), not silent, posture. The one thing that is genuinely *not* an error is an event the current state has no transition for — that's the silent no-op you met just above.
 
 ## The action effect map — `{:data :fx}`
 
@@ -238,16 +256,18 @@ One sharp edge: an explicit `nil` **sets** a key to `nil` (the key stays present
 
 **`:fx` is the ordinary effects vector** — `:dispatch`, `:rf.http/managed`, your own registered effects, all flow to the normal machinery untouched. Three fx-ids are *machine-only* and intercepted before they get there: `[:raise [...]]` loops an event back into this same machine (atomically, before the transition commits), and `[:rf.machine/spawn ...]` / `[:rf.machine/destroy ...]` are the actor-lifecycle pair. You'll meet all three under [When the machine grows](#when-the-machine-grows); the reference is [`re-frame.machines`](../api/re-frame.machines.md).
 
-> **Gotcha — `:fx` can't read this action's own `:data` write.** The two keys are returned *together*, so at the moment the runtime reads your `:fx` vector the `:data` merge hasn't happened. To act on a freshly-computed value, bind it in a `let` and use the local in both keys:
->
-> ```clojure
-> (fn [{data :data}]
->   (let [next-id (inc (:last-id data))]
->     {:data {:last-id next-id}
->      :fx   [[:dispatch [:thing/created next-id]]]}))   ;; the local, not (:last-id data)
-> ```
->
-> Or split the work across two slots — write in the transition `:action`, read in the target state's `:entry`.
+!!! warning "Gotcha — `:fx` can't read this action's own `:data` write"
+
+    The two keys are returned *together*, so at the moment the runtime reads your `:fx` vector the `:data` merge hasn't happened. To act on a freshly-computed value, bind it in a `let` and use the local in both keys:
+
+    ```clojure
+    (fn [{data :data}]
+      (let [next-id (inc (:last-id data))]
+        {:data {:last-id next-id}
+         :fx   [[:dispatch [:thing/created next-id]]]}))   ;; the local, not (:last-id data)
+    ```
+
+    Or split the work across two slots — write in the transition `:action`, read in the target state's `:entry`.
 
 When several slots fire in one transition (`:exit` → the transition's `:action` → `:entry`), their `:data` updates merge in that order — a later slot sees the earlier writes — and the `:fx` vectors concatenate left to right.
 
@@ -255,7 +275,9 @@ When several slots fire in one transition (`:exit` → the transition's `:action
 
 This is the rule hovering over that context map: a guard or action gets `{:data :event :state :meta}` and **never app-db**. It cannot read app-db, and it cannot write it.
 
-> **Why it's locked.** A machine's whole state — its `:state` and its `:data` — lives in one place, the [runtime-db](../core/glossary.md#runtime-db), so it reverts, time-travels, persists, and SSR-hydrates as a single value along with the rest of the [frame](../core/glossary.md#frame). If an action could quietly write some *other* slice of app-db, that change wouldn't live in the snapshot and wouldn't roll back with it. Encapsulation is what keeps a machine's state *all* inside the snapshot.
+!!! note "Why it's locked"
+
+    A machine's whole state — its `:state` and its `:data` — lives in one place, the [runtime-db](../core/glossary.md#runtime-db), so it reverts, time-travels, persists, and SSR-hydrates as a single value along with the rest of the [frame](../core/glossary.md#frame). If an action could quietly write some *other* slice of app-db, that change wouldn't live in the snapshot and wouldn't roll back with it. Encapsulation is what keeps a machine's state *all* inside the snapshot.
 
 So how does a machine read or write things outside itself? Two disciplined moves:
 
@@ -278,17 +300,19 @@ Two guard-rails enforce the boundary:
 - **Returning `:db` is a hard error.** A `:db` key in an action's effect map surfaces `:rf.error/machine-action-wrote-db` and the `:db` key is dropped (the rest of the effects still flow). Fail loud, don't silently let a machine scribble on app-db.
 - **The next state isn't in the return shape either.** An action returns `:data` and `:fx` — never a state keyword. Only the transition's `:target` moves the machine. Callbacks update working memory; they can't nudge the machine into a state the table didn't declare.
 
-> **Gotcha — facts from the world are *declared*, not grabbed.** A guard or action that needs the time (or a random draw) must not call `(js/Date.now)` or `(rand)`: that buries nondeterminism where replay can't reach it, and replay is what makes time-travel and SSR hydration work. Instead, declare the fact as a [coeffect](../core/glossary.md#coeffect) on a *named* entry with `:rf.cofx/requires`, and the framework threads it into the context map:
->
-> ```clojure
-> :guards
-> {:within-retry-window?
->  {:rf.cofx/requires [:rf/time-ms]
->   :fn (fn [{:keys [data rf/time-ms]}]
->         (< (- time-ms (:first-attempt-at data)) 60000))}}
-> ```
->
-> The fact rides the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision — and any `:data` it folds in — replays identically. [Effects & coeffects](../core/concepts/effects-and-coeffects.md) has the general mechanism: a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
+!!! warning "Gotcha — facts from the world are *declared*, not grabbed"
+
+    A guard or action that needs the time (or a random draw) must not call `(js/Date.now)` or `(rand)`: that buries nondeterminism where replay can't reach it, and replay is what makes time-travel and SSR hydration work. Instead, declare the fact as a [coeffect](../core/glossary.md#coeffect) on a *named* entry with `:rf.cofx/requires`, and the framework threads it into the context map:
+
+    ```clojure
+    :guards
+    {:within-retry-window?
+     {:rf.cofx/requires [:rf/time-ms]
+      :fn (fn [{:keys [data rf/time-ms]}]
+            (< (- time-ms (:first-attempt-at data)) 60000))}}
+    ```
+
+    The fact rides the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision — and any `:data` it folds in — replays identically. [Effects & coeffects](../core/concepts/effects-and-coeffects.md) has the general mechanism: a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
 
 ## The snapshot — `{:state :data :tags}`
 
@@ -342,7 +366,9 @@ Look again at the turnstile. Pushing while `:locked` is a *self-transition* — 
 
 Here the `:after` self-transition is **external** (`:reenter? true`), so re-entering `:polling` re-runs `:start-fetch` and rearms the 30-second timer — a self-rescheduling poll in two keys. The `:got-data` transition is **internal** (no target), so a reply landing mid-window merges into `:data` without resetting the clock. Picking internal vs external per transition is exactly the control this rule buys you.
 
-> **The self-target subtlety.** A *targeted* self-transition does **not** re-enter by default. A self-target you *meant* to re-fire `:entry` on needs `:reenter? true`; without it, only the transition `:action` runs. (One related restriction: an eventless `:always` may never self-target at all — it's rejected at registration. See [Automatic transitions](automatic-transitions.md).)
+!!! note "The self-target subtlety"
+
+    A *targeted* self-transition does **not** re-enter by default. A self-target you *meant* to re-fire `:entry` on needs `:reenter? true`; without it, only the transition `:action` runs. (One related restriction: an eventless `:always` may never self-target at all — it's rejected at registration. See [Automatic transitions](automatic-transitions.md).)
 
 ## Wildcard transitions: handle a whole class of events
 
@@ -361,13 +387,17 @@ Sometimes a state should react to *any* event in a family rather than enumerate 
 
 One subtlety worth knowing: a guard-**blocked** exact match falls through to the coarser tiers (it wasn't *handled*), but a deliberate **forbidden block** — `{:on {:E {}}}` or `{:on {:E nil}}` — is itself a handler that *consumes* the event and stops the search. That distinction is how a child state opts out of an event its parent would otherwise handle. In a hierarchical machine the same three tiers run at each level of the deepest-wins walk — see [Hierarchical states](hierarchical-states.md#transition-resolution-deepest-wins-with-parent-fallthrough).
 
-> **A non-namespaced id has no wildcard tier.** A bare id like `:go` has no `:ns/*` tier — only its exact key or `:*` can catch it. The `:ns/*` tier lives on the keyword's `/` boundary: one prefix level between the exact id and the catch-all `:*`.
+!!! note "A non-namespaced id has no wildcard tier"
+
+    A bare id like `:go` has no `:ns/*` tier — only its exact key or `:*` can catch it. The `:ns/*` tier lives on the keyword's `/` boundary: one prefix level between the exact id and the catch-all `:*`.
 
 ## Final states: when a machine is *done*
 
 The login flow above parks in `:authed` and `:locked-out` forever — ordinary leaf states with no outgoing transitions, which is right when the machine *persists* (a view keeps reading the snapshot). But some machines genuinely *finish*: a spawned per-request protocol machine completes and should report back. For those, a leaf declares **`:final? true`**, and entering it **terminates the machine** — the runtime auto-destroys it.
 
-> **Gotcha — final means final.** A `:final? true` leaf auto-destroys *even a top-level singleton machine*. If you want a state the machine rests in indefinitely (like `:authed`), use an ordinary leaf and **omit `:final?`** — exactly what the login flow does. `:final?` is for "this run is over," not "this is the last screen."
+!!! warning "Gotcha — final means final"
+
+    A `:final? true` leaf auto-destroys *even a top-level singleton machine*. If you want a state the machine rests in indefinitely (like `:authed`), use an ordinary leaf and **omit `:final?`** — exactly what the login flow does. `:final?` is for "this run is over," not "this is the last screen."
 
 The payoff is composition, and it comes in two scopes:
 
@@ -403,9 +433,13 @@ To *also* validate the inbound event vector, use the three-argument `reg-machine
 
 The `:schemas` map's sub-keys are a closed set. Two of them — `:data` and `:output` — are wired up to actually run a check (you've now seen both). The other three — `:events`, `:tags`, and `:meta` — are accepted so you can declare them today, but they don't validate anything yet; they're reserved for future wiring. Either way, a sub-key *outside* the set (a typo, or one you hoped was live but isn't) fails loud at registration rather than silently validating nothing.
 
-> **Coming from TypeScript?** There's a runtime guarantee TypeScript's typed context *can't* give you: TS types are erased before the machine ever runs, whereas `[:schemas :data]` is an *actually-running* validation in dev that rolls a bad transition back. Same declaration, plus the runtime check the type-erased layer leaves out.
+??? info "Coming from TypeScript?"
 
-> **Fail-loud guard.** Because the schema only does its job through `reg-machine`'s registration stamp, hand-rolling `(reg-event id meta (machines/make-machine-handler spec))` around a `[:schemas :data]`-bearing spec is rejected with `:rf.error/machine-schema-requires-reg-machine` — the framework refuses to let your schema sit there validating nothing. A schema-less spec is fine through either path.
+    There's a runtime guarantee TypeScript's typed context *can't* give you: TS types are erased before the machine ever runs, whereas `[:schemas :data]` is an *actually-running* validation in dev that rolls a bad transition back. Same declaration, plus the runtime check the type-erased layer leaves out.
+
+!!! note "Fail-loud guard"
+
+    Because the schema only does its job through `reg-machine`'s registration stamp, hand-rolling `(reg-event id meta (machines/make-machine-handler spec))` around a `[:schemas :data]`-bearing spec is rejected with `:rf.error/machine-schema-requires-reg-machine` — the framework refuses to let your schema sit there validating nothing. A schema-less spec is fine through either path.
 
 ### Validating a machine's completion output
 
@@ -450,7 +484,9 @@ The flat grammar above carries most machines. When a flow gets richer, the gramm
 - **`:raise` loops an event back into this machine.** An action can return `:fx [[:raise [:some-event …]]]` to fire an event *at its own machine*, atomically, before the transition commits — useful when one transition's outcome should immediately drive another (a wizard step that completes and re-asks "is the whole form done?"). `:raise` is a reserved fx-id, alongside `[:rf.machine/spawn …]` and `[:rf.machine/destroy …]`, the actor-lifecycle pair behind the `:spawn` sugar. Everything else in `:fx` — `:dispatch`, `:rf.http/managed`, your own effects — flows to the ordinary effects machinery untouched.
 - **`:internal-events` makes an event private.** Some events are machine *plumbing* — a `:check-complete` the machine raises at itself, not for a view or test to dispatch. Declare those in a top-level `:internal-events` **set** (`#{:check-complete}`); an internal `:raise` is handled normally, but an *external* dispatch is **refused** at the machine's boundary (no transition; a `:rf.error/machine-internal-event-external-dispatch` trace fires). It's a set because membership is what you're declaring, not order.
 
-> **Gotcha — a runaway `:always` / `:raise` cycle is a *failed* macrostep, not a hang.** Eventless transitions and `:raise` both re-enter the transition machinery within the same macrostep, so a non-converging loop (`:a` `:always`-targets `:b`, `:b` `:always`-targets `:a`, both guards true) could spin forever. It can't: each is bounded by a depth limit (default **16**, set per-frame via `:always-depth-limit` / `:raise-depth-limit`). Trip it and the macrostep **aborts atomically** — the snapshot stays at its pre-event value, no observer sees the partial path — and a single `:rf.error/machine-always-depth-exceeded` (or `:rf.error/machine-raise-depth-exceeded`) [error record](../core/glossary.md#error-record) fires. It is **distinct** from the silent no-op of an unhandled event: a runaway loop is a bug you want surfaced, not swallowed. There's no automatic recovery.
+!!! warning "Gotcha"
+
+    Eventless transitions and `:raise` both re-enter the transition machinery within the same macrostep, so a non-converging loop (`:a` `:always`-targets `:b`, `:b` `:always`-targets `:a`, both guards true) could spin forever. It can't: each is bounded by a depth limit (default **16**, set per-frame via `:always-depth-limit` / `:raise-depth-limit`). Trip it and the macrostep **aborts atomically** — the snapshot stays at its pre-event value, no observer sees the partial path — and a single `:rf.error/machine-always-depth-exceeded` (or `:rf.error/machine-raise-depth-exceeded`) [error record](../core/glossary.md#error-record) fires. It is **distinct** from the silent no-op of an unhandled event: a runaway loop is a bug you want surfaced, not swallowed. There's no automatic recovery.
 
 ## When to reach for a machine — and when not
 

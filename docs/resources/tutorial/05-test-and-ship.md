@@ -8,7 +8,9 @@ There's one sentence to carry out of this whole page:
 
 You never patch `js/Date`. You never intercept `fetch`. You never replace a module. You hand the runtime the exact facts a [handler](../../core/glossary.md#event-handler) declared it needs, then read the data it produced. Everything below is that one sentence applied across the slice — to a handler, a subscription, a view, a whole [cascade](../../core/glossary.md#event-cascade), and finally the release build.
 
-> **Coming from React Testing Library + MSW?** Your first instinct is "where do the mocks go?" — and the honest answer is that there's nothing to mock. In a typical React app the logic is fused to rendering and the network: to test a *decision* you render a component (so you stand up JSDOM), to test a *fetch* you interpose a mock service worker, to *see the result* you flush with `act()`. None of that has a counterpart here. An [event handler](../../core/glossary.md#event-handler) — the function that decides what happens when an event fires — is pure. What it needs from the world arrives as values ([coeffects](../../core/glossary.md#coeffect): the facts a handler reads in). What it does to the world leaves as data ([effects](../../core/glossary.md#effect): the changes a handler asks for). So a test supplies values and asserts on values. That's the whole game — not because re-frame2 ships *better* mocks, but because there's nothing left to mock.
+??? info "Coming from React Testing Library + MSW?"
+
+    Your first instinct is "where do the mocks go?" — and the honest answer is that there's nothing to mock. In a typical React app the logic is fused to rendering and the network: to test a *decision* you render a component (so you stand up JSDOM), to test a *fetch* you interpose a mock service worker, to *see the result* you flush with `act()`. None of that has a counterpart here. An [event handler](../../core/glossary.md#event-handler) — the function that decides what happens when an event fires — is pure. What it needs from the world arrives as values ([coeffects](../../core/glossary.md#coeffect): the facts a handler reads in). What it does to the world leaves as data ([effects](../../core/glossary.md#effect): the changes a handler asks for). So a test supplies values and asserts on values. That's the whole game — not because re-frame2 ships *better* mocks, but because there's nothing left to mock.
 
 ## 1. Set up the JVM test runner
 
@@ -46,7 +48,9 @@ Then the test namespace. One fixture resets the whole runtime — registrar, fra
      :ambient-frame nil}))   ;; nil: our tests create their own frames
 ```
 
-> **Gotcha — keep the stubs out of production.** Require `re-frame.http.test-support` from your test namespaces *only* — never from production or SSR code. That one rule is what guarantees the canned stubs can't ship to users: on the JVM they're absent from the production classpath, and under `:advanced` CLJS they're [elided](../../core/glossary.md#elide) from the module graph. The boundary is enforced by absence, not by a flag you have to remember to flip.
+!!! warning "Gotcha — keep the stubs out of production"
+
+    Require `re-frame.http.test-support` from your test namespaces *only* — never from production or SSR code. That one rule is what guarantees the canned stubs can't ship to users: on the JVM they're absent from the production classpath, and under `:advanced` CLJS they're [elided](../../core/glossary.md#elide) from the module graph. The boundary is enforced by absence, not by a flag you have to remember to flip.
 
 ## 2. Test a handler: it's a function, so call it
 
@@ -103,11 +107,17 @@ The declaration doubles as the **fixture checklist**. Writing a test for a handl
 
 Whatever appears there is what your literal map (or your dispatch, below) supplies. Nothing else is delivered, so nothing else can secretly matter. The handler can't quietly reach for a global you forgot about — there are no globals to reach for.
 
-> **Gotcha — freezing the clock.** Time is a declared fact like any other; there is no implicit clock. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]` and reads it flat. A test supplies `{:rf/time-ms 1781078400123}` in the literal map, and the answer is identical at 14:00 and at 23:59:59. There's no `js/Date` to monkey-patch, because the handler never reads one. (Every `reg-event` may declare requires — there's no second-class form that needing the world forces you to convert away from.)
+!!! warning "Gotcha — freezing the clock"
 
-> **Coming from re-frame v1?** The interceptor-based coeffect injection is gone. Declaration moved into registration metadata (`:rf.cofx/requires`), and tests supply values on the dispatch instead of stubbing handlers or registering test cofx-injectors. The full delta is in [From re-frame v1](../../core/25-from-re-frame-v1.md).
+    Time is a declared fact like any other; there is no implicit clock. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]` and reads it flat. A test supplies `{:rf/time-ms 1781078400123}` in the literal map, and the answer is identical at 14:00 and at 23:59:59. There's no `js/Date` to monkey-patch, because the handler never reads one. (Every `reg-event` may declare requires — there's no second-class form that needing the world forces you to convert away from.)
 
-> **Going deeper.** The input map (coeffects) and the output map (effects) are both *plain data*, and the handler is a pure function between them. That makes a handler a morphism in the most boring, most useful sense: testing it is exactly testing `f(input) = output`, with no observation of effects on the side. The runtime's job is to *interpret* the returned effect data — your test skips the interpreter and inspects the description. It's the same separation a free monad buys you — build a program as a value, run it later — arrived at without a gram of type machinery: the effect map *is* the program, and `dispatch` *is* the interpreter.
+??? info "From re-frame v1"
+
+    The interceptor-based coeffect injection is gone. Declaration moved into registration metadata (`:rf.cofx/requires`), and tests supply values on the dispatch instead of stubbing handlers or registering test cofx-injectors. The full delta is in [From re-frame v1](../../core/25-from-re-frame-v1.md).
+
+??? note "Going deeper"
+
+    The input map (coeffects) and the output map (effects) are both *plain data*, and the handler is a pure function between them. That makes a handler a morphism in the most boring, most useful sense: testing it is exactly testing `f(input) = output`, with no observation of effects on the side. The runtime's job is to *interpret* the returned effect data — your test skips the interpreter and inspects the description. It's the same separation a free monad buys you — build a program as a value, run it later — arrived at without a gram of type machinery: the effect map *is* the program, and `dispatch` *is* the interpreter.
 
 ## 3. Test the cascade: one dispatch, end to end
 
@@ -155,9 +165,13 @@ The unhappy path — the one your users will actually hit — is the same shape 
 
 `compute-sub` runs a [subscription](../../core/glossary.md#subscription)'s derivation — a subscription being a read-only, derived view of app-db — as a plain function against a state value. No reactive machinery, so it runs headlessly on the JVM, machine-backed subs included. These two tests are the pattern for *every* flow in your slice: stub the edges, drive one dispatch, assert on settled state.
 
-> **Going deeper — edges, not mocks.** Each of those four moves redirects a *value at a boundary* rather than substituting a *mechanism*. `with-managed-request-stubs` is an `:fx-override` — it swaps where one effect-id resolves, leaving the request data and reply path identical. The same `:fx-overrides` map can ride a single dispatch — `(rf/dispatch-sync event {:fx-overrides {…}})` — when one test needs to redirect a different effect; per-call wins over per-frame. And `{:rf.cofx {…}}` doesn't fake the cofx system, it *is* the production stamping surface. Supplied values always win; the runtime fills only what's missing. Forget a declared provided fact and you get a loud `:rf.error/missing-required-cofx`, never a silent `nil`. [Test a cascade](../../core/testing/cascades.md) walks each of these edges as a focused recipe.
+??? note "Going deeper — edges, not mocks"
 
-> **Gotcha — client-only effects skip on the server.** An effect gated to the browser — like Part 3's `localStorage` persist fx, declared `:platforms #{:client}` — simply skips on the server platform, leaving a trace note behind. That's expected, not a gap in your test. Your assertion targets the durable outcome (the session in app-db), not the host write, so the same test is meaningful on the JVM where there's no `localStorage` to write to anyway.
+    Each of those four moves redirects a *value at a boundary* rather than substituting a *mechanism*. `with-managed-request-stubs` is an `:fx-override` — it swaps where one effect-id resolves, leaving the request data and reply path identical. The same `:fx-overrides` map can ride a single dispatch — `(rf/dispatch-sync event {:fx-overrides {…}})` — when one test needs to redirect a different effect; per-call wins over per-frame. And `{:rf.cofx {…}}` doesn't fake the cofx system, it *is* the production stamping surface. Supplied values always win; the runtime fills only what's missing. Forget a declared provided fact and you get a loud `:rf.error/missing-required-cofx`, never a silent `nil`. [Test a cascade](../../core/testing/cascades.md) walks each of these edges as a focused recipe.
+
+!!! warning "Gotcha — client-only effects skip on the server"
+
+    An effect gated to the browser — like Part 3's `localStorage` persist fx, declared `:platforms #{:client}` — simply skips on the server platform, leaving a trace note behind. That's expected, not a gap in your test. Your assertion targets the durable outcome (the session in app-db), not the host write, so the same test is meaningful on the JVM where there's no `localStorage` to write to anyway.
 
 ## 4. Test a subscription: compute it against a db
 
@@ -174,15 +188,23 @@ Your views read app-db through [subscriptions](../../core/glossary.md#subscripti
 
 `compute-sub` runs the sub's body against the supplied `db` and returns the result — no reactive cache, no Reagent, no JS runtime, fully JVM-runnable. Notice the shape: rather than hand-build an `app-db` map, you *dispatch the real events* that build the state, then read the resulting `app-db-value` and compute the sub against it. That's deliberate. The test exercises the sub against state produced by the same code paths the app uses, so when you reshape where the form lives, the events move, the sub moves, and this test keeps passing unmodified.
 
-> **Gotcha — two ways to supply the db, one of them rots.** For a trivial reader where the dispatch adds nothing, you *can* pass a literal map — `(compute-sub [:auth.login-form/can-submit?] {:auth {:login-form {:errors {} :status :idle}}})`. Reach for that escape hatch sparingly: a hand-rolled db shape silently rots when the real schema moves underneath it, whereas the dispatch-the-real-events form tracks the schema for free.
+!!! warning "Gotcha — two ways to supply the db, one of them rots"
+
+    For a trivial reader where the dispatch adds nothing, you *can* pass a literal map — `(compute-sub [:auth.login-form/can-submit?] {:auth {:login-form {:errors {} :status :idle}}})`. Reach for that escape hatch sparingly: a hand-rolled db shape silently rots when the real schema moves underneath it, whereas the dispatch-the-real-events form tracks the schema for free.
 
 There's a [partition](../../core/glossary.md#the-two-partitions) wrinkle the cascade tests above already leaned on. They read `:auth/state` with `(rf/frame-state-value f)`, not `(rf/app-db-value f)`:
 
-> **Gotcha — app-db subs vs machine-backed subs.** A frame holds state in *two* partitions: [app-db](../../core/glossary.md#app-db) (yours) and [runtime-db](../../core/glossary.md#runtime-db) — the framework-owned partition beside it, holding machine [snapshots](../../machines/glossary.md#snapshot), in-flight mutation status, and the like (full treatment in [app-db](../../core/concepts/app-db.md)). Most subs read app-db, so `app-db-value` feeds them. But `:auth/state` is **machine-backed** — its value lives in runtime-db, so feeding it a bare `app-db-value` would find nothing there. The rule is short: app-db subs take `app-db-value`; subs that touch machine snapshots (or any runtime-db state, like the mutation status in section 5) take `frame-state-value`. `frame-state-value` returns *both* partitions as one projection — `{:rf.db/app … :rf.db/runtime …}` — and `compute-sub` reads whichever partition each sub belongs to. Since it always works, when in doubt reach for `frame-state-value`.
+!!! warning "Gotcha — app-db subs vs machine-backed subs"
 
-> **Going deeper — layered subs come along for free.** That `:auth.login-form/can-submit?` sub is **layered** — defined `:<- [:auth.login-form/slice]`, so it reads through another sub. `compute-sub` resolves the chain transitively: it computes the input sub against `db` first, depth-first, then runs the outer body against that value — all without spinning up the cache. Same for a parametric `input-fn` sub. You test the top sub and the whole [derivation graph](../../core/glossary.md#the-derivation-graph) underneath it comes along, exactly as the running app composes it. The cache the live app uses is an *optimisation* layered over this pure composition, not part of its meaning — which is precisely why you can drop it on the JVM and still get the right answer.
+    A frame holds state in *two* partitions: [app-db](../../core/glossary.md#app-db) (yours) and [runtime-db](../../core/glossary.md#runtime-db) — the framework-owned partition beside it, holding machine [snapshots](../../machines/glossary.md#snapshot), in-flight mutation status, and the like (full treatment in [app-db](../../core/concepts/app-db.md)). Most subs read app-db, so `app-db-value` feeds them. But `:auth/state` is **machine-backed** — its value lives in runtime-db, so feeding it a bare `app-db-value` would find nothing there. The rule is short: app-db subs take `app-db-value`; subs that touch machine snapshots (or any runtime-db state, like the mutation status in section 5) take `frame-state-value`. `frame-state-value` returns *both* partitions as one projection — `{:rf.db/app … :rf.db/runtime …}` — and `compute-sub` reads whichever partition each sub belongs to. Since it always works, when in doubt reach for `frame-state-value`.
 
-> **Coming from re-frame v1?** You never call `@(rf/subscribe …)` in these tests. `subscribe` needs a live reactive cache and an installed adapter — overhead for an assertion against a value. `compute-sub` is the pure, headless form. (If you genuinely want "what would the running frame see *right now*, cache and all", there's `rf/subscribe-once` — current value, synchronously, no live ratom left dangling — but for unit tests `compute-sub` is the right tool.)
+??? note "Going deeper — layered subs come along for free"
+
+    That `:auth.login-form/can-submit?` sub is **layered** — defined `:<- [:auth.login-form/slice]`, so it reads through another sub. `compute-sub` resolves the chain transitively: it computes the input sub against `db` first, depth-first, then runs the outer body against that value — all without spinning up the cache. Same for a parametric `input-fn` sub. You test the top sub and the whole [derivation graph](../../core/glossary.md#the-derivation-graph) underneath it comes along, exactly as the running app composes it. The cache the live app uses is an *optimisation* layered over this pure composition, not part of its meaning — which is precisely why you can drop it on the JVM and still get the right answer.
+
+??? info "From re-frame v1"
+
+    You never call `@(rf/subscribe …)` in these tests. `subscribe` needs a live reactive cache and an installed adapter — overhead for an assertion against a value. `compute-sub` is the pure, headless form. (If you genuinely want "what would the running frame see *right now*, cache and all", there's `rf/subscribe-once` — current value, synchronously, no live ratom left dangling — but for unit tests `compute-sub` is the right tool.)
 
 ## 5. Test the view, not just the state
 
@@ -219,13 +241,21 @@ Now require the view helpers and walk the tree the view returns:
 
 Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hiccup data: `find-by-testid` locates the node carrying that `:data-testid`, `text-content` collects the string leaves under it (the heart glyph contributes nothing, so you read `"  7"` — the two spaces flanking `favoritesCount`), and `invoke-handler` calls a wired handler (`:on-click`, `:on-change`, …). That handler assertion is what catches the wrong-frame-dispatch bug: had the click fired into a sibling frame, *this* frame's mutation instance would never come alive and the second `is` would fail. (The mutation-state sub reads runtime-db, so it's computed against `frame-state-value` — same partition rule as section 4.) `find-by-testid` expands nested view-fns on the way down, so calling a parent view shows you the leaf hiccup the user actually sees.
 
-> **Coming from React Testing Library?** `:data-testid` is the same convention RTL leans on, and the helpers mirror its query/fire shape: `find-by-testid` ≈ `getByTestId`, `text-content` ≈ `textContent`, `invoke-handler` ≈ `fireEvent`. What's underneath differs entirely — RTL queries a rendered DOM that JSDOM had to build; these helpers walk the hiccup *data* the view returned. No DOM, no `render()`, no `act()` to flush.
+??? info "Coming from React Testing Library?"
 
-> **Gotcha — a wrong testid fails loud, not soft.** `find-by-testid` returns `nil` when nothing carries that id, so `invoke-handler` on the result *throws* (`:rf.error/invoke-handler-bad-node`), as does invoking a node whose `:on-click` you mistyped (`:rf.error/invoke-handler-missing`). A missing handle is almost always a stale testid or a renamed key — a test bug, not a passing case — so you want it surfaced, not swallowed into a green run. (`text-content` is gentler: handed `nil` it returns `""`, so a bad testid in an `expect-text`-style assertion shows up as a plain string mismatch.)
+    `:data-testid` is the same convention RTL leans on, and the helpers mirror its query/fire shape: `find-by-testid` ≈ `getByTestId`, `text-content` ≈ `textContent`, `invoke-handler` ≈ `fireEvent`. What's underneath differs entirely — RTL queries a rendered DOM that JSDOM had to build; these helpers walk the hiccup *data* the view returned. No DOM, no `render()`, no `act()` to flush.
 
-> **Two flavours of view test.** Reach for hiccup-walk (above) when you care about *structure* or *handlers* — which testid is present, which `:on-click` is wired. Reach for `rf/render-to-string` when you care about the rendered *markup* — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". It emits the whole view to an HTML string, also JVM-runnable, also no DOM. Only tests that need real React mounting (a click firing through actual DOM listeners, scroll behaviour) need a CLJS runtime — a small minority.
+!!! warning "Gotcha — a wrong testid fails loud, not soft"
 
-> **Going deeper — the `test-support` sugar.** The view-content tests pull `re-frame.test-helpers` (the view-tree axis); the event / sub / cascade tests pull `re-frame.test-support` for its sugar — `dispatch-sequence` to fire a vector of events in order, `assert-path-equals` and `assert-db-equals` for `clojure.test`-aware state assertions, `poll-until` for async settles whose result lands in state after `dispatch-sync` returns. Reach for them when the inline `(is (= …))` form gets repetitive; everything else composes straight from `dispatch-sync` / `app-db-value` / `compute-sub`. [Test an event handler](../../core/testing/event-handlers.md) and [Test a cascade](../../core/testing/cascades.md) are the focused recipes.
+    `find-by-testid` returns `nil` when nothing carries that id, so `invoke-handler` on the result *throws* (`:rf.error/invoke-handler-bad-node`), as does invoking a node whose `:on-click` you mistyped (`:rf.error/invoke-handler-missing`). A missing handle is almost always a stale testid or a renamed key — a test bug, not a passing case — so you want it surfaced, not swallowed into a green run. (`text-content` is gentler: handed `nil` it returns `""`, so a bad testid in an `expect-text`-style assertion shows up as a plain string mismatch.)
+
+!!! note "Two flavours of view test"
+
+    Reach for hiccup-walk (above) when you care about *structure* or *handlers* — which testid is present, which `:on-click` is wired. Reach for `rf/render-to-string` when you care about the rendered *markup* — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". It emits the whole view to an HTML string, also JVM-runnable, also no DOM. Only tests that need real React mounting (a click firing through actual DOM listeners, scroll behaviour) need a CLJS runtime — a small minority.
+
+??? note "Going deeper — the `test-support` sugar"
+
+    The view-content tests pull `re-frame.test-helpers` (the view-tree axis); the event / sub / cascade tests pull `re-frame.test-support` for its sugar — `dispatch-sequence` to fire a vector of events in order, `assert-path-equals` and `assert-db-equals` for `clojure.test`-aware state assertions, `poll-until` for async settles whose result lands in state after `dispatch-sync` returns. Reach for them when the inline `(is (= …))` form gets repetitive; everything else composes straight from `dispatch-sync` / `app-db-value` / `compute-sub`. [Test an event handler](../../core/testing/event-handlers.md) and [Test a cascade](../../core/testing/cascades.md) are the focused recipes.
 
 ## 6. Reset between tests
 
@@ -238,7 +268,9 @@ One detail underwrites every test above: each runs against a clean runtime, with
 
 `make-reset-runtime-fixture` is the default `:each` fixture for re-frame2 suites. It snapshots the [registrar](../../core/glossary.md#registrar) and resets the per-process state — frames, flows, schemas, machine timers, in-flight HTTP, [epoch](../../core/glossary.md#epoch) history, trace listeners — around every test, then restores. It's a *factory*: it returns the fixture fn, which is why you call it (`(make-reset-runtime-fixture {…})`) rather than passing it bare. The reset machinery no-ops for any subsystem your suite doesn't touch, so a thin JVM suite that never pulls flows or schemas doesn't pay to reset them — cheap default for thin suites, complete one for thick.
 
-> **Going deeper — two scopes of isolation, stacked.** The fixture resets the *process*; `with-new-frame` scopes one *frame's* lifetime to one test (created for the body, destroyed on exit — success or exception). Every cascade test above wraps both, belt-and-braces, so no frame, no registration, and no in-flight request can survive into the next test. If a test only registers a handful of handlers and never mounts an adapter or drives a long-lived frame, you can reach below the fixture to `with-fresh-registrar`, which brackets just the registrar around a single body.
+??? note "Going deeper — two scopes of isolation, stacked"
+
+    The fixture resets the *process*; `with-new-frame` scopes one *frame's* lifetime to one test (created for the body, destroyed on exit — success or exception). Every cascade test above wraps both, belt-and-braces, so no frame, no registration, and no in-flight request can survive into the next test. If a test only registers a handful of handlers and never mounts an adapter or drives a long-lived frame, you can reach below the fixture to `with-fresh-registrar`, which brackets just the registrar around a single body.
 
 Run the suite:
 
@@ -283,6 +315,10 @@ That second survivor wants one piece of wiring before you deploy. Declare a sink
 
 The runtime [projects](../../core/glossary.md#project-egress) each record through the frame's [classification](../../core/glossary.md#data-classification) *before* your sink sees it, so the sink does no redaction of its own — it can't accidentally leak what the framework already scrubbed. The full recipe — choosing a backend, what the records carry — is [Report errors in production](../../core/how-to/report-errors-in-production.md), and the dev/prod build knobs are [Configure dev and production builds](../../core/how-to/configure-dev-and-prod.md).
 
-> **Coming from a JS bundler's tree-shaking?** This is the inverse of the usual story. You don't *add* a production logging service and then tree-shake the dev tooling by praying your imports are side-effect-free; the framework gates its *own* diagnostics behind `goog.DEBUG` so `:advanced` constant-folds them away by construction. The error sink is the one diagnostic that survives on purpose — think of it as the structured replacement for the `window.onerror` handler you'd otherwise hand-roll, except it arrives pre-redacted and carries the frame and event-id.
+??? info "Coming from a JS bundler's tree-shaking?"
 
-> **Gotcha — pre-alpha: no back-compat covenant yet.** re-frame2 is pre-alpha. The *shape* of what you ship is stable in the ways this page describes, but there is no back-compat covenant yet. Expect to track changes between releases.
+    This is the inverse of the usual story. You don't *add* a production logging service and then tree-shake the dev tooling by praying your imports are side-effect-free; the framework gates its *own* diagnostics behind `goog.DEBUG` so `:advanced` constant-folds them away by construction. The error sink is the one diagnostic that survives on purpose — think of it as the structured replacement for the `window.onerror` handler you'd otherwise hand-roll, except it arrives pre-redacted and carries the frame and event-id.
+
+!!! warning "Gotcha — pre-alpha: no back-compat covenant yet"
+
+    re-frame2 is pre-alpha. The *shape* of what you ship is stable in the ways this page describes, but there is no back-compat covenant yet. Expect to track changes between releases.

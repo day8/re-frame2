@@ -156,11 +156,13 @@ A compound state *without* `:initial` is a registration error
 (`:rf.error/machine-compound-state-missing-initial`) — it fails loud at
 `reg-machine` time, not on the unlucky dispatch.
 
-> **The initial cascade also runs at birth.** When a machine first comes to
-> life — a singleton on its first dispatched event, or a spawned actor — the
-> whole `:initial` chain's `:entry` actions fire once, shallowest-first, as part
-> of bringing it into existence — *every* level along the chain, not just the
-> leaf.
+!!! note "The initial cascade also runs at birth"
+
+    When a machine first comes to
+    life — a singleton on its first dispatched event, or a spawned actor — the
+    whole `:initial` chain's `:entry` actions fire once, shallowest-first, as part
+    of bringing it into existence — *every* level along the chain, not just the
+    leaf.
 
 ---
 
@@ -373,11 +375,13 @@ So you do **not** have to *avoid* `:final?` to keep a machine alive after a
 sub-flow completes — you put the final leaf *inside* the compound. A final leaf
 at the root, by contrast, ends the actor.
 
-> **Final means final.** A *singleton* (top-level, un-spawned) machine that
-> reaches a **root-level** `:final?` leaf auto-destroys — the snapshot is gone.
-> If you want a state the machine rests in indefinitely (an `:authed`
-> end-screen), use an ordinary leaf and **omit `:final?`**. `:final?` is for
-> "this run is over," not "this is the last screen."
+!!! note "Final means final"
+
+    A *singleton* (top-level, un-spawned) machine that
+    reaches a **root-level** `:final?` leaf auto-destroys — the snapshot is gone.
+    If you want a state the machine rests in indefinitely (an `:authed`
+    end-screen), use an ordinary leaf and **omit `:final?`**. `:final?` is for
+    "this run is over," not "this is the last screen."
 
 ### Reporting a result to a spawning parent: `:output-key`
 

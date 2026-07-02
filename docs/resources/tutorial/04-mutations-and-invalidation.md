@@ -10,7 +10,9 @@ This part lands three things, one at a time:
 - publishing an article saves it, then *continues* — navigate to the new article, clear the form — via a **`:reply-to` event**, not a callback;
 - a **`:can-leave` route guard** and a confirm dialog stop you from navigating away from a half-written draft.
 
-> **Coming from RTK Query or TanStack Query?** A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences. Invalidation is declared once on the write's *registration*, not per call site; every invalidation is **scoped** — your feed and another user's feed are different cache entries, and a write names which scopes it touches; and the post-write continuation is a dispatched [**event**](../../core/glossary.md#event), not an `onSuccess` callback.
+??? info "Coming from RTK Query or TanStack Query?"
+
+    A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences. Invalidation is declared once on the write's *registration*, not per call site; every invalidation is **scoped** — your feed and another user's feed are different cache entries, and a write names which scopes it touches; and the post-write continuation is a dispatched [**event**](../../core/glossary.md#event), not an `onSuccess` callback.
 
 One phrase to file away now and watch pay off by the end — it won't fully land until the **Publish** section, and that's fine:
 
@@ -87,9 +89,13 @@ Three things do the work:
 
 Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface is catalogued in [Concepts → Writes invalidate by tag](../concepts.md#writes-invalidate-by-tag--causally).
 
-> **Gotcha — writes never retry by default.** There's one asymmetry from reads worth flagging up front. Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries *only* if its request map explicitly opts in. The favorite write doesn't, so a slow favorite simply waits — it never silently fires twice.
+!!! warning "Gotcha — writes never retry by default"
 
-> **Coming from RTK Query?** `:invalidates` is `invalidatesTags`, and `:populates` is `updateQueryData` / `upsertQueryData` — except both live on the *registration* once, not in an `onQueryStarted` per call. The "which reads did this break" decision is made where the write is *defined*, so every call site inherits it.
+    There's one asymmetry from reads worth flagging up front. Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries *only* if its request map explicitly opts in. The favorite write doesn't, so a slow favorite simply waits — it never silently fires twice.
+
+??? info "Coming from RTK Query?"
+
+    `:invalidates` is `invalidatesTags`, and `:populates` is `updateQueryData` / `upsertQueryData` — except both live on the *registration* once, not in an `onQueryStarted` per call. The "which reads did this break" decision is made where the write is *defined*, so every call site inherits it.
 
 That's a complete, working favorite write. The next section fires it; the deeper consequence keys (`:patches`, `:removes`, optimistic updates, timing) come after, once you've seen the basic loop run.
 
@@ -136,11 +142,15 @@ The view watches its instance through `resources/sub-mutation` — sugar over th
 
 That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping, no `:saving?` flag to maintain. (The `:optimistic?` flag is for the optimistic variant we meet later — true while an unconfirmed optimistic value is showing.)
 
-> **Gotcha — the failure path is the same instance, read `:error?`.** A favorite heart can afford to ignore a failed write (the count just doesn't move). A form can't. When a write fails, the instance settles `{:status :error, :error <envelope>}`, and the view shows it by reading the *same* instance — `(when (:error? fav) [error-banner (:error fav)])`. The `:error` value is the closed `:rf.http/*` failure envelope managed HTTP produces (the same shape a resource's `:error` carries — [Part 2](02-server-data.md)); branch on its `:kind`, render its message, never parse a string. The editor below leans on exactly this: its `:reply-to` handler does nothing on failure precisely because the form is *already* showing the instance's `:error`.
+!!! warning "Gotcha — the failure path is the same instance, read `:error?`"
+
+    A favorite heart can afford to ignore a failed write (the count just doesn't move). A form can't. When a write fails, the instance settles `{:status :error, :error <envelope>}`, and the view shows it by reading the *same* instance — `(when (:error? fav) [error-banner (:error fav)])`. The `:error` value is the closed `:rf.http/*` failure envelope managed HTTP produces (the same shape a resource's `:error` carries — [Part 2](02-server-data.md)); branch on its `:kind`, render its message, never parse a string. The editor below leans on exactly this: its `:reply-to` handler does nothing on failure precisely because the form is *already* showing the instance's `:error`.
 
 Notice what the view *doesn't* do: it never invalidates anything. Add this button to the article cards from Part 1 and to the article page, and you're done. Favoriting behaves identically everywhere, because the write's consequences live on the write, not on the call site.
 
-> **Coming from RTK Query?** `[:rf.mutation/state {:instance …}]` is the tuple `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id *you* choose, not bound to one component instance. Two views can watch the *same* in-flight write by naming the same instance, and a write survives the unmount of the component that fired it.
+??? info "Coming from RTK Query?"
+
+    `[:rf.mutation/state {:instance …}]` is the tuple `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id *you* choose, not bound to one component instance. Two views can watch the *same* in-flight write by naming the same instance, and a write survives the unmount of the component that fired it.
 
 ### Watch it happen
 
@@ -172,7 +182,9 @@ And the sub family is wider than the one you've used. `:rf.mutation/state` retur
 
 One more command rounds out the surface, alongside `:rf.mutation/execute`. **`:rf.mutation/clear`** is the instance's causal reset — `[:rf.mutation/clear {:instance [:favorite slug]}]` drops the runtime instance back to `:idle` and best-effort aborts any in-flight work for it. You reach for it to wipe a stale `:success` / `:error` before re-using an instance id: the editor below clears `:editor/save` on every entry, so a fresh form never shows the last save's outcome. (It's a dispatched *event*, not the `clear-mutation` registration-lifecycle function — same `clear` word, two registers, exactly as `:rf.resource/clear-scope` and `clear-resource` divide on the read side.)
 
-> **Gotcha — `:result` on the instance, `:value` in a reply.** One spelling to file away early: the instance sub stores the decoded result under `:result`. The transient [reply map](../glossary.md#reply-map) a `:reply-to` continuation receives — coming up in the **Publish** section — spells the same value `:value`. Same data, two layers; we'll meet `:value` again there.
+!!! warning "Gotcha — `:result` on the instance, `:value` in a reply"
+
+    One spelling to file away early: the instance sub stores the decoded result under `:result`. The transient [reply map](../glossary.md#reply-map) a `:reply-to` continuation receives — coming up in the **Publish** section — spells the same value `:value`. Same data, two layers; we'll meet `:value` again there.
 
 ## Going further with mutations
 
@@ -210,26 +222,30 @@ The basic loop — register, fire, watch — is the whole story for most writes.
 
 The order is fixed and worth internalising: **patch/populate/remove first, then invalidate.** The seeds and surgical edits land, *then* the tag sweep marks the broader reads stale. That's why a `:populates`'d entry doesn't immediately refetch (it just learned the truth from the write reply) while a merely-tagged list does.
 
-> **When the reply is partial: `:refetch-populated?`.** `:populates` treats its seed as an **authoritative load** — the populated entry becomes `:loaded`, its freshness timers arm as if it had fetched normally, and this mutation's own `:invalidates` pass *skips* it. That's exactly right when the write reply carries the *full* resource shape, as the favorite endpoint does.
->
-> But some endpoints reply with only *part* of the record — enough to acknowledge the write, not enough to be the whole cached value. For that case an `:invalidates` descriptor opts the populated key back into a same-mutation refetch:
->
-> ```clojure
-> :invalidates (fn [{:keys [slug]} _result]
->                [{:scope :rf.scope/global
->                  :tags  #{[:article slug]}
->                  :refetch-populated? true}])   ;; the partial reply isn't the whole truth — go re-read
-> ```
->
-> `:refetch-populated?` changes exactly one thing: whether a key *this* mutation populated may be immediately refetched by *this* mutation's invalidation. The default is no. Reach for it only when you know the reply is a subset of the full GET.
+!!! note "When the reply is partial: `:refetch-populated?`"
 
-> **Gotcha — what happens if a cache target is wrong, after the write already landed.** A subtle question worth answering once: `:populates` / `:patches` / `:removes` run at *settle*, **after** the server write has committed. So what does the runtime do if a target is bad — say you typo a resource id, or a `{:from-db …}` scope resolves `nil`? It can't undo the server write, so it splits by severity rather than blowing up your committed mutation:
->
-> - A **recoverable** target — an unregistered resource id, or a malformed target map — is **dropped and warned, not thrown**. The runtime applies the *valid* siblings in the same arm, records the dropped one on the instance's trace evidence, and emits a dev-only `:rf.warning/mutation-target-skipped`. One typo'd sibling never strands the whole write.
-> - A **cache-identity-corruption** target — a misspelled reserved scope keyword (a bare `:rf.scope/*` outside the closed set), or a non-EDN scope/params — **still throws the arm**. Nothing is allowed to silently write the cache under a *wrong identity*.
-> - A `{:from-db …}` target whose scope resolves `nil` is **fail-closed-dropped** — never written under a global fallback — and recorded as `:target-unresolved`.
->
-> The takeaway: get your target maps right, but a stray typo degrades gracefully (warn-and-skip) rather than throwing away a server write you can't take back. The **optimistic** plan — which runs *before* the request — is stricter, because there's no committed write to be inconsistent with yet: a bad target there rejects the whole apply.
+    `:populates` treats its seed as an **authoritative load** — the populated entry becomes `:loaded`, its freshness timers arm as if it had fetched normally, and this mutation's own `:invalidates` pass *skips* it. That's exactly right when the write reply carries the *full* resource shape, as the favorite endpoint does.
+
+    But some endpoints reply with only *part* of the record — enough to acknowledge the write, not enough to be the whole cached value. For that case an `:invalidates` descriptor opts the populated key back into a same-mutation refetch:
+
+    ```clojure
+    :invalidates (fn [{:keys [slug]} _result]
+                   [{:scope :rf.scope/global
+                     :tags  #{[:article slug]}
+                     :refetch-populated? true}])   ;; the partial reply isn't the whole truth — go re-read
+    ```
+
+    `:refetch-populated?` changes exactly one thing: whether a key *this* mutation populated may be immediately refetched by *this* mutation's invalidation. The default is no. Reach for it only when you know the reply is a subset of the full GET.
+
+!!! warning "Gotcha"
+
+    A subtle question worth answering once: `:populates` / `:patches` / `:removes` run at *settle*, **after** the server write has committed. So what does the runtime do if a target is bad — say you typo a resource id, or a `{:from-db …}` scope resolves `nil`? It can't undo the server write, so it splits by severity rather than blowing up your committed mutation:
+
+    - A **recoverable** target — an unregistered resource id, or a malformed target map — is **dropped and warned, not thrown**. The runtime applies the *valid* siblings in the same arm, records the dropped one on the instance's trace evidence, and emits a dev-only `:rf.warning/mutation-target-skipped`. One typo'd sibling never strands the whole write.
+    - A **cache-identity-corruption** target — a misspelled reserved scope keyword (a bare `:rf.scope/*` outside the closed set), or a non-EDN scope/params — **still throws the arm**. Nothing is allowed to silently write the cache under a *wrong identity*.
+    - A `{:from-db …}` target whose scope resolves `nil` is **fail-closed-dropped** — never written under a global fallback — and recorded as `:target-unresolved`.
+
+    The takeaway: get your target maps right, but a stray typo degrades gracefully (warn-and-skip) rather than throwing away a server write you can't take back. The **optimistic** plan — which runs *before* the request — is stricter, because there's no committed write to be inconsistent with yet: a bad target there rejects the whole apply.
 
 ### The scope footgun — and the safe pattern
 
@@ -257,17 +273,21 @@ The fix is the per-scope descriptor form you already used in the favorite: name 
 
 The same rule covers route- and tenant-scoped reads: **a write's invalidation scope must match the scope of the resources it breaks.** When a write touches both a global fact and a session fact, return one descriptor per scope (exactly as `:conduit/favorite` does) — never a blanket `:cross-scope? true`, which is the audited multi-tenant escape, not the default.
 
-> **Why this matters — you don't have to spot it by eye.** In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only ([elided](../../core/glossary.md#elide) from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the [trace stream](../../core/glossary.md#trace-stream) or in Xray.
+!!! note "Why this matters — you don't have to spot it by eye"
 
-> **What `:cross-scope? true` actually is — and why it's not your default.** We've called it "the audited escape" twice now, so let's be concrete. A per-scope descriptor can only name scopes you *already know* — global, the session you resolved, a tenant id you hold. But some operations need to stale a tag *wherever it lives*, across scopes the call site **cannot enumerate**: an admin force-publishing across every tenant, a cache-poisoning response, a data migration. That's the one job `:cross-scope?` does — "invalidate this tag in every scope currently holding it":
->
-> ```clojure
-> ;; only the call site that CANNOT name its scopes — and must :cause-justify the sweep
-> :invalidates (fn [_ _result]
->                [{:tags #{[:article-list]} :cross-scope? true :cause [:admin/force-republish]}])
-> ```
->
-> It is genuinely different from a descriptor, and genuinely dangerous: it can stale or refetch data for other users, tenants, story frames, and SSR requests. So it's **audited** — it *must* carry `:cause` evidence (a cross-scope sweep with no cause is a loud error, `:rf.error/resource-cross-scope-cause-required`), it's recorded as a privacy-relevant trace event, and Xray warns when a precise descriptor would have done the job. Three rungs, and the floor is fail-closed: a bare invalidate with **no scope at all** is a loud error (`:rf.error/resource-invalidate-scope-required`), never a silent global blast. Reach for descriptors; reach for `:cross-scope?` only when you truly cannot name the scopes by hand.
+    In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only ([elided](../../core/glossary.md#elide) from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the [trace stream](../../core/glossary.md#trace-stream) or in Xray.
+
+!!! note "What `:cross-scope? true` actually is — and why it's not your default"
+
+    We've called it "the audited escape" twice now, so let's be concrete. A per-scope descriptor can only name scopes you *already know* — global, the session you resolved, a tenant id you hold. But some operations need to stale a tag *wherever it lives*, across scopes the call site **cannot enumerate**: an admin force-publishing across every tenant, a cache-poisoning response, a data migration. That's the one job `:cross-scope?` does — "invalidate this tag in every scope currently holding it":
+
+    ```clojure
+    ;; only the call site that CANNOT name its scopes — and must :cause-justify the sweep
+    :invalidates (fn [_ _result]
+                   [{:tags #{[:article-list]} :cross-scope? true :cause [:admin/force-republish]}])
+    ```
+
+    It is genuinely different from a descriptor, and genuinely dangerous: it can stale or refetch data for other users, tenants, story frames, and SSR requests. So it's **audited** — it *must* carry `:cause` evidence (a cross-scope sweep with no cause is a loud error, `:rf.error/resource-cross-scope-cause-required`), it's recorded as a privacy-relevant trace event, and Xray warns when a precise descriptor would have done the job. Three rungs, and the floor is fail-closed: a bare invalidate with **no scope at all** is a loud error (`:rf.error/resource-invalidate-scope-required`), never a silent global blast. Reach for descriptors; reach for `:cross-scope?` only when you truly cannot name the scopes by hand.
 
 ### Controlling *when* invalidation runs: `:invalidate-timing`
 
@@ -323,7 +343,9 @@ Three things make this safe, and none of them are your job:
 
 The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user already sees their change, so don't block the button — and optionally read the derived **`:optimistic?`** flag (`(:optimistic? fav)`, true while the optimistic value is showing and unconfirmed) for a subtle in-flight cue.
 
-> **Coming from TanStack / RTK / SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace (`:rf.mutation/optimistic-applied` → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic contract is [Concepts → Optimistic writes](../concepts.md#optimistic-writes-commit-roll-back-or-reconcile); `examples/real-apps/realworld_resources/mutations.cljs` runs exactly this favorite.
+??? info "Coming from TanStack / RTK / SWR?"
+
+    This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace (`:rf.mutation/optimistic-applied` → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic contract is [Concepts → Optimistic writes](../concepts.md#optimistic-writes-commit-roll-back-or-reconcile); `examples/real-apps/realworld_resources/mutations.cljs` runs exactly this favorite.
 
 ## Publish from the editor — and continue with `:reply-to`
 
@@ -450,9 +472,13 @@ Three rules make `:reply-to` trustworthy:
 
 And here's the point this part exists to land: `[:editor/replied]` is **data**. It's not a closure awaiting a Promise. It's an event vector, sitting in the execute payload where Xray can show it (the mutation's `replied` trace op is that dispatch), where a test can assert it, and where replay can re-run it deterministically. The async workflow "save, then navigate" is on the record, step by step.
 
-> **Coming from re-frame v1?** `:reply-to` is your `:on-success`/`:on-failure` pair collapsed into one stale-safe target with a uniform reply map — the same envelope every async family replies with ([From re-frame v1](../../core/25-from-re-frame-v1.md)).
+??? info "From re-frame v1"
 
-> **Going deeper — the continuation is a value, not a callback.** `await postArticle()` binds the next step to a stack frame: a closure that exists only while the promise is pending, invisible once it resolves. `:reply-to [:editor/replied]` binds it to a *value* — an event vector that any process can read, store, compare, or re-dispatch. That's the difference between a continuation captured in the language runtime (a `k` you can't see) and a continuation reified as data (a `k` you can print). The cost is a touch more ceremony; the prize is a workflow that's inspectable after the fact, assertable in a test, and replayable deterministically. [Why no await: continuations are data](../../async/continuations-are-data.md) makes the full argument.
+    `:reply-to` is your `:on-success`/`:on-failure` pair collapsed into one stale-safe target with a uniform reply map — the same envelope every async family replies with ([From re-frame v1](../../core/25-from-re-frame-v1.md)).
+
+??? note "Going deeper — the continuation is a value, not a callback"
+
+    `await postArticle()` binds the next step to a stack frame: a closure that exists only while the promise is pending, invisible once it resolves. `:reply-to [:editor/replied]` binds it to a *value* — an event vector that any process can read, store, compare, or re-dispatch. That's the difference between a continuation captured in the language runtime (a `k` you can't see) and a continuation reified as data (a `k` you can print). The cost is a touch more ceremony; the prize is a workflow that's inspectable after the fact, assertable in a test, and replayable deterministically. [Why no await: continuations are data](../../async/continuations-are-data.md) makes the full argument.
 
 ## Guard the half-written draft
 
@@ -499,6 +525,8 @@ When the guard blocks, the runtime parks the blocked navigation in a **pending-n
 
 Now re-read `:editor/replied` above and notice the choreography. On a successful save it re-seeds the editor from the saved article *before* navigating, so `:editor/dirty?` is `false` and the guard waves the navigation through. Type into the editor, hit Back — dialog. Publish — clean navigation to your new article, lists already refreshing behind you. (The example's submit gate materialises "valid and dirty" as a [flow](../../core/concepts/flows.md) shared by the button and the handler.)
 
-> **For JavaScript developers — this is React Router's `useBlocker`, but the block is data.** A `:can-leave` guard plays the role of React Router's `useBlocker` / `unstable_usePrompt`: stop a navigation, ask the user. The difference is where the blocked navigation lives. There's no imperative `blocker.proceed()` / `blocker.reset()` you call from inside a component effect — the parked navigation is a value under `:rf/pending-navigation`, and `:rf.route/continue` / `:rf.route/cancel` are ordinary dispatched events. The dialog is just a view subscribed to a slot, which means it tests like any other view and shows up in Xray like any other state.
+??? info "For JavaScript developers"
+
+    A `:can-leave` guard plays the role of React Router's `useBlocker` / `unstable_usePrompt`: stop a navigation, ask the user. The difference is where the blocked navigation lives. There's no imperative `blocker.proceed()` / `blocker.reset()` you call from inside a component effect — the parked navigation is a value under `:rf/pending-navigation`, and `:rf.route/continue` / `:rf.route/cancel` are ordinary dispatched events. The dialog is just a view subscribed to a slot, which means it tests like any other view and shows up in Xray like any other state.
 
 Everything in this part is running code: [`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources) is the full app, including the pieces we trimmed for space (edit mode's load-and-seed, article delete, comments, follow/unfollow, the editor's field markup). For the concepts behind resources and mutations as a pair — the read model and its write counterpart — the [server-state concept page](../concepts.md) is the reference companion to this tutorial.

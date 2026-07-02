@@ -4,7 +4,9 @@ Let's take a small articles app and make it render on the JVM — one step at a 
 
 Every step below is adapted from the worked example at [`examples/capabilities/ssr/ssr/`](../../examples/capabilities/ssr/ssr) — one `.cljc` file that runs on both sides. Keep it open beside this page if you like reading ahead.
 
-> **Before you start.** You've done the [core quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-cascade.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are, and what a [frame](../core/concepts/frames.md) is. That's the only prerequisite: SSR adds no new kind of handler, which is rather the point.
+!!! note "Before you start"
+
+    You've done the [core quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-cascade.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are, and what a [frame](../core/concepts/frames.md) is. That's the only prerequisite: SSR adds no new kind of handler, which is rather the point.
 
 ## Step 0 — turn SSR on
 
@@ -58,7 +60,9 @@ Now, at a **JVM** REPL — install the headless SSR adapter, stand up a frame, s
 
 **Notice:** nothing about the app changed to make this work. The event handler was already pure, the subscription was already a pure derivation, the view was already data-in-hiccup-out. `render-to-string` just walks the result. This is the fact the rest of the tutorial builds on: **the app was always able to run on a server — SSR is mostly deciding when to render and what to ship.**
 
-> **Why does `subscribe` work here?** Inside `reg-view`, `subscribe` resolves at runtime to the frame the view renders under. On the JVM, deref just reads the current value and returns; in the browser, the same deref registers a reaction so the view re-renders on change. One view, two behaviours, picked from the context.
+!!! note "Why does `subscribe` work here?"
+
+    Inside `reg-view`, `subscribe` resolves at runtime to the frame the view renders under. On the JVM, deref just reads the current value and returns; in the browser, the same deref registers a reaction so the view re-renders on change. One view, two behaviours, picked from the context.
 
 ## Step 2 — a frame per request
 
@@ -101,7 +105,9 @@ Now the per-request lifecycle, by hand — worth seeing once before an adapter h
 
 **Notice two load-bearing details.** `reg-frame` runs its `:initial-events` synchronously and the runtime **drains** — it keeps processing events (and the events those dispatch) until the queue settles — so by the time you render, app-db holds the finished state, never a half-loaded one. And `destroy-frame!` sits in a `finally`: on a server that runs for weeks, tearing the frame down on *every* exit path is what stops you leaking a frame per request. Teardown also clears the request slot for you.
 
-> **Why this matters.** A hundred concurrent requests are a hundred isolated app-dbs that cannot see, race, or corrupt one another. The isolation that made [frames](../core/concepts/frames.md) good for testing is exactly what makes them safe under server load.
+!!! note "Why this matters"
+
+    A hundred concurrent requests are a hundred isolated app-dbs that cannot see, race, or corrupt one another. The isolation that made [frames](../core/concepts/frames.md) good for testing is exactly what makes them safe under server load.
 
 ## Step 3 — ship the state with the HTML
 
