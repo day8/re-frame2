@@ -44,6 +44,10 @@ The third positional arg is the URL shape — colon-prefixed segments capture in
 | `:on-error` | Event vector dispatched if any `:on-match` event errors. |
 | `:can-leave` | Guard sub-query run before leaving the route. **Closed boolean contract**: `true` allows the navigation, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-leave-non-boolean`. The sub name reads positively (`:can-leave`), so `false` means "can NOT leave". See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
+| `:sensitive` | Slice paths (projection-relative, e.g. `[:query :token]`) redacted at egress while the route is active. See [Routing → Keeping tokens off the wire](../routing/concepts.md#keeping-tokens-off-the-wire). |
+| `:large` | Slice paths kept off the wire at egress (a size marker ships instead of the value). |
+
+Two cross-feature bare keys are also accepted when their owning artefact is loaded: `:resources` (the resources artefact's route integration) and `:head` (SSR's head-metadata contract). In an app without the owning artefact they are rejected like any other unknown bare key.
 
 Canonical detail in [The metadata map, in full](../routing/concepts.md#the-metadata-map-in-full) in the routing concept guide.
 

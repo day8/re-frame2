@@ -24,6 +24,18 @@ The active URL surfaced as state: read `:rf.route/id`, `:rf.route/params`, and `
 
 What a [route](#route) declares it needs on entry — `:on-match` [events](../core/glossary.md#event) the runtime dispatches, and `:resources` it ensures are loaded — so a page's data requirement lives next to its URL. Loaders run on the server too, so there's no separate SSR data-fetch to keep in sync.
 
+### **route chain**
+
+The active route's ancestry. A route names a `:parent`, and `@(subscribe [:rf.route/chain])` returns the lineage root-most first — on `/articles/intro`, `[:app/articles :app/article]`. It's how shared layouts work without an `<Outlet/>`: the leaf is the page, and each ancestor wraps a shell around it. See [Nested layouts](concepts.md#nested-layouts).
+
+### **transition**
+
+The route slice's loading state — `:idle`, `:loading` (a [loader](#loader) is still running), or `:error` (one failed) — read via `:rf.route/transition`. One global fact instead of per-page loading flags: a progress bar or an error banner is a single view over it.
+
+### **nav-token**
+
+The counter that identifies one navigation. Route-declared resources are owned by the token that planned them, so a reply that lands after a newer navigation is quietly dropped instead of overwriting the page you're now on — the classic click-away race, fixed in the substrate. Hand-rolled loaders opt in via the `:rf.route/nav-token` coeffect.
+
 ### **route guard**
 
 A `:can-leave` guard subscription (strict boolean: `true` means leaving is fine) consulted before leaving a [route](#route); a `false` parks the navigation as *pending* so your [view](../core/glossary.md#view) can render a "discard changes?" prompt, resolved by dispatching `:rf.route/continue` or `:rf.route/cancel`. The idiomatic home for unsaved-changes prompts — gating *entry* (an auth redirect) is an ordinary interceptor over the navigation events instead ([Require sign-in on a route](how-to/require-sign-in-on-a-route.md)).
