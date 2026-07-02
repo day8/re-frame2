@@ -289,10 +289,10 @@ nav:
     - "Coming from React Router": routing/coming-from-react-router.md
 
   - SSR:
-    # Concepts is the read-straight-down guide (no separate tutorial yet —
-    # rf2-v7nkg6 tracks that gap); Examples before Glossary; the Next.js
-    # translation last, like the other coming-from pages.
+    # Tutorial first (build the lifecycle by hand), then the model; the
+    # Next.js translation last, like the other coming-from pages.
     - ssr/index.md
+    - "Tutorial: render on the server": ssr/tutorial.md
     - "Concepts": ssr/concepts.md
     - "Examples": ssr/examples.md
     - "Glossary": ssr/glossary.md
