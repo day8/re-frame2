@@ -163,27 +163,37 @@ This is exactly the trap you want sprung. A silently-minted random value would m
 
     Rather than spell out each test-friendly setting on every frame, ask for the bundle: `(rf/reg-frame :my-test {:preset :test})` — or `:preset :test` on the advanced `re-frame.frame/make-frame` — expands to three fixed entries. It redirects `:rf.http/managed` to a canned-success stub, so a test frame never reaches the network; it sets `:rf.cofx/mint-policy :strict`, the strict-mint behaviour above; and it carries `:drain-depth 100`, the framework default, surfaced so tooling can read "this is a test frame" off the frame's metadata. Reach for the preset when you want those defaults without naming them one by one.
 
-### Seeding multiple events, and ergonomic state assertions
+### Seeding state: the frame boots it, the body tests it
 
-When a test needs several setup dispatches before the one under test, `re-frame.test-support/dispatch-sequence` fires a vector of events in order and returns the final committed app-db — tidier than a stack of `dispatch-sync` calls:
+When a test needs state built up *before* the dispatch it's actually about, don't stack setup `dispatch-sync` calls above the action — hand the setup to `make-frame` as `:initial-events`, the same ordered event script a production [`reg-frame`](../concepts/frames.md#seeding-initial-state) boots with. Each step dispatches synchronously and drains to completion, in order, while the frame is constructed. The frame arrives already in the state the test needs, and the body holds exactly one dispatch — the one under test:
 
 ```clojure
-(deftest feed-after-a-sequence
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (let [final (ts/dispatch-sequence [[:articles/init]
-                                       [:articles/page-changed 2]
-                                       [:articles/page-changed 3]])]
-      (is (= 3 (get-in final [:articles :page]))))))
+(deftest page-change-from-a-seeded-feed
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:articles/init]
+                                                         [:articles/page-changed 2]]})]
+    (rf/dispatch-sync [:articles/page-changed 3])
+    (is (= 3 (get-in (rf/app-db-value f) [:articles :page])))))
 ```
 
-`dispatch-sequence` takes an optional opts map: `:frame` (dispatch into a named frame instead of the current one) and `:after-each` (a `(fn [db event] …)` called once per event with the state committed after it — handy for asserting on each intermediate step, not just the final state).
+A setup step that needs pinned facts takes the map form — `:opts` is the ordinary `dispatch-sync` opts map, so a seed can carry `:rf.cofx` and `:fx-overrides` just like the action can:
+
+```clojure
+(rf/make-frame
+  {:initial-events [[:articles/init]
+                    {:event [:articles/refresh]
+                     :opts  {:rf.cofx      {:rf/time-ms 1781078400123}
+                             :fx-overrides {:rf.http/managed (fn [_ _] nil)}}}]})
+```
+
+And construction is strict: a setup step that fails — a thrown handler, a missing required cofx — tears the partial frame down and the constructor throws `:rf.error/initial-events-step-failed` naming the step. A broken seed is a red test at the `make-frame` line, never a half-seeded frame that fails three asserts later.
+
+### Ergonomic state assertions
 
 For the assertion itself, `test-support` ships two `clojure.test`-aware helpers that read the *current* (or a named) frame's app-db, so you don't have to thread `app-db-value` through `get-in` by hand: `(ts/assert-path-equals path expected)` checks one path, and `(ts/assert-db-equals expected-db)` checks the whole map. Both take an optional `{:frame …}` opt and report a `:pass` / `:fail` through `clojure.test`, so they slot straight into a `deftest`:
 
 ```clojure
 (deftest page-committed
-  (rf/with-new-frame [_ (rf/make-frame {})]
-    (rf/dispatch-sync [:articles/init])
+  (rf/with-new-frame [_ (rf/make-frame {:initial-events [[:articles/init]]})]
     (rf/dispatch-sync [:articles/page-changed 3])
     (ts/assert-path-equals [:articles :page] 3)))
 ```

@@ -6,7 +6,7 @@ Here's the pleasant surprise: **your server tests are just JVM tests.** The whol
 
 ## 1. Render a request to a string
 
-`render-to-string` is a pure function — hiccup in, HTML string out — and the test shape is the request lifecycle in miniature: fresh frame, setup dispatch, render, assert on the markup:
+`render-to-string` is a pure function — hiccup in, HTML string out — and the test shape is the request lifecycle in miniature: a fresh frame booted through `:initial-events`, render, assert on the markup. That's not just tidiness — `:initial-events` is the *same key* `ssr-handler` uses to seed every per-request frame, so a test frame built this way boots through exactly the path a production request's frame does:
 
 ```clojure
 (ns my-app.ssr-test
@@ -20,9 +20,10 @@ Here's the pleasant surprise: **your server tests are just JVM tests.** The whol
 (use-fixtures :each (ts/make-reset-runtime-fixture {}))
 
 (deftest article-page-renders-its-title
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:rf/set-db {:articles {"intro" {:title "Welcome"}}}])
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"])
+  (rf/with-new-frame [f (rf/make-frame
+                          {:initial-events
+                           [[:rf/set-db {:articles {"intro" {:title "Welcome"}}}]
+                            [:rf.route/handle-url-change "/articles/intro"]]})]
     (let [html (ssr/render-to-string [app-root] {:frame f})]
       (is (clojure.string/includes? html "Welcome")))))
 ```

@@ -62,19 +62,20 @@ That second assertion is the one that matters: `nil` is the *fail-closed* answer
 
 ## 3. Invalidation and mutations
 
-A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence. Staleness is the observable: an entry with no live owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion:
+A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence. The read it invalidates is *setup*, not the subject — so it rides the frame's `:initial-events`, with the stub table wrapped around frame creation (stubs bind for their dynamic extent, and the seed fetches as the frame boots). Staleness is the observable: an entry with no live owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion:
 
 ```clojure
 (deftest favorite-invalidates-the-article
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
-      {[:get  "/api/articles/intro"]          {:reply {:ok {:article {:slug "intro"}}}}
-       [:post "/api/articles/intro/favorite"] {:reply {:ok {:article {:slug "intro" :favorited true}}}}}
-      ;; seed the read…
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :realworld/article
-                                              :params   {:slug "intro"}
-                                              :cause    [:manual :test/setup]}])
-      ;; …run the write…
+  (rf/with-managed-request-stubs
+    {[:get  "/api/articles/intro"]          {:reply {:ok {:article {:slug "intro"}}}}
+     [:post "/api/articles/intro/favorite"] {:reply {:ok {:article {:slug "intro" :favorited true}}}}}
+    ;; the frame boots with the article already loaded — through the canned reply
+    (rf/with-new-frame [f (rf/make-frame
+                            {:initial-events
+                             [[:rf.resource/ensure {:resource :realworld/article
+                                                    :params   {:slug "intro"}
+                                                    :cause    [:manual :test/setup]}]]})]
+      ;; run the write…
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :realworld/favorite
                                                :params   {:slug "intro"}
                                                :instance [:favorite "intro"]

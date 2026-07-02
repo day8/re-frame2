@@ -280,8 +280,7 @@ If [Xray](../glossary.md#xray) — the dev inspector — was open when the bug h
             [my-app.articles]))
 
 (deftest issue-217-unfavorite-leaves-count-stale
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:app/init])   ;; seed via a setup dispatch (or :initial-events on make-frame)
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:app/init]]})]
     (ts/dispatch-sequence [[:article/loaded {:slug "ten-tips" :favorites-count 0}]
                            [:article/favorite "ten-tips"]
                            [:article/unfavorite "ten-tips"]])
@@ -290,7 +289,7 @@ If [Xray](../glossary.md#xray) — the dev inspector — was open when the bug h
                      [:articles "ten-tips" :favorites-count])))))
 ```
 
-`ts/dispatch-sequence` runs the rows through `dispatch-sync` in order and returns the final `app-db`. A row whose handler declares facts gets its own `dispatch-sync` with the recorded `:rf.cofx` supplied — replay means recorded inputs, never fresh ones. Today the replay reproduces the bug (red); fix the handler and the same replay proves the fix (green). The report has become a permanent regression guard that can't flake, because every input is pinned.
+`ts/dispatch-sequence` runs the rows through `dispatch-sync` in order and returns the final `app-db`. This is the one place a multi-event run belongs in the test *body* rather than in `:initial-events`: the sequence itself is the subject — it *is* the bug — not setup for something else. (App boot, by contrast, is setup, which is why `[:app/init]` rides the frame's construction above.) Note the rows are bare event vectors: when a replayed event's handler declares facts, give that row its own `dispatch-sync` carrying the recorded `:rf.cofx` — replay means recorded inputs, never fresh ones. Today the replay reproduces the bug (red); fix the handler and the same replay proves the fix (green). The report has become a permanent regression guard that can't flake, because every input is pinned.
 
 !!! note "Capturing intermediate state on the way through"
 
@@ -326,15 +325,15 @@ Every assertion so far has read a path straight out of `app-db`. But the cascade
   (fn [db _] (filterv :favorited? (vals (:articles db)))))
 
 (deftest favorited-derives-correctly
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (ts/dispatch-sequence [[:article/loaded {:slug "a" :favorited? true}]
-                           [:article/loaded {:slug "b" :favorited? false}]])
+  (rf/with-new-frame [f (rf/make-frame
+                          {:initial-events [[:article/loaded {:slug "a" :favorited? true}]
+                                            [:article/loaded {:slug "b" :favorited? false}]]})]
     ;; assert the SUB's output, not the raw :articles map
     (is (= 1 (count (rf/compute-sub [:articles/favorited]
                                     (rf/app-db-value f)))))))
 ```
 
-`(rf/compute-sub query-v db)` runs the subscription's body against an `app-db` *value* and returns what it computes — no reactive cache, no Reagent, no adapter. `query-v` is the exact vector you'd hand `subscribe` (`[:sub-id arg1 arg2]`), so a parameterized sub passes its args the same way. Layered subs resolve transitively: a sub built on other subs computes its inputs first, depth-first, then itself — the whole derivation graph, evaluated as a pure function. The recommended shape is the one above: **drive `db` with `dispatch-sync` (or `dispatch-sequence`), then `compute-sub` against the result**, so the sub is tested against state the real code paths produced. (You *can* pass a hand-rolled literal map as `db` for a trivial reader, but that decouples the test from how the state is actually built and rots silently when the shape moves — keep it for the rare case where the dispatch path adds nothing.)
+`(rf/compute-sub query-v db)` runs the subscription's body against an `app-db` *value* and returns what it computes — no reactive cache, no Reagent, no adapter. `query-v` is the exact vector you'd hand `subscribe` (`[:sub-id arg1 arg2]`), so a parameterized sub passes its args the same way. Layered subs resolve transitively: a sub built on other subs computes its inputs first, depth-first, then itself — the whole derivation graph, evaluated as a pure function. The recommended shape is the one above: **build `db` with real events — `:initial-events` at construction, or a `dispatch-sync` in the body when the dispatch is itself under test — then `compute-sub` against the result**, so the sub is tested against state the real code paths produced. (You *can* pass a hand-rolled literal map as `db` for a trivial reader, but that decouples the test from how the state is actually built and rots silently when the shape moves — keep it for the rare case where the dispatch path adds nothing.)
 
 !!! warning "Gotcha"
 
