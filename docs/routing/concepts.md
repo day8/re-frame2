@@ -120,9 +120,9 @@ You've now met the keys you'll reach for daily. The metadata map has thirteen re
 
 When two patterns could both match one URL, a structural ranking breaks the tie: more static segments win, and named params beat splats. The ranking is computed at *registration* time from the patterns alone — so the winner is decided before a single URL ever arrives, and there's no runtime ambiguity to debug.
 
-??? note "The full grammar and ranking rules"
+??? note "The full ranking cascade"
 
-    The full path grammar, the six-rule ranking cascade, and the per-boundary validation failure modes live in [Spec 012 — Routing](../../spec/012-Routing.md). You won't need them for everyday routes. Worth knowing the shape of the cascade, though: (1) more static segments win; (2) the *bare* catch-all `/*` is demoted below everything; (3) longer paths win; (4) named params beat splats; (5) exact routes beat optional-group routes; (6) registration order is the final, discouraged tiebreak — and the runtime warns (`:rf.warning/route-shadowed-by-equal-score`) at registration if two routes tie all the way down.
+    The five path elements above are the whole grammar; the ranking cascade, when two patterns compete, runs six rules deep: (1) more static segments win; (2) the *bare* catch-all `/*` is demoted below everything; (3) longer paths win; (4) named params beat splats; (5) exact routes beat optional-group routes; (6) registration order is the final, discouraged tiebreak — and the runtime warns (`:rf.warning/route-shadowed-by-equal-score`) at registration if two routes tie all the way down. You won't need past rule (1) for everyday routes.
 
 ## Move 2: navigation is an event
 
@@ -430,7 +430,7 @@ A route slice can hold secrets — an OAuth `?token=`, a `?code=` callback param
 
 > **Gotcha — classify the query key the route promotes.** A `[:query :token]` classification path names the *keyword* `:token`, but the slice only keys a query value as a keyword when the route declares it (in `:query`, `:query-defaults`, or `:query-retain`). Classify a query key the route doesn't promote and the path silently fails open — so `reg-route` emits a `:rf.warning/route-classification-query-key-unpromoted` advisory pointing at the fix: name the key in the `:query` schema. Path params are immune (path captures are always keyword-keyed). And a structurally malformed declaration (a non-vector axis, a bad path segment) fails *loud* at registration with `:rf.error/invalid-route-classification`.
 
-Routing's classification is the [data-classification](../../spec/015-Data-Classification.md) model applied to the singleton current-route. The full classification, privacy, and observability story lives in the spec; routes just declare the paths.
+Routing's classification is the framework-wide [data-classification](../core/glossary.md#data-classification) model applied to the singleton current-route — [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) is the full story; routes just declare the paths.
 
 ## The browser is just another event source
 
