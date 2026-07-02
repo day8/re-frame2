@@ -323,6 +323,28 @@ And reading an *event's* metadata gives you the chain as authored — a vector o
 
 The two compose: a tool reads the refs off the event, then resolves each ref's source and `:doc` via `handler-meta :interceptor`. That's exactly how [Xray](../glossary.md#xray) draws a chain with jump-to-source links on every stage. (In a real app the [trace stream](observability.md) already records every event with timings — the logger up top is the teaching shape.)
 
+## Testing an interceptor
+
+Both slots are pure functions `ctx → ctx`, and the context is a plain map — so an interceptor unit-tests the way [a handler does](../how-to/test-an-event-handler.md): call the function with a literal context, assert on the one it returns. Give the slots named `defn`s and reference them from the descriptor, so a test can reach them without any registry:
+
+```clojure
+(defn stamp-audit [ctx]
+  (assoc-in ctx [:effects :db :audit/last-event]
+            (first (get-in ctx [:coeffects :event]))))
+
+(rf/reg-interceptor :my-app/audit
+  {:doc "Stamp the triggering event's id onto the handler's :db write."}
+  {:after stamp-audit})
+
+(deftest audit-stamps-the-event-id
+  (let [ctx {:coeffects {:event [:cart.item/add {:sku "a"}]}
+             :effects   {:db {}}}]
+    (is (= :cart.item/add
+           (get-in (stamp-audit ctx) [:effects :db :audit/last-event])))))
+```
+
+Build the literal ctx from the [two-key shape above](#the-context-map-two-keys): a `:before` test supplies only `:coeffects`; an `:after` test supplies both halves — including the error-path shape where the handler never populated `[:effects :db]`, which is exactly the case [When the chain throws](#when-the-chain-throws) warns your `:after` must survive. The *wiring* — that the reference actually wraps the handler — is one notch up, the same move as [a handler's runtime check](../how-to/test-an-event-handler.md#3-when-you-want-the-runtime-a-fresh-frame-per-test): dispatch through a test frame and assert on the committed state. And when someone *else's* interceptor is in the way of the thing you're testing, [`:interceptor-overrides`](#removing-or-swapping-a-reference-interceptor-overrides) is the seam that takes it out of play for one dispatch.
+
 ## When a reference is wrong
 
 Because a chain is just data, the runtime can check it *eagerly* — and it does. The single most common mistake, a misspelled id, dies at the earliest possible moment:

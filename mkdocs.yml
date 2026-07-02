@@ -190,6 +190,7 @@ nav:
       - "Validate with schemas": core/how-to/validate-with-schemas.md
       - "Test an event handler": core/how-to/test-an-event-handler.md
       - "Test a cascade": core/how-to/test-a-cascade.md
+      - "Test a view": core/how-to/test-a-view.md
       - "Debug with Xray": core/how-to/debug-with-xray.md
       - "Fix a slow view": core/how-to/fix-a-slow-view.md
       - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md

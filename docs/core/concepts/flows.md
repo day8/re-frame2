@@ -261,6 +261,26 @@ Call `reg-flow` again with an already-registered id (on the same frame) and you 
 
 One subtlety worth a callout: if the replacement also **moves the `:output-path`** to a new slot, the framework vacates the *old* slot — the same `dissoc-in` cleanup `clear-flow` does — so a stale value from the previous definition never lingers at the abandoned path. Keep the same `:output-path` and nothing is vacated; the next recompute simply overwrites it in place.
 
+## Testing a flow
+
+A flow splits into the two layers you'd expect, and each tests like everything else on this shelf:
+
+- **The `:derive` is a pure function.** It's usually worth lifting into a named `defn` so a test can call it with literal inputs and assert on the return — no runtime anywhere, the same move as [testing a handler](../how-to/test-an-event-handler.md).
+- **The wiring** — inputs watched, output written, same-commit timing — tests through a real frame: register the flow, dispatch an event that writes an input, and read the output path off the committed state:
+
+```clojure
+(deftest parity-materialises-with-the-write
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/reg-flow {:id     :counter/parity          ;; frame comes from the surrounding scope
+                  :inputs [[:counter/value]]
+                  :derive (fn [n] (if (odd? n) :odd :even))
+                  :output-path [:counter/parity]})
+    (rf/dispatch-sync [:rf/set-db {:counter/value 3}])
+    (is (= :odd (get-in (rf/app-db-value f) [:counter/parity])))))
+```
+
+`with-new-frame` pins the frame for the body, so `reg-flow` seats the flow there without an explicit `{:frame …}` — and tears the frame down on exit, so nothing leaks into the next test. Note the one-event lag doesn't bite here: it applies to a flow registered *mid-event* via the fx; a flow registered before the dispatch (as above) computes with that first event's commit.
+
 ## When the framework refuses: the registration-time errors
 
 Flows [fail loud](../glossary.md#fail-loud-not-silent) and early. Almost everything that can go wrong is caught at registration time — when you call `reg-flow` (or its fx), before any state changes — so a bad flow definition never silently corrupts your app-db. They split into two groups: **shape** errors (the map itself is malformed) and **semantic / lifecycle** errors (the map is well-formed but can't be seated). The semantic ones are the ones worth memorising:

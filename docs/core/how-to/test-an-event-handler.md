@@ -32,7 +32,7 @@ To get that function back in a test, ask the registrar for it. `handler-meta` re
 
 That's the entire pattern. No [frame](../glossary.md#frame), no [dispatch](../glossary.md#dispatch), no runtime — just a function call. Which means these tests run wherever your test runner runs, including the JVM, where most re-frame2 suites live, because nothing in them touches a browser.
 
-One setup detail makes it work. Your test namespace needs three requires — `clojure.test`, `re-frame.core`, and the app namespace whose *load* performs the registrations. That last one is the easy one to forget, because requiring the namespace is what runs the `reg-event` calls and puts your handler in the registrar in the first place.
+One setup detail makes it work. Your test namespace needs three requires — `clojure.test`, `re-frame.core`, and the app namespace whose *load* performs the registrations. That last one is the easy one to forget, because requiring the namespace is what runs the `reg-event` calls and puts your handler in the registrar in the first place. (Setting up the runner itself — the `deps.edn` `:test` alias, and the `.cljc` discipline that lets your registration namespaces load on the JVM at all — is walked in [the tutorial's Part 5: test it, ship it](../../resources/tutorial/05-test-and-ship.md).)
 
 ```clojure
 (ns my-app.articles-test
