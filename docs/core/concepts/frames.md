@@ -124,7 +124,7 @@ Now the reason frames exist. The genuine multi-frame cases, roughly in the order
 
 - **The same widget twice on one page.** A split pane comparing today against last week. Two panes, two frames, zero shared state.
 - **Story canvases.** "Show this view empty, loading, and loaded, side by side" is one set of handlers and three frames, each seeded differently. The Story runner allocates them; you mostly don't see it.
-- **A fresh frame per test.** Each test gets its own frame, torn down after, so no test can leak state into the next — see [Test a full cascade](../how-to/test-a-cascade.md).
+- **A fresh frame per test.** Each test gets its own frame, torn down after, so no test can leak state into the next — see [Test a full cascade](../testing/cascades.md).
 - **A frame per server request.** [Server-side rendering](../../ssr/concepts.md) creates a frame per HTTP request, runs the app in it, serialises, destroys it. A hundred concurrent requests are a hundred isolated app-dbs.
 
 The shape is the same every time: **one app, mounted N times, each mount fully isolated.** Multi-frame is never "N half-apps stitched together" — each frame is a complete, self-sufficient world.

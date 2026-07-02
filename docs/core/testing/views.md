@@ -1,10 +1,10 @@
 # Test a view
 
-You've tested the [handler](test-an-event-handler.md) and the [cascade](test-a-cascade.md), and now you want the same confidence about a view: the right structure comes out, the right text shows for a given state, and the right handler is wired to the right button. Like the rest of the suite, this needs no browser. A [view](../glossary.md#view) is a pure function that returns [hiccup](../glossary.md#hiccup) — plain data — so a view test is a function call and a tree walk, and it runs on the JVM in milliseconds.
+You've tested the [handler](event-handlers.md) and the [cascade](cascades.md), and now you want the same confidence about a view: the right structure comes out, the right text shows for a given state, and the right handler is wired to the right button. Like the rest of the suite, this needs no browser. A [view](../glossary.md#view) is a pure function that returns [hiccup](../glossary.md#hiccup) — plain data — so a view test is a function call and a tree walk, and it runs on the JVM in milliseconds.
 
 > **A view test calls the function and walks the returned data — no DOM, no JSDOM, no `act()`.**
 
-One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong the cause is nearly always the [subscription](../concepts/subscriptions.md#testing-a-subscription-without-a-browser) or [handler](test-an-event-handler.md) upstream — pure functions with cheaper tests ([Views](../concepts/views.md#when-something-renders-wrong) makes the case). Reach for a view test for what a view genuinely *owns*: its structure, its text, and its wiring.
+One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong the cause is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../concepts/views.md#when-something-renders-wrong) makes the case). Reach for a view test for what a view genuinely *owns*: its structure, its text, and its wiring.
 
 The toolkit is `re-frame.test-helpers` — pure walks over hiccup, [catalogued in the API reference](../../api/re-frame.test-helpers.md) — alongside the `re-frame.test-support` fixtures you already use:
 
@@ -63,7 +63,7 @@ A presentational view takes data as arguments. A *connected* view subscribes and
 
 !!! warning "Gotcha — `:install` registrations land in the process-global registrar"
 
-    The fixture destroys its *frame*, but registrations are global, exactly as [Test an event handler](test-an-event-handler.md#4-the-trap-frames-dont-isolate-registrations) warns. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top so one test's registrations can't leak into the next.
+    The fixture destroys its *frame*, but registrations are global, exactly as [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) warns. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top so one test's registrations can't leak into the next.
 
 ## 3. Drive the wiring
 
@@ -87,9 +87,9 @@ Two details carry this test. `invoke-handler` **throws** when the node has no ha
 Three neighbouring tools pick up where the tree walk stops:
 
 - **Rendered markup** — when the assertion is about the HTML *string* a view produces (attribute serialisation, SSR output), `render-to-string` is the complementary path; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
-- **A real DOM** — when you genuinely need React in the loop (a ref, a portal, an imperative child), mount under your adapter and settle updates with its `flush-views!` test helper; [Use UIx, Helix, or reagent-slim](use-uix-helix-or-slim.md#what-carries-over-what-doesnt) covers the shape. This is the rare case, not the default.
+- **A real DOM** — when you genuinely need React in the loop (a ref, a portal, an imperative child), mount under your adapter and settle updates with its `flush-views!` test helper; [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md#what-carries-over-what-doesnt) covers the shape. This is the rare case, not the default.
 - **A view's *states*** — "show this view empty, loading, error, and loaded" is not a tree-walk job; it's [Story](../concepts/observability.md#the-tools-four-presentations-zero-second-truths)'s whole purpose: named variants in isolated frames, promotable into tests.
 
 ## When not to test a view
 
-Don't re-prove upstream logic through the view. If the assertion is really "the sort order is right" or "the total is correct", that's a [subscription test](../concepts/subscriptions.md#testing-a-subscription-without-a-browser) — cheaper, and it fails at the function that owns the logic. If it's "the state changed correctly", that's a [handler test](test-an-event-handler.md). A view test earns its keep only when the thing under test is the view's own contribution: structure, text, wiring. Most views are boring enough — deliberately — that they need no test at all.
+Don't re-prove upstream logic through the view. If the assertion is really "the sort order is right" or "the total is correct", that's a [subscription test](subscriptions.md) — cheaper, and it fails at the function that owns the logic. If it's "the state changed correctly", that's a [handler test](event-handlers.md). A view test earns its keep only when the thing under test is the view's own contribution: structure, text, wiring. Most views are boring enough — deliberately — that they need no test at all.

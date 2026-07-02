@@ -191,15 +191,18 @@ nav:
       - "Add auth": core/how-to/add-auth.md
       - "Build a form": core/how-to/build-a-form.md
       - "Validate with schemas": core/how-to/validate-with-schemas.md
-      - "Test an event handler": core/how-to/test-an-event-handler.md
-      - "Test a cascade": core/how-to/test-a-cascade.md
-      - "Test a view": core/how-to/test-a-view.md
       - "Debug with Xray": core/how-to/debug-with-xray.md
       - "Fix a slow view": core/how-to/fix-a-slow-view.md
       - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
       - "Use UIx, Helix, or slim": core/how-to/use-uix-helix-or-slim.md
+    - "Testing":
+      - core/testing/index.md
+      - "Event handlers": core/testing/event-handlers.md
+      - "Subscriptions": core/testing/subscriptions.md
+      - "Views": core/testing/views.md
+      - "Cascades": core/testing/cascades.md
     - "Why it's built this way":
       - "Inside-out: why views come last": core/explanation/inside-out.md
       - "One graph: derivations and algebra views": core/derivations-and-algebra-views.md
@@ -262,6 +265,7 @@ nav:
     - "How-to":
       - "Paginate a feed": resources/how-to/paginate-a-feed.md
       - "Invalidate after a mutation": resources/how-to/invalidate-after-a-mutation.md
+    - "Testing": resources/testing.md
     - "Examples": resources/examples.md
     - "Glossary": resources/glossary.md
     - "Coming from TanStack Query": resources/coming-from-tanstack-query.md
@@ -287,6 +291,7 @@ nav:
     - "How-to":
       - "Guard against unsaved changes": routing/how-to/guard-unsaved-changes.md
       - "Require sign-in on a route": routing/how-to/require-sign-in-on-a-route.md
+    - "Testing": routing/testing.md
     - "Examples": routing/examples.md
     - "Glossary": routing/glossary.md
     - "Coming from React Router": routing/coming-from-react-router.md
@@ -297,6 +302,7 @@ nav:
     - ssr/index.md
     - "Tutorial: render on the server": ssr/tutorial.md
     - "Concepts": ssr/concepts.md
+    - "Testing": ssr/testing.md
     - "Examples": ssr/examples.md
     - "Glossary": ssr/glossary.md
     - "Coming from Next.js": ssr/coming-from-nextjs.md

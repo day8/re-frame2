@@ -52,7 +52,7 @@ This is the first load-bearing idea, and it's the one that trips people up comin
   (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 ```
 
-It runs as a pure function: the [coeffects](../glossary.md#coeffect) (the facts it's handed — `:db` among them) and the event in, an [effect map](../glossary.md#effect-map) out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../how-to/test-an-event-handler.md) is exactly this).
+It runs as a pure function: the [coeffects](../glossary.md#coeffect) (the facts it's handed — `:db` among them) and the event in, an [effect map](../glossary.md#effect-map) out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../testing/event-handlers.md) is exactly this).
 
 !!! note "New to Clojure?"
 
@@ -212,7 +212,7 @@ The promise has one precondition: handlers must be honest about their inputs. A 
 Hold the promise and a cluster of features stops looking like separate tricks:
 
 - **[Time travel](../glossary.md#time-travel) is re-totalling fewer lines.** "Go back five events" isn't an undo system reversing five mutations — there were no mutations. It's the sum up to line *n−5*, recomputed on demand.
-- **A bug report is a ledger excerpt.** "It broke after I did these things" becomes the literal event list that produces the bad state — in a fresh app, on demand, as a regression test ([Test a full cascade](../how-to/test-a-cascade.md)).
+- **A bug report is a ledger excerpt.** "It broke after I did these things" becomes the literal event list that produces the bad state — in a fresh app, on demand, as a regression test ([Test a full cascade](../testing/cascades.md)).
 - **Xray's event rows *are* the ledger, drawn.** The inspector showing "every event, in order, with app-db after each" isn't building a clever visualisation — it's rendering the [epoch](../glossary.md#epoch) record the runtime keeps anyway.
 
 ??? note "Going deeper"

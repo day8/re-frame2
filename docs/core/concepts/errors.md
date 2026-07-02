@@ -221,7 +221,7 @@ Three things in that test generalise to every category:
 
 1. **The assertions are structural.** They pin `:operation`, `:op-type`, and the schema-checked `:tags` keys — the contract. They never touch `:reason`, the human-facing headline sentence, because its wording is allowed to change. String-shaped error tests rot; structural ones don't.
 2. **The listener is scoped to the test** and detached in `finally` — and detached with the *same* stream you registered on (`:trace` here), so a failing assertion can't leak it into the next test. `rf/clear-listeners! :trace` is the blunter test-isolation hammer when you'd rather drop every listener on a stream at once; production code never calls it.
-3. **It runs on the JVM.** No browser, no DOM — you register, [dispatch-sync](../glossary.md#dispatch-sync), emit, and assert, in milliseconds. [Testing a full cascade](../how-to/test-a-cascade.md) covers the fixture machinery for suites of these.
+3. **It runs on the JVM.** No browser, no DOM — you register, [dispatch-sync](../glossary.md#dispatch-sync), emit, and assert, in milliseconds. [Testing a full cascade](../testing/cascades.md) covers the fixture machinery for suites of these.
 
 The same move covers every category: `dispatch-sync` for event errors, a [sub](../glossary.md#subscription) computation for sub errors, frame setup and teardown for lifecycle errors.
 

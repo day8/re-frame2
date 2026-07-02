@@ -349,7 +349,7 @@ The two compose: a tool reads the refs off the event, then resolves each ref's s
 
 ## Testing an interceptor
 
-Both slots are pure functions `ctx → ctx`, and the context is a plain map — so an interceptor unit-tests the way [a handler does](../how-to/test-an-event-handler.md): call the function with a literal context, assert on the one it returns. Give the slots named `defn`s and reference them from the descriptor, so a test can reach them without any registry:
+Both slots are pure functions `ctx → ctx`, and the context is a plain map — so an interceptor unit-tests the way [a handler does](../testing/event-handlers.md): call the function with a literal context, assert on the one it returns. Give the slots named `defn`s and reference them from the descriptor, so a test can reach them without any registry:
 
 ```clojure
 (defn stamp-audit [ctx]
@@ -367,7 +367,7 @@ Both slots are pure functions `ctx → ctx`, and the context is a plain map — 
            (get-in (stamp-audit ctx) [:effects :db :audit/last-event])))))
 ```
 
-Build the literal ctx from the [two-key shape above](#the-context-map-two-keys): a `:before` test supplies only `:coeffects`; an `:after` test supplies both halves — including the error-path shape where the handler never populated `[:effects :db]`, which is exactly the case [When the chain throws](#when-the-chain-throws) warns your `:after` must survive. The *wiring* — that the reference actually wraps the handler — is one notch up, the same move as [a handler's runtime check](../how-to/test-an-event-handler.md#3-when-you-want-the-runtime-a-fresh-frame-per-test): dispatch through a test frame and assert on the committed state. And when someone *else's* interceptor is in the way of the thing you're testing, [`:interceptor-overrides`](#removing-or-swapping-a-reference-interceptor-overrides) is the seam that takes it out of play for one dispatch.
+Build the literal ctx from the [two-key shape above](#the-context-map-two-keys): a `:before` test supplies only `:coeffects`; an `:after` test supplies both halves — including the error-path shape where the handler never populated `[:effects :db]`, which is exactly the case [When the chain throws](#when-the-chain-throws) warns your `:after` must survive. The *wiring* — that the reference actually wraps the handler — is one notch up, the same move as [a handler's runtime check](../testing/event-handlers.md#3-when-you-want-the-runtime-a-fresh-frame-per-test): dispatch through a test frame and assert on the committed state. And when someone *else's* interceptor is in the way of the thing you're testing, [`:interceptor-overrides`](#removing-or-swapping-a-reference-interceptor-overrides) is the seam that takes it out of play for one dispatch.
 
 ## When a reference is wrong
 

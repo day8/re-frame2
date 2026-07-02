@@ -276,40 +276,7 @@ A malformed `:sensitive`/`:large` value is rejected at registration with `:rf.er
 
 ## Testing a subscription without a browser
 
-Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`, you don't need a reactive runtime — or a DOM, or a browser — to test what a subscription *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It's JVM-runnable: no Reagent, no React, no installed [adapter](../glossary.md#adapter), no live cache.
-
-```clojure
-(deftest visible-items-honour-the-category-filter
-  (let [db {:cart/items           [{:sku "a" :category "books"  :price 2}
-                                   {:sku "b" :category "snacks" :price 1}]
-            :cart/category-filter "books"}]
-    ;; compute-sub resolves the whole :<- chain — :cart/items and
-    ;; :cart/by-price run automatically as inputs.
-    (is (= ["a"]
-           (mapv :sku (rf/compute-sub [:cart/visible] db))))))
-```
-
-`compute-sub` resolves the entire input chain for you — pass it the outer query vector and a `db`, and it computes `:cart/items`, then `:cart/by-price`, then `:cart/visible`, in dependency order. It's **pure**: the same `(query-v, db)` always returns the same value, with no cache carried between calls. That makes it the workhorse for sub tests and the function the conformance corpus invokes for `:sub-values` assertions.
-
-There's a sharper, more robust variant when the `db` shape matters. Instead of hand-rolling a literal map — which silently rots when your handler-side schema evolves — drive real events through a test frame and then read the sub against the resulting db:
-
-```clojure
-(deftest cart-count-after-events
-  (rf/with-new-frame [f (rf/make-frame {})]
-    ;; with-new-frame pins f as the current frame for the body, so the
-    ;; dispatches below land in f without naming it each time.
-    (rf/dispatch-sync [:cart/add-item {:sku "BK-1"}])
-    (rf/dispatch-sync [:cart/add-item {:sku "BK-2"}])
-    (is (= 2 (count (rf/compute-sub [:cart/items] (rf/app-db-value f)))))))
-```
-
-!!! note "Two styles, one rule of thumb"
-
-    `compute-sub` against a literal `db` is the escape hatch for very simple readers where the dispatch path adds nothing. For anything that depends on the *shape* events produce, dispatch real events into a frame and read `(rf/app-db-value f)` — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter. The full testing matrix is in [Test an event handler](../how-to/test-an-event-handler.md).
-
-??? info "For JavaScript developers"
-
-    This is the payoff of computation functions being pure. There is no React Testing Library, no `renderHook`, no jsdom, no provider wrapper to set up — a subscription test is a plain function call asserting on a plain value, and it runs on the JVM at unit-test speed. The reactive runtime exists only to *cache and notify* in a live app; the *logic* is just data in, data out, testable in isolation.
+Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`, you don't need a reactive runtime — or a DOM, or a browser — to test what a subscription *computes*: `rf/compute-sub` runs a sub's body against an app-db **value**, resolving the whole `:<-` chain for you, and it's JVM-runnable with no adapter and no live cache. The recipe — both styles, and the gotchas — is [Test a subscription](../testing/subscriptions.md).
 
 ## Lifecycle: a sub exists only while something watches it
 

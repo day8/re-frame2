@@ -253,4 +253,4 @@ The trio below — `with-app-fixture`, `expect-text`, `wait-until` — compresse
 - [re-frame.test-support.md](re-frame.test-support.md) — the runtime-state assertion axis: registrar fixtures, `dispatch-sequence`, `assert-path-equals` / `assert-db-equals`, `poll-until`.
 - [re-frame.core.md](re-frame.core.md) — `dispatch-sync`, `with-new-frame`, `make-frame`, `app-db-value`, `compute-sub` — the production primitives these view tests drive.
 - [re-frame.ssr.md](re-frame.ssr.md) — `render-to-string`, the HTML-string view-test path that complements hiccup-walk.
-- [Test an event handler](../core/how-to/test-an-event-handler.md) and [Test a full cascade](../core/how-to/test-a-cascade.md) — the practical how-to guides for the testing surface.
+- [Test an event handler](../core/testing/event-handlers.md) and [Test a full cascade](../core/testing/cascades.md) — the practical how-to guides for the testing surface.
