@@ -167,7 +167,9 @@ The `:auth.login/failure` arrow is now a **list of candidates** — the runtime 
 
 Keep submitting and failing. The first three failures each land in `:error-shown` with `:attempts` climbing `1 → 2 → 3`. On the fourth, `:under-retry-limit` returns false, the guarded candidate is skipped, and the machine settles in `:locked-out`.
 
-> **`:data` is a merge, not a replace** — `:clear-error` changes only `:error`, leaving `:attempts` alone. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the sharp edges.
+!!! note "`:data` is a merge, not a replace"
+
+    — `:clear-error` changes only `:error`, leaving `:attempts` alone. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the sharp edges.
 
 ## Step 4 — talk to a real server
 
@@ -207,7 +209,9 @@ Look at `:on-success [:auth.login/flow [:auth.login/success]]` — the machine i
 
 The `:after` is a declarative timer: it arms when you enter `:submitting` and cancels the moment you leave. If the reply lands first, the timer is cancelled; if 8 seconds pass first, the machine records a timeout and shows the error. No `setTimeout`, no cancel flag.
 
-> **Do, then observe.** Dispatch a submit with [Xray](../core/how-to/debug-with-xray.md) open. The request leaves; when the reply returns, the transition shows up as an ordinary event row — snapshot before and after — riding the same trace stream as everything else.
+!!! note "Do, then observe"
+
+    Dispatch a submit with [Xray](../core/how-to/debug-with-xray.md) open. The request leaves; when the reply returns, the transition shows up as an ordinary event row — snapshot before and after — riding the same trace stream as everything else.
 
 ## Step 5 — render every state
 
@@ -246,7 +250,9 @@ For that `busy?` read to work, tag the busy state. A **tag** is a label on a sta
 
 **What you see:** the page shows **Sign in**; a valid submit moves it to **Signing in…**; the reply lands you on **Welcome back** or the error; and a fourth failure swaps in **Account locked**.
 
-> **Why a tag, not a state name?** Add a sixth state that's also "busy" later — `:retrying`, say — and a view that branches on the `:auth/busy` tag picks it up with zero changes. Asking *what's true* scales; enumerating state names doesn't. [Tags](tags.md) is the whole pattern.
+!!! note "Why a tag, not a state name?"
+
+    Add a sixth state that's also "busy" later — `:retrying`, say — and a view that branches on the `:auth/busy` tag picks it up with zero changes. Asking *what's true* scales; enumerating state names doesn't. [Tags](tags.md) is the whole pattern.
 
 ## Step 6 — test it: a transition is a pure function
 

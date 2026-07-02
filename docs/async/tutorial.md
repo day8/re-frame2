@@ -4,7 +4,9 @@ Let's make an app load an article from a server — adding one idea at a time: t
 
 By the end you'll have used every part of `:rf.http/managed` that everyday work needs. The [reference](http.md) has the rest.
 
-> **Before you start.** You've read [Effects and coeffects](../core/concepts/effects-and-coeffects.md) and can return an effect map from a handler. That's the only prerequisite.
+!!! note "Before you start"
+
+    You've read [Effects and coeffects](../core/concepts/effects-and-coeffects.md) and can return an effect map from a handler. That's the only prerequisite.
 
 ## Step 0 — turn managed HTTP on
 
@@ -61,9 +63,13 @@ That's why the receive handlers destructure `[_ {:keys [value]}]` — skip the e
 
 **Notice:** the failure path has its own name. It isn't bolted onto the success path as an afterthought — it's a first-class event with its own handler.
 
-> **Coming from `js/fetch`?** The version you'd write by hand — `(-> (js/fetch url) (.then #(.json %)) (.then #(rf/dispatch [:article/loaded %])))` — is three lines and missing almost everything: no error path, no timeout, no retry, no way to test without a network. In re-frame2 it also fails outright: a bare `dispatch` inside a `.then` runs on a fresh stack with no [frame](../core/concepts/frames.md) in scope and raises `:rf.error/no-frame-context`. Describe the request as data instead; the runtime carries the frame through and does the rest.
+??? info "Coming from `js/fetch`?"
 
-> **Why an event, not an `await`?** Your app's state is the running total of every event ever dispatched. An awaited value slips in through the call stack and leaves no record; a reply *event* lands in the ledger — traceable, replayable, safe under races. The full argument is [Why no await](continuations-are-data.md). You don't need it to keep going.
+    The version you'd write by hand — `(-> (js/fetch url) (.then #(.json %)) (.then #(rf/dispatch [:article/loaded %])))` — is three lines and missing almost everything: no error path, no timeout, no retry, no way to test without a network. In re-frame2 it also fails outright: a bare `dispatch` inside a `.then` runs on a fresh stack with no [frame](../core/concepts/frames.md) in scope and raises `:rf.error/no-frame-context`. Describe the request as data instead; the runtime carries the frame through and does the rest.
+
+!!! note "Why an event, not an `await`?"
+
+    Your app's state is the running total of every event ever dispatched. An awaited value slips in through the call stack and leaves no record; a reply *event* lands in the ledger — traceable, replayable, safe under races. The full argument is [Why no await](continuations-are-data.md). You don't need it to keep going.
 
 ## Step 2 — turn the failure into something a user can read
 
@@ -203,6 +209,8 @@ The request goes out as data and the reply comes back as data, so a test needs n
 
 The stubbed reply has the exact envelope a live request produces, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a cascade](../core/testing/cascades.md) is the full recipe.
 
-> **Do, observe.** Run the app with [Xray](../core/how-to/debug-with-xray.md) open. Dispatch `[:article/load "intro"]`: you'll see the issuing event row, the request going out on the [trace stream](../core/glossary.md#trace-stream), and the reply arriving as an ordinary event row of its own — two ledger entries, one round trip. Then re-fire a `:request-id` request before its reply lands and watch the superseded completion get recorded as stale, never dispatched.
+!!! note "Do, observe"
+
+    Run the app with [Xray](../core/how-to/debug-with-xray.md) open. Dispatch `[:article/load "intro"]`: you'll see the issuing event row, the request going out on the [trace stream](../core/glossary.md#trace-stream), and the reply arriving as an ordinary event row of its own — two ledger entries, one round trip. Then re-fire a `:request-id` request before its reply lands and watch the superseded completion get recorded as stale, never dispatched.
 
 That's the everyday surface. The [Managed HTTP reference](http.md) has the rest — the full request envelope, `:accept`, timeouts, verb helpers, manual abort — and [Interceptors and secrets](http-going-further.md) covers stamping auth on every request once and keeping credentials out of traces.

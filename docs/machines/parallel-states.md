@@ -137,7 +137,9 @@ When *several* regions handle the same event, each one's action runs against the
 
 If you wanted that event to count *once*, you'd register the coordinating action at the parent-machine level, or shape the regions so only one handles it.
 
-> **A subtle, load-bearing rule — selection is order-independent.** The broadcast is **select-then-apply**: every region's enabled transition is *selected* against **one frozen pre-broadcast snapshot** of the configuration, and only *then* are the selected transitions *applied* in declaration order. Declaration order governs only the apply order (action / `:fx` order, `:data` accumulation) — **never** which transitions are selected. Reorder the regions and you get the *same* selected set, and the new configuration is computed **atomically** old→new: no region ever observes an intermediate state where some siblings have moved and others haven't. This matches SCXML, where a parallel macrostep selects against the pre-event configuration. (It matters most for the next section.)
+!!! note "A subtle, load-bearing rule — selection is order-independent"
+
+    The broadcast is **select-then-apply**: every region's enabled transition is *selected* against **one frozen pre-broadcast snapshot** of the configuration, and only *then* are the selected transitions *applied* in declaration order. Declaration order governs only the apply order (action / `:fx` order, `:data` accumulation) — **never** which transitions are selected. Reorder the regions and you get the *same* selected set, and the new configuration is computed **atomically** old→new: no region ever observes an intermediate state where some siblings have moved and others haven't. This matches SCXML, where a parallel macrostep selects against the pre-event configuration. (It matters most for the next section.)
 
 ## The root `:on`: an ancestor fallback
 
@@ -230,7 +232,9 @@ The precise variant reads the sibling's state value directly:
 
 Prefer the **tag** query: a tag is a named, tool-legible render-state, and it holds up when a sibling region refactors its internal state names.
 
-> **Both keys are frozen.** `:tags` and `:all-state` reflect the **frozen pre-broadcast snapshot** — the sibling configuration as of the *start* of the macrostep. A region's guard never sees a sibling's *same-event* move during selection (regions are genuinely simultaneous), which is exactly why selection is declaration-order-independent. A region reading its *own* state uses `:state` (which does evolve through its own `:always` loop); `:tags` / `:all-state` are the mechanism for reading *siblings*, and they're frozen. These two keys appear **only** for region guards/actions — a flat / compound machine's ctx stays exactly `{:data :event :state :meta}`, because it has no siblings to read; its own `:state` already answers *where am I?*.
+!!! note "Both keys are frozen"
+
+    `:tags` and `:all-state` reflect the **frozen pre-broadcast snapshot** — the sibling configuration as of the *start* of the macrostep. A region's guard never sees a sibling's *same-event* move during selection (regions are genuinely simultaneous), which is exactly why selection is declaration-order-independent. A region reading its *own* state uses `:state` (which does evolve through its own `:always` loop); `:tags` / `:all-state` are the mechanism for reading *siblings*, and they're frozen. These two keys appear **only** for region guards/actions — a flat / compound machine's ctx stays exactly `{:data :event :state :meta}`, because it has no siblings to read; its own `:state` already answers *where am I?*.
 
 The two `dispatch-sync` calls above are **separate events**, which is why each `:submit` reads the prior committed config. If you need a *single* event to flip `:form` to `:valid` **and** advance `:checkout` in the same breath, two statechart-idiomatic paths re-couple them — they differ in *when* convergence lands:
 
@@ -248,7 +252,9 @@ Each region's state-node keys are **scoped to that region**:
 - **`:spawn`** — a region's [`:spawn`](glossary.md#spawn)-bearing state starts and tears down child actors bound to *that region's* state; siblings never see the spawn / destroy cascade.
 - **`:entry` / `:exit`** — fire on the region's own transitions, never on a sibling's.
 
-> **`:raise` is the exception — it BROADCASTS.** A `[:raise [:event]]` emitted by any region's action does **not** stay local. It re-enters the parallel machine's single internal-event queue and re-broadcasts across **every** region — exactly as SCXML delivers a `raise`d internal event to the whole machine, every active parallel state included. Each re-broadcast is its own microstep (a fresh frozen sibling view that already reflects the prior microstep's moves, while the in-flight `:data` flows through), the queue drains FIFO, and the whole macrostep — external event + every raised event + every region's `:always` settling — commits **once, atomically**, bounded by the `:raise-depth-limit`.
+!!! note "`:raise` is the exception — it BROADCASTS"
+
+    A `[:raise [:event]]` emitted by any region's action does **not** stay local. It re-enters the parallel machine's single internal-event queue and re-broadcasts across **every** region — exactly as SCXML delivers a `raise`d internal event to the whole machine, every active parallel state included. Each re-broadcast is its own microstep (a fresh frozen sibling view that already reflects the prior microstep's moves, while the in-flight `:data` flows through), the queue drains FIFO, and the whole macrostep — external event + every raised event + every region's `:always` settling — commits **once, atomically**, bounded by the `:raise-depth-limit`.
 
 ## Tags compose across regions
 

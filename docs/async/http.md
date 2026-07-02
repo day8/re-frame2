@@ -76,11 +76,17 @@ Three conveniences worth knowing:
 - **`:request-content-type` serialises `:body` and stamps the header in one move.** `:json` runs the `:body` map through JSON serialisation and sets `Content-Type: application/json`; `:form` URL-encodes it as a form body instead. For a file upload, hand a `js/FormData` straight in as `:body` and leave `:request-content-type` off — the platform sets the multipart boundary itself.
 - **A bad `:url` fails loud, not silent.** A blank, nil, or non-string `:url` is rejected at dispatch with a named bad-request error rather than falling through to the transport as an opaque failure.
 
-> **Gotcha — don't thread auth by hand.** Threading `"Authorization"` into each call site gets old fast and breaks the moment a token rotates. Register one [HTTP interceptor](http-going-further.md#interceptors-stamp-every-request-once) instead and drop the header from your handlers entirely.
+!!! warning "Gotcha — don't thread auth by hand"
 
-> **Gotcha — the CLJS-only keys are silently no-ops on the JVM.** The six Fetch-passthrough keys (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM the request still goes out — the option is just dropped — and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible. (`:redirect` is the exception: it *is* honoured on the JVM.) If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site. The same asymmetry hits `:rf.http/cors`, which only the browser ever emits.
+    Threading `"Authorization"` into each call site gets old fast and breaks the moment a token rotates. Register one [HTTP interceptor](http-going-further.md#interceptors-stamp-every-request-once) instead and drop the header from your handlers entirely.
 
-> **Gotcha — a malformed header is dropped, not fatal.** A header with an empty or control-character name, or a value carrying a raw `\r`/`\n` (the response-splitting guard), is rejected by the platform's header builder. Rather than failing the whole request, the runtime drops just that one pair, emits a redacted `:rf.warning/http-header-invalid` trace naming the offending header (the *value* is omitted — it may carry a secret), and sends the request with the remaining valid headers. So a stray newline in one interpolated header value quietly loses that header instead of taking down the call — watch the warning trace if a header you expected isn't arriving.
+!!! warning "Gotcha — the CLJS-only keys are silently no-ops on the JVM"
+
+    The six Fetch-passthrough keys (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM the request still goes out — the option is just dropped — and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible. (`:redirect` is the exception: it *is* honoured on the JVM.) If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site. The same asymmetry hits `:rf.http/cors`, which only the browser ever emits.
+
+!!! warning "Gotcha — a malformed header is dropped, not fatal"
+
+    A header with an empty or control-character name, or a value carrying a raw `\r`/`\n` (the response-splitting guard), is rejected by the platform's header builder. Rather than failing the whole request, the runtime drops just that one pair, emits a redacted `:rf.warning/http-header-invalid` trace naming the offending header (the *value* is omitted — it may carry a secret), and sends the request with the remaining valid headers. So a stray newline in one interpolated header value quietly loses that header instead of taking down the call — watch the warning trace if a header you expected isn't arriving.
 
 ## Handling the reply
 
@@ -113,7 +119,9 @@ Name `:on-success` and `:on-failure` and each outcome lands in its own handler, 
 
 Three small handlers, each doing one thing. This is the shape to prefer when the success and failure paths are substantial or diverge — each reads and tests on its own.
 
-> **From re-frame v1.** Your `:http-xhrio`-style success/failure events map straight onto `:on-success` / `:on-failure` — the [migration page](../core/25-from-re-frame-v1.md) walks the translation.
+??? info "From re-frame v1"
+
+    Your `:http-xhrio`-style success/failure events map straight onto `:on-success` / `:on-failure` — the [migration page](../core/25-from-re-frame-v1.md) walks the translation.
 
 ### One handler
 
@@ -137,7 +145,9 @@ Omit `:on-success` / `:on-failure` and the reply routes back to the *originating
 
 The first time it runs there is no `:rf/reply`, so the handler issues the request. When the reply comes back, the runtime dispatches the *same* event again with `:rf/reply` merged into the message. If the original message was a map, the rest of it is still there, so request context like an id or slug stays in scope. Use this shape when request and reply are two faces of one small thing — a counter, a toggle, a fire-and-refresh.
 
-> **Gotcha — the one-handler form wants a map message.** Dispatch a map (`[:thing/load {:id "intro"}]`) or no payload. A bare value (`[:thing/load "intro"]`) still receives the reply, but there is nowhere to merge `"intro"`, so the reply branch sees only `{:rf/reply ...}`. Put request context in a map when you need it after the reply lands.
+!!! warning "Gotcha — the one-handler form wants a map message"
+
+    Dispatch a map (`[:thing/load {:id "intro"}]`) or no payload. A bare value (`[:thing/load "intro"]`) still receives the reply, but there is nowhere to merge `"intro"`, so the reply branch sees only `{:rf/reply ...}`. Put request context in a map when you need it after the reply lands.
 
 ### Delivery rules
 
@@ -262,9 +272,13 @@ Two guards keep a malformed `:on` from silently doing nothing:
 
 The real discipline isn't *whether* to retry but *what*. Read-only fetches are safe. User-initiated writes are not, because retrying a submit or a payment risks doing it twice. The production shape is one shared policy for reads and conspicuously *no* `:retry` on writes — the RealWorld example's login, register, and settings requests carry none.
 
-> **Coming from Axios?** `axios-retry`'s `retryCondition` ≈ `:on`, `retryDelay` ≈ `:backoff` — except here the policy is inspectable data at the call site and every attempt is a trace row, not closure state buried inside an interceptor.
+??? info "Coming from Axios?"
 
-> **Going deeper.** `:retry` owns **transport retry** only — decisions that are a pure function of failure category and attempt count. The moment a retry decision depends on anything else ("after a 401, refresh the token, *then* retry"; "the body says retry-after 5s"), it becomes **semantic retry**, and that belongs in a [state machine](../machines/concepts.md) driving the request, with transport `:retry` still active inside each attempt the machine launches. One test: pure-function-of-category stays here; stateful-decision graduates to a machine.
+    `axios-retry`'s `retryCondition` ≈ `:on`, `retryDelay` ≈ `:backoff` — except here the policy is inspectable data at the call site and every attempt is a trace row, not closure state buried inside an interceptor.
+
+??? note "Going deeper"
+
+    `:retry` owns **transport retry** only — decisions that are a pure function of failure category and attempt count. The moment a retry decision depends on anything else ("after a 401, refresh the token, *then* retry"; "the body says retry-after 5s"), it becomes **semantic retry**, and that belongs in a [state machine](../machines/concepts.md) driving the request, with transport `:retry` still active inside each attempt the machine launches. One test: pure-function-of-category stays here; stateful-decision graduates to a machine.
 
 ## Cancellation: supersession and abort
 
@@ -276,7 +290,9 @@ Three related surfaces, one per situation.
 
 **External cancel — `:abort-signal`.** If the cancel signal you want to honour already lives outside re-frame — a parent widget's lifecycle, a shared `AbortController` — hand its `.signal` to the request under `:abort-signal`. You can supply it *together with* a `:request-id` and the framework guarantees exactly one terminal outcome no matter which fires first. (`:abort-signal` is browser-only — the JVM has no `AbortController`, so `:request-id` is the cross-host cancel handle.)
 
-> **Requests that die with their machine.** There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](../machines/concepts.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed. Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
+!!! note "Requests that die with their machine"
+
+    There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](../machines/concepts.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed. Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
 
 The [managed-http counter example](../../examples/core/managed_http_counter) demonstrates the manual-abort path end-to-end — plus the 404-is-not-a-decode-failure rule — in one small file.
 

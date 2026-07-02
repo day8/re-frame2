@@ -13,7 +13,9 @@ There are four authoring grammars, and underneath them just **two engines**:
 | "after N ms in this state, do Z" | `:after` | a wall-clock delay measured from state entry elapses |
 | "this state (or its child) must finish in time" | `:timeout` / `:on-timeout` | a fixed deadline from entry passes |
 
-> **Four grammars, two engines.** `:type :choice` is sugar that **desugars to `:always`**; `:timeout` / `:on-timeout` is sugar that **desugars to `:after`**. So everything on this page runs on one of two mechanisms: the **guard-driven microstep loop** (`:always`, `:choice`) and the **wall-clock timer** (`:after`, `:timeout`). One fact, one mechanism — the extra grammars exist only to *name the author's intent* so tools and diagrams can read it.
+!!! note "Four grammars, two engines"
+
+    `:type :choice` is sugar that **desugars to `:always`**; `:timeout` / `:on-timeout` is sugar that **desugars to `:after`**. So everything on this page runs on one of two mechanisms: the **guard-driven microstep loop** (`:always`, `:choice`) and the **wall-clock timer** (`:after`, `:timeout`). One fact, one mechanism — the extra grammars exist only to *name the author's intent* so tools and diagrams can read it.
 
 Everything below assumes the core loop from the [concepts guide](concepts.md#registering-and-running-it): a machine is registered with `reg-machine`, its transition table is data, a [guard](glossary.md#guard) returns a boolean, an [action](glossary.md#action) returns the data-shaped effect map `{:data … :fx …}` (the `:data` is *merged* into the snapshot, key by key), and the live value is a snapshot `{:state … :data … :tags …}`. New to all that? Read [Concepts → Guards and actions](concepts.md#guards-and-actions) first.
 
@@ -51,7 +53,9 @@ External observers see `:asking → :winner` in one step. The "answer counted, s
 
 This is classic statechart **macrostep** semantics: the externally-observable transition is the *settled* result of an internal cascade of microsteps. Time-travel, [Xray](../core/concepts/observability.md), and undo all see the single committed transition; the inner microsteps ride the trace stream for tools that want them.
 
-> **It runs at birth, too.** The same settle loop runs when the machine first starts. If the [`:initial`](concepts.md#registering-and-running-it) state cascades into a leaf whose `:always` guard already holds, that transition is taken *before* the birth commit — so a transient initial state is settled past, unobserved, on start. (This is also why `:always` lives on a state node, never on the root: the root's cascade entry-point is `:initial`.)
+!!! note "It runs at birth, too"
+
+    The same settle loop runs when the machine first starts. If the [`:initial`](concepts.md#registering-and-running-it) state cascades into a leaf whose `:always` guard already holds, that transition is taken *before* the birth commit — so a transient initial state is settled past, unobserved, on start. (This is also why `:always` lives on a state node, never on the root: the root's cascade entry-point is `:initial`.)
 
 ### Ordering, depth, and self-loops
 
@@ -61,7 +65,9 @@ A few rules keep the loop well-behaved — and keep your typos loud at registrat
 - **Bounded depth.** The loop is capped (default **16** microsteps, configurable per machine via `:always-depth-limit`). A non-converging cycle trips `:rf.error/machine-always-depth-exceeded` and **fails the whole macrostep** — the snapshot is never written, so the transition rolls back atomically. It is a failure, not a silent no-op, so a runaway cycle is distinguishable from an ordinary guard-blocked decline.
 - **No self-target.** An `:always` whose `:target` resolves to its own declaring state is **rejected at `reg-machine` time** (`:rf.error/machine-always-self-loop`) — guarded or not. An eventless transition back into the state you just entered either loops to the depth limit or is a no-op; either way the author meant something else.
 
-> **Looping until a condition clears.** The legitimate "keep going while there's work" shape is a **targetless** guarded `:always` with an `:action` — `{:guard :more? :action :drain-one}`. Its action flips the guard false and the loop settles. That is *not* a self-loop (there's no `:target`), so it's allowed.
+!!! note "Looping until a condition clears"
+
+    The legitimate "keep going while there's work" shape is a **targetless** guarded `:always` with an `:action` — `{:guard :more? :action :drain-one}`. Its action flips the guard false and the loop settles. That is *not* a self-loop (there's no `:target`), so it's allowed.
 
 ### `:always` in the wild
 
@@ -146,7 +152,9 @@ Each entry is `<delay> → <transition>`. Both halves take several forms.
 - **A [subscription](../core/concepts/subscriptions.md) vector** — `[:sub-id & args]`, resolved like any `subscribe`. The canonical form for an **app-state-derived** delay (a user preference, a feature-flag config). It *re-resolves* when its value changes (see below).
 - **A function** — `(fn [{:keys [snapshot]}] ms)`, called **once** at state entry. The escape valve for a delay computed from the machine's own `:data`.
 
-> **Watch the shape.** Guards and actions receive `:data` at the top level of their context map; an `:after` delay-fn instead receives `{:keys [snapshot]}` and reaches *inside* it — `(-> snapshot :data :retry-count)`. The snapshot is the familiar `{:state … :data … :tags …}` value.
+!!! note "Watch the shape"
+
+    Guards and actions receive `:data` at the top level of their context map; an `:after` delay-fn instead receives `{:keys [snapshot]}` and reaches *inside* it — `(-> snapshot :data :retry-count)`. The snapshot is the familiar `{:state … :data … :tags …}` value.
 
 **The transition (the value) — identical to an `:on` clause:** a bare keyword (sugar for `{:target kw}`), a full transition map `{:guard … :target … :action … :meta …}`, or a first-guard-pass-wins candidate vector. If a `:guard` is present and false at expiry, the transition is **suppressed** — the timer is "fired and discarded", the snapshot is unchanged, a `:rf.machine.timer/fired` trace records `:fired? false`, and *other in-flight timers keep running*.
 
@@ -167,7 +175,9 @@ Every `:after` timer counts independently from the moment the machine **enters t
 
 A state can have several triggers racing at once — multiple `:after` timers, the state's `:on` events, an `:always`, a [spawned](glossary.md#spawn) child completing. **Whichever fires first wins**; the resulting state exit cancels the rest as part of the normal exit cascade.
 
-> **A same-tick tie has no document-order guarantee.** When two `:after` timers with different delays happen to fire in the same scheduler tick, the order they reach the router is the *host scheduler's* order — not document order. SCXML resolves simultaneously-enabled transitions by document order; re-frame2 `:after` timers are real host-clock deferred events, so it's "first valid timer to arrive wins; the transition makes the rest stale." Don't rely on declaration order to break a same-tick `:after` tie.
+!!! note "A same-tick tie has no document-order guarantee"
+
+    When two `:after` timers with different delays happen to fire in the same scheduler tick, the order they reach the router is the *host scheduler's* order — not document order. SCXML resolves simultaneously-enabled transitions by document order; re-frame2 `:after` timers are real host-clock deferred events, so it's "first valid timer to arrive wins; the transition makes the rest stale." Don't rely on declaration order to break a same-tick `:after` tie.
 
 ### No cancel flag: epoch-based staleness
 

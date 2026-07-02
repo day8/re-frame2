@@ -2,7 +2,9 @@
 
 Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. For those, write a small `fx`: start the host work, then dispatch a named reply [event](../core/concepts/events-and-the-cascade.md) when it finishes. That gives you the same continuation style as HTTP. It does not give you HTTP's managed extras — retry, abort, stale-result suppression, and the HTTP failure categories — unless you build those too.
 
-> **The one rule.** An [event handler](../core/concepts/effects-and-coeffects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
+!!! note "The one rule"
+
+    An [event handler](../core/concepts/effects-and-coeffects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
 
 ## Wrapping a promise
 
@@ -36,11 +38,17 @@ Three steps: register the effect once, ask for it from a handler (naming where t
 
 Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worker, or a WebAuthn challenge and the shape is identical: post the work, translate the reply into a `dispatch`.
 
-> **Gotcha — carry the frame.** The `.then` callback fires on a *fresh stack*, long after the handler returned, with no [frame](../core/concepts/frames.md) in scope. A bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context`. So read `(:frame fx-ctx)` in the fx and pass `{:frame frame}` to every deferred dispatch — that lands the reply back in the frame the request came from.
+!!! warning "Gotcha — carry the frame"
 
-> **Keep it serializable.** Pass keywords, ids, and data across the boundary — never closures. The reply event has to survive a trace, a replay, and an SSR payload, and a closure survives none of them. (That's also why you name `:on-success`/`:on-failure` events instead of passing callbacks.)
+    The `.then` callback fires on a *fresh stack*, long after the handler returned, with no [frame](../core/concepts/frames.md) in scope. A bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context`. So read `(:frame fx-ctx)` in the fx and pass `{:frame frame}` to every deferred dispatch — that lands the reply back in the frame the request came from.
 
-> **Don't write `app-db` from the fx.** The fx posts work and dispatches; the *reply handler* does the state write. Keeping that split is what keeps handlers pure and replays deterministic.
+!!! note "Keep it serializable"
+
+    Pass keywords, ids, and data across the boundary — never closures. The reply event has to survive a trace, a replay, and an SSR payload, and a closure survives none of them. (That's also why you name `:on-success`/`:on-failure` events instead of passing callbacks.)
+
+!!! note "Don't write `app-db` from the fx"
+
+    The fx posts work and dispatches; the *reply handler* does the state write. Keeping that split is what keeps handlers pure and replays deterministic.
 
 ## When *not* to roll your own
 

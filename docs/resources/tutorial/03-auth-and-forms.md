@@ -14,9 +14,13 @@ re-frame2 ships no forms library and no auth plugin on purpose — you'll see wh
   (:require-macros [re-frame.core :refer [reg-view]]))
 ```
 
-> **For JavaScript developers.** This part covers two things React reaches for libraries to do: the forms (React Hook Form territory) and the token-plus-guard plumbing (Axios-interceptor territory). re-frame2 ships neither — instead you get a convention you own outright: a few events and subscriptions, no library to fight.
+??? info "For JavaScript developers"
 
-> **The condensed version.** This part walks the whole flow end to end as Conduit. If you want the recipe stripped of narrative — slice, guard, teardown, in numbered steps — [Add authentication](../../core/how-to/add-auth.md) is the how-to sibling, and [Build a form](../../core/how-to/build-a-form.md) is the form half on its own.
+    This part covers two things React reaches for libraries to do: the forms (React Hook Form territory) and the token-plus-guard plumbing (Axios-interceptor territory). re-frame2 ships neither — instead you get a convention you own outright: a few events and subscriptions, no library to fight.
+
+!!! note "The condensed version"
+
+    This part walks the whole flow end to end as Conduit. If you want the recipe stripped of narrative — slice, guard, teardown, in numbered steps — [Add authentication](../../core/how-to/add-auth.md) is the how-to sibling, and [Build a form](../../core/how-to/build-a-form.md) is the form half on its own.
 
 ## The form slice: one shape, seven keys
 
@@ -73,7 +77,9 @@ Now wire the event up so it actually fires. Each form gets a [route](../../routi
   "/register")
 ```
 
-> **`:on-match` runs every time the route activates, on both hosts.** It's a vector of event vectors the runtime dispatches when the route becomes active — client-side *and* during SSR — so the seed is a normal event, not a special hook. If two visits land on the *identical* URL the runtime won't re-fire (it dedupes on the matched route+params), so a stale draft can survive a same-URL bounce; seeding from `:on-match` is the reliable reset because login navigations always come from a *different* URL.
+!!! note "`:on-match` runs every time the route activates, on both hosts"
+
+    It's a vector of event vectors the runtime dispatches when the route becomes active — client-side *and* during SSR — so the seed is a normal event, not a special hook. If two visits land on the *identical* URL the runtime won't re-fire (it dedupes on the matched route+params), so a stale draft can survive a same-URL bounce; seeding from `:on-match` is the reliable reset because login navigations always come from a *different* URL.
 
 ### Editing: every keystroke is one event
 
@@ -90,7 +96,9 @@ Editing a field updates the draft and marks the field touched, in one step:
 
 That's all login needs to capture input. The draft is just data in app-db; editing it is just an event like any other.
 
-> **Coming from React Hook Form?** `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events you own outright. No hook to call in the right order, no ref to wire up — the draft is data, editing it is an event, and reading it back is a [subscription](../../core/glossary.md#subscription).
+??? info "Coming from React Hook Form?"
+
+    `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events you own outright. No hook to call in the right order, no ref to wire up — the draft is data, editing it is an event, and reading it back is a [subscription](../../core/glossary.md#subscription).
 
 The full convention adds `blur-field` (the per-field "you left this input" event, used for async checks) and a `reset` event — both spelled out in [Build a form](../../core/how-to/build-a-form.md). Login doesn't need them yet.
 
@@ -139,7 +147,9 @@ The rule lives in one place, a [subscription](../../core/glossary.md#subscriptio
 
 Because the rule lives in the subscription and not in the view, every field renders its error the same way — `(when email-err …)` — and none of them carry the "should I show this yet?" logic. Change the rule once and every field obeys.
 
-> **Cross-field errors go in `:_form`, not in a field.** "Passwords don't match" doesn't belong to either password input — it belongs to the *pair*. The convention reserves `:_form` for exactly this: cross-field validation outcomes and high-level submit-time messages. Compute them in `validate-*`, write them under `:_form`, and they render through `form-errors` above. A field id must never collide with `:_form`; the form-errors sub ignores `:touched` and shows them whenever they exist.
+!!! note "Cross-field errors go in `:_form`, not in a field"
+
+    "Passwords don't match" doesn't belong to either password input — it belongs to the *pair*. The convention reserves `:_form` for exactly this: cross-field validation outcomes and high-level submit-time messages. Compute them in `validate-*`, write them under `:_form`, and they render through `form-errors` above. A field id must never collide with `:_form`; the form-errors sub ignores `:touched` and shows them whenever they exist.
 
 Here's a register-form validator showing both a per-field error and a cross-field `:_form` one:
 
@@ -197,7 +207,9 @@ A few of the args-map slots are doing real work here, and a couple more are wort
 | `:decode` | `:json` parses a 2xx body. | Defaults to `:auto` (sniffs the response `Content-Type`). Decode runs **only on 2xx** — a 4xx/5xx body arrives raw, undecoded. Pass a Malli [schema](../../core/glossary.md#schema) instead of `:json` to validate the reply shape. |
 | `:on-success` / `:on-failure` | Name the reply targets. | Omit both and the reply routes back to *this* event under `:rf/reply` (the co-located form) — fine for trivial flows, but two named handlers keep each one single-purpose. |
 
-> **Why no `:retry` here.** `:retry` is for transport faults that a re-issue can fix — a `429`/`503` on a GET, say — and its `:on` set is closed to the retryable `:rf.http/*` categories; a typo there fails loud at dispatch with `:rf.error/http-bad-retry-on` rather than silently disabling retry. Credentials aren't that shape: re-posting them isn't a safe automatic recovery. The [Managed HTTP reference](../../async/http.md) has the full set of categories.
+!!! note "Why no `:retry` here"
+
+    `:retry` is for transport faults that a re-issue can fix — a `429`/`503` on a GET, say — and its `:on` set is closed to the retryable `:rf.http/*` categories; a typo there fails loud at dispatch with `:rf.error/http-bad-retry-on` rather than silently disabling retry. Credentials aren't that shape: re-posting them isn't a safe automatic recovery. The [Managed HTTP reference](../../async/http.md) has the full set of categories.
 
 ## The two endings: token in, errors back
 
@@ -232,7 +244,9 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. The success handler s
                          [:rf.route/navigate :conduit/home nil {:replace? true}])]]})))
 ```
 
-> **Mind the `navigate` arity — params is 2nd, opts is 3rd.** `[:rf.route/navigate target params opts]`: path-params go in the second slot, options (`:replace?`, `:scroll`, `:fragment`) in the third. Slipping an opts key like `:replace?` into the *params* slot is the classic swap, and the runtime rejects it fail-loud with `:rf.error/navigate-arity-misuse` rather than navigating somewhere surprising. When a route takes no path-params, pass `nil` in the second slot (as `:conduit/home` does above) to reach the third.
+!!! note "Mind the `navigate` arity — params is 2nd, opts is 3rd"
+
+    `[:rf.route/navigate target params opts]`: path-params go in the second slot, options (`:replace?`, `:scroll`, `:fragment`) in the third. Slipping an opts key like `:replace?` into the *params* slot is the classic swap, and the runtime rejects it fail-loud with `:rf.error/navigate-arity-misuse` rather than navigating somewhere surprising. When a route takes no path-params, pass `nil` in the second slot (as `:conduit/home` does above) to reach the third.
 
 ### Failure: structured errors back into the same view
 
@@ -264,9 +278,13 @@ Failure sorts into two shapes, and here's the second rule the part leans on. **S
 
 The reason this reads cleanly is the framework's classification order. On a 4xx the body is surfaced **raw** at `:body` (decode is skipped on non-2xx), so `failure->form-errors` gets exactly the bytes the server sent and decides what to do with them. A `:rf.http/transport` failure — the network was down, the server never answered — carries no `:body` to parse, so it falls through to the generic `:submit-error` string. The payoff is that the view never grows a branch for "is this a server error or a client error?" — both validation kinds arrive as `:errors`, both render through the same `field-error` subscription. Only the genuinely shapeless failure gets its own plain string.
 
-> **Going deeper.** The inner `:kind` you branch on comes from a *closed* set, `:rf.http/*` — `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/transport`, `:rf.http/timeout`, and a few more. Treating failures as a small closed sum type (rather than an open grab-bag of HTTP status integers) is what lets the handler be a total `case` over a finite alphabet: every failure is exactly one of these, so there's no "unhandled status" hole to forget. The [Managed HTTP reference](../../async/http.md) enumerates the full set.
+??? note "Going deeper"
 
-> **Gotcha — a 5xx with an HTML error page is *not* a decode failure.** If you'd reached for `:decode (schema …)` expecting the failure handler to see a decode error, note that the runtime classifies by status *before* it touches the body: a 503 with a CloudFront HTML page classifies as `:rf.http/http-5xx` with the HTML at `:body`, never as `:rf.http/decode-failure`. The HTTP status is the load-bearing fact; surfacing a decode error there would hide it. Decode-failure only ever describes a malformed *2xx* body.
+    The inner `:kind` you branch on comes from a *closed* set, `:rf.http/*` — `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/transport`, `:rf.http/timeout`, and a few more. Treating failures as a small closed sum type (rather than an open grab-bag of HTTP status integers) is what lets the handler be a total `case` over a finite alphabet: every failure is exactly one of these, so there's no "unhandled status" hole to forget. The [Managed HTTP reference](../../async/http.md) enumerates the full set.
+
+!!! warning "Gotcha — a 5xx with an HTML error page is *not* a decode failure"
+
+    If you'd reached for `:decode (schema …)` expecting the failure handler to see a decode error, note that the runtime classifies by status *before* it touches the body: a 503 with a CloudFront HTML page classifies as `:rf.http/http-5xx` with the HTML at `:body`, never as `:rf.http/decode-failure`. The HTTP status is the load-bearing fact; surfacing a decode error there would hide it. Decode-failure only ever describes a malformed *2xx* body.
 
 ## The login page
 
@@ -305,7 +323,9 @@ Now try it, then watch it. Type a bad email and click *Sign in*. Both errors app
 
 The register page is the same shape plus `:username` and a `:password-confirm` field (the cross-field `:_form` rule from earlier). It uses a `[:auth :register-form]` slice, the same events posting to `/users`, and the same subs. Write it as your first fill-in-the-blanks form, or crib the finished pair from [the example's `auth.cljs`](../../../examples/real-apps/realworld_http).
 
-> **The blur-field upgrade, when you need it.** Login validates on submit, which is plenty. The day you want "is this username taken?" the moment the user leaves the field, that's the convention's `blur-field` event — wire `:on-blur #(dispatch [:auth.register-form/blur-field :username])` on the input, have that event fire an async check (a small fx in the shape of [Your own async effect](../../async/custom-effects.md)), and write the result back into `:errors` under the same `:username` key. The `field-error` sub reads the merged map without caring whether a sync or async validator produced the entry — so the view doesn't change at all. Carry the current draft value on the dispatch and ignore stale replies, or a slow check for an old value can clobber a newer one.
+!!! note "The blur-field upgrade, when you need it"
+
+    Login validates on submit, which is plenty. The day you want "is this username taken?" the moment the user leaves the field, that's the convention's `blur-field` event — wire `:on-blur #(dispatch [:auth.register-form/blur-field :username])` on the input, have that event fire an async check (a small fx in the shape of [Your own async effect](../../async/custom-effects.md)), and write the result back into `:errors` under the same `:username` key. The `field-error` sub reads the merged map without caring whether a sync or async validator produced the entry — so the view doesn't change at all. Carry the current draft value on the dispatch and ignore stale replies, or a slow check for an old value can clobber a newer one.
 
 ## The session: persist, restore, attach
 
@@ -367,11 +387,17 @@ The read happens at boot. Reading the world is a [coeffect](../../core/glossary.
 
 Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect, itself a *provided* fact stamped at enqueue) rides every dispatch, but a handler must declare it to read it. Declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event`, so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`, stamping the saved token onto that dispatch (the boot wiring below shows exactly how).
 
-> **Coming from re-frame v1?** The `inject-cofx` interceptor is gone — declare `:rf.cofx/requires` on the registration and the runtime assembles the value before the handler runs. No interceptor to thread, no order to get right: the dependency is data on the registration, and the runtime reads it.
+??? info "From re-frame v1"
 
-> **Going deeper — why the token gets these two flags.** [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Effects and coeffects](../../core/concepts/effects-and-coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. And because the boot boundary stamps it rather than a supplier generating it, it's `:provided? true` — a registration with no generator function, there only to give the boundary fact docs, schema, and an owner (so a typo'd requirement is distinguishable from a missing value). An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.
+    The `inject-cofx` interceptor is gone — declare `:rf.cofx/requires` on the registration and the runtime assembles the value before the handler runs. No interceptor to thread, no order to get right: the dependency is data on the registration, and the runtime reads it.
 
-> **Two failure paths at boot, not one.** `:auth/initialise` fires the `/user` request *only when a token was found* (the `cond->`), so a fresh visitor never makes the call. When a token exists but the server rejects it, `:on-failure` routes to `:auth/session-expired`, which clears `:user`/`:token` and wipes the saved JWT — the stored credential was stale, and now the app knows it. A network blip during restore lands on the same handler; if you'd rather distinguish "token rejected" (a real 401 — clear it) from "couldn't reach the server" (transient — keep the token and retry later), branch on the failure's `:kind` exactly as the login handler does.
+??? note "Going deeper — why the token gets these two flags"
+
+    [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Effects and coeffects](../../core/concepts/effects-and-coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. And because the boot boundary stamps it rather than a supplier generating it, it's `:provided? true` — a registration with no generator function, there only to give the boundary fact docs, schema, and an owner (so a typo'd requirement is distinguishable from a missing value). An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.
+
+!!! note "Two failure paths at boot, not one"
+
+    `:auth/initialise` fires the `/user` request *only when a token was found* (the `cond->`), so a fresh visitor never makes the call. When a token exists but the server rejects it, `:on-failure` routes to `:auth/session-expired`, which clears `:user`/`:token` and wipes the saved JWT — the stored credential was stale, and now the app knows it. A network blip during restore lands on the same handler; if you'd rather distinguish "token rejected" (a real 401 — clear it) from "couldn't reach the server" (transient — keep the token and retry later), branch on the failure's `:kind` exactly as the login handler does.
 
 ### The header — one interceptor for every request
 
@@ -389,7 +415,9 @@ The interceptor is a plain function. It reads the current token out of app-db wi
 
 Wire it at boot with `reg-http-interceptor` (below). Because it reads `app-db-value` afresh on every request, it always sees the *current* token — there's nothing to invalidate or re-wire when the token changes.
 
-> **Coming from Axios?** This is your request interceptor, near-identically. The difference is that re-frame2's interceptor reads from app-db at call time rather than closing over a mutable module-level token, so logout (clearing app-db) silently disarms it — no interceptor to detach.
+??? info "Coming from Axios?"
+
+    This is your request interceptor, near-identically. The difference is that re-frame2's interceptor reads from app-db at call time rather than closing over a mutable module-level token, so logout (clearing app-db) silently disarms it — no interceptor to detach.
 
 ### Keeping the JWT redacted on both surfaces
 
@@ -400,15 +428,17 @@ The token now lives in two distinct places, and each has its own redaction surfa
 
 The point is that classifying the app-db path does *not* by itself redact the request header — the header redaction comes from the carrier denylist — and the denylist does *not* redact the stored value. You want both, and here you get both for free (one line of classification, one built-in default).
 
-> **A custom secret header isn't covered automatically.** The built-in denylist covers the standard names. If your API takes the token under a non-standard header — say `X-Conduit-Token` — extend the carrier set by re-registering `:rf.http/managed` with a `:carriers` block; it unions onto the built-in defaults (you can never *remove* a default):
->
-> ```clojure
-> (rf/reg-fx :rf.http/managed
->   {:carriers {:headers ["X-Conduit-Token"]}}   ;; redacted in traces, on top of the built-ins
->   managed-handler)
-> ```
->
-> See [keep secrets out of traces](../../core/how-to/keep-secrets-out-of-traces.md) for the full classification surface, and confirm in Xray: after signing in, the App-db tab shows the token redacted at `[:auth :token]`, and a request row shows the `Authorization` header redacted too.
+!!! note "A custom secret header isn't covered automatically"
+
+    The built-in denylist covers the standard names. If your API takes the token under a non-standard header — say `X-Conduit-Token` — extend the carrier set by re-registering `:rf.http/managed` with a `:carriers` block; it unions onto the built-in defaults (you can never *remove* a default):
+
+    ```clojure
+    (rf/reg-fx :rf.http/managed
+      {:carriers {:headers ["X-Conduit-Token"]}}   ;; redacted in traces, on top of the built-ins
+      managed-handler)
+    ```
+
+    See [keep secrets out of traces](../../core/how-to/keep-secrets-out-of-traces.md) for the full classification surface, and confirm in Xray: after signing in, the App-db tab shows the token redacted at `[:auth :token]`, and a request row shows the `Authorization` header redacted too.
 
 ### Wiring it at boot
 
@@ -432,9 +462,13 @@ The point is that classifying the app-db path does *not* by itself redact the re
                     {:rf.cofx {:auth.session/token (saved-token)}}))
 ```
 
-> **`:interceptors` takes ids, not interceptor values.** The frame chain *references* `:conduit/auth-guard` — the id you registered the guard under (next section) — exactly the way an event's chain references interceptor ids. You register the named thing once; the frame names it. `dispatch-sync` runs the boot events synchronously so the token (and its classification) are committed before the first render, not a tick later. The `{:rf.cofx {…}}` map is the boundary stamping the declared fact: the same surface the Part 5 tests use to supply `:auth.session/token`, only here it carries the real localStorage read instead of a fixture.
+!!! note "`:interceptors` takes ids, not interceptor values"
 
-> **Gotcha — forget the stamp and boot fails loud.** Because `:auth.session/token` is a *provided* coeffect with no generator, the runtime has nothing to fall back on if the dispatch doesn't carry it. Drop the `{:rf.cofx {…}}` map (or fat-finger the key) and `:auth/initialise` raises `:rf.error/missing-required-cofx` at boot rather than silently reading `nil` — the fact has a registered home and a schema, so a missing supply reads as "you didn't stamp this," not "no such coeffect." That's the design paying off: a provided fact that never arrives is a wiring bug, and the runtime says so instead of booting you into a logged-out state you can't explain. (The framework clock `:rf/time-ms` is the one exception — it's stamped on *every* dispatch, so it never trips this.)
+    The frame chain *references* `:conduit/auth-guard` — the id you registered the guard under (next section) — exactly the way an event's chain references interceptor ids. You register the named thing once; the frame names it. `dispatch-sync` runs the boot events synchronously so the token (and its classification) are committed before the first render, not a tick later. The `{:rf.cofx {…}}` map is the boundary stamping the declared fact: the same surface the Part 5 tests use to supply `:auth.session/token`, only here it carries the real localStorage read instead of a fixture.
+
+!!! warning "Gotcha — forget the stamp and boot fails loud"
+
+    Because `:auth.session/token` is a *provided* coeffect with no generator, the runtime has nothing to fall back on if the dispatch doesn't carry it. Drop the `{:rf.cofx {…}}` map (or fat-finger the key) and `:auth/initialise` raises `:rf.error/missing-required-cofx` at boot rather than silently reading `nil` — the fact has a registered home and a schema, so a missing supply reads as "you didn't stamp this," not "no such coeffect." That's the design paying off: a provided fact that never arrives is a wiring bug, and the runtime says so instead of booting you into a logged-out state you can't explain. (The framework clock `:rf/time-ms` is the one exception — it's stamped on *every* dispatch, so it never trips this.)
 
 ## The guard
 
@@ -451,7 +485,9 @@ First tag the routes that need a user (extending Part 1's registrations). `:tags
 
 There's one trap here, and it's the kind that passes every casual test. Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf/url-requested`, fired by `route-link`), and the URL bar or back-button (`:rf.route/handle-url-change`, the popstate/initial-load handler).
 
-> **Gotcha — gate all three entry points, not just one.** If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. The fix is to normalise all three navigation events to one shape, then gate once.
+!!! warning "Gotcha — gate all three entry points, not just one"
+
+    If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. The fix is to normalise all three navigation events to one shape, then gate once.
 
 That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id, so it leans on `routing/match-url` to turn that URL back into a route:
 
@@ -498,7 +534,9 @@ You register the guard once, under the id `:conduit/auth-guard` — exactly like
 
 Attached frame-wide, the guard wraps every event and quietly stands aside (returns `ctx` untouched) for everything `nav-target` returns `nil` for — which is every event that isn't a navigation. [Interceptors](../../core/concepts/interceptors.md) is the deeper model.
 
-> **Coming from Axios?** Your redirect-on-401 *response* interceptor became this event interceptor, one layer up — it stops the navigation *before* any request exists. You don't wait for the server to say no; the guard already knows there's no user.
+??? info "Coming from Axios?"
+
+    Your redirect-on-401 *response* interceptor became this event interceptor, one layer up — it stops the navigation *before* any request exists. You don't wait for the server to say no; the guard already knows there's no user.
 
 Watch it fire. Signed out, click *Settings*. In Xray the navigation's event row shows the guard short-circuiting the handler (`:rf/skip-handler?`), and the next row is the redirect dispatch to the login route. Sign in, and the ledger shows the bounce back to `/settings` — the stash paying off.
 
@@ -519,7 +557,9 @@ The auth guard stops you *entering* a route. The mirror-image need — stop you 
 
 When the guard blocks, the runtime parks the attempted destination in a pending-navigation slot and dispatches `:rf.route/navigation-blocked`, so you can subscribe to that slot, pop a "discard changes?" prompt, and on confirm dispatch `:rf.route/continue` — which re-issues the original navigation, this time bypassing the leave guard. (`:rf.route/cancel` clears the slot and leaves the URL put.)
 
-> **`:can-leave` must return a boolean — strictly.** `true` allows, `false` blocks, and **any other value blocks AND fails loud** with `:rf.error/can-leave-non-boolean`. A sub that returns `nil` (because the slice isn't seeded yet) or a truthy non-boolean won't quietly "kind of work" — it blocks the navigation and tells you why. Guard against an absent slice in the sub itself.
+!!! note "`:can-leave` must return a boolean — strictly"
+
+    `true` allows, `false` blocks, and **any other value blocks AND fails loud** with `:rf.error/can-leave-non-boolean`. A sub that returns `nil` (because the slice isn't seeded yet) or a truthy non-boolean won't quietly "kind of work" — it blocks the navigation and tells you why. Guard against an absent slice in the sub itself.
 
 ## Sign out
 
@@ -535,10 +575,14 @@ Teardown is just setup reversed, in one event. Wire `(dispatch [:auth/logout])` 
 
 Nothing else to unhook, which is the nice part. The bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`. The guard starts intercepting again for the same reason. State went away, and behaviour followed. That's the whole dividend of keeping the session *in* app-db rather than in scattered closures: there's exactly one place to clear, and everything that read it goes quiet on its own.
 
-> **What about the previous user's cached server data?** Logout clears `:auth`, but Part 2's [resource](../glossary.md#resource) caches (the feed, the profile) still hold the departed user's data until they're re-fetched or evicted. If a fresh sign-in could show a flash of the old user's content, clear those caches in the same logout event — one more named, traced step, not a scattered checklist. The how-to [Add authentication](../../core/how-to/add-auth.md) covers the cache-teardown shape in full.
+!!! note "What about the previous user's cached server data?"
+
+    Logout clears `:auth`, but Part 2's [resource](../glossary.md#resource) caches (the feed, the profile) still hold the departed user's data until they're re-fetched or evicted. If a fresh sign-in could show a flash of the old user's content, clear those caches in the same logout event — one more named, traced step, not a scattered checklist. The how-to [Add authentication](../../core/how-to/add-auth.md) covers the cache-teardown shape in full.
 
 ## Taking the trenchcoat off
 
 An honest closing note. This part hand-rolled the `:status` transitions, and at this size that's the right call.
 
-> **When to reach for a real state machine.** The shipped example implements this same flow as an explicit [state machine](../../machines/glossary.md#machine). Once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling — you lose track of which transitions are legal. The slice stays identical; only the transition logic moves into a machine that names every legal edge. The same boundary draws the line on *retry*: transport retry (back off and re-issue on a 5xx) belongs in `:rf.http/managed`'s `:retry` slot, but *semantic* retry — "refresh the token on a 401, then replay the original request" — is a state-machine transition, not a config map. When you feel that pull, [State machines](../../machines/concepts.md) is the step up, and the example's [`auth.cljs`](../../../examples/real-apps/realworld_http) shows the finished machine.
+!!! note "When to reach for a real state machine"
+
+    The shipped example implements this same flow as an explicit [state machine](../../machines/glossary.md#machine). Once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling — you lose track of which transitions are legal. The slice stays identical; only the transition logic moves into a machine that names every legal edge. The same boundary draws the line on *retry*: transport retry (back off and re-issue on a 5xx) belongs in `:rf.http/managed`'s `:retry` slot, but *semantic* retry — "refresh the token on a 401, then replay the original request" — is a state-machine transition, not a config map. When you feel that pull, [State machines](../../machines/concepts.md) is the step up, and the example's [`auth.cljs`](../../../examples/real-apps/realworld_http) shows the finished machine.

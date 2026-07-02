@@ -39,7 +39,9 @@ Two rules:
 - **Tags label *intent*, not *identity*.** `:tags #{:data/in-flight}` is good; `:tags #{:todos.loader/loading-state}` just re-encodes the state name and earns nothing. Use a per-axis namespace (`:data/…`, `:form/…`, `:mode/…`) so one tag-question can span several states.
 - **The `:rf/*` / `:rf.*/*` namespaces are framework-reserved.** Tag with your own feature prefix — `:auth/busy`, `:cart/dirty`, `:ws/disconnected`. Any unreserved namespace is fair game, dotted forms (`:ui.state/loading`) included.
 
-> **Tags ride on *states*, never on transitions.** `:tags` is a state-node slot only — there is no tag on an `:on` entry, an `:always`, or an `:after`. "Was this transition tagged?" is already answered by the trace vocabulary, so a transition carries no tag. (Adding transition tags later would be non-breaking — but today, tags are not on transitions.)
+!!! note "Tags ride on *states*, never on transitions"
+
+    `:tags` is a state-node slot only — there is no tag on an `:on` entry, an `:always`, or an `:after`. "Was this transition tagged?" is already answered by the trace vocabulary, so a transition carries no tag. (Adding transition tags later would be non-breaking — but today, tags are not on transitions.)
 
 ## The snapshot's `:tags` slot
 
@@ -86,12 +88,14 @@ Need the whole set rather than one bit? That's the ordinary snapshot read:
 (:tags @(rf/sub-machine :todos/loader))   ;; => #{:data/in-flight}
 ```
 
-> **Reading tags inside an event handler.** A snapshot lives in [runtime-db](../core/glossary.md#runtime-db), not app-db, so a handler that needs to branch on a tag reads it from the `:rf.db/runtime` coeffect rather than from `:db`:
->
-> ```clojure
-> (fn [{rt :rf.db/runtime} _]
->   (get-in rt [:rf.runtime/machines :snapshots :todos/loader :tags]))
-> ```
+!!! note "Reading tags inside an event handler"
+
+    A snapshot lives in [runtime-db](../core/glossary.md#runtime-db), not app-db, so a handler that needs to branch on a tag reads it from the `:rf.db/runtime` coeffect rather than from `:db`:
+
+    ```clojure
+    (fn [{rt :rf.db/runtime} _]
+      (get-in rt [:rf.runtime/machines :snapshots :todos/loader :tags]))
+    ```
 
 ## Collapsing many states into one render decision
 

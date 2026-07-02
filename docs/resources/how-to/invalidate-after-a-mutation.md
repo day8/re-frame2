@@ -6,7 +6,9 @@ Here's the idea underneath, in one sentence: **the write that made the cache sta
 
 We'll build that up one step at a time: tag the reads, declare what a write breaks, fire the write and watch it, then — only once the simple path is solid — reach for the optional arms (seed the cache, run side-effects, cross scopes).
 
-> **Coming from TanStack Query?** Your anchor is `queryClient.invalidateQueries({ queryKey: ['articles'] })` inside a mutation's `onSuccess`. Same instinct here, with two deliberate differences. First, in re-frame2 you **declare the invalidation as data on the mutation registration** rather than calling it imperatively in a callback at every call site — so you write it once, not at every place the mutation fires. Second, it matches by tags within a scope, so it refetches only the entries something on screen still owns.
+??? info "Coming from TanStack Query?"
+
+    Your anchor is `queryClient.invalidateQueries({ queryKey: ['articles'] })` inside a mutation's `onSuccess`. Same instinct here, with two deliberate differences. First, in re-frame2 you **declare the invalidation as data on the mutation registration** rather than calling it imperatively in a callback at every call site — so you write it once, not at every place the mutation fires. Second, it matches by tags within a scope, so it refetches only the entries something on screen still owns.
 
 You need two things in place before any of this works. Boot the resources artefact (`day8/re-frame2-resources`) by putting `re-frame.resources` plus the `re-frame.http.managed` transport on your require list. Then register your reads with `reg-resource` — a [resource](../glossary.md#resource) is a managed server-state read, and registering it is how the framework knows how to fetch and cache it. If you haven't done that yet, start at [Server state: resources](../concepts.md).
 
@@ -41,7 +43,9 @@ Two reads, sharing tags on purpose. The detail read tags itself with its own ide
 
 (You'll see `:scope :rf.scope/global` on every registration here. A **scope** is the boundary within which tags are matched — `:rf.scope/global` means "the one cache everyone shares." It mostly stays out of your way; it earns a full treatment, and one sharp footgun, in [the scope section](#the-scope-footgun-and-how-to-disarm-it) at the end. Take it as "the global cache" until then.)
 
-> **A tag is a vector, and `:tags` is a function of `(params data)`.** Each tag is a *structured name* — `[:article slug]`, `[:article-list]` — and the `:tags` fn receives the resource's params and its decoded data, so the list above can tag itself with one entry per article it actually holds. Returning a tag set that depends on `data` is the trick that lets a list be reached through any article it contains. The `:tags` key is optional; a resource with no tags simply can't be reached by tag invalidation (you can still `:rf.resource/refetch` it by exact key).
+!!! note "A tag is a vector, and `:tags` is a function of `(params data)`"
+
+    Each tag is a *structured name* — `[:article slug]`, `[:article-list]` — and the `:tags` fn receives the resource's params and its decoded data, so the list above can tag itself with one entry per article it actually holds. Returning a tag set that depends on `data` is the trick that lets a list be reached through any article it contains. The `:tags` key is optional; a resource with no tags simply can't be reached by tag invalidation (you can still `:rf.resource/refetch` it by exact key).
 
 ## 2. Declare what the write breaks
 
@@ -65,9 +69,13 @@ The write lowers through the same [managed HTTP](../glossary.md#managed-http) tr
 
 What happens next depends on whether anything is still *using* that entry. A read is **owned** while something on screen depends on it — a mounted route showing the article, a running [machine](../../machines/glossary.md#machine) that asked for it. (That's the [owner](../glossary.md#owner--cause) — a lease that keeps the entry alive and decides whether an invalidation refetches *now* or merely marks the entry stale.) An **unowned** entry is one whose last reader has gone away, but whose value is still sitting in the cache. Owned entries refetch immediately, because something is waiting to display the fresh value; unowned ones just get marked stale and wait until the next time someone asks for them (their next *ensure* — the read path's "make sure this is loaded" call). So you don't get a refetch storm for data nothing is watching, which is exactly the behavior you want.
 
-> **Note the callback signature.** `:invalidates` is a function of `(params result)` — the accepted params, and the decoded reply value. Notably, there is *no* `db` / `ctx` argument, and that's deliberate: a cache-consequence plan returns *data* (a tag set, or the descriptors we'll meet later). When a plan genuinely needs a value out of [app-db](../../core/glossary.md#app-db) — say, to pick a scope — it names a resolver to fetch it (the `{:from-db …}` form you'll see in [the scope section](#the-scope-footgun-and-how-to-disarm-it)) rather than reaching into the db directly inside the callback. That keeps the dependency visible and the plan inspectable in tooling, instead of buried in opaque callback code.
+!!! note "Note the callback signature"
 
-> **Gotcha: the lone-vector-tag footgun.** A tag is a vector, so a *tag set* is a set of vectors. If you return a single bare vector — `:invalidates (fn [_ _] [:article slug])` — the framework reads it as the **one tag** `#{[:article slug]}`, *not* as the scalar set `#{:article slug}` (which would name nothing and silently match nothing). The same normalization governs the `:tags` value of a direct `:rf.resource/invalidate-tags` event, so a lone vector tag has exactly one meaning everywhere. When in doubt, wrap it: `#{[:article slug]}`.
+    `:invalidates` is a function of `(params result)` — the accepted params, and the decoded reply value. Notably, there is *no* `db` / `ctx` argument, and that's deliberate: a cache-consequence plan returns *data* (a tag set, or the descriptors we'll meet later). When a plan genuinely needs a value out of [app-db](../../core/glossary.md#app-db) — say, to pick a scope — it names a resolver to fetch it (the `{:from-db …}` form you'll see in [the scope section](#the-scope-footgun-and-how-to-disarm-it)) rather than reaching into the db directly inside the callback. That keeps the dependency visible and the plan inspectable in tooling, instead of buried in opaque callback code.
+
+!!! warning "Gotcha: the lone-vector-tag footgun"
+
+    A tag is a vector, so a *tag set* is a set of vectors. If you return a single bare vector — `:invalidates (fn [_ _] [:article slug])` — the framework reads it as the **one tag** `#{[:article slug]}`, *not* as the scalar set `#{:article slug}` (which would name nothing and silently match nothing). The same normalization governs the `:tags` value of a direct `:rf.resource/invalidate-tags` event, so a lone vector tag has exactly one meaning everywhere. When in doubt, wrap it: `#{[:article slug]}`.
 
 ## 3. Fire the write, watch the instance
 
@@ -108,7 +116,9 @@ The execute event takes a map payload with these keys:
 | `:reply-to` | no | A call-site continuation event target (see [§6](#6-optional-do-more-than-refresh-the-cache)). |
 | `:optimistic?` | no | `false` forces the pessimistic path for one call, skipping a registered optimistic plan. |
 
-> **Gotcha — bad `:params` fail loud before the write fires.** `:params` are checked against the mutation's required `:params-schema` *before* the request is lowered, so a payload that doesn't conform never reaches the server: the execute raises `:rf.error/mutation-invalid-params` (the offending value is redacted in the error per the [data-classification](../../core/glossary.md#data-classification) policy). Host values — functions, promises, dates, DOM nodes — are rejected the same way, because params have to be serializable EDN to take part in identity and replay. This is the write-side twin of the read path's fail-closed validation: the schema, not a silent coercion, decides what a valid write looks like.
+!!! warning "Gotcha — bad `:params` fail loud before the write fires"
+
+    `:params` are checked against the mutation's required `:params-schema` *before* the request is lowered, so a payload that doesn't conform never reaches the server: the execute raises `:rf.error/mutation-invalid-params` (the offending value is redacted in the error per the [data-classification](../../core/glossary.md#data-classification) policy). Host values — functions, promises, dates, DOM nodes — are rejected the same way, because params have to be serializable EDN to take part in identity and replay. This is the write-side twin of the read path's fail-closed validation: the schema, not a silent coercion, decides what a valid write looks like.
 
 If you only ever need a slice of the instance state, the focused subs project just that slice — handy when a button cares about nothing but "am I in flight?":
 
@@ -210,23 +220,33 @@ Sometimes the write's reply carries the updated data back to you. `:populates` p
 
 A populated key counts as an **authoritative load** — it becomes `:loaded`, the value becomes the current `:data`, and its freshness timers arm exactly as if it had fetched normally. Which means it's exempt from this same mutation's invalidation pass. So invalidating broad tags doesn't immediately re-fetch the entry you just seeded from the reply — the framework trusts the value you handed it. (It can still be invalidated by *later* events, *later* mutations, or focus/reconnect — the exemption is only for *this* mutation's own pass.)
 
-> **The exact-target map shape.** `:populates`, `:patches`, and `:removes` all address an exact entry with the same map: `{:resource <id> :params <params> :scope <scope>}`. The `:scope` may be a concrete value, `:rf.scope/same` (the mutation's own resolved scope), `:rf.scope/global`, or a `{:from-db …}` resolver reference. This map form is the *only* accepted public input — don't hand-build the storage tuple `[scope resource-id params]`; that's the internal representation, not a second spelling.
+!!! note "The exact-target map shape"
 
-> **Gotcha: the populated value must be the resource's *stored* shape.** Populate the whole decoded envelope the resource stores (e.g. `{:article {…}}`), not an unwrapped inner projection. A populated entry has to read *identically* to a fetched one, or you've created a cache-coherence bug — the next view to read that key sees a shape no fetch would ever produce.
+    `:populates`, `:patches`, and `:removes` all address an exact entry with the same map: `{:resource <id> :params <params> :scope <scope>}`. The `:scope` may be a concrete value, `:rf.scope/same` (the mutation's own resolved scope), `:rf.scope/global`, or a `{:from-db …}` resolver reference. This map form is the *only* accepted public input — don't hand-build the storage tuple `[scope resource-id params]`; that's the internal representation, not a second spelling.
 
-> **Gotcha: a bad target at settle is split by class — a typo doesn't strand the write.** These exact-target arms run at *settle*, after the server write has already committed. So a *recoverable* bad target — an **unregistered** resource id, or a non-map target — is **dropped-and-warned, not thrown**: the valid siblings in the same arm still land, the dropped target is recorded on the instance, and you get a dev-only `:rf.warning/mutation-target-skipped` (elided from production). One typo'd sibling must not throw away the good cache writes after an irreversible remote write. A *corruption-class* target, though — a mis-spelled `:rf.scope/*` keyword or a non-EDN scope/params, anything that would write the cache under a **wrong identity** — still throws the whole arm; no relaxed policy may swallow that. (Note the asymmetry with the *optimistic* pre-write arms in [Advanced](#advanced): those run *before* the request is sent, so they reject *every* bad target, recoverable or not — there's no committed write to stay consistent with yet.)
+!!! warning "Gotcha: the populated value must be the resource's *stored* shape"
 
-> **Partial replies — `:refetch-populated? true`.** If the write's reply is only *partial* relative to a full resource GET, you don't want to keep the half-populated value. Opt a single invalidation descriptor into `:refetch-populated? true` and that key gets refetched after all:
->
-> ```clojure
-> :invalidates [{:scope :rf.scope/global
->                :tags  #{[:article slug]}
->                :refetch-populated? true}]
-> ```
->
-> This flips *exactly* one thing: whether a key this mutation populated may be immediately refetched by this same mutation's invalidation pass. The default is no.
+    Populate the whole decoded envelope the resource stores (e.g. `{:article {…}}`), not an unwrapped inner projection. A populated entry has to read *identically* to a fetched one, or you've created a cache-coherence bug — the next view to read that key sees a shape no fetch would ever produce.
 
-> **Populate runs on success — reach for `:optimistic` to flip before the reply.** `:populates` seeds the cache from the *accepted reply*, so it runs only after the server confirms. If a write must flip the UI immediately and revert on rejection, declare an [optimistic plan](../glossary.md#optimistic-update--rollback) instead: `:optimistic` (exact target) or `:optimistic-tags` (tag-addressed) patches the cache *before* the request is sent, and the runtime commits, rolls back, or reconciles it deterministically on settle — `:on-conflict` (default `:invalidate`) governs a contested rollback. See [Advanced](#advanced) below, and the worked write in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
+!!! warning "Gotcha"
+
+    These exact-target arms run at *settle*, after the server write has already committed. So a *recoverable* bad target — an **unregistered** resource id, or a non-map target — is **dropped-and-warned, not thrown**: the valid siblings in the same arm still land, the dropped target is recorded on the instance, and you get a dev-only `:rf.warning/mutation-target-skipped` (elided from production). One typo'd sibling must not throw away the good cache writes after an irreversible remote write. A *corruption-class* target, though — a mis-spelled `:rf.scope/*` keyword or a non-EDN scope/params, anything that would write the cache under a **wrong identity** — still throws the whole arm; no relaxed policy may swallow that. (Note the asymmetry with the *optimistic* pre-write arms in [Advanced](#advanced): those run *before* the request is sent, so they reject *every* bad target, recoverable or not — there's no committed write to stay consistent with yet.)
+
+!!! note "Partial replies — `:refetch-populated? true`"
+
+    If the write's reply is only *partial* relative to a full resource GET, you don't want to keep the half-populated value. Opt a single invalidation descriptor into `:refetch-populated? true` and that key gets refetched after all:
+
+    ```clojure
+    :invalidates [{:scope :rf.scope/global
+                   :tags  #{[:article slug]}
+                   :refetch-populated? true}]
+    ```
+
+    This flips *exactly* one thing: whether a key this mutation populated may be immediately refetched by this same mutation's invalidation pass. The default is no.
+
+!!! note
+
+    **Populate runs on success — reach for `:optimistic` to flip before the reply.** `:populates` seeds the cache from the *accepted reply*, so it runs only after the server confirms. If a write must flip the UI immediately and revert on rejection, declare an [optimistic plan](../glossary.md#optimistic-update--rollback) instead: `:optimistic` (exact target) or `:optimistic-tags` (tag-addressed) patches the cache *before* the request is sent, and the runtime commits, rolls back, or reconciles it deterministically on settle — `:on-conflict` (default `:invalidate`) governs a contested rollback. See [Advanced](#advanced) below, and the worked write in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
 
 ## 6. Optional: do more than refresh the cache
 
@@ -258,15 +278,21 @@ Two rules make `:reply-to` safe to lean on:
 - **It fires for any accepted terminal reply, and never for a stale or superseded one.** Re-execute under the same instance, and the earlier attempt's reply is suppressed — its continuation never runs. You never get a continuation for a write that lost the race.
 - **It fires exactly once, *after* cache consequences and instance settlement.** By the time `:editor/save-replied` runs, the cache is already patched/populated/invalidated and the instance row already settled. So you can read the fresh cache (or `:value`) from inside the continuation and trust it.
 
-> **Why a dispatched event and not a callback?** A callback returning effects would mint effects outside the event tape, the interceptor chain, and replay — so it couldn't be traced, replayed, or time-travelled. A `:reply-to` event is ordinary causal input, which is exactly what re-frame2 wants every consequence to be.
+!!! note "Why a dispatched event and not a callback?"
 
-> **Why not `:reply-to` at registration?** It's a *call-site* opt, not a `reg-mutation` key, on purpose. An invariant cache consequence (every save invalidates the same tags) is declarative data and belongs on the registration. A workflow continuation (this save toasts and navigates; that one just toasts) is app behaviour and belongs where the write is *fired*. Hiding it in the remote-write definition would bury app behaviour in the wrong place.
+    A callback returning effects would mint effects outside the event tape, the interceptor chain, and replay — so it couldn't be traced, replayed, or time-travelled. A `:reply-to` event is ordinary causal input, which is exactly what re-frame2 wants every consequence to be.
+
+!!! note "Why not `:reply-to` at registration?"
+
+    It's a *call-site* opt, not a `reg-mutation` key, on purpose. An invariant cache consequence (every save invalidates the same tags) is declarative data and belongs on the registration. A workflow continuation (this save toasts and navigates; that one just toasts) is app behaviour and belongs where the write is *fired*. Hiding it in the remote-write definition would bury app behaviour in the wrong place.
 
 ## The scope footgun (and how to disarm it)
 
 One last thing to know before you ship: a [scope](../glossary.md#scope) is the boundary within which tags are matched. A bare tag set — the `#{[:article slug] …}` form we've used throughout — matches **only** in the mutation's own resolved scope. That's usually what you want, and zero matches is a legitimate outcome. But it means a *global* mutation that intends to refresh a *session-scoped* read — the user's personalized feed, say — will **silently miss**: no error, no refetch, just stale data on screen.
 
-> **How a mutation resolves its scope.** A mutation's execution scope resolves in precedence order: the execute-payload `:scope` → the mutation-spec `:scope` → `:rf.scope/global`. Unlike a resource — whose scope policy is mandatory and [fail-closed](../../core/glossary.md#fail-loud-not-silent) — a mutation's `:scope` is *optional* and **fail-open on absence**: with nothing supplied it defaults to global. A causal write has no cached-read leak boundary of its own, so defaulting to global leaks nothing. (A scope you *do* supply is still canonicalized and validated — a misspelled `:rf.scope/*` keyword is rejected loudly. Fail-open governs only the *absent* case, never a *wrong* value.) The catch is that the mutation then invalidates *in that global scope* — and your session-scoped read lives in a different one.
+!!! note "How a mutation resolves its scope"
+
+    A mutation's execution scope resolves in precedence order: the execute-payload `:scope` → the mutation-spec `:scope` → `:rf.scope/global`. Unlike a resource — whose scope policy is mandatory and [fail-closed](../../core/glossary.md#fail-loud-not-silent) — a mutation's `:scope` is *optional* and **fail-open on absence**: with nothing supplied it defaults to global. A causal write has no cached-read leak boundary of its own, so defaulting to global leaks nothing. (A scope you *do* supply is still canonicalized and validated — a misspelled `:rf.scope/*` keyword is rejected loudly. Fail-open governs only the *absent* case, never a *wrong* value.) The catch is that the mutation then invalidates *in that global scope* — and your session-scoped read lives in a different one.
 
 When one write breaks reads in more than one scope, don't reach for a bare tag set. Return a vector of **descriptors** instead, one per scope, each naming its own target:
 
@@ -282,7 +308,9 @@ Now the global descriptor refreshes the article and the list, the session descri
 
 A descriptor's `:scope` is one of: `:rf.scope/same` (the mutation's resolved scope — the default when `:scope` is omitted, and the meaning of the bare tag-set shorthand), `:rf.scope/global`, a concrete scope value, or a `{:from-db <resolver-id>}` reference resolved against the db at settle time. (A `{:from-db …}` that resolves to nil is *fail-closed* — that descriptor is dropped, never silently widened to global.)
 
-> **Going deeper: why this isn't fail-open by default.** A bare cross-scope `:rf.resource/invalidate-tags` with no scope is a *loud error* (`:rf.error/resource-invalidate-scope-required`), not a silent global blast — re-frame2's fail-closed floor. A mutation's bare tag set resolves to *its* scope rather than erroring, which keeps the common single-scope case ergonomic, but the dev-mode tripwire below catches the mismatch so the convenience doesn't cost you a silent miss. The whole lattice is fail-closed at the bottom: silence is only ever the safe direction.
+??? note "Going deeper: why this isn't fail-open by default"
+
+    A bare cross-scope `:rf.resource/invalidate-tags` with no scope is a *loud error* (`:rf.error/resource-invalidate-scope-required`), not a silent global blast — re-frame2's fail-closed floor. A mutation's bare tag set resolves to *its* scope rather than erroring, which keeps the common single-scope case ergonomic, but the dev-mode tripwire below catches the mismatch so the convenience doesn't cost you a silent miss. The whole lattice is fail-closed at the bottom: silence is only ever the safe direction.
 
 ### When you can't name the scopes: `:cross-scope? true`
 
@@ -343,9 +371,13 @@ What the runtime guarantees, so you don't hand-roll any of it:
 
 Two guardrails worth internalizing:
 
-> **Gotcha — optimistic plans are fail-closed and scope-bounded.** Every optimistic target's scope is fail-closed: a `{:from-db …}` that resolves nil *drops* that target rather than writing under an implicit global (unlike a mutation's fail-open *execution* scope — an optimistic apply writes the cache, so it carries the same leak boundary a read does). There is **no `:cross-scope?` optimistic form**: the optimistic surface is exact-key or tag-within-named-scope only, so it can't leak a write across users or tenants the way an audited `:cross-scope?` invalidation can. A malformed `:optimistic-tags` descriptor (non-map, missing `:patch`, non-collection `:tags`) is warn-and-skipped (`:rf.warning/optimistic-tags-descriptor-skipped`), not thrown — it runs *before* the request lowers, so throwing would kill the whole write; the well-formed descriptors in the same plan still apply.
+!!! warning "Gotcha — optimistic plans are fail-closed and scope-bounded"
 
-> **Gotcha — don't combine `:optimistic*` with `:invalidate-timing :before-request`.** A `:before-request` invalidation stales the very entries an optimistic apply immediately re-populates — contradictory (stale-then-optimistic-fresh). It's a loud registration error (`:rf.error/mutation-optimistic-before-request`), not a silent precedence rule; optimistic writes use the default `:after-success` timing. To skip a registered optimistic plan for one call, pass `{:optimistic? false}` on the execute payload (a boolean disable, never a per-call forward plan — call-site cache logic stays off the call site).
+    Every optimistic target's scope is fail-closed: a `{:from-db …}` that resolves nil *drops* that target rather than writing under an implicit global (unlike a mutation's fail-open *execution* scope — an optimistic apply writes the cache, so it carries the same leak boundary a read does). There is **no `:cross-scope?` optimistic form**: the optimistic surface is exact-key or tag-within-named-scope only, so it can't leak a write across users or tenants the way an audited `:cross-scope?` invalidation can. A malformed `:optimistic-tags` descriptor (non-map, missing `:patch`, non-collection `:tags`) is warn-and-skipped (`:rf.warning/optimistic-tags-descriptor-skipped`), not thrown — it runs *before* the request lowers, so throwing would kill the whole write; the well-formed descriptors in the same plan still apply.
+
+!!! warning "Gotcha"
+
+    A `:before-request` invalidation stales the very entries an optimistic apply immediately re-populates — contradictory (stale-then-optimistic-fresh). It's a loud registration error (`:rf.error/mutation-optimistic-before-request`), not a silent precedence rule; optimistic writes use the default `:after-success` timing. To skip a registered optimistic plan for one call, pass `{:optimistic? false}` on the execute payload (a boolean disable, never a per-call forward plan — call-site cache logic stays off the call site).
 
 ## Observe it in Xray
 
@@ -355,8 +387,12 @@ Save an article with the list and detail pages mounted, then open [Xray](../../c
 - **Invalidation / mutation graph** — one row per invalidation: the resolved scope, the tags, the matched keys, the match count, and the refetch count. A **zero match count** here is the scope-miss footgun made visible — and if the tags *do* match an entry in another scope, the `:any-tag-match-other-scope?` flag tells you "no match *here*" rather than "nobody provides this tag anywhere," which is exactly the signal you need to reach for a descriptor.
 - **Lifecycle timeline** — the ordered `:rf.resource/*` rows, each carrying its [cause](../glossary.md#owner--cause): the why-chain from your mutation to each refetch.
 
-> **The dev-mode tripwire.** Because the cross-scope miss is silent *by construction*, the framework also surfaces it as a dev-only warning at the moment of the mismatched invalidation: `:rf.warning/mutation-scope-mismatch`. Its heuristic — a descriptor matched zero entries in its resolved scope while the same tags *do* match an entry in a *different* scope — carries the mutation, the instance, the scope it invalidated in, the scope that actually held the data, and the tags, with a `:hint` naming the fix. It's gated behind the debug flag and [elided](../../core/glossary.md#elide) from production builds entirely, so it costs you nothing shipped. A deliberate `:cross-scope? true` descriptor is never flagged, and a tag that matches nothing anywhere (a true nothing-to-invalidate) doesn't warn either — only the genuine "you resolved the *wrong* scope" case trips it.
+!!! note "The dev-mode tripwire"
+
+    Because the cross-scope miss is silent *by construction*, the framework also surfaces it as a dev-only warning at the moment of the mismatched invalidation: `:rf.warning/mutation-scope-mismatch`. Its heuristic — a descriptor matched zero entries in its resolved scope while the same tags *do* match an entry in a *different* scope — carries the mutation, the instance, the scope it invalidated in, the scope that actually held the data, and the tags, with a `:hint` naming the fix. It's gated behind the debug flag and [elided](../../core/glossary.md#elide) from production builds entirely, so it costs you nothing shipped. A deliberate `:cross-scope? true` descriptor is never flagged, and a tag that matches nothing anywhere (a true nothing-to-invalidate) doesn't warn either — only the genuine "you resolved the *wrong* scope" case trips it.
 
 The full read→write→invalidate→refetch loop runs live in [the RealWorld resources example](../../../examples/real-apps/realworld_resources).
 
-> **From re-frame v1.** None of this existed in v1. There was no managed server-state layer at all — you fetched in an [effect handler](../../core/glossary.md#effect-handler), hand-wrote the reply into [app-db](../../core/glossary.md#app-db) yourself, and there was no cache, so nothing ever went "stale." Invalidation was a phrase you didn't need because you owned every byte of the read path. The cost was that every screen reinvented loading flags, every write hand-coded which views to refresh, and a stale read was a bug you wrote, not a state the framework tracked. re-frame2's resources move that whole concern under the framework: the write *declares* what it breaks (`:invalidates`), and the read path refetches. The v1 instinct to reach for an effect that pokes `app-db` after a save is the exact thing this page replaces.
+??? info "From re-frame v1"
+
+    None of this existed in v1. There was no managed server-state layer at all — you fetched in an [effect handler](../../core/glossary.md#effect-handler), hand-wrote the reply into [app-db](../../core/glossary.md#app-db) yourself, and there was no cache, so nothing ever went "stale." Invalidation was a phrase you didn't need because you owned every byte of the read path. The cost was that every screen reinvented loading flags, every write hand-coded which views to refresh, and a stale read was a bug you wrote, not a state the framework tracked. re-frame2's resources move that whole concern under the framework: the write *declares* what it breaks (`:invalidates`), and the read path refetches. The v1 instinct to reach for an effect that pokes `app-db` after a save is the exact thing this page replaces.

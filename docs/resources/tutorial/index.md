@@ -4,7 +4,9 @@ The [quickstart](../../core/quickstart.md) taught you the loop in a browser cell
 
 Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. (That **do → observe → explain** loop is the spine of this whole tutorial; the *observe* step is where [Xray](../../core/glossary.md#xray), the inspector you'll set up below, earns its keep.)
 
-> **Haven't done the quickstart?** [Do that first.](../../core/quickstart.md) It teaches the loop — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
+!!! note "Haven't done the quickstart?"
+
+    [Do that first.](../../core/quickstart.md) It teaches the loop — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
 
 ## One app, five parts
 
@@ -29,7 +31,9 @@ From Part 2 onward the app talks to a Conduit API — either a hosted demo or an
 git clone https://github.com/day8/re-frame2.git
 ```
 
-> **For JavaScript developers.** shadow-cljs is your Vite — dev server, hot reload, and bundler in one. `deps.edn` is `package.json` for the JVM-side (ClojureScript) libraries, and `package.json` still handles the npm side. Two manifests instead of one, because two language ecosystems meet here.
+??? info "For JavaScript developers"
+
+    shadow-cljs is your Vite — dev server, hot reload, and bundler in one. `deps.edn` is `package.json` for the JVM-side (ClojureScript) libraries, and `package.json` still handles the npm side. Two manifests instead of one, because two language ecosystems meet here.
 
 ## Scaffold: four files
 
@@ -56,7 +60,9 @@ conduit/
 
 `thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray is the inspector you'll keep open for the whole tutorial — a live window into what your app is doing. It lives under `:aliases {:dev …}` — an **alias** in `deps.edn` is just a named bundle of *extra* dependencies you opt into on demand, the way an npm `devDependency` is pulled in only when you ask for it. Xray sits in the `:dev` alias because it's a tool, not application code, and a release build that never activates `:dev` never sees it — so it stays out of your shipped bundle automatically.
 
-> **For JavaScript developers.** Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. (That record is the [trace stream](../../core/glossary.md#trace-stream); Xray is just the prettiest reader of it.) You'll lean on it constantly. Like DevTools, it ships only in dev builds; the `:dev` alias is what makes that automatic.
+??? info "For JavaScript developers"
+
+    Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. (That record is the [trace stream](../../core/glossary.md#trace-stream); Xray is just the prettiest reader of it.) You'll lean on it constantly. Like DevTools, it ships only in dev builds; the `:dev` alias is what makes that automatic.
 
 **`package.json`**:
 
@@ -195,11 +201,17 @@ What's genuinely new beyond syntax is the **boot**, the part the quickstart's br
 
 That's the whole boot. Four moves: install the substrate, register the frame, seed it, scope the tree to it.
 
-> **For JavaScript developers.** Move 4 is a context provider — the same pattern as wrapping your React tree in a `<Provider>` so that hooks deep in the tree can reach shared state without prop-drilling. The frame is what's carried down the context; `subscribe` and `dispatch` are the hooks that read it.
+??? info "For JavaScript developers"
 
-> **Coming from Redux?** Move 1 (`init!`) is roughly `applyMiddleware` — it wires the runtime to a substrate. Move 2 (`reg-frame`) is `createStore`. Move 3 is your initial-state argument to `createStore`, except expressed as an event rather than a literal. Move 4 is `<Provider store={...}>`. The big difference: re-frame2 makes you name the store (the frame) explicitly, because a re-frame2 app can run several stores side by side, fully isolated.
+    Move 4 is a context provider — the same pattern as wrapping your React tree in a `<Provider>` so that hooks deep in the tree can reach shared state without prop-drilling. The frame is what's carried down the context; `subscribe` and `dispatch` are the hooks that read it.
 
-> **From re-frame v1.** Moves 2–4 are the new part: there's no implicit global frame any more, so the app says — once, at the root — which frame it runs in. v1 dispatched into an ambient singleton you never named; v2 makes that frame explicit, which is exactly what later lets the *same* views run in two isolated frames side by side. The events, subs, and views in this file should look familiar; only the boot has changed.
+??? info "Coming from Redux?"
+
+    Move 1 (`init!`) is roughly `applyMiddleware` — it wires the runtime to a substrate. Move 2 (`reg-frame`) is `createStore`. Move 3 is your initial-state argument to `createStore`, except expressed as an event rather than a literal. Move 4 is `<Provider store={...}>`. The big difference: re-frame2 makes you name the store (the frame) explicitly, because a re-frame2 app can run several stores side by side, fully isolated.
+
+??? info "From re-frame v1"
+
+    Moves 2–4 are the new part: there's no implicit global frame any more, so the app says — once, at the root — which frame it runs in. v1 dispatched into an ambient singleton you never named; v2 makes that frame explicit, which is exactly what later lets the *same* views run in two isolated frames side by side. The events, subs, and views in this file should look familiar; only the boot has changed.
 
 ### A more idiomatic seed: `:initial-events`
 
@@ -212,17 +224,25 @@ The manual Move 3 (`with-frame` + `dispatch-sync`) is worth meeting first becaus
 
 By the time `reg-frame` returns, that cascade has settled and `app-db` holds whatever it produced — so you can drop the separate `with-frame` + `dispatch-sync` of Move 3 entirely. From Part 1 on you'll often prefer this form, and the finished reference uses it.
 
-> **Gotcha — mind the double brackets.** A *step* is a bare event vector like `[:app/initialise]`; the whole `:initial-events` value is a vector *of* those — so `[[:app/initialise]]`, a single one-step vector, with the double brackets. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix; it doesn't quietly run the wrong thing. [Boot and mount an app](../../core/how-to/boot-and-mount-an-app.md) covers the boot surface in full.
+!!! warning "Gotcha — mind the double brackets"
 
-> **Going deeper — why an event and not a `:db` key?** Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same [event cascade](../../core/glossary.md#event-cascade) that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` [effect map](../../core/glossary.md#effect-map). The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes [time-travel](../../core/glossary.md#time-travel) and replay possible.
+    A *step* is a bare event vector like `[:app/initialise]`; the whole `:initial-events` value is a vector *of* those — so `[[:app/initialise]]`, a single one-step vector, with the double brackets. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix; it doesn't quietly run the wrong thing. [Boot and mount an app](../../core/how-to/boot-and-mount-an-app.md) covers the boot surface in full.
+
+??? note "Going deeper — why an event and not a `:db` key?"
+
+    Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same [event cascade](../../core/glossary.md#event-cascade) that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` [effect map](../../core/glossary.md#effect-map). The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes [time-travel](../../core/glossary.md#time-travel) and replay possible.
 
 ### Two config shapes: scope vs ensure
 
 `frame-provider` is one component with two config shapes, chosen by the prop map you hand it. The `{:frame …}` *scope* shape (the one on this page) just scopes the tree to a frame you already registered. The `{:id …}` *ensure* shape instead brings a frame into being — keyed by `:id`, it creates the frame on first mount and reuses it without re-seeding on remount (no destroy-on-unmount) — the one you reach for when a view should bring its own frame into being (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../../core/concepts/frames.md) is the full picture; the slip to watch for here is crossing their keys:
 
-> **Gotcha — the `{:frame …}` shape scopes an *existing* frame.** Hand it a `:frame` that was never registered (or has been destroyed) and it fails loud (`:rf.error/frame-provider-frame-absent`) rather than silently scoping descendants to a phantom frame. Register the frame first (`reg-frame` / `make-frame`), or use the `{:id …}` ensure shape to create it.
+!!! warning "Gotcha — the `{:frame …}` shape scopes an *existing* frame"
 
-> **Gotcha — the mirror: leave out `:frame` and you've selected the *ensure* shape.** The shape is chosen by the prop map: a `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So an empty `{}` (or a prop map with neither `:frame` nor `:id`) is read as an ensure provider with no id and fails loud with `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:frame` if you meant to *scope* an existing frame, or `:id` if you meant to *ensure* one.
+    Hand it a `:frame` that was never registered (or has been destroyed) and it fails loud (`:rf.error/frame-provider-frame-absent`) rather than silently scoping descendants to a phantom frame. Register the frame first (`reg-frame` / `make-frame`), or use the `{:id …}` ensure shape to create it.
+
+!!! warning "Gotcha"
+
+    The shape is chosen by the prop map: a `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So an empty `{}` (or a prop map with neither `:frame` nor `:id`) is read as an ensure provider with no id and fails loud with `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:frame` if you meant to *scope* an existing frame, or `:id` if you meant to *ensure* one.
 
 ### When the boot goes wrong
 
