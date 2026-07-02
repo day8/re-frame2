@@ -289,7 +289,7 @@ One subtlety worth a callout: if the replacement also **moves the `:output-path`
 
 A flow splits into the two layers you'd expect, and each tests like everything else on this shelf:
 
-- **The `:derive` is a pure function.** It's usually worth lifting into a named `defn` so a test can call it with literal inputs and assert on the return — no runtime anywhere, the same move as [testing a handler](../how-to/test-an-event-handler.md).
+- **The `:derive` is a pure function.** It's usually worth lifting into a named `defn` so a test can call it with literal inputs and assert on the return — no runtime anywhere, the same move as [testing a handler](../testing/event-handlers.md).
 - **The wiring** — inputs watched, output written, same-commit timing — tests through a real frame: register the flow, dispatch an event that writes an input, and read the output path off the committed state:
 
 ```clojure

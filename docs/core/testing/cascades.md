@@ -27,7 +27,7 @@ Start with the simplest possible version. Every cascade test is the same three m
 
 `with-new-frame` gives the test its own isolated frame and destroys it on exit (it's modelled on `with-open`), so nothing leaks between tests. `dispatch-sync` does the heavy lifting: it doesn't return until the cascade has fully settled. The event runs, every follow-up `:dispatch` its handlers queue runs, and (as you'll see below) every stubbed HTTP reply runs too — all before the call returns. That's [**run-to-completion**](../glossary.md#drain--run-to-completion): the runtime drains the whole queue to a fixed point before subscriptions recompute and views render, and `dispatch-sync` is run-to-completion you can wait on. So the assertion on the next line reads committed state. No `act()`, no fake timer to advance, nothing to `await`.
 
-If instead you want to test one handler as the pure function it is, see [Test an event handler](test-an-event-handler.md). This page is for when the interesting behaviour is the chain itself.
+If instead you want to test one handler as the pure function it is, see [Test an event handler](event-handlers.md). This page is for when the interesting behaviour is the chain itself.
 
 ??? info "From re-frame v1"
 

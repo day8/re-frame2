@@ -61,6 +61,7 @@ Paths below are relative to `docs/`. This table maps the **core guide**; the dom
 | `resources/tutorial/` (its own tab) | tutorial | tutorial | Build RealWorld end to end |
 | `core/concepts/`, `core/where-state-lives.md` | concepts | explanation | The mental model, one piece per page |
 | `core/how-to/` | how-to | how-to | One task, complete code, done |
+| `core/testing/` | how-to | how-to | One test target, complete code, done |
 | `core/explanation/`, `core/derivations-and-algebra-views.md` | explanation | explanation | The why — for the curious, not the blocked |
 | `core/25-from-re-frame-v1.md` | migration | migration | v1 deltas, not basics |
 | `core/AUTHORING.md` | meta | index | This contract |

@@ -136,7 +136,7 @@ That means giving the test its own [**frame**](../glossary.md#frame): an isolate
 Two dispatch options do the work that the literal coeffects map did back in section 2:
 
 - **`:rf.cofx`** supplies coeffects on the dispatch — it plays the role the literal coeffects map played in section 2, except now you hand the values to the dispatch and the runtime threads them into the handler. Supplied values win; the runtime fills in only what's missing. Without it, the clock here would be the real wall clock the runtime stamps on the event, and your assertion would be chasing a moving target.
-- **`:fx-overrides`** redirects an effect for this one dispatch. Here it swallows the HTTP request, because this test only cares about the stamp. Answering the request with a canned reply and asserting the whole chain is the next page's job: [Test a cascade](test-a-cascade.md).
+- **`:fx-overrides`** redirects an effect for this one dispatch. Here it swallows the HTTP request, because this test only cares about the stamp. Answering the request with a canned reply and asserting the whole chain is the next page's job: [Test a cascade](cascades.md).
 
 ??? note "Going deeper — naming the frame yourself"
 

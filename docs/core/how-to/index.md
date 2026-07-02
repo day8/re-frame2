@@ -6,7 +6,7 @@ You've got a working app and one task in front of you. Each page here is a recip
 
 These recipes assume you've already built something — the [quick start](../quickstart.md) gets you there — and that the loop is familiar. Every dispatch sets off one [**event cascade**](../glossary.md#event-cascade): the fixed, ordered run — [handler](../glossary.md#event-handler) → [effect map](../glossary.md#effect-map) → effects → derivations → view → DOM — that the *six dominoes* name as a first-contact mnemonic. [The model](../concepts/index.md) walks all six in a single page, and it's worth the few minutes, because every recipe below is one stage of that cascade filled in for a real feature. Each recipe links to the concept page that owns the *why*, right where it's relevant.
 
-The recipes are grouped by where they sit in the life of an app — **build it**, then **test it**, then, when something's off, **debug it**, and finally **ship it**. You don't read them in order; drop into the group that matches what's in front of you. Each recipe is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
+The recipes are grouped by where they sit in the life of an app — **build it**, then, when something's off, **debug it**, and finally **ship it**. (Testing has grown into [its own section](../testing/index.md) — handlers, subscriptions, views, and whole cascades, one page each.) You don't read the recipes in order; drop into the group that matches what's in front of you. Each is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
 
 ## Build it
 
@@ -20,19 +20,6 @@ This is where most of your time goes: turning a feature request into stages of t
 | load a feed one page at a time | [Paginate a feed](../../resources/how-to/paginate-a-feed.md) |
 | refetch the right server data after a write | [Invalidate after a mutation](../../resources/how-to/invalidate-after-a-mutation.md) |
 | catch bad state and malformed events early | [Validate with schemas](validate-with-schemas.md) |
-
-## Test it
-
-re-frame2's payoff at test time is that the interesting parts of your app are pure functions, so you test them *as* functions — no browser, no DOM, no mocking framework standing between you and the assertion. An [event handler](../glossary.md#event-handler) is a pure `(coeffects, event) → effect map`; you hand it a map and check the map it returns. The recipes climb one rung at a time: the smallest unit (a single handler), then the *whole cascade* — the new state, the effects, and any follow-up events that one dispatch sets off — then the view layer, as a tree walk over the hiccup a view returns.
-
-| I want to… | Recipe |
-|---|---|
-| unit-test an event handler as the pure function it is | [Test an event handler](test-an-event-handler.md) |
-| test a whole dispatch — state, effects, follow-ups | [Test a full cascade](test-a-cascade.md) |
-| assert a view's structure, text, and wiring — no browser | [Test a view](test-a-view.md) |
-| unit-test a subscription's computation | [Testing a subscription](../concepts/subscriptions.md#testing-a-subscription-without-a-browser) |
-
-Two neighbours complete the picture: a [machine](../../machines/glossary.md#machine)'s transition table tests as a pure function call too — that recipe lives with the machines material, in [Inspecting and testing machines](../../machines/inspecting-machines.md) — and setting up the runner itself (the `deps.edn` `:test` alias, and the `.cljc` discipline that lets your registration namespaces load on the JVM) is walked in [the tutorial's Part 5: test it, ship it](../../resources/tutorial/05-test-and-ship.md).
 
 ## Debug it
 

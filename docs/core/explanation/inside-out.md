@@ -79,7 +79,7 @@ Neither of those touches the DOM, a clock, the network, or a component. So neith
     (is (= 6 (handler {:counter/value 6} [:counter/value])))))
 ```
 
-That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../how-to/test-an-event-handler.md) walks the pattern in full; [the cascade](../concepts/events-and-the-cascade.md) shows the same two functions in their runtime habitat.
+That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../testing/event-handlers.md) walks the pattern in full; [the cascade](../concepts/events-and-the-cascade.md) shows the same two functions in their runtime habitat.
 
 ??? info "For JavaScript developers"
 
