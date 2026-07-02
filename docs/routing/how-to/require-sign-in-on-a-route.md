@@ -48,7 +48,7 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
     nil))
 ```
 
-`routing/match-url` is pure (it lives in `re-frame.routing`, not on the `rf/` facade) — it turns a URL string into a match map, or `nil` when nothing resolves, so a garbage URL short-circuits the guard rather than crashing it.
+`routing/match-url` is pure (it lives in `re-frame.routing`, not on the `rf/` facade — add `[re-frame.routing :as routing]` to your ns) — it turns a URL string into a match map, or `nil` when nothing resolves, so a garbage URL short-circuits the guard rather than crashing it.
 
 ## 3. Redirect with skip-and-dispatch
 
