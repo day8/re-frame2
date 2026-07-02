@@ -39,7 +39,7 @@ Here's the event that seeds it. An [event](../../core/glossary.md#event) in re-f
 
 A quick tour of the seven keys, because each earns its place. `:draft` is what's being typed right now. `:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — they can be client- or server-produced, and the [view](../../core/glossary.md#view) won't care which. `:_form` is reserved for complaints that no single field owns. `:submit-error` stays separate, because a transport failure has nothing field-shaped to render. And `:submitted` holds the last server-accepted draft — that's what we'll compare against to tell whether the form has unsaved changes (the `dirty?` sub, a section from now).
 
-This shape is the whole convention; it's specified in full at [Pattern-Forms](../../../spec/Pattern-Forms.md).
+This shape is the whole convention — [Build a form](../../core/how-to/build-a-form.md) carries it as a reusable recipe.
 
 Because the slice is just an [app-db](../../core/glossary.md#app-db) path, bind it to a [schema](../../core/glossary.md#schema) and the framework will check every write to it in dev — a typo that drops `:status` or writes a non-set into `:touched` fails loud at the boundary instead of surfacing three views later as a confusing render:
 
@@ -92,7 +92,7 @@ That's all login needs to capture input. The draft is just data in app-db; editi
 
 > **Coming from React Hook Form?** `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events you own outright. No hook to call in the right order, no ref to wire up — the draft is data, editing it is an event, and reading it back is a [subscription](../../core/glossary.md#subscription).
 
-The full seven-event convention adds `blur-field` (the per-field "you left this input" event, used for async checks) and a `reset` event — both spelled out in [Pattern-Forms](../../../spec/Pattern-Forms.md); [build a form](../../core/how-to/build-a-form.md) is the condensed recipe. Login doesn't need them yet.
+The full convention adds `blur-field` (the per-field "you left this input" event, used for async checks) and a `reset` event — both spelled out in [Build a form](../../core/how-to/build-a-form.md). Login doesn't need them yet.
 
 ### Two convenience subs
 
@@ -305,7 +305,7 @@ Now try it, then watch it. Type a bad email and click *Sign in*. Both errors app
 
 The register page is the same shape plus `:username` and a `:password-confirm` field (the cross-field `:_form` rule from earlier). It uses a `[:auth :register-form]` slice, the same events posting to `/users`, and the same subs. Write it as your first fill-in-the-blanks form, or crib the finished pair from [the example's `auth.cljs`](../../../examples/real-apps/realworld_http).
 
-> **The blur-field upgrade, when you need it.** Login validates on submit, which is plenty. The day you want "is this username taken?" the moment the user leaves the field, that's the convention's `blur-field` event — wire `:on-blur #(dispatch [:auth.register-form/blur-field :username])` on the input, have that event fire an async check (an fx per [Pattern-AsyncEffect](../../../spec/Pattern-AsyncEffect.md)), and write the result back into `:errors` under the same `:username` key. The `field-error` sub reads the merged map without caring whether a sync or async validator produced the entry — so the view doesn't change at all. Carry the current draft value on the dispatch and ignore stale replies, or a slow check for an old value can clobber a newer one.
+> **The blur-field upgrade, when you need it.** Login validates on submit, which is plenty. The day you want "is this username taken?" the moment the user leaves the field, that's the convention's `blur-field` event — wire `:on-blur #(dispatch [:auth.register-form/blur-field :username])` on the input, have that event fire an async check (a small fx in the shape of [Your own async effect](../../async/custom-effects.md)), and write the result back into `:errors` under the same `:username` key. The `field-error` sub reads the merged map without caring whether a sync or async validator produced the entry — so the view doesn't change at all. Carry the current draft value on the dispatch and ignore stale replies, or a slow check for an old value can clobber a newer one.
 
 ## The session: persist, restore, attach
 

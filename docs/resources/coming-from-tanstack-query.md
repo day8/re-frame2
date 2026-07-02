@@ -140,7 +140,7 @@ In re-frame2 the cache is a subsystem of [runtime-db](../core/glossary.md#runtim
 
 ## Where do auth headers go?
 
-Every example here hits a bare `/api/...` URL, which raises the obvious migrant question: where do auth headers, tracing headers, the base URL, and tenant headers live? **Not on the resource.** A resource's (or mutation's) `:request` fn describes the *domain* request only — method, url, params, body, `:decode`. Cross-cutting decoration belongs to the [managed-HTTP](../async/http.md) layer the resource lowers through, applied once by a frame-registered `reg-http-interceptor` that decorates *every* `:rf.http/managed` request the frame issues — reads, writes, and plain managed calls alike ([Spec 016 §Request decoration belongs to the managed-HTTP seam](../../spec/016-Resources.md#request-decoration-belongs-to-the-managed-http-seam-not-the-resource-declaration)):
+Every example here hits a bare `/api/...` URL, which raises the obvious migrant question: where do auth headers, tracing headers, the base URL, and tenant headers live? **Not on the resource.** A resource's (or mutation's) `:request` fn describes the *domain* request only — method, url, params, body, `:decode`. Cross-cutting decoration belongs to the [managed-HTTP](../async/http.md) layer the resource lowers through, applied once by a frame-registered `reg-http-interceptor` that decorates *every* `:rf.http/managed` request the frame issues — reads, writes, and plain managed calls alike ([Interceptors: stamp every request once](../async/http-going-further.md#interceptors-stamp-every-request-once) is that seam's own page):
 
 ```clojure
 (rf/reg-http-interceptor :realworld/auth
@@ -155,14 +155,7 @@ Two details earn their keep. The interceptor reads frame state through `(rf/app-
 
 ## When to reach for resources at all
 
-A query library is the obvious default in React because it's the *only* server-state machinery on offer. In re-frame2 it's one tool among several, and not always the right one:
-
-> **Simpler than a resource.** Two cases where reaching for the resources artefact is over-engineering:
->
-> - **A handful of reads, no caching story.** A [managed HTTP request](../async/http.md) plus a small app-db slice is less machinery and entirely idiomatic.
-> - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../machines/concepts.md), not a cached read.
-
-Reach for resources when cached server reads start multiplying and the per-read bookkeeping — scope, staleness, dedupe, invalidation, GC, SSR — is worth moving into the framework. [Where should this value live?](../core/where-state-lives.md) has the decision table, and resources are one of [the four homes](../core/glossary.md#the-four-homes-where-state-lives) state can take.
+A query library is the obvious default in React because it's the *only* server-state machinery on offer. In re-frame2 it's one tool among several: a handful of uncached reads want a plain [managed HTTP request](../async/http.md) and a small app-db slice, and login-style commands want a [machine](../machines/concepts.md) driving a write. Reach for resources when cached server reads start multiplying — [When resources are the wrong tool](concepts.md#when-resources-are-the-wrong-tool) is the blunt version, and [Where should this value live?](../core/where-state-lives.md) has the decision table.
 
 ## The full parity scorecard
 
@@ -199,13 +192,13 @@ The mapping above is the vocabulary; this is the exhaustive reference card, each
 | **Normalized / GraphQL cache** | normalizr (external) | partial | external | Apollo/Relay-class — not a resources concern; transport is HTTP-only this phase | **Out of scope** |
 | **Offline persistence / cross-tab** | persister plugins | n/a | external | not built; held for a later slice | **Deferred (later slice)** |
 
-Every "Landed" claim is grounded in [Spec 016 — Resources](../../spec/016-Resources.md) and the reference implementation under `implementation/resources/`.
+Every "Landed" claim is pinned by tests in the reference implementation.
 
-**The honest gaps — out of scope on purpose.** The bottom two rows are the deliberate non-goals of this HTTP-only phase: **normalized / GraphQL caches** (Apollo / Relay / normalizr) are a separate later artefact gated on a GraphQL phase, not a resources gap ([Spec 016 §What Spec 016 does NOT cover](../../spec/016-Resources.md#what-spec-016-does-not-cover)); and **offline persistence / cross-tab broadcast** is a deferred later slice. Don't let the rest of this page's confidence obscure them.
+**The honest gaps — out of scope on purpose.** The bottom two rows are the deliberate non-goals of this HTTP-only phase: **normalized / GraphQL caches** (Apollo / Relay / normalizr) are a separate later artefact gated on a GraphQL phase, not a resources gap; and **offline persistence / cross-tab broadcast** is a deferred later slice. Don't let the rest of this page's confidence obscure them.
 
 ## The public surface, at a glance
 
-re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in tells you what it does ([Spec 016 §Public API](../../spec/016-Resources.md#public-api)):
+re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in tells you what it does (the same split [Concepts](concepts.md#three-lanes--registering-causing-projecting) teaches on the way up):
 
 | Lane | What it is | The surface | Who calls it |
 |---|---|---|---|
@@ -225,6 +218,4 @@ Three command names earn a sentence each, because a query-library reader reaches
 
 ---
 
-The throughline: TanStack Query optimises for *getting a cached read onto the screen with one hook call*, and it's superb at that. re-frame2 optimises for *the cache being declared, inspectable data that can't leak and whose every fetch and invalidation is causally recorded* — and accepts a bit more ceremony at the call site to get there. If your app has two reads, that trade isn't worth it (the concepts page is blunt about this: reach for [managed HTTP](../async/http.md) plus a small app-db slice instead). When cached reads start multiplying — and especially when "whose data is this" and "what made this stale" start mattering — the structural version earns its keep.
-
-For the full model built up from a single read, see [Server state: resources](concepts.md). The glossary is at [Resources & Server State glossary](glossary.md).
+The throughline: TanStack Query optimises for *getting a cached read onto the screen with one hook call*, and it's superb at that. re-frame2 optimises for *the cache being declared, inspectable data that can't leak and whose every fetch and invalidation is causally recorded* — and accepts a bit more ceremony at the call site to get there. If your app has two reads, that trade isn't worth it. When cached reads start multiplying — and especially when "whose data is this" and "what made this stale" start mattering — the structural version earns its keep.
