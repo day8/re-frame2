@@ -43,7 +43,7 @@ Failures are classified into a closed, enumerable taxonomy under a single reserv
 | HTTP requests | `:rf.http/*` (eight categories: `:rf.http/transport`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode`, ...) | [014 §Failure taxonomy](014-HTTPRequests.md) |
 | State-machine actors | `:rf.machine/*` (`:rf.machine/invoke-failed`, `:rf.machine/snapshot-version-mismatch`, ...) | [005 §Error contract](005-StateMachines.md) |
 | SSR per-request | `:rf.ssr/*` (`:rf.ssr/hydration-mismatch`, `:rf.ssr/render-failed`, ...) | [011 §Error contract](011-SSR.md) |
-| Managed flows | `:rf.flow/*` per-flow trace operations (`:rf.flow/failed` on `:derive` throw, `:rf.flow/computed` / `:rf.flow/skip` on success); cascade-level `:rf.error/flow-eval-exception` at the router's outer catch; registration-time `:rf.error/flow-cycle` ex-info | [013 §Failure semantics](013-Flows.md#failure-semantics) |
+| Managed flows | `:rf.flow/*` per-flow trace operations (`:rf.flow/failed` on `:derive` throw, `:rf.flow/computed` / `:rf.flow/skip` on success); run-level `:rf.error/flow-eval-exception` at the router's outer catch; registration-time `:rf.error/flow-cycle` ex-info | [013 §Failure semantics](013-Flows.md#failure-semantics) |
 
 An app- or library-built surface follows the same convention. The [WebSocket pattern](Pattern-WebSocket.md), for instance, recommends classifying connection failures under an app-chosen `:rf.ws/*`-style namespace (`:rf.ws/transport`, `:rf.ws/auth`, `:rf.ws/stale-socket`, ...) — re-frame2 does not ship or reserve this namespace; it is the app/library's own.
 

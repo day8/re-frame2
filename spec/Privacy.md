@@ -467,7 +467,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
                                %)))}})
 ```
 
-**What every observation surface sees after the cascade settles:**
+**What every observation surface sees after the drain settles:**
 
 | Surface | Observation |
 |---|---|
@@ -513,7 +513,7 @@ Surfaces removed from this matrix. Listed here so readers don't search for them 
 | `redact-interceptor` (public positional interceptor) | Registration-owned `:sensitive` classifies event payload paths; centralized `project-egress` projects at egress. `re-frame.privacy/redact-interceptor` survives as internal router plumbing only (not façade-published). |
 | Schema-attached `:sensitive?` / `:large?` as the public **app-db** classification route | Schemas describe shape; durable app-db egress policy rides the four commit-plane effects. Per-slot props remain the *one* route for owner-local schema'd data (machine / resource / HTTP-body), not a second route for durable app-db. The schema→registry hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`) are removed. |
 | `inject-cofx` (public cofx-injection interceptor) | Coeffect dependencies are declared with `:rf.cofx/requires` registration metadata; `reg-cofx` is value-returning + graded. `inject-cofx` is removed (calling it is the hard error `:rf.error/inject-cofx-removed`). Named here because cofx values are a classification surface. |
-| Handler-meta `:sensitive?` registration flag | Use Spec 015 per-path declarations. A handler that is the unit of sensitivity (the rare "this whole cascade is sensitive" case) re-expresses by declaring the path-marks that the handler reads / writes. |
+| Handler-meta `:sensitive?` registration flag | Use Spec 015 per-path declarations. A handler that is the unit of sensitivity (the rare "this whole run is sensitive" case) re-expresses by declaring the path-marks that the handler reads / writes. |
 | `:rf.fx/sensitive-mode` configure key | Use per-call `{:sensitive? true}` on `:rf.http/managed` args. The name `set-trace-redaction-policy` is not in `re-frame.core`. |
 | `rf/safe-throw` framework helper | Author-level concern; per-app helpers fit the local convention better than a framework default. Worked-example shape lives in the docs/core. |
 
