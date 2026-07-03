@@ -192,6 +192,21 @@ left as accident.** Spelled out:
      client **navigation** surfaces use `:url` (per [012-Routing](012-Routing.md)).
      Different concepts, different words — not synonyms for one
      fact.
+   - **The async reply-target spelling is `:rf/reply-to` (never bare
+     `:reply-to`).** The one direct continuation-target key for a managed
+     async effect is `:rf/reply-to` — the routing `:rf.route/with-nav-token`
+     wrapper, and any framework-internal direct reply target, spell it that
+     way ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) §Reply
+     Target; [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)).
+     A bare `:reply-to` is **not** the framework spelling. Managed HTTP's
+     `:on-success` / `:on-failure` are the two-target **routing sugar** over
+     that one target — they do not reshape the reply (both receive the one
+     [canonical reply envelope](Managed-Effects.md#the-uniform-reply-envelope)
+     verbatim; the retired `{:kind :success/:failure}` HTTP dialect and its
+     compat-reply reshape were removed, rf2-ibksxg). The resources/mutations
+     call-site `:reply-to` ([Spec 016](016-Resources.md)) is EP-0016's
+     mutation-completion key and carries the same canonical reply map — a
+     distinct surface, not a second async-reply dialect.
 4. **One authoritative home per fact; mirrors are projections.** Denormalised
    copies — indexes, dual-homed owners, derived fields — are declared
    recomputable projections of the authoritative home, never co-equal sources,
