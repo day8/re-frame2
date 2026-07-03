@@ -483,6 +483,19 @@ The implementation seam is two-layered: an `:aborted?` cell on the in-flight han
 
 Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/*` namespace) plus category-specific tags. `:kind` is **framework-owned**; user payloads (from `:accept`) sit at `:detail`, never at `:kind`.
 
+### Self-identifying failure maps
+
+**Every** failure map — all eight categories — additionally carries a category-independent **request-identity echo**, so the failure names *which* request failed, not only *what kind* of failure it was. The `:kind` answers server-vs-network-vs-code; these four fields answer *which endpoint*, so production triage of "`:rf.http/timeout` spiking — which URL, first attempt or the fourth?" is answerable from the reply alone:
+
+| Field | Meaning |
+|---|---|
+| `:request` | `{:method <verb> :url <url>}` — an echo of the caller's own wire envelope. |
+| `:request-id` | The caller's `:request-id` when supplied (uniform across all categories, not just `:rf.http/aborted`). |
+| `:attempt` / `:max-attempts` | The retry accounting — which attempt this was and the configured ceiling. `:max-attempts` is present only when a `:retry` policy was configured. |
+| `:work/id` | `[:rf.work/http logical-id issuance attempt]` — the correlation join to the trace stream (the same `:work/id` the canonical reply envelope carries). |
+
+The framework already holds this identity at finalisation; it is stamped onto the failure map **once**, so the reply the app's error reporting is built from *and* the dev trace both carry it (the trace inherits it for free). The `:request :url` on the **in-app reply** rides verbatim — it is on-box data the caller supplied in the first place — while any **off-box egress** (the trace surface) redacts a `:sensitive?` request's `:url` to `:rf/redacted` exactly as the trace's flat `:url` slot already does. The field set is category-independent identity, distinct from each category's own tags below.
+
 | `:kind` | When | Tags |
 |---|---|---|
 | `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed — **also** a request-preparation failure (a throwing `:body` thunk or a body the encoder rejects; see [§Body encoding](#body-encoding)), which carries an extra `:stage :request-prep` tag | `:message`, `:cause`, (`:stage` on a prep failure) |
