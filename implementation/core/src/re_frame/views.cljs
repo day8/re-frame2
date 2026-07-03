@@ -191,13 +191,14 @@
 ;; the pre-split shape — no external caller reaches for it.
 (def ^:private frame-context provider/frame-context)
 
-;; rf2-25zo2: per-cascade cap on :rf.view/rendered emits. The Xray
-;; Reactive panel needs cascade-attribution per re-render, but a
+;; rf2-25zo2: per-run cap on :rf.view/rendered emits (per-event-run — the
+;; event-pipeline sense, rf2-p4cd9c). The Xray Reactive panel needs
+;; run-attribution per re-render, but a
 ;; full-page re-render can fire hundreds of view-render emits and blow
-;; the per-cascade buffer's heap budget. The cap matches the
-;; cascade-cause sub-cap (100); when crossed, the view-render emission
+;; the per-run buffer's heap budget. The cap matches the
+;; run-cause sub-cap (100); when crossed, the view-render emission
 ;; site fires a single :rf.view/rendered-cap-reached marker once per
-;; cascade and skips subsequent :rf.view/rendered emits (the existing
+;; run and skips subsequent :rf.view/rendered emits (the existing
 ;; :view/render emit is NOT capped — that op rides the per-view-render
 ;; cost we already pay).
 (def ^:private view-rendered-cap 100)
@@ -290,19 +291,19 @@
   [view-id render-key frame-id mount? deref-subs elapsed-ms render-args]
   (when interop/debug-enabled?
     (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
-      ;; rf2-25zo2: :rf.view/rendered carries cascade-attribution.
+      ;; rf2-25zo2: :rf.view/rendered carries run-attribution (event-run sense).
       ;; Resolved via the epoch capture's in-flight buffer; absent
       ;; (or returns nil) when re-frame.epoch is not on the classpath.
-      (let [cause-fn (late-bind/get-fn-cached :epoch/cascade-cause)
+      (let [cause-fn (late-bind/get-fn-cached :epoch/run-cause)
             cause    (when cause-fn (cause-fn frame-id))
             n-so-far (long (or (:rendered-so-far cause) 0))
             ;; rf2-8wrzz.1 — the per-view re-render cause: the first sub in
-            ;; THIS view's read-set whose value changed in the cascade.
+            ;; THIS view's read-set whose value changed in the run.
             ;; `deref-subs` are query-vectors `[query-id args]`;
             ;; `:value-changed-subs` is a set of query-ids — match on the
             ;; query-id (head of each deref'd query-vector). nil on a
             ;; structural re-render (no own sub changed) or outside a
-            ;; cascade (`:value-changed-subs` absent → nil set).
+            ;; run (`:value-changed-subs` absent → nil set).
             changed       (:value-changed-subs cause)
             triggered-by  (when (seq changed)
                             (some (fn [qv]

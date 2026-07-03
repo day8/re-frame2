@@ -456,20 +456,20 @@
         (is (= :rf2-j9phb/arg-target
                (get @captured-args :epoch/on-frame-destroyed))
             "epoch hook receives the destroyed frame id")
-        ;; rf2-9neiq / rf2-3aizt1: for this OUT-OF-CASCADE destroy, fs-before
-        ;; (the pre-cascade snapshot from frame/*cascade-frame-state-before*)
-        ;; is nil (no in-flight cascade), while fs-after is the live
+        ;; rf2-9neiq / rf2-3aizt1: for this OUT-OF-RUN destroy, fs-before
+        ;; (the pre-run snapshot from frame/*run-frame-state-before*)
+        ;; is nil (no in-flight run), while fs-after is the live
         ;; frame-state value read at destroy-time — the frame's initial empty
         ;; two-partition frame-state. EP-0001 (rf2-3aizt1, decision #2): the
         ;; destroy hook now threads the whole frame-state (both partitions),
         ;; not app-db alone.
         (is (= [nil {:rf.db/app {} :rf.db/runtime {}}]
                (get @captured-args :epoch/snapshot-args))
-            "epoch hook receives (fs-before fs-after): nil pre-cascade
-             (out-of-cascade destroy) + the destroy-time frame-state
+            "epoch hook receives (fs-before fs-after): nil pre-run
+             (out-of-run destroy) + the destroy-time frame-state
              {:rf.db/app {} :rf.db/runtime {}} (rf2-9neiq / rf2-3aizt1)")
-        ;; rf2-bh56rc: an out-of-cascade destroy has no in-flight causal
-        ;; token, so frame/*cascade-time-ms* is unbound (nil) and the hook's
+        ;; rf2-bh56rc: an out-of-run destroy has no in-flight causal
+        ;; token, so frame/*run-time-ms* is unbound (nil) and the hook's
         ;; committed-at arrives nil. (No :halted-destroy record is committed
         ;; on this path, so the value is moot — the assertion pins the arg
         ;; shape, not a committed timestamp.)

@@ -962,10 +962,10 @@
    ;; skip). Synthesises the halting event's `:halted-depth` record.
    :epoch/commit-halt-record! commit-halt-record!
    :epoch/capture-event       capture/capture-event!
-   ;; rf2-25zo2: in-flight cascade-cause lookup for :rf.view/rendered.
-   ;; Views consume this via `:epoch/cascade-cause` at render-emit time
+   ;; rf2-25zo2: in-flight run-cause lookup for :rf.view/rendered.
+   ;; Views consume this via `:epoch/run-cause` at render-emit time
    ;; to stamp :cause-event-id + :cause-subs onto the per-render trace.
-   :epoch/cascade-cause       capture/cascade-cause
+   :epoch/run-cause           capture/run-cause
    ;; rf2-qs6dl: post-settle render back-fill. `capture-event!` routes a
    ;; view-render op that fires with no in-flight cascade (a React-
    ;; commit-time async re-render) here so it is attributed to the

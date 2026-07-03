@@ -49,9 +49,9 @@
 ;; `re-frame.late-bind.directory/hooks` entries (the `:epoch/*` rows) —
 ;; the `re-frame.late-bind-drift-test` gate pins the two in sync, so this
 ;; comment intentionally does NOT maintain a parallel list that would
-;; silently drift. The hooks span: per-cascade lifecycle (router + trace
+;; silently drift. The hooks span: per-run lifecycle (router + trace
 ;; capture seam — `:epoch/settle!`, `:epoch/commit-halt-record!`,
-;; `:epoch/capture-event`, `:epoch/cascade-cause`, the post-settle
+;; `:epoch/capture-event`, `:epoch/run-cause`, the post-settle
 ;; back-fill family `:epoch/record-render!` / `record-sub-run!` /
 ;; `record-unmount!`, `:epoch/on-frame-destroyed`); introspection + the
 ;; Tool-Pair write surface (`:epoch/epoch-history`, `:epoch/restore-epoch!`,

@@ -35,7 +35,7 @@
   runnable record (app-db / queue / sub-cache), so an event stream runs against
   an image with no separate `reg-frame` pairing.
 
-  The in-core `re-frame.live-cascade-frame-resolution-cljs-test` carries the
+  The in-core `re-frame.live-run-frame-resolution-cljs-test` carries the
   narrow per-feature acceptance; THIS tier is the ADVERSARIAL umbrella, shaped so
   every assertion FAILS CLOSED:
 

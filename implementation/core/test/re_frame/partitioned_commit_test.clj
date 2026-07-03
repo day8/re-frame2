@@ -588,7 +588,7 @@
 ;;
 ;; Before the fix (`db-before` from `[:coeffects :db]`):
 ;;   rollback installs `{:n 0}` (the slice) as the whole app-db → `:keep` gone.
-;; After the fix (`db-before` from `frame/*cascade-frame-state-before*`'s app
+;; After the fix (`db-before` from `frame/*run-frame-state-before*`'s app
 ;; partition):
 ;;   rollback installs `{:keep :must-survive :slice {:n 0}}` (the full db).
 (deftest schema-rollback-restores-full-app-db-not-path-slice

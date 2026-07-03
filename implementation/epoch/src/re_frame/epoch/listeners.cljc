@@ -267,18 +267,18 @@
        destroy (the handler that called `destroy-frame!` was running
        inside the drain; its trace events were captured into the
        in-flight buffer). Notify epoch listeners with a partial
-       `:halted-destroy` record carrying the cascade's traces AND the
+       `:halted-destroy` record carrying the run's traces AND the
        real `:frame-state-before` / `:frame-state-after` snapshots threaded
        by `destroy-frame!` (rf2-9neiq / rf2-3aizt1): `fs-before` is the
-       pre-cascade snapshot (the whole frame-state — both partitions — the
-       frame held before the in-flight event's cascade began, from the
-       router-bound `frame/*cascade-frame-state-before*`); `fs-after` is the
+       pre-run snapshot (the whole frame-state — both partitions — the
+       frame held before the in-flight event's run began, from the
+       router-bound `frame/*run-frame-state-before*`); `fs-after` is the
        destroy-time state (the live frame-state value read at the top of
-       `destroy-frame!`, before teardown — the partial cascade's
+       `destroy-frame!`, before teardown — the partial run's
        already-committed writes survive in it). `build-record` derives the
        `:db-before` / `:db-after` app-db projections from them. This
        conforms the record to Spec-Schemas §`:rf/epoch-record` §Outcomes,
-       which documents `:halted-destroy` as carrying the pre-cascade
+       which documents `:halted-destroy` as carrying the pre-run
        snapshot as `:frame-state-before` and the destroy-time/partial state
        as `:frame-state-after`. The record is delivered
        to LISTENERS ONLY — it is NOT appended to the ring buffer, because
@@ -301,13 +301,13 @@
 
   `fs-before` / `fs-after` are the two frame-state snapshots `destroy-frame!`
   captured before the frame was removed (see `re-frame.frame/notify-epoch-
-  listeners!`). Both are nil for an out-of-cascade destroy (no in-flight
-  cascade → no `:halted-destroy` record committed at all). EP-0001
+  listeners!`). Both are nil for an out-of-run destroy (no in-flight
+  run → no `:halted-destroy` record committed at all). EP-0001
   (rf2-3aizt1, decision #2): the canonical snapshot unit is the whole
   frame-state; `build-record` derives the `:db-*` app-db projections.
 
   `committed-at` (rf2-bh56rc) is the destroying event's causal `:rf/time-ms`
-  (the router-bound `frame/*cascade-time-ms*`, threaded through
+  (the router-bound `frame/*run-time-ms*`, threaded through
   `destroy-frame!`), used for the `:halted-destroy` record's
   `:committed-at` so it is replayable per EP-0010 §Time rather than an
   ambient host-clock read at assembly time. nil outside a drain (no

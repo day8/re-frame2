@@ -290,12 +290,17 @@
           :else
           (state/buffer-event! frame-id event))))))
 
-;; ---- cascade-cause (for :rf.view/rendered attribution, rf2-25zo2) --------
+;; ---- run-cause (for :rf.view/rendered attribution, rf2-25zo2) --------
+;;
+;; SENSE (rf2-p4cd9c): event-pipeline-run — this attributes a render/sub to
+;; the EVENT RUN (one event's traversal) that drove it, keyed off the buffer's
+;; `:rf.event/run-start` marker. Renamed cascade-cause -> run-cause per the
+;; glw1bh event-pipeline vocabulary; NOT the reactive-graph sense.
 ;;
 ;; The Xray Reactive panel needs to attribute each view re-render to the
-;; cascade that drove it: which event kicked off this cascade, and which
+;; run that drove it: which event kicked off this run, and which
 ;; subs ran during it. The data is captured at trace-bus emission time
-;; (the in-flight cascade buffer is walked at view-render-emit time), NOT
+;; (the in-flight run buffer is walked at view-render-emit time), NOT
 ;; derived post-hoc on inspection — same dataset the rest of the epoch
 ;; record's projections share.
 ;;
@@ -304,24 +309,24 @@
 ;; :cause-subs <sub-ids vector>}`. The first `:event/run-start` we see
 ;; supplies `:cause-event-id`; every `:sub/run` contributes to
 ;; `:cause-subs` (deduped, preserving first-seen order). Empty buffer
-;; (render outside any cascade — e.g. fixture-driven direct invocations,
+;; (render outside any run — e.g. fixture-driven direct invocations,
 ;; or React's post-settle async batch) yields `{}` so consumers see the
 ;; slots simply absent.
 
-(defn cascade-cause
-  "Walk the frame's in-flight cascade buffer and return a small map
-  attributing the current render to the dispatching cascade. Used by
+(defn run-cause
+  "Walk the frame's in-flight run buffer and return a small map
+  attributing the current render to the dispatching run. Used by
   `:rf.view/rendered` emission (per [Spec 009 §`:rf.view/rendered`]
   (009-Instrumentation.md#rfviewrendered) and rf2-25zo2). One pass
   over the buffer; bounded `sub-cap` distinct sub-ids (default 100,
-  matching the per-cascade view-render cap).
+  matching the per-run view-render cap).
 
   Return-map slots:
 
     :cause-event-id — the event-id of the first :event/run-start seen
-                      in the cascade (i.e. the dispatching cascade's
+                      in the run (i.e. the dispatching run's
                       trigger event).
-    :cause-subs     — distinct sub-ids that ran in the cascade so far,
+    :cause-subs     — distinct sub-ids that ran in the run so far,
                       in first-seen order, capped at sub-cap.
     :value-changed-subs — the SUBSET of subs whose :sub/run reported
                       :rf.sub/value-changed? true (rf2-8wrzz.1). A `set`
@@ -336,21 +341,21 @@
                       per-view re-render cause). Empty when no sub changed
                       value (a structural re-render).
     :rendered-so-far — count of :rf.view/rendered already emitted into
-                      this cascade. Used by the views.cljs emit site to
-                      enforce the per-cascade view-render cap.
+                      this run. Used by the views.cljs emit site to
+                      enforce the per-run view-render cap.
 
-  Empty buffer (render outside any cascade — e.g. headless direct
+  Empty buffer (render outside any run — e.g. headless direct
   invocations, or React's post-settle async batch) yields a map with
   `:rendered-so-far 0` and the other slots omitted."
   ([frame-id]
-   (cascade-cause frame-id 100))
+   (run-cause frame-id 100))
   ([frame-id sub-cap]
    (when interop/debug-enabled?
      (let [events  (state/buffer-for frame-id)
            ;; Single reduce: capture first :event/run-start, accumulate
            ;; distinct sub-ids in first-seen order up to `sub-cap`, and
            ;; count the existing :rf.view/rendered emits so the views.cljs
-           ;; emit site can enforce the per-cascade view-render cap.
+           ;; emit site can enforce the per-run view-render cap.
            result  (reduce
                      (fn [acc ev]
                        (let [op   (:operation ev)
