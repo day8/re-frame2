@@ -1265,16 +1265,56 @@
   (is (zero? (count (.listFiles (clojure.java.io/file (.toString tmp)))))
       "the gate fired before any scaffold was emitted (tmp dir is empty)"))
 
-(deftest reserved-css-flag-rejected-test
-  (testing ":css :tailwind is reserved (gated on rf2-gthro) and fails
-            closed — it does NOT silently emit the default scaffold"
-    (let [tmp (tmp-dir "rf2-template-css-")]
+(deftest css-tailwind-emits-tailwind-scaffold-test
+  (testing ":css :tailwind (rf2-gthro closed; wiring rf2-nxqcov) swaps the
+            plain-CSS scaffold for the Tailwind v4 variant — the app.css
+            imports Tailwind, index.html loads the dev CDN compiler, and
+            both keep the Xray-host layout contract"
+    (let [tmp (tmp-dir "rf2-template-css-tailwind-")]
+      (try
+        (let [proj    (run-template-opts! tmp "acme/my-app"
+                                          {:css :tailwind})
+              app-css (slurp (io/file proj "resources/public/css/app.css"))
+              index   (slurp (io/file proj "resources/public/index.html"))]
+          ;; -- app.css is the Tailwind v4 entry (CSS-first: @import, no
+          ;;    tailwind.config.js) --
+          (is (re-find #"@import\s+\"tailwindcss\"" app-css)
+              "tailwind app.css imports tailwindcss (v4 CSS-first entry)")
+          (is (not (re-find #"no Tailwind" app-css))
+              "the plain-CSS preamble (\"no Tailwind\") is gone — the
+               Tailwind variant overwrote the default app.css")
+          ;; -- the Xray-host layout contract SURVIVES the swap (the
+          ;;    emission test's assert-xray-host-contract! also pins this;
+          ;;    a lightweight cross-check here keeps the tailwind path
+          ;;    honest in the shape suite too) --
+          (is (re-find #"flex:\s*0\s+0\s+var\(--rf-xray-inline-width,\s*560px\)"
+                       app-css)
+              "tailwind app.css keeps the resizable Xray-host flex-basis")
+          (is (re-find #"\.rf2-xray-host:empty\s*\{[^}]*display:\s*none" app-css)
+              "tailwind app.css keeps the :empty host collapse")
+          ;; -- index.html loads the dev CDN compiler + admits it in the CSP --
+          (is (re-find #"@tailwindcss/browser@4" index)
+              "tailwind index.html loads the @tailwindcss/browser@4 dev CDN")
+          (is (re-find #"script-src[^;]*cdn\.jsdelivr\.net" index)
+              "tailwind index.html CSP script-src admits the jsdelivr CDN")
+          ;; -- the RIGHT-side Xray host DOM order survives the swap --
+          (is (< (.indexOf index "id=\"app\"")
+                 (.indexOf index "data-rf-xray-host"))
+              "tailwind index.html keeps `<main id=\"app\">` before the
+               Xray host aside (right-side host contract)"))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest css-bad-value-rejected-test
+  (testing "a bogus :css value fails closed with :rf.error/template-bad-css-flag
+            rather than silently emitting the plain-CSS scaffold"
+    (let [tmp (tmp-dir "rf2-template-css-bad-")]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-unsupported-flag"
+                              #":rf\.error/template-bad-css-flag"
                               (run-template-opts! tmp "acme/my-app"
-                                                  {:css :tailwind}))
-            ":css :tailwind is rejected as an unsupported reserved flag")
+                                                  {:css :tailwnid}))
+            ":css :tailwnid (typo) is rejected as an invalid css value")
         (assert-no-scaffold-emitted! tmp)
         (finally
           (delete-recursively tmp))))))

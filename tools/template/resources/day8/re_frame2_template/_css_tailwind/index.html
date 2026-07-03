@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Development-flavoured Content Security Policy. This meta tag is
+         the dev fall-back when no server-side header is set; it is tuned
+         to the RUNTIME the scaffold actually produces, not an aspirational
+         strict baseline.
+
+         - `style-src 'self' 'unsafe-inline'` — the generated views use
+           inline `:style` props, the default-on Xray devtools surface
+           injects `<style>` blocks and inline styles, AND the
+           @tailwindcss/browser CDN compiler injects a runtime `<style>`
+           block of utilities. Without `'unsafe-inline'` the first page
+           would emit CSP violations and both Xray's styling and Tailwind's
+           utilities would be blocked. (To run with a strict
+           `style-src 'self'`, move to the `@tailwindcss/cli` compiled
+           build + external CSS / a nonce and drop Xray — see README
+           "Production hardening".)
+         - `script-src 'self' https://cdn.jsdelivr.net` — the dev Tailwind
+           compiler loads from the jsdelivr CDN. Production drops the CDN
+           for a compiled stylesheet, so `script-src 'self'` alone
+           suffices there (see README "Production hardening").
+         - `connect-src` admits the same origin plus ws:/wss: so
+           shadow-cljs's hot-reload websocket connects in dev (it can
+           route to a different port than the page, which 'self' alone
+           would block).
+         - NO `frame-ancestors` here: browsers IGNORE `frame-ancestors`
+           delivered via a `<meta>` tag — it only takes effect from a
+           response header. Putting it here would imply anti-clickjacking
+           protection the scaffold does not actually have. The
+           anti-clickjacking contract lives in the README's response-header
+           snippets ("Production hardening").
+
+         For production, serve a Content-Security-Policy RESPONSE HEADER
+         (see README "Production hardening"): drop `'unsafe-inline'` and
+         the jsdelivr origin once you've compiled Tailwind with
+         `@tailwindcss/cli` and externalised styles, drop `ws: wss:` (no
+         dev hot-reload), tighten `connect-src` to your real API
+         origin(s), and add `frame-ancestors 'none'` THERE (where it
+         works). -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
+    <title>{{name}} — re-frame2</title>
+    <!-- Tailwind v4, dev-only CDN compiler (@tailwindcss/browser@4,
+         Q6 lock / rf2-gthro). Compiles the utilities used on the page at
+         runtime — zero build step. Swap for a compiled stylesheet from
+         `@tailwindcss/cli` before shipping (README "Production
+         hardening"). -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="/css/app.css">
+  </head>
+  <body>
+    <div class="rf2-app-shell">
+      <main id="app"></main>
+      <aside class="rf2-xray-host" data-rf-xray-host></aside>
+    </div>
+    <script src="/js/main.js"></script>
+  </body>
+</html>

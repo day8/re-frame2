@@ -36,7 +36,8 @@
             [clojure.tools.reader :as tr]
             [clojure.tools.reader.reader-types :as rt]
             [day8.re-frame2-template.test-support
-             :refer [tmp-dir delete-recursively run-template! repo-root]]))
+             :refer [tmp-dir delete-recursively run-template!
+                     run-template-opts! repo-root]]))
 
 ;; --- Helpers ---------------------------------------------------------------
 ;;
@@ -943,5 +944,37 @@
           (doseq [rel ["src/acme/my_app/core.cljs"
                        "src/acme/my_app/stories.cljs"]]
             (audit-framework-surface! :reagent (io/file proj rel) root)))
+        (finally
+          (delete-recursively tmp))))))
+
+;; --- :css :tailwind --------------------------------------------------------
+;;
+;; The Tailwind overlay overwrites the plain-CSS `app.css` + `index.html`
+;; with the `_css_tailwind/` variants (rf2-nxqcov). The Xray-host layout
+;; contract MUST survive that swap: the emitted index.html/app.css still
+;; have to satisfy `assert-xray-host-contract!` (right-side host DOM order,
+;; resizable flex-basis, :empty collapse) and `assert-no-stale-xray-wording!`
+;; (no stale left-column prose). Reusing those audits on the tailwind tree
+;; keeps the Tailwind variant honest against the same runtime shape the
+;; plain path is pinned to, and additionally pins the Tailwind-specific
+;; markers (the @import entry + the dev CDN script).
+
+(deftest css-tailwind-emission-static-parse-test
+  (testing ":css :tailwind swaps in the Tailwind v4 app.css + index.html
+            while preserving the Xray-host layout contract"
+    (let [tmp (tmp-dir "rf2-emission-tailwind-")]
+      (try
+        (let [proj    (run-template-opts! tmp "acme/my-app"
+                                          {:css :tailwind})
+              app-css (slurp (io/file proj "resources/public/css/app.css"))
+              index   (slurp (io/file proj "resources/public/index.html"))]
+          ;; The layout-host contract survives the overlay.
+          (assert-xray-host-contract! :tailwind proj)
+          (assert-no-stale-xray-wording! :tailwind proj)
+          ;; Tailwind-specific markers.
+          (is (re-find #"@import\s+\"tailwindcss\"" app-css)
+              "tailwind app.css imports tailwindcss (v4 CSS-first entry)")
+          (is (re-find #"@tailwindcss/browser@4" index)
+              "tailwind index.html loads the @tailwindcss/browser@4 dev CDN"))
         (finally
           (delete-recursively tmp))))))

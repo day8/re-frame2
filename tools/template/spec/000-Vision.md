@@ -102,9 +102,11 @@ and recognises the shape. That continuity is deliberate.
   - `:include-story?` (rf2-t009p, shipped today) — emits a
     `counter_with_stories`-shaped story scaffold alongside the
     live app. Reagent-only in v1.
-  - `:css :tailwind` (rf2-gthro, deferred until gating bead
-    flips) — Tailwind v4 in place of the default plain-CSS
-    `app.css`.
+  - `:css :tailwind` (rf2-gthro verification; wiring rf2-nxqcov,
+    shipped) — Tailwind v4 in place of the default plain-CSS
+    `app.css`: a CSS-first `@import "tailwindcss";` stylesheet (no
+    `tailwind.config.js`) plus an `index.html` that loads the
+    `@tailwindcss/browser@4` dev CDN compiler. Substrate-invariant.
   - `:include-ssr?` (rf2-675qdb, shipped) — SSR scaffolding per
     Spec 011: a shared `core.cljc` (JVM render + CLJS hydration),
     a `server.clj` Ring host, and a headless `ssr_test.clj`.
