@@ -1212,13 +1212,13 @@ Tears down something with **identity and a creation moment** — a frame, an ada
 - `destroy-frame!`
 - `destroy-adapter!`
 
-### Renamed under this axis (one-cycle deprecation aliases)
+### Renamed under this axis (hard rename — no alias)
 
 The prior surface had `dispose-adapter!` for the adapter teardown. It collapses onto `destroy-` because adapter installation is a lifecycle boundary, symmetric with `destroy-frame!`:
 
 - `dispose-adapter!` → `destroy-adapter!` (lifecycle boundary)
 
-The old name ships as a deprecated alias pointing at the same Var for one deprecation cycle; tooling that introspects `:deprecated` metadata will flag it. Per the [Migration corpus M-53](../migration/from-re-frame-v1/README.md#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) for the v1→v2 mapping.
+Per the pre-alpha posture (no back-compat shims), the old `re-frame.core/dispose-adapter!` Var is **removed** — the rename is hard. There is no deprecated alias and no deprecation cycle; stale call sites raise an unresolved-symbol at compile time. Per the [Migration corpus M-53](../migration/from-re-frame-v1/README.md#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) for the v1→v2 mapping. (The adapter-spec map key `:dispose-adapter!` is an internal contract slot and is unchanged — only the public wrapper name moves.)
 
 ### Carve-out: `unsubscribe`
 
