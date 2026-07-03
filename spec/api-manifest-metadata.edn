@@ -807,6 +807,13 @@
   ;; stay on the façade (no classified owned-ns peer — the routing-ns forms
   ;; are CLJS-only and unrowed).
   ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"}
+  ;; rf2-aerrz5: the strategy-aware URL-change listener boot seam
+  ;; (`install-url-listener!` / `remove-url-listener!`) — wires popstate or
+  ;; hashchange per the URL owner's `:url-strategy`. `install-history-listener!`
+  ;; / `remove-history-listener!` are retained as aliases (history is the
+  ;; default strategy). Same tier/owner as the history-listener boot seams.
+  ["re-frame.core" "install-url-listener!"] {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.core" "remove-url-listener!"]  {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "install-history-listener!"] {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "remove-history-listener!"]  {:tier :advanced :owner "012" :status "v1"}
   ;; HTTP test-support façade surface (canonical home: re-frame.http.test-support).
@@ -1046,6 +1053,16 @@
   ["re-frame.routing" "route-ids"]              {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "route-meta"]             {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
+  ;; rf2-aerrz5: the two shipped frame-level `:url-strategy` maps —
+  ;; `history-url-strategy` (default, path-form) + `hash-url-strategy`
+  ;; (`#`-prefixed). Declared on the URL-owning frame's `reg-frame` config so
+  ;; the router skins its path-form model onto the browser's chosen address-bar
+  ;; form (Spec 012 §URL strategies). Routing-façade home (NOT re-frame.core) so
+  ;; a non-routing app's production bundle carries no strategy code — the
+  ;; routing bundle-isolation invariant. `:advanced` tier like the sibling
+  ;; frame-config / read surfaces.
+  ["re-frame.routing" "history-url-strategy"]   {:tier :advanced :owner "012" :status "v1"}
+  ["re-frame.routing" "hash-url-strategy"]      {:tier :advanced :owner "012" :status "v1"}
   ;; Named route-slice read sugar over the canonical `[:rf/route]`
   ;; subscription vector. Routing-façade home (NOT re-frame.core) so a
   ;; non-routing app carries no route keyword strings in its production
