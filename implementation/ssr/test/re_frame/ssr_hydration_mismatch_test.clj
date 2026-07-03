@@ -147,7 +147,9 @@
                verify-hydration!")
           (is (= :rf/hydrate (-> ev :tags :failing-id))
               ":tags :failing-id discriminator per Spec 011 v1
-               (body-mismatch; head-mismatch reserved post-v1)")
+               (body-mismatch; runtime head-mismatch reserved for the
+               still-deferred post-v1 head-only-hash extension —
+               reg-head itself has already shipped)")
           (is (= :warned-and-replaced (:recovery ev))
               ":recovery hoisted onto the envelope top-level
                (Spec 009 §Error event shape)"))))))

@@ -1079,7 +1079,8 @@
 ;; not v1-runtime-emitted) has it flow through to the trace. It proves the
 ;; seam + host attribution, NOT runtime head-detection. A dedicated
 ;; head-hash payload key + wire attribute that would let the runtime itself
-;; emit :rf.ssr/head-mismatch is reserved for the post-v1 reg-head extension.
+;; emit :rf.ssr/head-mismatch is reserved for the still-deferred post-v1
+;; head-only-hash extension (reg-head itself has already shipped).
 
 (deftest host-supplied-failing-id-surfaced-on-unified-channel
   (testing "a host-supplied :failing-id override flows through verify-hydration! to the trace on the unified render-hash channel"
