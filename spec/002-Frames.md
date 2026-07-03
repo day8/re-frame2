@@ -746,7 +746,7 @@ Use case: per-test fixture frames (per [008-Testing](008-Testing.md)).
 | `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | Network stubbed via the canonical Spec 014 redirect. **Time-based fxs are NOT stubbed** — stories animate in real time. Story-specific stubs (navigation no-op, etc.) are user-supplied; not shipped in the v1 closed set. |
 | `:drain-depth` | `16` | Tighter bound than the framework default (100). Stories are interactive demos; a runaway dispatch drain should fail fast under a story rather than spinning up to the production limit. |
 
-Use case: story / variant frames (per the post-v1 [007-Stories](007-Stories.md) library).
+Use case: story / variant frames (per the [007-Stories](007-Stories.md) library, shipped in `tools/story/`).
 
 #### `:ssr-server`
 
@@ -2448,23 +2448,11 @@ See [MIGRATION.md](../migration/from-re-frame-v1/README.md) for the migration ru
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Event-id collisions on re-registration", "Sub-cache invalidation across frames", "Concurrent React rendering", "Sub-cache disposal on frame destroy" classify as **`:still-blocking`** for design polish (file a bead to drive each decision); "Transducer-shaped event processing" classifies as **`:post-v1 tracked`** (already tracked at). The Frame-presets `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` per SA-4's migration rule.
-
-### Event-id collisions on re-registration
-
-Hot-reloading the same handler under the same id is normal and expected. But re-registering the same id with a *different* handler function — accidentally, e.g. two namespaces colliding — is silent last-write-wins. Should re-frame2 warn at registration time when an id is being re-registered with a function whose source coords don't match the previous registration? Probably yes, with a configurable threshold.
-
-### Sub-cache invalidation across frames
-
-If two frames depend on a shared piece of *registry* state (handler definitions), and a sub is hot-reloaded, both frames' caches need invalidation for any cached reactives derived from that sub. Mechanism: registry change fires a notification that frame sub-caches subscribe to. Detail-level design; flagged here so it is not forgotten.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Concurrent React rendering" classifies as **`:still-blocking`** for design polish (file a bead to drive the decision); "Transducer-shaped event processing" classifies as **`:post-v1 tracked`** (already tracked at). Three entries that previously lived here have been migrated to `## Resolved decisions` per SA-4's migration rule — "Event-id collisions on re-registration" (landed at [001 §Re-registration of a different function — collision warning](001-Registration.md#re-registration-of-a-different-function--collision-warning)), "Sub-cache invalidation across frames" (landed at [001 §The hot-reload contract](001-Registration.md#the-hot-reload-contract)), and "Sub-cache disposal on frame destroy" (landed at [006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal) + the `destroy-frame!` teardown-ownership decision below). The Frame-presets `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` by the same rule.
 
 ### Concurrent React rendering
 
 React 19's concurrent rendering can render the same component multiple times before committing. `reg-view`'s injected `dispatch` is a value, so it survives this fine. But any `dispatch` *executed during render* (Form-2's outer fn, render-time setup patterns) may run more than once. Confirm with the substrate (Reagent today; possibly UIx tomorrow) and document.
-
-### Sub-cache disposal on frame destroy
-
-When `destroy-frame!` runs, every cached reactive needs its `dispose!`-equivalent called. With Reagent reactions today, this is direct. With a future substrate-agnostic substrate, the disposal contract becomes part of the adapter API. Flagged so the adapter-layer design includes it.
 
 ### Transducer-shaped event processing (substrate-agnostic router)
 
@@ -2494,3 +2482,6 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Registered interceptors (EP-0022): event/frame `:interceptors` carry serializable interceptor **refs** (bare keyword or `[id arg]`), not inline values; `:interceptor-overrides` matches by exact canonical reference (replace with another ref, or `nil` to remove); effective ordering frame-refs → event-refs → handler-wrapper → subsystem dispatch-time interceptors; refs resolve at chain assembly (registration-time + app-value validation; dispatch-time defensive guard); one standard interceptor `[:rf.interceptor/path path-vector]` (the canonical `:factory` consumer) preserving the frame-commit `identical?` no-op; no standard `unwrap` | [§Registered interceptors and the chain grammar](#registered-interceptors-and-the-chain-grammar), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) |
 | `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR, epoch) hangs its frame-scoped cleanup off; each artefact publishes a teardown hook the core invokes during destroy | [§Destroy](#destroy), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |
 | Per-frame trace rings, event-keyed retention — each frame owns an independent ring sized by event count (`:rf.trace/events-retained`, default 50); trace events route to the in-flight frame; frameless events bypass rings and stream live only; hot-reload re-emits dedup by shape | [§What lives in a frame](#what-lives-in-a-frame), [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) |
+| Event-id collisions on re-registration — re-registering an id from a *different* source location does not silently clobber; a provenance-preserving registration source store (keyed by `[kind id provenance-namespace]`, EP-0023) retains both descriptors, cross-namespace duplicates fail image assembly, and the dev-time `:rf.warning/registration-collision` source-coord warning is the early signal (same-source re-eval is the ordinary hot-reload replacement) | [001 §Re-registration of a different function — collision warning](001-Registration.md#re-registration-of-a-different-function--collision-warning) |
+| Sub-cache invalidation across frames — re-registering a `:sub` disposes that sub's cache slot in **every** frame; the next subscribe rebuilds. Other kinds have no caches, so no invalidation is needed | [001 §The hot-reload contract](001-Registration.md#the-hot-reload-contract) |
+| Sub-cache disposal on frame destroy — `destroy-frame!` disposes every cached reactive via the single teardown-ownership path above; the disposal contract is the adapter API's synchronous ref-counting (`dispose` on ref-count → 0), not a frame-local ad-hoc walk | [§Destroy](#destroy), [006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal) |

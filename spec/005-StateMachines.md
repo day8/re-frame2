@@ -1,6 +1,6 @@
 # Spec 005 — State Machines
 
-> Status: Drafting. Post-v1 per [000 §Scope and roadmap](000-Vision.md#scope-and-roadmap). Builds on the foundation hooks in [002-Frames.md §State machines are just event handlers](002-Frames.md).
+> Status: Drafting. **Ergonomic library layered on the v1 foundation hooks — shipped and conformance-pinned.** The CLJS reference ships it as `implementation/machines/` (the capability matrix below is graded against the conformance corpus). Builds on the foundation hooks in [002-Frames.md §State machines are just event handlers](002-Frames.md); the foundation-vs-library split is per [000 §Scope and roadmap](000-Vision.md#scope-and-roadmap).
 >
 > **Why this Spec exists:** state machines and actors are in the pattern because **constrained execution models are easier to reason about than Turing-complete control flow.** A finite state machine has an enumerable state space and a discrete transition relation; an actor system bounds concurrency to message-passing across well-defined boundaries with run-to-completion semantics. This is disproportionately valuable for AI use — an AI can fully simulate a finite machine; it cannot fully simulate a free-form imperative program. The cost is some expressiveness; the benefit is an execution model that survives mechanical reasoning.
 >
@@ -3524,7 +3524,7 @@ The abort surfaces as a normal `:rf.http/aborted` failure on the request's reply
 
 A request is "in-flight inside actor `<spawned-id>`" if and only if its originating event vector's first element was `<spawned-id>`. The originating event vector flows to the `:rf.http/managed` fx through the standard fx 5-arity (`:event` on the fx ctx, per [Spec 002 §Routing the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope)), and the http fx records the (`request-id`, `actor-id`) tuple in its in-flight registry alongside the abort-handle.
 
-The actor-id is **the spawned actor's own machine address** (e.g., `:http/post#1`), not the parent's address. A request that the parent (`:auth/main`) issued directly is NOT in-flight inside any spawned actor — it is in-flight inside the parent's event-handler context, which has no spawn-registry slot. The parent's request is unaffected by any child-actor destroy. See [§Open question — direct dispatches from event handlers](#open-question--direct-dispatches-from-event-handlers).
+The actor-id is **the spawned actor's own machine address** (e.g., `:http/post#1`), not the parent's address. A request that the parent (`:auth/main`) issued directly is NOT in-flight inside any spawned actor — it is in-flight inside the parent's event-handler context, which has no spawn-registry slot. The parent's request is unaffected by any child-actor destroy. See [§Direct dispatches from event handlers — NOT covered](#direct-dispatches-from-event-handlers--not-covered).
 
 ### What about the request's own `:request-id`?
 
@@ -3532,9 +3532,9 @@ The `:request-id` (per [Spec 014 §Aborts](014-HTTPRequests.md#aborts)) is **ort
 
 If a request was issued without `:request-id` from inside a spawned actor, it is still tracked by actor-id and is still aborted on actor-destroy. The `:request-id` is for app-level addressability; actor-id tracking is for runtime cleanup.
 
-### Open question — direct dispatches from event handlers
+### Direct dispatches from event handlers — NOT covered
 
-Events dispatched directly from ordinary `reg-event` handlers — i.e. the originating event vector is for an event-id that is NOT a spawned actor's address — issue `:rf.http/managed` requests that are NOT subject to the actor-destroy cancellation cascade. There is no actor-id to correlate against.
+Events dispatched directly from ordinary `reg-event` handlers — i.e. the originating event vector is for an event-id that is NOT a spawned actor's address — issue `:rf.http/managed` requests that are NOT subject to the actor-destroy cancellation cascade. There is no actor-id to correlate against. This is a resolved scope decision, not an open question — the paragraphs below record why actor-lifetime is the right cancellation scope and what an app does when it wants HTTP tied to a state's lifetime (spawn a child machine). Mirrors [014 §Direct dispatches from event handlers — NOT covered](014-HTTPRequests.md#direct-dispatches-from-event-handlers--not-covered).
 
 Cancellation tied to actor lifetime is semantically the right scope: the child actor exists to run until the parent says "we no longer care"; the parent saying so kills the actor and the actor's outstanding work. An ordinary event handler has no analogous lifecycle peg — its work is launched as a side effect and outlives the handler that fired it; the only way to abort it is via an explicit `:rf.http/managed-abort` keyed on the user-supplied `:request-id`.
 
@@ -4312,7 +4312,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Spawn-and-join via `:spawn-all`** — first-class parallel-region state-machines: a state node declares N child actors and a join condition (a closed two-member enum: `:all` / `:any`), the runtime fires one of three parent events when the join resolves and unconditionally cancels surviving siblings | Prose: [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all); Schema: `:rf/state-node` extended for `:spawn-all` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-all-join-all-completes`, `spawn-all-join-any-fails-cancels` | ✓ claimed (specified) | Sugar over N parallel `:spawn`s plus a runtime-owned join-state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` (the direct map shape — `:children` / `:done` / `:failed` / `:resolved?` / `:spec` co-mingle at the root). Sibling cancellation on the join decision is unconditional (matches Dash8/rf8 boot-page-reload semantics). |
 | **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf.runtime/machines :system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in runtime-db so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). |
 | ~~**Wall-clock `:timeout-ms` on `:spawn` / `:spawn-all`**~~ | DROPPED in favour of state-level `:after`. See [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after). | n/a | The `:after` capability subsumes this; one canonical primitive, not two. The `:fsm/delayed-after` capability above covers wall-clock-on-state semantics for both pure timed-transition states and `:spawn`-bearing states. |
-| **SCXML / Stately / XState JSON interop** — bidirectional schema parity or paste-and-render compatibility | Out of v1 scope | ✗ not claimed | Deferred to v1.1+; tracked alongside (SCXML) as the v1.1+ interop family. |
+| **SCXML / Stately / XState JSON interop** — bidirectional schema parity or paste-and-render compatibility | SCXML: shipped tool-side; XState JSON / Stately: deferred | ◑ partial (tool-side) | The **SCXML** half shipped as a pure-data round-trip in the machines-viz tool (`day8.re-frame2-machines-viz.scxml` — `spec->scxml` / `scxml->spec`, exact round-trip over the supported topology subset, rf2-6urjd), not in the runtime `machines` artefact. The **XState-JSON** (`machine->xstate-json`) and **Stately Inspector wire-format** halves remain deferred to v1.1+; tracked alongside as the interop family. |
 
 ### How conformance is graded
 
@@ -4433,12 +4433,12 @@ Post-v1 work that is in scope conceptually but does not ship in v1.
 
 ### Diagram export from transition tables
 
-The transition table is data; rendering it as a diagram is straightforward. v1 ships no exporter; post-v1 candidates:
+The transition table is data; rendering it as a diagram is straightforward. The runtime `machines` artefact ships **no** exporter (diagram export is a tool-side code-gen concern, so the runtime stays pure-engine — Mike-ruled (b), rf2-sqhqu); a `(rf/machine->…)` runtime surface is intentionally not shipped. Status of the candidates:
 
-- `(rf/machine->mermaid definition)` — emit Mermaid `stateDiagram-v2`. Renders inline in GitHub markdown, VS Code preview, AI-agent prompts.
-- `(rf/machine->d2 definition)` — emit D2.
+- **Mermaid — shipped tool-side.** `day8.re-frame2-machines-viz.mermaid/emit` (in the machines-viz tool) emits a fenced Mermaid `stateDiagram-v2` block from a normalised machine definition, with the ergonomic `chart-as-mermaid` / `copy-mermaid-to-clipboard!` wrappers in `…machines-viz.export`. Lossy by design (`:after` rings + `:spawn-all` rows omitted; flagged inline). Renders inline in GitHub markdown, VS Code preview, AI-agent prompts. Apps that want Mermaid require the machines-viz jar; apps that don't pay nothing.
+- **D2 — not yet shipped.** A `machine->d2` emitter (parallel to the Mermaid lane) remains a post-v1 candidate.
 
-XState/Stately JSON export (`machine->xstate-json`) is part of the v1.1+ interop family, not a v1 deliverable; tracked alongside (SCXML).
+XState/Stately JSON export (`machine->xstate-json`) is part of the v1.1+ interop family, not a v1 deliverable; tracked alongside (SCXML — whose tool-side round-trip has shipped in machines-viz, per the capability matrix above).
 
 Mermaid/D2 are AI-fluent — LLMs read and write them confidently — which makes diagram export the cheapest way to extend AI-amenability of machine code.
 
@@ -4512,7 +4512,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 Richer scaffolding on top of the v1 foundation. None of the items below add a new substrate — each desugars into the v1 surface:
 
 - **Sugar in transition tables:** `:child-machine` declarative state-scoped child binding (desugars to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`). (Hierarchical state nodes, `:always`, `:after`, `:spawn`, parallel state nodes, **final states with `:on-done`**, and **history states** are all v1; see the v1 ship list above.)
-- **XState/Stately/SCXML interop (v1.1+):** `machine->xstate-json` converter, paste-and-render parity, Stately-Inspector wire-format mapping. Tracked alongside (SCXML) as the v1.1+ interop family.
-- **Visualisation tooling:** `machine->mermaid`, `machine->d2` exporters.
+- **XState/Stately JSON interop (v1.1+):** `machine->xstate-json` converter, paste-and-render parity, Stately-Inspector wire-format mapping — still deferred. (The **SCXML** half of this family has already shipped tool-side as a pure-data round-trip in machines-viz, per the capability matrix above.)
+- **Visualisation tooling:** the **Mermaid** exporter has shipped tool-side (`machines-viz.mermaid/emit`, rf2-sqhqu); a `machine->d2` exporter remains a post-v1 candidate.
 - **Model-based testing harness:** `@xstate/test`-style graph traversal over the transition table.
 - **Recurring timers, wall-clock delays, pause/resume on `:after`** — explicitly out of scope for v1; see [§What `:after` does *not* include](#what-after-does-not-include).
