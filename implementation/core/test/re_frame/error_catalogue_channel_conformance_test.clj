@@ -320,11 +320,11 @@
   §Error event catalogue marks it diagnostic-channel — it is not delivered
   to the always-on error-emit listener, but it is an emitted `:rf.error/*`
   the catalogue must carry). Even the PRODUCTION-REACHABLE dispatch-boundary
-  throws (`:rf.error/invalid-cofx`, `:rf.error/dispatched-at-retired` — NOT
-  gated on `interop/debug-enabled?`, so they fire in `:advanced` production)
-  are diagnostic-channel: they are pure `throw-error!`s that do NOT fan out
-  on the error-emit listener, so they ride the diagnostic channel for
-  catalogue purposes (the catalogue's thrown-ex-info-is-diagnostic rule).
+  throw `:rf.error/invalid-cofx` (NOT gated on `interop/debug-enabled?`, so it
+  fires in `:advanced` production) is diagnostic-channel: it is a pure
+  `throw-error!` that does NOT fan out on the error-emit listener, so it rides
+  the diagnostic channel for catalogue purposes (the catalogue's
+  thrown-ex-info-is-diagnostic rule).
 
   Same CONSERVATIVE limitation as the emit scan: a category THROWN only via
   a VARIABLE first arg (the shared per-surface throwers that take the
@@ -427,12 +427,11 @@
   rf2-scuobk PR CATALOGUED the genuinely-emitted-but-uncatalogued throw
   categories the widened scan found (the core registration / dispatch-boundary
   throws, the flows / http / machines / resources / routing / ssr feature
-  throws — each a DIAGNOSTIC catalogue row, including the two
-  production-reachable dispatch-boundary throws `:rf.error/invalid-cofx` /
-  `:rf.error/dispatched-at-retired`: they fire in production but are pure
-  `throw-error!`s that never reach the error-emit listener, so they ride the
-  diagnostic channel for catalogue purposes). The allow-list below holds ONLY
-  the residue that must NOT become a catalogue row.
+  throws — each a DIAGNOSTIC catalogue row, including the production-reachable
+  dispatch-boundary throw `:rf.error/invalid-cofx`: it fires in production but
+  is a pure `throw-error!` that never reaches the error-emit listener, so it
+  rides the diagnostic channel for catalogue purposes). The allow-list below
+  holds ONLY the residue that must NOT become a catalogue row.
 
   GENUINELY-INTERNAL-INVARIANT (NOT caller-fixable, NOT a public contract — no
   catalogue row by design):

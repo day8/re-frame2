@@ -211,18 +211,6 @@
         ;; referenced syntactically.
         call-site          (when interop/debug-enabled?
                              (:rf.trace/call-site opts))
-        ;; EP-0010 disposition 5: the RETIRED `:dispatched-at`
-        ;; dispatch opt gets the STANDARD RETIREMENT TREATMENT — a HARD
-        ;; ERROR naming the replacement, NOT the generic warn-on-unknown-opt
-        ;; below. Checked FIRST — BEFORE the cofx clock stamp below —
-        ;; so a caller still passing `:dispatched-at` fails fast with the
-        ;; specific, actionable retirement error (naming
-        ;; `(:rf/time-ms (:rf.cofx envelope))`) WITHOUT first triggering
-        ;; the `epoch-now-ms` clock read / map allocation for a dispatch that
-        ;; cannot proceed. Always-on (not dev-gated): a retirement hard error
-        ;; is a correctness contract that must fire in production too — see
-        ;; `reject-retired-dispatch-opts!`.
-        _                  (diag/reject-retired-dispatch-opts! opts event)
         ;; EP-0010: VALIDATE a caller-supplied
         ;; `:rf.cofx` at the PUBLIC dispatch boundary BEFORE the clock
         ;; stamp below — a supplied value must be nil-or-map and a supplied
@@ -232,16 +220,20 @@
         ;; record's `:committed-at`, resource `:settled-at`) and breaks the
         ;; deterministic fold / replay. Always-on (a corrupt durable token is a
         ;; production correctness contract); fails fast WITHOUT reading the
-        ;; clock for a dispatch that cannot proceed — same fail-before-clock-
-        ;; read ordering as the retirement check above. See
-        ;; `diag/validate-cofx!`.
+        ;; clock for a dispatch that cannot proceed. The RETIRED DRAFT opts
+        ;; `:rf.world/inputs` / `:dispatched-at` earn no dedicated retired-name
+        ;; error (they only ever lived in the spec's drafts — the
+        ;; shipped-names-only tombstone rule, Conventions §The tombstone rule);
+        ;; they fall through to the generic unknown-dispatch-opt warning below,
+        ;; which appends a did-you-mean naming the canonical replacement. See
+        ;; `diag/validate-cofx!` and `diag/retired-draft-opt-hints`.
         _                  (diag/validate-cofx! opts event)
         ;; EP-0017 §Dispatch Envelope Stamping: the
         ;; CAUSAL BOUNDARY — ensure `:rf.cofx` carries `:rf/time-ms`, the one
         ;; host-clock read durable writes fold. `ensure-cofx` owns the
         ;; preserve-supplied / fill-missing-`:rf/time-ms` shape contract (see the
-        ;; section comment on the helper above). Stamped AFTER the retirement +
-        ;; validation checks so an invalid dispatch never reads the clock.
+        ;; section comment on the helper above). Stamped AFTER the cofx
+        ;; validation check so an invalid dispatch never reads the clock.
         cofx               (ensure-cofx (:rf.cofx opts))
         ;; Surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing

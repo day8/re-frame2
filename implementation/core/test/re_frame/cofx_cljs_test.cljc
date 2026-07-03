@@ -10,8 +10,8 @@
   (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
   `clojure -M:test` runner both discover it. The whole adversarial spine —
   declared-only NON-delivery, missing-required throw, the typo-vs-absent
-  error SPLIT, inject-cofx-removed, world-inputs-renamed, the
-  registration-error / collision cases — was previously a `.clj`
+  error SPLIT, inject-cofx-removed, the retired-draft `:rf.world/inputs`
+  did-you-mean, the registration-error / collision cases — was previously a `.clj`
   (`re-frame.cofx-test`), invisible to `:node-test` (shadow compiles only
   `.cljc/.cljs`). That left `re-frame.cofx`'s CLJS reader-conditional arms
   behaviorally UNEXERCISED: the supplier-exception message read
@@ -700,20 +700,33 @@
                ex-data :rf.error/id)))))
 
 ;; ===========================================================================
-;; 8. :rf.world/inputs dispatch opt is renamed (hard error)
+;; 8. :rf.world/inputs dispatch opt is a retired DRAFT name — generic surface
 ;; ===========================================================================
 
-(deftest world-inputs-dispatch-opt-renamed
-  (testing "supplying the retired `:rf.world/inputs` dispatch opt is the hard
-            error `:rf.error/world-inputs-renamed` naming `:rf.cofx` (EP-0017 §3)"
-    (rf/reg-event :cofx-test/wi-renamed (fn [_ _] {}))
-    (let [ex (try (rf/dispatch-sync [:cofx-test/wi-renamed]
-                                    {:rf.world/inputs {:rf/time-ms 1}})
-                  nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "the dispatch threw")
-      (is (= :rf.error/world-inputs-renamed (:rf.error/id (ex-data ex))))
-      (is (= :rf.cofx (:replacement (ex-data ex)))
-          "the error names :rf.cofx as the replacement"))))
+(deftest world-inputs-dispatch-opt-is-generic-unknown-opt-with-did-you-mean
+  (testing "supplying the retired `:rf.world/inputs` dispatch opt earns NO
+            dedicated error id (it only ever lived in the spec's drafts — the
+            shipped-names-only tombstone rule, Conventions §The tombstone rule);
+            it rides the generic `:rf.warning/unknown-dispatch-opt` surface,
+            the dispatch PROCEEDS (no throw), and the warning message carries a
+            did-you-mean naming `:rf.cofx`"
+    (rf/reg-event :cofx-test/wi-renamed (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
+    (let [traces (collect-traces! ::wi)]
+      ;; The dispatch does NOT throw — the retired draft key is an unrecognised
+      ;; opt, not a dedicated hard error.
+      (rf/dispatch-sync [:cofx-test/wi-renamed] {:rf.world/inputs {:rf/time-ms 1}})
+      (rf/unregister-listener! :trace ::wi)
+      (let [warns (filterv (fn [ev]
+                             (and (= :warning (:op-type ev))
+                                  (= :rf.warning/unknown-dispatch-opt (:operation ev))))
+                           @traces)]
+        (is (= 1 (count warns))
+            "the retired draft key trips the generic unknown-dispatch-opt warning")
+        (let [t (:tags (first warns))]
+          (is (contains? (set (:unknown-keys t)) :rf.world/inputs)
+              "the retired key is named as an unknown opt")
+          (is (re-find #":rf\.cofx" (:reason t))
+              "the warning message appends a did-you-mean naming :rf.cofx"))))))
 
 ;; ===========================================================================
 ;; 9. :platforms gating on ambient suppliers (preserved from the prior model)
