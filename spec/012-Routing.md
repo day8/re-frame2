@@ -92,7 +92,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route/registered` — first-time `reg-route`. Re-registration rides the cross-kind `:rf.registry/handler-replaced` trace; not re-emitted here. Mirrors the `:rf.flow/registered` symmetry.
 - `:rf.route/cleared` — explicit `clear-route`. Mirrors the `:rf.flow/cleared` symmetry.
 - `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Both carry `:tags {:route-id <id> :frame <navigating-frame>}`.
-- `:rf.route.nav-token/allocated` — fresh nav-token cascade begins. Carries `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}`.
+- `:rf.route.nav-token/allocated` — a fresh navigation drain begins with a new nav-token. Carries `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}`.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
 - `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime URL-change events `:rf.route/transitioned` / `:rf.route/handle-url-change`, which carry a full route transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from those runtime events.
 - `:rf.route/navigation-blocked` — `:can-leave` (leave) guard rejected a navigation. Carries `:tags :phase :can-leave :direction :leave`.
@@ -108,7 +108,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
 
-**Frame attribution.** Every routing trace emitted from inside a known navigation cascade carries `:tags :frame` — the in-flight cascade's frame, validated at the handler boundary by `frame/require-frame-stamp!` and threaded to the emit site. This is load-bearing, not cosmetic: `re-frame.epoch.capture` admits ONLY frame-tagged traces into a cascade's `:trace-events` (an untagged trace silently drops from epoch history / Xray), and the frame-level trace-disable gate (a `:rf.trace/frame-no-emit?` tool frame) keys suppression off `:tags :frame` (an untagged trace leaks into the very ring the inspector reads). The frame-known emit sites are the lifecycle / nav-token traces (`:rf.route/activated`, `:rf.route/deactivated`, `:rf.route.nav-token/allocated`), the leave-guard / blockage diagnostics (`:rf.error/can-leave-non-boolean`, `:rf.warning/can-leave-subs-artefact-missing`, `:rf.route/navigation-blocked`), and the external-URL diagnostic (`:rf.route/external-url-requested`, on both the `:rf/url-requested` and programmatic `:rf.route/navigate {:url …}` paths). The route-miss / malformed-URL diagnostics already carried `:frame`.
+**Frame attribution.** Every routing trace emitted from inside a known navigation drain carries `:tags :frame` — the in-flight drain's frame, validated at the handler boundary by `frame/require-frame-stamp!` and threaded to the emit site. This is load-bearing, not cosmetic: `re-frame.epoch.capture` admits ONLY frame-tagged traces into a run's `:trace-events` (an untagged trace silently drops from epoch history / Xray), and the frame-level trace-disable gate (a `:rf.trace/frame-no-emit?` tool frame) keys suppression off `:tags :frame` (an untagged trace leaks into the very ring the inspector reads). The frame-known emit sites are the lifecycle / nav-token traces (`:rf.route/activated`, `:rf.route/deactivated`, `:rf.route.nav-token/allocated`), the leave-guard / blockage diagnostics (`:rf.error/can-leave-non-boolean`, `:rf.warning/can-leave-subs-artefact-missing`, `:rf.route/navigation-blocked`), and the external-URL diagnostic (`:rf.route/external-url-requested`, on both the `:rf/url-requested` and programmatic `:rf.route/navigate {:url …}` paths). The route-miss / malformed-URL diagnostics already carried `:frame`.
 
 ## Pattern-level contract
 
@@ -691,7 +691,7 @@ The event-boundary validation for `:rf.route/navigate` is a re-use of the standa
 
 The three validation paths surface failures through **three different error/no-error shapes**. The table below names what an observer sees on each path so tools and handlers branch on the right surface.
 
-| Path | Error id | Trace `:operation` | Cascade-level error fired? | Slice discriminator |
+| Path | Error id | Trace `:operation` | Drain-level error fired? | Slice discriminator |
 |---|---|---|---|---|
 | Programmatic — `(route-url ...)` | `:rf.error/route-url-validation` | none (synchronous throw) | thrown directly via `ex-info`; not on the trace bus | n/a (the call throws; no slice write) |
 | Programmatic — `[:rf.route/navigate ...]` | `:rf.error/schema-validation-failure` (with `:where :event`) | `:rf.error/schema-validation-failure` per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) | yes — rides the always-on error-emit substrate ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)) | n/a (navigation rejected; slice unchanged) |
@@ -785,7 +785,7 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
 
 ### Failure semantics — later `:on-match` events and first-error-wins
 
-A route's `:on-match` is a vector of events dispatched **in order** inside one navigation cascade. The cascade runs inside re-frame2's locked FIFO run-to-completion drain (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)), which does **not** cancel events already queued. Two failure-semantics rules follow, and are part of the contract:
+A route's `:on-match` is a vector of events dispatched **in order** inside one navigation drain. The drain is re-frame2's locked FIFO run-to-completion drain (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)), which does **not** cancel events already queued. Two failure-semantics rules follow, and are part of the contract:
 
 1. **Later `:on-match` events still run after an earlier one fails (continuation).** For `:on-match [[:load/a] [:load/b]]` where `:load/a`'s handler throws, `:load/b` **still runs** — the runtime does not abort the remaining loaders. The error is observed by the always-on `:on-match` trap (see [§`:on-match` exception attribution](#on-match-exception-attribution)), which dispatches its `:transition :error` flip to the **back** of the drain queue; the already-queued `:load/b` runs ahead of it. This continuation is the deliberate consequence of the locked FIFO drain: cancelling already-queued events would require a generic front-of-queue / cancellation primitive that re-frame2 does not expose, and a route loader is an ordinary event whose own side effects (its `:db` write, its `:fx`) are governed by run-to-completion like any other. Loaders that must short-circuit on a sibling's failure read `:rf.route/transition` (or the `:rf.route/error` sub) and self-guard — the same idiom the framework's own `settle-transition` uses.
 
@@ -800,7 +800,7 @@ The error map written to `:rf.route/error` carries two routing-domain attributio
 | Slot | Value | Purpose |
 |---|---|---|
 | `:rf.route/on-match-id` | the failing event-id | Identifies the `:on-match` event vector whose handler threw. |
-| `:rf.route/on-match-frame` | the dispatching frame-id | Identifies the frame whose `:on-match` cascade was mid-drain. |
+| `:rf.route/on-match-frame` | the dispatching frame-id | Identifies the frame whose `:on-match` drain was in flight. |
 
 These slots ride on the structured error so downstream consumers — Xray's event lens, an off-box Sentry/Honeybadger shipper, the SSR error projection per [011](011-SSR.md), an `:on-error` handler — can identify the throw as `:on-match`-attributed **without** re-running the corpus-wide error-emit (the `:errors` stream of `register-listener!`) discrimination logic that the runtime uses to wire the trap. Mirrors the flow-attribution slots `:rf.flow/failed-id` / `:rf.flow/failed-frame` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and). Tools that read `:rf.error/handler-exception` outside the routing listener's discrimination context get the same attribution the trap itself uses.
 
@@ -809,7 +809,7 @@ These slots ride on the structured error so downstream consumers — Xray's even
 Two edges are part of the contract:
 
 - **Wire-elision fallback.** When [009 §size-elision](009-Instrumentation.md) replaces a large `:event` with the sentinel `:rf.size/large-elided`, the full vector is unavailable. The discriminator then falls back to coarse event-**id** membership — a wider window that can mis-attribute a coincidental same-id throw, which preserves the `:on-error` chain for a genuine large-payload loader throw.
-- **Residual identical-vector coincidence (accepted limitation).** A *different* cascade dispatching the byte-for-byte **identical** `:on-match` vector during the loading window remains indistinguishable from the genuine `:on-match` throw on the always-on substrate: the error record carries no cause/cascade correlation, and the epoch cause-event-id surface that would disambiguate it is dev-only and elides in production. This is an accepted limitation, not a bug — the on-match-attribution code's docstring points here for the normative statement.
+- **Residual identical-vector coincidence (accepted limitation).** A *different* drain dispatching the byte-for-byte **identical** `:on-match` vector during the loading window remains indistinguishable from the genuine `:on-match` throw on the always-on substrate: the error record carries no cause/run correlation, and the epoch cause-event-id surface that would disambiguate it is dev-only and elides in production. This is an accepted limitation, not a bug — the on-match-attribution code's docstring points here for the normative statement.
 
 ## Navigation tokens — stale-result suppression
 
@@ -817,7 +817,7 @@ When a route is loading and the user navigates away before the load completes, t
 
 ### Mechanism
 
-1. **Allocation.** When a navigation cascade commits the slice — the programmatic `:rf.route/navigate` handler (which writes the slice inline; see [§Navigation is an event](#navigation-is-an-event)), or a URL-change handler `:rf.route/transitioned` (forward nav driven by a `route-link` click via `:rf/url-requested`) or `:rf.route/handle-url-change` (popstate / initial / SSR) — it allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
+1. **Allocation.** When a navigation drain commits the slice — the programmatic `:rf.route/navigate` handler (which writes the slice inline; see [§Navigation is an event](#navigation-is-an-event)), or a URL-change handler `:rf.route/transitioned` (forward nav driven by a `route-link` click via `:rf/url-requested`) or `:rf.route/handle-url-change` (popstate / initial / SSR) — it allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
 
    > **The allocation counter is monotone and unbounded.** A nav-token need only be *unique within the lifetime of any in-flight async continuation*; equality against the current slice token is the only operation performed on it (step 4). A per-frame monotonic counter satisfies uniqueness without ever needing to wrap or reset. It does NOT carry the bounded-structure treatment applied to other *retained* collections (the host-side scroll-position LRU cache, the route-registry decoded-key cap): those bound collections that would otherwise accumulate entries, whereas the counter is a single scalar that retains nothing — it is GC'd whole when the frame is destroyed. Practical overflow is a non-concern: on CLJS the counter is an IEEE-754 double (exact integers to 2^53, far beyond any real navigation count); on the JVM it is a `long` that would overflow only after 2^63 navigations. No id collision is possible because each token is a fresh string. Implementations MUST NOT wrap or recycle the counter — doing so would risk colliding a freshly-allocated token with one still carried by a slow in-flight continuation, silently re-validating a stale result.
 
@@ -885,7 +885,7 @@ Suppression alone fixes the user-visible bug — the older load *does* complete 
 
 Two trace events surround the nav-token lifecycle (added to the trace-op vocabulary per [Spec-Schemas.md](Spec-Schemas.md#rftrace-event)):
 
-- **`:rf.route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token. `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}` (the `:frame` — see the frame-attribution note under [§Trace events](#trace-events)).
+- **`:rf.route.nav-token/allocated`** — emitted when a navigation drain allocates a fresh token. `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}` (the `:frame` — see the frame-attribution note under [§Trace events](#trace-events)).
 - **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :rf.trace/event-id <id> :work/id <route-work-id>}`. The handler does NOT run. The `:work/id` tag is the route-loader work-id `[:rf.work/route route-id nav-token loader-id]`, joining the suppression to the superseded attempt's identity (see [§Lowering onto the uniform reply envelope](#lowering-onto-the-uniform-reply-envelope) below).
 
 Naming follows the `<feature>/<reason>` convention used by `:rf.machine.timer/stale-after`. See [Pattern-StaleDetection.md](Pattern-StaleDetection.md) for the cross-cutting pattern.
@@ -1494,7 +1494,7 @@ The story / devcard / SSR cases all benefit:
 
 ## URL strategies
 
-The router is **path-form** on the write side: `route-url` builds `/active`, `match-url` reads `/active`, and the whole navigation cascade threads path-form URLs. But the browser's address bar can carry a **different shape** — `#/active` for a hash-URL app (no-server-rewrite static hosting; the shape most secretary-era re-frame v1 apps actually are). A **`:url-strategy`** is the thin skin between the two: a frame-level config map consulted at exactly **four** egress/ingress points, so the router's path-form model is unchanged and only the browser-facing shape differs.
+The router is **path-form** on the write side: `route-url` builds `/active`, `match-url` reads `/active`, and the whole navigation drain threads path-form URLs. But the browser's address bar can carry a **different shape** — `#/active` for a hash-URL app (no-server-rewrite static hosting; the shape most secretary-era re-frame v1 apps actually are). A **`:url-strategy`** is the thin skin between the two: a frame-level config map consulted at exactly **four** egress/ingress points, so the router's path-form model is unchanged and only the browser-facing shape differs.
 
 A frame declares its strategy alongside `:url-bound?`:
 
@@ -1524,7 +1524,7 @@ A strategy is a map with five keys:
 
 ### The four consult points
 
-The strategy is consulted **only** here; everything else — `route-url`, `match-url`, the navigation cascade, the route slice — is path-form throughout:
+The strategy is consulted **only** here; everything else — `route-url`, `match-url`, the navigation drain, the route slice — is path-form throughout:
 
 1. **`:rf.nav/push-url`** — encodes the path-form URL and drives `window.history` via the owner's `:push!`.
 2. **`:rf.nav/replace-url`** — same, via the owner's `:replace!`.
@@ -1579,7 +1579,7 @@ Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed th
 
 ### URL-state-as-source-of-truth (post-v1)
 
-Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is **state-canonical** (the runtime-db route slice), URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, state derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
+Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is **state-canonical** (the runtime-db route slice), URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, state derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation drain ordering. Deferred; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
 
 ### Declarative redirect rules in route metadata (post-v1)
 
@@ -1621,9 +1621,9 @@ Per [§Scroll restoration](#scroll-restoration) the canonical scroll-strategy co
 
 Per [§Route-not-found — `:rf.route/not-found` (canonical)](#route-not-found--rfroutenot-found-canonical) the framework names exactly one reserved route id for unmatched URLs. Earlier sketches considered per-host customisation of the reserved id; the single-id rule was chosen because tools, conformance fixtures, and the `:rf.warning/no-not-found-route` trace event all depend on it. Apps that want per-error-kind visual treatment branch inside the `:rf.route/not-found` view on `:reason`.
 
-### Run-to-completion enforced for navigation cascades
+### Run-to-completion enforced for navigation drains
 
-Per [§Pattern-level contract](#pattern-level-contract) the `:rf.route/navigate` cascade — state update, URL push, `:on-match` dispatches, scroll effect — settles inside a single drain. This matches [Spec 002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) and was chosen over a multi-drain cascade so that subscribers see a consistent post-navigation state in one render pass rather than visible intermediate states.
+Per [§Pattern-level contract](#pattern-level-contract) the `:rf.route/navigate` drain — state update, URL push, `:on-match` dispatches, scroll effect — settles inside a single drain. This matches [Spec 002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) and was chosen over a multi-drain approach so that subscribers see a consistent post-navigation state in one render pass rather than visible intermediate states.
 
 ## Cross-references
 

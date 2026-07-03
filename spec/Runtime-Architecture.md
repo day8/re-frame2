@@ -159,7 +159,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 **Run-to-completion guarantee.** Once an event begins draining, every event it dispatches synchronously — and every event those handlers dispatch in turn — drains to fixed point before any further external event for this frame is processed, and before any view re-renders. Async effects (HTTP, timers, sockets) yield back to the loop; their replies arrive as fresh dispatches that re-engage the cascade for their own run. Bounded by `:drain-depth` (default 100; [002 §Run-to-completion §Rules](002-Frames.md#rules)) and by `:raise-depth-limit` / `:always-depth-limit` (both default 16) inside Level 3.
 
-**Render boundary.** Views render once after the cascade settles; intermediate states are never displayed.
+**Render boundary.** Views render once after the drain settles; intermediate states are never displayed.
 
 ### 5. Effect interpreter (`do-fx`)
 

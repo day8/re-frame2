@@ -230,7 +230,7 @@ Under the one event form ([EP-0018](../docs/EP/EP-0018-one-event-registration.md
            (get-in effects [:db :todos :last])))))
 ```
 
-Hand-build the coeffects map (`:db`, the declared `:rf.cofx/requires` leaves flat, `:event` if the body reads it) and assert on the **returned effects map** — `:db`, `:fx`, any reserved effect. This is the cheapest event-handler test: it bypasses interceptor assembly, drain, and commit entirely, isolating the fold's logic the way Pattern 4 isolates a transition. Reach for it for a pure reducer whose logic is the whole point; reach for the dispatch-driven form ([Pattern 1](#pattern-1--anonymous-fixture-per-test) / [§Asserting on effects](#asserting-on-effects-without-firing-them)) when the test needs the real coeffect assembly, interceptor chain, or `:fx` cascade to run.
+Hand-build the coeffects map (`:db`, the declared `:rf.cofx/requires` leaves flat, `:event` if the body reads it) and assert on the **returned effects map** — `:db`, `:fx`, any reserved effect. This is the cheapest event-handler test: it bypasses interceptor assembly, drain, and commit entirely, isolating the fold's logic the way Pattern 4 isolates a transition. Reach for it for a pure reducer whose logic is the whole point; reach for the dispatch-driven form ([Pattern 1](#pattern-1--anonymous-fixture-per-test) / [§Asserting on effects](#asserting-on-effects-without-firing-them)) when the test needs the real coeffect assembly, interceptor chain, or `:fx` perform stage to run.
 
 ### HTTP test surfaces — single namespace
 
@@ -618,15 +618,15 @@ The mechanics above (fixture patterns, JVM-runnable surfaces, view-assertion hel
 
 ### Async tests — `poll-until` vs explicit sleeps
 
-- **`poll-until`** for *settles* — the post-condition is observable in state and the test wants to wait for the cascade / drain / HTTP reply to land. Bounded deadline; fails fast on a truly stuck condition. JVM-synchronous; CLJS returns a `js/Promise` for composition with `cljs.test/async`.
+- **`poll-until`** for *settles* — the post-condition is observable in state and the test wants to wait for the drain / HTTP reply to land. Bounded deadline; fails fast on a truly stuck condition. JVM-synchronous; CLJS returns a `js/Promise` for composition with `cljs.test/async`.
 - **Explicit `Thread/sleep` / `js/setTimeout`** for *windows* — the sleep IS the contract under test (grace-period elapse, throttle/debounce window, "prove no event fires within window N"). Annotate the intent locally with a `;; Timer-semantics sleep: ...` comment so audits don't re-flag it.
 - **`wait-until`** is the view-test counterpart of `poll-until` — same shape, the testid form polls a fixture-stashed root view's rendered text.
 
 ### Per-test granularity heuristic
 
 - **One assertion per `deftest` is too granular** — overhead dominates when each deftest re-installs an adapter. Cluster the dispatches + assertions that exercise one feature into one `deftest`.
-- **One feature per `deftest` is too coarse** — a 200-line `deftest` exercising auth + routing + http loses its diagnostic value when one assertion fails and the cascade halts. Split when the dispatches involve unrelated paths.
-- **Sweet spot: one feature-slice + 3-10 assertions per `deftest`**, with `testing` blocks to label sub-shapes. Use `dispatch-sequence` + `:after-each` to capture intermediate state when the cascade is the test target.
+- **One feature per `deftest` is too coarse** — a 200-line `deftest` exercising auth + routing + http loses its diagnostic value when one assertion fails and the drain halts. Split when the dispatches involve unrelated paths.
+- **Sweet spot: one feature-slice + 3-10 assertions per `deftest`**, with `testing` blocks to label sub-shapes. Use `dispatch-sequence` + `:after-each` to capture intermediate state when the drain is the test target.
 
 ### Fixture-granularity heuristic
 
@@ -666,7 +666,7 @@ A machine snapshot is read through the ordinary `subscribe` test surface — the
 
 ### Asserting on effects (without firing them)
 
-When you want to verify what *would* dispatch without actually running the cascade, stub the `:dispatch` fx **per-call** — pass the override in the `dispatch-sync` opts so it is scoped to exactly the one event under assertion:
+When you want to verify what *would* dispatch without actually running the drain, stub the `:dispatch` fx **per-call** — pass the override in the `dispatch-sync` opts so it is scoped to exactly the one event under assertion:
 
 ```clojure
 (let [dispatched (atom [])]
@@ -678,7 +678,7 @@ When you want to verify what *would* dispatch without actually running the casca
     (is (= [[:auth/check-credentials]] @dispatched))))
 ```
 
-`:dispatch` (and `:dispatch-later`) are in the **OVERRIDABLE** tier of the reserved fx-ids (per [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering)): a fn-value override pre-empts the reserved body, so the captured event vector is recorded and **not** queued — the cascade does not run. This is the canonical "assert what would dispatch" affordance.
+`:dispatch` (and `:dispatch-later`) are in the **OVERRIDABLE** tier of the reserved fx-ids (per [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering)): a fn-value override pre-empts the reserved body, so the captured event vector is recorded and **not** queued — the drain does not run. This is the canonical "assert what would dispatch" affordance.
 
 **Scope the `:dispatch` override per-call, not per-frame.** A `:dispatch` override placed on a frame's `:fx-overrides` config (a record-config key, so via `reg-frame` / the advanced `re-frame.frame/make-frame`) is re-merged into the envelope on **every** dispatch routed to that frame for the frame's whole lifetime — including framework-internal dispatches (machine actor messages, spawned-actor `:start`, router internals, HTTP reply settles). That silently re-routes traffic the test never meant to touch and is a sharp footgun. The per-call form above scopes the stub to the single event you are asserting on.
 
@@ -1012,7 +1012,7 @@ Capturing intermediate states:
 
 #### `poll-until` example
 
-Use for async settles whose post-condition is observable in state. Replaces incidental `Thread/sleep N` / `js/setTimeout` whose intent is "give the cascade time to drain". NOT a substitute for timer-semantics sleeps that prove behaviour within / past a specific window (grace, throttle, debounce, "no event fires within N ms").
+Use for async settles whose post-condition is observable in state. Replaces incidental `Thread/sleep N` / `js/setTimeout` whose intent is "give the drain time to complete". NOT a substitute for timer-semantics sleeps that prove behaviour within / past a specific window (grace, throttle, debounce, "no event fires within N ms").
 
 JVM (synchronous — returns the truthy value, throws on timeout):
 

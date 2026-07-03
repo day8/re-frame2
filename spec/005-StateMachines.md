@@ -1212,7 +1212,7 @@ The router maintains a single per-frame queue. It is **FIFO by default with one 
 
 **`:raise` is unchanged — and is a different lever from front-of-queue.** `:raise` is the **in-memory, intra-macrostep, pre-commit** mechanism: a raised event drains through the machine's local raise-queue inside the *same* handler invocation, FIFO, against the evolving in-flight snapshot, and **never touches the router queue** (per [§`:raise`](#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) and Level 3 above). Front-of-queue is the *separate* lever for machine-originated events that **do** traverse the router queue (`:fx [[:dispatch …]]`, inter-machine dispatches): these are real, separately-dequeued events that still settle ahead of external work. The two must not be blurred — `:raise` collapses chaining into *one* macrostep with no router round-trip; front-of-queue *orders* router-queue events so a machine's follow-on events run before external ones, each as its own dequeue.
 
-**Consistent with epoch-per-event ([002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)).** Front-of-queue changes **order only, not granularity.** Each leap-frogged machine-internal continuation is still a separately-dequeued event, so it is still **its own epoch** with its own six-domino cascade and its own trace — exactly as [002 §One epoch per dequeued event](002-Frames.md#drain-versus-event--the-epoch-unit) requires. `:raise` sub-events and `:always` microsteps remain *inside* the triggering event's epoch (they are not dequeued); a front-of-queue `:fx [[:dispatch …]]` is a fresh dequeue and a fresh epoch — it simply runs sooner.
+**Consistent with epoch-per-event ([002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)).** Front-of-queue changes **order only, not granularity.** Each leap-frogged machine-internal continuation is still a separately-dequeued event, so it is still **its own epoch** with its own pipeline run and its own trace — exactly as [002 §One epoch per dequeued event](002-Frames.md#drain-versus-event--the-epoch-unit) requires. `:raise` sub-events and `:always` microsteps remain *inside* the triggering event's epoch (they are not dequeued); a front-of-queue `:fx [[:dispatch …]]` is a fresh dequeue and a fresh epoch — it simply runs sooner.
 
 ### Worked walkthrough
 
@@ -3846,7 +3846,7 @@ xstate's `sendTo` + `sender` lets a child reply to a specific request. In re-fra
                :reply [:got-data <correlation-id>]}])
 ```
 
-The handler dispatches `:got-data` (with the correlation id) when the response arrives. The drain cascade keeps the request and reply in the same atomic unit. This is just convention; document it.
+The handler dispatches `:got-data` (with the correlation id) when the response arrives. The drain keeps the request and reply in the same atomic unit. This is just convention; document it.
 
 ## Querying machines
 
@@ -4376,7 +4376,7 @@ Resolved: **separate artefact**, `day8/re-frame-2-machines`. Per (executing Stra
 
 ### Eventless `:always` transitions — microstep loop inside drain (RESOLVED)
 
-Resolved: `:always` is a state-node key holding a vector of guarded transitions; the drain cascade extends Level 3 with a unified microstep loop (prefer enabled `:always` → else dequeue one FIFO `:raise` → loop; the `:always`-before-raise order aligns to XState v5 / SCXML §3.13) that settles to a fixed point before commit. Default depth limit 16, error category `:rf.error/machine-always-depth-exceeded`. Any `:always` entry whose `:target` resolves to the declaring state (guarded or not) is rejected at registration with `:rf.error/machine-always-self-loop`; the canonical fixed-point loop is a targetless guarded `:always` with an `:action`. Trace events emitted at both per-microstep and outer-macrostep granularity. See [§Eventless `:always` transitions](#eventless-always-transitions).
+Resolved: `:always` is a state-node key holding a vector of guarded transitions; the drain extends Level 3 with a unified microstep loop (prefer enabled `:always` → else dequeue one FIFO `:raise` → loop; the `:always`-before-raise order aligns to XState v5 / SCXML §3.13) that settles to a fixed point before commit. Default depth limit 16, error category `:rf.error/machine-always-depth-exceeded`. Any `:always` entry whose `:target` resolves to the declaring state (guarded or not) is rejected at registration with `:rf.error/machine-always-self-loop`; the canonical fixed-point loop is a targetless guarded `:always` with an `:action`. Trace events emitted at both per-microstep and outer-macrostep granularity. See [§Eventless `:always` transitions](#eventless-always-transitions).
 
 ### Sub-event call-site shape (RESOLVED)
 

@@ -34,7 +34,7 @@ The v1 router (`re-frame.router/drain-loop!`) bakes three concerns into one piec
   effects. This is *reusable*: SSR runs the same step, test harnesses run the same step, a
   pair-tool replay runs the same step.
 - **State accumulation** — how successive new-state values are committed: synchronously into the
-  app-db container (v1), into a batched commit at the end of the cascade (an open question
+  app-db container (v1), into a batched commit at the end of the drain (an open question
   raised by 005's `:always` transitions), or into a derived list of states (for time-travel
   replay).
 - **Scheduling** — when the next event runs: synchronously under `dispatch-sync` (v1), under
@@ -49,8 +49,8 @@ reducing function and the driver). The same transducer pipes through:
 - **`queued`** — a reducing function that drains a queue to fixed point per Spec 002's
   run-to-completion rules.
 - **`batch`** — a reducing function that accumulates intermediate states and commits *once* at
-  cascade-settle. Useful when a cascade fires N events that each touch app-db and the host can
-  defer paint to the cascade boundary (Spec 005's `:always` is the motivating case).
+  drain-settle. Useful when a drain fires N events that each touch app-db and the host can
+  defer paint to the drain boundary (Spec 005's `:always` is the motivating case).
 
 The driver (when does the next event arrive?) is a third axis, orthogonal to the
 reducing function. v1 ships one driver, the host-microtask pump; a v1.1 transducer formulation
@@ -82,7 +82,7 @@ return a stateless transducer that maps **dispatch envelopes** (per
 ```
 
 The transducer itself is a single `comp` of pure mapping/filtering xforms, each owning one phase
-of the v1 `process-event*` cascade:
+of the v1 `process-event*` drain:
 
 ```clojure
 (comp
@@ -107,29 +107,29 @@ function to capture a trace instead of committing).
 Three preset reducing functions ship with v1.1:
 
 **`sync-rf`** — fully synchronous. Each step commits `:db-after` into the substrate container
-and runs `:effects` inline. Cascade dispatches are pushed onto a thread-local queue and drained
+and runs `:effects` inline. Dispatched events are pushed onto a thread-local queue and drained
 to fixed point before `sync-rf` returns. Equivalent to v1's `dispatch-sync`.
 
 ```clojure
 (transduce (frame-transducer-factory frame) sync-rf init-state envelope-seq)
-;; => final state; substrate container holds the post-cascade db
+;; => final state; substrate container holds the post-drain db
 ```
 
 **`queued-rf`** — the v1 drain shape. Commits `:db-after` on every step; the driver pump runs
-the next envelope on the host's microtask queue. Cascade dispatches are appended to the frame's
+the next envelope on the host's microtask queue. Dispatched events are appended to the frame's
 FIFO. Equivalent to v1's `dispatch`.
 
 **`batch-rf`** — accumulator. Steps update an in-memory `db` value without writing through to
 the container. The reducing function commits the final accumulated value in a single
-`replace-container!` call at cascade-settle. Effects are deferred to the same boundary. Useful
+`replace-container!` call at drain-settle. Effects are deferred to the same boundary. Useful
 when:
 
 - Spec 005 `:always` fires N intermediate transitions and the host can pay one commit for the
-  whole cascade.
+  whole drain.
 - A test harness wants to inspect every intermediate state without paying a substrate write.
 - An SSR loader fan-in waits for all child fetches to settle before any view re-renders.
 
-`batch-rf` is *not* a default — surfaces that need it opt in per-cascade via a per-call hint on
+`batch-rf` is *not* a default — surfaces that need it opt in per-drain via a per-call hint on
 the envelope (`:rf/commit :batch` vs. `:eager` / `:sync`).
 
 ### 2.3 The driver
@@ -139,7 +139,7 @@ runs and returns a handle the runtime can use to schedule, pause, and tear down.
 
 - **`microtask-driver`** — v1's behaviour. `pump-fn` runs under `js/queueMicrotask` (CLJS) or
   inline (JVM). Default.
-- **`raf-driver`** — `pump-fn` runs under `requestAnimationFrame`. For frame-locked cascades.
+- **`raf-driver`** — `pump-fn` runs under `requestAnimationFrame`. For frame-locked drains.
 - **`manual-driver`** — test harness drives `pump-fn` explicitly via `(tick handle)`. Used by
   the conformance corpus and SSR loaders.
 - **`virtual-time-driver`** — a debug driver that advances under a controlled clock. Time-travel
@@ -203,7 +203,7 @@ within a frame, depth-exceeded halt (per-event, **not** whole-drain rollback),
 
 **Depth-exceeded halt (no rollback).** Per [Spec 002 §Run-to-completion rule 3](002-Frames.md#run-to-completion-dispatch-drain-semantics)
 the atomicity unit is the **event**, not the drain: every already-settled event kept its own
-durable `:ok` epoch + `:db` write — there is **no** whole-drain rollback and no pre-cascade
+durable `:ok` epoch + `:db` write — there is **no** whole-drain rollback and no pre-drain
 restore. v1's depth-exceeded path (`handle-depth-exceeded!`) discards the remaining queued
 events (the halting event never runs) and emits a single trailing `:halted-depth` epoch whose
 `:db-before` and `:db-after` both equal the durable last-settled `app-db`. Under Stage B this
@@ -221,7 +221,7 @@ testable, no flag.
 Machines-as-event-handlers (per [005 §Machines as event handlers](005-StateMachines.md)) sit
 inside the transducer as just-another-handler. A machine transition that fires N `:always`
 events from `:on-entry` enqueues N envelopes which the same transducer drains. `batch-rf` is
-the natural home for `:always`-heavy cascades — N intermediate transitions, one commit.
+the natural home for `:always`-heavy drains — N intermediate transitions, one commit.
 
 ### 4.2 Spec 011 — SSR
 
@@ -283,8 +283,8 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 - **Step-result vocabulary.** The `:rf/step` enum (`:ok`, `:no-handler`, …) overlaps with
   Spec 009's `:rf.handler/...` trace event family. Reconcile before Phase 2: probably collapse
   `:rf/step` to a flat `:rf.step/*` keyword set under Conventions §Reserved namespaces.
-- **Cancellation semantics.** A long-running cascade under `manual-driver` may want
-  cancellation. v1's drain has no notion of mid-cascade cancel (it short-circuits only on
+- **Cancellation semantics.** A long-running drain under `manual-driver` may want
+  cancellation. v1's drain has no notion of mid-drain cancel (it short-circuits only on
   depth-exceeded and frame-destroy). Decision: defer to Phase 2 unless a Tool-Pair surface
   forces it sooner.
 
@@ -294,7 +294,7 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 
 - [002-Frames §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) — v1 normative behaviour preserved across both stages.
 - [002-Frames §Transducer-shaped event processing](002-Frames.md#transducer-shaped-event-processing-substrate-agnostic-router) — the deferred-status anchor that points here.
-- [005-StateMachines](005-StateMachines.md) — `:always` cascades motivating `batch-rf`.
+- [005-StateMachines](005-StateMachines.md) — `:always` drains motivating `batch-rf`.
 - [011-SSR](011-SSR.md) — frame-per-request + loader fan-in motivating `manual-driver`.
 - [009-Instrumentation](009-Instrumentation.md) — trace-emission sites become the transducer's xform boundaries.
 - `implementation/core/src/re_frame/router_transducer.cljc` — Phase-1 reference scaffold.
