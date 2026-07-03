@@ -91,7 +91,7 @@
             [nine-states.core]))
 
 ;; ---------------------------------------------------------------------------
-;; Story-side load event — the Xray-rich managed-HTTP cascade
+;; Story-side load event — the Xray-rich managed-HTTP pipeline run
 ;;
 ;; Same fetch, slightly different plumbing. The live example's
 ;; `:nine-states.demo/load` sends `:query {:n N}` and lets the app's
@@ -101,7 +101,7 @@
 ;; stub — and that stub doesn't read `:n`; it just echoes back whatever sits
 ;; on the request's `:value` slot. So the Story load event puts the
 ;; synthetic todos straight on `:value`. Same real `:rf.http/managed`
-;; cascade (still visible in Xray's Side Effects panel), now deterministic
+;; pipeline run (still visible in Xray's Side Effects panel), now deterministic
 ;; under the canned stub.
 ;; ---------------------------------------------------------------------------
 
@@ -311,7 +311,7 @@
 
   ;; -------------------------------------------------------------------------
   ;; The :error branch — the tenth render arm. It lives on the lifecycle
-  ;; story so the failure cascade reads as a step in a sequence, right
+  ;; story so the failure pipeline run reads as a step in a sequence, right
   ;; alongside :loading and :some.
   ;; -------------------------------------------------------------------------
 

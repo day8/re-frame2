@@ -473,7 +473,7 @@
 ;; No token? It hands the ctx straight back, so login, register, and
 ;; public-read endpoints sail through unsigned, exactly as they should.
 ;;
-;; It reads the token from `(:frame ctx)` — whichever frame the cascade is
+;; It reads the token from `(:frame ctx)` — whichever frame the pipeline run is
 ;; actually running under — rather than a hard-coded `:rf/default`, so the
 ;; header still tracks the right session in a non-default or multi-frame
 ;; mount.

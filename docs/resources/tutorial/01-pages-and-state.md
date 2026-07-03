@@ -385,7 +385,7 @@ Reading it top to bottom:
                                :initial-events [[:app/initialise]]})
     ```
 
-    Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses, because watching the seed dispatch happen is part of learning the loop. Note there's no `:db` config key — a frame *always* starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same [event cascade](../../core/glossary.md#event-cascade) as every later state change. There's no second mechanism for "the first state" — it's events all the way down.
+    Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses, because watching the seed dispatch happen is part of learning the pipeline. Note there's no `:db` config key — a frame *always* starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same [event pipeline](../../core/glossary.md#event-pipeline) as every later state change. There's no second mechanism for "the first state" — it's events all the way down.
 
 ## See it move
 

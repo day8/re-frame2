@@ -153,7 +153,7 @@
            ;; A fresh frame per request, identified by a gensym so concurrent
            ;; requests never collide. Order matters here: register the schema
            ;; against this frame BEFORE creating it. `reg-frame` fires the
-           ;; `:initial-events` cascade — and therefore `:rf/server-init` and
+           ;; `:initial-events` pipeline run — and therefore `:rf/server-init` and
            ;; its `:cards` commit — synchronously, so the contract has to be
            ;; in place by then or the commit validates against nothing.
            _   (rf/reg-app-schema [:cards] {:schema CardsSchema :frame fid})

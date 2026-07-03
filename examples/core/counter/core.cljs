@@ -7,7 +7,7 @@
    returns a new app-db, the subscription re-derives, and the view
    re-renders — round and round. That loop is the entire idea of re-frame2;
    every bigger app is this same shape with more parts bolted on. The guide
-   walks it slowly in `docs/core/concepts/events-and-the-cascade.md`.
+   walks it slowly in `docs/core/concepts/events-and-the-pipeline.md`.
 
    The frame is stood up in exactly one place: the `frame-provider` at the
    render root in `run` below. It names the frame and seeds it once.

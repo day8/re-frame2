@@ -21,7 +21,7 @@ The word for "the rest of the program" — everything that should happen after a
 
 ??? info "Coming from Elm?"
 
-    This is the Elm architecture, and it's worth borrowing the mental model wholesale. In Elm an effect goes out as a `Cmd` value and its result comes back as a `Msg` you handle — the continuation is never a suspended stack frame, it's the message you said the answer should become. re-frame2's `:on-success [:article/loaded]` is that same `Cmd → Msg` round-trip: you describe the work, you *name* the reply, and the runtime delivers it as a fresh event into [the cascade](../core/glossary.md#event-cascade).
+    This is the Elm architecture, and it's worth borrowing the mental model wholesale. In Elm an effect goes out as a `Cmd` value and its result comes back as a `Msg` you handle — the continuation is never a suspended stack frame, it's the message you said the answer should become. re-frame2's `:on-success [:article/loaded]` is that same `Cmd → Msg` round-trip: you describe the work, you *name* the reply, and the runtime delivers it as a fresh event into [the event pipeline](../core/glossary.md#event-pipeline).
 
 ## What an `await` quietly hides
 

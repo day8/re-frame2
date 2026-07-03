@@ -176,7 +176,7 @@
 ;; the single source of truth, and this is the single place it's read. Nice when
 ;; one fact lives in exactly one spot.
 ;;
-;; The token is read from `(:frame ctx)` — the frame this cascade is running
+;; The token is read from `(:frame ctx)` — the frame this pipeline run is running
 ;; under — rather than a hard-coded id, so the header follows along to a
 ;; non-default or multi-frame mount. No token present? The interceptor hands ctx
 ;; straight back, so login, register, and the public logged-out reads sail

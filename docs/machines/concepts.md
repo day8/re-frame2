@@ -92,7 +92,7 @@ Registering the table is one line — and there's no new runtime concept under i
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-So every event reaches the machine through the same `dispatch` and the same [event cascade](../core/glossary.md#event-cascade) as everything else — no actor object, no second messaging system. Dispatching routes through the machine's id, wrapping an inner event vector; you read the snapshot through a [subscription](../core/glossary.md#subscription) addressed by that id:
+So every event reaches the machine through the same `dispatch` and the same [event pipeline](../core/glossary.md#event-pipeline) as everything else — no actor object, no second messaging system. Dispatching routes through the machine's id, wrapping an inner event vector; you read the snapshot through a [subscription](../core/glossary.md#subscription) addressed by that id:
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])

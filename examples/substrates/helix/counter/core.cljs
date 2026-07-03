@@ -30,7 +30,7 @@
 ;; a pure function: hand it the coeffects (which carry the current app-db) and
 ;; the event vector, and it hands back an effect map. The `{:db …}` key means
 ;; "replace app-db with this value", and the runtime commits it atomically at
-;; the end of the cascade. Not a word about React in here — so this block is
+;; the end of the pipeline run. Not a word about React in here — so this block is
 ;; byte-for-byte the same as the Reagent and UIx counters. See
 ;; `docs/core/glossary.md#event-handler`.
 ;;
