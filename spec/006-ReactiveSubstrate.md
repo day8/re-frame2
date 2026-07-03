@@ -757,7 +757,9 @@ The `on-dispose` hook lets the adapter release substrate-specific resources (a R
 
 ### `(subscribe-once query-v) → value` / `(subscribe-once query-v {:frame f}) → value`
 
-The **one-shot, non-reactive read** of a subscription's current value. `subscribe-once` is the canonical end-user surface for "give me the current value of this sub *right now*, and don't retain a reference on my behalf." It is the right call from event handlers, machine actions, REPL sessions, SSR builders, and any non-reactive consumer; views and tools that want to track future changes use `subscribe` instead.
+The **one-shot, non-reactive read** of a subscription's current value. `subscribe-once` is the canonical end-user surface for "give me the current value of this sub *right now*, and don't retain a reference on my behalf." It is the right call from event handlers, REPL sessions, SSR builders, and any non-reactive consumer; views and tools that want to track future changes use `subscribe` instead.
+
+> **Not from inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition than the original run — breaking 005's token-grain replay contract ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)) and the pure-fn conformance mode. A machine callback receives external facts by **payload threading** (the triggering event carries them) or via a **declared recordable coeffect** on the machine's `:rf.cofx` record.
 
 ```clojure
 (subscribe-once query-v)                              ;; → value (uses the resolved current frame)
