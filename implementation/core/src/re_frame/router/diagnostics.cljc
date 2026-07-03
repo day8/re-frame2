@@ -16,7 +16,8 @@
   The cross-ns indirection from the router facade is amortised: callers
   (`process-event*`, `dispatch!`, `dispatch-sync!`) all sit on the
   facade and reach into this ns only on the rare warning / error paths."
-  (:require [re-frame.cofx.value-check :as value-check]
+  (:require [clojure.string :as str]
+            [re-frame.cofx.value-check :as value-check]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -128,79 +129,31 @@
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
     :rf.machine/internal?})
 
-(defn reject-retired-dispatch-opts!
-  "Throw `:rf.error/dispatched-at-retired` when a `dispatch` /
-  `dispatch-sync` opts map carries the RETIRED `:dispatched-at` key.
+(def ^:const retired-draft-opt-hints
+  "Dispatch-opt keys that named a fact only ever spelled in the spec's own
+  DRAFTS (never shipped in a released artefact), mapped to a targeted
+  did-you-mean hint. A retired DRAFT name earns NO dedicated retired-name
+  error id — that privilege is reserved for names that SHIPPED and so carry
+  wide training-data exposure (per [Conventions §The tombstone rule], the
+  shipped-names-only rule). A draft-era key is therefore handled by the
+  SAME generic closed-key surface as any other unrecognised opt
+  (`emit-unknown-dispatch-opts-warning!`), but with a specific replacement
+  suggestion appended so the fix stays actionable:
 
-  `:dispatched-at` is retired under the STANDARD RETIREMENT TREATMENT
-  (EP-0007 one-name-per-fact rule 2): a hard error NAMING the replacement,
-  never a silent alias and never a soft warn-on-unknown-opt. Two spellings
-  of \"when was this dispatched\" violate one-name-per-fact, so a caller
-  still passing `:dispatched-at` must be told the canonical replacement, not
-  left to a generic unknown-opt warning that merely lists the known set
-  (which would let the soft path become the de-facto spelling).
+    :rf.world/inputs → :rf.cofx  (EP-0017 renamed the recordable-coeffect
+                                  envelope field; the flat `fact-name → value`
+                                  map is now supplied under `:rf.cofx`)
+    :dispatched-at   → the durable causal-time fact
+                       `(:rf/time-ms (:rf.cofx envelope))` (EP-0010 —
+                       there is no caller-supplied dispatch-time field)
 
-  The durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`
-  — stamped by the framework at the dispatch causal boundary, NOT supplied
-  by the caller. (The diagnostic dispatch-time need is the trace event's own
-  ambient `:time` stamp, Spec 009.) The error names `:rf.cofx`'s
-  `:rf/time-ms` as the replacement so the programmer rewrites rather than
-  retries.
-
-  ALWAYS-ON — NOT gated on `interop/debug-enabled?`: a retirement hard error
-  is a correctness contract that must fire in `:advanced` +
-  `goog.DEBUG=false` production too (mirrors the `:rf.error/redirect-retired-
-  target-key` SSR precedent), unlike the dev-only unknown-opt warn. The
-  `contains?` check is the only always-on cost on the dispatch path — a
-  single map lookup, no allocation unless the retired key is present.
-
-  Per Spec 002 §`:dispatched-at` is retired + EP-0010 disposition 5.
-
-  The flat recordable-coeffect map is supplied under `:rf.cofx`; there is
-  no `:rf.world/inputs` dispatch opt (no alias, no coexistence window —
-  EP-0007 rule 2). Supplying `:rf.world/inputs` gets the SAME standard
-  retirement treatment — a hard error `:rf.error/world-inputs-renamed`
-  naming `:rf.cofx` — checked alongside `:dispatched-at` here so it fires
-  before the clock stamp / frame resolution. Always-on (a correctness
-  contract; fires in production too)."
-  [opts event]
-  (when (contains? opts :rf.world/inputs)
-    (error/throw-error!
-      :rf.error/world-inputs-renamed 're-frame.router/build-envelope
-      (str "Dispatch opt `:rf.world/inputs` is "
-           "RENAMED to `:rf.cofx` in EP-0017 (no "
-           "alias, no coexistence window — EP-0007 "
-           "one-name-per-fact rule 2). The flat "
-           "recordable-coeffect map is supplied "
-           "under `:rf.cofx` (one fact per "
-           "owner-qualified key; the framework time "
-           "fact is `:rf/time-ms`). Rename the "
-           "dispatch opt to `:rf.cofx`; there is no "
-           "back-compat alias.")
-      {:extra {:event-id    (first event)
-               :event       event
-               :retired-key :rf.world/inputs
-               :replacement :rf.cofx}}))
-  (when (contains? opts :dispatched-at)
-    (error/throw-error!
-      :rf.error/dispatched-at-retired 're-frame.router/build-envelope
-      (str "Dispatch opt `:dispatched-at` is RETIRED "
-           "(EP-0010 disposition 5 / EP-0007 "
-           "one-name-per-fact). There is no "
-           "caller-supplied dispatch-time field. "
-           "The durable causal-time fact is "
-           "`(:rf/time-ms (:rf.cofx envelope))` "
-           "— the framework stamps `:rf/time-ms` into "
-           "`:rf.cofx` at the dispatch causal "
-           "boundary; durable code reads it from there. "
-           "For a diagnostic dispatch-time, use the "
-           "trace event's own ambient `:time` stamp "
-           "(Spec 009). Remove `:dispatched-at`; there "
-           "is no back-compat alias.")
-      {:extra {:event-id    (first event)
-               :event       event
-               :retired-key :dispatched-at
-               :replacement '(:rf/time-ms (:rf.cofx envelope))}})))
+  Dev-only, like the warning it feeds: the whole map DCEs under `:advanced` +
+  `goog.DEBUG=false` (only reached inside `emit-unknown-dispatch-opts-warning!`,
+  itself gated on `interop/debug-enabled?`)."
+  {:rf.world/inputs
+   "did you mean `:rf.cofx`? (EP-0017 renamed the recordable-coeffect envelope field — supply the flat `fact-name → value` map under `:rf.cofx`; the framework time fact is `:rf/time-ms`)"
+   :dispatched-at
+   "there is no caller-supplied dispatch-time opt — the durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`, stamped by the framework; for a diagnostic dispatch-time read the trace event's own `:time` stamp (Spec 009)"})
 
 (defn- validate-supplied-cofx-values!
   "ALWAYS-ON structural-EDN check of a SUPPLIED `:rf.cofx` map's values.
@@ -353,6 +306,13 @@
   proceeds unchanged — this is observational, never refusal (`:recovery
   :no-recovery`).
 
+  A key that named a RETIRED DRAFT fact (`retired-draft-opt-hints` —
+  `:rf.world/inputs`, `:dispatched-at`) rides this same generic surface (it
+  earns no dedicated retired-name error id per the shipped-names-only
+  tombstone rule, [Conventions §The tombstone rule]) but the reason string
+  appends a specific did-you-mean naming the canonical replacement, so the
+  fix stays as actionable as a bespoke error would have made it.
+
   Body gated on `interop/debug-enabled?` so the whole surface — the
   warning keyword's interned slot, the reason-string allocation, the
   `unknown-dispatch-opts` walk — DCEs wholesale under `:advanced` +
@@ -362,6 +322,11 @@
   (when interop/debug-enabled?
     (let [event-id (first event)
           unknown  (vec unknown)
+          hints    (into []
+                         (keep (fn [k]
+                                 (when-let [h (retired-draft-opt-hints k)]
+                                   (str "`" k "` — " h))))
+                         unknown)
           reason   (str "Dispatch of `" event-id "` was given unrecognised "
                         "opts key" (when (> (count unknown) 1) "s") " "
                         (pr-str unknown) ". The runtime reads only "
@@ -370,7 +335,9 @@
                         "(e.g. `:fram` for `:frame`) changes nothing and "
                         "gives no signal. Check for a misspelt opt; if you "
                         "intended a custom payload, put it inside the event "
-                        "vector, not the dispatch opts map.")]
+                        "vector, not the dispatch opts map."
+                        (when (seq hints)
+                          (str " " (str/join " " hints))))]
       (trace/emit! :warning
                    :rf.warning/unknown-dispatch-opt
                    {:event        event

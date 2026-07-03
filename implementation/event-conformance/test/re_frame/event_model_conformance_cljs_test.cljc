@@ -230,30 +230,36 @@
         (is (not (contains? c :event/kind))
             "the `:event/kind` sub-tag is GONE from the coeffects map (one form)")))))
 
-(deftest dispatch-opt-rf-world-inputs-is-the-world-inputs-renamed-hard-error
-  (testing "EP-0017 §3/§8 (rf2-k51wm0) — the OLD coeffect key: supplying the
-            retired `:rf.world/inputs` DISPATCH OPT is the hard error
-            `:rf.error/world-inputs-renamed`, naming `:rf.cofx` as the
-            replacement (no alias, no coexistence window — EP-0007 rule 2). The
-            recordable-coeffect map moved to the flat `:rf.cofx` envelope field;
-            supplying the old key fails LOUDLY rather than being silently
-            ignored. This is an always-on correctness contract (fires in
-            production too). The umbrella tier lacked this old-key negative lock.
-            A regression that re-accepted `:rf.world/inputs` (silently, or as an
-            alias) turns this RED"
-    (rf/reg-event :evt-conf/inspect-renamed (fn [_ _] {}))
-    (let [thrown (thrown-error-id
-                   #(rf/dispatch-sync [:evt-conf/inspect-renamed]
-                                      {:rf.world/inputs {:rf/time-ms 1781078400123}}))]
-      (is (= :rf.error/world-inputs-renamed thrown)
-          "the retired `:rf.world/inputs` dispatch opt is the hard error :rf.error/world-inputs-renamed"))
-    (let [reason (thrown-error-reason
-                   #(rf/dispatch-sync [:evt-conf/inspect-renamed]
-                                      {:rf.world/inputs {:rf/time-ms 1781078400123}}))]
-      (is (string? reason)
-          "the renamed-key error carries a :reason string")
-      (is (re-find #":rf.cofx" reason)
-          "the renamed-key error names `:rf.cofx` as the replacement (the flat envelope field)"))))
+(deftest dispatch-opt-rf-world-inputs-is-the-generic-unknown-opt-with-did-you-mean
+  (testing "rf2-8rtuiq (Mike ruled OPTION A) — the OLD coeffect key: supplying
+            the retired `:rf.world/inputs` DISPATCH OPT earns NO dedicated error
+            id. `:rf.world/inputs` only ever named this fact in the spec's own
+            DRAFTS — it never shipped in a released artefact — so under the
+            shipped-names-only tombstone rule (Conventions §The tombstone rule)
+            it rides the GENERIC `:rf.warning/unknown-dispatch-opt` surface with
+            a did-you-mean naming `:rf.cofx`. The dispatch PROCEEDS unchanged
+            (the warning is observational), and the retired key is NOT aliased
+            to `:rf.cofx` nor silently swallowed. A regression that re-accepted
+            `:rf.world/inputs` as an alias (or dropped the warning) turns this RED"
+    (rf/reg-event :evt-conf/inspect-renamed (fn [{:keys [db]} _] {:db (assoc db :evt-conf/ran true)}))
+    (let [traces (atom [])]
+      (rf/register-listener! :trace :evt-conf/renamed-recorder (fn [ev] (swap! traces conj ev)))
+      ;; The dispatch does NOT throw — the retired draft key is an unrecognised
+      ;; opt, not a dedicated hard error.
+      (rf/dispatch-sync [:evt-conf/inspect-renamed]
+                        {:rf.world/inputs {:rf/time-ms 1781078400123}})
+      (rf/unregister-listener! :trace :evt-conf/renamed-recorder)
+      (let [warns (filterv (fn [ev]
+                             (and (= :warning (:op-type ev))
+                                  (= :rf.warning/unknown-dispatch-opt (:operation ev))))
+                           @traces)]
+        (is (= 1 (count warns))
+            "the retired draft key trips the generic unknown-dispatch-opt warning (not a dedicated error)")
+        (let [t (:tags (first warns))]
+          (is (contains? (set (:unknown-keys t)) :rf.world/inputs)
+              "the retired key is named as an unrecognised opt")
+          (is (re-find #":rf.cofx" (:reason t))
+              "the warning message appends a did-you-mean naming `:rf.cofx` as the replacement"))))))
 
 (deftest live-event-coeffects-carry-no-rf-world-inputs-flat-delivery
   (testing "EP-0017 §3/§5 (rf2-k51wm0) — the flat / no-live-world-inputs

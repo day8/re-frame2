@@ -22,7 +22,12 @@
 
   EP-0017 renamed the EP-0010 envelope field `:rf.world/inputs` to the flat
   `:rf.cofx` map (no alias); this namespace pins the live `:rf.cofx` contract.
-  The retired-key hard-error coverage lives in `re-frame.cofx-cljs-test` and
+  Both `:rf.world/inputs` and `:dispatched-at` only ever named a fact in the
+  spec's own DRAFTS, so under the shipped-names-only tombstone rule
+  (Conventions §The tombstone rule) they earn NO dedicated retired-name error
+  id — supplying either is caught by the generic `:rf.warning/unknown-dispatch-opt`
+  surface with a did-you-mean. That retired-draft coverage lives in
+  `re-frame.cofx-cljs-test`, `re-frame.unknown-dispatch-opts-warn-test`, and
   `re-frame.event-model-conformance-cljs-test`.
 
   JVM-only — the stamping path is platform-agnostic (`interop/now-ms`
@@ -620,71 +625,47 @@
         (is (number? (get-in env [:rf.cofx :rf/time-ms]))
             ":rf/time-ms is the replacement for the retired :dispatched-at")))))
 
-(deftest dispatched-at-supplied-is-a-hard-error
-  ;; EP-0010 disposition 5 (rf2-lj39cn): SUPPLYING the retired :dispatched-at
-  ;; dispatch opt is the STANDARD RETIREMENT TREATMENT — a HARD ERROR naming
-  ;; the replacement, not the soft generic unknown-opt warn. The error carries
-  ;; the canonical-replacement category id and a message naming
-  ;; (:rf/time-ms (:rf.cofx envelope)).
-  (testing "EP-0010 disposition 5 / EP-0007 rule 2: supplying :dispatched-at throws"
+(deftest dispatched-at-supplied-is-a-generic-unknown-opt-with-did-you-mean
+  ;; rf2-8rtuiq (Mike ruled OPTION A): `:dispatched-at` only ever named a fact
+  ;; in the spec's own DRAFTS — it never shipped in a released artefact — so
+  ;; under the shipped-names-only tombstone rule (Conventions §The tombstone
+  ;; rule) it earns NO dedicated retired-name error id. Supplying it is caught
+  ;; by the GENERIC unrecognised-opt surface (`:rf.warning/unknown-dispatch-opt`,
+  ;; dev-gated warn), the dispatch PROCEEDS, and the warning message appends a
+  ;; did-you-mean naming (:rf/time-ms (:rf.cofx envelope)).
+  (testing "supplying :dispatched-at does NOT throw — it is an unrecognised opt"
     (rf/reg-frame :wi/retired-supply {:doc "ctx"})
-    (testing "build-envelope throws on the retired key (always-on, even with the dev gate OFF)"
-      (with-redefs [interop/debug-enabled? false]
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (build-envelope [:noop] {:frame :wi/retired-supply
-                                              :dispatched-at 123}))
-            "supplying :dispatched-at is a hard error, not a warn (prod-survivable)")))
-    (testing "the error names the canonical replacement (:rf/time-ms / :rf.cofx)"
-      (let [ex   (try
-                   (build-envelope [:noop] {:frame :wi/retired-supply
-                                            :dispatched-at 123})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))
-            data (ex-data ex)]
-        (is (some? ex) "an exception was thrown")
-        (is (= :rf.error/dispatched-at-retired (:rf.error/id data))
-            "the error category is the retired-spelling :rf.error/* id")
-        (is (= :dispatched-at (:retired-key data)) "names the retired key")
-        (is (re-find #":rf/time-ms" (:reason data))
-            "the message references :rf/time-ms as the replacement")
-        (is (re-find #":rf\.cofx" (:reason data))
-            "the message references :rf.cofx as the replacement carrier")
-        (is (= :no-recovery (:recovery data)) "no back-compat alias / recovery")))
-    (testing "the full dispatch path (not just build-envelope) raises it"
+    (testing "build-envelope does not throw on the retired draft key (it is unknown, not a hard error)"
+      (is (map? (build-envelope [:noop] {:frame :wi/retired-supply
+                                         :dispatched-at 123}))
+          "supplying :dispatched-at yields a normal envelope, not a throw")
+      (is (not (contains? (build-envelope [:noop] {:frame :wi/retired-supply
+                                                   :dispatched-at 123})
+                          :dispatched-at))
+          "the unrecognised key is not copied onto the envelope"))
+    (testing "the generic unknown-dispatch-opt warning fires with a did-you-mean naming :rf/time-ms / :rf.cofx"
       (rf/reg-event :wi/retired-noop (fn [{:keys [db]} _] {:db db}))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (rf/dispatch-sync [:wi/retired-noop]
-                                     {:frame :wi/retired-supply
-                                      :dispatched-at 123}))
-          "dispatch-sync surfaces the retirement hard error synchronously"))))
-
-(deftest retired-dispatched-at-rejected-before-causal-clock-read
-  ;; rf2-s2mizv finding #3: the retired-opt validation runs BEFORE the
-  ;; causal-token clock stamp, so an invalid dispatch fails fast WITHOUT first
-  ;; triggering the always-on `epoch-now-ms` read + :rf.cofx map allocation.
-  ;; Pre-fix, `build-envelope` stamped `:rf.cofx {:rf/time-ms …}` and only
-  ;; THEN rejected `:dispatched-at` — wasting a clock read on a dispatch that
-  ;; cannot proceed. We assert ordering by redefining `epoch-now-ms` to throw a
-  ;; DISTINCT marker: if the clock is read before the retirement check, that
-  ;; marker surfaces instead of the retirement error.
-  (testing "supplying :dispatched-at throws the retirement error WITHOUT reading
-            the causal-token clock first"
-    (rf/reg-frame :wi/order {:doc "ctx"})
-    (with-redefs [interop/epoch-now-ms
-                  (fn [] (throw (ex-info "clock read before retirement check"
-                                         {::clock-read true})))]
-      (let [ex   (try
-                   (build-envelope [:noop] {:frame :wi/order :dispatched-at 123})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))
-            data (ex-data ex)]
-        (is (some? ex) "an exception was thrown")
-        (is (not (::clock-read data))
-            "the causal-token clock was NOT read before the retirement check —
-             the dispatch failed fast on the retired opt")
-        (is (= :rf.error/dispatched-at-retired (:rf.error/id data))
-            "the surfaced error is the retirement hard error, proving the
-             retirement check ran first")))))
+      (let [seen (atom [])]
+        (rf/register-listener! :trace ::dispatched-at
+          (fn [ev] (swap! seen conj ev)))
+        (binding [frame/*current-frame* :wi/retired-supply]
+          (rf/dispatch-sync [:wi/retired-noop] {:dispatched-at 123}))
+        (rf/unregister-listener! :trace ::dispatched-at)
+        (let [warns (filterv (fn [ev]
+                               (and (= :warning (:op-type ev))
+                                    (= :rf.warning/unknown-dispatch-opt (:operation ev))))
+                             @seen)]
+          (is (= 1 (count warns))
+              "the retired draft key trips exactly one generic unknown-opt warning")
+          (let [t (:tags (first warns))]
+            (is (contains? (set (:unknown-keys t)) :dispatched-at)
+                "the retired key is named as an unknown opt")
+            (is (re-find #":rf/time-ms" (:reason t))
+                "the warning message references :rf/time-ms as the replacement")
+            (is (re-find #":rf\.cofx" (:reason t))
+                "the warning message references :rf.cofx as the replacement carrier")
+            (is (= :no-recovery (:recovery (first warns)))
+                "observational — the dispatch proceeds unchanged")))))))
 
 ;; ===========================================================================
 ;; rf2-sppf0m / rf2-alc1lf: a handler READS owner-qualified facts from the

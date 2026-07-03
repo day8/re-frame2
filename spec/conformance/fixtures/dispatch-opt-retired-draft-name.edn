@@ -1,0 +1,62 @@
+;; Conformance fixture: dispatch-opt/retired-draft-name
+;;
+;; rf2-8rtuiq (Mike ruled OPTION A — the shipped-names-only tombstone rule):
+;; a dedicated retired-name error id may exist ONLY for names that shipped in a
+;; released artefact. The dispatch opts `:rf.world/inputs` (renamed to `:rf.cofx`,
+;; EP-0017) and `:dispatched-at` (retired, EP-0010) only ever named a fact in the
+;; spec's own DRAFTS — they never shipped — so they earn NO dedicated retired-name
+;; error id. They ride the GENERIC unrecognised-opt surface
+;; (`:rf.warning/unknown-dispatch-opt`, per Conventions §The tombstone rule):
+;;   - the key is UNRECOGNISED, so the no-silent-swallow warning fires;
+;;   - the dispatch PROCEEDS unchanged (the warning is observational, not refusal);
+;;   - the retired key is NOT aliased to `:rf.cofx` and does NOT become a
+;;     recordable coeffect;
+;;   - the warning message appends a did-you-mean naming the canonical
+;;     replacement.
+;;
+;; This fixture supersedes the old `cofx-world-inputs-retired.edn` (which pinned a
+;; dedicated `:rf.error/world-inputs-renamed` hard error, now deleted).
+;;
+;; The load-bearing behavioural contract asserted via `:final-app-db` (portable,
+;; not dev-gated): the handler RUNS even when the retired draft opt is supplied
+;; (no throw, no refusal), and the retired key does not leak into the recordable
+;; coeffects. The `:trace-emissions` leg additionally pins the generic warning +
+;; the did-you-mean hint (dev-trace surface; the harness runs dev-enabled, as the
+;; other trace-emission fixtures do).
+;;
+;; A port that THROWS on the retired draft key (a dedicated hard error), or that
+;; SILENTLY ALIASES it to `:rf.cofx`, FAILS: the handler would not have run
+;; cleanly, or the retired fact would have leaked in.
+
+{:fixture/id           :dispatch-opt/retired-draft-name
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler}
+ :fixture/doc          "rf2-8rtuiq / Conventions §The tombstone rule: the retired DRAFT dispatch opts `:rf.world/inputs` / `:dispatched-at` earn no dedicated error id — they ride the generic `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean, the dispatch PROCEEDS unchanged, and the retired key is NOT aliased. A port that throws a dedicated error or silently aliases the key FAILS this fixture."
+
+ :fixture/registry
+ {:event {:probe/retired-draft {:doc "A plain handler; the load-bearing contract is that it RUNS despite the retired draft opt, not that the dispatch is refused."}}}
+
+ :fixture/handlers
+ {:event {:probe/retired-draft [[:set [:ran] true]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [;; Retired DRAFT opt — an unrecognised opt: the dispatch PROCEEDS (the handler
+  ;; runs, setting :ran true), the key is NOT aliased to :rf.cofx.
+  {:event [:probe/retired-draft] :rf.world/inputs {:rf/time-ms 1}}
+  ;; Control — the canonical replacement opt is accepted; the handler runs.
+  {:event [:probe/retired-draft] :rf.cofx {:rf/time-ms 1781078400123}}]
+
+ :fixture/expect
+ {;; Both dispatches ran the handler — the retired-draft-opt dispatch was NOT
+  ;; refused, and the control's canonical :rf.cofx replacement is accepted.
+  :final-app-db
+  {:ran true}
+
+  ;; The retired draft key rides the GENERIC unknown-dispatch-opt warning
+  ;; (partial-match: absent keys ignored). A port emitting this warning for the
+  ;; retired key proves it treats it as a plain unrecognised opt, not a special
+  ;; hard error.
+  :trace-emissions
+  [{:operation :rf.warning/unknown-dispatch-opt}]}}
