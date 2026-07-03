@@ -1420,7 +1420,7 @@ const COVERAGE_MATRIX = [
     feature: 'Trace/scrubber cross-reference',
     kind: 'owned-by',
     gate: 'tools/xray browser tests',
-    why: 'rf2-sgdd3 — Xray Event-tab focused-event cascade is the replacement',
+    why: 'rf2-sgdd3 — Xray Event-tab focused-event run is the replacement',
   },
   {
     feature: 'A11y panel',

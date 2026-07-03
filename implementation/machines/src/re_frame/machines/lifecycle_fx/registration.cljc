@@ -873,8 +873,8 @@
                               machine {:bootstrap-pending? false}))]
     (fn [{:keys [db] frame :rf.frame/id rt :rf.db/runtime
           cofx :rf.cofx mint-policy :rf.cofx/mint-policy :as _cofx} event]
-      ;; A machine handler is invoked inside an
-      ;; event cascade, so the cofx ALWAYS carries the frame stamp under
+      ;; A machine handler is invoked inside a
+      ;; pipeline run, so the cofx ALWAYS carries the frame stamp under
       ;; `:rf.frame/id` (the HELD stamp). A nil stamp is an invariant
       ;; failure — surface `:rf.error/no-frame-context`, never repair to a
       ;; synthesised `:rf/default`.

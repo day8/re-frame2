@@ -102,7 +102,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cart-cascade-projects-to-3-cart-and-non-cart-sections
-  ;; The classic cart-event cascade: line item + totals + user
+  ;; The classic cart-event drain: line item + totals + user
   ;; last-edit + flash. With max-coalesce-depth=3 over patches, the
   ;; three [:cart ...] patches all sit within depth-3 of the shared
   ;; [:cart] ancestor and coalesce into one [:cart]-headed section.

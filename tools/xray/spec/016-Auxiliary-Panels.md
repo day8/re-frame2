@@ -178,7 +178,7 @@ in cascade order:
   shown so the reader can see which paths caused the recompute.
 
 The FLOWS section sits between the HANDLER and the EFFECTS RETURNED /
-EFFECTS HANDLERS RAN sections under the per-event cascade view —
+EFFECTS HANDLERS RAN sections under the per-run view —
 mirroring the runtime order where flows transform the pending db
 before it commits and before any fx run (see 018 §5.1 wireframe + row
 contract).

@@ -1367,7 +1367,7 @@
   supersedes the flat `:rf.machine/state-coords` index of rf2-npvsx).
 
   Returns an empty vec when no machine-cascade events fired (vanilla
-  non-machine reg-event cascades — the redesign is
+  non-machine reg-event pipeline runs — the redesign is
   machine-specific and the empty vec drives the view's empty-state
   branch off the prior handler-step rendering unchanged)."
   [events]

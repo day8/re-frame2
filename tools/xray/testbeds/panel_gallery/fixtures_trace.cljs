@@ -396,7 +396,7 @@
     {:epoch-id 1 :event [:counter/init] :trace-events (empty-buffer)}))
 
 (defn short-trace-history
-  "One epoch whose domino trail is the ten-event cascade — a normal,
+  "One epoch whose domino trail is the ten-event drain — a normal,
   representative settling spanning every canonical op-type."
   []
   (single-epoch-history

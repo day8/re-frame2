@@ -53,7 +53,7 @@
    :effects [] :subs [] :renders [] :other []})
 
 (defn- seed-cascades!
-  "Seed the Xray trace buffer with synthetic single-event cascades so
+  "Seed the Xray trace buffer with synthetic single-event runs so
   the spine's by-id / head walks resolve. Mirrors the trace-event shape
   spine-cljs-test/seed-cascades! uses — one `:rf.event/dispatched` per
   cascade so `group-by-event`' frame-index pairs the right events."

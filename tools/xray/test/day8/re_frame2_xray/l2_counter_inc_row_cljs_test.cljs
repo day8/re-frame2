@@ -12,7 +12,7 @@
   ## Root cause (rf2-avvwm, #1961) — verified DUP
 
   Under the per-event epoch model (#1952) a `:frame/created` trace
-  event emitted OUTSIDE any dequeued-event cascade was mis-attributed
+  event emitted OUTSIDE any dequeued-event run was mis-attributed
   into the NEXT dequeued event's `:rf/epoch-record :trace-events`. So
   eid 8's `:trace-events` began with an orphan `[:frame :frame/created]`
   carrying eid 8's `:dispatch-id`.

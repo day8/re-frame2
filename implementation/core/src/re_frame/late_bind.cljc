@@ -38,7 +38,7 @@
 ;; (`:schemas/validate-*!`, `:flows/run-flows-on-db`, `:epoch/settle!`,
 ;; `:epoch/capture-event`, `:event-emit/dispatch-on-event`,
 ;; `:router/dispatch!`, …). These run on every dispatch — the dispatch
-;; cascade reads ~6+ keys per event, so a 100-event cascade was 600+
+;; drain reads ~6+ keys per event, so a 100-event drain was 600+
 ;; identical atom-derefs of `hooks` plus 600+ identical map lookups.
 ;;
 ;; The cache memoises the resolution: first hit reads `hooks`, populates
@@ -127,7 +127,7 @@
   `:schemas/validate-event!`, `:schemas/validate-app-schema!`,
   `:flows/run-flows-on-db`, `:epoch/settle!`, `:epoch/capture-event`,
   `:event-emit/dispatch-on-event`, `:router/dispatch!` — where a
-  100-event cascade would otherwise resolve each key ~100 times."
+  100-event drain would otherwise resolve each key ~100 times."
   [hook-key]
   (or (get @fn-cache hook-key)
       (when-let [resolved (get @hooks hook-key)]
