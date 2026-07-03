@@ -591,7 +591,12 @@
   ;; caller in examples/tools). No API.md var-row (an `:implementation` var is
   ;; below the supported surface, like `->interceptor`).
   ["re-frame.core" "subscribe*"]          {:tier :implementation :owner "002" :status "EP-0024 (internal HoF/macro-reach only)"}
-  ["re-frame.core" "subscribe-once"]      {:tier :advanced    :owner "006" :status "v1"}
+  ;; rf2-bfadc6: `subscribe-once` gained the public `{:frame}` opts-map
+  ;; call-shape `(subscribe-once query-v {:frame f})`, parallel to `subscribe`
+  ;; (EP-0024) — closes the misbinding footgun for an author who carries the
+  ;; opts form over from `subscribe`. `unsubscribe` deliberately stays
+  ;; frame-first (pure teardown, never a hot in-view call; no opts-map form).
+  ["re-frame.core" "subscribe-once"]      {:tier :advanced    :owner "006" :status "v1 (preserved + extended)"}
   ["re-frame.core" "unsubscribe"]         {:tier :advanced    :owner "006" :status "v1"}
   ;; View ergonomics (spec/API.md §View ergonomics).
   ["re-frame.core" "with-frame"]          {:tier :front-porch :owner "002" :status "v1"}

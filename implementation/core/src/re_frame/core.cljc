@@ -948,7 +948,18 @@
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
   then unsubscribes. Does NOT retain a cache reference. Use in handler
   bodies, machine actions, REPL — anywhere you need a value without a
-  reactive subscription. Per spec/API.md §Dispatch and subscribe."}
+  reactive subscription. Per spec/API.md §Dispatch and subscribe.
+
+  Call shapes (SHAPE-DISCRIMINATED on the first arg, mirroring `subscribe`):
+
+      (subscribe-once query-v)               ;; ambient frame (carried scope)
+      (subscribe-once query-v {:frame f})    ;; explicit-frame opts form
+
+  The `{:frame …}` opt is the public way to target a named frame from
+  outside any scope (`f` is a frame-id keyword or a live frame object) —
+  parallel to `subscribe`'s opts form (rf2-bfadc6). The runtime ALSO
+  discriminates a frame-first `(subscribe-once frame f query-v)`, retained as
+  internal plumbing (tests, tooling); author with the `{:frame …}` opt."}
   subscribe-once subs/subscribe-once)
 
 (def ^{:doc "Decrement the ref-count on the cached subscription for

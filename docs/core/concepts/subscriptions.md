@@ -289,7 +289,7 @@ This matters in two everyday ways:
 
 Two functions let you step outside the deref-driven lifecycle deliberately:
 
-- **`rf/subscribe-once`** — `(subscribe-once query-v)` (or `(subscribe-once frame-id query-v)`) subscribes, derefs once, and immediately unsubscribes, returning the plain value. It's a **non-reactive** read: you get the value as of right now and you are *not* registered for change notification. It's the right tool for a one-shot read inside a REPL session, a machine action, or a handler body that genuinely needs a derived value once. If you reach for it routinely from a handler, the value probably wants to be a [flow](../glossary.md#flow) instead (see below).
+- **`rf/subscribe-once`** — `(subscribe-once query-v)` (or `(subscribe-once query-v {:frame f})` to read a named frame from outside any scope) subscribes, derefs once, and immediately unsubscribes, returning the plain value. It's a **non-reactive** read: you get the value as of right now and you are *not* registered for change notification. It's the right tool for a one-shot read inside a REPL session, a machine action, or a handler body that genuinely needs a derived value once. The `{:frame f}` opts form mirrors `subscribe`'s — `f` is a frame-id keyword or a live frame object — so the call shape you learned for `subscribe` carries straight over. If you reach for it routinely from a handler, the value probably wants to be a [flow](../glossary.md#flow) instead (see below).
 - **`rf/unsubscribe`** — `(unsubscribe query-v)` decrements the ref-count by hand, for the rare case where you took a reference programmatically and need to release it. Views never call this; their mount/unmount lifecycle does it for you.
 
 ## Standard registered subscriptions

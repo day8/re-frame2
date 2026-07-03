@@ -184,7 +184,7 @@
   {:namespace "re-frame.core", :var "sub-machine", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "subscribe", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "subscribe*", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal HoF/macro-reach only)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "subscribe-once", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "subscribe-once", :tier :advanced, :kind :fn, :owner "006", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "trace-buffer", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unregister-epoch-listener!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unregister-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (stream-parameterized)", :facade? true, :runtime-verified? true}
