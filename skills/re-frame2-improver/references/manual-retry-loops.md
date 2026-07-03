@@ -51,9 +51,9 @@ Spec source: [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) and
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
-      (case (:kind reply)
-        :success {:db (assoc-in db [:article] {:status :loaded :data (:value reply)})}
-        :failure {:db (assoc-in db [:article] {:status :error  :error (:failure reply)})})
+      (case (:status reply)
+        :ok    {:db (assoc-in db [:article] {:status :loaded :data (:value reply)})}
+        :error {:db (assoc-in db [:article] {:status :error  :error (:error reply)})})
       {:db (assoc-in db [:article :status] :loading)
        :fx [[:rf.http/managed
              {:request {:method :get :url (str "/articles/" slug)}

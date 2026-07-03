@@ -17,7 +17,7 @@ The pattern composes:
 - **`reg-app-schema`** — schema-binds the slice path so the slice's shape is enforced at boundaries (per cardinal rule 4 — schemas at boundaries, not everywhere).
 - **`reg-event` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
 - **`reg-event` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (declare `:rf.cofx/requires [:rf/time-ms]`, EP-0017), so it declares and reads the recorded time — not a host-clock read. **`reg-event` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change (a db-only handler that just returns `{:db ...}`).
-- **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` dispatch the lifecycle events. The reply each delivers is the **public HTTP compatibility payload** (`{:kind :success :value v}` / `{:kind :failure :failure m}`), reshaped from the internal EP-0011 reply envelope — NOT the canonical reply map itself (see managed-http.md).
+- **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` are pure routing sugar that dispatch the lifecycle events. The reply each delivers **is the canonical EP-0011 reply envelope** verbatim (rf2-ibksxg — one dialect, no reshape): `{:status :ok :value v …}` / `{:status :error :error m …}` / `{:status :cancelled :error m …}` (see managed-http.md). Read `:value` on `:ok`, the classified `:rf.http/*` map from `:error` on failure.
 - **Layered subs `:feature/status`, `:feature/data`, `:feature/loading?`, `:feature/fetching?`** — convenience subs over the slice. `:loading?` means truly empty + in-flight; `:fetching?` means any in-flight (covers both `:loading` and `:fetching`).
 - **(machine variant) `:initial :idle` + states `:idle :loading :fetching :loaded :error` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers the same question `:loading?` / `:fetching?` did.
 
@@ -59,14 +59,13 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
   ;; (not a fresh host clock) keeps the same reply replaying to the same
   ;; :loaded-at on epoch restore / SSR hydration / time-travel.
   {:rf.cofx/requires [:rf/time-ms]}
-  ;; The HTTP `:on-success` reply is the PUBLIC compatibility payload
-  ;; `{:kind :success :value v}` — it carries `:value` and nothing else.
-  ;; It does NOT expose canonical envelope fields (`:status` / `:work/id` /
-  ;; `:completed-at`); those are the EP-0011 reply map, the *internal*
-  ;; lowered shape for HTTP (see managed-http.md). So destructure `:value`
-  ;; only off the reply.
-  ;; So destructure `:value` only off the reply; the recorded clock arrives
-  ;; flat as `rf/time-ms` (declared above), the durable causal time.
+  ;; The HTTP `:on-success` reply IS the canonical EP-0011 envelope
+  ;; `{:status :ok :value v …}` (rf2-ibksxg — no reshape); here we only need
+  ;; the decoded body, so destructure `:value`. (The envelope also carries
+  ;; `:work/id` / `:completed-at` — read `(:completed-at reply)` when you want
+  ;; the causal completion time off the reply itself; below we use the
+  ;; declared recordable clock instead.) The recorded clock arrives flat as
+  ;; `rf/time-ms` (declared above), the durable causal time.
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:articles :status]    :loaded)
@@ -75,11 +74,12 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
              (assoc-in [:articles :loaded-at] time-ms))}))
 
 (rf/reg-event :articles/load-failed
-  ;; Failure compat payload: `{:kind :failure :failure m}` — read `:failure`.
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  ;; Failure reply: the canonical `{:status :error :error m …}` envelope —
+  ;; the classified `:rf.http/*` map rides under `:error`.
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
              (assoc-in [:articles :status] :error)
-             (assoc-in [:articles :error]  failure))}))
+             (assoc-in [:articles :error]  error))}))
 
 ;; The fourth lifecycle event: seed (or re-seed) the whole slice explicitly.
 ;; This is the supported way to initialise the slice — :default schema props
