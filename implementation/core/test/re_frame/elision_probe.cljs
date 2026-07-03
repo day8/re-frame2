@@ -702,8 +702,29 @@
   (machines-traces/emit-destroy-exit-failure!
     :rf.probe/direct-emit-actor :rf/default {:probe :direct-emit}))
 
+;; ---- rf2-fcbrjo: drain-depth halt (always-on + dev-trace prose) -----------
+
+(defn ^:export touch-drain-depth! []
+  ;; rf2-fcbrjo — root the real drain-depth halt path so the elision probe
+  ;; exercises BOTH channels of `re-frame.router/handle-depth-exceeded!`:
+  ;;   - the ALWAYS-ON structural record (`error-emit/dispatch-error-record!`)
+  ;;     — must SURVIVE (production-reachable; no sentinel, it is value-free);
+  ;;   - the dev-only `trace/emit-error!` carrying the human `:reason` prose,
+  ;;     wrapped in an explicit `(when interop/debug-enabled? …)` call-site
+  ;;     gate. Because `handle-depth-exceeded!` ALSO makes the live always-on
+  ;;     call, it is NOT a sole-statement leaf Closure can fold on the emit
+  ;;     body's nil-return — the call-site gate is what folds the prose away
+  ;;     (the rf2-cprm0q trap). This touch roots the gated emit so the control
+  ;;     build (DEBUG=true) contains the `:reason` sentinel and the production
+  ;;     build (DEBUG=false) must NOT — giving the elision assertion teeth.
+  (rf/reg-frame :rf.probe/drain-depth {:drain-depth 4})
+  (rf/reg-event :rf.probe/loop-forever
+    (fn [_ _] {:fx [[:dispatch [:rf.probe/loop-forever]]]}))
+  (rf/dispatch-sync [:rf.probe/loop-forever] {:frame :rf.probe/drain-depth}))
+
 (defn ^:export run []
   (touch-direct-emit-diagnostics!)
+  (touch-drain-depth!)
   (touch-trace!)
   (touch-schemas!)
   (touch-registrar!)

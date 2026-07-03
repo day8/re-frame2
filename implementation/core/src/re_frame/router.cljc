@@ -2558,6 +2558,19 @@
   ;; the per-event epoch model).
   100)
 
+(def ^:private cycle-evidence-depth
+  ;; rf2-fcbrjo: the bound on the per-drain settled-event-id ring the
+  ;; depth-halt path attaches as CYCLE EVIDENCE (`:tail-event-ids`) on the
+  ;; always-on `:rf.error/drain-depth-exceeded` record. A runaway drain is
+  ;; almost always a small dispatch cycle repeating (A → B → A → …), so the
+  ;; last K settled ids ARE the cycle — the repeating suffix names it. K is
+  ;; small (the ring is allocated per drain that overflows, and it only ever
+  ;; needs to be long enough to show the repeat) and carries STRUCTURAL ids
+  ;; only (the event-id keyword, never the event args), so it survives the
+  ;; always-on egress-redaction posture (Spec 009 §The promotion criterion —
+  ;; structured data only).
+  16)
+
 (defn- handle-depth-exceeded!
   "Tail-path for the depth-limit branch of `drain!`. Per Spec 002
   §Drain versus event — the epoch unit: the epoch boundary is the
@@ -2575,8 +2588,23 @@
   `:frame-state-after` both equal the current (last-settled) frame-state
   value and its buffer is empty — `commit-halt-record!` synthesises the
   record from the halting event's trigger. Listeners receive it like any
-  other; `restore-epoch!` refuses non-`:ok` targets."
-  [frame-id router depth last-event]
+  other; `restore-epoch!` refuses non-`:ok` targets.
+
+  rf2-fcbrjo — ALWAYS-ON promotion + cycle evidence. A drain-depth halt is
+  the one error class that is inherently DATA-dependent and PRODUCTION-only:
+  under `goog.DEBUG=false` the dev trace surface is DCE'd, so before this
+  the halt shipped NOTHING to any sink and the runaway simply went silent.
+  Per Spec 009 §The promotion criterion (all three legs hold — production-
+  reachable, a corrupted-invariant contract breach the next operation can't
+  see, silence compounds), the halt now ALSO fans a STRUCTURAL-ONLY record
+  out through the always-on axis (`error-emit/dispatch-error-record!`, the
+  non-event union-record path the frame-teardown report rides) so an off-box
+  shipper sees the halt under `goog.DEBUG=false`. `tail-event-ids` (the last
+  K settled event-ids, the `run-one-pass!` ring) is the CYCLE EVIDENCE — the
+  repeating suffix names the runaway cycle. The record carries ids / counts
+  ONLY; the human `:reason` prose stays on the dev-only `trace/emit-error!`
+  path (elided in production), per the elision discipline."
+  [frame-id router depth last-event tail-event-ids]
   (let [{:keys [queue]} @router
         queue-size      (count queue)
         ;; The halting event — the next one that would have been dequeued.
@@ -2608,20 +2636,72 @@
         ;; the value restore rewinds to) and uses this passed value only when
         ;; no `:ok` epoch has landed yet (a depth-exceed on the first cascade).
         fs-now          (frame/frame-state-value frame-id)
+        ;; rf2-fcbrjo — STRUCTURAL cycle evidence for the always-on record.
+        ;; `:last-event-id` is the id keyword of the most-recently-settled
+        ;; event; `:tail-event-ids` is the ring of the last K settled ids
+        ;; (the repeating suffix names the runaway cycle); `:dropped-event-ids`
+        ;; is the queue-ordered id vector of the events cleared from the queue
+        ;; at the halt. All ids only — NO event args ride the always-on axis.
+        last-event-id   (when (vector? last-event) (first last-event))
+        dropped-event-ids (into []
+                                (comp (keep :event)
+                                      (map #(when (vector? %) (first %))))
+                                queue)
         halt-reason     {:operation  :rf.error/drain-depth-exceeded
                          :depth      depth
                          :queue-size queue-size
                          :last-event last-event}]
-    (trace/emit-error! :rf.error/drain-depth-exceeded
-                       {:frame      frame-id
-                        :depth      depth
-                        :queue-size queue-size
-                        :last-event last-event
-                        ;; Per rf2-nj6p7: no whole-drain rollback under
-                        ;; per-event epochs — the already-settled events
-                        ;; are durable. `:rollback? false` reflects that.
-                        :rollback?  false
-                        :recovery   :no-recovery})
+    ;; Axis 1 — ALWAYS-ON (rf2-fcbrjo). Fan a STRUCTURAL-ONLY non-event union
+    ;; record out through the corpus-wide error-emit listener + the frame-owned
+    ;; observability sink, so a drain-depth halt surfaces under `goog.DEBUG=
+    ;; false` (the dev trace below is DCE'd there). Ids / counts / the cycle
+    ;; id-vector ONLY — no event args, no `:reason` prose — per Spec 009 §The
+    ;; promotion criterion (structured data only) and the elision discipline.
+    (error-emit/dispatch-error-record!
+      {:error             :rf.error/drain-depth-exceeded
+       :frame             frame-id
+       :time              (interop/now-ms)
+       :depth             depth
+       :queue-size        queue-size
+       :last-event-id     last-event-id
+       :tail-event-ids    tail-event-ids
+       :dropped-event-ids dropped-event-ids
+       ;; Per rf2-nj6p7: no whole-drain rollback under per-event epochs —
+       ;; the already-settled events are durable.
+       :rollback?         false
+       :recovery          :no-recovery})
+    ;; Axis 2 — dev-only trace. This is where the RICH diagnostic prose
+    ;; (`:reason`, built with `str` + `pr-str`) rides — the full `:last-event`
+    ;; vector too, for the local debugger.
+    ;;
+    ;; rf2-fcbrjo / rf2-cprm0q — the EXPLICIT `interop/debug-enabled?` call-site
+    ;; gate is MANDATORY here, not the internal gate inside `trace/emit-error!`
+    ;; alone. This fn ALSO makes the live always-on `dispatch-error-record!`
+    ;; call above, so `handle-depth-exceeded!` is NOT a sole-statement leaf that
+    ;; Closure can fold on the emit body's nil-return; without the call-site
+    ;; gate the `(str … (pr-str …))` prose survives into the production bundle
+    ;; (the exact leak that broke rf2-cprm0q / #5107). The call-site gate lets
+    ;; Closure constant-fold the whole form — prose and all — under `:advanced`
+    ;; + `goog.DEBUG=false` (pinned by the 009 elision probe).
+    (when interop/debug-enabled?
+      (trace/emit-error! :rf.error/drain-depth-exceeded
+                         {:frame             frame-id
+                          :depth             depth
+                          :queue-size        queue-size
+                          :last-event        last-event
+                          :last-event-id     last-event-id
+                          :tail-event-ids    tail-event-ids
+                          :dropped-event-ids dropped-event-ids
+                          ;; Dev-only human prose — the runaway-cycle hint.
+                          :reason            (str "Drain depth limit (" depth
+                                                  ") exceeded — likely a dispatch"
+                                                  " loop. Cycle (last settled ids): "
+                                                  (pr-str tail-event-ids))
+                          ;; Per rf2-nj6p7: no whole-drain rollback under
+                          ;; per-event epochs — the already-settled events
+                          ;; are durable. `:rollback? false` reflects that.
+                          :rollback?         false
+                          :recovery          :no-recovery}))
     (swap! router assoc :queue interop/empty-queue :scheduled? false)
     (when-let [commit-halt! (late-bind/get-fn-cached :epoch/commit-halt-record!)]
       ;; The halting event never ran, so the capture buffer is empty and
@@ -2790,11 +2870,17 @@
   so a handler that destroys its own frame mid-drain can recover the
   pre-run snapshot for its `:halted-destroy` epoch record (rf2-9neiq)."
   [frame-id router drain-depth]
+  ;; rf2-fcbrjo: `tail-ring` accumulates the last K settled event-ids as the
+  ;; drain runs — the CYCLE EVIDENCE the depth-halt attaches to the always-on
+  ;; record. A bounded vector (drop the head past `cycle-evidence-depth`); ids
+  ;; only, no args. Empty until the first event settles (a depth-0 frame halts
+  ;; before any event runs, so the ring is legitimately empty there).
   (loop [depth      0
-         last-event nil]
+         last-event nil
+         tail-ring  []]
     (cond
       (>= depth drain-depth)
-      (do (handle-depth-exceeded! frame-id router depth last-event)
+      (do (handle-depth-exceeded! frame-id router depth last-event tail-ring)
           ::halt)
 
       ;; Per rf2-68kok: destroyed-frame check fires BEFORE the next
@@ -2851,7 +2937,15 @@
             (process-event! envelope))
           (let [fs-after (frame/frame-state-value frame-id)]
             (settle-event-epoch! frame-id fs-before fs-after time-ms))
-          (recur (inc depth) (:event envelope)))
+          (let [event    (:event envelope)
+                ;; rf2-fcbrjo: append this settled event's id to the bounded
+                ;; cycle-evidence ring (ids only; drop the head past K).
+                event-id (when (vector? event) (first event))
+                ring     (conj tail-ring event-id)
+                ring     (if (> (count ring) cycle-evidence-depth)
+                           (subvec ring (- (count ring) cycle-evidence-depth))
+                           ring)]
+            (recur (inc depth) event ring)))
         ::settled))))
 
 (defn- force-release-on-halt!

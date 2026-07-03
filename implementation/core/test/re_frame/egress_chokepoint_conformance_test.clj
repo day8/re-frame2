@@ -226,6 +226,18 @@
       `:exception` residual (the documented exception non-goal — Security.md
       §Out-of-scope), no app-db / event slice.
 
+    - re-frame.router (rf2-fcbrjo) — `handle-depth-exceeded!` ships the
+      `:rf.error/drain-depth-exceeded` halt record. VETTED structural-only: it
+      carries `:depth` / `:queue-size` (ints), `:last-event-id` /
+      `:tail-event-ids` (the cycle-evidence ring) / `:dropped-event-ids` (event
+      ID KEYWORDS only — the halt path deliberately extracts `(first event)`, so
+      NO event args ride), `:rollback?` (bool), `:recovery :no-recovery`, and
+      `:time`. No slot lifts a value out of an event / app-db slice, and there
+      is no exception residual (a depth halt is a control-flow limit, not a
+      thrown error), so the raw corpus-leg fan-out is value-free. The rich human
+      `:reason` prose + full `:last-event` vector ride the DCE'd dev trace ONLY,
+      never this record.
+
   NOTE the census B5 site `re-frame.ssr.hydrate` is DELIBERATELY ABSENT: it
   lifts the untrusted `:payload-frame-id` out of the deserialised payload, so it
   is NOT structural-only — it ROUTES through `project-egress` (the B5 fix) and
@@ -233,7 +245,8 @@
   would fail the coverage test, which is the point."
   '#{re-frame.ssr.boot
      re-frame.ssr.error-projector
-     re-frame.ssr.ring.lifecycle})
+     re-frame.ssr.ring.lifecycle
+     re-frame.router})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
