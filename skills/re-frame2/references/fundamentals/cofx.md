@@ -189,7 +189,7 @@ The testing story is *supply the facts; don't monkey-patch the clock or RNG*:
 (rf/reg-cofx :ui/local-theme {:doc "Test stub."} (fn [_k] "dark"))
 ```
 
-The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); supplied values are preserved verbatim and never overwritten. **Reserve it for tests** — it is the seam that pins recordable facts for a deterministic assertion. A production dispatch carries no cofx; the app supplies its world-reads through `reg-cofx` (a generator for what it owns, a provided registration for boundary facts). There is no `:rf.world/inputs` dispatch opt — passing it is a hard error (`:rf.error/world-inputs-renamed`) naming `:rf.cofx`.
+The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); supplied values are preserved verbatim and never overwritten. **Reserve it for tests** — it is the seam that pins recordable facts for a deterministic assertion. A production dispatch carries no cofx; the app supplies its world-reads through `reg-cofx` (a generator for what it owns, a provided registration for boundary facts). There is no `:rf.world/inputs` dispatch opt — a draft-only name, so passing it earns no dedicated error id; it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx`.
 
 ## Common gotchas
 

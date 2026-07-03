@@ -28,9 +28,11 @@ Type: standards-track
 > originally-shipped surface, where the recordable-coeffect map rode the envelope
 > under `:rf.world/inputs` and v1 `inject-cofx` had a migration path.
 > [EP-0017 (Recordable Coeffects)](EP-0017-recordable-coeffects.md) **superseded
-> that surface**: the field is now the flat `:rf.cofx` map, the old spelling is a
-> **hard error** (`:rf.error/world-inputs-renamed`, no alias / no coexistence
-> window), and `inject-cofx` is **removed**. The rename and the flat-map shape are
+> that surface**: the field is now the flat `:rf.cofx` map, the old spelling is
+> **retired** (no alias / no coexistence window) — a draft-only name, so it earns
+> no dedicated error id and rides the generic `:rf.warning/unknown-dispatch-opt`
+> surface with a did-you-mean naming `:rf.cofx` (per [Conventions §The tombstone
+> rule](../../spec/Conventions.md#the-tombstone-rule--dedicated-retired-name-error-ids-only-for-shipped-names)) — and `inject-cofx` is **removed**. The rename and the flat-map shape are
 > graduated into `spec/002-Frames.md` §Recordable coeffects and
 > `spec/Spec-Schemas.md` (`:rf.cofx`). **Read this EP for the recording *rule* and
 > rationale; the spec governs the current authoring surface.** The recording

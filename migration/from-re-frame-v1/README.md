@@ -830,7 +830,7 @@ v1 signal functions could call `subscribe`, return a single live signal, a vecto
 
 1. **`inject-cofx` is removed (no alias).** Calling `(rf/inject-cofx :id)` is the hard error `:rf.error/inject-cofx-removed`. A handler now takes delivery of a coeffect by **declaring** the id in `:rf.cofx/requires` registration metadata; the value arrives **flat** in the coeffects map under its id.
 2. **`reg-cofx` is value-returning.** The v1 ctx→ctx shape (`(fn [ctx] (assoc-in ctx [:coeffects :id] v))`) is retired. A supplier is now `(fn [] value)` or `(fn [arg] value)` and returns the coeffect value directly.
-3. **`:rf.world/inputs` → `:rf.cofx`** (EP-0010's envelope field renamed + flattened). It is a **flat** `fact-name → value` map (no `:uuid`/`:random` grouping sub-maps). Supplying the retired `:rf.world/inputs` dispatch opt is the hard error `:rf.error/world-inputs-renamed`. The durable wall-clock fact is the framework's one built-in coeffect, **`:rf/time-ms`** (recordable, provided, stamped at enqueue).
+3. **`:rf.world/inputs` → `:rf.cofx`** (EP-0010's envelope field renamed + flattened). It is a **flat** `fact-name → value` map (no `:uuid`/`:random` grouping sub-maps). `:rf.world/inputs` was a draft-only name (never shipped), so supplying it as a dispatch opt earns no dedicated error id — it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx`. The durable wall-clock fact is the framework's one built-in coeffect, **`:rf/time-ms`** (recordable, provided, stamped at enqueue).
 4. **Nothing implicit, including the time.** A handler that folds a timestamp into durable state declares `:rf.cofx/requires [:rf/time-ms]` and reads `time-ms` flat.
 
 **The mechanical reshape (Type A):**
