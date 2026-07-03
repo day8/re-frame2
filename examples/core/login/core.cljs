@@ -262,7 +262,7 @@
       ;; performing them — the action stays pure; the runtime does the
       ;; dirty work. When the reply lands, the runtime tacks it onto the
       ;; end of the :on-success / :on-failure event
-      ;; (`{:kind :success :value …}` / `{:kind :failure :failure …}`).
+      ;; (`{:status :ok :value …}` / `{:status :error :error …}`).
       (fn [{[_ creds] :event}]
         {:fx [[:rf.http/managed
                ;; `:sensitive? true` is the secret-keeper. It scrubs the
@@ -283,10 +283,11 @@
       :record-error
       ;; Remember what went wrong (for the UI) and tick the attempt
       ;; counter up by one (for the retry guard).
-      (fn [{data :data [_ {:keys [failure]}] :event}]
+      ;; rf2-ibksxg — the classified failure map rides under :error.
+      (fn [{data :data [_ {:keys [error]}] :event}]
         {:data (-> data
                    (update :attempts inc)
-                   (assoc :error (or (:message failure) "Login failed.")))})
+                   (assoc :error (or (:message error) "Login failed.")))})
 
       :lock-account
       ;; Slam the door after too many tries. This one is fire-and-forget:
