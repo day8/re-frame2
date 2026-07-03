@@ -1298,7 +1298,7 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 
 | From | Reads |
 |---|---|
-| Focused epoch record | `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`, `:rf.route/fragment-changed` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`) |
+| Focused epoch record | The route-phase trace ops, read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`), each carrying a `:tags :phase` taxonomy tag (§7 Route phase taxonomy — `#{:can-leave :can-enter :on-match :settle}`): `:rf.route/navigation-blocked` (`:phase :can-leave`), `:rf.route/entry-blocked` (`:phase :can-enter` — rf2-p69yaz made this phase op REAL; the enter block is the first-class mirror of the leave block), `:rf.route/activated` / `:rf.route.nav-token/allocated` (`:on-match` cascade begin), and `:rf.route/fragment-changed` |
 | Registries | Route tree (`reg-route`) |
 | Per-frame state | Current active route + phase (for empty-state) |
 

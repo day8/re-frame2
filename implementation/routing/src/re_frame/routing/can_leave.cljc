@@ -356,12 +356,19 @@
         ;; trace marks the blocked transition for tools. rf2-dbmj6x: stamp
         ;; the carried `frame-id`. EP-0015 (rf2-jfaucw): redact the
         ;; query/fragment carrier VALUES of `:requested-url` before egress.
+        ;; rf2-p69yaz: stamp the route-phase taxonomy tag
+        ;; (`:phase :can-leave` / `:can-enter`) so the Xray routing panel
+        ;; (021 §7 Route phase taxonomy) can read WHICH gate blocked from the
+        ;; focused epoch's trace-events — this is what makes the 021 §7.3
+        ;; `:rf.route/can-enter` phase op REAL (it was a phantom before this
+        ;; bead; no route trace carried a `:phase` tag).
         (trace/emit! :rf.event block-event
                      (egress/redact-url-tag
                        (cond-> {:requested-url   requested-url
                                 :rejecting-route rejecting-route
                                 :rejecting-guard guarded-id
-                                :direction       direction}
+                                :direction       direction
+                                :phase           reason}   ;; :can-leave / :can-enter
                          frame-id (assoc :frame frame-id))
                        :requested-url))
         {:rf.db/runtime
