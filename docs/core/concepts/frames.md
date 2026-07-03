@@ -76,15 +76,15 @@ Notice there's no place to hand `reg-frame` an initial app-db. That's on purpose
 
 !!! note "A frame's app-db always starts as `{}` — there is no `:db` config key"
 
-    State arrives the only way state ever arrives: through an [event cascade](../glossary.md#event-cascade). To seed initial data, make `[:rf/set-db {…}]` the first `:initial-events` step (`:rf/set-db` is the framework's "replace app-db with this map" event):
+    State arrives the only way state ever arrives: through an [event pipeline](../glossary.md#event-pipeline). To seed initial data, make `[:rf/set-db {…}]` the first `:initial-events` step (`:rf/set-db` is the framework's "replace app-db with this map" event):
 
     ```clojure
     (rf/reg-frame :cart {:initial-events [[:rf/set-db {:items []}]]})
     ```
 
-    Keeping initialisation on the dispatch path means the same cascade that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
+    Keeping initialisation on the dispatch path means the same pipeline that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
 
-`:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:cart/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:cart/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — "to completion" meaning that if a setup event dispatches further events, those all finish too. So by the time `reg-frame` returns, the entire setup cascade is done and the frame is fully booted.
+`:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:cart/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:cart/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — "to completion" meaning that if a setup event dispatches further events, those all finish too. So by the time `reg-frame` returns, the entire setup drain is done and the frame is fully booted.
 
 ### The rest of `reg-frame`'s config
 
@@ -124,7 +124,7 @@ Now the reason frames exist. The genuine multi-frame cases, roughly in the order
 
 - **The same widget twice on one page.** A split pane comparing today against last week. Two panes, two frames, zero shared state.
 - **Story canvases.** "Show this view empty, loading, and loaded, side by side" is one set of handlers and three frames, each seeded differently. The Story runner allocates them; you mostly don't see it.
-- **A fresh frame per test.** Each test gets its own frame, torn down after, so no test can leak state into the next — see [Test a full cascade](../testing/cascades.md).
+- **A fresh frame per test.** Each test gets its own frame, torn down after, so no test can leak state into the next — see [Test a pipeline run](../testing/pipeline-runs.md).
 - **A frame per server request.** [Server-side rendering](../../ssr/concepts.md) creates a frame per HTTP request, runs the app in it, serialises, destroys it. A hundred concurrent requests are a hundred isolated app-dbs.
 
 The shape is the same every time: **one app, mounted N times, each mount fully isolated.** Multi-frame is never "N half-apps stitched together" — each frame is a complete, self-sufficient world.
@@ -316,7 +316,7 @@ Most frames live for the whole program and you never tear them down — `frame-p
 
 !!! warning "Gotcha"
 
-    Constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on: a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-cascade frame-creation path.
+    Constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on: a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-run frame-creation path.
 
 ### Scoping a frame in a test or at the REPL
 
@@ -336,7 +336,7 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
 
 `with-frame` is the lexical counterpart of the scope-only `frame-provider {:frame …}`; `with-new-frame` is the lexical form that *owns* a frame's lifetime — guaranteed teardown on block exit. Inside either, plain `dispatch` / `subscribe` resolve to the bound frame. `make-frame` is the one frame constructor; it hands back a live frame *value*, and the read surfaces take either that value or a frame id — `(rf/app-db-value f)` works as-is (`rf/frame-value->id` exists when an API genuinely wants the id).
 
-Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.) The test-fixture idiom in full — seeding, stubs, and the two macros' argument-shape guards — is [Test a full cascade](../testing/cascades.md)'s territory.
+Note `dispatch-sync` rather than `dispatch`: from outside a running drain it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the drain is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.) The test-fixture idiom in full — seeding, stubs, and the two macros' argument-shape guards — is [Test a pipeline run](../testing/pipeline-runs.md)'s territory.
 
 !!! warning "Gotcha"
 
@@ -348,15 +348,15 @@ Two corners you can ignore until a multi-frame app makes you reach for them. Bot
 
 ### Run-to-completion is per-frame
 
-[Run-to-completion](../glossary.md#drain--run-to-completion) — the runtime drains the whole event queue to a fixed point before anything renders — is scoped to *one frame*. Each frame has its own queue and its own drain loop; a cascade in frame A drains A's queue to settled, and a cascade in frame B drains B's, and the two never merge into one drain. That's the dispatch-level expression of isolation: a settled, between-event state of *one* frame is the snapshot boundary [time-travel](../glossary.md#time-travel) restores, and no other frame's drain can leave that value inconsistent with its handlers.
+[Run-to-completion](../glossary.md#drain--run-to-completion) — the runtime drains the whole event queue to a fixed point before anything renders — is scoped to *one frame*. Each frame has its own queue and its own drain loop; a drain in frame A carries A's queue to settled, and a drain in frame B carries B's, and the two never merge into one drain. That's the dispatch-level expression of isolation: a settled, between-event state of *one* frame is the snapshot boundary [time-travel](../glossary.md#time-travel) restores, and no other frame's drain can leave that value inconsistent with its handlers.
 
-So "one event, one cascade, one [epoch](../glossary.md#epoch)" is a per-frame statement. N frames mid-flight are N independent run-to-completion loops, each rewindable on its own.
+So "one event, one run, one [epoch](../glossary.md#epoch)" is a per-frame statement. N frames mid-flight are N independent run-to-completion loops, each rewindable on its own.
 
 ### Cross-frame `dispatch-sync` during a drain
 
-You met one `dispatch-sync` rule already: calling it against the *current* frame from inside that frame's running handler is `:rf.error/dispatch-sync-in-handler` (the cascade is already synchronous). The *cross-frame* variant is the deliberate exception. A `dispatch-sync` aimed at a **different** frame while the caller's frame is mid-drain is **not** rejected — it interleaves the two cascades: the target frame runs to settled, then the caller's frame continues. Frames are independent state machines, so this is well-defined, not a deadlock.
+You met one `dispatch-sync` rule already: calling it against the *current* frame from inside that frame's running handler is `:rf.error/dispatch-sync-in-handler` (the drain is already synchronous). The *cross-frame* variant is the deliberate exception. A `dispatch-sync` aimed at a **different** frame while the caller's frame is mid-drain is **not** rejected — it interleaves the two drains: the target frame runs to settled, then the caller's frame continues. Frames are independent state machines, so this is well-defined, not a deadlock.
 
-It's almost never what you meant, though, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` and proceeds. If you want one frame to poke another, prefer the async form — `(rf/dispatch [event] {:frame other})` — which queues on the target's router and drains on a later cycle, after your own cascade settles. Reserve the synchronous cross-frame call for the rare case where you genuinely need the other frame settled *before the next line runs* (some test and tooling setups), and treat the warning as the signal to double-check that intent.
+It's almost never what you meant, though, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` and proceeds. If you want one frame to poke another, prefer the async form — `(rf/dispatch [event] {:frame other})` — which queues on the target's router and drains on a later cycle, after your own drain settles. Reserve the synchronous cross-frame call for the rare case where you genuinely need the other frame settled *before the next line runs* (some test and tooling setups), and treat the warning as the signal to double-check that intent.
 
 ## What frames are not
 

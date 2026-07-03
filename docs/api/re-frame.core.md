@@ -1,6 +1,6 @@
 # re-frame.core
 
-`re-frame.core` is the single namespace every re-frame2 app requires. It is the facade: the registration verbs (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`), the two cascade verbs (`dispatch`, `subscribe`), the view surface (`reg-view`, `frame-provider`, `capture-frame`), the effect/interceptor surface, the frame primitive, the boot/configure lane, the instrumentation and registrar-query reads, and single-import re-exports of every optional feature's registration macro. Genuine-core surfaces are documented in full below; feature surfaces (machines, routing, flows, schemas, SSR, HTTP, resources) are re-exported here for ergonomics and carry their deep contract in their own namespace doc — those entries are brief, with a pointer.
+`re-frame.core` is the single namespace every re-frame2 app requires. It is the facade: the registration verbs (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`), the two pipeline verbs (`dispatch`, `subscribe`), the view surface (`reg-view`, `frame-provider`, `capture-frame`), the effect/interceptor surface, the frame primitive, the boot/configure lane, the instrumentation and registrar-query reads, and single-import re-exports of every optional feature's registration macro. Genuine-core surfaces are documented in full below; feature surfaces (machines, routing, flows, schemas, SSR, HTTP, resources) are re-exported here for ergonomics and carry their deep contract in their own namespace doc — those entries are brief, with a pointer.
 
 ```clojure
 (:require [re-frame.core :as rf])
@@ -126,7 +126,7 @@ This is the surface every re-frame2 app touches. Every entry registers a named h
   ```clojure
   (reg-frame id metadata)
   ```
-- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` mints it with metadata you can later read via `frame-meta`. The frame owns the `:observability` sink policy. Durable `app-db` data classification is **not** a frame annotation: a `reg-frame` config carrying `:sensitive` / `:large` **fails loud at registration**. Classify durable `app-db` paths by returning the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events`. See [re-frame.http.md](re-frame.http.md), [re-frame.schemas.md](re-frame.schemas.md) and [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one pipeline — and `reg-frame` mints it with metadata you can later read via `frame-meta`. The frame owns the `:observability` sink policy. Durable `app-db` data classification is **not** a frame annotation: a `reg-frame` config carrying `:sensitive` / `:large` **fails loud at registration**. Classify durable `app-db` paths by returning the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events`. See [re-frame.http.md](re-frame.http.md), [re-frame.schemas.md](re-frame.schemas.md) and [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 - **Example**:
   ```clojure
   ;; User-defined fxs sit under a user-feature prefix per Conventions — never
@@ -197,7 +197,7 @@ Each `clear-*` removes an entry from the registrar; the no-arg form clears the w
 
 ## Dispatch and subscribe
 
-These are the two verbs that drive the cascade. `dispatch` says "an event happened, run it through the cascade"; `subscribe` says "give me a reactive handle on this query's value."
+These are the two verbs that drive the pipeline. `dispatch` says "an event happened, run it through the pipeline"; `subscribe` says "give me a reactive handle on this query's value."
 
 `dispatch` and `dispatch-sync` come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, `subscribe`) captures the call-site source coords so tools like Xray can navigate from a trace event back to the originating expression. The **`*` fn** form (`dispatch*`, `dispatch-sync*`) skips the stamping — needed when you compose dispatch through a higher-order function (`(map dispatch* events)`) where a macro can't sit. Both route through the same dispatcher; only the trace stamping differs.
 
@@ -240,7 +240,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   (dispatch-sync event)
   (dispatch-sync event opts)
   ```
-- **Description**: Synchronous dispatch — runs the cascade to completion before returning. Tests, REPL workflows, and one-shot app-boot events live here. Do not use in handlers (it'll deadlock the queue).
+- **Description**: Synchronous dispatch — drains to completion before returning. Tests, REPL workflows, and one-shot app-boot events live here. Do not use in handlers (it'll deadlock the queue).
 - **Example**:
   ```clojure
   (rf/dispatch-sync [:counter/initialise])   ;; one-shot app-boot event
@@ -373,7 +373,7 @@ The framework ships a small, fixed set of standard `:rf/*` events you can dispat
 
 ## Views
 
-Views are where the cascade ends and pixels begin. The view layer is **substrate-agnostic** — the shared dataflow (frames, subscriptions, dispatch, source metadata, registry ids) is uniform across Reagent, UIx, and Helix, and the same `capture-frame` carry primitive composes across all three. The substrate-specific hooks (`use-subscribe`, `wrap-view`, …) live in each adapter's namespace doc ([re-frame.adapter.reagent.md](re-frame.adapter.reagent.md) / [re-frame.adapter.uix.md](re-frame.adapter.uix.md) / [re-frame.adapter.helix.md](re-frame.adapter.helix.md)).
+Views are where the pipeline ends and pixels begin. The view layer is **substrate-agnostic** — the shared dataflow (frames, subscriptions, dispatch, source metadata, registry ids) is uniform across Reagent, UIx, and Helix, and the same `capture-frame` carry primitive composes across all three. The substrate-specific hooks (`use-subscribe`, `wrap-view`, …) live in each adapter's namespace doc ([re-frame.adapter.reagent.md](re-frame.adapter.reagent.md) / [re-frame.adapter.uix.md](re-frame.adapter.uix.md) / [re-frame.adapter.helix.md](re-frame.adapter.helix.md)).
 
 ### `reg-view`
 
@@ -600,7 +600,7 @@ The framework reserves a few `:fx` entries and one standard interceptor referenc
 
 | `[fx-id args]` | Args | Status | Intuition |
 |---|---|---|---|
-| `[:dispatch event-vec]` | event vector | v1 | "Schedule this event on the same queue." Async — runs after the current cascade completes. |
+| `[:dispatch event-vec]` | event vector | v1 | "Schedule this event on the same queue." Async — runs after the current run completes. |
 | `[:dispatch-later {:ms ms :event event-vec}]` | options map | v1 | "Schedule this event after N ms." |
 
 #### `[:rf.interceptor/path <path-vector>]`
@@ -614,7 +614,7 @@ The framework reserves a few `:fx` entries and one standard interceptor referenc
 
 ## Frames
 
-A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame, established at the root with `rf/frame-provider`. `init!` does **not** create one for you — frame identity is carried, not synthesised from absence (see [Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found)). Apps that need isolation between subsystems register additional frames and dispatch / subscribe against them via `{:frame :other}`.
+A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Most apps have exactly one frame, established at the root with `rf/frame-provider`. `init!` does **not** create one for you — frame identity is carried, not synthesised from absence (see [Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found)). Apps that need isolation between subsystems register additional frames and dispatch / subscribe against them via `{:frame :other}`.
 
 ### `make-frame`
 
@@ -645,7 +645,7 @@ A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most
 - **Example**:
   ```clojure
   ;; Full frame replace (destroy + re-reg with the SAME config).
-  ;; Must run OUTSIDE any handler cascade — e.g. a restart button's :on-click.
+  ;; Must run OUTSIDE any handler run — e.g. a restart button's :on-click.
   (rf/reset-frame! :app/main)
   ```
 
@@ -854,14 +854,14 @@ The surfaces that bring a re-frame2 process up and take it down. An app author l
   | Key | Opts | Default | Status | What it tunes |
   |---|---|---|---|---|
   | `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn fn}` | `{:depth 50, :trace-events-keep 50, :redact-fn nil}` | v1 (dev-only) | Per-frame epoch ring depth, trace-event retention cap per record, and an optional projection-side redactor applied only at off-box egress (inside `projected-record`). |
-  | `:trace-buffer` | `{:cascades-retained N}` | `{:cascades-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's cascade-slot count. 0 disables retention (the surface stays live). |
+  | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's event-slot count — one slot per event, regardless of how many trace events its run emitted. 0 disables retention (the surface stays live). |
   | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` substitutes a `:rf.size/large-elided` marker. 0 disables runtime auto-detect. |
 
   There is **no `:sub-cache` knob** — sub-cache disposal is synchronous on derefer-count → 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key — it's per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.size/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`, `:redact-fn`).
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}
-                  :trace-buffer  {:cascades-retained 25}
+                  :trace-buffer  {:events-retained 25}
                   :elision       {:rf.size/threshold-bytes 8192}})
   ```
 
@@ -981,11 +981,11 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   (trace-buffer) → vector of trace events, oldest-first
   (trace-buffer opts) → vector of trace events, oldest-first
   ```
-- **Description**: "What's in the ring right now?" Reads the dev-only buffer non-destructively. Pair tools and Xray use this for post-mortem inspection. The retained cascade-slot count is the `(rf/configure! {:trace-buffer {:cascades-retained N}})` knob.
+- **Description**: "What's in the ring right now?" Reads the dev-only buffer non-destructively. Pair tools and Xray use this for post-mortem inspection. The retained event-slot count is the `(rf/configure! {:trace-buffer {:events-retained N}})` knob.
 - **Example**:
   ```clojure
-  (rf/trace-buffer :app/main)               ;; cascade-keyed ring (oldest-first)
-  (rf/trace-buffer :app/main {:flat true})  ;; raw trace events instead of cascade bundles
+  (rf/trace-buffer :app/main)               ;; event-keyed ring (oldest-first)
+  (rf/trace-buffer :app/main {:flat true})  ;; raw trace events instead of event bundles
   ```
 
 ### `clear-trace-buffer!`
@@ -1001,27 +1001,27 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   (rf/clear-trace-buffer! :app/main)   ;; empty one frame's ring (e.g. between tool sessions)
   ```
 
-### `group-cascades`
+### `group-by-event`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (group-cascades events) → vector of cascade records
+  (group-by-event events) → vector of event records
   ```
-- **Description**: Pure data projection of a list of trace events into per-cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. JVM-runnable.
+- **Description**: Pure data projection of a list of trace events into per-event records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. JVM-runnable.
 - **Example**:
   ```clojure
-  (rf/group-cascades (rf/trace-buffer :app/main {:flat true}))
+  (rf/group-by-event (rf/trace-buffer :app/main {:flat true}))
   ```
 
-### `group-cascades-with-events`
+### `group-by-event-with-trace-events`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (group-cascades-with-events events) → vector of cascade records
+  (group-by-event-with-trace-events events) → vector of event records
   ```
-- **Description**: Like `group-cascades`, but each record additionally carries a `:trace-events` slot holding the **vector** of raw trace events that composed that cascade. The same `[frame dispatch-id]` grouping is reused verbatim; the `:trace-events` slot is the exact set of events the record was reduced from, in input order.
+- **Description**: Like `group-by-event`, but each record additionally carries a `:trace-events` slot holding the **vector** of raw trace events that composed that event's run. The same `[frame dispatch-id]` grouping is reused verbatim; the `:trace-events` slot is the exact set of events the record was reduced from, in input order.
 
 ### `domino-bucket`
 
@@ -1030,7 +1030,7 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   ```clojure
   (domino-bucket trace-event) → #{:event :handler :fx :effect :sub :render :other}
   ```
-- **Description**: Classify a raw trace event into the six-domino slot used by `group-cascades`. Pure.
+- **Description**: Classify a raw trace event into the pipeline-stage slot used by `group-by-event`. Pure. (The "domino" name is the first-contact mnemonic for those stages.)
 - **Example**:
   ```clojure
   (rf/domino-bucket {:op-type :rf.view :operation :rf.view/render})  ;; => :render
@@ -1155,7 +1155,7 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   ```clojure
   (replace-app-db! frame-id new-db) → boolean
   ```
-- **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the cascade. Records a synthetic epoch so `restore-epoch!` can rewind. Returns `true` on success.
+- **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the pipeline. Records a synthetic epoch so `restore-epoch!` can rewind. Returns `true` on success.
 - **Example**:
   ```clojure
   (rf/replace-app-db! :app/main {:counter 0})

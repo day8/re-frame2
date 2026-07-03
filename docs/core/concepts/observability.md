@@ -2,7 +2,7 @@
 
 You clicked a button and the app is now subtly wrong. You want to know one thing: what did that click actually *do*? Which handler ran, what changed in [app-db](../glossary.md#app-db), which subscriptions recomputed, which views re-rendered, what effects escaped. In most frontends that question has no clean answer, because causality is smeared across a hundred components, each mutating its own little corner of state. You end up bisecting `console.log` statements like it's 2009.
 
-re-frame2 has a clean answer, and it falls out of the architecture rather than being bolted on. Every event runs the same fixed [event cascade](../glossary.md#event-cascade) — the ordered run from a dispatched [event](../glossary.md#event) through its [event handler](../glossary.md#event-handler), the [commit](../glossary.md#commit), and the [effects](../glossary.md#effect) — so there's a single place to stand and watch the runtime go past. As it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream**, and it's the whole foundation. The fancy panels you'll meet at the end — [Xray](../glossary.md#xray) (the dev inspector), Story (a view workbench), the pair MCP (a bridge that lets an AI inspect the running app) — are all just *readers* of it.
+re-frame2 has a clean answer, and it falls out of the architecture rather than being bolted on. Every event traverses the same fixed [event pipeline](../glossary.md#event-pipeline) — the ordered run from a dispatched [event](../glossary.md#event) through its [event handler](../glossary.md#event-handler), the [commit](../glossary.md#commit), and the [effects](../glossary.md#effect) — so there's a single place to stand and watch the runtime go past. As it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream**, and it's the whole foundation. The fancy panels you'll meet at the end — [Xray](../glossary.md#xray) (the dev inspector), Story (a view workbench), the pair MCP (a bridge that lets an AI inspect the running app) — are all just *readers* of it.
 
 This page builds up from the smallest piece. First the shape of a single trace event. Then the buffer that remembers recent ones. Then a listener you can write in eight lines. Then what survives into production. Then the tools sitting on top.
 
@@ -10,7 +10,7 @@ If you take one idea away, take this one:
 
 !!! note "Every tool is a thin presentation over the same runtime facts"
 
-    Xray, Story, the pair MCP, machines-viz, and any listener you write all read one trace stream and one [epoch](../glossary.md#epoch) history. If two of them ever disagree about a cascade, one of them is broken — there is no second truth.
+    Xray, Story, the pair MCP, machines-viz, and any listener you write all read one trace stream and one [epoch](../glossary.md#epoch) history. If two of them ever disagree about a run, one of them is broken — there is no second truth.
 
 ## One wire: the trace stream
 
@@ -54,9 +54,9 @@ Both of these are designed to grow without breaking anyone. New `:op-type` value
 
 ### Two properties that shape everything downstream
 
-**Delivery is synchronous.** When the runtime emits, every registered listener runs *right then*, mid-cascade, on the same call stack — no queue, no batching, no reordering. That gives you perfect fidelity, which comes with an obligation: a listener has to be cheap. Grab the event, stash it, and return; defer anything expensive to a timer you own, so you never stretch out the cascade you're watching.
+**Delivery is synchronous.** When the runtime emits, every registered listener runs *right then*, mid-run, on the same call stack — no queue, no batching, no reordering. That gives you perfect fidelity, which comes with an obligation: a listener has to be cheap. Grab the event, stash it, and return; defer anything expensive to a timer you own, so you never stretch out the run you're watching.
 
-**Cascades are correlated, not inferred.** Every trace event emitted inside one event's cascade carries the same `:rf.trace/dispatch-id` in its tags. So "everything that click did" is a filter, not a guess. When a handler's effects dispatch a child event, the child cascade's opening `:rf.event/dispatched` carries `:rf.trace/parent-dispatch-id` pointing back at its cause. Walk those links and you have the causal tree: *this* dispatch happened because *that* one did. One dispatch = one cascade = one [epoch](../glossary.md#epoch) — three names for the same unit of work, seen from three vantage points. (*Epoch* is just the name for the before-and-after state record one cascade leaves behind; we get to it [below](#the-epoch-history-what-the-app-was).)
+**Runs are correlated, not inferred.** Every trace event emitted inside one event's run carries the same `:rf.trace/dispatch-id` in its tags. So "everything that click did" is a filter, not a guess. When a handler's effects dispatch a child event, the child run's opening `:rf.event/dispatched` carries `:rf.trace/parent-dispatch-id` pointing back at its cause. Walk those links and you have the causal tree: *this* dispatch happened because *that* one did. One dispatch = one run = one [epoch](../glossary.md#epoch) — three names for the same unit of work, seen from three vantage points. (*Epoch* is just the name for the before-and-after state record one run leaves behind; we get to it [below](#the-epoch-history-what-the-app-was).)
 
 !!! note "You can put your own events on the wire"
 
@@ -70,7 +70,7 @@ So each [frame](../glossary.md#frame) also keeps a ring buffer of recent history
 
 ```clojure
 (tooling/trace-buffer :app)
-;; => vector of cascade bundles, oldest first — each one already grouped:
+;; => vector of event bundles, oldest first — each one already grouped:
 ;;    {:dispatch-id 4711  :parent-dispatch-id nil  :frame :app
 ;;     :event [:cart/add-item {:sku "BK-1"}]  :dispatched {,,,}
 ;;     :handler {,,,}  :fx {,,,}  :effects [,,,]  :subs [,,,]  :renders [,,,]
@@ -79,30 +79,30 @@ So each [frame](../glossary.md#frame) also keeps a ring buffer of recent history
 
 This is how a late-attaching tool bootstraps itself: read the buffer to learn where the app just came from, then register a listener (next section) to stay current. The buffer is "what just happened"; the live stream is "what's happening now."
 
-The unit of retention is the **cascade**, not the individual trace event, and that choice matters: one dispatch takes one slot whether its cascade emitted five events or fifty thousand, so a chatty cascade can't flood out the one you care about. It's per-frame on purpose, so a devtool mounted in its own frame can storm its own subscriptions without polluting your app frame's history.
+The unit of retention is the **event**, not the individual trace event, and that choice matters: one dispatch takes one slot whether its run emitted five trace events or fifty thousand, so a chatty run can't flood out the one you care about. It's per-frame on purpose, so a devtool mounted in its own frame can storm its own subscriptions without polluting your app frame's history.
 
 One knob sets the depth:
 
 ```clojure
-(rf/configure! {:trace-buffer {:cascades-retained 50}})   ;; the default
+(rf/configure! {:trace-buffer {:events-retained 50}})   ;; the default
 ```
 
-That sets the process default. A frame that wants its own retention sets `:rf.trace/cascades-retained` in its `reg-frame` metadata. And when you want to start a session from a clean slate — between two recordings, say — `(tooling/clear-trace-buffer! :app)` empties the named frame's ring without touching anyone else's.
+That sets the process default. A frame that wants its own retention sets `:rf.trace/events-retained` in its `reg-frame` metadata. And when you want to start a session from a clean slate — between two recordings, say — `(tooling/clear-trace-buffer! :app)` empties the named frame's ring without touching anyone else's.
 
 ??? info "Coming from Redux DevTools?"
 
     This ring is the action log you scroll back through after something looks wrong — except it isn't a browser-extension bolt-on snooping on dispatches. It's a buffer the framework keeps natively, per isolated frame, and (the next section) it diffs state and time-travels too.
 
-!!! note "Why cascade bundles, not raw events?"
+!!! note "Why event bundles, not raw events?"
 
-    The default `trace-buffer` return is already grouped into per-cascade maps — the raw events folded into `:handler` / `:fx` / `:subs` / `:renders` slots — because that's the shape a tool actually wants to render. If you need the pre-grouped raw stream (you're re-folding it yourself, or chasing one specific emit), pass `{:flat true}` and you'll get plain trace events back instead. The storage is genuinely cascade-keyed either way; `:flat` just flattens the slots on the way out.
+    The default `trace-buffer` return is already grouped into per-event maps — the raw trace events folded into `:handler` / `:fx` / `:subs` / `:renders` slots — because that's the shape a tool actually wants to render. If you need the pre-grouped raw stream (you're re-folding it yourself, or chasing one specific emit), pass `{:flat true}` and you'll get plain trace events back instead. The storage is genuinely event-keyed either way; `:flat` just flattens the slots on the way out.
 
 ### Reading a slice, not the whole ring
 
 `(tooling/trace-buffer frame-id opts)` takes a filter map, so a tool doesn't have to pull the whole ring and sift it in JavaScript. The keys compose AND-wise — an absent key means "no constraint on that axis," and an unrecognised key is ignored (so a tool can probe a newer axis and degrade gracefully on an older runtime). The ones you'll reach for:
 
 ```clojure
-;; Just the cascades dispatched from a :user/login event:
+;; Just the runs dispatched from a :user/login event:
 (tooling/trace-buffer :app {:event-id :user/login})
 
 ;; Cursor-based polling — read once, remember the last :id, ask for what's new
@@ -113,18 +113,18 @@ That sets the process default. A frame that wants its own retention sets `:rf.tr
 (tooling/trace-buffer :app {:flat true :op-type :error})
 
 ;; Anything that matches your own predicate (the escape hatch):
-(tooling/trace-buffer :app {:pred (fn [cascade] (< 100 (count (:effects cascade))))})
+(tooling/trace-buffer :app {:pred (fn [run] (< 100 (count (:effects run))))})
 ```
 
-The full vocabulary is small: `:event-id`, `:origin`, `:dispatch-id`, `:between [t0 t1]`, `:since-ms`, `:pred`, and the `:flat`-only `:operation` / `:op-type` / `:severity` / `:since` / `:source` / `:handler-id` / `:sensitive?` keys. The cascade-level keys (`:event-id`, `:origin`, `:dispatch-id`, `:between`, `:since-ms`, `:pred`) work on bundle reads; the per-event keys require `:flat true`.
+The full vocabulary is small: `:event-id`, `:origin`, `:dispatch-id`, `:between [t0 t1]`, `:since-ms`, `:pred`, and the `:flat`-only `:operation` / `:op-type` / `:severity` / `:since` / `:source` / `:handler-id` / `:sensitive?` keys. The event-level keys (`:event-id`, `:origin`, `:dispatch-id`, `:between`, `:since-ms`, `:pred`) work on bundle reads; the per-trace-event keys require `:flat true`.
 
 !!! note "The corner cases are forgiving by design"
 
-    Reading a frame that doesn't exist — or was already destroyed — returns `[]`, not an error, mirroring how `(rf/app-db-value <unknown>)` returns `nil`. And `{:cascades-retained 0}` turns the ring *off* without turning the surface off: `trace-buffer` returns `[]`, but live listeners keep firing. That's the right setting when you only ever consume the live stream and don't want to pay for retention.
+    Reading a frame that doesn't exist — or was already destroyed — returns `[]`, not an error, mirroring how `(rf/app-db-value <unknown>)` returns `nil`. And `{:events-retained 0}` turns the ring *off* without turning the surface off: `trace-buffer` returns `[]`, but live listeners keep firing. That's the right setting when you only ever consume the live stream and don't want to pay for retention.
 
 ### The epoch history: what the app *was*
 
-Next to the trace ring (what the app *did*) sits the **epoch history** (what the app *was*). That's one assembled record per cascade, carrying `:db-before` and `:db-after` snapshots plus structured `:sub-runs` / `:renders` / `:effects` projections, retained to its own depth. Read it with `(rf/epoch-history :app)`. Its config map carries a few more knobs than the trace ring:
+Next to the trace ring (what the app *did*) sits the **epoch history** (what the app *was*). That's one assembled record per run, carrying `:db-before` and `:db-after` snapshots plus structured `:sub-runs` / `:renders` / `:effects` projections, retained to its own depth. Read it with `(rf/epoch-history :app)`. Its config map carries a few more knobs than the trace ring:
 
 ```clojure
 (rf/configure! {:epoch-history {:depth            50    ;; how many epochs to keep (default)
@@ -142,7 +142,7 @@ Because each record holds real before-and-after state, [time travel](../glossary
 
 !!! note "Time travel only lands on clean states"
 
-    `restore-epoch!` refuses any epoch whose cascade didn't settle cleanly — a halted or rolled-back cascade has no coherent "after" to rewind to, so the runtime declines rather than restore a half-applied state. (Epoch records carry an `:outcome` field that says how the cascade ended; more on that below.)
+    `restore-epoch!` refuses any epoch whose run didn't settle cleanly — a halted or rolled-back run has no coherent "after" to rewind to, so the runtime declines rather than restore a half-applied state. (Epoch records carry an `:outcome` field that says how the run ended; more on that below.)
 
 ## Your listener in eight lines
 
@@ -183,24 +183,24 @@ There's also a test-time helper, `(rf/clear-listeners! :trace)`, which drops *ev
 
     The same guard belongs around `trace-buffer`, `clear-trace-buffer!`, the epoch reads, and the `configure!` calls — every dev-only call site in user code.
 
-### The `:epoch` stream: assembled cascades, not raw events
+### The `:epoch` stream: assembled runs, not raw events
 
-The same verb drives three more streams, distinguished by that leading keyword. `:epoch` is the one you'll reach for most after `:trace`: it delivers one fully-assembled epoch record per cascade, *after* it settles, with `:db-before` / `:db-after` and the structured `:sub-runs` / `:renders` / `:effects` projection included — the right shape when you think in cascades and don't want to re-fold the raw stream yourself.
+The same verb drives three more streams, distinguished by that leading keyword. `:epoch` is the one you'll reach for most after `:trace`: it delivers one fully-assembled epoch record per run, *after* it settles, with `:db-before` / `:db-after` and the structured `:sub-runs` / `:renders` / `:effects` projection included — the right shape when you think in runs and don't want to re-fold the raw stream yourself.
 
 ```clojure
 (rf/register-listener! :epoch
-  :my-app/cascade-logger
+  :my-app/epoch-logger
   (fn [epoch-record]
     (println (:event-id epoch-record)
              "→" (count (:effects epoch-record)) "fx"
              "/" (count (:sub-runs epoch-record)) "sub-runs")))
 ```
 
-One subtlety the cascade-shaped view buys you: the `:epoch` callback fires once per *dequeued event*, not once per drain. If a handler's `:fx` dispatched a child event, the parent and the child are two separate epochs, and your callback fires twice — once each. The exception is work a [state machine](../../machines/concepts.md) does to itself: when a transition fires its own follow-up steps (an internal event it raises, or an automatic transition it takes immediately), those ride *inside* the triggering event's epoch rather than firing the callback again. So one user event stays one epoch, however much internal machinery it kicked off.
+One subtlety the run-shaped view buys you: the `:epoch` callback fires once per *dequeued event*, not once per drain. If a handler's `:fx` dispatched a child event, the parent and the child are two separate epochs, and your callback fires twice — once each. The exception is work a [state machine](../../machines/concepts.md) does to itself: when a transition fires its own follow-up steps (an internal event it raises, or an automatic transition it takes immediately), those ride *inside* the triggering event's epoch rather than firing the callback again. So one user event stays one epoch, however much internal machinery it kicked off.
 
-!!! note "Halted cascades show up here too"
+!!! note "Halted runs show up here too"
 
-    The `:epoch` stream is the devtools surface for *failed* cascades, not just clean ones — so the callback fires for halted drains as well, and each record's `:outcome` field tells you how it ended: `:ok` for a clean settle, `:halted-depth` if the cascade hit the re-entrancy depth guard, `:halted-destroy` if the frame was torn down mid-cascade. A partial record still carries whatever the runtime captured up to the halt, plus a `:halt-reason` descriptor. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of the callback — and remember `restore-epoch!` refuses anything that isn't `:ok`.
+    The `:epoch` stream is the devtools surface for *failed* runs, not just clean ones — so the callback fires for halted drains as well, and each record's `:outcome` field tells you how it ended: `:ok` for a clean settle, `:halted-depth` if the run hit the re-entrancy depth guard, `:halted-destroy` if the frame was torn down mid-run. A partial record still carries whatever the runtime captured up to the halt, plus a `:halt-reason` descriptor. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of the callback — and remember `restore-epoch!` refuses anything that isn't `:ok`.
 
 !!! note "Tool-Pair alias"
 
@@ -221,7 +221,7 @@ What survives is deliberately narrow: an **always-on error substrate**, kept sep
 These two always-on substrates are the `:events` and `:errors` streams of the same `register-listener!` verb — same shape, but they are *not* elided. Their records are intentionally tight, because they cross into production where the rich dev tags don't exist:
 
 ```clojure
-;; :events — one record per processed event, after the cascade settles:
+;; :events — one record per processed event, after the run settles:
 {:event [:user/login "alice"]  :event-id :user/login
  :frame :app  :time 1716800000000
  :outcome :ok                ;; :ok | :error | :rolled-back | :flow-error
@@ -234,7 +234,7 @@ These two always-on substrates are the `:events` and `:errors` streams of the sa
  :exception #object[Error]  :elapsed-ms 7}
 ```
 
-The `:outcome` on an event record reports across *every* cascade-failure path, so a dispatch that aborted is never mis-reported as a clean `:ok`: `:ok` (committed, flows ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rolled-back` (post-commit schema validation rejected the new db and it was restored), or `:flow-error` (a flow's output threw and halted the cascade). The `:event` vector in both records is run through the framework's wire-elider once before fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one `:rf/redacted` — so the payload is safe to ship as-is. (The `:exception` object on an error record rides raw, deliberately, because off-box shippers need the host throwable and its stack.)
+The `:outcome` on an event record reports across *every* run-failure path, so a dispatch that aborted is never mis-reported as a clean `:ok`: `:ok` (committed, flows ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rolled-back` (post-commit schema validation rejected the new db and it was restored), or `:flow-error` (a flow's output threw and halted the run). The `:event` vector in both records is run through the framework's wire-elider once before fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one `:rf/redacted` — so the payload is safe to ship as-is. (The `:exception` object on an error record rides raw, deliberately, because off-box shippers need the host throwable and its stack.)
 
 ### Consuming production telemetry: declare a sink
 
@@ -294,11 +294,11 @@ flowchart LR
     WIRE --> YOU[your listener]
 ```
 
-**Xray answers: what happened?** It's the Redux DevTools of this world, grown to the full cascade: the epoch ledger, app-db diffs per event, which subscriptions recomputed, which views rendered, effects, machine transitions, schema failures — and time-travel scrubbing via `restore-epoch`. It also assembles the registration facts into the [derivation graph](../derivations-and-algebra-views.md): "where does this value come from?" drawn as a picture. Reach for it when you're debugging the running app — start with [debug with Xray](../how-to/debug-with-xray.md).
+**Xray answers: what happened?** It's the Redux DevTools of this world, grown to the full run: the epoch ledger, app-db diffs per event, which subscriptions recomputed, which views rendered, effects, machine transitions, schema failures — and time-travel scrubbing via `restore-epoch`. It also assembles the registration facts into the [derivation graph](../derivations-and-algebra-views.md): "where does this value come from?" drawn as a picture. Reach for it when you're debugging the running app — start with [debug with Xray](../how-to/debug-with-xray.md).
 
 **Story answers: what states should this thing have?** It's the Storybook of this world. You render a [view](../glossary.md#view)'s loading, empty, error, and happy states as named variants, each in its own isolated frame, without driving the whole app there by hand — then promote the good examples into tests. Story embeds Xray's panels for diagnosis rather than growing a second diff engine, and it has [its own tutorial track](../../story/index.md) in its docs.
 
-**The pair MCP answers: can an agent help?** It's an MCP server that lets an AI attach to your *running* app: read frames and app-db, follow epochs, dispatch events, run a dry-run cascade, time-travel — all through the same structured surfaces, with the mutating tools flagged so the agent host can gate them. The agent sees the evidence a good human debugger would ask for, instead of guessing from source.
+**The pair MCP answers: can an agent help?** It's an MCP server that lets an AI attach to your *running* app: read frames and app-db, follow epochs, dispatch events, dry-run a pipeline run, time-travel — all through the same structured surfaces, with the mutating tools flagged so the agent host can gate them. The agent sees the evidence a good human debugger would ask for, instead of guessing from source.
 
 **machines-viz answers: what does this machine look like?** It's a statechart renderer (think Stately Studio) that turns a [machine definition](../../machines/concepts.md) into an interactive chart with the live current state highlighted. It's presentation-only — both Xray's machine inspector and Story embed it.
 
@@ -316,20 +316,20 @@ And here's the rule for the tool you might write yourself — a domain monitor, 
 
 ## Advanced
 
-If the tool you write *dispatches its own events* — a recorder that writes captured events into its own app-db, an inspector that drives a panel — you hit a circularity the moment your listener fires synchronously mid-cascade: your bookkeeping dispatch emits its own trace events, which re-enter your listener, which dispatches again. Two opt-out flags exist precisely for this, and they're how Xray, Story, and the pair MCP stay quiet on the very wire they watch.
+If the tool you write *dispatches its own events* — a recorder that writes captured events into its own app-db, an inspector that drives a panel — you hit a circularity the moment your listener fires synchronously mid-run: your bookkeeping dispatch emits its own trace events, which re-enter your listener, which dispatches again. Two opt-out flags exist precisely for this, and they're how Xray, Story, and the pair MCP stay quiet on the very wire they watch.
 
-**Silence one handler — `:rf.trace/no-emit?` in the registration meta.** A handler whose registration carries the flag produces no trace events for the work it does — the cascade still runs, commits, and walks its effects; it just doesn't narrate. The innermost in-scope handler wins, so a normal handler dispatched *from inside* a silenced one is visible again.
+**Silence one handler — `:rf.trace/no-emit?` in the registration meta.** A handler whose registration carries the flag produces no trace events for the work it does — the run still proceeds, commits, and walks its effects; it just doesn't narrate. The innermost in-scope handler wins, so a normal handler dispatched *from inside* a silenced one is visible again.
 
 ```clojure
 (rf/reg-event :my-tool/note-trace-event
-  {:rf.trace/no-emit? true}                 ;; this handler's cascade emits nothing
+  {:rf.trace/no-emit? true}                 ;; this handler's run emits nothing
   (fn [{:keys [db]} [_ ev]]
     {:db (update db :captured (fnil conj []) ev)}))
 ```
 
 One subtlety with a production reach: the always-on `:events` stream honours this flag too — a `:rf.trace/no-emit?` handler is dropped from the production event-emit record as well, on the principle that a tool's internal bookkeeping isn't user-domain signal. (The `:errors` stream is unaffected; a real error still surfaces.)
 
-**Silence a whole frame — `:rf.trace/frame-no-emit?` in the frame config.** An inspector renders its *own* UI in a dedicated frame, and that UI's subscriptions and renders emit `:rf.sub/run` / `:rf.view/render` like any other — enough, on a busy panel, to evict every application cascade from the buffer the inspector is supposed to be showing you. Marking the tool's frame trace-disabled makes it emit nothing at all, while every application frame is untouched.
+**Silence a whole frame — `:rf.trace/frame-no-emit?` in the frame config.** An inspector renders its *own* UI in a dedicated frame, and that UI's subscriptions and renders emit `:rf.sub/run` / `:rf.view/render` like any other — enough, on a busy panel, to evict every application run from the buffer the inspector is supposed to be showing you. Marking the tool's frame trace-disabled makes it emit nothing at all, while every application frame is untouched.
 
 ```clojure
 (rf/reg-frame :my-tool/inspector
@@ -340,4 +340,4 @@ This is the mechanism behind "a devtool in its own frame can storm its own subsc
 
 ??? note "Going deeper"
 
-    The wire is a *free monoid* of trace events — an append-only sequence with one associative operation (concatenation) and an identity (the empty stream). Every tool is then a *fold* over that sequence: Xray folds it into an epoch ledger, a metrics sink folds it into counters, `group-cascades` folds the flat ring into bundles. Because a fold is determined entirely by its accumulator and step function — and the underlying sequence is the same for everyone — two correct folds over one stream *cannot* disagree about a shared question; they can only project different facets. "One truth, many presentations" isn't a discipline the tools agree to uphold. It's an algebraic property of building every reader as a fold over a single shared sequence. The dispatch-id correlation adds a second structure on top: it makes the stream not just a flat sequence but a *forest* (each cascade a tree rooted at its dispatched event, child cascades hanging off `:parent-dispatch-id`), so causal queries are tree walks rather than scans.
+    The wire is a *free monoid* of trace events — an append-only sequence with one associative operation (concatenation) and an identity (the empty stream). Every tool is then a *fold* over that sequence: Xray folds it into an epoch ledger, a metrics sink folds it into counters, `group-by-event` folds the flat ring into bundles. Because a fold is determined entirely by its accumulator and step function — and the underlying sequence is the same for everyone — two correct folds over one stream *cannot* disagree about a shared question; they can only project different facets. "One truth, many presentations" isn't a discipline the tools agree to uphold. It's an algebraic property of building every reader as a fold over a single shared sequence. The dispatch-id correlation adds a second structure on top: it makes the stream not just a flat sequence but a *forest* (each run a tree rooted at its dispatched event, child runs hanging off `:parent-dispatch-id`), so causal queries are tree walks rather than scans.

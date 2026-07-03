@@ -44,7 +44,7 @@ Hand-rolling a literal `db` is the escape hatch for very simple readers. For any
 
 !!! warning "Gotcha — what a sub test can't see"
 
-    `compute-sub` runs the *computation*, not the *reactive machinery* — it proves the value is right, not that a view re-renders when it changes. That's by design: change propagation (the equality gate, ref-counting, disposal) is the framework's contract, not your code, so you don't re-test it per sub. When the thing under test genuinely is "the view updated", that's a [view test](views.md) with the app fixture, or a [cascade test](cascades.md) asserting on committed state.
+    `compute-sub` runs the *computation*, not the *reactive machinery* — it proves the value is right, not that a view re-renders when it changes. That's by design: change propagation (the equality gate, ref-counting, disposal) is the framework's contract, not your code, so you don't re-test it per sub. When the thing under test genuinely is "the view updated", that's a [view test](views.md) with the app fixture, or a [pipeline-run test](pipeline-runs.md) asserting on committed state.
 
 ## When the sub carries a `:schema`
 

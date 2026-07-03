@@ -34,7 +34,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (clear-history!) → nil
   ```
-- **Description**: Drop every recorded epoch for every frame, and any in-flight per-frame capture buffer. Test fixtures use this so each fixture's drain observes a fresh capture state (a buffer left over from a previous fixture's mid-flight emit would otherwise be picked up by the next fixture's first cascade).
+- **Description**: Drop every recorded epoch for every frame, and any in-flight per-frame capture buffer. Test fixtures use this so each fixture's drain observes a fresh capture state (a buffer left over from a previous fixture's mid-flight emit would otherwise be picked up by the next fixture's first run).
 
 ```clojure
 ;; Reset epoch state between test fixtures.
@@ -69,10 +69,10 @@ State-injection surfaces that replace a frame's partitions directly, bypassing t
   ```clojure
   (replace-app-db! frame-id new-db) → boolean
   ```
-- **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the cascade. Returns `true` on success.
+- **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the pipeline. Returns `true` on success.
 
 ```clojure
-;; State injection — direct app-db write (bypasses the cascade).
+;; State injection — direct app-db write (bypasses the pipeline).
 (rf/replace-app-db! :app/main {:counter 0})
 ```
 

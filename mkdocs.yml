@@ -166,7 +166,7 @@ nav:
     # deeper/feature concepts -> how-to recipes -> explanation shelf -> v1
     # migration -> glossary -> API reference. The fundamentals come BEFORE the
     # tutorial so the reader meets the one-way loop before a real domain.
-    # The loop pages are NUMBERED in cascade order (events -> effects ->
+    # The loop pages are NUMBERED in pipeline order (events -> effects ->
     # subs -> views, with app-db as the centre) and every label carries a
     # descriptive tail, so the nav itself reads as the learning track.
     - "Quickstart: a counter in five minutes": core/quickstart.md
@@ -201,7 +201,7 @@ nav:
       - "Event handlers": core/testing/event-handlers.md
       - "Subscriptions": core/testing/subscriptions.md
       - "Views": core/testing/views.md
-      - "Cascades": core/testing/cascades.md
+      - "Pipeline runs": core/testing/pipeline-runs.md
     - "Why it's built this way":
       - "Inside-out: why views come last": core/explanation/inside-out.md
       - "One graph: derivations and algebra views": core/derivations-and-algebra-views.md

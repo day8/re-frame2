@@ -181,7 +181,7 @@ The flow-transform entry point the router installs, plus the test-fixture resets
   ```clojure
   (run-flows-on-db frame-id db runtime-db)
   ```
-- **Description**: The outermost-`:after` flow transform. Walks **this frame's** registered flows in topological order over the pending frame-state, dirty-checks each one, recomputes and `assoc-in`s the result into a transformed `app-db`, and returns the flow-augmented `app-db` value. `db` is the pending `app-db` partition; `runtime-db` the pending `runtime-db` partition (pass `nil` to resolve only bare `app-db` inputs). The router installs and calls this as the outermost `:after` interceptor — it fires last, against the chain's pending `:db` effect and before the `:db` install — so applications never call it. Flow outputs write `app-db` only; a flow `:derive` throw aborts the whole event (no partial commit) and the cascade halts.
+- **Description**: The outermost-`:after` flow transform. Walks **this frame's** registered flows in topological order over the pending frame-state, dirty-checks each one, recomputes and `assoc-in`s the result into a transformed `app-db`, and returns the flow-augmented `app-db` value. `db` is the pending `app-db` partition; `runtime-db` the pending `runtime-db` partition (pass `nil` to resolve only bare `app-db` inputs). The router installs and calls this as the outermost `:after` interceptor — it fires last, against the chain's pending `:db` effect and before the `:db` install — so applications never call it. Flow outputs write `app-db` only; a flow `:derive` throw aborts the whole event (no partial commit) and the run halts.
 
 ### `reset-flows!`
 

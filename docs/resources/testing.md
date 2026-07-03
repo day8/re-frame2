@@ -1,6 +1,6 @@
 # Testing resources
 
-Resources split into three lanes — register, cause, project — and that split is exactly what makes them testable: a test *causes* with an ordinary dispatch, answers the network with the same canned replies a [cascade test](../core/testing/cascades.md) uses, and *reads* the outcome through the projections. No live server, no waiting, no browser.
+Resources split into three lanes — register, cause, project — and that split is exactly what makes them testable: a test *causes* with an ordinary dispatch, answers the network with the same canned replies a [pipeline-run test](../core/testing/pipeline-runs.md) uses, and *reads* the outcome through the projections. No live server, no waiting, no browser.
 
 > **Cause with a dispatch, answer with a canned reply, read the cache projection.**
 
@@ -97,5 +97,5 @@ A mutation that `:populates` asserts the other consequence — the target key re
 ## What lives elsewhere
 
 - **The route as the cause** — a route's `:resources` entries ensure on navigation; drive them via [Testing routes](../routing/testing.md) (navigate, then read the projections here).
-- **The transport underneath** — retry policies, failure categories, the reply envelope: [Managed HTTP](../async/http.md) and [Testing cascades](../core/testing/cascades.md).
+- **The transport underneath** — retry policies, failure categories, the reply envelope: [Managed HTTP](../async/http.md) and [Test a pipeline run](../core/testing/pipeline-runs.md).
 - **The five statuses and their invariants** — the model these assertions lean on: [Server state: resources](concepts.md#what-a-view-sees-five-statuses). The [tutorial's Part 5](tutorial/05-test-and-ship.md) tests the whole RealWorld slice in this style.

@@ -105,11 +105,11 @@ One term in the table below: a [**frame**](../glossary.md#frame) is one isolated
 ```clojure
 (rf/configure!
   {:epoch-history {:depth 50}                       ;; how far time-travel rewinds
-   :trace-buffer  {:cascades-retained 50}           ;; cascades held for dev tools
+   :trace-buffer  {:events-retained 50}             ;; events held for dev tools
    :elision       {:rf.size/threshold-bytes 16384}});; "too big for the wire"
 ```
 
-A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:cascades-retained 200}})` — or compose all three in one value. An unknown top-level key is a silent no-op, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
+A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:events-retained 200}})` — or compose all three in one value. An unknown top-level key is a silent no-op, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
 
 !!! note "One thing fails loud"
 
@@ -118,7 +118,7 @@ A missing top-level key leaves that subsystem untouched, so you can pass just th
 The three keys, in detail:
 
 - **`:epoch-history`** — depth of the per-frame *epoch ring* (a fixed-size circular buffer of recent [app-db](../glossary.md#app-db) states) that powers Xray's [time travel](../glossary.md#time-travel); `:depth 0` disables it. This one is dev-only: in production the ring elides whatever you set. It carries two more opts, both for the security-conscious deployment. `:trace-events-keep` (a non-negative integer) caps how many raw trace events each epoch record retains. `:redact-fn` (`(fn [record] …)` or `nil`, default `nil`) is a scrub function called once per record at the *egress boundary* — the moment an epoch is about to leave the process to be shipped off-box to a hosted post-mortem dashboard. It runs only on that outbound copy: it does **not** mutate the in-process ring, so it never affects `restore-epoch!` fidelity; it only shapes what leaves. Reach for it when the framework's built-in [data classification](../glossary.md#data-classification) (a schema's `:sensitive?` flag, plus what it already infers from your effects) doesn't cover a field you need to scrub on the way out. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
-- **`:trace-buffer`** — how many whole *cascades* (one dispatch plus everything it fanned into) the dev trace ring retains; bump it for a bug spanning more user actions than the default 50. `:cascades-retained 0` disables retention while the surface stays live (listeners still fire; nothing is *kept*). Dev-only, same as `:epoch-history`.
+- **`:trace-buffer`** — how many *events* (one dispatch each — one slot per event, regardless of how many trace events its run emitted) the dev trace ring retains; bump it for a bug spanning more user actions than the default 50. `:events-retained 0` disables retention while the surface stays live (listeners still fire; nothing is *kept*). Dev-only, same as `:epoch-history`.
 - **`:elision`** — the size threshold above which a value is replaced by a `:rf.size/large-elided` marker on wire-bound surfaces. `:rf.size/threshold-bytes 0` turns off runtime size auto-detection entirely, so only values you *declared* large (or marked via a schema `:large?`) elide. This one is *not* dev-only — it shapes the always-on listener records your production monitors receive, so it matters in a release build too. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
 
 !!! note "Looking for `:sub-cache`?"
@@ -160,7 +160,7 @@ Tune narrowly, usually for one debug session. If the knob you want isn't here, i
 
 These run in every build, dev and production alike. Each one [fails loud](../glossary.md#fail-loud-not-silent) — rejecting with a structured `:rf.error/*` instead of silently stripping and warning — so a failure surfaces like any other bug rather than slipping past you.
 
-- **Drain depth** (default 100, per-frame `:drain-depth`) — a runaway dispatch [cascade](../glossary.md#event-cascade) halts at the ceiling with `:rf.error/drain-depth-exceeded` instead of freezing the tab. Already-settled events in the drain stay committed (each [commit](../glossary.md#commit) is atomic on its own); the offending event that tipped over the limit is the one that doesn't land. A cascade near the ceiling is a bug to fix, not a number to raise — the error's recovery is `:no-recovery` precisely because hitting it always means runaway recursion.
+- **Drain depth** (default 100, per-frame `:drain-depth`) — a runaway dispatch [drain](../glossary.md#drain--run-to-completion) halts at the ceiling with `:rf.error/drain-depth-exceeded` instead of freezing the tab. Already-settled events in the drain stay committed (each [commit](../glossary.md#commit) is atomic on its own); the offending event that tipped over the limit is the one that doesn't land. A drain near the ceiling is a bug to fix, not a number to raise — the error's recovery is `:no-recovery` precisely because hitting it always means runaway recursion.
 - **HTTP keyword cap** (`:rf.http/max-decoded-keys`, default 10000) — a hostile JSON reply can't intern unbounded keywords and slowly kill a long-running process; the decode fails onto your `:on-failure` path.
 - **Slow-loris timeout** (`:timeout-ms`, default 30000) — every [managed HTTP](../../resources/glossary.md#managed-http) request gets a wall-clock per-attempt timeout; opting out is deliberately loud (`:timeout-ms nil`) so a reviewer sees it.
 - **CRLF fail-fast** — server-side `:rf.server/*` response fx refuse to put a `\r` or `\n` on the wire: a header `:value` containing one throws with `:rf.error/header-invalid-value`, a redirect location containing one throws with `:rf.error/redirect-invalid-location`, and cookies go through structured maps that can't be string-spliced. Header injection is closed at the fx site, not normalised away.

@@ -329,7 +329,7 @@ Two notes. `rf.http/get` shadows `clojure.core/get`, so the namespace is meant t
 
 ## Testing without a network
 
-Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` route-stubbing macro — all registered by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a cascade](../core/testing/cascades.md) is the full recipe; [re-frame.http](../api/re-frame.http.md) documents every stub surface.
+Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` route-stubbing macro — all registered by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [re-frame.http](../api/re-frame.http.md) documents every stub surface.
 
 ## When not to reach for it
 
