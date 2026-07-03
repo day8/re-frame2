@@ -129,25 +129,20 @@
 (defn join-resolved?
   "Pure resolution check for a `:spawn-all` join given the join
   condition + the set of done child keys + total child count. Mirrors
-  Spec 005 §`:spawn-all` join semantics (`:all` / `:any` / `{:n N}`).
-  A `{:fn ...}` condition is opaque to the overlay (the host decides),
-  so this returns the host-supplied `:resolved?` verbatim when present.
+  Spec 005 §`:spawn-all` join semantics — the CLOSED two-member enum
+  `:all` / `:any` (rf2-w8gxxz cut the `{:n N}` / `{:fn pred}` modes). The
+  host-supplied `:resolved?` is honoured verbatim when present.
 
   Used by the join inspector to colour the 'Resolved' line + compute
   the 'waiting for K of N' remainder. Pure data → boolean."
   [{:keys [join children resolved?]}]
-  (let [done   (count (filter :done? children))
-        failed (count (filter :failed? children))
-        total  (count children)]
+  (let [done  (count (filter :done? children))
+        total (count children)]
     (cond
       (some? resolved?) (boolean resolved?)
       (= join :all)     (= done total)
       (= join :any)     (pos? done)
-      (and (map? join)
-           (:n join))   (>= done (:n join))
-      ;; {:fn ...} or unknown — the host owns truth; default false.
-      :else             (boolean (and (pos? total) (zero? failed)
-                                      (= done total))))))
+      :else             false)))
 
 (defn join-summary
   "A short `\"K/N done\"` (+ failed/cancelled when present) summary

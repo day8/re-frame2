@@ -13,8 +13,8 @@
       `:rf.reply/work-status`) on the resolution trace
       (`:rf.machine.spawn-all/all-completed` / `*/some-completed` /
       `*/any-failed`);
-   2. a post-resolution late completion (a surviving sibling under
-      `:cancel-on-decision? false`) rides a `:status :stale` /
+   2. a post-resolution late completion (a known child re-completing after
+      the `:resolved?` latch flipped) rides a `:status :stale` /
       `:work/status :suppressed` reply on the `:late-completion` trace —
       the spawn-all analogue of the single-`:spawn` stale path.
 
@@ -170,15 +170,15 @@
 ;; ---- integration: late completion carries a stale reply ----------------
 
 (deftest late-completion-carries-stale-reply
-  (testing "rf2-d63qtp — a post-resolution late completion (surviving sibling
-            under :cancel-on-decision? false) rides a :status :stale /
+  (testing "rf2-d63qtp — a post-resolution late completion (a known child
+            re-completing after the join latched) rides a :status :stale /
             :work/status :suppressed reply on the late-completion trace"
     (let [child  (mk-child :sup/relp3 :asset/loaded :asset/failed)
           ;; Parent stays in :hydrating across resolution by NOT declaring
           ;; an :on for the resolution event (the runtime still dispatches
           ;; :hydrate/some, but no transition fires) — so the join slot
-          ;; survives and the surviving sibling's later completion flows
-          ;; through the :resolved? late-completion branch.
+          ;; survives and a re-dispatch of a known child-id flows through
+          ;; the :resolved? late-completion branch.
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -187,7 +187,6 @@
                     {:children            [{:id :a :machine-id :relp3/a :start [:set-id :a]}
                                            {:id :b :machine-id :relp3/b :start [:set-id :b]}]
                      :join                :any
-                     :cancel-on-decision? false
                      :on-child-done       :asset/loaded
                      :on-child-error      :asset/failed
                      :on-some-complete    [:hydrate/some]}}}}]
@@ -200,10 +199,10 @@
                           [:rf.runtime/machines :spawned :sup/relp3 [:hydrating] :children])]
           ;; First child resolves the :any join.
           (rf/dispatch-sync [(:a ids) [:go]])
-          ;; Surviving sibling completes LATE (join already resolved). Under
-          ;; :cancel-on-decision? false it is not torn down, so its
-          ;; :on-child-done lands as a post-resolution late-completion.
-          (rf/dispatch-sync [(:b ids) [:go]]))
+          ;; The decisive child :a re-completes LATE (the join already
+          ;; latched :resolved?). Its :on-child-done lands as a
+          ;; post-resolution late-completion.
+          (rf/dispatch-sync [:sup/relp3 [:asset/loaded :a]]))
         (let [late (->> @captured
                         (filter #(= :rf.machine.spawn-all/late-completion (:operation %)))
                         first)]

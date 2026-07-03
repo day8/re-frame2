@@ -1,21 +1,22 @@
-;; Conformance fixture: machine/spawn-all-n-of-cancels-extras
+;; Conformance fixture: machine/spawn-all-any-cancels-extras
 ;;
 ;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify the
-;; entry-side fx emission for the `:join {:n N}` shape — fires
-;; :on-some-complete after the Nth :on-child-done; remaining children
+;; entry-side fx emission for the `:join :any` shape — fires
+;; :on-some-complete after the first :on-child-done; remaining children
 ;; are cancelled by the exit cascade.
 ;;
-;; This fixture exercises the entry-cascade for a 5-child :spawn-all
-;; with :join {:n 3}, plus a separate exit-cascade call to verify the
-;; corresponding teardown fx. (Live join-resolution + selective
-;; cancellation requires the runtime's app-db join-state and event
-;; intercept; pure machine-transition validates the desugared shape
-;; directly.)
+;; The join grammar is a CLOSED two-member enum (:all / :any — rf2-w8gxxz
+;; cut the {:n N} / {:fn pred} modes). This fixture exercises the
+;; entry-cascade for a 5-child :spawn-all with :join :any, plus a separate
+;; exit-cascade call to verify the corresponding teardown fx. (Live
+;; join-resolution + selective cancellation requires the runtime's app-db
+;; join-state and event intercept; pure machine-transition validates the
+;; desugared shape directly.)
 
-{:fixture/id           :machine/spawn-all-n-of-cancels-extras
+{:fixture/id           :machine/spawn-all-any-cancels-extras
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/declarative-spawn :actor/spawn-and-join}
- :fixture/doc          "A :spawn-all with :join {:n 3} and 5 children desugars to one spawn-all-init fx + 5 spawn fxs on entry; the exit cascade emits ONE :rf.machine/destroy fx with :rf/spawn-all true (the runtime's destroy handler tears down all live :children). Verifies entry- and exit-side fx emission for the {:n N} join shape."
+ :fixture/doc          "A :spawn-all with :join :any and 5 children desugars to one spawn-all-init fx + 5 spawn fxs on entry; the exit cascade emits ONE :rf.machine/destroy fx with :rf/spawn-all true (the runtime's destroy handler tears down all live :children). Verifies entry- and exit-side fx emission for the :any join shape."
 
  :fixture/registry
  {:machine
@@ -36,11 +37,11 @@
                           {:id :c :machine-id :worker}
                           {:id :d :machine-id :worker}
                           {:id :e :machine-id :worker}]
-       :join             {:n 3}
+       :join             :any
        :on-child-done    :done
        :on-child-error   :failed
-       :on-some-complete [:phase/three-done]}
-      :on    {:phase/three-done :ready}}
+       :on-some-complete [:phase/one-done]}
+      :on    {:phase/one-done :ready}}
      :ready  {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:start]
@@ -76,10 +77,10 @@
                                                     {:id :c :machine-id :worker}
                                                     {:id :d :machine-id :worker}
                                                     {:id :e :machine-id :worker}]
-                                 :join             {:n 3}
+                                 :join             :any
                                  :on-child-done    :done
                                  :on-child-error   :failed
-                                 :on-some-complete [:phase/three-done]}
+                                 :on-some-complete [:phase/one-done]}
                      :invoke-id [:working]}}]
     ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
@@ -110,7 +111,7 @@
       :rf/parent-id  :rf/transition-pure
       :rf/spawn-all-id [:working] :rf/spawn-all-child-id :e}]]}
 
-  ;; (2) Exit on :phase/three-done — single :rf.machine/destroy fx with
+  ;; (2) Exit on :phase/one-done — single :rf.machine/destroy fx with
   ;;     :rf/spawn-all true. The destroy-fx handler reads the join state
   ;;     from app-db and tears each :children entry down.
   {:call         :machine-transition
@@ -126,14 +127,14 @@
                           {:id :c :machine-id :worker}
                           {:id :d :machine-id :worker}
                           {:id :e :machine-id :worker}]
-       :join             {:n 3}
+       :join             :any
        :on-child-done    :done
        :on-child-error   :failed
-       :on-some-complete [:phase/three-done]}
-      :on    {:phase/three-done :ready}}
+       :on-some-complete [:phase/one-done]}
+      :on    {:phase/one-done :ready}}
      :ready  {}}}
    :snapshot     {:state :working :data {}}
-   :event        [:phase/three-done]
+   :event        [:phase/one-done]
    :expect-next-snapshot {:state :ready :data {}}
    :expect-effects
    [[:rf.machine/destroy {:rf/parent-id  :rf/transition-pure

@@ -151,8 +151,9 @@
                     {:children         [{:id :a :machine-id :sfunt8/sa :start [:set-id :a]}
                                         {:id :b :machine-id :sfunt8/sb :start [:set-id :b]}]
                      :join             :any
-                     ;; default :cancel-on-decision? true → surviving sibling
-                     ;; is torn down on resolution.
+                     ;; sibling cancellation on the join decision is
+                     ;; unconditional → surviving sibling is torn down on
+                     ;; resolution.
                      :on-child-done    :asset/loaded
                      :on-child-error   :asset/failed
                      :on-some-complete [:hydrate/some]}

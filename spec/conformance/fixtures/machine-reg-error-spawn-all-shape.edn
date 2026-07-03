@@ -8,15 +8,20 @@
 ;;     are mutually exclusive) — `:rf.error/machine-spawn-all-with-spawn`.
 ;;   - Two children inside one `:spawn-all` block MUST NOT share an `:id`
 ;;     keyword — `:rf.error/machine-spawn-all-duplicate-id`.
+;;   - The `:join` grammar is a CLOSED two-member enum (`:all` / `:any` —
+;;     rf2-w8gxxz cut the `{:n N}` / `{:fn pred}` modes). A removed mode,
+;;     and the removed `:cancel-on-decision?` key, are rejected as an
+;;     unknown join spec / unknown block key —
+;;     `:rf.error/machine-spawn-all-bad-shape`.
 ;;
-;; Mode-B `:reg-machine` fixture pinning two members of the
-;; registration-error taxonomy (Spec 009 §The thrown-error shape). Each
-;; call's `:expect-error` names the `:rf.error/id` discriminator.
+;; Mode-B `:reg-machine` fixture pinning members of the registration-error
+;; taxonomy (Spec 009 §The thrown-error shape). Each call's `:expect-error`
+;; names the `:rf.error/id` discriminator.
 
 {:fixture/id           :machine/reg-error-spawn-all-shape
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:actor/spawn-and-join :fsm/registration-validation}
- :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id. The control case — a well-formed :spawn-all with distinct child :ids — validates silently."
+ :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id; a removed :join {:n N} / {:fn pred} mode or the removed :cancel-on-decision? key throws :rf.error/machine-spawn-all-bad-shape. The control case — a well-formed :spawn-all with distinct child :ids — validates silently."
 
  :fixture/registry {}
  :fixture/handlers  {}
@@ -44,7 +49,30 @@
                                          :on-all-complete [:all/done]}}}}
    :expect-error :rf.error/machine-spawn-all-duplicate-id}
 
-  ;; (3) Control: a well-formed :spawn-all with distinct child :ids validates silently.
+  ;; (3) The removed :join {:n N} quorum mode — rejected as an unknown join spec.
+  {:call         :reg-machine
+   :definition   {:initial :gathering
+                  :states  {:gathering
+                            {:spawn-all {:children         [{:id :a :machine-id :worker/a}]
+                                         :join             {:n 2}
+                                         :on-child-done    :child/done
+                                         :on-child-error   :child/error
+                                         :on-some-complete [:some/done]}}}}
+   :expect-error :rf.error/machine-spawn-all-bad-shape}
+
+  ;; (4) The removed :cancel-on-decision? key — rejected as an unknown block key.
+  {:call         :reg-machine
+   :definition   {:initial :gathering
+                  :states  {:gathering
+                            {:spawn-all {:children            [{:id :a :machine-id :worker/a}]
+                                         :join                :any
+                                         :cancel-on-decision? false
+                                         :on-child-done       :child/done
+                                         :on-child-error      :child/error
+                                         :on-some-complete    [:some/done]}}}}
+   :expect-error :rf.error/machine-spawn-all-bad-shape}
+
+  ;; (5) Control: a well-formed :spawn-all with distinct child :ids validates silently.
   {:call       :reg-machine
    :definition {:initial :gathering
                 :states  {:gathering

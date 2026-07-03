@@ -185,7 +185,7 @@ must tell."
 | **`:rf.machine/transition` trace events** (Spec 009) | Edges glow on the matching event; the chart animates the from→to transition. |
 | **`:rf.machine.microstep/transition`** | Microstep-granular replay within an `:always`-driven cascade; intermediate states render with a "microstep" badge. |
 | **`:rf.machine.timer/*` events** | `:after`-bearing states render a countdown ring; the ring fills at 60Hz when the panel is visible. |
-| **`:rf.machine.spawn-all/*` events** | Parallel-child rows render with per-child state plus the join-condition label (`:all` / `:any` / `{:n N}` / `{:fn ...}`). |
+| **`:rf.machine.spawn-all/*` events** | Parallel-child rows render with per-child state plus the join-condition label (`:all` / `:any`). |
 | **`:rf.machine.spawn/spawned` + `-destroyed`** | Dynamic actors appear / disappear in the parent chart's "spawned" tray; gensym'd ids surface with `:system-id` aliases parenthesised. |
 | **State-tags** (Spec 005 §State tags) | Tag-membership coloured rings on state nodes; tags listed in the node tooltip. |
 | **Source-coord stamping** (Spec 001) | Every state, transition, guard, and action carries a source-coord chip — click jumps to the registration. |
@@ -804,7 +804,7 @@ Where Machines-Viz **wins** against the peer set (per
 
 - `:after` countdown rings + microstep replay (no peer has both).
 - `:spawn-all` join visualisation with the join-condition label
-  (`:all` / `:any` / `{:n N}` / `{:fn ...}`).
+  (`:all` / `:any`).
 - Live trace integration tied to the Spec 009 bus.
 - Source-coord per node — every state, transition, guard, action
   jumps to source.

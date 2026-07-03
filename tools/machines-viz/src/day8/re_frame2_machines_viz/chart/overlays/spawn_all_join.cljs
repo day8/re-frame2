@@ -21,8 +21,8 @@
 
   ## Card content
 
-  Header: `:spawn-all` + the join condition (`:all` / `:any` /
-  `{:n N}` / `{:fn ...}`). A `Resolved ✓/✗` line with the `waiting
+  Header: `:spawn-all` + the join condition (`:all` / `:any`). A
+  `Resolved ✓/✗` line with the `waiting
   for K of N` remainder. One row per child: a glyph (`✓` done /
   `⧖` running / `✗` failed / `⊘` cancelled), the child key, and an
   optional status note. Click a child row → the host's
@@ -103,10 +103,9 @@
         total     (count children)
         done      (count (filter :done? children))
         waiting   (max 0 (- total done))
-        join-str  (cond
-                    (keyword? join) (str join)
-                    (map? join)     (pr-str join)
-                    :else           (str join))]
+        ;; The join grammar is a closed keyword enum (`:all` / `:any` —
+        ;; rf2-w8gxxz cut the `{:n N}` / `{:fn pred}` map forms).
+        join-str  (str join)]
     [:div {:data-testid     (str "rf-mv-chart-spawn-all-join-" node-id)
            :data-node-id     node-id
            :data-join        join-str
@@ -168,7 +167,7 @@
   Props (single map):
 
     :join-spec  — `{:node-id <string>           ;; bearing state id
-                    :join <:all|:any|{:n N}|{:fn _}>
+                    :join <:all|:any>
                     :children [{:key <kw> :done? :failed? :cancelled?
                                 :note <string?>} ...]
                     :resolved? <bool?>           ;; host override

@@ -78,13 +78,6 @@
     (is (false? (anchor/join-resolved?
                   {:join :any :children [{:done? false} {:done? false}]})))))
 
-(deftest join-resolved-n
-  (testing "{:n N} resolves when N children are done"
-    (is (true?  (anchor/join-resolved?
-                  {:join {:n 2} :children [{:done? true} {:done? true} {:done? false}]})))
-    (is (false? (anchor/join-resolved?
-                  {:join {:n 3} :children [{:done? true} {:done? true} {:done? false}]})))))
-
 (deftest join-resolved-host-override-wins
   (testing "an explicit :resolved? from the host wins over the computed value"
     (is (true? (anchor/join-resolved?
@@ -92,26 +85,14 @@
     (is (false? (anchor/join-resolved?
                   {:join :any :resolved? false :children [{:done? true}]})))))
 
-(deftest join-resolved-fn-join-falls-back-to-all-done-no-failed
-  (testing "a `{:fn ...}` (or otherwise unknown) join condition is opaque
-            to the overlay, so with no host `:resolved?` it falls back to
-            the conservative default: resolved iff every child is done AND
-            none failed AND there is at least one child"
-    ;; all done, none failed → resolved
-    (is (true? (anchor/join-resolved?
-                 {:join {:fn :host-decides}
-                  :children [{:done? true} {:done? true}]})))
-    ;; a failed child blocks the default even when the rest are done
+(deftest join-resolved-unknown-join-is-not-resolved
+  (testing "rf2-w8gxxz: an out-of-enum join (e.g. a removed {:n N} / {:fn}
+            form) is NOT resolved by the overlay — the grammar is a closed
+            :all / :any enum, so anything else defaults to false"
     (is (false? (anchor/join-resolved?
-                  {:join {:fn :host-decides}
-                   :children [{:done? true} {:failed? true}]})))
-    ;; not every child done → not resolved
+                  {:join {:n 2} :children [{:done? true} {:done? true}]})))
     (is (false? (anchor/join-resolved?
-                  {:join {:fn :host-decides}
-                   :children [{:done? true} {:done? false}]})))
-    ;; no children at all → not resolved (the `pos? total` guard)
-    (is (false? (anchor/join-resolved?
-                  {:join {:fn :host-decides} :children []})))))
+                  {:join {:fn :host-decides} :children [{:done? true} {:done? true}]})))))
 
 ;; ---- join-summary -------------------------------------------------------
 

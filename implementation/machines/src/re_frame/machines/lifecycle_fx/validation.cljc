@@ -146,16 +146,31 @@
       "declares NEITHER :machine-id nor :definition — exactly one is required"
       :else nil)))
 
+(def ^:private known-spawn-all-block-keys
+  "The closed BARE key vocabulary a `:spawn-all` block map may declare. Any
+  BARE key outside this set is rejected at registration with
+  `:rf.error/machine-spawn-all-bad-shape` (no silent swallow). NAMESPACED
+  keys pass (the open extension carve-out). The `:cancel-on-decision?` key
+  is deliberately ABSENT — rf2-w8gxxz cut the `:cancel-on-decision? false`
+  protocol (sibling cancellation on the join decision is now
+  unconditional), so a `:cancel-on-decision?` on the block is correctly
+  rejected as unknown."
+  #{:children :join
+    :on-child-done :on-child-error
+    :on-all-complete :on-some-complete :on-any-failed})
+
 (defn- validate-spawn-all!
   "Per Spec 005 §Spawn-and-join via `:spawn-all`: walk the
   state tree at registration time and reject malformed `:spawn-all`
   declarations.
 
-  Three error categories:
+  Error categories:
     - `:rf.error/machine-spawn-all-bad-shape` — a child spawn-spec is
       missing `:id`; or `:spawn-all` is not a vector; or the join-event
       slots are missing per the required-iff rules; or no `:machine-id`
-      / `:definition`.
+      / `:definition`; or the `:join` value is outside the closed
+      `:all` / `:any` enum; or an unknown bare key on the block (e.g. the
+      removed `:cancel-on-decision?`).
     - `:rf.error/machine-spawn-all-duplicate-id` — two children share an
       `:id` keyword inside the same `:spawn-all` block.
     - `:rf.error/machine-spawn-all-with-spawn` — a state node declares
@@ -173,6 +188,30 @@
                  :rf.error/machine-spawn-all-bad-shape
                  ":spawn-all slot must be a map"
                  {:state state-key})))
+      ;; No-silent-swallow on the block keys: reject any unknown bare key
+      ;; (e.g. the removed `:cancel-on-decision?`) so a retired / misspelt
+      ;; key fails loud rather than being silently ignored. `:timeout-ms`
+      ;; is excluded — it carries its OWN dedicated retired-key rejection
+      ;; (`validate-no-spawn-timeout-ms!` → `:rf.error/spawn-timeout-ms-
+      ;; removed`, naming the replacement), so that SPECIFIC diagnostic wins.
+      (let [offending (->> (keys spawn-all-spec)
+                           (remove #(namespace %))
+                           (remove known-spawn-all-block-keys)
+                           (remove #{:timeout-ms})
+                           vec)]
+        (when (seq offending)
+          (throw (validation-error
+                   :rf.error/machine-spawn-all-bad-shape
+                   (str ":spawn-all block declares unknown bare key(s) "
+                        (pr-str offending)
+                        " — a bare key outside the reserved :spawn-all "
+                        "vocabulary reads as a typo or a retired key (e.g. "
+                        "the removed :cancel-on-decision?) and would be "
+                        "silently ignored. Use a NAMESPACED key for a user "
+                        "extension. Valid keys: "
+                        (pr-str (vec (sort known-spawn-all-block-keys))) ".")
+                   {:state          state-key
+                    :offending-keys offending}))))
       (let [children (:children spawn-all-spec)]
         (when-not (and (vector? children) (seq children))
           (throw (validation-error
@@ -213,6 +252,13 @@
                  :rf.error/machine-spawn-all-bad-shape
                  ":on-child-error is required (event keyword)"
                  {:state state-key})))
+      ;; The join grammar is a CLOSED two-member enum — `:all` (default)
+      ;; and `:any` (rf2-w8gxxz cut the `{:n N}` and `{:fn pred}` modes).
+      ;; Quorum cases use the data-only `:after` + `:done-guard` idiom
+      ;; (Spec 005 §Composition with hierarchy and `:after`); re-adding
+      ;; `{:n}` later is a compatible widening. Any other `:join` value —
+      ;; including a now-removed `{:n N}` / `{:fn ...}` — is rejected as an
+      ;; unknown join spec.
       (let [join (:join spawn-all-spec :all)]
         (cond
           (= :all join)
@@ -221,18 +267,16 @@
                      :rf.error/machine-spawn-all-bad-shape
                      ":on-all-complete event-vector is required when :join is :all (default)"
                      {:state state-key})))
-          (or (= :any join)
-              (and (map? join) (or (pos-int? (:n join))
-                                   (fn? (:fn join)))))
+          (= :any join)
           (when-not (vector? (:on-some-complete spawn-all-spec))
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
-                     ":on-some-complete event-vector is required when :join is :any / {:n N} / {:fn ...}"
+                     ":on-some-complete event-vector is required when :join is :any"
                      {:state state-key})))
           :else
           (throw (validation-error
                    :rf.error/machine-spawn-all-bad-shape
-                   ":join must be :all, :any, {:n pos-int}, or {:fn fn?}"
+                   ":join must be :all or :any"
                    {:state state-key
                     :join join})))))))
 
