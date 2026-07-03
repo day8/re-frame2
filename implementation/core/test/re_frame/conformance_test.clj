@@ -251,7 +251,29 @@
     ;; :derivation + machine :process members over the static graph; a host
     ;; whose graph spans only those two families claims this and allowlists
     ;; the broad capability as a known-skip.
-    :derivation/algebra-graph-subs-machines})
+    :derivation/algebra-graph-subs-machines
+    ;; Spec 016 §Resources (rf2-rul3ov) — the resource-runtime acceptance
+    ;; surface. Per the README §Capability tagging `:routing/* :ssr/*
+    ;; :schemas/*` per-spec convention, `:resources/*` reserves the resource
+    ;; capabilities a port claiming Spec 016 exercises. The six Mode-A
+    ;; `resources-*.edn` fixtures dispatch resource events (`:rf.resource/
+    ;; ensure` / `refetch` / `release-owner` / `gc-fired` + the framework-
+    ;; internal `:rf.resource.internal/succeeded` / `failed` replies) against
+    ;; the live `re-frame.resources` runtime (re-required in `reset-runtime!`,
+    ;; host-side caches reset via `resources.test-support/reset-resources!`),
+    ;; pinning ONLY Resolved-decision behaviour:
+    ;;   :resources/ensure             — first-load + fresh-skip (cache-hit)
+    ;;   :resources/dedupe             — dedupe-join (two ensures, one request)
+    ;;   :resources/stale-suppression  — stale-reply generation suppression
+    ;;   :resources/scope-fail-closed  — the scope fail-closed trio
+    ;;   :resources/lease-gc           — lease release → GC eligibility
+    ;;   :resources/keep-previous      — refresh-error preserves prior data
+    :resources/ensure
+    :resources/dedupe
+    :resources/stale-suppression
+    :resources/scope-fail-closed
+    :resources/lease-gc
+    :resources/keep-previous})
 
 ;; ---- claimed fixture spec version(s) -------------------------------------
 ;;
@@ -400,6 +422,13 @@
   (when-let [f (late-bind/get-fn :epoch/clear-epoch-listeners!)]
     (f))
   (rf/init! plain-atom/adapter)
+  ;; The framework's provided recordable coeffect `:rf/time-ms` (EP-0010 /
+  ;; EP-0017) is registered at `re-frame.cofx` ns-load; `clear-all!` wiped it.
+  ;; Re-seat it so a handler declaring `:rf.cofx/requires [:rf/time-ms]` (the
+  ;; resource events fold the causal clock into durable freshness facts) has a
+  ;; registered supplier. (rf2-rul3ov — resources are the first corpus fixtures
+  ;; whose dispatched events require this coeffect.)
+  (require 're-frame.cofx :reload)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
   ;; registrations so :rf.route/navigate, :rf.route/handle-url-change,
@@ -430,6 +459,19 @@
   ;; live actor handler + snapshot, so the runtime side of the spawn must
   ;; be present for the system-id fixtures to observe app-db state.
   (require 're-frame.machines :reload)
+  ;; Spec 016 §Resources (rf2-rul3ov) — re-register the resource events / fx /
+  ;; subs after clear-all! so the `resources-*.edn` fixtures can dispatch
+  ;; `:rf.resource/ensure` / `refetch` / `release-owner` / `gc-fired` and the
+  ;; `:rf.resource.internal/succeeded` / `failed` replies. The test-support ns
+  ;; publishes the `:resources/reset-resources!` host-cache reset hook (the
+  ;; per-frame generation high-water mark, work-ledger, timers, revalidate
+  ;; listeners) — call it so each fixture's first load mints generation 1
+  ;; deterministically (a fixture writes the reply's literal `:work/id`
+  ;; `[:rf.work/resource <scoped-key> <generation>]`, which requires the
+  ;; generation counter to start fresh per fixture).
+  (require 're-frame.resources :reload)
+  (require 're-frame.resources.test-support :reload)
+  ((requiring-resolve 're-frame.resources.test-support/reset-resources!))
   ;; Reset id-allocators so nav-token / pending-nav / rank-reg / spawn ids
   ;; are stable across runs (the routing/machine fixtures assert against
   ;; literal "nav-1" / "nav-2" / ":http/post#1" strings).
@@ -1368,6 +1410,95 @@
                     (str "reg-frame\n"
                          "    expected: no error (well-formed config)\n"
                          "    thrown:   " (ex-message thrown)))}))
+
+    ;; Spec 016 §Resources (rf2-rul3ov) — `:reg-resource` Mode-B registration-
+    ;; validation call. Pins the resource registration fail-closed taxonomy
+    ;; (Spec 009 §The thrown-error shape) against the live `reg-resource`.
+    ;; `:spec` is the resource spec map and `:request-url` an optional URL the
+    ;; synthesised `:request` fn returns; `:expect-error <:rf.error/id>` ⇒ the
+    ;; registration must throw an ex-info whose `:rf.error/id` ex-data slot
+    ;; equals the id (e.g. `:rf.error/resource-missing-scope-policy` for a spec
+    ;; with no valid `:scope`); absent `:expect-error` ⇒ a well-formed spec
+    ;; that must NOT throw. Mirror of the `:reg-machine` / `:reg-frame` Mode-B
+    ;; convention. The resource is cleared afterward (best-effort) so a
+    ;; well-formed control does not leak into a later fixture.
+    :reg-resource
+    (let [reg-resource   (requiring-resolve 're-frame.resources/reg-resource)
+          clear-resource (requiring-resolve 're-frame.resources/clear-resource)
+          resource-id    (or (:resource-id call) :rf.test/resource)
+          request-fn     (fn [params _ctx]
+                           {:request {:method :get
+                                      :url    (str (:request-url call "/api/probe")
+                                                   params)}})
+          want-error (:expect-error call)
+          thrown     (try (reg-resource resource-id (:spec call) request-fn) nil
+                          (catch clojure.lang.ExceptionInfo e e)
+                          (catch Throwable e e))
+          _          (try (clear-resource resource-id) (catch Throwable _ nil))]
+      (if want-error
+        (let [got-id (when (instance? clojure.lang.ExceptionInfo thrown)
+                       (:rf.error/id (ex-data thrown)))
+              ok?    (= want-error got-id)]
+          {:passed? ok?
+           :detail  (when-not ok?
+                      (str "reg-resource\n"
+                           "    expected error :rf.error/id: " want-error "\n"
+                           "    actual   error :rf.error/id: " got-id "\n"
+                           "    thrown:                       " (some-> thrown ex-message)))})
+        {:passed? (nil? thrown)
+         :detail  (when (some? thrown)
+                    (str "reg-resource\n"
+                         "    expected: no error (well-formed spec)\n"
+                         "    thrown:   " (ex-message thrown)))}))
+
+    ;; Spec 016 §Scope resolution (rf2-rul3ov) — `:resolve-scope` fail-closed
+    ;; call op. Pins the scope-resolution fail-closed boundary (no tier-4
+    ;; `[:rf.scope/global]` fallthrough) against the live resolvers, mirroring
+    ;; the runtime unit tests (`scope-resolution-fail-closed` /
+    ;; `sub-side-scope-fail-closed`). `:resource-id` names a resource
+    ;; registered via `:fixture/registry :resource`; `:side` selects the
+    ;; resolver (`:event` → `registry/resolve-scope-for-event`, the write-side;
+    ;; `:sub` → `subs/resolve-scoped-key`, the read-side); `:payload-scope`
+    ;; (optional) is the use-site scope. `:expect-error <:rf.error/id>` ⇒ the
+    ;; resolver must throw that id (e.g. `:rf.error/resource-scope-required-
+    ;; from-caller` event-side, `:rf.error/resource-sub-unresolved-scope`
+    ;; sub-side); absent `:expect-error` ⇒ the call must resolve without
+    ;; throwing and `:expect` is the returned canonical scope. Pure — no
+    ;; dispatch, so the fail-closed THROW is captured directly rather than
+    ;; folded into a `:rf.error/handler-exception` trace.
+    :resolve-scope
+    (let [resource-meta (requiring-resolve 're-frame.resources.registry/resource-meta)
+          resolve-event (requiring-resolve 're-frame.resources.registry/resolve-scope-for-event)
+          resolve-sub-k (requiring-resolve 're-frame.resources.subs/resolve-scoped-key)
+          resource-id   (:resource-id call)
+          side          (:side call :event)
+          want-error    (:expect-error call)
+          result        (try
+                          {:ok (case side
+                                 :sub   (resolve-sub-k
+                                          (cond-> {:resource resource-id
+                                                   :params   (:params call {})}
+                                            (contains? call :payload-scope)
+                                            (assoc :scope (:payload-scope call)))
+                                          (:db call {}))
+                                 (resolve-event
+                                   resource-id (resource-meta resource-id)
+                                   {:payload-scope (:payload-scope call)
+                                    :db            (:db call)}
+                                   'rf.test/resolve-scope))}
+                          (catch clojure.lang.ExceptionInfo e {:err (:rf.error/id (ex-data e))})
+                          (catch Throwable e {:err (.getMessage e)}))]
+      (if want-error
+        {:passed? (= want-error (:err result))
+         :detail  (when (not= want-error (:err result))
+                    (str "resolve-scope " side " " resource-id
+                         "\n    expected error: " want-error
+                         "\n    actual:         " (pr-str result)))}
+        {:passed? (= (:expect call) (:ok result))
+         :detail  (when (not= (:expect call) (:ok result))
+                    (str "resolve-scope " side " " resource-id
+                         "\n    expected: " (pr-str (:expect call))
+                         "\n    actual:   " (pr-str result)))}))
 
     ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops. These
     ;; pin the FROZEN byte-contract (`re-frame.identity/canonical-bytes`)

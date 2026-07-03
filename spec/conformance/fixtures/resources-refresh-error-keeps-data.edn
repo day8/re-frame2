@@ -1,0 +1,70 @@
+;; Conformance fixture: resources/refresh-error-keeps-data
+;;
+;; Spec 016 §Status semantics — a BACKGROUND-refresh failure keeps the prior
+;; data (keep-previous). When a refetch of an entry that already has data fails,
+;; the entry returns to :loaded (NOT :error), retains its prior :data, and
+;; records the failure under :refresh-error — a SEPARATE channel from :error
+;; (which stays nil). A first-load failure, by contrast, settles :error with no
+;; usable data; this fixture pins the refresh-class (data-preserving) case.
+;;
+;; ensure → succeed (generation 1, :loaded with data); refetch → :fetching
+;; (generation 2, prior data still visible); the gen-2 reply FAILS → the entry
+;; returns to :loaded, keeps {:title "Welcome"}, sets :refresh-error, leaves
+;; :error nil. The runtime emits :rf.resource/refresh-failed (the refresh-class
+;; failure, distinct from the first-load :rf.resource/failed).
+
+{:fixture/id           :resources/refresh-error-keeps-data
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:resources/keep-previous}
+ :fixture/doc          "ensure :res/article (slug=w) → succeed gen 1 :loaded; refetch → :fetching gen 2 (prior data visible); the gen-2 reply fails → the entry returns to :loaded, KEEPS the prior data, records :refresh-error, leaves :error nil. Trace: :rf.resource/refresh-failed."
+
+ :fixture/registry
+ {:resource
+  {:res/article {:scope         :rf.scope/global
+                 :params-schema [:map [:slug :string]]
+                 :url-template  "/api/articles/"}}
+  ;; No-op the managed-HTTP fx; both replies are driven directly below.
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; Step 1: ensure → :loading, generation 1.
+  [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :rf 1] :cause :first-load}]
+
+  ;; Step 2: the reply settles :loaded with the data (generation 1).
+  [:rf.resource.internal/succeeded
+   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
+    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+    :generation   1
+    :data         {:title "Welcome"}}]
+
+  ;; Step 3: refetch → :fetching, generation 2 (prior data stays visible —
+  ;; this is a background refresh of an entry that already has data).
+  [:rf.resource/refetch {:resource :res/article :scope :rf.scope/global
+                         :params {:slug "w"} :cause :revalidate}]
+
+  ;; Step 4: the gen-2 reply FAILS. Because the entry already has data, this is
+  ;; a refresh-class failure: return to :loaded, KEEP the data, record
+  ;; :refresh-error — :error stays nil.
+  [:rf.resource.internal/failed
+   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
+    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 2]
+    :generation   2
+    :error        {:kind :rf.http/http-5xx :status 503}}]]
+
+ :fixture/expect
+ {;; The refresh failed but the prior data is preserved: :loaded, has-data,
+  ;; :refresh-error carries the failure, :error is nil.
+  :sub-values
+  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+   {:status :loaded :data {:title "Welcome"} :error nil
+    :refresh-error {:kind :rf.http/http-5xx :status 503}
+    :loading? false :fetching? false :stale? false :has-data? true :previous? false}}
+
+  :trace-emissions
+  [;; The refresh-class failure kept the data (distinct from a first-load fail).
+   {:operation :rf.resource/refresh-failed
+    :tags      {:generation 2}}]}}

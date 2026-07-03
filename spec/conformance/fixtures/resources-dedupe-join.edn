@@ -1,0 +1,54 @@
+;; Conformance fixture: resources/dedupe-join
+;;
+;; Spec 016 §Race and in-flight semantics — a second `ensure` for the SAME
+;; scoped key while the first request is in flight JOINS the existing work
+;; record: no new generation, no second fetch, the new owner is attached to the
+;; SAME entry + work-ledger row. The runtime emits :rf.resource/deduped for the
+;; join (and :rf.resource/owner-attached with :joined-in-flight? true for the
+;; newly-attached lease). Two ensures, ONE request.
+;;
+;; No reply is fed — the join is observed while the entry is still :loading on
+;; its single generation. The dedupe gate requires the prior work record to be
+;; LIVE (:queued / :running), which a fresh in-flight load is.
+
+{:fixture/id           :resources/dedupe-join
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:resources/dedupe}
+ :fixture/doc          "ensure :res/article (slug=w) with owner [:route :r 1] → :loading gen 1; a second ensure with owner [:lease :x 2] while in flight JOINS — no new generation, both owners attached, :rf.resource/deduped emitted. The entry stays :loading on generation 1."
+
+ :fixture/registry
+ {:resource
+  {:res/article {:scope         :rf.scope/global
+                 :params-schema [:map [:slug :string]]
+                 :url-template  "/api/articles/"}}
+  ;; No-op the managed-HTTP fx so no real fetch fires (the join is observed
+  ;; before any reply anyway).
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; Step 1: first ensure. No-data entry → :loading, generation 1, owner
+  ;; [:route :r 1], one managed-HTTP fetch lowered.
+  [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:route :r 1] :cause :route-enter}]
+
+  ;; Step 2: a SECOND ensure while the first is in flight. JOINS the live work
+  ;; record — no new generation, attaches owner [:lease :x 2] to the same entry.
+  ;; No second fetch fires. :rf.resource/deduped emits.
+  [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :x 2] :cause :view-mount}]]
+
+ :fixture/expect
+ {;; The entry is still in flight on its single generation — the join added a
+  ;; lease, not a new load. :loading (first load, no usable data yet).
+  :sub-values
+  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; The second ensure joined the in-flight work (no new generation minted).
+   {:operation :rf.resource/deduped
+    :tags      {:generation 1 :cause :view-mount :owner [:lease :x 2]}}]}}

@@ -1,0 +1,80 @@
+;; Conformance fixture: resources/ensure-fresh-skip
+;;
+;; Spec 016 §Events / §Race / §Lifecycle is an FSM — the first-load →
+;; :loading → :loaded lifecycle, and the FRESH-SKIP gate: a second ensure of an
+;; already-fresh :loaded entry serves cache (emits :rf.resource/cache-hit) and
+;; does NOT start a new load — no new generation, no fetch, no work record
+;; (Spec 016 §Restore and replay). This resource declares no :stale-after-ms,
+;; so a loaded entry is never stale (entry-stale? is false with no :stale-at /
+;; :invalidated-at) and the fresh-skip branch fires deterministically.
+;;
+;; A resource load lowers through managed HTTP; the conformance runner's
+;; `register-resources!` supplies a deterministic `:request` stub and the
+;; framework-internal reply (`:rf.resource.internal/succeeded`) is driven as an
+;; ordinary dispatch (the managed-HTTP slice dispatches it for real; here the
+;; fixture feeds it directly, the way route-stale-nav-token-suppression.edn
+;; drives its continuation). Timer scheduling stays OUT (advisory, host-clock).
+;;
+;; The internal reply's verification triple is pure EDN and deterministic here:
+;; `:resource/key` is the scoped-key vector `[scope resource-id params]`;
+;; `:work/id` is `[:rf.work/resource <scoped-key> <generation>]`; the per-frame
+;; monotone generation is 1 (this is the FIRST load in the frame — the runner
+;; resets the resource host-caches before each fixture).
+;;
+;; The entry is read through the PUBLIC passive subscription
+;; `[:rf.resource/state {:resource :scope :params}]` (Spec 016 §Subscriptions —
+;; a sub NEVER fetches), which projects the durable facts plus the derived
+;; booleans. Reading through the sub is host-agnostic: the entry itself is
+;; keyed on a CEDN-1 byte identity in runtime-db, which pure EDN cannot spell.
+
+{:fixture/id           :resources/ensure-fresh-skip
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:resources/ensure}
+ :fixture/doc          "ensure :res/article (global scope, slug=w) → :loading gen 1; the succeeded reply settles :loaded with the decoded data; a second ensure serves cache (fresh-skip) emitting :rf.resource/cache-hit with no new generation. The public :rf.resource/state sub projects the loaded view-model."
+
+ :fixture/registry
+ {:resource
+  {:res/article {:scope         :rf.scope/global
+                 :params-schema [:map [:slug :string]]
+                 :url-template  "/api/articles/"}}
+  ;; The resource load lowers to the managed-HTTP fx; override it with a no-op
+  ;; so no real fetch fires. The framework-internal reply is driven directly by
+  ;; the dispatches below (the managed-HTTP slice dispatches it for real; the
+  ;; conformance runner feeds it deterministically). Mirrors the runtime unit
+  ;; tests' capturing-transport fixture.
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; Step 1: first ensure. No-data entry → :loading, mints generation 1,
+  ;; attaches the owner lease, lowers the managed-HTTP fetch.
+  [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :t 1] :cause :first-load}]
+
+  ;; Step 2: the transport reply arrives (fed directly). Verified against the
+  ;; live entry by work-id + generation, it settles :loaded with the data.
+  [:rf.resource.internal/succeeded
+   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
+    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+    :generation   1
+    :data         {:title "Welcome"}}]
+
+  ;; Step 3: a SECOND ensure of the fresh :loaded entry. FRESH-SKIP: serve
+  ;; cache, no new generation, no new load; emit :rf.resource/cache-hit.
+  [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :t 1] :cause :revisit}]]
+
+ :fixture/expect
+ {;; The public state view-model after the fresh-skip: :loaded with the
+  ;; decoded data; not loading / fetching / stale; has usable data.
+  :sub-values
+  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+   {:status :loaded :data {:title "Welcome"} :error nil :refresh-error nil
+    :loading? false :fetching? false :stale? false :has-data? true :previous? false}}
+
+  :trace-emissions
+  [;; The fresh-skip served cache on the second ensure (generation unchanged).
+   {:operation :rf.resource/cache-hit
+    :tags      {:generation 1 :cause :revisit}}]}}

@@ -1,0 +1,69 @@
+;; Conformance fixture: resources/scope-fail-closed
+;;
+;; Spec 016 §Scope resolution — the cache's tenant / user / permission / locale
+;; / impersonation / SSR leak boundary MUST fail closed: it never silently
+;; defaults to "shared". There is NO tier-4 [:rf.scope/global] fallthrough. The
+;; three fail-closed conditions each raise a distinct, loud error id rather than
+;; reading a wrong or global cache scope:
+;;
+;;   (i)   REGISTRATION — a `reg-resource` with no valid `:scope` policy is a
+;;         loud registration error (:rf.error/resource-missing-scope-policy).
+;;         "I forgot this read is user-scoped" is unrepresentable at
+;;         registration rather than an Xray heuristic.
+;;   (ii)  WRITE-SIDE USE-TIME — a `:rf.scope/from-caller` resource reached with
+;;         no payload `:scope` and no route resolver is a loud use-time error
+;;         (:rf.error/resource-scope-required-from-caller).
+;;   (iii) READ-SIDE — a subscription that cannot resolve a scope raises
+;;         :rf.error/resource-sub-unresolved-scope (never a silent global read
+;;         or a silent :idle) — the read-side counterpart of (ii).
+;;
+;; Each is pinned against the LIVE resolvers via a pure `:fixture/calls` op —
+;; the write-side / read-side throws are captured DIRECTLY (no dispatch), the
+;; way the runtime unit tests scope-resolution-fail-closed /
+;; sub-side-scope-fail-closed assert them, so the exact error id is observable
+;; (a dispatched handler throw would fold into a :rf.error/handler-exception
+;; trace that does not carry the inner id). A control case confirms a valid
+;; from-caller scope resolves rather than throwing.
+
+{:fixture/id           :resources/scope-fail-closed
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:resources/scope-fail-closed}
+ :fixture/doc          "The scope fail-closed trio: reg-resource with no :scope policy → :rf.error/resource-missing-scope-policy; a :rf.scope/from-caller ensure with no payload scope → :rf.error/resource-scope-required-from-caller (write-side); a sub that cannot resolve a scope → :rf.error/resource-sub-unresolved-scope (read-side). A control confirms a supplied from-caller scope resolves."
+
+ :fixture/registry
+ {:resource
+  ;; A registered from-caller resource — its scope is REQUIRED from the use
+  ;; site, so both the write-side and read-side resolvers fail closed when no
+  ;; scope is supplied.
+  {:res/from-caller {:scope         :rf.scope/from-caller
+                     :params-schema [:map [:slug :string]]
+                     :url-template  "/api/from-caller/"}}}
+
+ :fixture/calls
+ [;; (i) REGISTRATION fail-closed: a spec with no :scope policy is rejected.
+  {:call :reg-resource
+   :resource-id :res/no-scope
+   :spec        {:params-schema [:map [:slug :string]]}
+   :expect-error :rf.error/resource-missing-scope-policy}
+
+  ;; (ii) WRITE-SIDE use-time fail-closed: from-caller with no payload scope.
+  {:call :resolve-scope
+   :side :event
+   :resource-id :res/from-caller
+   :payload-scope nil
+   :expect-error :rf.error/resource-scope-required-from-caller}
+
+  ;; (iii) READ-SIDE fail-closed: a sub that cannot resolve a scope.
+  {:call :resolve-scope
+   :side :sub
+   :resource-id :res/from-caller
+   :params {:slug "x"}
+   :expect-error :rf.error/resource-sub-unresolved-scope}
+
+  ;; CONTROL: from-caller WITH a supplied payload scope resolves (fail-closed
+  ;; is a loud gate on a MISSING scope, not a refusal of a present one).
+  {:call :resolve-scope
+   :side :event
+   :resource-id :res/from-caller
+   :payload-scope {:user "u-1"}
+   :expect {:user "u-1"}}]}
