@@ -1048,7 +1048,7 @@ The fx vectors the helpers synthesise are exactly the same shape as the hand-wri
 | `:rf.http/managed-canned-success` | Synthesises a success reply. Args take `:value` (the payload to put under `:rf/reply :value`); defaults to a literal `{:stubbed true}`. |
 | `:rf.http/managed-canned-failure` | Synthesises a failure reply. Args take `:kind` (one of `:rf.http/*`; default `:rf.http/transport`) and `:tags` (the kind-specific tags map; defaults documented per row of [§Failure categories](#failure-categories-closed-set)). |
 
-The stubs reuse the same dispatch shape the real fx produces so the test handler's reply branch sees the canonical envelope. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
+The stubs deliver a **minimal canonical reply** — `{:status :ok :value v}` on success, `{:status :error :error f}` (or `{:status :cancelled :error f}` for an `:rf.http/aborted` kind) on failure — the shape a handler actually branches on (`:status`, `:value`, `:error`). A stub has no real request lifecycle, so it omits the transport's identity facts (`:work/id`, `:attempt`, `:work/status`, `:completed-at`); those are exercised against the real transport. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
 
 #### `:after-ms` — deferring a canned reply
 
