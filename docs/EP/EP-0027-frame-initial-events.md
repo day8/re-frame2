@@ -4,10 +4,12 @@ Status: final
 Type: standards-track
 
 > **Scope note.** Deliberately small: a declarative way to write the setup events that
-> tests and docs currently fire by hand after `make-frame`. Guiding rule —
+> tests and docs previously fired by hand after `make-frame`. Guiding rule —
 > **`:initial-events` is no more capable than the loop it replaces** (no replay tapes, no
-> snapshots, no atomic staging, no outcome capture). Not yet implemented; where the text
-> refers to current behaviour it says "today".
+> snapshots, no atomic staging, no outcome capture). **Implemented and shipped:**
+> `:initial-events` and the `:rf/set-db` standard event are wired into the frame
+> construction surfaces, and `:on-create` / `:initial-db` are retired. Where the text
+> refers to the pre-implementation surface it says "today".
 
 ## Abstract
 
@@ -319,10 +321,10 @@ docs), the `frame-provider` docs, examples, skills, and conformance / schema fix
 
 ## Reference implementation — work items (beads)
 
-The implementation decomposes into the beads below. They are **designed here but not yet
-filed**; create them with `bd create` when EP-0027 implementation is scheduled. Sequencing:
-the doc/spec sweeps (B7, B8) land **in lockstep with** the code retirement (B6), never ahead
-of it, so no doc ever describes a key the code still has.
+The implementation decomposed into the beads below. They were **filed and delivered** —
+the construction slices (B1–B6) landed and the doc/spec sweeps (B7, B8) landed in lockstep
+with the code retirement (B6), so no doc ever described a key the code still had. The
+records below are the design rationale for each slice.
 
 - **B1 — `:rf/set-db` standard event.** _[task · P2]_ Register `:rf/set-db` (handler returns
   `{:db new-db}`; validates exactly one map argument, else `:rf.error/set-db-bad-value`) in

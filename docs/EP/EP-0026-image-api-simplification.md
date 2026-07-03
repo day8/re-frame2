@@ -1,6 +1,6 @@
 # EP-0026: Image API Simplification
 
-Status: accepted
+Status: final
 Type: standards-track
 
 > This EP simplifies the EP-0023 image surface. It keeps the narrowed scope:
@@ -11,11 +11,14 @@ Type: standards-track
 > reserved-key grammar), with `spec/002-Frames.md` and `spec/API.md` updated to
 > match.
 >
-> **Accepted 2026-06-22 (Mike-ruled).** Implementation is tracked across spec
-> graduation (Conventions / 002-Frames / API), `:select-ns` + image-order
-> resolution, the shadow report, retirements + surgical capability removal, the
-> inline grammar + default image, and conformance. The EP moves to `final` once the
-> spec graduation and implementation land.
+> **Accepted 2026-06-22 (Mike-ruled); graduated `accepted → final`.** The spec
+> graduation and implementation landed: `:select-ns` + image-order resolution and
+> the returned shadow report are normative in `spec/Conventions.md` /
+> `spec/002-Frames.md` / `spec/API.md`, the retired levers (`:include-ns`,
+> `:exclude-ns`, `:replace`, `:replace-standard`, `:rf.image/requires`) fail loud
+> at the image lowering, surgical capability removal is done, and the
+> inline-grammar / default-image / conformance work shipped. This EP is now the
+> **rationale record**; where it and the spec differ, the spec governs.
 
 ## Abstract
 

@@ -12,9 +12,11 @@ Type: standards-track
 > their home — [`spec/Conventions.md`](../../spec/Conventions.md) (the path /
 > canonical-identity rules), validated end-to-end by the `re-frame.path` /
 > `re-frame.identity` reference implementation. This EP is now the **rationale
-> record**; where it and the spec differ, the spec governs. The action epic
-> stays open for the remaining post-graduation item (the
-> deferred cache-key normalisation).
+> record**; where it and the spec differ, the spec governs. The one
+> post-graduation item the action epic tracked — cache-key normalisation — has
+> **landed**: the CEDN-1 canonical byte key-id is normative in
+> [`spec/Conventions.md`](../../spec/Conventions.md) (§Canonical EDN identity),
+> so the epic's remaining work is done.
 
 > This EP defines one small path and canonical-identity algebra for app-db
 > paths, runtime-db paths, flow dependencies and outputs, schema and redaction

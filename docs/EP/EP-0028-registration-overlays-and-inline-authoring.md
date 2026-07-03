@@ -11,7 +11,8 @@ Type: standards-track
 > dropping `:replace` / `:replace-standard`, removing `:rf.image/requires`); this
 > EP owns the contested, replay-sensitive surfaces: behaviour overrides at frame
 > and dispatch scope, and making `rf/image` a source-stamping macro for literal
-> inline registrations. Both EPs remain `proposal`. If accepted, the normative
+> inline registrations. EP-0026 has since graduated to `final`; this EP is
+> `deferred` (pending completion of the document). If accepted, the normative
 > homes are `spec/002-Frames.md` (frame/dispatch override precedence and child
 > inheritance), `spec/API.md`, and `spec/Conventions.md`.
 
