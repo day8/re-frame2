@@ -1438,8 +1438,8 @@
                      "'fx' (trace stream filtered to :op-type :rf.fx), 'error' (trace stream filtered to :op-type :error), "
                      "'frameless' (trace events with no :rf.trace/dispatch-id — registration emits, REPL evals, lifecycle "
                      "outside any cascade; per Tool-Pair §Frameless trace events). "
-                     "Cascade-bundle delivery (rf2-mscih): :trace / :fx / :error ship each tick's matched events grouped "
-                     "by :rf.trace/dispatch-id into cascade bundles matching `(rf/trace-buffer frame-id)` shape "
+                     "Event-bundle delivery (rf2-mscih): :trace / :fx / :error ship each tick's matched events grouped "
+                     "by :rf.trace/dispatch-id into event bundles matching `(rf/trace-buffer frame-id)` shape "
                      "(:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events "
                      ":parent-dispatch-id). The progress payload's load slot is `:cascades` on these topics. Frameless "
                      "events NEVER ride these topics — opt into the `:frameless` topic explicitly. :epoch and :frameless "
@@ -1465,7 +1465,7 @@
                      "Examples: "
                      "1. Stream every epoch: {:topic \"epoch\"} -> progress ticks {:sub-id \"<uuid>\" :events [...]} until cancel; final summary {:ok? true :sub-id \"<uuid>\" :delivered N :ticks K :reason :aborted}. "
                      "2. Filtered fx-cascade stream: {:topic \"fx\" :filter {:event-id :cart/checkout}} -> ticks {:sub-id \"...\" :cascades [{:dispatch-id ... :event ... :fx ... :effects [...] :trace-events [...]}]}; ends with {:ok? true :delivered N :reason :aborted}. "
-                     "3. Time-bounded error probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors; cascade bundles only. "
+                     "3. Time-bounded error probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors; event bundles only. "
                      "4. Frameless live channel: {:topic \"frameless\"} -> ticks {:sub-id \"...\" :events [<registration / REPL emits>]}.")
    :typicalTokens 1000
    :annotations streaming-subscribe-annotations

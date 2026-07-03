@@ -629,12 +629,12 @@
 
 (deftest drain-form-resolves-elision-frame-per-element
   ;; The trace-walk arm resolves the elision `:frame` PER ELEMENT inside
-  ;; the walk BY LAYER, NOT once for the whole drain. Cascade bundles are
+  ;; the walk BY LAYER, NOT once for the whole drain. Event bundles are
   ;; keyed by `[frame dispatch-id]`, so an all-frame stream — or a filter
-  ;; frame that differs from the operating frame — carries cascades from
+  ;; frame that differs from the operating frame — carries event bundles from
   ;; several frames in one tick. Per EP-0015 sensitive/large declarations
   ;; are per-frame, so each element MUST be elided against its OWN frame:
-  ;; a DERIVED cascade record's top-level `:frame` slot, else a frameless
+  ;; a DERIVED event-bundle record's top-level `:frame` slot, else a frameless
   ;; RAW event's frame via the canonical
   ;; `re-frame.trace/trace-event-frame` reader ([:tags :frame]). The
   ;; operating frame (`(re-frame2-pair.runtime/current-frame)`) serves
@@ -647,7 +647,7 @@
   (let [form (sub/drain-form "sub-frame" :trace true false)]
     (is (str/includes? form "(re-frame2-pair.runtime/current-frame)")
         "the operating frame is resolved app-side as the frameless fallback")
-    ;; The per-element resolution: DERIVED cascade record top-level
+    ;; The per-element resolution: DERIVED event-bundle record top-level
     ;; `:frame`, then a RAW event's frame via the canonical reader, then
     ;; the operating-frame fallback.
     (is (str/includes? form "(:frame x)")
@@ -660,7 +660,7 @@
         "the per-element frame is assoc'd onto the base elision opts per element")
     (is (not (str/includes?
                form "(merge {:frame (re-frame2-pair.runtime/current-frame)}"))
-        "the buggy single-frame-for-every-cascade merge is GONE")))
+        "the buggy single-frame-for-every-event-bundle merge is GONE")))
 
 (deftest drain-form-gated-elision-honours-include-sensitive
   ;; Gate ON path — when the operator passed `--allow-sensitive-reads` AND the
@@ -675,7 +675,7 @@
 (deftest drain-form-bare-elision-false-still-walks-trace
   ;; Fail-CLOSED. A gate-ON `:elision false` on a trace-event topic must
   ;; NOT ship the bare `drain-subscription!` call with NO walker — that
-  ;; would let a declared-sensitive frame slot inside a cascade leak
+  ;; would let a declared-sensitive frame slot inside an event bundle leak
   ;; off-box WITHOUT the per-call `:include-sensitive true` opt-in (the
   ;; EP-0015 two-key gate). A BARE `:elision false` (incl? false) STILL
   ;; walks: large content passes (`include-large? true`) but a
@@ -685,7 +685,7 @@
     (is (str/includes? form "re-frame.core/elide-wire-value")
         "bare :elision false MUST still walk trace events — no sensitive bypass")
     (is (str/includes? form ":rf.size/include-sensitive? false")
-        "sensitive cascade slots redact (caller didn't opt in)")
+        "sensitive event-bundle slots redact (caller didn't opt in)")
     ;; subscribe is a streaming TRACE surface that always emits large-slot
     ;; markers (it hardcodes include-large? false in the walker opts —
     ;; unlike snapshot / get-path, where :elision false overlays
@@ -792,13 +792,13 @@
         "frameless events are not epoch records — no projected-record")))
 
 ;; ---------------------------------------------------------------------------
-;; Cascade-bundle wire format — drain envelope shape, slot
+;; Event-bundle wire format — drain envelope shape, slot
 ;; selection on the progress payload, and cross-frame `:dispatch-id`
 ;; merge.
 ;; ---------------------------------------------------------------------------
 
 (deftest drain-form-handles-both-cascade-and-events-slots
-  ;; For a TRACE-event topic (cascade-bundle `:trace`/`:fx`/
+  ;; For a TRACE-event topic (event-bundle `:trace`/`:fx`/
   ;; `:error` ship `:cascades`; `:frameless` ships `:events`), `drain-form`
   ;; with elision ON wraps WHICHEVER trace-event slot the runtime produced.
   ;; The walker arm uses `cond->` over slot presence so it's slot-agnostic
@@ -808,7 +808,7 @@
   ;; this walker arm; covered by `drain-form-epoch-*` above.)
   (let [form (sub/drain-form "sub-1" :trace true false)]
     (is (str/includes? form ":cascades")
-        "drain form mentions the :cascades slot for cascade-bundle topics")
+        "drain form mentions the :cascades slot for event-bundle topics")
     (is (str/includes? form ":events")
         "drain form mentions the :events slot for the frameless flat topic")
     (is (str/includes? form "contains?")
@@ -816,9 +816,9 @@
     (is (str/includes? form "re-frame.core/elide-wire-value")
         "the walker is applied to whichever trace-event slot is present")))
 
-(deftest progress-payload-uses-cascades-slot-on-cascade-bundle-topics
+(deftest progress-payload-uses-cascades-slot-on-event-bundle-topics
   ;; The progress payload's load slot is named per the
-  ;; topic's wire shape: `:cascades` for cascade-bundle topics
+  ;; topic's wire shape: `:cascades` for event-bundle topics
   ;; (`:trace`/`:fx`/`:error`), `:events` for flat topics
   ;; (`:epoch`/`:frameless`).
   (testing "the :cascade? flag in tick-state routes the payload to :cascades"
@@ -832,9 +832,9 @@
           slot     (if cascade? :cascades :events)]
       (is (= :events slot)))))
 
-(deftest cascade-bundle-shape-pins-projection-slots
-  ;; Pin the shape contract — every cascade bundle carries the seven
-  ;; `group-cascades` slots (`:dispatch-id` / `:event` / `:handler` /
+(deftest event-bundle-shape-pins-projection-slots
+  ;; Pin the shape contract — every event bundle carries the seven
+  ;; `group-by-event` slots (`:dispatch-id` / `:event` / `:handler` /
   ;; `:fx` / `:effects` / `:subs` / `:renders` / `:other`) PLUS the
   ;; runtime-side `:trace-events` slot. Mirrors `(rf/trace-buffer
   ;; frame-id)` shape per Tool-Pair §Reading the per-frame trace ring.
@@ -859,12 +859,12 @@
     (is (contains? bundle :other))
     (is (contains? bundle :parent-dispatch-id))))
 
-(deftest cross-frame-cascade-merge-by-dispatch-id
-  ;; Cross-frame contract — a single cascade can fan out
+(deftest cross-frame-event-merge-by-dispatch-id
+  ;; Cross-frame contract — a single dispatched event can fan out
   ;; across frames; every emit on every frame shares the same
   ;; `:rf.trace/dispatch-id`. Consumers merge by `:dispatch-id` to
   ;; reconstruct the cross-frame view per Tool-Pair §Cross-frame
-  ;; cascade reconstruction.
+  ;; event reconstruction.
   (let [frame-a-bundle {:dispatch-id 99
                         :frame       :rf/default
                         :event       [:user/login]
@@ -902,7 +902,7 @@
 (deftest frameless-channel-shape-is-flat-events-not-bundles
   ;; Frameless contract — registration emits / REPL / boot
   ;; lifecycle ride under `:events` (flat) on the `:frameless` topic.
-  ;; No cascade structure to bundle; the frameless events carry no
+  ;; No event-bundle structure to bundle; the frameless events carry no
   ;; `:rf.trace/dispatch-id` tag.
   (let [registration-emit {:operation :rf.registry/registered
                            :op-type :rf.registry
@@ -1004,7 +1004,7 @@
   ;; `:rf.mcp/cursor-stale` is a cursor-pagination concern
   ;; (`trace-window` / `watch-epochs`), not a streaming concern. The
   ;; `subscribe` surface is forward-only with no cursor; the
-  ;; cascade-bundle wire shape carries no cursor surface.
+  ;; event-bundle wire shape carries no cursor surface.
   (let [;; A streaming subscription's final summary — no cursor slot.
         subscribe-summary {:ok? true
                            :sub-id "sub-1"
@@ -1015,4 +1015,4 @@
     (is (not (contains? subscribe-summary :next-cursor))
         "streaming subscriptions are forward-only — no cursor slot")
     (is (not (contains? subscribe-summary :dispatch-id-of-next-cascade))
-        "cascade-bundle delivery introduces no new cursor")))
+        "event-bundle delivery introduces no new cursor")))

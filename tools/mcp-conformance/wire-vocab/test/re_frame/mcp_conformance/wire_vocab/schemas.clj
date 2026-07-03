@@ -9,7 +9,7 @@
   these schemas (`wire_vocab_test`, `cursor_stale_test`,
   `progress_notification_test`, …) each `:require` ONE support ns rather
   than re-deriving the shapes. The marker-family-LOCAL schemas
-  (`ResultEnvelope`, `CascadeBundle`) stay co-located with their tests —
+  (`ResultEnvelope`, `EventBundle`) stay co-located with their tests —
   only the shapes referenced across families live here.
 
   See `wire_vocab_test.clj`'s ns docstring for the full cross-MCP

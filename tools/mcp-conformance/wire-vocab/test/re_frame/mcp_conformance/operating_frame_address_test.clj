@@ -45,10 +45,10 @@
   after EP-0026 retired image capabilities) wait on that
   forward-direction API — see rf2-srobm0.
 
-  ## Posture (mirrors `cascade_bundle_test.clj` / `result_envelope_test.clj`)
+  ## Posture (mirrors `event_bundle_test.clj` / `result_envelope_test.clj`)
 
   The operating-frame envelope is a STRUCTURAL result envelope (like
-  `:rf.mcp/result` and the cascade-bundle shape) — NOT a single-key
+  `:rf.mcp/result` and the event-bundle shape) — NOT a single-key
   wrapper marker, so it gets its own focused namespace rather than a
   `canonical-markers` row. The schema is co-located here (the
   marker-family-LOCAL posture documented in `schemas.clj`). The EMITTER is

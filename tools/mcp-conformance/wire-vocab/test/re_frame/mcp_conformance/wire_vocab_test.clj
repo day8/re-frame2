@@ -139,7 +139,7 @@
 ;; `re-frame.mcp-conformance.wire-vocab.source-pins`; and five
 ;; independent marker families moved to their own `*_test.clj`
 ;; namespaces (cursor-stale, result-envelope, redacted-sentinel,
-;; progress-notification, cascade-bundle). This ns keeps the CORE
+;; progress-notification, event-bundle). This ns keeps the CORE
 ;; wrapper-marker contract: fixture-conformance over `canonical-markers`,
 ;; the per-marker negative/live-emission gates, the marker-literal source
 ;; pins, the JS cross-encoding pin, server-coverage, the story-mcp
@@ -155,7 +155,7 @@
 ;;   - Non-wrapper marker (a `:reason` value, a bare scalar, a
 ;;     tagged-union, a streaming-notification shape): give it its own
 ;;     `*_test.clj` namespace (the cursor-stale / result-envelope /
-;;     redacted-sentinel / progress-notification / cascade-bundle files
+;;     redacted-sentinel / progress-notification / event-bundle files
 ;;     are the templates) requiring the shared `schemas` + `source-pins`
 ;;     support nses. Keep the schema co-located with its tests when it is
 ;;     referenced only by that family.
