@@ -91,7 +91,6 @@
             [re-frame.http.handlers        :as handlers]
             [re-frame.http.middleware      :as middleware]
             [re-frame.http.privacy         :as privacy]
-            [re-frame.http.reply           :as http-reply]
             [re-frame.late-bind            :as late-bind]
             [re-frame.registrar            :as registrar]
             [re-frame.router               :as router]))
@@ -230,16 +229,14 @@
                        {:where 'rf.http/emit-canned-success!})
         value        (get args-map :value {:stubbed true})
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
-        ;; rf2-ibksxg — the canned stub delivers the SAME canonical reply
-        ;; envelope the real transport does, so a test handler's reply branch
-        ;; sees the identical shape. `:issuance` / `:attempt` default to 1
-        ;; (a canned reply is a single first attempt); `:completed-at` is
-        ;; omitted (the stub reads no host clock).
-        reply        (http-reply/success-reply
-                       {:request-id   (:request-id args-map)
-                        :origin-event origin-event
-                        :frame        frame-id}
-                       value)]
+        ;; rf2-ibksxg — the canned stub delivers a MINIMAL canonical reply
+        ;; (`:status :ok` + `:value`), the shape a handler actually branches
+        ;; on. A stub has no real request lifecycle, so the identity facts the
+        ;; real transport carries (`:work/id` / `:attempt` / `:completed-at`)
+        ;; are deliberately OMITTED — synthesising fake ones would add noise no
+        ;; handler reads. The real transport's full envelope is pinned by the
+        ;; lowering conformance (`http-reply-lowering-test`).
+        reply        {:status :ok :value value}]
     (dispatch-canned-reply!
       {:origin-event   origin-event
        :explicit-on    {:supplied? (contains? args-map :on-success)
@@ -264,16 +261,17 @@
         tags         (or (:tags args-map) {})
         failure      (assoc tags :kind kind)
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
-        ;; rf2-ibksxg — deliver the canonical envelope. The classified
-        ;; `:rf.http/*` failure map rides verbatim under `:error`;
-        ;; `http-reply/failure-reply` maps `:rf.http/aborted` → `:status
-        ;; :cancelled`, `:rf.http/timeout` → `:work/status :timed-out`, and
-        ;; everything else → `:status :error` / `:work/status :failed`.
-        reply        (http-reply/failure-reply
-                       {:request-id   (:request-id args-map)
-                        :origin-event origin-event
-                        :frame        frame-id}
-                       failure)]
+        ;; rf2-ibksxg — deliver a MINIMAL canonical reply: the classified
+        ;; `:rf.http/*` failure map rides verbatim under `:error`, and an
+        ;; `:rf.http/aborted` kind maps to `:status :cancelled` (mirroring the
+        ;; real transport's status taxonomy) while every other kind is
+        ;; `:status :error`. The stub omits the real transport's identity facts
+        ;; (`:work/id` / `:attempt` / `:work/status` / `:completed-at`) — a
+        ;; handler branches on `:status` and reads `:error`, nothing more; the
+        ;; full envelope is pinned by the lowering conformance.
+        reply        (if (= :rf.http/aborted kind)
+                       {:status :cancelled :error failure}
+                       {:status :error :error failure})]
     (dispatch-canned-reply!
       {:origin-event   origin-event
        :explicit-on    {:supplied? (contains? args-map :on-failure)
