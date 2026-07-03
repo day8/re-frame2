@@ -1,0 +1,170 @@
+;; Conformance fixture: machine/spawn-all-under-ssr-ring
+;;
+;; Cross-Spec Interaction #4 (Machines × SSR) — the OUT-OF-SUBSET half, per
+;; [Cross-Spec-Interactions §4 — Machines under SSR (allowed-subset)]
+;; (../../Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset)
+;; and the retired [Pattern-SSR-Loaders]
+;; (../../Pattern-SSR-Loaders.md#why-this-pattern-is-retired) (rf2-exfavp,
+;; Option B — resources-only SSR render barrier; machines synchronous-only
+;; under SSR).
+;;
+;; Specs that meet: [005-StateMachines §SSR mode]
+;;                    (../../005-StateMachines.md#ssr-mode),
+;;                  [011-SSR §`:after` is no-op under SSR]
+;;                    (../../011-SSR.md#after-is-no-op-under-ssr),
+;;                  [016-Resources §SSR and hydration]
+;;                    (../../016-Resources.md#ssr-and-hydration) (the ONLY
+;;                    render barrier the runtime installs — resources only).
+;;
+;; ---------------------------------------------------------------------------
+;; WHAT THIS PINS — machines are SYNCHRONOUS-ONLY under SSR.
+;; ---------------------------------------------------------------------------
+;;
+;; The retired Pattern-SSR-Loaders taught a machine fan-out for SSR data
+;; loading: a `:loading` state fans out N async HTTP fetches via `:spawn-all`,
+;; and a phase-level server `:after` deadline was mandated as the render
+;; budget's outer envelope. BOTH premises were false:
+;;
+;;   1. The JVM managed-HTTP transport is `sendAsync` (Spec 014) — the fetch
+;;      is off-thread; the drain reaches fixed point with the children still
+;;      in flight and renders the `:loading` skeleton, never `:ready`.
+;;   2. `:after` NO-OPS under SSR (Spec 005 §SSR mode / Spec 011). The mandated
+;;      server deadline never fires — it is a dead remedy.
+;;
+;; So an async loader machine under SSR HANGS at `:loading` and is OUT of the
+;; allowed subset. This fixture makes that observable, WITHOUT relying on any
+;; new runtime detection machinery (Option A's machine work-ledger +
+;; await-quiescence pump was considered and REJECTED):
+;;
+;;   - Under `:platform :server`, entering the `:spawn-all`-bearing `:loading`
+;;     state DOES spawn the child loader actors (the synchronous spawn side
+;;     runs), AND declares an `:after` server deadline — but that `:after`
+;;     is SKIPPED: the runtime emits `:rf.machine.timer/skipped-on-server`
+;;     in place of `:rf.machine.timer/scheduled`, so the deadline that the
+;;     retired pattern leaned on NEVER FIRES.
+;;   - The children are async loaders: on the server nothing dispatches their
+;;     `:on-all-complete` reply (there is no `drain-blocking-resources!`-style
+;;     barrier for machines; the JVM fetch is `sendAsync` and does not settle
+;;     the drain). So the join never resolves.
+;;   - The parent machine's snapshot is therefore STUCK at `:loading` — it
+;;     never reaches `:ready`. The render would see the skeleton.
+;;
+;; The assertion is the out-of-subset SYMPTOM asserted directly against the
+;; observable drain outcome: snapshot at `:loading` (not `:ready`), server
+;; deadline skipped (not scheduled/fired). If a future change re-introduced a
+;; firing server `:after`, or gave machines an Option-A await-quiescence
+;; barrier that settled the fan-out under SSR, this fixture goes RED — which
+;; is exactly the regression the ruling wants guarded.
+;;
+;; The COMPLEMENT is `cross-spec-machines-under-ssr.edn` (the flat `:after`
+;; skipped-on-server carve-out); this fixture adds the `:spawn-all` fan-out
+;; loader shape and pins the "hangs at :loading" out-of-subset outcome.
+;;
+;; Per rf2-exfavp (Option B).
+
+{:fixture/id           :machine/spawn-all-under-ssr-ring
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/delayed-after
+                         :actor/spawn-destroy :actor/declarative-spawn
+                         :actor/spawn-and-join
+                         :core/event-handler :core/trace}
+ :fixture/doc          "Machines are synchronous-only under SSR (rf2-exfavp, Option B). A :spawn-all loader machine driven under :platform :server spawns its child loader actors AND declares an :after server deadline, but the deadline is SKIPPED (:rf.machine.timer/skipped-on-server, not /scheduled) — the render barrier the retired Pattern-SSR-Loaders leaned on never fires. The async children never report back (no machine drain barrier under SSR; the JVM transport is sendAsync), so the join never resolves and the parent snapshot is STUCK at :loading, never reaching :ready — the out-of-subset symptom. Complement of cross-spec-machines-under-ssr.edn (flat :after carve-out); this adds the :spawn-all fan-out loader shape."
+
+ :fixture/registry
+ {:machine
+  {;; The loader parent — the retired Pattern-SSR-Loaders shape. `:loading`
+   ;; fans out three async child fetches via :spawn-all and declares a server
+   ;; `:after` deadline; `:on :pdp/joined :ready` would land only if the join
+   ;; resolved. Under SSR neither the join nor the deadline can fire.
+   :pdp/load
+   {:initial :idle
+    :data    {}
+    :states
+    {:idle
+     {:on {:load :loading}}
+
+     :loading
+     {:spawn-all
+      {:children         [{:id :product  :machine-id :http/get-one}
+                          {:id :related  :machine-id :http/get-one}
+                          {:id :reviews  :machine-id :http/get-one}]
+       :join             :all
+       :on-child-done    :loaded
+       :on-child-error   :failed
+       :on-all-complete  [:pdp/joined]
+       :on-any-failed    [:pdp/load-failed]}
+      ;; The phase-level server deadline the retired pattern MANDATED — the
+      ;; `:after` target is a real state (`:error`, the degraded-response
+      ;; terminal). Under :platform :server this `:after` is SKIPPED
+      ;; (:rf.machine.timer/skipped-on-server), so it can never rescue a hung
+      ;; fan-out.
+      :after {30000 :error}
+      :on    {:pdp/joined      :ready
+              :pdp/load-failed :error}}
+
+     :ready {:final? true}
+     :error {:final? true}}}
+
+   ;; The per-fetch child — a thin async loader stub. On the server nothing
+   ;; settles its request (the JVM transport is sendAsync; there is no
+   ;; machine drain barrier), so it never reports :done / :failed back to
+   ;; :pdp/load. Body is irrelevant to the assertion; only the spawn +
+   ;; never-settling lifecycle is observed.
+   :http/get-one
+   {:initial :requesting
+    :data    {}
+    :states  {:requesting {}}}}}
+
+ :fixture/handlers {}
+
+ ;; :platform :server simulates the SSR request frame. This flips the
+ ;; `:server?` flag on the :after fx so the timer is skipped rather than
+ ;; scheduled (the same mechanism cross-spec-machines-under-ssr.edn exercises
+ ;; on a flat :after).
+ :fixture/frame-config {:initial-events []
+                        :platform       :server}
+
+ :fixture/dispatches
+ ;; Drive the loader into :loading on the server. Entering :loading spawns
+ ;; the three children and reaches the server-skipped :after. The join can
+ ;; never resolve (async children never report back under SSR), so the
+ ;; snapshot settles — and stays — at :loading.
+ [[:pdp/load [:load]]]
+
+ :fixture/expect
+ ;; The out-of-subset symptom, asserted against the observable drain outcome:
+ ;;   - The parent snapshot is STUCK at :loading, NOT :ready. Async machine
+ ;;     work under SSR does not settle — machines are synchronous-only.
+ {:final-runtime-db {:rf.runtime/machines {:snapshots {:pdp/load {:state :loading}}}}
+
+  ;; The load-bearing trace contract:
+  ;;   1. :event for the outer machine-handler dispatch.
+  ;;   2. :rf.machine.timer/skipped-on-server fires INSTEAD of /scheduled —
+  ;;      the mandated server deadline is a no-op under SSR. It carries
+  ;;      :platform :server + :recovery :skipped + the :state / :delay /
+  ;;      :delay-source envelope.
+  ;;   3. :rf.machine/transition for the :idle -> :loading macrostep commit.
+  ;;
+  ;; If the runtime SCHEDULED (or fired) the server deadline, or if it
+  ;; settled the fan-out to :ready under SSR (an Option-A await-quiescence
+  ;; barrier), these assertions would fail.
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :pdp/load}}
+   {:operation :rf.machine.timer/skipped-on-server
+    :tags      {:actor-id     :pdp/load
+                :state        :loading
+                :delay        30000
+                :delay-source :literal
+                :platform     :server}
+    :recovery  :skipped}
+   {:operation :rf.machine/transition
+    :tags      {:actor-id :pdp/load}}]
+
+  ;; The out-of-subset invariant stated negatively: the machine MUST NOT have
+  ;; reached :ready, and the server deadline MUST NOT have been scheduled or
+  ;; fired. (These trace ops never appearing is the "no async settle under
+  ;; SSR" guarantee.)
+  :trace-not-emitted
+  [{:operation :rf.machine.timer/scheduled :tags {:actor-id :pdp/load}}
+   {:operation :rf.machine.timer/fired     :tags {:actor-id :pdp/load}}
+   {:operation :rf.machine/transition       :tags {:actor-id :pdp/load :to :ready}}]}}
