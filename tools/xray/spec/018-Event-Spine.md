@@ -1091,7 +1091,7 @@ The single-axis selection that every layer reads from.
 | `:rf.xray/follow-head` | `⏭` button · `L` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
 | `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
-| `:rf.xray/preview-cascade <id> [<frame>]` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id` / `:epoch-id` `<id>` transiently. A non-destructive overlay: it snapshots the committed selection into `[:focus :pre-preview]` on the first hover of a gesture and RESTORES it on hover-out (nil `<id>`), and resolves the previewed epoch against the previewed frame's ring DIRECTLY without persisting a cross-frame `:target-frame` / `:epoch-history` re-key (rf2-uo0rc.5). The optional `<frame>` hint disambiguates a dispatch-id present in two frames (rf2-bz7flo) — the L2 row knows its frame; when omitted the lookup degrades to an id-only match. |
+| `:rf.xray/preview-event <id> [<frame>]` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id` / `:epoch-id` `<id>` transiently. A non-destructive overlay: it snapshots the committed selection into `[:focus :pre-preview]` on the first hover of a gesture and RESTORES it on hover-out (nil `<id>`), and resolves the previewed epoch against the previewed frame's ring DIRECTLY without persisting a cross-frame `:target-frame` / `:epoch-history` re-key (rf2-uo0rc.5). The optional `<frame>` hint disambiguates a dispatch-id present in two frames (rf2-bz7flo) — the L2 row knows its frame; when omitted the lookup degrades to an id-only match. |
 
 ### Per-layer rebind table
 
@@ -1472,7 +1472,7 @@ not just a same-frame one: pre-fix the clicked cascade's epoch
 resolved to nil and the epoch-keyed panels (App-DB diff, Views'
 focused-cascade-pair, Machine Inspector) rendered empty/stale.
 
-**`:rf.xray/preview-cascade` resolves WITHOUT committing the re-key
+**`:rf.xray/preview-event` resolves WITHOUT committing the re-key
 (rf2-uo0rc.5).** A preview is a transient hover, not a commit, so it
 must NOT persist a cross-frame `:target-frame` / `:epoch-history`
 re-key. The preview handler resolves the previewed cascade's epoch
@@ -1498,7 +1498,7 @@ resolution (multi-frame, picker untouched); the
 suites pin the panel render bodies post-reseed. For the preview path
 (rf2-uo0rc.5) `spine_cljs_test.cljs` additionally pins that
 preview-clear RESTORES the committed `:dispatch-id` / `:epoch-id` (RETRO
-hover-then-leave) and that the `:rf.xray/preview-cascade` handler does
+hover-then-leave) and that the `:rf.xray/preview-event` handler does
 NOT persist a cross-frame `:target-frame` / `:epoch-history` re-key.
 
 **Frame-strict cascade lookup (rf2-bz7flo).** Dispatch ids are unique

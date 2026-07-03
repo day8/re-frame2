@@ -8,7 +8,7 @@
 
   1. The pure reducers (`focus-event-bundle-reducer`, `follow-head-reducer`,
      `toggle-live-pause-reducer`, `set-frame-reducer`, `focus-step-
-     reducer`, `preview-cascade-reducer`) — JVM-runnable shape, no
+     reducer`, `preview-event-reducer`) — JVM-runnable shape, no
      re-frame machinery needed.
   2. `compose-focus` derives `:head?` + the effective `:dispatch-id`
      correctly across LIVE / RETRO / paused / evicted-cascade states.
@@ -448,7 +448,7 @@
       (is (= db r) "db unchanged"))))
 
 ;; -------------------------------------------------------------------------
-;; (7) set-frame-reducer + preview-cascade-reducer
+;; (7) set-frame-reducer + preview-event-reducer
 ;; -------------------------------------------------------------------------
 
 (deftest set-frame-reducer-clears-dispatch-id
@@ -508,20 +508,20 @@
           "no resolved history → slot cleared, never left stale")
       (is (= :cart-frame (:target-frame r))))))
 
-(deftest preview-cascade-reducer-sets-previewing-true
+(deftest preview-event-reducer-sets-previewing-true
   (let [db {}
-        r  (spine/preview-cascade-reducer db :c2)]
+        r  (spine/preview-event-reducer db :c2)]
     (is (true? (get-in r [:focus :previewing?])))
     (is (= :c2 (get-in r [:focus :dispatch-id])))))
 
-(deftest preview-cascade-reducer-nil-clears-preview
+(deftest preview-event-reducer-nil-clears-preview
   (let [db {:focus {:dispatch-id :c1 :previewing? true :mode :retro}}
-        r  (spine/preview-cascade-reducer db nil)]
+        r  (spine/preview-event-reducer db nil)]
     (is (false? (get-in r [:focus :previewing?])))
     (is (= :c1 (get-in r [:focus :dispatch-id]))
         "committed selection survives preview-clear")))
 
-(deftest preview-cascade-reducer-writes-epoch-id-rf2-yng0y
+(deftest preview-event-reducer-writes-epoch-id-rf2-yng0y
   (testing "rf2-yng0y — the 3-arity preview reducer writes :epoch-id in
             lockstep with :dispatch-id so the spine's two focus axes
             never desync mid-preview (the App-DB before-image follows
@@ -529,7 +529,7 @@
             leaving :epoch-id pinned to the committed epoch — a latent
             LIVE-mode correctness bug."
     (let [db {:focus {:dispatch-id :c1 :epoch-id :e1 :mode :live}}
-          r  (spine/preview-cascade-reducer db :c2 :e2)]
+          r  (spine/preview-event-reducer db :c2 :e2)]
       (is (true? (get-in r [:focus :previewing?])))
       (is (= :c2 (get-in r [:focus :dispatch-id]))
           ":dispatch-id moved to the previewed cascade")
@@ -540,18 +540,18 @@
             clobbering it to nil; the before-image stays on the last
             resolved epoch until a real epoch resolves."
     (let [db {:focus {:dispatch-id :c1 :epoch-id :e1 :mode :live}}
-          r  (spine/preview-cascade-reducer db :c2 nil)]
+          r  (spine/preview-event-reducer db :c2 nil)]
       (is (= :c2 (get-in r [:focus :dispatch-id])))
       (is (= :e1 (get-in r [:focus :epoch-id]))
           "unresolved preview epoch-id is non-destructive")))
   (testing "rf2-yng0y — the 2-arity arity is preserved (back-compat) and
             leaves :epoch-id untouched."
     (let [db {:focus {:epoch-id :e1}}
-          r  (spine/preview-cascade-reducer db :c2)]
+          r  (spine/preview-event-reducer db :c2)]
       (is (= :c2 (get-in r [:focus :dispatch-id])))
       (is (= :e1 (get-in r [:focus :epoch-id]))))))
 
-(deftest preview-cascade-reducer-clear-restores-committed-selection-rf2-uo0rc5
+(deftest preview-event-reducer-clear-restores-committed-selection-rf2-uo0rc5
   (testing "rf2-uo0rc.5 — a hover-then-leave gesture in RETRO restores the
             COMMITTED selection. Pre-fix the nil-arm cleared only
             :previewing?, leaving :dispatch-id / :epoch-id pinned at the
@@ -561,8 +561,8 @@
     (let [committed {:dispatch-id :c1 :epoch-id :e1 :mode :retro}
           ;; 1) user has :c1 committed; 2) hovers :c2 (preview-start);
           ;; 3) leaves (preview-clear).
-          previewed (spine/preview-cascade-reducer {:focus committed} :c2 :e2)
-          cleared   (spine/preview-cascade-reducer previewed nil)]
+          previewed (spine/preview-event-reducer {:focus committed} :c2 :e2)
+          cleared   (spine/preview-event-reducer previewed nil)]
       (testing "the preview moved focus transiently"
         (is (= :c2 (get-in previewed [:focus :dispatch-id])))
         (is (= :e2 (get-in previewed [:focus :epoch-id])))
@@ -576,33 +576,33 @@
         (is (nil? (get-in cleared [:focus :pre-preview]))
             "the backup slot is dropped after restore — no residue")))))
 
-(deftest preview-cascade-reducer-move-keeps-original-backup-rf2-uo0rc5
+(deftest preview-event-reducer-move-keeps-original-backup-rf2-uo0rc5
   (testing "rf2-uo0rc.5 — moving the hover across rows within one gesture
             keeps the ORIGINAL committed backup (not a previously-previewed
             value), so leaving still lands on the committed selection."
     (let [committed {:dispatch-id :c1 :epoch-id :e1 :mode :retro}
-          hover-c2  (spine/preview-cascade-reducer {:focus committed} :c2 :e2)
-          hover-c3  (spine/preview-cascade-reducer hover-c2 :c3 :e3)
-          cleared   (spine/preview-cascade-reducer hover-c3 nil)]
+          hover-c2  (spine/preview-event-reducer {:focus committed} :c2 :e2)
+          hover-c3  (spine/preview-event-reducer hover-c2 :c3 :e3)
+          cleared   (spine/preview-event-reducer hover-c3 nil)]
       (is (= :c3 (get-in hover-c3 [:focus :dispatch-id]))
           "the latest hover wins while previewing")
       (is (= :c1 (get-in cleared [:focus :dispatch-id]))
           "leaving restores the ORIGINAL committed :c1, never the intermediate :c2")
       (is (= :e1 (get-in cleared [:focus :epoch-id]))))))
 
-(deftest preview-cascade-reducer-no-backup-when-nothing-committed-rf2-uo0rc5
+(deftest preview-event-reducer-no-backup-when-nothing-committed-rf2-uo0rc5
   (testing "rf2-uo0rc.5 — preview-clear with no prior gesture (no backup)
             is a safe no-op on the committed slot (back-compat with the
             pre-fix `nil-clears-preview` contract)."
     (let [db {:focus {:dispatch-id :c1 :previewing? true :mode :retro}}
-          r  (spine/preview-cascade-reducer db nil)]
+          r  (spine/preview-event-reducer db nil)]
       (is (false? (get-in r [:focus :previewing?])))
       (is (= :c1 (get-in r [:focus :dispatch-id]))
           "committed selection survives when there is no backup to restore"))))
 
 ;; The handler-level cross-frame regression for rf2-uo0rc.5 lives in
 ;; section (9) alongside the other `seed-cascades!`-driven handler tests
-;; (`preview-cascade-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5`).
+;; (`preview-event-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5`).
 
 ;; -------------------------------------------------------------------------
 ;; (8) Registered :rf.xray/focus sub — reactive composition
@@ -936,8 +936,8 @@
           "paused LIVE pins focus through arrivals")
       (is (true? (:paused? r))))))
 
-(deftest preview-cascade-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5
-  (testing "rf2-uo0rc.5 — the :rf.xray/preview-cascade HANDLER must not
+(deftest preview-event-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5
+  (testing "rf2-uo0rc.5 — the :rf.xray/preview-event HANDLER must not
             persist a cross-frame :target-frame / :epoch-history re-key
             from a transient hover. Pre-fix it called
             reseed-epoch-history-for-frame, which re-keys those slots onto
@@ -959,7 +959,7 @@
       (let [before (rf/app-db-value :rf/xray)]
         ;; Hover the cross-frame :c2 row, then leave (preview-clear).
         (rf/with-frame :rf/xray
-          (rf/dispatch-sync [:rf.xray/preview-cascade :c2]))
+          (rf/dispatch-sync [:rf.xray/preview-event :c2]))
         (let [during (rf/app-db-value :rf/xray)]
           (testing "the preview did NOT re-key the committed cross-frame axis"
             (is (= (:target-frame before) (:target-frame during))
@@ -967,7 +967,7 @@
             (is (= (:epoch-history before) (:epoch-history during))
                 ":epoch-history is untouched by the transient hover")))
         (rf/with-frame :rf/xray
-          (rf/dispatch-sync [:rf.xray/preview-cascade nil]))
+          (rf/dispatch-sync [:rf.xray/preview-event nil]))
         (let [after (rf/app-db-value :rf/xray)]
           (testing "after hover-then-leave the committed axis is intact"
             (is (= (:target-frame before) (:target-frame after))

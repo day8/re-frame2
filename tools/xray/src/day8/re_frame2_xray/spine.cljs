@@ -793,7 +793,7 @@
   `:target-frame` — a same-frame click is a no-op (the slot already
   holds that frame's ring, kept fresh by `epoch-recorded`).
 
-  `:rf.xray/preview-cascade` deliberately DOES NOT call this (rf2-uo0rc.5):
+  `:rf.xray/preview-event` deliberately DOES NOT call this (rf2-uo0rc.5):
   a transient hover must not persist a cross-frame re-key. The preview
   handler instead resolves the previewed event-bundle's epoch against that
   frame's ring DIRECTLY (a read), leaving the committed `:target-frame`
@@ -847,8 +847,8 @@
              :target-frame  frame-id
              :epoch-history (vec epoch-history-for-frame)))))
 
-(defn preview-cascade-reducer
-  "Pure reducer for `:rf.xray/preview-cascade <id>`. A preview is a
+(defn preview-event-reducer
+  "Pure reducer for `:rf.xray/preview-event <id>`. A preview is a
   TRANSIENT hover overlay: it sets `:previewing? true` and writes the
   previewed `:dispatch-id` / `:epoch-id`, but it must NOT leave the
   committed selection perturbed once the hover ends. nil `id` clears the
@@ -883,7 +883,7 @@
   untouched — back-compat for the pure-shape callers; the 2-arity
   (resolved `epoch-id`) is the production path the event handler
   drives."
-  ([db dispatch-id] (preview-cascade-reducer db dispatch-id nil))
+  ([db dispatch-id] (preview-event-reducer db dispatch-id nil))
   ([db dispatch-id epoch-id]
    (if (nil? dispatch-id)
      ;; preview-clear: restore the committed selection captured at the
@@ -1096,7 +1096,7 @@
       ;; docstring for the shared root cause.
       {:db (set-frame-reducer db frame-id (rf/epoch-history frame-id))}))
 
-  (rf/reg-event :rf.xray/preview-cascade
+  (rf/reg-event :rf.xray/preview-event
     (fn [{:keys [db]} [_ dispatch-id frame-hint]]
       ;; rf2-yng0y — resolve the previewed event-bundle's settling epoch-id
       ;; from the per-frame ring and write it in lockstep with
@@ -1133,6 +1133,6 @@
       {:db (let [frame-id      (:frame (event-bundle-by-id (db->event-bundles db) dispatch-id frame-hint))
             frame-history (when frame-id (rf/epoch-history frame-id))
             epoch-id      (epoch-id-for-event-bundle frame-history dispatch-id)]
-        (preview-cascade-reducer db dispatch-id epoch-id))}))
+        (preview-event-reducer db dispatch-id epoch-id))}))
 
   nil)

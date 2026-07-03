@@ -640,7 +640,7 @@
    ;; rf2-czcg5 — chrome `⛶` pop-out button → lowers to mount/popout!
    ;; via the :rf.xray.fx/popout-shell effect.
    :rf.xray/popout-shell
-   :rf.xray/preview-cascade
+   :rf.xray/preview-event
    :rf.xray/remove-filter
    ;; rf2-6ni62 — L2 event-list column-divider double-click reset.
    :rf.xray/reset-event-list-col-width
