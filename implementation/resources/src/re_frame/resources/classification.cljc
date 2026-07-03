@@ -208,7 +208,7 @@
   EP-0025 projection-relative `:sensitive` / `:large` declarations. Returns
   `{:axis k :reason <string>}` for the FIRST defect, or nil when every present
   declaration is well-shaped (or none is declared). The caller
-  (`reg-resource` / `reg-mutation`) throws `:rf.error/invalid-resource-spec`
+  (`reg-resource` / `reg-mutation`) throws `:rf.error/resource-bad-spec`
   at the registration boundary on a defect — the same fail-loud posture as the
   machine declaration."
   [spec]

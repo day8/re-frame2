@@ -77,7 +77,7 @@
                       operation {:where 'rf/reg-app-schema}))]
      (when-not (keyword? frame-id)
        (error/throw-error!
-         :rf.error/bad-app-schemas-arg
+         :rf.error/app-schemas-bad-arg
          'rf/app-schemas
          (str "the :frame opt must be a frame-id keyword or a frame value "
               "(from rf/make-frame); got " (pr-str override)
@@ -130,7 +130,7 @@
     (map? opts-or-frame-id) opts-or-frame-id
     :else
     (error/throw-error!
-      :rf.error/bad-app-schemas-arg
+      :rf.error/app-schemas-bad-arg
       'rf/app-schemas
       (str "app-schemas expects a keyword frame-id, a frame value, or an "
            "opts map; got " (pr-str opts-or-frame-id) ". Pass a frame-id "
@@ -156,7 +156,7 @@
   with no error. That contradicts spec/010-Schemas.md §Per-frame schemas and
   spec/API.md §Schemas, which require an explicit `:frame` resolving to a
   non-keyword target (a string, a vector, a non-frame map) to FAIL LOUD with
-  `:rf.error/bad-app-schemas-arg` (the no-silent-swallow principle).
+  `:rf.error/app-schemas-bad-arg` (the no-silent-swallow principle).
 
   The metadata `:frame` value is a frame TARGET (not an opts map), so we wrap
   it back into `{:frame target}` and let `resolve-frame` apply the SAME
@@ -196,7 +196,7 @@
   is its `:schema` value. Fails LOUDLY at the authoring boundary (dev AND prod
   — a caller bug, not user input):
 
-   - a non-map second arg throws `:rf.error/bad-app-schema-metadata` naming the
+   - a non-map second arg throws `:rf.error/app-schema-bad-metadata` naming the
      path and the value (the common slip after the F2 grammar change is passing
      the bare schema where the metadata map now goes);
    - a map with no `:schema` key throws the same error (the schema is the point
@@ -206,7 +206,7 @@
   [path metadata]
   (when-not (map? metadata)
     (error/throw-error!
-      :rf.error/bad-app-schema-metadata
+      :rf.error/app-schema-bad-metadata
       'rf/reg-app-schema
       (str "reg-app-schema's second arg must be a registration-metadata map "
            "carrying the schema under :schema — e.g. (reg-app-schema " (pr-str path)
@@ -216,7 +216,7 @@
        :extra    {:path path :received metadata}}))
   (when-not (contains? metadata :schema)
     (error/throw-error!
-      :rf.error/bad-app-schema-metadata
+      :rf.error/app-schema-bad-metadata
       'rf/reg-app-schema
       (str "reg-app-schema for path " (pr-str path) " declares no :schema in "
            "its metadata map. :schema is REQUIRED — it IS the registration. "
@@ -250,7 +250,7 @@
 ;; failure traces never fire).
 ;;
 ;; Fix: fail loud at registration time, BEFORE writing `schemas-by-frame`,
-;; with a framework error id (`:rf.error/bad-app-schema-path`). An invalid
+;; with a framework error id (`:rf.error/app-schema-bad-path`). An invalid
 ;; shape never lands, so the validation hot path can never be poisoned.
 ;; Always-on (NOT gated by `interop/debug-enabled?`): a malformed
 ;; registration is a programming error that must surface in every build,
@@ -349,7 +349,7 @@
   `reg-app-schemas` BEFORE the store mutation so a bad path never lands
   in `schemas-by-frame`. Two distinct rejections:
 
-    - `:rf.error/bad-app-schema-path` — the SHAPE is wrong (a
+    - `:rf.error/app-schema-bad-path` — the SHAPE is wrong (a
       non-sequential scalar), which would poison the `validate-app-schema!`
       hot path's `(get-in db path)` (rf2-sk0ql).
     - `:rf.error/app-schema-runtime-path` — the shape is fine but the
@@ -370,7 +370,7 @@
   ([path frame]
    (when-not (valid-app-schema-path? path)
      (error/throw-error!
-       :rf.error/bad-app-schema-path
+       :rf.error/app-schema-bad-path
        'rf/reg-app-schema
        (str "reg-app-schema path " (pr-str path) " is invalid; pass "
             "a sequential get-in path (vector/seq) "
@@ -427,7 +427,7 @@
   (map? path->schema))
 
 (defn assert-bulk-schemas-arg!
-  "Throw `:rf.error/bad-app-schemas-batch` when `reg-app-schemas`'
+  "Throw `:rf.error/app-schemas-bad-batch` when `reg-app-schemas`'
   first argument is not a `{path -> schema}` map. Called BEFORE any
   store mutation so a nil / non-map batch rejects atomically rather than
   silently no-op'ing to `[]` (rf2-naihn1). `{}` is accepted (the
@@ -435,7 +435,7 @@
   [path->schema]
   (when-not (valid-bulk-schemas-arg? path->schema)
     (error/throw-error!
-      :rf.error/bad-app-schemas-batch
+      :rf.error/app-schemas-bad-batch
       'rf/reg-app-schemas
       (str "reg-app-schemas expects a {path -> schema} map (possibly empty); "
            "got " (pr-str path->schema) ". Pass a map of path -> schema.")
@@ -760,7 +760,7 @@
   metadata, uniform with every other reg-* surface). The path is the
   registration id (Conventions §reg-* return-value convention). A missing
   `:schema` key, or a non-map second arg, throws
-  `:rf.error/bad-app-schema-metadata` at the authoring boundary.
+  `:rf.error/app-schema-bad-metadata` at the authoring boundary.
 
   Per Spec 010 §Per-frame schemas this registration is frame-scoped.
   EP-0002 — context-required frame-local: the frame comes from the
@@ -781,13 +781,13 @@
   the SAME contract the read surface (`app-schema-at` /
   `app-schema-meta-at` / `app-schemas`) uses for a frame TARGET: a frame-id
   keyword or a frame value names the registration frame, and a malformed
-  target throws `:rf.error/bad-app-schemas-arg`.
+  target throws `:rf.error/app-schemas-bad-arg`.
 
   Per rf2-sk0ql the `path` must be a `get-in`/`assoc-in`-shaped path: a
   SEQUENTIAL collection of keys, or the empty vector `[]` for the whole-
   `app-db` root (Spec 010 §`app-db` schemas — path-based / §A schema for
   the whole `app-db`). A non-sequential scalar (a bare keyword, string,
-  number, nil) throws `:rf.error/bad-app-schema-path` at registration —
+  number, nil) throws `:rf.error/app-schema-bad-path` at registration —
   BEFORE the store mutation — so it can never land. Previously such a
   shape registered fine but made `validate-app-schema!`'s `(get-in db
   path)` throw, which the router silently swallowed as a validation pass,
@@ -802,7 +802,7 @@
         ;; resolve a target IDENTICALLY to the read surface: a keyword / frame
         ;; value resolves to its frame id; a non-keyword target (a string, a
         ;; vector, or a NON-frame MAP like `{:not :a-frame}`) FAILS LOUD with
-        ;; `:rf.error/bad-app-schemas-arg` rather than (the old bug) being read
+        ;; `:rf.error/app-schemas-bad-arg` rather than (the old bug) being read
         ;; as a key-less opts map and silently borrowing the ambient frame.
         frame-opts (frame-target->opts (:frame metadata))]
    ;; Per rf2-sk0ql — reject a malformed `path` shape BEFORE the store
@@ -941,7 +941,7 @@
    ;;
    ;; Per rf2-52dfy — `opts` is coerced through the same `coerce-opts`
    ;; contract the read surface uses (bare keyword → `{:frame kw}`
-   ;; sugar; bad shape → `:rf.error/bad-app-schemas-arg`). Write/read
+   ;; sugar; bad shape → `:rf.error/app-schemas-bad-arg`). Write/read
    ;; agree; the singular `reg-app-schema` call re-coerces the
    ;; already-coerced map (idempotent — a map passes through verbatim).
    ;; Per rf2-naihn1 — reject a nil / non-map first argument BEFORE any

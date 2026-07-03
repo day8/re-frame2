@@ -163,7 +163,7 @@
           ;; -- Emitted source must not teach the positional
           ;;    reg-app-schema grammar (schema-in-metadata).
           ;; The schema lives in the metadata map's :schema key; a bare
-          ;; positional schema throws :rf.error/bad-app-schema-metadata.
+          ;; positional schema throws :rf.error/app-schema-bad-metadata.
           ;; Scan emitted source comments too, so events.cljs's schema-load
           ;; comment cannot cite the stale (reg-app-schema [] CounterDb).
           (is (not (.contains events-text "(reg-app-schema [] CounterDb)"))

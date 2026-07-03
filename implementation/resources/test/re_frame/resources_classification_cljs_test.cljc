@@ -160,7 +160,7 @@
             :sensitive / :large declaration at the registration boundary"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #"malformed|invalid-resource-spec|classification"
+          #"malformed|resource-bad-spec|classification"
           (rf/reg-resource :rf.test/bad-decl
             {:scope         :rf.scope/global
              :params-schema [:map [:slug :string]]

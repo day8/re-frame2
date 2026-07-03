@@ -99,7 +99,7 @@ Two reads, declared. Now let's unpack what you just wrote.
   (fn [params ctx] …))             ; 3. the request fn — the THIRD slot, not a metadata key
 ```
 
-The request fn lives in the **third slot**, not inside the metadata map. This trips people coming from libraries where everything is one options object, so the framework fails loud: put `:request` *inside* the metadata map and you get `:rf.error/invalid-resource-spec` at registration, with a message telling you to move it to the third slot.
+The request fn lives in the **third slot**, not inside the metadata map. This trips people coming from libraries where everything is one options object, so the framework fails loud: put `:request` *inside* the metadata map and you get `:rf.error/resource-bad-spec` at registration, with a message telling you to move it to the third slot.
 
 ### The four keys that carry the model
 

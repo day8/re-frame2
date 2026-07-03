@@ -172,7 +172,7 @@
     ;; `:infinite` is the `[:= true]` selector — present-but-not-true is a typo.
     (when-not (true? (:infinite spec))
       (throw (registration-error
-               :rf.error/invalid-resource-spec
+               :rf.error/resource-bad-spec
                'rf/reg-resource
                (str "resource " resource-id " declares :infinite "
                     (pr-str (:infinite spec)) " — the :infinite flag is the "
@@ -196,7 +196,7 @@
       (when (and (contains? spec :prev-page-param)
                  (not (fn? (:prev-page-param spec))))
         (throw (registration-error
-                 :rf.error/invalid-resource-spec
+                 :rf.error/resource-bad-spec
                  'rf/reg-resource
                  (str "infinite resource " resource-id " declares a "
                       ":prev-page-param that is not a fn (got "
@@ -210,7 +210,7 @@
                  (not (or (keyword? (:page->items spec))
                           (fn? (:page->items spec)))))
         (throw (registration-error
-                 :rf.error/invalid-resource-spec
+                 :rf.error/resource-bad-spec
                  'rf/reg-resource
                  (str "infinite resource " resource-id " declares a :page->items "
                       "that is neither a keyword nor a fn (got "
@@ -225,7 +225,7 @@
               {:keys [refetch-all-pages? refetch-window]} refetch]
           (when-not (map? refetch)
             (throw (registration-error
-                     :rf.error/invalid-resource-spec
+                     :rf.error/resource-bad-spec
                      'rf/reg-resource
                      (str "infinite resource " resource-id " declares a :refetch "
                           "that is not a map (got " (pr-str refetch) "). :refetch "
@@ -237,7 +237,7 @@
           (when (and (contains? refetch :refetch-all-pages?)
                      (not (boolean? refetch-all-pages?)))
             (throw (registration-error
-                     :rf.error/invalid-resource-spec
+                     :rf.error/resource-bad-spec
                      'rf/reg-resource
                      (str "infinite resource " resource-id "'s :refetch "
                           ":refetch-all-pages? is not a boolean (got "
@@ -247,7 +247,7 @@
           (when (and (contains? refetch :refetch-window)
                      (not (integer? refetch-window)))
             (throw (registration-error
-                     :rf.error/invalid-resource-spec
+                     :rf.error/resource-bad-spec
                      'rf/reg-resource
                      (str "infinite resource " resource-id "'s :refetch "
                           ":refetch-window is not an integer (got "
@@ -267,7 +267,7 @@
   [resource-id spec]
   (when-not (map? spec)
     (throw (registration-error
-             :rf.error/invalid-resource-spec
+             :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id "'s spec must be a map, got "
                   (pr-str (type spec)))
@@ -286,7 +286,7 @@
   ;; `:params-schema` is REQUIRED — validates + canonicalizes params.
   (when-not (contains? spec :params-schema)
     (throw (registration-error
-             :rf.error/invalid-resource-spec
+             :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares no :params-schema. "
                   ":params-schema is REQUIRED — it validates and canonicalizes "
@@ -296,7 +296,7 @@
   ;; `:request` is REQUIRED for the only initial-scope transport.
   (when-not (contains? spec :request)
     (throw (registration-error
-             :rf.error/invalid-resource-spec
+             :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares no :request. For "
                   ":transport :rf.http/managed (the only initial-scope "
@@ -314,7 +314,7 @@
              (some? (:poll-interval-ms spec))
              (not (number? (:poll-interval-ms spec))))
     (throw (registration-error
-             :rf.error/invalid-resource-spec
+             :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares a :poll-interval-ms that "
                   "is not a number (got " (pr-str (:poll-interval-ms spec))
@@ -339,7 +339,7 @@
   ;; at definition, not silently dropped.
   (when-let [{:keys [axis reason]} (classification/classification-declaration-defect spec)]
     (throw (registration-error
-             :rf.error/invalid-resource-spec
+             :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares a malformed " axis
                   " data-classification: " reason ". Per EP-0025 a resource "
@@ -386,13 +386,13 @@
   ;; `assoc`/`contains?` runs against it. Reconstructing `:request` onto a
   ;; non-map metadata (the slip after the rf2-wvh95f F1 grammar change) would
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
-  ;; integer") instead of the public `:rf.error/invalid-resource-spec`. Mirrors
-  ;; reg-route's `invalid-route-metadata` non-map guard + reg-app-schema's
+  ;; integer") instead of the public `:rf.error/resource-bad-spec`. Mirrors
+  ;; reg-route's `route-bad-metadata` non-map guard + reg-app-schema's
   ;; `extract-app-schema-from-metadata` map gate. The catalogue row already
   ;; documents "or the spec was not a map" with a `:value` slot.
   (when-not (map? metadata)
     (throw (registration-error
-             :rf.error/invalid-resource-spec
+             :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id "'s metadata (the MIDDLE slot) must "
                   "be a map, got " (pr-str (type metadata)) ". Per rf2-wvh95f "
@@ -406,7 +406,7 @@
   ;; otherwise silently win or lose against the value-slot one).
   (when (contains? metadata :request)
     (throw (registration-error
-             :rf.error/invalid-resource-spec
+             :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares :request inside its "
                   "metadata map — per rf2-wvh95f F1 the request handler is the "

@@ -1076,7 +1076,7 @@
   ;; a non-nil, non-map opts would
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
   ;; integer") from the reserved-key `contains?` instead of a public
-  ;; diagnostic. Mirrors reg-route's `invalid-route-metadata` non-map guard +
+  ;; diagnostic. Mirrors reg-route's `route-bad-metadata` non-map guard +
   ;; reg-resource/reg-mutation's metadata-slot map gate.
   (when (and (some? opts) (not (map? opts)))
     (error/throw-error!

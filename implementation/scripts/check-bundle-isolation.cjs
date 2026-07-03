@@ -89,8 +89,8 @@ const ARTEFACTS = [
     name: 'schemas',
     internalSentinels: [
       // schemas.cljc — `reg-app-schemas` validates its arg is a map.
-      { source: 're-frame.schemas/reg-app-schemas (bad-app-schemas-arg)',
-        sentinel: 'rf.error/bad-app-schemas-arg' },
+      { source: 're-frame.schemas/reg-app-schemas (app-schemas-bad-arg)',
+        sentinel: 'rf.error/app-schemas-bad-arg' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,

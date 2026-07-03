@@ -193,7 +193,7 @@ So a route carrying a token in its query string (`?reset_token=…`) classifies 
   {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
 ```
 
-A malformed subsystem declaration fails loud at registration under its own per-subsystem error id — `reg-machine` raises `:rf.error/invalid-machine-classification`, a bad resource spec folds into `:rf.error/invalid-resource-spec`.
+A malformed subsystem declaration fails loud at registration under its own per-subsystem error id — `reg-machine` raises `:rf.error/invalid-machine-classification`, a bad resource spec folds into `:rf.error/resource-bad-spec`.
 
 !!! warning "Gotcha"
 

@@ -50,7 +50,7 @@ Two keys carry the minimum model. `:params-schema` defines the read's *identity*
 
 !!! warning "Gotcha — the metadata is the middle slot; the request is the third"
 
-    The shape is a strict 3-slot grammar: `(rf/reg-resource resource-id metadata request-fn)`. The `:request` fetch function is the **third** slot, *never* a `:request` key inside the metadata map. Putting it in the metadata is a loud `:rf.error/invalid-resource-spec`, not a silent no-op. `reg-mutation` (later) follows the same three-slot shape.
+    The shape is a strict 3-slot grammar: `(rf/reg-resource resource-id metadata request-fn)`. The `:request` fetch function is the **third** slot, *never* a `:request` key inside the metadata map. Putting it in the metadata is a loud `:rf.error/resource-bad-spec`, not a silent no-op. `reg-mutation` (later) follows the same three-slot shape.
 
 !!! warning "Gotcha — the `_ctx` second argument is reserved, currently `nil`"
 
@@ -207,7 +207,7 @@ The full **registration metadata** is small and worth knowing in one glance. The
 
 | Key | Required? | What it does |
 |---|---|---|
-| `:params-schema` | **yes** | A Malli [schema](../core/glossary.md#schema) validating and canonicalising params. Defines the read's identity; missing it is `:rf.error/invalid-resource-spec`. |
+| `:params-schema` | **yes** | A Malli [schema](../core/glossary.md#schema) validating and canonicalising params. Defines the read's identity; missing it is `:rf.error/resource-bad-spec`. |
 | `:scope` | **yes** | The scope *policy* — `:rf.scope/global`, a `{:from-db <id>}` resolver reference, or `:rf.scope/from-caller`. Missing it is `:rf.error/resource-missing-scope-policy`. |
 | `:tags` | no | `(fn [params data] -> #{tag …})` naming the facts the data carries, so a write can invalidate exactly the reads it broke. A tag is a *vector* (`[:article slug]`). |
 | `:stale-after-ms` | no | Freshness window. After this, the next *ensure* refetches. Absent ⇒ fresh until explicitly invalidated. |
@@ -519,13 +519,13 @@ Resources lean hard on the [fail-loud](../core/glossary.md#fail-loud-not-silent)
 | Signal | When | What it's telling you |
 |---|---|---|
 | `:rf.error/resource-missing-scope-policy` | at `reg-resource` | You didn't declare `:scope`. "I forgot this read is user-scoped" is unrepresentable — say `:rf.scope/global` (a claim) or name a resolver. |
-| `:rf.error/invalid-resource-spec` | at `reg-resource` | A malformed spec — usually `:request` left *inside* the metadata map (it's the third slot), or a missing/bad `:params-schema`, or a malformed `:sensitive` / `:large` path-vector. |
+| `:rf.error/resource-bad-spec` | at `reg-resource` | A malformed spec — usually `:request` left *inside* the metadata map (it's the third slot), or a missing/bad `:params-schema`, or a malformed `:sensitive` / `:large` path-vector. |
 | `:rf.error/resource-sub-unresolved-scope` | at a subscription | A `[:rf.resource/state …]` whose scope can't be resolved — pass `:scope` on the payload, the same scope the owning route/event ensured under. Never a silent `:idle`, never a silent global read. |
 | `:rf.error/resource-scope-unresolved-reference` | at an ensure / route site | The ensure/route counterpart to the sub-side error above: a `{:from-db <id>}` scope reference that resolved to `nil` against the current db (e.g. logged out) at a scope-*requiring* event or route. A derived scope that can't resolve is fail-closed — never a fall-through to global. |
 | `:rf.error/resource-invalidate-scope-required` | at `:rf.resource/invalidate-tags` | A bare invalidate with no scope. Name the scope, or opt into the audited `:cross-scope? true`. The fail-closed floor — never silently global. |
 | `:rf.error/resource-route-plan` | at a route with `:resources` | A route resource couldn't be planned — its params or scope didn't resolve, its params failed the schema, or a `:when` guard threw. Recorded on the route slice's `:error` (visible to the `:rf/route` sub and Xray) so navigation surfaces the failure instead of silently dropping the read. |
 | `:rf.error/resource-ssr-blocking-timeout` | at SSR render | A `:blocking? true` resource exceeded the render deadline. Each unsettled blocking entry settles as a first-load `:error` (`{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`) so the render never hangs; the client picks the read up on hydration. |
-| `:rf.error/invalid-mutation-spec` | at `reg-mutation` | The mutation twin of the resource spec error (e.g. `:request` in the metadata map). |
+| `:rf.error/mutation-bad-spec` | at `reg-mutation` | The mutation twin of the resource spec error (e.g. `:request` in the metadata map). |
 
 And the **dev-only warnings** (elided from production) that catch the *resolvable-but-wrong* footguns — the ones fail-closed can't catch, because a scope *did* resolve, just to the wrong place:
 
