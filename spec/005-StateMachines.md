@@ -2839,6 +2839,8 @@ A spawn whose `:system-id` key is supplied **also** binds a name in the per-fram
 
 The mapping lives at `[:rf.runtime/machines :system-ids <name>]` in the spawning frame's **runtime-db** — same place the snapshot lives, so the reverse index inherits frame revertibility for free (the index walks back along with the rest of the frame-state).
 
+The 1-arity `(rf/machine-by-system-id sid)` resolves the frame through the ambient scope/hold chain (a lookup under no scope raises `:rf.error/no-frame-context`, never a `:rf/default` floor). To look up a named frame from outside any scope (async callbacks / tools / cross-frame lookups), pass the trailing `{:frame …}` opts form `(rf/machine-by-system-id sid {:frame target})` — the same public-frame-targeting shape `sub-machine` takes and the family's frame-arg law prescribes (public frame targeting is a trailing opts map, never positional — rf2-bfadc6 / EP-0024 / rf2-f28bno). The 2-arity is shape-discriminated on the second arg: an opts map (a non-frame-value map) is the public `(sid {:frame …})` form; a bare frame target (a frame-id keyword or frame value) is the *internal* frame-last plumbing, retained for implementation / test / tooling reach.
+
 **Lifecycle.**
 
 - On spawn, the runtime writes `[:rf.runtime/machines :system-ids <name>] = <gensym'd-id>` and emits `:rf.machine/system-id-bound`.

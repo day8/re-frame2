@@ -179,9 +179,9 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Signature**:
   ```clojure
   (re-frame.machines/machine-by-system-id system-id)
-  (re-frame.machines/machine-by-system-id system-id frame-id)
+  (re-frame.machines/machine-by-system-id system-id {:frame target})
   ```
-- **Description**: Reverse-lookup: given a `system-id`, what's the spawned machine bound to it? Returns the spawned-machine id or `nil`.
+- **Description**: Reverse-lookup: given a `system-id`, what's the spawned machine bound to it? Returns the spawned-machine id or `nil`. The single-arity resolves the frame from the ambient scope (raising `:rf.error/no-frame-context` under no scope); the opts form `(machine-by-system-id system-id {:frame target})` names a frame explicitly — the trailing `{:frame …}` opts map, the same public-frame-targeting shape `sub-machine` takes. The 2-arity is shape-discriminated on the second arg: an opts map is the public form; a bare frame target is the *internal* frame-last plumbing.
 - **Example**:
   ```clojure
   ;; Resolve a :system-id-bound actor, then address it directly.

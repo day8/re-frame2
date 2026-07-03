@@ -136,6 +136,37 @@
                 @traces)
           "expected :rf.error/system-id-collision trace"))))
 
+(deftest machine-by-system-id-frame-arg-spelling-rf2-f28bno
+  (testing "rf2-f28bno — the public opts form `(machine-by-system-id sid {:frame f})` binds the
+            named frame; the internal frame-last `(sid frame-id)` plumbing is retained;
+            the opts `:frame` is threaded (a wrong frame reads nil, not swallowed)"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :states  {:idle    {:on {:go :running}}
+                            :running {:spawn {:machine-id :fa/proc
+                                              :id-prefix  :fa/proc
+                                              :system-id  :fa/named}}}}]
+      (rf/reg-machine :fa/proc child)
+      (rf/reg-machine :fa/sup parent)
+      (rf/dispatch-sync [:fa/sup [:go]])
+      (let [ambient (machines/machine-by-system-id :fa/named)]
+        (is (= :fa/proc#1 ambient)
+            "ambient 1-arity resolves the spawned id under the :rf/default scope")
+        ;; (1) PUBLIC opts form — the canonical public shape (mirrors sub-machine).
+        (is (= ambient (machines/machine-by-system-id :fa/named {:frame :rf/default}))
+            "opts form {:frame :rf/default} binds the same frame and resolves the same id")
+        ;; (2) INTERNAL frame-last plumbing — a bare frame-id keyword still resolves.
+        (is (= ambient (machines/machine-by-system-id :fa/named :rf/default))
+            "internal frame-last (sid frame-id) plumbing is retained")
+        ;; (3) The opts :frame is genuinely threaded: a DIFFERENT frame reads nil
+        ;; (proving the frame key is honoured, not the old misbind where the opts
+        ;; map would have been mistaken for the frame target).
+        (is (nil? (machines/machine-by-system-id :fa/named {:frame :no/such-frame}))
+            "opts {:frame <other>} targets that frame's index (empty) — nil, not the ambient hit")
+        ;; (4) Ambient opts (no :frame) falls back to the scope-resolved frame.
+        (is (= ambient (machines/machine-by-system-id :fa/named {}))
+            "empty opts map resolves the ambient frame (no :frame ⇒ scope chain)")))))
+
 (deftest machine-spawn-without-system-id-leaves-index-empty-cljs
   (testing "spawn-without-system-id leaves [:rf.runtime/machines :system-ids] empty"
     (let [child {:initial :running :data {} :states {:running {}}}]

@@ -156,9 +156,21 @@
   The 1-arity ambient form resolves the frame through the scope/hold chain
   via `frame/require-current-frame!` — a lookup issued under no established
   scope raises `:rf.error/no-frame-context` rather than reading an invented
-  default's reverse index. Pass the 2-arity `(machine-by-system-id
-  system-id frame-id)` to look up a named frame from outside any scope
-  (async callbacks / tools / cross-frame lookups).
+  default's reverse index. Pass the public opts form `(machine-by-system-id
+  system-id {:frame target})` to look up a named frame from outside any
+  scope (async callbacks / tools / cross-frame lookups); `target` is a
+  frame-id keyword or a live frame value.
+
+  Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on the second arg,
+  mirroring `sub-machine`'s `{:frame …}` opts form (and the rf2-bfadc6
+  `subscribe-once` disposition): an OPTS MAP (a non-frame-value map) ⇒ the
+  public `(machine-by-system-id system-id {:frame target})` form (`:frame`
+  absent ⇒ ambient); anything else ⇒ the INTERNAL frame-last
+  `(machine-by-system-id system-id frame-target)` plumbing (a frame-id
+  keyword or a frame value), retired from the taught surface but retained
+  for implementation / test / tooling reach. A frame VALUE is itself a map
+  (carries `:rf.frame/object`), so the discriminator is `map? AND NOT
+  frame-value?` — a bare `{:frame f}` opts map, never a frame value.
 
   Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
   surface."
@@ -168,10 +180,24 @@
      (frame/require-current-frame!
        :machine-by-system-id
        {:where 're-frame.machines/machine-by-system-id})))
-  ([system-id frame-id]
-   ;; The system-ids reverse index is durable machine runtime-db state —
-   ;; read it off the runtime-db partition.
-   (get-in (frame/frame-runtime-db-value frame-id) (paths/system-id-path system-id))))
+  ([system-id frame-or-opts]
+   ;; rf2-f28bno: an OPTS MAP (non-frame-value map) is the PUBLIC
+   ;; `(machine-by-system-id system-id {:frame target})` form; lower it to
+   ;; the internal frame-last arity via the resolved `:frame` target
+   ;; (ambient when absent — a keyword/frame-value, never a bare opts map,
+   ;; so the recursive call lands in the frame-last branch below). Anything
+   ;; else is the INTERNAL frame-last plumbing: `frame-or-opts` is the frame
+   ;; target (a keyword id or a frame value).
+   (if (and (map? frame-or-opts) (not (frame/frame-value? frame-or-opts)))
+     (if-some [target (:frame frame-or-opts)]
+       (machine-by-system-id system-id target)
+       (machine-by-system-id system-id))
+     ;; INTERNAL frame-last. The system-ids reverse index is durable machine
+     ;; runtime-db state — read it off the runtime-db partition. Normalize a
+     ;; frame VALUE target to its frame-id first (`frame-runtime-db-value` keys
+     ;; the registry by the bare id); a keyword id passes through unchanged.
+     (get-in (frame/frame-runtime-db-value (frame/frame-target->id frame-or-opts))
+             (paths/system-id-path system-id)))))
 
 ;; ---- derivation/process algebra views -------------------------------------
 ;;

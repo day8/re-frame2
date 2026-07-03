@@ -280,15 +280,17 @@
                   `{:frame <id> :id <kw>}` (NOT positional, matching the
                   fx-convention shape — sibling to `:rf.fx/reg-http-interceptor`
                   which also takes a map). The fn-form `clear-http-interceptor`
-                  is the positional surface; this fx is the data-shaped surface
-                  for EDN-driven callers (conformance fixtures, event
-                  handlers at boot — rf2-k7tlm).
+                  is the call-site surface (public opts form `(id {:frame f})`,
+                  or the internal frame-first plumbing this fx threads through);
+                  this fx is the data-shaped surface for EDN-driven callers
+                  (conformance fixtures, event handlers at boot — rf2-k7tlm).
 
                   EP-0002 — the carried frame is the fx-context `:frame`
                   (the cascade envelope stamp); the args `:frame` is the
                   per-call *override*. The args frame wins, else the
-                  fx-context frame, threaded explicitly into the fn-form so
-                  it never repairs to a synthesised `:rf/default`."}
+                  fx-context frame, threaded explicitly into the fn-form's
+                  INTERNAL frame-first arity (rf2-f28bno) so it never repairs
+                  to a synthesised `:rf/default`."}
            (fn [{ctx-frame :frame} {:keys [frame id]}]
              (middleware/clear-http-interceptor (or frame ctx-frame) id)))
 

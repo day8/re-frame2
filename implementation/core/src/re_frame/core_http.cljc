@@ -84,9 +84,13 @@
   "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's
   chain. EP-0002 context-required frame-local: the single-arity
   `(clear-http-interceptor id)` resolves the frame through the
-  carried-invariant scope chain (a `with-frame` / frame-provider scope);
-  the two-arity `(clear-http-interceptor frame id)` names the frame
-  explicitly (the *override*). Under no scope and no explicit frame the
+  carried-invariant scope chain (a `with-frame` / frame-provider scope).
+  Pass the public opts form `(clear-http-interceptor id {:frame target})`
+  to name the frame explicitly (the *override*); `target` is a frame-id
+  keyword or a live frame value. Per rf2-f28bno the 2-arity is
+  SHAPE-DISCRIMINATED on the second arg (mirroring `reg-http-interceptor`'s
+  `:frame` opt): an opts map ⇒ the public form; a bare frame target ⇒ the
+  internal frame-first plumbing. Under no scope and no explicit frame the
   call raises `:rf.error/no-frame-context` — it does NOT synthesise a
   `:rf/default` target. Both arities delegate to the late-bound impl,
   which performs the frame resolution.
@@ -94,5 +98,5 @@
   Late-bound via `:http/clear-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."
   {:hook :http/clear-http-interceptor :artefact http-artefact :on-absent :throw}
-  ([id]       :delegate)
-  ([frame id] :delegate))
+  ([id]          :delegate)
+  ([id-or-frame b] :delegate))
