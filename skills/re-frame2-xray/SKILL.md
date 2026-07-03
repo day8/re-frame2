@@ -43,7 +43,7 @@ A tour skill for **Xray** — the re-frame2 in-app devtools panel.
 If you know **Redux DevTools** (and **React DevTools Profiler** for the
 re-render-cause surfaces), you know 80% of Xray: same genus — a
 state-debugging devtools panel with time-travel and an inspectable log of
-state changes — applied to re-frame2's event cascades. Anchor on that,
+state changes — applied to re-frame2's event pipeline runs. Anchor on that,
 then note the deliberate divergences.
 
 | Redux DevTools concept | Xray counterpart | Deliberate divergence |

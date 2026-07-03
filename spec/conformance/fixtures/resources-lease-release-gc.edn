@@ -1,0 +1,68 @@
+;; Conformance fixture: resources/lease-release-gc
+;;
+;; Spec 016 §Active owners and causes / §Stale and GC scheduling — owners are
+;; liveness LEASES. Releasing the last owner leaves the entry owner-free; a
+;; fired GC timer RE-CHECKS eligibility and reaps an entry that is owner-free +
+;; idle (no in-flight work). GC-eligibility is purely structural (empty
+;; :active-owners + nil :current-work) — there is no stored "gc-eligible"
+;; boolean. Release alone does not remove; the fired GC re-check does.
+;;
+;; ensure (owner [:lease :gc 1]) → succeed → :loaded; release-owner drops the
+;; lease (:rf.resource/owner-released) leaving the entry owner-free + idle; the
+;; fired GC (:rf.resource.internal/gc-fired) re-checks and removes it
+;; (:rf.resource/gc-fired). After removal the public state sub projects the
+;; documented :idle empty-state (the entry is gone; a sub NEVER re-fetches).
+
+{:fixture/id           :resources/lease-release-gc
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:resources/lease-gc}
+ :fixture/doc          "ensure :res/article (owner [:lease :gc 1], gc-after 60s) → :loaded; release-owner drops the lease (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state."
+
+ :fixture/registry
+ {:resource
+  {:res/article {:scope         :rf.scope/global
+                 :params-schema [:map [:slug :string]]
+                 :gc-after-ms   60000
+                 :url-template  "/api/articles/"}}
+  ;; No-op the managed-HTTP fx; the reply is driven directly below. The
+  ;; advisory schedule-timers / cancel-timers fx (armed by the :gc-after-ms
+  ;; policy) are the resources façade's own host-timer fx — inert on the JVM.
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; Step 1: ensure with an owner lease → :loading, generation 1.
+  [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :gc 1] :cause :view-mount}]
+
+  ;; Step 2: the reply settles :loaded (entry now idle: :current-work nil).
+  [:rf.resource.internal/succeeded
+   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
+    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+    :generation   1
+    :data         {:title "Welcome"}}]
+
+  ;; Step 3: release the owner → entry becomes owner-free (still :loaded, idle).
+  ;; Release alone does NOT remove — the entry is GC-eligible, not gone.
+  [:rf.resource/release-owner {:owner [:lease :gc 1]}]
+
+  ;; Step 4: the GC timer fires → re-checks (owner-free + idle) → reaps the
+  ;; entry. (The internal gc-fired event is what the armed timer dispatches.)
+  [:rf.resource.internal/gc-fired {:resource/key [:rf.scope/global :res/article {:slug "w"}]}]]
+
+ :fixture/expect
+ {;; After GC the entry is gone; the passive state sub projects the documented
+  ;; idle empty-state (a sub never re-fetches).
+  :sub-values
+  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+   {:status :idle :data nil :error nil :refresh-error nil
+    :loading? false :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; The owner lease was released (owner-free liveness change).
+   {:operation :rf.resource/owner-released
+    :tags      {:owner [:lease :gc 1]}}
+   ;; The fired GC re-check reaped the owner-free + idle entry.
+   {:operation :rf.resource/gc-fired}]}}

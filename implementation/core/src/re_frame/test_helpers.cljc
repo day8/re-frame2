@@ -681,7 +681,7 @@
 ;; the fixture-stashed root view until its `:data-testid` node's text
 ;; matches `expected`, or the deadline elapses.
 ;;
-;; Use this when an event cascade is async (HTTP, dispatched
+;; Use this when a pipeline run is async (HTTP, dispatched
 ;; machine transition, scheduled event via `dispatch`) and the
 ;; post-condition is observable in the rendered view. For sync
 ;; cascades, `expect-text` after `dispatch-sync` is sufficient.

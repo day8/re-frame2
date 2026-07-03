@@ -92,7 +92,7 @@
     timeout); CLJS returns a `js/Promise` that resolves with the
     truthy value (rejects on timeout). Replaces incidental fixed
     `Thread/sleep N` / `js/setTimeout` for waits that are observable
-    in state (router drain, event-cascade settle, sub re-fire,
+    in state (router drain, pipeline-run settle, sub re-fire,
     in-flight registry entries appearing/clearing). NOT for
     timer-semantics tests — those should keep their sleep and annotate
     that intent locally (the sleep IS the contract under test)."
@@ -946,7 +946,7 @@
        :label        string/keyword used in the timeout message.
 
      Use this in JVM tests that previously called `(Thread/sleep N)` to
-     wait for the async router to drain, an event cascade to settle, or
+     wait for the async router to drain, a pipeline run to settle, or
      a sub to re-fire. The deadline is generous; tests fail fast on a
      truly stuck condition, not on CI scheduler jitter."
      ([pred] (poll-until pred nil))
@@ -985,7 +985,7 @@
 
      Use this in CLJS tests under `cljs.test/async` that previously
      chained nested `js/setTimeout` calls to wait for a router drain,
-     event cascade, or sub re-fire. The Promise composes with `.then` /
+     pipeline run, or sub re-fire. The Promise composes with `.then` /
      `.catch` and integrates cleanly with `async done`:
 
          (deftest drains

@@ -289,7 +289,7 @@ A view reads the merged list and dispatches the causal `[:rf.resource/load-more 
 [:rf.resource/infinite-state {…}]   ;; combined view-model (the feed analogue of :rf.resource/state)
 ```
 
-`:rf.resource/items`, `:rf.resource/pages`, and `:rf.resource/infinite-state` are framework-owned memoised subscriptions; `:rf.resource/ensure` (and a route entry) loads **page 0 only**, and a mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct; in-place item patching is on the deferred optimistic/patch axis).
+`:rf.resource/items`, `:rf.resource/pages`, and `:rf.resource/infinite-state` are framework-owned memoised subscriptions; `:rf.resource/ensure` (and a route entry) loads **page 0 only**, and a mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct; in-place item patching inside a feed's page vector is a distinct deferred axis — not the single-entry optimistic surface — homed at [spec/016 §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed)).
 
 ## Introspection and projection (tool/test lane)
 

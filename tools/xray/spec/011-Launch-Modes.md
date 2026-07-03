@@ -595,9 +595,9 @@ the framework has appended the assembled record to its per-frame
 framework's emit call stack, per
 [Spec 009 §Listener invocation rules](../../../spec/009-Instrumentation.md#listener-invocation-rules)
 — there is no batching, no debounce, no background delivery. A
-multi-event cascade yields exactly one callback invocation, not
+multi-event drain yields exactly one callback invocation, not
 one per event (the trace collector's job is per-event; the epoch
-collector's is per-cascade).
+collector's is per-drain).
 
 **What the callback does.** On every invocation the callback MUST
 re-enter the runtime under the `:rf/xray` frame binding (via

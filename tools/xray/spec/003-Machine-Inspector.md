@@ -577,7 +577,7 @@ for the full render shape. The same no-op is ALSO surfaced in the **Epoch
 panel's** EVENT HANDLER machine cascade as a muted `NO OP` row (`[NO OP]
 staying in {state}`, rf2-iu3no) — see [021
 §machine-cascade-rows](021-Dynamic-Panel-Designs.md); that surface is the
-per-event cascade narration, this section is the Machines TAB's topology read.
+per-run narration, this section is the Machines TAB's topology read.
 This placeholder is reserved for events that target NO machine at all.
 
 This is the **state 2** branch in
@@ -720,7 +720,7 @@ exactly as their respective sections specify.
 
 The Epoch panel's EVENT HANDLER section renders the SAME no-op signal as a
 muted `[NO OP] staying in {state}` cascade-row (rf2-iu3no) — that surface is
-the per-event cascade narration; this section is the Machines TAB's topology
+the per-run narration; this section is the Machines TAB's topology
 read. Both key off the one `:rf.machine.event/unhandled-no-op` trace.
 
 ### Parallel multi-region fired-edge highlight (rf2-8ncxrf)

@@ -123,6 +123,16 @@
             ;; subset fixture is unaffected. Test-only requires — these never
             ;; leak into a production bundle.
             [re-frame.resources :as resources]
+            ;; Spec 016 §Resources (rf2-rul3ov) — the resource host-cache reset
+            ;; (per-frame generation high-water mark, work-ledger, timers,
+            ;; revalidate listeners). Consumed in `reset-runtime!` so the
+            ;; `resources-*.edn` fixtures each start with generation 1.
+            [re-frame.resources.test-support :as resources-test-support]
+            ;; Spec 016 §Scope resolution — the fail-closed resolvers the
+            ;; `:resolve-scope` call op invokes directly (write-side event
+            ;; resolver + read-side sub resolver).
+            [re-frame.resources.registry :as resources-registry]
+            [re-frame.resources.subs :as resources-subs]
             [re-frame.flows.tooling :as flows-tooling]
             [re-frame.resources.tooling :as resources-tooling]
             [re-frame.routing.tooling :as routing-tooling]
@@ -233,7 +243,19 @@
     :derivation/algebra-graph
     ;; rf2-djofbh — the NARROW subs+machines subset claim
     ;; (derivation-graph-algebra.edn).
-    :derivation/algebra-graph-subs-machines})
+    :derivation/algebra-graph-subs-machines
+    ;; Spec 016 §Resources (rf2-rul3ov) — the resource-runtime acceptance
+    ;; surface. Mirror of the JVM runner: the six Mode-A `resources-*.edn`
+    ;; fixtures dispatch resource events against the live `re-frame.resources`
+    ;; runtime (host-side caches reset via
+    ;; `resources.test-support/reset-resources!` in `reset-runtime!`), pinning
+    ;; only Resolved-decision behaviour.
+    :resources/ensure
+    :resources/dedupe
+    :resources/stale-suppression
+    :resources/scope-fail-closed
+    :resources/lease-gc
+    :resources/keep-previous})
 
 (def claimed-spec-versions
   "Fixture spec versions this CLJS build claims to conform against."
@@ -394,7 +416,15 @@
   ;;    The registry is a `defonce` atom inside
   ;;    `re-frame.error-emit`; without an explicit clear, the prior
   ;;    fixture's recorder stays live across fixtures.
-  (error-emit/clear-error-listeners!))
+  (error-emit/clear-error-listeners!)
+  ;; 8. Spec 016 §Resources (rf2-rul3ov) — drop the resource host-side caches
+  ;;    (the per-frame generation high-water mark, work-ledger, timers, and
+  ;;    revalidate listeners) so each `resources-*.edn` fixture's first load
+  ;;    mints generation 1 deterministically. A fixture writes the reply's
+  ;;    literal `:work/id` `[:rf.work/resource <scoped-key> <generation>]`,
+  ;;    so the generation counter must start fresh per fixture. Mirror of the
+  ;;    JVM runner's `reset-resources!` call.
+  (resources-test-support/reset-resources!))
 
 ;; ---- fixture execution ----------------------------------------------------
 
@@ -1160,6 +1190,81 @@
                     (str "reg-route " (pr-str (:pattern call)) "\n"
                          "    expected: no error (well-formed pattern)\n"
                          "    thrown:   " (ex-message thrown)))}))
+
+    ;; Spec 016 §Resources (rf2-rul3ov) — `:reg-resource` Mode-B registration-
+    ;; validation call. Pins the resource registration fail-closed taxonomy
+    ;; (Spec 009 §The thrown-error shape) against the live `reg-resource`.
+    ;; `:spec` is the resource spec map; `:expect-error <:rf.error/id>` ⇒ the
+    ;; registration must throw an ex-info whose `:rf.error/id` ex-data slot
+    ;; equals the id (e.g. `:rf.error/resource-missing-scope-policy`); absent
+    ;; `:expect-error` ⇒ a well-formed spec that must NOT throw. Mirror of the
+    ;; JVM runner + the `:reg-machine` / `:reg-frame` Mode-B convention. The
+    ;; resource is cleared afterward (best-effort).
+    :reg-resource
+    (let [resource-id (or (:resource-id call) :rf.test/resource)
+          request-fn  (fn [params _ctx]
+                        {:request {:method :get
+                                   :url    (str (:request-url call "/api/probe")
+                                                params)}})
+          want-error  (:expect-error call)
+          thrown      (try (resources/reg-resource resource-id (:spec call) request-fn) nil
+                           (catch :default e e))
+          _           (try (resources/clear-resource resource-id) (catch :default _ nil))]
+      (if want-error
+        (let [got-id (:rf.error/id (ex-data thrown))
+              ok?    (= want-error got-id)]
+          {:passed? ok?
+           :detail  (when-not ok?
+                      (str "reg-resource\n"
+                           "    expected error :rf.error/id: " want-error "\n"
+                           "    actual   error :rf.error/id: " got-id "\n"
+                           "    thrown:                       " (some-> thrown ex-message)))})
+        {:passed? (nil? thrown)
+         :detail  (when (some? thrown)
+                    (str "reg-resource\n"
+                         "    expected: no error (well-formed spec)\n"
+                         "    thrown:   " (ex-message thrown)))}))
+
+    ;; Spec 016 §Scope resolution (rf2-rul3ov) — `:resolve-scope` fail-closed
+    ;; call op. Mirror of the JVM runner: pins the scope-resolution fail-closed
+    ;; boundary (no tier-4 global fallthrough) against the live resolvers.
+    ;; `:resource-id` names a registered resource; `:side` selects `:event`
+    ;; (write-side `resolve-scope-for-event`) or `:sub` (read-side
+    ;; `resolve-scoped-key`); `:expect-error <:rf.error/id>` ⇒ the resolver
+    ;; must throw that id; absent `:expect-error` ⇒ `:expect` is the returned
+    ;; canonical scope. Pure — the fail-closed throw is captured directly.
+    :resolve-scope
+    (let [resource-id (:resource-id call)
+          side        (:side call :event)
+          want-error  (:expect-error call)
+          result      (try
+                        {:ok (case side
+                               :sub   (resources-subs/resolve-scoped-key
+                                        (cond-> {:resource resource-id
+                                                 :params   (:params call {})}
+                                          (contains? call :payload-scope)
+                                          (assoc :scope (:payload-scope call)))
+                                        (:db call {}))
+                               (resources-registry/resolve-scope-for-event
+                                 resource-id (resources-registry/resource-meta resource-id)
+                                 {:payload-scope (:payload-scope call)
+                                  :db            (:db call)}
+                                 'rf.test/resolve-scope))}
+                        (catch :default e
+                          (if-let [id (:rf.error/id (ex-data e))]
+                            {:err id}
+                            {:err (ex-message e)})))]
+      (if want-error
+        {:passed? (= want-error (:err result))
+         :detail  (when (not= want-error (:err result))
+                    (str "resolve-scope " side " " resource-id
+                         "\n    expected error: " want-error
+                         "\n    actual:         " (pr-str result)))}
+        {:passed? (= (:expect call) (:ok result))
+         :detail  (when (not= (:expect call) (:ok result))
+                    (str "resolve-scope " side " " resource-id
+                         "\n    expected: " (pr-str (:expect call))
+                         "\n    actual:   " (pr-str result)))}))
 
     ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops. Mirror
     ;; of the JVM runner: a fixture pins the FROZEN byte-contract

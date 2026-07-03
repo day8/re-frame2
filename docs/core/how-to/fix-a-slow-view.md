@@ -226,20 +226,11 @@ The channel is off by default. It is gated on its own compile-time flag, indepen
         :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
 ```
 
-A build that doesn't flip the flag carries **zero** User-Timing bytes, because dead-code elimination elides every bracket. CI proves this both ways: `npm run test:perf-bundle` builds the same example twice — flag off and flag on — and asserts the off bundle contains no `performance.mark`, `performance.measure`, or `rf:` fragment while the on bundle contains all three. So keeping the channel on in production is a deliberate, cheap choice ([Configure dev and production builds](configure-dev-and-prod.md)).
+A build that doesn't flip the flag carries **zero** User-Timing bytes, because dead-code elimination elides every bracket. CI proves this both ways: `npm run test:perf-bundle` builds the same example twice — flag off and flag on — and asserts the off bundle contains no `performance.measure`, `clearMeasures`, or `rf:` fragment while the on bundle contains all three. (The bracket allocates no `performance.mark` at all — it uses the options-bag `measure` form — so that string is absent from both bundles.) So keeping the channel on in production is a deliberate, cheap choice ([Configure dev and production builds](configure-dev-and-prod.md)).
 
-To read it, open the Chrome DevTools **Performance** panel, where the `rf:` measures appear as named bars beside React renders, paint, and layout. Or ask the console for the worst offenders:
+To read it, open the Chrome DevTools **Performance** panel, where the `rf:` measures appear as named bars beside React renders, paint, and layout (the panel captures entries as they are emitted, so it sees them regardless of the buffer-retention flag below).
 
-```javascript
-performance.getEntriesByType('measure')
-  .filter(e => e.name.startsWith('rf:'))
-  .sort((a, b) => b.duration - a.duration)
-  .slice(0, 20);
-```
-
-The diagnosis reads the same as rung 1. One wide `rf:render:` or `rf:sub:` bar is misplaced work (rung 2); a cloud of identical narrow `rf:render:` bars per interaction is a storm (rung 3).
-
-For continuous telemetry, don't lean on the entry buffer — the host bounds it (Chrome keeps only the last 10,000 `measure` entries), so a long-running page silently drops the oldest. Instead attach a `PerformanceObserver`, which fires per entry as it lands, and forward `rf:`-prefixed measures to your APM:
+The channel is **observer-first**: each bracket emits its measure, hands it to any live `PerformanceObserver`, then clears it from the retained buffer so a long-running page doesn't accumulate entries forever. That means `performance.getEntriesByType('measure')` returns `[]` in a normal build — the entries were delivered, not retained. For continuous telemetry, attach a `PerformanceObserver`, which fires per entry as it lands, and forward `rf:`-prefixed measures to your APM:
 
 ```javascript
 new PerformanceObserver((list) => {
@@ -250,6 +241,20 @@ new PerformanceObserver((list) => {
   }
 }).observe({ type: 'measure', buffered: true });   // buffered: replay entries from before this observer attached
 ```
+
+The diagnosis reads the same as rung 1. One wide `rf:render:` or `rf:sub:` bar (in the panel, or in an observer's stream) is misplaced work (rung 2); a cloud of identical narrow `rf:render:` bars per interaction is a storm (rung 3).
+
+For a quick one-shot console snapshot instead of an observer, build with `:closure-defines {re-frame.performance/retain-entries? true}` — that skips the per-emit clear so entries persist in the buffer for `getEntriesByType`:
+
+```javascript
+// only populated when retain-entries? is on
+performance.getEntriesByType('measure')
+  .filter(e => e.name.startsWith('rf:'))
+  .sort((a, b) => b.duration - a.duration)
+  .slice(0, 20);
+```
+
+Leave `retain-entries?` off in production: the [W3C User-Timing buffer is unbounded](https://developer.mozilla.org/en-US/docs/Web/API/Performance/measure) (`maxBufferSize` is Infinite for measure entries), so retaining every entry across a multi-hour session leaks memory. re-frame2 clears after emit precisely so it doesn't.
 
 The channel is off by default and rides its own compile-time flag, distinct from the dev-trace gate — [Observability](../concepts/observability.md#production-the-wire-disappears--errors-dont) covers what ships and what doesn't.
 

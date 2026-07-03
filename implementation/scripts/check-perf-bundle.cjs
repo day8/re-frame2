@@ -20,10 +20,15 @@
  *      turn the negative grep into a false pass.
  *
  * Strategy: grep, not parse. The closure compiler may rename symbols
- * but does not rewrite string literals. Matching `performance.mark`
- * proves the JS-interop call site (from `(.mark js/performance ...)`)
- * survived; matching the bracketed entry-name shape `rf:` proves the
- * helper's name-building survived too.
+ * but does not rewrite string literals. Matching `performance.measure`
+ * proves the JS-interop emit site (from `(.measure js/performance ...)`)
+ * survived; matching `clearMeasures` proves the per-emit buffer clear
+ * survived (the leak fix, rf2-2yv859); matching the bracketed entry-name
+ * shape `rf:` proves the helper's name-building survived too.
+ *
+ * Note: `performance.mark` is intentionally NOT a sentinel — the bracket
+ * no longer allocates marks (options-bag measure with numeric
+ * timestamps), so it must be ABSENT from BOTH bundles.
  *
  * Exit 0 on PASS, 1 on FAIL.
  */
@@ -47,15 +52,15 @@ const report = createGateReporter();
 // is broken. If any are MISSING from the ON bundle, the strings have
 // moved and the negative assertion is now vacuous.
 //
-// The first three are the JS-interop strings the helper emits via
-// `(.mark js/performance ...)` / `(.measure js/performance ...)`; the
-// fourth is the namespace fragment (load-order proof — the ns is in the
-// bundle but every body-form should DCE on the OFF build).
+// The first two are the JS-interop strings the helper emits via
+// `(.measure js/performance ...)` / `(.clearMeasures js/performance ...)`;
+// the third is the entry-name prefix from `build-name`. Each appears ONLY
+// when the perf flag is on AND the call sites are reached.
 const PERF_SENTINELS = [
-  { source: 're-frame.performance/mark-and-measure (performance.mark)',
-    sentinel: 'performance.mark' },
   { source: 're-frame.performance/mark-and-measure (performance.measure)',
     sentinel: 'performance.measure' },
+  { source: 're-frame.performance/mark-and-measure (clearMeasures — per-emit buffer clear, rf2-2yv859)',
+    sentinel: 'clearMeasures' },
   { source: 're-frame.performance/build-name (rf: name prefix)',
     sentinel: '"rf:' },
 ];
@@ -105,7 +110,7 @@ function checkBundle(label, bundlePath, mustContain) {
   };
 }
 
-// Count `performance.mark|performance.measure|re-frame.performance` for
+// Count `performance.measure|clearMeasures|re-frame.performance` for
 // the report. The PR body wants the raw count number for both bundles,
 // per the bead's bundle-grep contract. The actual global-match count is
 // delegated to the shared `countMatches` (lib/read-release-bundle.cjs —
@@ -141,8 +146,8 @@ function main() {
   // the diagnostic report.
   const offBlob = classifyReleaseBundle(offDir).blob;
   const onBlob  = classifyReleaseBundle(onDir).blob;
-  const patterns = ['performance\\.mark',
-                    'performance\\.measure',
+  const patterns = ['performance\\.measure',
+                    'clearMeasures',
                     're-frame\\.performance'];
   const offCount = countOccurrences(offBlob, patterns);
   const onCount  = countOccurrences(onBlob,  patterns);

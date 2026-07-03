@@ -328,7 +328,7 @@
   (when bench-verbose?
     (println "[rf2-li2cw] day8/de-dupe high-share-burst compression benchmark")
     (println "[rf2-li2cw] -----------------------------------------------------"))
-  (let [;; 1K replays of the same 24-event cascade. Each cascade body
+  (let [;; 1K replays of the same 24-event drain. Each drain body
         ;; (modulo unique :id / :time / :dispatch-id) is identical.
         payload (mk-high-share-burst 100 24)
         m       (measure "high-share / 100 replays / cascade=24" (count payload) payload)]

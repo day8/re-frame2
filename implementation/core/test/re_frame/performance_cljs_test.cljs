@@ -3,15 +3,18 @@
   round-trip (rf2-du3i).
 
   CLJS-only: the macro's only platform behaviour is the
-  `performance.mark` / `performance.measure` bracket; on JVM it expands
-  to `(do body...)` with no instrumentation overhead.
+  `performance.measure` (options-bag form) + per-emit `clearMeasures`
+  bracket; on JVM it expands to `(do body...)` with no instrumentation
+  overhead.
 
   This file covers:
 
    1. Naming convention (`build-name`).
    2. Helper round-trip with `enabled?` either branch — when false (the
       default :node-test build) no entry lands; when true (a bundle that
-      flips the goog-define) exactly one entry per call lands.
+      flips the goog-define) the entry is emitted then cleared after each
+      call (observer-first contract, rf2-2yv859) so the buffer does not
+      accumulate, and ZERO marks are allocated (options-bag form).
    3. Macro shape — body forms run, return value preserved.
 
   Bundle-isolation / bundle-presence under `:advanced` lives in
@@ -30,6 +33,15 @@
   [nm]
   (->> (.getEntriesByType js/performance "measure")
        (filter #(= nm (.-name %)))
+       count))
+
+(defn- count-rf-marks
+  "Count mark entries whose `.name` starts with `rf:`. The bracket must
+  allocate ZERO marks (options-bag measure form, rf2-2yv859)."
+  []
+  (->> (.getEntriesByType js/performance "mark")
+       (map #(.-name %))
+       (filter #(some-> % (.startsWith "rf:")))
        count))
 
 (defn- clear-measures!
@@ -63,16 +75,34 @@
                      (let [a 1 b 2]
                        [a b 3]))))))
 
-(deftest mark-and-measure-on-path-when-enabled
-  (testing "When `enabled?` is true at compile time, mark-and-measure
-            produces exactly one measure entry under the
-            `rf:<bucket>:<id>` name per call."
-    (when performance/enabled?
+(deftest mark-and-measure-clears-after-emit-when-enabled
+  (testing "Observer-first contract (rf2-2yv859): when `enabled?` is true
+            at compile time (and `retain-entries?` is off — the default),
+            each mark-and-measure call clears its measure by name right
+            after emit, so the host's User-Timing buffer does NOT
+            accumulate. A live PerformanceObserver still receives the
+            entry (callback fires at measure() time, before the clear);
+            the retained buffer that `getEntriesByType` reads stays empty."
+    (when (and performance/enabled? (not performance/retain-entries?))
       (clear-measures!)
       (let [nm "rf:test:roundtrip-on"]
-        (performance/mark-and-measure :test :roundtrip-on :ok)
-        (is (= 1 (count-measures nm))
-            "exactly one measure entry under the constructed name")))))
+        (dotimes [_ 25]
+          (performance/mark-and-measure :test :roundtrip-on :ok))
+        (is (zero? (count-measures nm))
+            "the measure buffer stays empty — cleared after each emit, no leak")))))
+
+(deftest mark-and-measure-allocates-no-marks-when-enabled
+  (testing "The options-bag measure form (rf2-2yv859) passes numeric
+            start/end timestamps, so ZERO `performance.mark` entries are
+            allocated — two-thirds of the old per-bracket buffer growth
+            is gone. No `rf:` mark entry lands regardless of the
+            retain-entries? flag."
+    (when performance/enabled?
+      (clear-measures!)
+      (dotimes [_ 25]
+        (performance/mark-and-measure :test :no-marks :ok))
+      (is (zero? (count-rf-marks))
+          "the bracket produces no rf: mark entries"))))
 
 (deftest mark-and-measure-off-path-when-disabled
   (testing "When `enabled?` is false at compile time, mark-and-measure is
@@ -88,8 +118,10 @@
 
 (deftest mark-and-measure-propagates-thrown-exceptions
   (testing "When the body throws, the exception propagates AFTER the
-            `:end` mark fires (the try/finally ensures a partial measure
-            entry still lands when the perf flag is on)."
+            `finally` emits (and clears) the measure — the try/finally
+            ensures the entry is delivered to observers on the partial
+            run even when the perf flag is on, then cleared per the
+            observer-first contract so the buffer does not retain it."
     (clear-measures!)
     (let [thrown (atom nil)]
       (try
@@ -98,6 +130,6 @@
         (catch :default e
           (reset! thrown e)))
       (is @thrown "the exception propagates")
-      (when performance/enabled?
-        (is (= 1 (count-measures "rf:test:throws"))
-            "the bracket still produced a measure entry on the partial run")))))
+      (when (and performance/enabled? (not performance/retain-entries?))
+        (is (zero? (count-measures "rf:test:throws"))
+            "the partial-run measure was emitted (delivered to observers) then cleared")))))

@@ -16,17 +16,39 @@
       `(if enabled? <gated-bracket> (do ~@body))`. With the flag false
       at compile time, Closure constant-folds the gate; the gated
       branch DCEs and every helper string (the entry name, the
-      `performance.mark` / `performance.measure` call sites, the helper
-      ns code) elides. The macro shape — rather than a fn — is what
-      keeps the entry-name construction inside the gate too: a
-      function-shaped helper would force its arg expressions to evaluate
-      regardless, which would leave the `\"rf:\"` prefix string surviving
-      DCE in the off bundle.
+      `performance.measure` call site, the helper ns code) elides. The
+      macro shape — rather than a fn — is what keeps the entry-name
+      construction inside the gate too: a function-shaped helper would
+      force its arg expressions to evaluate regardless, which would leave
+      the `\"rf:\"` prefix string surviving DCE in the off bundle.
     - The runtime call sites (event dispatch, sub recompute, fx
       execution, render) wrap their hot-path work via `mark-and-measure`
-      with a stable `rf:<bucket>:<id>` name. Consumers read entries via
-      `(.getEntriesByType js/performance \"measure\")` and filter by
-      the `rf:` prefix.
+      with a stable `rf:<bucket>:<id>` name.
+
+  Observer-first contract — entries are **delivered, not retained**:
+
+    - The bracket emits **one** `performance.measure` per invocation
+      using the **options-bag** form
+      `performance.measure(name, {start, end})` with numeric
+      `performance.now()` timestamps. No `performance.mark` entries are
+      allocated — the two marks per bracket were pure buffer growth with
+      no documented consumer (nothing reads the `:start` / `:end` marks),
+      so the options-bag form drops two-thirds of the entry churn.
+    - After emitting, the bracket **clears the measure by name**
+      (`performance.clearMeasures(name)`) so the host's User-Timing entry
+      buffer does NOT accumulate. A live `PerformanceObserver` still
+      receives the entry — observer callbacks fire at `measure()` time,
+      before the clear — so timing is delivered to any attached observer
+      / APM; the buffer just doesn't grow. This is the real bound: the
+      framework clears after emit, NOT the (factually unbounded — W3C
+      `maxBufferSize` is Infinite for measure entries) host buffer.
+    - `retain-entries?` is a second `goog-define`d boolean, default
+      `false`. Flip it (`:closure-defines {re-frame.performance/retain-entries? true}`)
+      for one-shot DevTools / console workflows that read the retained
+      buffer via `(.getEntriesByType js/performance \"measure\")` — with
+      it on the per-emit clear is skipped so entries persist for
+      `getEntriesByType` readers. Long-running (RUM) sessions leave it
+      off and read via a `PerformanceObserver`.
 
   Naming convention (per Spec 009 §Performance instrumentation):
     rf:event:<event-id>     — event handler invocation
@@ -46,7 +68,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- the compile-time flag -------------------------------------------------
+;; ---- the compile-time flags ------------------------------------------------
 
 #?(:cljs
    (goog-define ^boolean enabled? false))
@@ -64,6 +86,18 @@
    ;;      below treat the JVM as a permanent no-op — the Performance API
    ;;      is browser-only — so the JVM expansion is just `(do body...)`.
    (def ^:const enabled? false))
+
+;; When true, the per-emit `performance.clearMeasures(name)` is skipped so
+;; entries persist in the host's User-Timing buffer for one-shot
+;; `getEntriesByType('measure')` readers (DevTools / console workflows).
+;; Default false: entries are delivered to observers then cleared, so the
+;; buffer does not grow across a long-running session. See the ns docstring
+;; §Observer-first contract.
+#?(:cljs
+   (goog-define ^boolean retain-entries? false))
+
+#?(:clj
+   (def ^:const retain-entries? false))
 
 ;; ---- name builder (used by the macro expansion at the call site) ----------
 
@@ -119,9 +153,19 @@
      last body form's value. JVM expansion is `(do body...)` — the
      Performance API is browser-only.
 
+     Entry shape (when the flag is on): one `performance.measure` via the
+     options-bag form `performance.measure(name, {start, end})` with
+     numeric `performance.now()` timestamps — **no** `performance.mark`
+     entries are allocated. Unless `retain-entries?` is on, the measure is
+     cleared by name (`performance.clearMeasures(name)`) immediately after
+     emit so the host's User-Timing buffer does not grow; a live
+     `PerformanceObserver` still receives the entry (its callback fires at
+     `measure()` time, before the clear). See the ns docstring
+     §Observer-first contract.
+
      Exception isolation: when the flag is on, the bracket is wrapped in
-     try/finally so the `:end` mark and the `measure` entry land even if
-     the body throws. The exception still propagates."
+     try/finally so the `measure` entry (and its clear) land even if the
+     body throws. The exception still propagates."
      [bucket id & body]
      (if (:ns &env)
        ;; CLJS expansion. Constant-fold-able shape:
@@ -129,16 +173,24 @@
        ;; Closure replaces `enabled?` with the goog-define value and
        ;; eliminates the dead branch under :advanced.
        `(if re-frame.performance/enabled?
-          (let [nm#         (re-frame.performance/build-name ~bucket ~id)
-                start-name# (str nm# ":start")
-                end-name#   (str nm# ":end")]
-            (.mark js/performance start-name#)
+          (let [nm#    (re-frame.performance/build-name ~bucket ~id)
+                start# (.now js/performance)]
             (try
               (do ~@body)
               (finally
-                (.mark js/performance end-name#)
                 (try
-                  (.measure js/performance nm# start-name# end-name#)
+                  ;; Options-bag measure: numeric start/end timestamps,
+                  ;; so no mark entries are ever allocated (two-thirds of
+                  ;; the old per-bracket buffer growth; nothing reads the
+                  ;; marks). The entry is delivered to any live
+                  ;; PerformanceObserver at this call, then — unless the
+                  ;; consumer opted into buffer retention — cleared so the
+                  ;; buffer does not accumulate across a long session.
+                  (.measure js/performance nm#
+                            (cljs.core/js-obj "start" start#
+                                              "end"   (.now js/performance)))
+                  (when-not re-frame.performance/retain-entries?
+                    (.clearMeasures js/performance nm#))
                   (catch :default _# nil)))))
           (do ~@body))
        ;; JVM expansion: pure pass-through. The Performance API is

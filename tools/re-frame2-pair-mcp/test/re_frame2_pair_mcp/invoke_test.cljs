@@ -474,7 +474,7 @@
 ;; Snapshot precheck eligibility is gated on `:include`.
 ;;
 ;; The precheck hash is `(hash app-db@frame)` only. `:epochs`/`:traces`
-;; accrue a record on EVERY event cascade (incl. no-`:db` handlers) and
+;; accrue a record on EVERY pipeline run (incl. no-`:db` handlers) and
 ;; `:sub-cache` can move over external inputs — all WITHOUT an app-db
 ;; write, so the precheck hash stays constant while those slices change.
 ;; A snapshot whose resolved `:include` keeps any of those three is

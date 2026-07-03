@@ -35,7 +35,7 @@
     - `:sub-cache`— reactive cache over external inputs; can move without
                     an app-db write. NOT sound.
     - `:epochs`   — the per-frame epoch ring; a record is appended on
-                    EVERY event cascade, including no-`:db` handlers, so
+                    EVERY pipeline run, including no-`:db` handlers, so
                     it changes while `app-db-hash` stays constant. NOT
                     sound.
     - `:traces`   — the per-frame trace ring; same accrue-without-db-
