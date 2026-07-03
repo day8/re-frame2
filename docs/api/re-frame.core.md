@@ -1001,27 +1001,27 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   (rf/clear-trace-buffer! :app/main)   ;; empty one frame's ring (e.g. between tool sessions)
   ```
 
-### `group-cascades`
+### `group-by-event`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (group-cascades events) → vector of cascade records
+  (group-by-event events) → vector of cascade records
   ```
 - **Description**: Pure data projection of a list of trace events into per-cascade records `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. JVM-runnable.
 - **Example**:
   ```clojure
-  (rf/group-cascades (rf/trace-buffer :app/main {:flat true}))
+  (rf/group-by-event (rf/trace-buffer :app/main {:flat true}))
   ```
 
-### `group-cascades-with-events`
+### `group-by-event-with-events`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (group-cascades-with-events events) → vector of cascade records
+  (group-by-event-with-events events) → vector of cascade records
   ```
-- **Description**: Like `group-cascades`, but each record additionally carries a `:trace-events` slot holding the **vector** of raw trace events that composed that cascade. The same `[frame dispatch-id]` grouping is reused verbatim; the `:trace-events` slot is the exact set of events the record was reduced from, in input order.
+- **Description**: Like `group-by-event`, but each record additionally carries a `:trace-events` slot holding the **vector** of raw trace events that composed that cascade. The same `[frame dispatch-id]` grouping is reused verbatim; the `:trace-events` slot is the exact set of events the record was reduced from, in input order.
 
 ### `domino-bucket`
 
@@ -1030,7 +1030,7 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   ```clojure
   (domino-bucket trace-event) → #{:event :handler :fx :effect :sub :render :other}
   ```
-- **Description**: Classify a raw trace event into the six-domino slot used by `group-cascades`. Pure.
+- **Description**: Classify a raw trace event into the six-domino slot used by `group-by-event`. Pure.
 - **Example**:
   ```clojure
   (rf/domino-bucket {:op-type :rf.view :operation :rf.view/render})  ;; => :render
