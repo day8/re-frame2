@@ -282,6 +282,114 @@
           (is (not (contains? (:got db) :kind)) "no retired :kind dialect"))
         (finally (stop-server! srv))))))
 
+;; ===========================================================================
+;; Group 2c — rf2-1u9dja: the public failure `:error` map is SELF-IDENTIFYING.
+;; Every failure category carries :request {:method :url}, :request-id,
+;; :attempt/:max-attempts, and :work/id — WHICH request failed, not only what
+;; kind of failure it was (debugging-dx finding 3). Exercised end-to-end
+;; through the real transport for the categories a test server can trigger.
+;; ===========================================================================
+
+(defn- fetch-failure-error
+  "Issue one managed GET against `url` (retry `max-attempts`, `request-id`),
+  drive it, and return the `:error` map of the delivered failure reply."
+  [url {:keys [request-id max-attempts]}]
+  (rf/reg-event :sid/call
+    (fn [_ _]
+      {:fx [[:rf.http/managed
+             (cond-> {:request    {:method :get :url url}
+                      :decode     :json
+                      :on-failure [:sid/failed]}
+               request-id   (assoc :request-id request-id)
+               max-attempts (assoc :retry {:on #{:rf.http/http-5xx :rf.http/transport}
+                                           :max-attempts max-attempts
+                                           :backoff {:base-ms 1 :factor 1 :max-ms 1}}))]]}))
+  (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+  (rf/dispatch-sync [:sid/call])
+  (get-in (await-reply! #(some? (:reply %))) [:reply :error]))
+
+(deftest failure-reply-is-self-identifying-4xx
+  (testing "an :rf.http/http-4xx failure echoes :request/:request-id/:attempt/:work-id"
+    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 404 "text/plain" "nope")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/gone")
+              err (fetch-failure-error url {:request-id :sid/get})]
+          (is (= :rf.http/http-4xx (:kind err)) "category tag survives")
+          (is (= {:method :get :url url} (:request err)) "echoes the caller's wire envelope")
+          (is (= :sid/get (:request-id err)) ":request-id is uniform (not aborted-only)")
+          (is (= 1 (:attempt err)))
+          (is (= [:rf.work/http :sid/get 1 1] (:work/id err)) "correlation join to the trace")
+          ;; category-specific tags still ride
+          (is (= 404 (:status err))))
+        (finally (stop-server! srv))))))
+
+(deftest failure-reply-is-self-identifying-transport
+  (testing "an :rf.http/transport failure (connection refused) is self-identifying"
+    ;; Port 1 is reliably closed — connection refused → :rf.http/transport.
+    (let [url "http://127.0.0.1:1/x"
+          err (fetch-failure-error url {:request-id :sid/xport})]
+      (is (= :rf.http/transport (:kind err)))
+      (is (= {:method :get :url url} (:request err)))
+      (is (= :sid/xport (:request-id err)))
+      (is (= [:rf.work/http :sid/xport 1 1] (:work/id err))))))
+
+(deftest failure-reply-is-self-identifying-5xx-with-retry
+  (testing "an :rf.http/http-5xx failure after exhausted retries carries :attempt/:max-attempts"
+    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 503 "text/plain" "down")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/down")
+              err (fetch-failure-error url {:request-id :sid/five-xx :max-attempts 3})]
+          (is (= :rf.http/http-5xx (:kind err)))
+          (is (= {:method :get :url url} (:request err)))
+          (is (= 3 (:attempt err)) "the final (third) attempt is reported")
+          (is (= 3 (:max-attempts err)) "the retry ceiling rides the failure")
+          (is (= [:rf.work/http :sid/five-xx 1 3] (:work/id err))
+              "the work-id's attempt slot matches the exhausting attempt"))
+        (finally (stop-server! srv))))))
+
+(deftest failure-reply-is-self-identifying-decode
+  (testing "an :rf.http/decode-failure (malformed JSON on 200) is self-identifying"
+    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 200 "application/json" "{not json")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/bad")
+              err (fetch-failure-error url {:request-id :sid/decode})]
+          (is (= :rf.http/decode-failure (:kind err)))
+          (is (= {:method :get :url url} (:request err)))
+          (is (= :sid/decode (:request-id err)))
+          (is (= [:rf.work/http :sid/decode 1 1] (:work/id err))))
+        (finally (stop-server! srv))))))
+
+(deftest failure-reply-is-self-identifying-aborted
+  (testing "an :rf.http/aborted reply (:status :cancelled) is self-identifying too"
+    (let [gate (java.util.concurrent.CountDownLatch. 1)
+          srv  (start-server!
+                 (fn [^HttpExchange ex]
+                   (try (.await gate 2 java.util.concurrent.TimeUnit/SECONDS)
+                        (catch InterruptedException _ nil))
+                   (write-response! ex 200 "application/json" "{\"v\":1}")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/slow")]
+          (rf/reg-event :sid/go
+            (fn [_ _]
+              {:fx [[:rf.http/managed
+                     {:request    {:method :get :url url}
+                      :request-id :sid/abort
+                      :decode     :json
+                      :on-failure [:sid/failed]}]]}))
+          (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+          (rf/reg-event :sid/abort! (fn [_ _] {:fx [[:rf.http/managed-abort :sid/abort]]}))
+          (rf/dispatch-sync [:sid/go])
+          (rf/dispatch-sync [:sid/abort!])
+          (.countDown gate)
+          (let [reply (get-in (await-reply! #(some? (:reply %))) [:reply])
+                err   (:error reply)]
+            (is (= :cancelled (:status reply)) "abort is a :status :cancelled reply")
+            (is (= :rf.http/aborted (:kind err)))
+            (is (= {:method :get :url url} (:request err)))
+            (is (= :sid/abort (:request-id err)))
+            (is (= [:rf.work/http :sid/abort 1 1] (:work/id err)))))
+        (finally (stop-server! srv))))))
+
 (deftest real-transport-emits-canonical-replied-trace
   (testing "completion emits a :rf.http/replied trace row built from the canonical envelope facts"
     (let [srv     (start-server!

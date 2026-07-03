@@ -113,6 +113,36 @@
     (is (not (contains? (ns-publics 're-frame.http.reply) 'reply->public-payload))
         "reply->public-payload must not exist — the canonical reply is the public payload")))
 
+(deftest self-identify-failure-stamps-request-identity
+  (testing "rf2-1u9dja — self-identify-failure stamps :request/:request-id/:attempt/:max-attempts/:work-id onto a failure map"
+    (let [id-ctx {:method       :get
+                  :url          "/api/articles/42"
+                  :request-id   :article/by-id
+                  :origin-event [:article/load {:id 42}]
+                  :issuance     1
+                  :attempt      3
+                  :max-attempts 3}
+          f      (http-reply/self-identify-failure
+                   {:kind :rf.http/timeout :elapsed-ms 8000 :limit-ms 8000}
+                   id-ctx)]
+      (is (= {:method :get :url "/api/articles/42"} (:request f)))
+      (is (= :article/by-id (:request-id f)))
+      (is (= 3 (:attempt f)))
+      (is (= 3 (:max-attempts f)))
+      (is (= [:rf.work/http :article/by-id 1 3] (:work/id f)))
+      (testing "the category's own tags survive verbatim"
+        (is (= :rf.http/timeout (:kind f)))
+        (is (= 8000 (:elapsed-ms f)))))
+    (testing ":max-attempts is omitted when no retry policy was configured"
+      (let [f (http-reply/self-identify-failure
+                {:kind :rf.http/transport :message "boom"}
+                {:method :post :url "/x" :request-id nil
+                 :origin-event [:e] :attempt 1})]
+        (is (not (contains? f :max-attempts)))
+        (is (nil? (:request-id f)))
+        (is (= {:method :post :url "/x"} (:request f)))
+        (is (= [:rf.work/http :e 1 1] (:work/id f)))))))
+
 (deftest trace-summary-elides-wire-slots
   (testing "the canonical trace summary keeps identity facts verbatim"
     (let [r       (http-reply/success-reply ctx {:secret "x"})
