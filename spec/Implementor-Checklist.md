@@ -32,7 +32,7 @@ These rows are **pattern-required** in [000 §Host-profile matrix](000-Vision.md
 | **Closed effect-map shape** | `:db` and `:fx` only at the top level | [002](002-Frames.md), [Spec-Schemas §`:rf/effect-map`](Spec-Schemas.md#rfeffect-map) |
 | **Subscription / derivation system** | Query → value-from-state, with stable composition | [002](002-Frames.md) |
 | **Frame as isolated runtime boundary** | `{state, queue, sub-cache, id}`; multi-instance | [002](002-Frames.md) |
-| **Run-to-completion drain semantics** | Per frame; cascade settles before next event | [002](002-Frames.md) |
+| **Run-to-completion drain semantics** | Per frame; pipeline run settles before next event | [002](002-Frames.md) |
 | **View contract** | Pure `(state, props) → render-tree`; render-tree is serialisable data | [004](004-Views.md) |
 | **Trace event stream** | Structured events from well-defined emit sites | [009](009-Instrumentation.md) |
 | **Error contract** | Structured trace events for runtime failures (handler exceptions, schema validation, drain depth, no-such-handler, ...) | [009 §Error contract](009-Instrumentation.md#error-contract) |

@@ -222,7 +222,7 @@ Each entry below is one CP:
 **Pattern-level discipline:**
 
 - The handler is `(fx-ctx, args) → side-effect`, where `fx-ctx` is the small fx-handler map (`:frame` = frame id, `:event`, runtime-internal `:envelope` — [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx)), not the event handler's coeffects map. The args are *data*; the side-effect is performed at the boundary.
-- The handler is responsible for dispatching follow-up events (`:on-success`/`:on-error`) on the originating frame so the state-change cascade resumes.
+- The handler is responsible for dispatching follow-up events (`:on-success`/`:on-error`) on the originating frame so the state-change drain resumes.
 - The handler **may not modify `app-db` directly** — only via dispatched events.
 - Server-only effects (`:platforms #{:server}`) are skipped on the client; client-only on the server. The runtime emits `:rf.fx/skipped-on-platform` traces so it's visible.
 

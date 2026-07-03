@@ -150,7 +150,7 @@ The pattern dampens dynamics in five layers, each reducing what the reader (huma
 
 **Layer 1 — Discrete events.** The app advances *one event at a time* through its state space. Events do not suspend or interleave. State updates are transactional — applied in one fell swoop, not incrementally. Between events the app is in exactly one well-defined state, schema-checkable as a whole.
 
-**Layer 2 — FSM-like event processing (the dominoes).** A single event flows through a fixed, linear sequence of stages — dispatch → event handler → effect handling → query/derivation → view → DOM. The pipeline is invariant: stages cannot be skipped, reordered, or invented at runtime. Each stage can be understood in isolation. *The dominoes ARE the FSM*; the shape is a finite-state pipeline by design.
+**Layer 2 — FSM-like event processing (the event pipeline).** A single event flows through a fixed, linear sequence of stages — assemble → transform → commit → perform → derive → render (the classic "six dominoes" is a first-contact mnemonic for this same shape). The pipeline is invariant: stages cannot be skipped, reordered, or invented at runtime. Each stage can be understood in isolation. *The pipeline IS the FSM*; the shape is a finite-state pipeline by design.
 
 **Layer 3 — Pure functions and immutable data within each stage.** Inside a stage, the host language is Turing-complete, but harnessed: handlers are pure `(state, event) → effects`, derivations are pure `state → value`, data is immutable, neither time nor place reach in. Pure functions stand outside time; their behaviour is determined by their arguments alone.
 
