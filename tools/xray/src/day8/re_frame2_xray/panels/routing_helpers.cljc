@@ -726,6 +726,10 @@
 ;;   - cascade carries :rf.route.nav-token/allocated → :on-match
 ;;     (a navigation actually landed this epoch)
 ;;   - cascade carries :rf.route/navigation-blocked → :navigation-blocked
+;;     (a :can-leave gate rejected)
+;;   - cascade carries :rf.route/entry-blocked → :entry-blocked
+;;     (a :can-enter gate rejected — rf2-p69yaz; the enter mirror of the
+;;     leave block, carrying :tags :phase :can-enter per 021 §7)
 ;;   - cascade carries :rf.route/fragment-changed → :fragment-changed
 ;;   - otherwise → nil (no routing activity this epoch)
 ;;
@@ -736,10 +740,12 @@
 
 (def ^:private routing-phase-ops
   "Trace operations that indicate a routing-related phase. Order is
-  significant: nav-token/allocated wins (the actual on-match), then
-  navigation-blocked, then fragment-changed. The first match wins."
+  significant: nav-token/allocated wins (the actual on-match), then a
+  leave block, then an enter block, then fragment-changed. The first
+  match wins."
   [[:rf.route.nav-token/allocated :on-match]
    [:rf.route/navigation-blocked  :navigation-blocked]
+   [:rf.route/entry-blocked       :entry-blocked]
    [:rf.route/fragment-changed    :fragment-changed]])
 
 (defn- cascade-event-vectors
@@ -770,7 +776,8 @@
   cascade is nil OR carries no routing-related trace events (the
   view's 'No route activity' branch).
 
-  `:phase` is one of `#{:on-match :navigation-blocked :fragment-changed}`
+  `:phase` is one of
+  `#{:on-match :navigation-blocked :entry-blocked :fragment-changed}`
   per the trace-event mix.
   `:events` is the cascade's event-vector list (root + downstream
   dispatches), useful for the spec §7.2 'Events' row.
