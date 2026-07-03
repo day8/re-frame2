@@ -258,13 +258,28 @@
   `param-extras` is the emitting frame's frame-local query-param carrier
   extension set (EP-0015 §3), or `nil` for defaults-only.
 
+  rf2-1u9dja — a self-identifying failure map (debugging-dx finding 3)
+  ALSO carries the request echo `:request {:method :url}`; its nested
+  `:url` is an egress surface too, so it is walked through the SAME
+  redactor. On-box the app reply carries the raw url (the caller's own
+  data); this redaction fires only on the trace egress path the
+  `prepare-emit-*` composers drive.
+
   Per rf2-02vzz — fuses the redact + denylist-hit lookups so the URL's
   query string is parsed exactly once per trace emit."
   [m sensitive? param-extras]
-  (if (string? (:url m))
-    (let [[redacted any?] (url/redact-url-query-string (:url m) sensitive? param-extras)]
-      [(assoc m :url redacted) any?])
-    [m false]))
+  (let [[m top-any?]
+        (if (string? (:url m))
+          (let [[redacted any?] (url/redact-url-query-string (:url m) sensitive? param-extras)]
+            [(assoc m :url redacted) any?])
+          [m false])
+        [m nested-any?]
+        (if (string? (get-in m [:request :url]))
+          (let [[redacted any?] (url/redact-url-query-string
+                                  (get-in m [:request :url]) sensitive? param-extras)]
+            [(assoc-in m [:request :url] redacted) any?])
+          [m false])]
+    [m (or top-any? nested-any?)]))
 
 (defn redact-request-tags-with-flag
   "Like `redact-request-tags` but returns `[tags url-redacted?]` so
