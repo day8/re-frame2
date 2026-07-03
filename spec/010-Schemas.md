@@ -740,22 +740,24 @@ The schemas-with-Malli delta is bounded by `malli.core`'s reachable body (~24 KB
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Schema-driven generative tests" classifies as **`:post-v1 tracked`** (folded into the property-based-testing pattern at); "Boundary-validation interceptor naming" was **resolved** at (decision 2026-05-17, see [§Resolved decisions](#resolved-decisions)); "Schema versioning" classifies as **`:post-v1 tracked`** at.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Schema-driven generative tests" is a **post-v1, untracked note** — it is a *cross-link* into the property-based-testing pattern whose home is [008 §Property-based testing integration](008-Testing.md#property-based-testing-integration-post-v1); the schema-driven variant is one shape of that pattern, not a separate deferred surface, and no tracking bead is filed yet (so it is not `:post-v1 tracked`, which requires a `rf2-<id>`). "Boundary-validation interceptor naming" was **resolved** (decision 2026-05-17, see [§Resolved decisions](#resolved-decisions)) and now lives under `## Resolved decisions` below. "Schema versioning" is a **post-v1, untracked note** — additive `:version` key with a concrete reconsideration trigger (see [§Schema versioning](#schema-versioning-post-v1) below); no bead filed yet.
 
 ### Schema-driven generative tests (post-v1)
 
-Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:schema`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1.
+Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:schema`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold."
+
+This is **one shape of the property-based-testing pattern, not a second deferred surface** — its home is [008 §Property-based testing integration](008-Testing.md#property-based-testing-integration-post-v1), which owns the whole property-based pattern (schema-driven generation is the case where the generators come from `:schema` registrations rather than hand-written). The forward-pointer lives there, so the two docs do **not** defer to each other; 008 is the single home, this section is the schemas-side cross-link into it. No tracking bead is filed yet.
 
 ### Schema versioning (post-v1)
 
-Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] {:schema UserSchema :version 3})`) for schema-aware migration tooling is post-v1.
+Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] {:schema UserSchema :version 3})`) for schema-aware migration tooling is post-v1. Untracked note — no bead filed yet; the reconsideration trigger below is what files one.
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `reg-app-schema` already accepts an opts map (per [§The four normative claims](#the-four-normative-claims)); adding a `:version <pos-int>` key is additive — current registrations stay valid.
 - **Scope deferred.** The convention itself (canonical key name, default semantics when absent, comparison rule on hot-reload, migration-helper signature) is the post-v1 design surface. v1 ships the validator-pluggability primitive without locking the versioning grammar.
 - **Reconsideration trigger.** Either (a) a concrete app reports schema-evolution bugs that the hot-reload `:rf.schema/violation` trace (per [§Schema migration on hot-reload](#schema-migration-on-hot-reload)) cannot diagnose, or (b) a tool (story, xray, re-frame2-pair) needs to assert a known shape-revision across runs.
-- **Out of scope for the bead.** App-level migration runner (sequenced `db -> db'` transforms keyed on version delta) is library territory, not framework.
+- **Out of scope when it lands.** App-level migration runner (sequenced `db -> db'` transforms keyed on version delta) is library territory, not framework — outside whatever bead the trigger files.
 
 ## Resolved decisions
 

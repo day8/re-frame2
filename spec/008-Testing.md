@@ -912,18 +912,20 @@ Some tests want to capture a frame's `app-db` and replay it later (golden-master
 
 - **Foundation in v1.** `app-db-value` returns a plain value; `pr-str` / EDN reader round-trips it. No framework change is needed for the raw capture/replay path.
 - **Scope deferred.** A packaged helper (`golden-master`, `regression-check`) with the ergonomic API (file-naming convention, diff rendering, `clojure.test`-style failure report) is user-space library work.
-- **Reconsideration trigger.** A repeated pattern emerging across `examples/` or downstream tests that all hand-roll the same snapshot/diff scaffolding.
+- **Reconsideration trigger.** The same snapshot/diff scaffolding hand-rolled independently in **three or more** consumer-app test suites or re-frame2 tool test-suites (story, xray, re-frame2-pair). It deliberately does **not** watch `examples/`, which is test-free by locked policy (rf2-8cevm) and so can never emit this signal — the demand shows up where tests actually live.
 - **Out of scope for this note.** Cross-process replay (record-on-prod, replay-on-dev) — that wants the trace-buffer surface, not a snapshot helper.
 
 ### Property-based testing integration (post-v1)
 
 `test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Documented as a pattern post-v1. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
+**This section is the single home for the property-based-testing pattern**, including its *schema-driven* variant — where the generators come from `:schema` registrations (per [010 §Schema-driven generative tests](010-Schemas.md#schema-driven-generative-tests-post-v1)) rather than hand-written generators. That 010 section is a cross-link *into* here, not a peer to defer to: there is one pattern doc, and it lives here. (Previously the two docs pointed at each other with no home named — that circular defer is now broken by naming 008 the home.)
+
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `make-frame` is cheap and isolated; `dispatch-sync` settles synchronously per [Resolved decisions](#resolved-decisions); the schema-validator hook (Spec 010) gives invariants a place to live.
 - **Scope deferred.** A guide-tier pattern document: generators for event sequences, invariants expressed as schemas, shrinking strategies for `dispatch-sequence` failures. No framework primitive missing.
-- **Reconsideration trigger.** If schema-driven generation (per [010 §Schema-driven generative tests](010-Schemas.md#schema-driven-generative-tests-post-v1)) lands first, the pattern doc folds in directly.
+- **Reconsideration trigger.** A consumer app or a re-frame2 tool test-suite ships a hand-rolled `test.check` harness over `make-frame` / `dispatch-sequence` (event-sequence generators + schema-expressed invariants) that would be materially shorter if the pattern doc and any thin generator helper existed — the demand is a real generative suite in a real repo, not the schema-driven variant merely "landing first."
 - **Out of scope for this note.** A bundled `test.check` dependency — re-frame2 stays library-agnostic.
 
 ### Model-based testing harness over `machine-transition` (post-v1)
