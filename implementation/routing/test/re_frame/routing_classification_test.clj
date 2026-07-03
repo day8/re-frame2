@@ -235,35 +235,7 @@
 ;; emitting a :rf.size/large-elided marker that would leak the ancestor's
 ;; :path / :bytes / :type (and, off-box-tool, a SHA-256 digest over the
 ;; secret-bearing subtree).
-;;
-;; PRE-CONDITION (rf2-bdwxkp): the rf2-izlr7f suppression fix is currently in
-;; the UNMERGED open PR #4895 (its beads were closed prematurely; the code is
-;; on branch worker/cr2-ep0025-classif-correctness, NOT on main). So this test
-;; PROBES whether nested-axis suppression is active and asserts the
-;; spec-correct egress only when it is; otherwise it self-skips with a loud
-;; pointer to rf2-bdwxkp. Once #4895 lands the probe flips and the assertions
-;; run for real — no edit needed. This avoids both a red gate on main AND
-;; baking the buggy (leaking) behaviour into a green assertion.
 ;; ===========================================================================
-
-(defn- nested-axis-suppression-active?
-  "Behavioural probe: does `elide-wire-value` SUPPRESS the large marker for a
-  :large ancestor that strictly shadows a :sensitive descendant (rf2-izlr7f)?
-  Returns true when the fix is present (the ancestor descends and the
-  descendant redacts), false when the leaking marker is still emitted. Used to
-  gate the route nested-axis assertion until PR #4895 (rf2-bdwxkp) merges."
-  []
-  (rf/reg-route :route/_probe
-                {:large     [[:query :p]]
-                 :sensitive [[:query :p :s]]}
-                "/_probe")
-  (rf/dispatch-sync [:rf.route/transitioned "/_probe"])
-  (let [rdb     (-> (rf/runtime-db-value :rf/default)
-                    (assoc-in [:rf.runtime/routing :current :query :p]
-                              {:s "x" :pub "y"}))
-        elided  (elision/elide-wire-value rdb {:frame :rf/default})
-        payload (get-in elided [:rf.runtime/routing :current :query :p])]
-    (not (elision/marker? payload))))
 
 (deftest nested-large-ancestor-sensitive-descendant-redacts-at-egress
   (testing "a route declaring a :large ancestor + :sensitive descendant redacts
@@ -288,41 +260,27 @@
     ;; The egress projection is where nested-axis suppression MUST win. Place a
     ;; nested oversized + secret value at the slice query path directly — the
     ;; classification paths are what matter at egress.
-    (if-not (nested-axis-suppression-active?)
-      ;; rf2-bdwxkp: the rf2-izlr7f suppression is not on main yet (open PR
-      ;; #4895). Skip the egress assertion loudly rather than assert the
-      ;; current leaking behaviour as if it were correct.
-      (println "  [rf2-y8k6br SKIP] nested-axis suppression (rf2-izlr7f) absent on this build —"
-               "egress assertion deferred until PR #4895 merges (see rf2-bdwxkp).")
-      ;; rf2-b43y3o: the probe above navigated to :route/_probe (a route is a
-      ;; SINGLETON current-route, so the probe nav REPLACED :route/nested's
-      ;; :source :route classification with :route/_probe's). Re-navigate to
-      ;; :route/nested so the egress assertion runs against THIS route's
-      ;; classification rather than the probe's leftover — without this the
-      ;; slice carries :route/_probe's [:query :p] decls and the [:query
-      ;; :payload] value ships raw (the false-positive leak the gate hid).
-      (let [_       (rf/dispatch-sync [:rf.route/transitioned "/nested"])
-            rdb     (-> (rf/runtime-db-value :rf/default)
-                        (assoc-in [:rf.runtime/routing :current :query :payload]
-                                  {:secret "topsecret-bearer-token-value"
-                                   :public "ok"}))
-            elided  (elision/elide-wire-value rdb {:frame :rf/default})
-            payload (get-in elided [:rf.runtime/routing :current :query :payload])]
-        ;; The descendant secret is the BARE sentinel — redacted, not a marker.
-        (is (= sentinel (:secret payload))
-            "the :sensitive descendant is redacted (the bare sentinel)")
-        ;; The unmarked sibling inside the ancestor rides verbatim.
-        (is (= "ok" (:public payload))
-            "an unmarked sibling inside the large ancestor rides verbatim")
-        ;; CRUCIAL: the ancestor must NOT be a :rf.size/large-elided marker —
-        ;; a marker would leak the ancestor's :path / :bytes / :type (and a
-        ;; digest off-box) while a sensitive descendant is inside it. The walker
-        ;; descends the ancestor (so the descendant redacts) rather than
-        ;; collapsing it to a marker.
-        (is (not (elision/marker? payload))
-            "the :large ancestor is NOT collapsed to a marker — no path/bytes/digest leak while a sensitive descendant lives inside")
-        (is (map? payload)
-            "the ancestor remains a walked map (descended, so the nested secret redacts)")))))
+    (let [rdb     (-> (rf/runtime-db-value :rf/default)
+                      (assoc-in [:rf.runtime/routing :current :query :payload]
+                                {:secret "topsecret-bearer-token-value"
+                                 :public "ok"}))
+          elided  (elision/elide-wire-value rdb {:frame :rf/default})
+          payload (get-in elided [:rf.runtime/routing :current :query :payload])]
+      ;; The descendant secret is the BARE sentinel — redacted, not a marker.
+      (is (= sentinel (:secret payload))
+          "the :sensitive descendant is redacted (the bare sentinel)")
+      ;; The unmarked sibling inside the ancestor rides verbatim.
+      (is (= "ok" (:public payload))
+          "an unmarked sibling inside the large ancestor rides verbatim")
+      ;; CRUCIAL: the ancestor must NOT be a :rf.size/large-elided marker —
+      ;; a marker would leak the ancestor's :path / :bytes / :type (and a
+      ;; digest off-box) while a sensitive descendant is inside it. The walker
+      ;; descends the ancestor (so the descendant redacts) rather than
+      ;; collapsing it to a marker.
+      (is (not (elision/marker? payload))
+          "the :large ancestor is NOT collapsed to a marker — no path/bytes/digest leak while a sensitive descendant lives inside")
+      (is (map? payload)
+          "the ancestor remains a walked map (descended, so the nested secret redacts)"))))
 
 ;; ===========================================================================
 ;; (rf2-wpvd39) End-to-end :large-redacts-at-egress for a route. The route
