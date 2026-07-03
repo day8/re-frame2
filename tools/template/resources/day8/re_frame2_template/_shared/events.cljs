@@ -108,25 +108,24 @@
 ;; [Spec 014 §`:rf.http/managed`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)).
 ;; Adopt it as-is when your app starts talking to an HTTP backend:
 ;;
-;; The `(:rf/reply msg)` / `{:kind :success|:failure …}` payload this
-;; handler reads is managed-HTTP **public compatibility sugar** — NOT the
-;; framework-wide managed-async model. Every managed-HTTP completion
-;; lowers internally onto re-frame2's
+;; The `(:rf/reply msg)` payload this handler reads IS re-frame2's
+;; framework-wide
 ;; [uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/Managed-Effects.md#the-uniform-reply-envelope)
 ;; (Managed-Effects property 9; rationale record
-;; [EP-0011](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0011-uniform-async-reply-envelope.md)):
-;; one canonical reply map with a single closed `:status`
-;; (`:ok` / `:error` / `:cancelled`; `:stale` is suppressed before app
-;; delivery and never reaches this handler), `:value` / `:error`,
-;; `:work/id`, and `:completed-at`. `:on-success` / `:on-failure` and the
-;; co-located `(:rf/reply msg)` form are sugar that lowers to the
-;; framework target `:rf/reply-to` and reshapes the canonical reply back
-;; into the `{:kind …}` payload below — so the event shape is preserved
-;; exactly. Do NOT read `{:kind …}` as the general async contract: any
-;; non-HTTP managed-async surface you build reports completion through the
-;; same envelope's `:status` / `:value` / `:error` / `:completed-at`
-;; directly, with mandatory stale suppression. See
-;; [Spec 014 §Lowering onto the uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#lowering-onto-the-uniform-reply-envelope).
+;; [EP-0011](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0011-uniform-async-reply-envelope.md)) —
+;; one canonical reply map delivered verbatim, with a single closed
+;; `:status` (`:ok` / `:error` / `:cancelled`; `:stale` is suppressed
+;; before app delivery and never reaches this handler), the decoded
+;; `:value` on `:ok`, the classified `:rf.http/*` failure map under
+;; `:error`, plus `:work/id` and `:completed-at`. There is NO separate
+;; `{:kind :success/:failure}` HTTP dialect (rf2-ibksxg — retired).
+;; `:on-success` / `:on-failure` are pure ROUTING sugar over the one
+;; direct reply target `:rf/reply-to` — both receive this same canonical
+;; map; the co-located `(:rf/reply msg)` form merges it under `:rf/reply`.
+;; Every managed-async surface you build (HTTP or not) reports completion
+;; through this same envelope's `:status` / `:value` / `:error` /
+;; `:completed-at`, with mandatory stale suppression. See
+;; [Spec 014 §Reply payload shape](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#reply-payload-shape--the-one-canonical-envelope).
 ;;
 ;;   1. Require `[re-frame.http.managed]` at app boot — that's the load-
 ;;      time side-effect that registers the `:rf.http/managed` fx and
@@ -148,7 +147,7 @@
 ;; fx-call time with `:rf.error/http-bad-retry-on`.
 ;;
 ;; The single `:on-failure` branch sees the resolved failure category
-;; via `(:kind (:failure reply))` — branch on the keyword to project
+;; via `(:kind (:error reply))` — branch on the keyword to project
 ;; each error case onto the UI shape your app wants. Body-conditional
 ;; retry (e.g. "the server sent `:retry-after`, wait that long") is
 ;; **out of scope** for `:retry`; lift those into a state machine per
@@ -158,22 +157,24 @@
     :counter/load
     (fn [{:keys [db]} [_ msg]]
       (cond
-        ;; Success branch — server returned `{"delta": N}` (decoded
-        ;; per :decode :auto; see the :decode classification note on the
-        ;; request below).
-        (some-> msg :rf/reply :kind (= :success))
+        ;; Success branch — `:status :ok`; server returned `{"delta": N}`
+        ;; (decoded per :decode :auto; see the :decode classification note
+        ;; on the request below). The decoded body rides at `:value`.
+        (some-> msg :rf/reply :status (= :ok))
         {:db (-> db
                  (update :counter/value + (:delta (:value (:rf/reply msg))))
                  (assoc :counter/status :idle))}
 
-        ;; Failure branch — exactly one dispatch per request, even
-        ;; with retry, per Spec 014 §Retry × :on-failure semantics.
-        ;; Project each :rf.http/* category onto a UI-facing message.
-        (some-> msg :rf/reply :kind (= :failure))
-        (let [failure (:failure (:rf/reply msg))]
+        ;; Failure / cancel branch — `:status :error` (or `:cancelled` for
+        ;; an abort). Exactly one dispatch per request, even with retry,
+        ;; per Spec 014 §Retry × :on-failure semantics. The classified
+        ;; `:rf.http/*` category rides under `:error`; branch on its
+        ;; `:kind` to project each case onto a UI-facing message.
+        (some-> msg :rf/reply :status #{:error :cancelled})
+        (let [error (:error (:rf/reply msg))]
           {:db (assoc db :counter/status :error
                          :counter/error
-                         (case (:kind failure)
+                         (case (:kind error)
                            :rf.http/transport      "Network unavailable."
                            :rf.http/cors           "Misconfigured CORS — check the server."
                            :rf.http/timeout        "Server took too long to respond."

@@ -124,10 +124,10 @@ Below, we add three actions and a second guard, and wire them in. `:clear-error`
     (fn [_] {:data {:error nil}})
 
     :record-error
-    (fn [{data :data [_ {:keys [failure]}] :event}]
+    (fn [{data :data [_ {:keys [error]}] :event}]        ;; failure map rides under :error
       {:data (-> data
                  (update :attempts inc)
-                 (assoc  :error (or (:message failure) "Login failed.")))})
+                 (assoc  :error (or (:message error) "Login failed.")))})
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]

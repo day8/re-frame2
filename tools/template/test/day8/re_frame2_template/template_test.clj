@@ -179,26 +179,29 @@
               "schema.cljs emits the canonical schema-in-metadata grammar
                (rf/reg-app-schema [] {:schema CounterDb})")
 
-          ;; -- EP-0011: HTTP exemplar names the uniform reply envelope
-          ;;    lowering + the compat-sugar distinction --
-          ;; The exemplar must say the (:rf/reply msg)/{:kind …} payload is
-          ;; managed-HTTP public compatibility SUGAR that lowers onto the
-          ;; framework-wide uniform reply envelope, and must name the
-          ;; canonical :status/:value/:work/id/:completed-at facts — so a
-          ;; future edit cannot re-teach the compat payload as the general
-          ;; managed-async model.
-          (is (.contains events-text "compatibility sugar")
-              "events.cljs HTTP exemplar marks the (:rf/reply msg)/{:kind …}
-               payload as managed-HTTP public compatibility sugar (EP-0011;
-               not the general async model — rf2-rzsxrk)")
+          ;; -- EP-0011 / rf2-ibksxg: HTTP exemplar teaches the ONE canonical
+          ;;    uniform reply envelope (no compat dialect) --
+          ;; The reply the exemplar reads IS the framework-wide uniform reply
+          ;; envelope delivered verbatim; there is no separate
+          ;; {:kind :success/:failure} HTTP dialect (retired). The exemplar
+          ;; must name the envelope, its canonical :status/:completed-at facts,
+          ;; and :rf/reply-to as the one direct reply target the
+          ;; :on-success/:on-failure routing sugar sits over — so a future
+          ;; edit cannot re-introduce the retired compat payload.
+          (is (.contains events-text "sugar over the one")
+              "events.cljs HTTP exemplar marks :on-success/:on-failure as pure
+               ROUTING sugar over the one direct reply target (rf2-ibksxg — no
+               {:kind …} compat dialect)")
+          (is (not (.contains events-text "compatibility sugar"))
+              "events.cljs HTTP exemplar must NOT re-teach the retired
+               {:kind :success/:failure} compat-sugar framing (rf2-ibksxg)")
           (is (.contains events-text "uniform reply envelope")
               "events.cljs HTTP exemplar names the framework-wide uniform
-               reply envelope the compat payload lowers onto (EP-0011 —
-               rf2-rzsxrk)")
+               reply envelope the reply IS (EP-0011 — rf2-rzsxrk)")
           (is (.contains events-text ":rf/reply-to")
-              "events.cljs HTTP exemplar names :rf/reply-to as the framework
-               target the :on-success/:on-failure sugar lowers to (EP-0011 —
-               rf2-rzsxrk)")
+              "events.cljs HTTP exemplar names :rf/reply-to as the one direct
+               reply target the :on-success/:on-failure sugar sits over
+               (EP-0011 / rf2-ibksxg — rf2-rzsxrk)")
           (is (.contains events-text ":completed-at")
               "events.cljs HTTP exemplar names the canonical :completed-at
                reply fact (EP-0011 — rf2-rzsxrk)")
@@ -354,10 +357,10 @@
 
           ;; -- README EP-0011 HTTP reply-envelope lowering --
           ;; The README HTTP section must name the lowering: the {:kind …}
-          ;; payload is managed-HTTP compatibility sugar over the uniform
-          ;; reply envelope, mapping HTTP outcomes onto canonical :status
-          ;; values (:ok/:error/:cancelled; :stale suppressed). Scope to the
-          ;; HTTP section.
+          ;; reply IS the framework-wide uniform reply envelope delivered
+          ;; verbatim (rf2-ibksxg — no {:kind …} compat dialect), with the
+          ;; reply :status vocabulary (:ok/:error/:cancelled; :stale
+          ;; suppressed). Scope to the HTTP section.
           (let [readme-text (slurp (io/file root "README.md"))
                 http-start  (.indexOf readme-text "### HTTP")
                 http-end    (let [i (.indexOf readme-text "\n### " (inc http-start))]
@@ -365,13 +368,15 @@
                 http-sec    (subs readme-text (max 0 http-start) http-end)]
             (is (not (neg? http-start))
                 "README has an HTTP section")
-            (is (.contains http-sec "compatibility sugar")
-                "README HTTP section marks the {:kind …} payload as
-                 managed-HTTP public compatibility sugar (EP-0011 —
-                 rf2-rzsxrk)")
+            (is (not (.contains http-sec "compatibility sugar"))
+                "README HTTP section must NOT re-teach the retired
+                 {:kind :success/:failure} compat-sugar framing (rf2-ibksxg)")
+            (is (.contains http-sec "sugar over the one")
+                "README HTTP section marks :on-success/:on-failure as pure
+                 ROUTING sugar over the one direct reply target (rf2-ibksxg)")
             (is (.contains http-sec "uniform reply envelope")
                 "README HTTP section names the uniform reply envelope the
-                 compat payload lowers onto (EP-0011 — rf2-rzsxrk)")
+                 reply IS (EP-0011 — rf2-rzsxrk)")
             (is (and (.contains http-sec ":ok")
                      (.contains http-sec ":cancelled")
                      (.contains http-sec ":stale"))

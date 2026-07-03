@@ -66,16 +66,16 @@ The counter was a warm-up. Now a real chain — a RealWorld-style login that sta
                    :session/user   (:user value))}))
 
 (rf/reg-event :session/login-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (assoc db :session/status :error
-                   :session/error  (:kind failure))}))
+                   :session/error  (:kind error))}))
 ```
 
 Two *seams* are already visible in that code — a "seam" being a spot where the test can step in and substitute a value without editing the handler. First, the handler **declares** the clock with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a [coeffect](../glossary.md#coeffect), a declared input the framework injects — instead of calling the host clock directly. That's the seam that lets a test hand it an exact value. Second, the HTTP request is an **effect** in the returned effect map — a described side-effect, data, not a live connection — which is the seam that lets a test answer it without a network. Both seams are the same idea: the world arrives as data (coeffects) and leaves as data (effects), the model owned by [Effects and coeffects](../concepts/effects-and-coeffects.md).
 
-!!! note "Where do `:value` and `:failure` come from?"
+!!! note "Where do `:value` and `:error` come from?"
 
-    A managed-HTTP reply is the [uniform reply](../../async/http.md) every async surface uses — appended to the `:on-success` / `:on-failure` event vector as a single map: `{:kind :success :value <decoded-body>}` or `{:kind :failure :failure <failure-map>}`. That's why `:session/login-ok` destructures `:value` and `:session/login-failed` destructures `:failure`, whose `:kind` is one of the eight closed `:rf.http/*` categories. The full envelope and that closed category set live in [Managed HTTP](../../async/http.md).
+    A managed-HTTP reply is the [uniform reply](../../async/http.md) every async surface uses — appended to the `:on-success` / `:on-failure` event vector as the canonical envelope: `{:status :ok :value <decoded-body> …}` or `{:status :error :error <failure-map> …}`. That's why `:session/login-ok` destructures `:value` and `:session/login-failed` destructures `:error`, whose `:kind` is one of the eight closed `:rf.http/*` categories. The full envelope and that closed category set live in [Managed HTTP](../../async/http.md).
 
 ## The test
 
@@ -197,7 +197,7 @@ This is redirect-not-mock in a single frame. The override receives the **exact a
 (rf/dispatch-sync [:session/login {:email "a@b.c" :password "x"}]
                   {:rf.cofx       {:rf/time-ms 0}
                    :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-;; The success stub synthesises a {:kind :success :value {:stubbed true}} reply
+;; The success stub synthesises a canonical {:status :ok :value {:stubbed true} …} reply
 ;; (override the value by supplying :value in the args map the handler builds).
 ```
 

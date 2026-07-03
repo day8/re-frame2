@@ -163,7 +163,7 @@ Read the latch line carefully: `:submit-attempted?` flips to `true` on the way i
 
 ### The success reply
 
-Managed HTTP follows [the uniform reply](../glossary.md#the-uniform-reply): the result never arrives as an awaited value, it arrives as the reply event's last argument. On success that's a map shaped `{:kind :success :value <decoded body>}`. The handler's argument list `[_ {:keys [value]}]` is Clojure destructuring — `_` ignores the event id, and `{:keys [value]}` pulls `:value` straight out of that reply map into a local named `value`:
+Managed HTTP follows [the uniform reply](../glossary.md#the-uniform-reply): the result never arrives as an awaited value, it arrives as the reply event's last argument. On success that's the canonical envelope `{:status :ok :value <decoded body> …}`. The handler's argument list `[_ {:keys [value]}]` is Clojure destructuring — `_` ignores the event id, and `{:keys [value]}` pulls `:value` straight out of that reply map into a local named `value`:
 
 ```clojure
 (rf/reg-event :form.login/submit-success
@@ -184,7 +184,7 @@ Snapshotting `:draft` into `:submitted` here is what makes `:dirty?` work later:
 
 The failure handler has to sort two genuinely different kinds of failure, and this is the second load-bearing rule: **structured server rejections land in `:errors`, rendered by the same subs and markup as client-side validation; transport failures land in `:submit-error` as one opaque "couldn't reach the server" value.**
 
-So the handler needs to tell those two apart. The failure reply is shaped `{:kind :failure :failure {...}}`, and the inner failure map carries a `:kind` drawn from a *closed* set of `:rf.http/*` categories — `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. That `:kind` is the discriminator: a 4xx with a parseable validation body is the structured case; everything else is transport.
+So the handler needs to tell those two apart. The failure reply is the canonical envelope `{:status :error :error {...} …}`, and the inner failure map (under `:error`) carries a `:kind` drawn from a *closed* set of `:rf.http/*` categories — `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. That `:kind` is the discriminator: a 4xx with a parseable validation body is the structured case; everything else is transport.
 
 One detail makes the structured case easy: a 4xx carries the raw response text under `:body`, because managed HTTP classifies by status *before* it decodes anything. So parsing the server's validation body is one line of glue.
 
@@ -200,11 +200,11 @@ One detail makes the structured case easy: a 4xx carries the raw response text u
       (catch :default _ nil))))
 
 (rf/reg-event :form.login/submit-error
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    (let [errors (server-field-errors failure)]
+  (fn [{:keys [db]} [_ {:keys [error]}]]        ;; the failure map rides under :error
+    (let [errors (server-field-errors error)]
       {:db (cond-> (assoc-in db [:auth :login :status] :error)
              errors       (assoc-in [:auth :login :errors] errors)
-             (not errors) (assoc-in [:auth :login :submit-error] failure))})))
+             (not errors) (assoc-in [:auth :login :submit-error] error))})))
 ```
 
 The payoff is that the view never learns which validator complained. Client schema and server rejection flow through one code path, so the markup that renders an error doesn't care where the error came from. A 422 saying `{:email ["already in use"]}` paints under the email input with the exact same `[:p.error ...]` that client validation uses — the server is just a second validator that happens to live across the network.
@@ -398,12 +398,13 @@ There's a subtlety hiding in the success and error handlers: they consume data t
 For most forms that's fine — your own backend is trusted. But when the response crosses a trust boundary (a third-party auth provider, a partner API, anything you don't control), you can pin a schema check that *survives* production by adding the `:rf.schema/at-boundary` interceptor to the reply handler. It re-runs that handler's own `:schema` even when global validation is elided:
 
 ```clojure
-;; LoginReply describes the success reply *envelope* — {:kind :success :value <user-map>} —
+;; LoginReply describes the success reply *envelope* — {:status :ok :value <user-map> …} —
 ;; because the boundary check validates the whole dispatched event vector, reply map and all.
+;; (The envelope carries more keys — :work/id, :completed-at, … — so keep the map open.)
 (def LoginReply
   [:map
-   [:kind  [:= :success]]
-   [:value [:map [:user :map]]]])
+   [:status [:= :ok]]
+   [:value  [:map [:user :map]]]])
 
 (rf/reg-event :form.login/submit-success
   {:schema       [:cat [:= :form.login/submit-success] LoginReply]

@@ -8,7 +8,7 @@
 
   Outcomes (per [spec/014 §Failure categories]):
 
-    :success            → 2xx with decoded JSON; reply :kind :success
+    :success            → 2xx with decoded JSON; reply :status :ok
     :rf.http/http-4xx   → 4xx response; decode skipped; :body raw
     :rf.http/http-5xx   → 5xx response; decode skipped; :body raw
     :rf.http/timeout    → per-attempt timeout fired
@@ -121,10 +121,12 @@
 (rf/reg-event ::go
   (fn [{:keys [db]} [_ msg]]
     (cond
-      ;; Reply branch — categorise and stash.
-      (some-> msg :rf/reply :kind some?)
+      ;; Reply branch — categorise and stash. The reply is the canonical
+      ;; envelope; :status :ok is success, anything else (:error/:cancelled)
+      ;; is a failure/abort for this testbed's binary done/error mirror.
+      (some-> msg :rf/reply :status some?)
       {:db (-> db
-               (assoc :status (if (= :success (:kind (:rf/reply msg))) :done :error))
+               (assoc :status (if (= :ok (:status (:rf/reply msg))) :done :error))
                (assoc :reply  (:rf/reply msg)))}
 
       ;; Initial branch — fan out by selected outcome. Each branch
@@ -294,8 +296,8 @@
      [:p {:style {:margin-top "1em" :color "#666"}}
       "status=" [:span {:data-testid "status"} (name status)]
       (when reply
-        [:span " · reply.kind=" [:span {:data-testid "reply-kind"} (pr-str (:kind reply))]
-         (when-let [k (get-in reply [:failure :kind])]
+        [:span " · reply.status=" [:span {:data-testid "reply-status"} (pr-str (:status reply))]
+         (when-let [k (get-in reply [:error :kind])]
            [:span " · failure.kind=" [:span {:data-testid "failure-kind"} (pr-str k)]])])]]))
 
 (reg-view root []

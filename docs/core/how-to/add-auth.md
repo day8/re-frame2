@@ -173,17 +173,19 @@ That's all step 3 needs. But the same seam has a *response* side, and it's where
 
 ```clojure
 ;; A response-side hook on the SAME seam: catch a 401 and force logout.
-;; `:after` sees the reply payload — {:kind :success :value …} or
-;; {:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}. A 401
+;; `:after` sees the canonical reply envelope — {:status :ok :value …} or
+;; {:status :error :error {:kind :rf.http/http-4xx :status 401 …}}. A 401
 ;; is a *failure* reply, so the HTTP status lives inside the failure map
-;; (under :failure), keyed by the framework-owned failure :kind — never at
-;; the top level. Branch on the structured :kind, never a stringified message.
+;; (under :error), keyed by the framework-owned failure :kind. Branch on the
+;; reply :status, then on the structured failure :kind — never a stringified
+;; message. (Note the two :status levels: the envelope's :error status vs the
+;; wire status code under :error.)
 (rf/with-frame :rf/default
   (rf/reg-http-interceptor :my-app/expired-session
     {:after (fn [ctx response]
-              (when (and (= :failure (:kind response))
-                         (= :rf.http/http-4xx (get-in response [:failure :kind]))
-                         (= 401 (get-in response [:failure :status])))
+              (when (and (= :error (:status response))
+                         (= :rf.http/http-4xx (get-in response [:error :kind]))
+                         (= 401 (get-in response [:error :status])))
                 ;; token went stale server-side. Dispatch into THIS request's
                 ;; frame — the reply runs in a transport callback, so a bare
                 ;; (rf/dispatch …) can hit :rf.error/no-frame-context; carry the
@@ -195,9 +197,9 @@ That's all step 3 needs. But the same seam has a *response* side, and it's where
 
 An interceptor map carries **`:before`**, **`:after`**, or both — supply at least one, or registration is rejected fail-loud with `:rf.error/http-bad-interceptor`. (A no-op interceptor is almost always a typo, so the framework refuses to register it rather than letting it sit there doing nothing.)
 
-!!! warning "Gotcha — read the status from the failure map, not the top level"
+!!! warning "Gotcha — the HTTP status code lives under `:error`, not the reply `:status`"
 
-    The `:after` response is the public reply payload, discriminated by `:kind` (`:success` / `:failure`) — there is no top-level `:status`. A 4xx/5xx arrives as `{:kind :failure :failure {:kind :rf.http/http-4xx :status 401 …}}`, so the HTTP status code is at `(get-in response [:failure :status])`, under the failure `:kind`. The full failure-category vocabulary is a closed set — `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, plus `:rf.http/decode-failure` / `:rf.http/accept-failure` / `:rf.http/aborted` (the set [Managed HTTP](../../async/http.md) documents). Branch on those, never on a parsed message.
+    The `:after` response is the canonical reply envelope, discriminated by the reply's `:status` (`:ok` / `:error` / `:cancelled`). Mind the **two `:status` levels**: the *reply's* `:status` (`:error`) is not the HTTP status *code*. A 4xx/5xx arrives as `{:status :error :error {:kind :rf.http/http-4xx :status 401 …}}`, so the HTTP status code is at `(get-in response [:error :status])`, under the failure `:kind`. The full failure-category vocabulary is a closed set — `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, plus `:rf.http/decode-failure` / `:rf.http/accept-failure` / `:rf.http/aborted` (the set [Managed HTTP](../../async/http.md) documents). Branch on those, never on a parsed message.
 
 ??? note "Going deeper — how the chain composes"
 

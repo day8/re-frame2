@@ -78,10 +78,10 @@ Now the same intent, with the continuation as data. The request handler just *na
            (assoc-in db [:article :status] :navigated-away))}))
 
 (rf/reg-event :article/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
              (assoc-in [:article :status] :error)
-             (assoc-in [:article :error]  failure))}))
+             (assoc-in [:article :error]  error))}))
 ```
 
 A closure **closes over the past; a handler receives the present.** The reply handler is given the `db` of the moment the reply lands. So "did the user navigate away while we waited?" is a *live* comparison, not a memory. It takes no discipline on your part: there is simply no mechanism by which the old `db` can leak into the new decision.
@@ -138,18 +138,18 @@ Four rules finish the tour:
 - **Stale suppression is the correctness boundary.** A newer request supersedes an older one — that's the search-box race. The old completion is classified `:stale`, the app target is skipped, and the trace records the carried-versus-current correlation. Your handler never sees a stale answer, so it can never overwrite fresh data with old. Cancellation is only an optimization here; *suppression* is what actually keeps state correct.
 - **Cancellation is data, not the absence of a reply.** A live user-cancel dispatches `:status :cancelled` with a `:cancel/reason`. A supersession suppresses as `:stale`. Either way there's a value describing what happened — never a silently dropped continuation.
 - **Completion timestamps ride the reply.** The reply carries facts about the work, including when it completed — full reply maps carry it as `:completed-at`, and HTTP exposes it through the built-in `:rf/time-ms` [coeffect](../core/glossary.md#coeffect). Either way, handlers store the carried value rather than reading the clock again — a fresh `(js/Date.now)` in a reply handler samples *today's* clock on replay, not the run you're replaying.
-- **Each surface picks its own public spelling; the substrate is one.** HTTP's `{:kind :success …}` / `{:kind :failure …}` payloads are this envelope in shorter clothing: `:kind :success` *is* `:status :ok`, and `:kind :failure` *is* `:status :error` with the failure under `:error`. (Timeout is not its own status, either — it's `:status :error` with `:kind :rf.http/timeout`. One fact, named once.)
+- **One envelope, one spelling, everywhere.** There is no per-surface reply dialect: HTTP delivers the *same* `:status`-keyed envelope resources and machines do — `:status :ok` with `:value`, `:status :error` with the failure under `:error`, `:status :cancelled`/`:stale` alike. (Timeout is not its own status — it's `:status :error` with `:kind :rf.http/timeout` on the `:error` map. One fact, named once.)
 
-Here's how the one envelope is spelled per surface. The canonical target key is `:rf/reply-to` with an event-vector prefix; every surface either accepts it directly or exposes sugar that *lowers* to it — so what you *write* changes, but the envelope underneath does not:
+Here's how the one envelope is spelled per surface. The canonical target key is `:rf/reply-to` with an event-vector prefix; every surface either accepts it directly or exposes sugar that *lowers* to it — so what you *write* changes, but the envelope that lands does not:
 
 | Surface | What you write | What lands |
 |---|---|---|
-| [HTTP](http.md) | `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` (or the co-located `:rf/reply` sentinel — `:rf.http/managed` takes the sugar, not a bare `:rf/reply-to`) | The success handler gets `{:kind :success :value …}`; failure gets `{:kind :failure :failure …}`. |
+| [HTTP](http.md) | `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` (pure routing sugar — both receive the same envelope; or the co-located `:rf/reply` sentinel — `:rf.http/managed` takes the sugar, not a bare `:rf/reply-to`) | Both handlers get the canonical envelope: `{:status :ok :value …}` on success, `{:status :error :error {:kind :rf.http/… …}}` on failure. |
 | [Resources](../resources/concepts.md) | a `:scope` + `:params` read key — the framework owns the reply | The continuation goes in the **work ledger**; stale generations are suppressed structurally by `:work/id` + generation. |
 | Mutations | `:reply-to [:favorite/replied slug]` — the spine of [form submission](../core/how-to/build-a-form.md) | The same reply map appended; a superseded generation never delivers. |
 | [Machines](../machines/concepts.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
 
-Learn the shape once; it is the same shape everywhere. (One honest wrinkle, the same one the [glossary](../core/glossary.md#the-uniform-reply) flags: HTTP's public spelling is `:kind`, while resources and machines speak `:status` directly — same five outcomes, two surface vocabularies for the *one* closed set.)
+Learn the shape once; it is the same shape everywhere — the same closed `:status` set, one vocabulary for every surface.
 
 ??? note "Going deeper"
 

@@ -141,12 +141,12 @@ Here is the same load, written so the handler stays pure. An [effect](../glossar
              (assoc :article/loading? false)
              (assoc :article/current (:article value)))}))
 
-;; On failure :failure is a map carrying a :kind that names what went wrong.
+;; On failure the reply's :error is a map carrying a :kind that names what went wrong.
 (rf/reg-event :article/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
              (assoc :article/loading? false)
-             (assoc :article/load-error failure))}))
+             (assoc :article/load-error error))}))
 ```
 
 (One more piece of syntax in those last two handlers: `(-> db (assoc :a 1) (assoc :b 2))` is the *thread-first* macro. It reads top-to-bottom — take `db`, hand it to the first `assoc`, hand *that* result to the next — so it's a pipeline of "return a copy of the map with this key set," each step feeding the next. Same purity rule as before: every `assoc` produces a new map; nothing is mutated.)
