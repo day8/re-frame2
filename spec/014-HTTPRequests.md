@@ -125,7 +125,7 @@ When the request and its reply genuinely belong together, omit `:on-success` / `
 
 When the request resolves, the runtime dispatches `[:article/load (assoc msg :rf/reply {:status :ok :value article …})]` (or the `:status :error` / `:status :cancelled` shape) back to the same event id — the canonical envelope merged under `:rf/reply`. The handler's `(if-let [reply ...] ...)` branch handles the result. The co-located form keeps one mental model per feature; the two-handler form keeps each handler single-purpose. Prefer two handlers unless the reply logic is trivial and tightly coupled to the request.
 
-> Future consideration (out of scope here): a `defmanaged-event-fx`-style macro could collapse the three-handler boilerplate into a single declaration. Weighing it is deferred to post-v1 — it is not part of this spec.
+> Future consideration (out of scope here): a `defmanaged-event-fx`-style macro could collapse the three-handler boilerplate into a single declaration. Weighing it is deferred to post-v1 — it is not part of this spec. **Fires-when trigger** (untracked note — no bead filed yet): file a tracking bead when the migration corpus or a real consumer surfaces the three-handler request/success/failure boilerplate as a repeated, measured pain point (a corpus count of hand-rolled request-triad handlers, or a consumer complaint the two-handler form does not relieve) — the macro is a CLJS-reference ergonomics sugar, not a pattern requirement (per [SPEC-AUTHORING §SA-1](SPEC-AUTHORING.md)), so it stays untracked until the boilerplate is shown to recur.
 
 ## The args map
 
@@ -1450,6 +1450,8 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 ### Streaming responses (`:rf.http/streaming`) (post-v1)
 
 Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape. Deferred to a sibling spec post-v1 (untracked note — no bead filed yet).
+
+**Fires-when trigger.** File a tracking bead for the `:rf.http/streaming` sibling spec when the **first in-corpus consumer needs a per-chunk reply stream over HTTP** — an SSE endpoint (`text/event-stream`) or a chunked-transfer body whose partial reads must dispatch progressively (token-by-token LLM output, a progress feed, an incremental import log), where the single-reply `:rf.http/managed` shape is measurably wrong because the consumer cannot wait for the whole body. The corpus has no such consumer today: bidirectional push is [Pattern-WebSocket](Pattern-WebSocket.md)'s (state-machine-shaped, its own frame-stamping affair), and every current resource / mutation lowers through the single-reply transport. Until a real per-chunk-over-HTTP consumer lands, the note stays untracked (no bead) per the SA-4 filing rule above.
 
 ### Pluggable backoff strategy (post-v1)
 
