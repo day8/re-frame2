@@ -1,6 +1,8 @@
 # Interceptors
 
-Say you have three hundred [event handlers](../glossary.md#event-handler), and three cross-cutting chores that touch all of them: log every event, snapshot state for undo, validate input at the boundary. Writing each chore into each handler is nine hundred copies of code that isn't the handler's job. An **interceptor** holds a cross-cutting concern *once*, under a name, so the handler stays focused on its one job — turning [coeffects](../glossary.md#coeffect) into an [effect map](../glossary.md#effect-map). You register the interceptor once, then wrap it around any handler — or around every handler in a [frame](../glossary.md#frame) — by *referencing that name*.
+Say you have three hundred [event handlers](../glossary.md#event-handler), and three chores that apply to all of them: log every event, snapshot state for undo, validate input at the boundary. Nobody wants to write those chores into three hundred handlers — that's nine hundred copies of code that isn't the handler's job.
+
+An **interceptor** is where a cross-cutting chore lives instead. You write the chore *once*, register it under a name, and wrap it around any handler — or around every handler in a [frame](../glossary.md#frame) — just by referencing that name. The handler stays focused on its one job: turning [coeffects](../glossary.md#coeffect) into an [effect map](../glossary.md#effect-map).
 
 This page builds toward one rule, so let's put it up front and earn it as we go:
 
@@ -107,13 +109,28 @@ sweep 2 — :after, in REVERSE order:
     C:after → B:after → A:after
 ```
 
+If you'd rather see that as code, here it is — the whole execution is one threading expression, plain function composition over a single value:
+
+```clojure
+(-> context
+    ((:before A)) ((:before B)) ((:before C))
+    ((:before H))                              ;; the handler, wrapped
+    ((:after  C)) ((:after  B)) ((:after  A)))
+```
+
+(Morally, anyway — the runtime resolves the references and guards each call, but this is the shape. There's no machinery hiding under the machinery.)
+
 Two details carry weight. First, **the handler runs as the last `:before`.** The runtime wraps it as an interceptor too, so there's exactly one kind of thing to execute, all the way down. Second, **the trip out mirrors the trip in.** Whatever `B:before` set up, `B:after` tears down — and teardown happens *after* everything that ran inside the setup. Think of a sandwich: the outer slice goes on first and comes off last. Every cleanup interceptor you write leans on this symmetry.
 
 The handler doesn't know it's wrapped, and an interceptor doesn't know what it wraps. That mutual ignorance is exactly why the pattern scales: any interceptor can decorate any handler, because they only ever talk through one shared value. They never reach into each other.
 
-!!! note "One discipline:"
+!!! note "One discipline"
 
-    never depend on chain position. An interceptor that only works when another one happens to wrap it has encoded an ordering as a hidden precondition — a trap for whoever reorders the chain next.
+    Never depend on chain position. An interceptor that only works when another one happens to wrap it has encoded an ordering as a hidden precondition — a trap for whoever reorders the chain next.
+
+??? info "From re-frame v1 — the chain no longer rewrites itself"
+
+    v1's context carried two more keys, `:queue` and `:stack` — the interceptors still to run, and the ones already walked — and a sufficiently clever interceptor could modify them mid-flight, rewriting the chain while it ran. That power is gone, on purpose. The chain you declare is the chain that runs: fixed data, two sweeps, no surprises — which is exactly what lets a tool print a chain, diff it, and reason about it without executing it. The legitimate uses survive in tamer forms: a `:before` can still take the handler out of play (that's the *decide* half of this page's rule), and a [`:factory` reference](#parameterized-interceptors-the-factory-descriptor) builds the right interceptor up front instead of mid-run.
 
 ### Inputs are complete before the chain runs
 
@@ -157,7 +174,7 @@ That second point hides the real reason `path` is a *framework* interceptor and 
 
 ### Parameterized interceptors: the `:factory` descriptor
 
-`path` is the standard parameterized interceptor, but the mechanism is open — you can register your own parameterized family too. So far a descriptor has been one of three shapes: `:before`, `:after`, or both. There's a fourth, `{:factory f}`. A `:factory` function receives the reference's **one** `arg` and returns one of those plain `:before`/`:after` descriptors, built for that arg:
+You can build your own `path`-shaped interceptors too. So far a descriptor has been `:before`, `:after`, or both; there's one more shape, `{:factory f}`. A factory is a function that takes the reference's **one** `arg` and returns an ordinary `:before`/`:after` descriptor built for that arg — one registered name serving a whole family of configurations:
 
 ```clojure
 ;; A stamp factory: each reference configures WHICH metadata key gets stamped
@@ -363,7 +380,9 @@ Both slots are pure functions `ctx → ctx`, and the context is a plain map — 
            (get-in (stamp-audit ctx) [:effects :db :audit/last-event])))))
 ```
 
-Build the literal ctx from the [two-key shape above](#the-context-map-two-keys): a `:before` test supplies only `:coeffects`; an `:after` test supplies both halves — including the error-path shape where the handler never populated `[:effects :db]`, which is exactly the case [When the chain throws](#when-the-chain-throws) warns your `:after` must survive. The *wiring* — that the reference actually wraps the handler — is one notch up, the same move as [a handler's runtime check](../testing/event-handlers.md#3-when-you-want-the-runtime-a-fresh-frame-per-test): dispatch through a test frame and assert on the committed state. And when someone *else's* interceptor is in the way of the thing you're testing, [`:interceptor-overrides`](#removing-or-swapping-a-reference-interceptor-overrides) is the seam that takes it out of play for one dispatch.
+Build the literal ctx from the [two-key shape above](#the-context-map-two-keys). A `:before` test supplies only `:coeffects`; an `:after` test supplies both halves. And give your `:after` one test with `[:effects :db]` missing — that's the error-path shape [When the chain throws](#when-the-chain-throws) warns it must survive.
+
+Testing the *wiring* — that the reference actually wraps the handler — is one notch up, and it's the same move as [a handler's runtime check](../testing/event-handlers.md#3-when-you-want-the-runtime-a-fresh-frame-per-test): dispatch through a test frame and assert on the committed state. And when someone *else's* interceptor is in the way of the thing you're testing, [`:interceptor-overrides`](#removing-or-swapping-a-reference-interceptor-overrides) takes it out of play for one dispatch.
 
 ## When a reference is wrong
 
@@ -402,3 +421,7 @@ Errors collect on the context — the first throw under `:rf/interceptor-error`,
 - `:rf.error/interceptor-exception` — one of *your* interceptor slots threw; it carries the failing interceptor's `:id` and a `:phase` tag that says `:before` or `:after`.
 
 An `:after` that throws is recorded but does **not** abort the remaining `:after` stages — the runtime still drives the rest of the teardown, so one buggy cleanup can't strand the others. The error pages these feed are covered in [errors](errors.md).
+
+??? info "Where this pattern comes from"
+
+    Interceptors were adapted for Clojure by the [Pedestal](https://github.com/pedestal/pedestal) team, and the shape is older still — Tomcat's interceptors, Netty's channel pipeline, the J2EE intercepting-filter pattern. re-frame has carried the idea since v1, whose documentation famously explained it with a ham sandwich. The sandwich survives above; the self-modifying parts didn't.
