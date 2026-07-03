@@ -3,7 +3,8 @@
 ;; Per Spec 014 §Aborts — `:request-id` (internal). A `:rf.http/managed`
 ;; fx with `:request-id <id>` may be cancelled by a subsequent
 ;; `:rf.http/managed-abort <id>` fx. The cancelled request dispatches
-;; `:on-failure` with `{:kind :rf.http/aborted :reason :user :request-id <id>}`.
+;; `:on-failure` with the canonical `{:status :cancelled :error {:kind
+;; :rf.http/aborted :reason :user :request-id <id>}}` reply.
 ;;
 ;; The fixture exercises the contract via :rf.http/managed-canned-failure
 ;; configured to synthesise the canonical aborted-shape reply, modelling
@@ -14,7 +15,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "A :rf.http/managed-abort fx targeting an in-flight :request-id cancels the request; the resulting :on-failure dispatch carries {:kind :rf.http/aborted :reason :user :request-id <id>}. Per Spec 014 §Aborts §:request-id (internal)."
+ :fixture/doc          "A :rf.http/managed-abort fx targeting an in-flight :request-id cancels the request; the resulting :on-failure dispatch carries the canonical {:status :cancelled :error {:kind :rf.http/aborted :reason :user :request-id <id>}}. Per Spec 014 §Aborts §:request-id (internal)."
 
  :fixture/registry
  {:event {:slow/load        {:doc "Issue a GET with a stable :request-id."}
@@ -51,10 +52,10 @@
    :rf.http/managed-abort          [[:noop]]
    :rf.http/managed-canned-failure
    [[:dispatch [:slow/load-error
-                {:kind    :failure
-                 :failure {:kind       :rf.http/aborted
-                           :reason     :user
-                           :request-id :slow/load}}]]]}}
+                {:status :cancelled
+                 :error  {:kind       :rf.http/aborted
+                          :reason     :user
+                          :request-id :slow/load}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
@@ -71,10 +72,10 @@
 
  :fixture/expect
  {:final-app-db
-  {:slow {:error {:kind    :failure
-                  :failure {:kind       :rf.http/aborted
-                            :reason     :user
-                            :request-id :slow/load}}}}
+  {:slow {:error {:status :cancelled
+                  :error  {:kind       :rf.http/aborted
+                           :reason     :user
+                           :request-id :slow/load}}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :slow/load}}

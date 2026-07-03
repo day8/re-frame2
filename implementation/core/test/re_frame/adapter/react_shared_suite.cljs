@@ -1954,9 +1954,9 @@
     (rf/reg-event :article/load
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
-          (case (:kind reply)
-            :success {:db {:article (:value reply)}}
-            :failure {:db {:error (:failure reply)}})
+          (case (:status reply)
+            :ok    {:db {:article (:value reply)}}
+            :error {:db {:error (:error reply)}})
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/articles/hello"} :decode :json}]]})))
     (rf/dispatch-sync [:article/load {:slug "hello"}]
@@ -1976,8 +1976,8 @@
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :failure (get-in db [:auth-error :kind])))
-      (is (= :rf.http/transport (get-in db [:auth-error :failure :kind]))
+      (is (= :error (get-in db [:auth-error :status])))
+      (is (= :rf.http/transport (get-in db [:auth-error :error :kind]))
           "default canned-failure :kind classifies as :rf.http/transport"))))
 
 (defn assert-http-canned-success-on-success
@@ -1992,7 +1992,7 @@
     (rf/dispatch-sync [:article/load]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :success (get-in db [:article :kind])))
+      (is (= :ok (get-in db [:article :status])))
       (is (= {:stubbed true} (get-in db [:article :value]))))))
 
 (defn assert-http-silenced-reply
@@ -2026,7 +2026,7 @@
         ;; so hardcoding the stub id here would route to an unregistered fx.
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
-          (is (= :success (get-in db [:result :kind])))
+          (is (= :ok (get-in db [:result :status])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
 (defn assert-http-with-managed-request-stubs-failure
@@ -2046,9 +2046,9 @@
         ;; assert-http-with-managed-request-stubs; rf2-rzqan / rf2-vn8qjv).
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
-          (is (= :failure (get-in db [:result :kind])))
-          (is (= :rf.http/http-4xx (get-in db [:result :failure :kind])))
-          (is (= 404 (get-in db [:result :failure :status]))))))))
+          (is (= :error (get-in db [:result :status])))
+          (is (= :rf.http/http-4xx (get-in db [:result :error :kind])))
+          (is (= 404 (get-in db [:result :error :status]))))))))
 
 (defn assert-http-multi-frame-reply-isolation
   "Managed requests issued from frame A reply into frame A's app-db."

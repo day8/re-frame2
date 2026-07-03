@@ -81,8 +81,8 @@
 
  :fixture/expect
  {:final-app-db
-  {:article    {:kind  :success
-                :value {:title "hello"}}
+  {:article    {:status :ok
+                :value  {:title "hello"}}
    :fire-count 1}
 
   :sub-values

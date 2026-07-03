@@ -737,7 +737,7 @@
                            {:resource/key k :work/id wid
                             :generation (:generation (entry k))
                             :rf.frame/id :rf/default}
-                           {:kind :failure :failure {:kind :rf.http/aborted :reason :user}}]))
+                           {:status :cancelled :error {:kind :rf.http/aborted :reason :user}}]))
       (is (nil? (:current-work (entry k))) "work settled — no longer in flight")
       (is (empty? (:active-owners (entry k))) "owner-free")
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])

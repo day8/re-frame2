@@ -48,12 +48,12 @@
   {:rf.http/managed                [[:noop]]
    :rf.http/managed-canned-failure
    [[:dispatch [:page/load-error
-                {:kind    :failure
-                 :failure {:kind        :rf.http/http-4xx
-                           :status      404
-                           :status-text "Not Found"
-                           :body        "<!doctype html><html><body><h1>Not Found</h1></body></html>"
-                           :headers     {"content-type" "text/html"}}}]]]}}
+                {:status :error
+                 :error  {:kind        :rf.http/http-4xx
+                          :status      404
+                          :status-text "Not Found"
+                          :body        "<!doctype html><html><body><h1>Not Found</h1></body></html>"
+                          :headers     {"content-type" "text/html"}}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
@@ -64,12 +64,12 @@
 
  :fixture/expect
  {:final-app-db
-  {:page {:error {:kind    :failure
-                  :failure {:kind        :rf.http/http-4xx
-                            :status      404
-                            :status-text "Not Found"
-                            :body        "<!doctype html><html><body><h1>Not Found</h1></body></html>"
-                            :headers     {"content-type" "text/html"}}}}}
+  {:page {:error {:status :error
+                  :error  {:kind        :rf.http/http-4xx
+                           :status      404
+                           :status-text "Not Found"
+                           :body        "<!doctype html><html><body><h1>Not Found</h1></body></html>"
+                           :headers     {"content-type" "text/html"}}}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :page/load}}

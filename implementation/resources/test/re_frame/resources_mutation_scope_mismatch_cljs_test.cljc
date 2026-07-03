@@ -79,7 +79,7 @@
 (defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
 
 (defn- reply-success! [args result]
-  (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
+  (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
 
 (defn- session-feed-key [u] (state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
 

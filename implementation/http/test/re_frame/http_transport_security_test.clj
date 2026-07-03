@@ -443,8 +443,8 @@
               ;; (b) the reply dispatched (non-supersede → not suppressed).
               (is (= 1 (count @dispatched))
                   "a non-supersede failure dispatches exactly one reply")
-              (is (= :failure (-> @dispatched first first (nth 1) :rf/reply :kind))
-                  "the dispatched reply is a :failure envelope"))))))))
+              (is (= :cancelled (-> @dispatched first first (nth 1) :rf/reply :status))
+                  "the dispatched reply is the canonical :status :cancelled (abort) envelope"))))))))
 
 (deftest emit-and-dispatch-failure-suppresses-supersede-dispatch
   (testing "rf2-sixs3 — for a supersede (:rf.http/aborted with

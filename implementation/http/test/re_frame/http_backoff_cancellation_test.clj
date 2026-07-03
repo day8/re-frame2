@@ -183,10 +183,10 @@
         (rf/dispatch-sync [:do/abort])
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]
-          (is (= :failure (:kind reply)))
-          (is (= :rf.http/aborted (get-in reply [:failure :kind]))
+          (is (= :cancelled (:status reply)))
+          (is (= :rf.http/aborted (get-in reply [:error :kind]))
               "abort during backoff dispatches the canonical :rf.http/aborted reply")
-          (is (= :user (get-in reply [:failure :reason]))))
+          (is (= :user (get-in reply [:error :reason]))))
         (is (empty? (registry/in-flight-snapshot))
             "the registry is cleared the instant the backoff is cancelled")
         (assert-no-retry-fired! hits)
@@ -234,8 +234,9 @@
         (rf/dispatch-sync [:sup/race [:cancel]])
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]
-          (is (= :rf.http/aborted (get-in reply [:failure :kind])))
-          (is (= :actor-destroyed (get-in reply [:failure :reason]))
+          (is (= :cancelled (:status reply)))
+          (is (= :rf.http/aborted (get-in reply [:error :kind])))
+          (is (= :actor-destroyed (get-in reply [:error :reason]))
               "actor-destroy during backoff surfaces :reason :actor-destroyed"))
         (is (empty? (registry/actor-in-flight-snapshot))
             "the actor index is clean — no stale entry left for a destroyed actor")
@@ -298,7 +299,7 @@
             "the superseding request fired exactly one attempt against its own endpoint")
         ;; The suppressed-old reply never reaches the recorder; only the
         ;; new request's failure (a real :rf.http/http-5xx) does.
-        (is (every? #(not= :request-id-superseded (get-in % [:failure :reason])) @replies)
+        (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
             "the superseded request's reply is suppressed (rf2-lxd3); no :request-id-superseded reply is dispatched to the user")
         (finally
           (stop-server! srv)
@@ -380,7 +381,7 @@
         (is (= 2 (.get hits))
             "the OLD request's backoff retry MUST NOT fire after being superseded (exactly attempts #1 + #2 hit the server)")
         ;; The superseded request's app reply is suppressed (rf2-lxd3).
-        (is (every? #(not= :request-id-superseded (get-in % [:failure :reason])) @replies)
+        (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
             "no :request-id-superseded reply is dispatched to the user")
         (finally
           (trace/unregister-listener! lid)
@@ -415,8 +416,8 @@
         ;; Retries exhausted → a single final :rf.http/http-5xx failure.
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]
-          (is (= :failure (:kind reply)))
-          (is (= :rf.http/http-5xx (get-in reply [:failure :kind]))
+          (is (= :error (:status reply)))
+          (is (= :rf.http/http-5xx (get-in reply [:error :kind]))
               "after the retry exhausts, the final reply carries the real failure category, not :rf.http/aborted"))
         (is (empty? (registry/in-flight-snapshot))
             "the registry is clean after the retry exhausts")

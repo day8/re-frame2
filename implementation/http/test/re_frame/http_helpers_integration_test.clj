@@ -73,9 +73,9 @@
     (rf/reg-event :items/load
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
-          (case (:kind reply)
-            :success {:db (assoc db :items (:value reply))}
-            :failure {:db (assoc db :error (:failure reply))})
+          (case (:status reply)
+            :ok    {:db (assoc db :items (:value reply))}
+            :error {:db (assoc db :error (:error reply))})
           {:fx [(rf.http/get "/api/items" {:decode :json})]})))
     (rf/dispatch-sync [:items/load {}]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
@@ -98,7 +98,7 @@
     (rf/dispatch-sync [:item/create]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (await-reply! #(some? (:created %)))]
-      (is (= :success (get-in db [:created :kind]))))))
+      (is (= :ok (get-in db [:created :status]))))))
 
 ;; ---- 3. (rf.http/delete url args) with explicit :on-failure ---------------
 
@@ -114,8 +114,8 @@
     (rf/dispatch-sync [:item/delete]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (await-reply! #(some? (:delete-error %)))]
-      (is (= :failure (get-in db [:delete-error :kind])))
-      (is (= :rf.http/transport (get-in db [:delete-error :failure :kind]))))))
+      (is (= :error (get-in db [:delete-error :status])))
+      (is (= :rf.http/transport (get-in db [:delete-error :error :kind]))))))
 
 ;; ---- 4. (rf.http/put url args) with :request-id (abort surface) -----------
 

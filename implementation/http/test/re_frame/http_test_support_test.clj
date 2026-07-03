@@ -83,7 +83,7 @@
          {:value {:ok true}})
         (is (= 1 (count @dispatched))
             "immediate canned-success delegated to the canned handler body (one reply dispatch)")
-        (is (= :success (-> @dispatched first first (nth 1) :rf/reply :kind))
+        (is (= :ok (-> @dispatched first first (nth 1) :rf/reply :status))
             "the synthesised reply is the canned handler's success envelope")
         (finally
           (late-bind/set-fn! :router/dispatch! original))))))

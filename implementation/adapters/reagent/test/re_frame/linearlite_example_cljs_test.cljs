@@ -25,7 +25,7 @@
    browser. A unit test wants synchronous settle, so each test installs its own
    `:rf.http/managed` override: a capturing no-op whose reply the test replays
    explicitly via the transport's real 3-element reply-event-append shape
-   (`(conj on-success {:kind :success :value …})`) — the genuine shape the live
+   (`(conj on-success {:status :ok :value …})`) — the genuine shape the live
    managed-HTTP transport produces (Spec 014 §Reply addressing). This bypasses
    the example's own fail-next-write seam (the test drives success vs failure by
    choosing which reply to replay), so the optimistic-apply / commit / rollback
@@ -167,7 +167,7 @@
    mutation/resource reply (Spec 014 §Reply addressing)."
   ([data] (reply-success! @last-managed-args data))
   ([args data]
-   (rf/dispatch-sync (conj (:on-success args) {:kind :success :value data})
+   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value data})
                      {:frame :rf/default})))
 
 (defn- reply-failure!
@@ -175,7 +175,7 @@
    503 produces, the example's fail-next-write seam exhibits in the browser."
   ([failure] (reply-failure! @last-managed-args failure))
   ([args failure]
-   (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})
+   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})
                      {:frame :rf/default})))
 
 (def ^:private demo-board

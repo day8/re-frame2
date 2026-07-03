@@ -162,7 +162,7 @@
   reply token's causal completion time."
   [data time-ms]
   (rf/dispatch-sync (conj (:on-success @last-managed-args)
-                          {:kind :success :value data})
+                          {:status :ok :value data})
                     {:frame frame-id :rf.cofx {:rf/time-ms time-ms}}))
 
 ;; ---- the canonical scripted token log -------------------------------------

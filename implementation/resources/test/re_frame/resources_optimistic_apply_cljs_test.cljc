@@ -87,7 +87,7 @@
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
 
 (defn- reply-success! [args result]
-  (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
+  (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
 
 (def ^:private article-key
   (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
