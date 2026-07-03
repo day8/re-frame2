@@ -350,15 +350,15 @@
       (some? tag-sensitive?) (true? tag-sensitive?)
       :else                  (true? (some-> scope :sensitive?)))))
 
-(defn- stamp-cascade-id
-  "Merge the cascade's `:rf.trace/dispatch-id` into `base-tags` so
-  consumers can group raw trace events by cascade without inferring
+(defn- stamp-dispatch-id
+  "Merge the run's `:rf.trace/dispatch-id` into `base-tags` so
+  consumers can group raw trace events by run without inferring
   from sequence. Caller-supplied `:rf.trace/dispatch-id` wins. Per
   Spec 009 §Dispatch correlation — the cross-cutting correlation spine
   lives under `:rf.trace/*` (Conventions §`:rf.trace/*`)."
-  [base-tags cascade-id]
-  (if (and cascade-id (not (contains? base-tags :rf.trace/dispatch-id)))
-    (assoc base-tags :rf.trace/dispatch-id cascade-id)
+  [base-tags dispatch-id]
+  (if (and dispatch-id (not (contains? base-tags :rf.trace/dispatch-id)))
+    (assoc base-tags :rf.trace/dispatch-id dispatch-id)
     base-tags))
 
 (defn- build-event
@@ -378,7 +378,7 @@
   [op-type operation tags]
   (let [scope       *handler-scope*
         trigger     (some-> scope :trigger-handler)
-        cascade-id  (some-> scope :dispatch-id)
+        dispatch-id (some-> scope :dispatch-id)
         sensitive?  (compute-sensitive? tags scope)
         error?      (= op-type :error)
         source      (:source tags)
@@ -396,7 +396,7 @@
         base-tags   (cond-> (dissoc tags :recovery :sensitive?)
                       (not error?) (dissoc :source)
                       error?       (->> (merge {:category operation})))
-        tags+       (stamp-cascade-id base-tags cascade-id)]
+        tags+       (stamp-dispatch-id base-tags dispatch-id)]
     (cond-> {:operation operation
              :op-type   op-type
              :id        (next-event-id)

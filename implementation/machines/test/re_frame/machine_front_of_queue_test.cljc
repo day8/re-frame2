@@ -6,7 +6,7 @@
 
   The router-level queue-insertion mechanism is pinned in
   `re-frame.router-front-of-queue-test` (core). Here we exercise the
-  marking SEAM: `re-frame.router/run-handler-cascade!` tags the in-flight
+  marking SEAM: `re-frame.router/run-handler-pipeline!` tags the in-flight
   envelope `:rf.machine/internal? true` when the handler's registration
   meta carries `:rf/machine? true` (stamped by `reg-machine*`); that flag
   rides the parent envelope into `do-fx`, and `child-dispatch-opts`

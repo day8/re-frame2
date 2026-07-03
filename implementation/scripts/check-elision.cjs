@@ -122,7 +122,7 @@ const DEV_ONLY_SENTINELS = [
   // cleanly, so it is the load-bearing grep for the whole-emit DCE.) The
   // trailing `"` pins the op keyword exactly and avoids matching any
   // longer superstring.
-  { source: 're-frame.router/run-handler-cascade! (rf.event/run-start)',
+  { source: 're-frame.router/run-handler-pipeline! (rf.event/run-start)',
     sentinel: 'rf.event/run-start"' },
   // re-frame.http.managed — :rf.http/retry-attempt trace op (Spec 014
   // §Retry and backoff). Emitted from `(when interop/debug-enabled? ...)`

@@ -3,7 +3,7 @@
   dev-tooling surface (`register-listener!` / `unregister-listener!` /
   `clear-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
   `configure-trace-buffer!`) and the per-frame
-  cascade-keyed trace rings + listener state.
+  run-keyed trace rings + listener state.
 
   ## Per-frame trace rings (rf2-g1b2m / rf2-8uwce)
 
@@ -12,8 +12,8 @@
       {:events-retained N               ;; the per-frame ring depth (cap)
        :override?         <boolean>     ;; true iff N came from an explicit
                                         ;; per-frame `:rf.trace/events-retained`
-       :cascade-order [<dispatch-id> ...]  ;; oldest-first per-event slots
-       :cascades {<dispatch-id> [<event> ...]}}
+       :run-order [<dispatch-id> ...]  ;; oldest-first per-event slots
+       :runs {<dispatch-id> [<event> ...]}}
 
   - The unit of retention is the EVENT — one dequeued event / pipeline
     run (one `:rf.trace/dispatch-id`) = one slot, regardless of how many
@@ -64,7 +64,7 @@
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             ;; rf2-ih437c: `event-bundle` reuses the six-domino fold
-            ;; (`absorb` over `empty-cascade`) from the projection ns
+            ;; (`absorb` over `empty-event-bundle`) from the projection ns
             ;; rather than re-inlining the classification cond. Both nss
             ;; are dev-side and bundle-isolated from production CLJS (the
             ;; `trace-tooling` bundle-isolation entry pins tooling's
@@ -102,18 +102,18 @@
   (clear-dedup-table!)
   nil)
 
-;; ---- per-frame cascade-keyed trace rings (dev-only) ---------------------
+;; ---- per-frame run-keyed trace rings (dev-only) ---------------------
 ;;
 ;; Storage shape (per Spec 009 §Per-frame trace rings):
 ;;
 ;;   trace-rings  = {<frame-id> {:events-retained N
 ;;                               :override?         <boolean>
-;;                               :cascade-order [<dispatch-id> ...]
-;;                               :cascades       {<dispatch-id> [<event>...]}}}
+;;                               :run-order [<dispatch-id> ...]
+;;                               :runs       {<dispatch-id> [<event>...]}}}
 ;;
-;; - `:cascade-order` is the oldest-first vector of `:dispatch-id`s
+;; - `:run-order` is the oldest-first vector of `:dispatch-id`s
 ;;   currently held in this frame's ring; eviction pops the head.
-;; - `:cascades` is a flat map from `:dispatch-id` → trace events
+;; - `:runs` is a flat map from `:dispatch-id` → trace events
 ;;   emitted under that dispatch, in arrival order.
 ;; - The slot count is bounded by `:events-retained` (default 50) — one
 ;;   slot per EVENT (one dequeued event / pipeline run), regardless of how
@@ -147,8 +147,8 @@
   ([retained override?]
    {:events-retained retained
     :override?         override?
-    :cascade-order     []
-    :cascades          {}}))
+    :run-order     []
+    :runs          {}}))
 
 (defn- effective-retained
   "Return the live events-retained cap for `frame-id`. Honours the
@@ -168,11 +168,11 @@
   existing slots if the new value is lower than current occupancy;
   raising keeps existing slots and grows the slot cap.
 
-  Always writes a COMPLETE ring (`:cascade-order` + `:cascades` present)
+  Always writes a COMPLETE ring (`:run-order` + `:runs` present)
   and stamps `:override? true`. Registering a per-frame cap BEFORE the
   frame's first emit therefore leaves a valid (empty) ring rather than a
   partial `{:events-retained N}` map — a partial map would later make
-  `push-to-ring!` start `:cascade-order` from nil, `conj` a list, and
+  `push-to-ring!` start `:run-order` from nil, `conj` a list, and
   crash `subvec` once the cap was exceeded (rf2-va65k finding 2).
 
   Per Spec 009 §Lowering events-retained on a populated ring."
@@ -181,8 +181,8 @@
     (swap! trace-rings
            (fn [rings]
              (let [existing (get rings frame-id)
-                   order    (or (:cascade-order existing) [])
-                   cascades (or (:cascades existing) {})]
+                   order    (or (:run-order existing) [])
+                   runs (or (:runs existing) {})]
                (cond
                  ;; retained = 0: drop everything; slot persists with depth 0
                  ;; so reads return [] cleanly.
@@ -198,8 +198,8 @@
                    (assoc rings frame-id
                           {:events-retained retained
                            :override?         true
-                           :cascade-order     kept-order
-                           :cascades          (apply dissoc cascades evicted)}))
+                           :run-order     kept-order
+                           :runs          (apply dissoc runs evicted)}))
 
                  ;; New cap fits the current occupancy: keep the slots,
                  ;; write a full ring (a never-emitted frame gets a valid
@@ -208,8 +208,8 @@
                  (assoc rings frame-id
                         {:events-retained retained
                          :override?         true
-                         :cascade-order     order
-                         :cascades          cascades}))))))
+                         :run-order     order
+                         :runs          runs}))))))
   nil)
 
 (defn release-frame-ring!
@@ -223,18 +223,18 @@
   nil)
 
 (defn- push-to-ring!
-  "Append `ev` to its frame's cascade-keyed ring. Frameless emits (no
+  "Append `ev` to its frame's run-keyed ring. Frameless emits (no
   `:rf.trace/dispatch-id` in scope) bypass the ring entirely per the
   B3 ruling — they stream live to listeners only and are never retained.
 
   Routing chain for the destination frame-id:
-    1. `:frame` under `:tags` (the router stamps it on most in-cascade
+    1. `:frame` under `:tags` (the router stamps it on most in-run
        emits).
     2. Top-level `:frame` on the envelope.
     3. The late-bound `:frame/current-frame-id` hook (published by
        `re-frame.frame` at ns-load) — covers sub recompute / view
        render emits where the call site doesn't stamp `:frame` but the
-       in-flight cascade's `frame/*current-frame*` is bound.
+       in-flight run's `frame/*current-frame*` is bound.
 
   No-op in production (production never reaches the emit site)."
   [ev]
@@ -245,7 +245,7 @@
                           (when-let [current-frame
                                      (late-bind/get-fn-cached :frame/current-frame-id)]
                             (current-frame)))]
-      ;; Frameless emits (no in-flight cascade) skip the ring. The B3
+      ;; Frameless emits (no in-flight run) skip the ring. The B3
       ;; ruling is that frameless events stream live to listeners only
       ;; and are never retained. A `:dispatch-id` without a resolvable
       ;; frame-id (extremely rare — would require a manual emit from
@@ -269,15 +269,15 @@
                            ;; ring), but coerce anyway so any future partial
                            ;; ring can't make `conj` build a list / `subvec`
                            ;; throw (rf2-va65k finding 2).
-                           order    (or (:cascade-order existing) [])
-                           cascades (or (:cascades existing) {})
-                           known?   (contains? cascades dispatch-id)
+                           order    (or (:run-order existing) [])
+                           runs (or (:runs existing) {})
+                           known?   (contains? runs dispatch-id)
                            order'   (if known? order (conj order dispatch-id))
-                           cascades' (update cascades dispatch-id
+                           runs' (update runs dispatch-id
                                              (fnil conj []) ev)
-                           ;; Evict oldest cascade slots while over cap.
-                           [order'' cascades'']
-                           (loop [o order' c cascades']
+                           ;; Evict oldest run slots while over cap.
+                           [order'' runs'']
+                           (loop [o order' c runs']
                              (if (> (count o) retained)
                                (let [oldest (first o)]
                                  (recur (subvec o 1) (dissoc c oldest)))
@@ -285,8 +285,8 @@
                        (assoc rings frame-id
                               {:events-retained retained
                                :override?         override?
-                               :cascade-order     order''
-                               :cascades          cascades''}))))))))))
+                               :run-order     order''
+                               :runs          runs''}))))))))))
 
 ;; ---- B4 hot-reload dedup-by-shape (process-scoped) ----------------------
 ;;
@@ -400,7 +400,7 @@
   (the `group-by-event` shape, per run / dequeued event).
 
   rf2-ih437c: folds with `re-frame.trace.projection/absorb` over
-  `projection/empty-cascade` — the canonical six-domino classification
+  `projection/empty-event-bundle` — the canonical six-domino classification
   + slot set — rather than re-inlining the bucketing cond + the six
   `*-bucket?`/`*-marker?` predicates a second time. The seed map carries
   the extra `:trace-events` slot the event-bundle wire shape needs;
@@ -408,20 +408,20 @@
   pre-seeded `:dispatch-id` / `:frame`) survive the fold untouched."
   [frame-id dispatch-id events]
   (reduce projection/absorb
-          (assoc projection/empty-cascade
+          (assoc projection/empty-event-bundle
                  :dispatch-id  dispatch-id
                  :frame        frame-id
                  :trace-events events)
           events))
 
-(defn- match-cascade?
+(defn- match-event-bundle?
   "Filter an event bundle against the bundle-level filter keys."
   [bundle {:keys [event-id origin dispatch-id since-ms between pred]}]
   (let [[t0 t1] (when (and (sequential? between)
                            (= 2 (count between)))
                   between)
         events  (:trace-events bundle)
-        ;; A cascade's "time" is its earliest event's time (where present)
+        ;; An event bundle's "time" is its earliest event's time (where present)
         first-time (some :time events)]
     (and (or (nil? event-id)
              (= event-id (first (:event bundle))))
@@ -468,17 +468,17 @@
              (= (true? sensitive?) (true? (:sensitive? ev))))
          (or (nil? pred) (pred ev)))))
 
-(defn- frame-ring-cascades
+(defn- frame-ring-event-bundles
   "Materialise `frame-id`'s ring as an oldest-first vector of event
   bundles. Returns an empty vector when the frame has no recorded
   events (including the destroyed-frame / unknown-frame case per
   Spec 009 §Reads against a destroyed / missing frame)."
   [rings frame-id]
   (if-let [ring (get rings frame-id)]
-    (let [order    (:cascade-order ring)
-          cascades (:cascades ring)]
+    (let [order    (:run-order ring)
+          runs (:runs ring)]
       (mapv (fn [dispatch-id]
-              (event-bundle frame-id dispatch-id (get cascades dispatch-id)))
+              (event-bundle frame-id dispatch-id (get runs dispatch-id)))
             order))
     []))
 
@@ -487,9 +487,9 @@
   events (the `:flat true` opt-in shape)."
   [rings frame-id]
   (if-let [ring (get rings frame-id)]
-    (let [order    (:cascade-order ring)
-          cascades (:cascades ring)]
-      (into [] (mapcat (fn [did] (get cascades did))) order))
+    (let [order    (:run-order ring)
+          runs (:runs ring)]
+      (into [] (mapcat (fn [did] (get runs did))) order))
     []))
 
 (defn trace-buffer
@@ -547,10 +547,10 @@
      (let [rings @trace-rings]
        (if (:flat opts)
          (filterv #(match-event? % opts) (frame-ring-flat-events rings frame-id))
-         (filterv #(match-cascade? % opts) (frame-ring-cascades rings frame-id)))))))
+         (filterv #(match-event-bundle? % opts) (frame-ring-event-bundles rings frame-id)))))))
 
 (defn clear-trace-buffer!
-  "Empty the named frame's cascade-keyed ring. Tooling uses this between
+  "Empty the named frame's run-keyed ring. Tooling uses this between
   sessions. No-op for an unknown frame, no-op in production. Per Spec
   009 §`trace-buffer` API."
   [frame-id]
@@ -640,8 +640,8 @@
               (fn [acc frame-id ring]
                 (if (true? (:override? ring))
                   acc
-                  (let [order    (or (:cascade-order ring) [])
-                        cascades (or (:cascades ring) {})]
+                  (let [order    (or (:run-order ring) [])
+                        runs (or (:runs ring) {})]
                     (cond
                       (zero? events-retained)
                       (assoc acc frame-id (empty-ring 0))
@@ -653,15 +653,15 @@
                         (assoc acc frame-id
                                {:events-retained events-retained
                                 :override?         false
-                                :cascade-order     kept-order
-                                :cascades          (apply dissoc cascades evicted)}))
+                                :run-order     kept-order
+                                :runs          (apply dissoc runs evicted)}))
 
                       :else
                       (assoc acc frame-id
                              {:events-retained events-retained
                               :override?         false
-                              :cascade-order     order
-                              :cascades          cascades})))))
+                              :run-order     order
+                              :runs          runs})))))
               rings
               rings))))
   nil)
@@ -675,8 +675,8 @@
 ;; production build that never `:requires` this ns DCEs the whole body.
 
 (defn- deliver-to-tooling!
-  "Push `event` onto its in-flight frame's cascade-keyed ring (when the
-  cascade has a `:dispatch-id` and a `:frame`; frameless emits skip the
+  "Push `event` onto its in-flight frame's run-keyed ring (when the
+  run has a `:dispatch-id` and a `:frame`; frameless emits skip the
   ring per the B3 ruling), then fan out to every registered listener.
   Listener throws are isolated. No-op in production."
   [event]

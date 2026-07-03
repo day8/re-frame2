@@ -1773,7 +1773,7 @@
 
   Per rf2-9dk9y: the user-injected coeffects projection moved OFF the
   `:rf.fx/do-fx` marker and ONTO `:rf.event/run-end` (see
-  `emit-cascade-trailers!`). The prior placement silently dropped the
+  `emit-pipeline-trailers!`). The prior placement silently dropped the
   COEFFECTS row whenever a handler returned only `:db` (no `:fx`) — the
   fx walk was short-circuited so the marker never emitted. Pinning the
   cofx stamp to the always-fires run-end emit makes the COEFFECTS
@@ -1809,7 +1809,7 @@
 ;; ---- process-event* phases ------------------------------------------------
 ;;
 ;; `process-event*` decomposes into named phases per audit RT1 (rf2-mccjv).
-;; Each phase owns one piece of the per-event cascade; the outer
+;; Each phase owns one piece of the per-event pipeline run; the outer
 ;; `process-event*` is a thin driver that sequences them.
 ;;
 ;;   handle-frame-destroyed!     early-exit: emit :rf.error/frame-destroyed
@@ -1836,8 +1836,8 @@
 ;;                               order; returns the dispatch outcome keyword
 ;;                               (:ok / :error / :rolled-back / :flow-error)
 ;;                               for the event-emit record
-;;   emit-cascade-trailers!      :run-end trace + always-on event-emit fan-out
-;;   run-handler-cascade!        sequence prepare → run → commit → trailers
+;;   emit-pipeline-trailers!      :run-end trace + always-on event-emit fan-out
+;;   run-handler-pipeline!        sequence prepare → run → commit → trailers
 ;;                               under `trace/with-handler-scope`
 
 (defn- emit-frame-destroyed!
@@ -1933,7 +1933,7 @@
         ;; SAME `base-chain`, replacing the prior two independent chain
         ;; walks. Per rf2-461sp — user-installed redact interceptors expose
         ;; their paths on the interceptor map so the pre-chain trace
-        ;; projection (`:run-start`, `emit-cascade-trailers`) honours them
+        ;; projection (`:run-start`, `emit-pipeline-trailers`) honours them
         ;; too. Each user `:before` ALSO runs during chain execution and
         ;; extends `:rf/redacted-event` in-chain, which is what the schema-
         ;; redaction interceptor (when also installed) composes with. The
@@ -2199,8 +2199,8 @@
         (run-fx-effects! effects frame frame-record fx-overrides envelope)
         :ok))))
 
-(defn- emit-cascade-trailers!
-  "Cascade-tail emissions: the dev-only `:run-end` trace then the
+(defn- emit-pipeline-trailers!
+  "Pipeline-run-tail emissions: the dev-only `:run-end` trace then the
   always-on event-emit fan-out.
 
   Per rf2-rirbq: the event-emit substrate is ALWAYS-ON — it survives
@@ -2308,8 +2308,8 @@
                               effects
                               correlation))))))))
 
-(defn- run-handler-cascade!
-  "Sequence the four cascade phases under the handler's
+(defn- run-handler-pipeline!
+  "Sequence the four pipeline-run phases under the handler's
   `trace/*handler-scope*` binding.
 
   Per rf2-ryri7: publish the event handler's HandlerScope —
@@ -2426,12 +2426,13 @@
             ;; failures, not just the chain exception.
             outcome   (commit-and-flow! final-ctx event-id event frame
                                         frame-record fx-overrides envelope start-ms)]
-        (emit-cascade-trailers! event-id event emit-event frame outcome
+        (emit-pipeline-trailers! event-id event emit-event frame outcome
                                 start-ms handler-elapsed-ms final-ctx)))))
 
 (defn- process-event*
-  "Per-event drain body. Resolve handler, then sequence the four cascade
-  phases under the handler-scope binding (see `run-handler-cascade!`).
+  "Per-event drain body. Resolve handler, then sequence the four
+  pipeline-run phases under the handler-scope binding (see
+  `run-handler-pipeline!`).
   Per Spec 002 §Drain-loop pseudocode.
 
   This is the inner of `process-event!`; the outer wraps it in a
@@ -2478,7 +2479,7 @@
                              (resolve-unhandled event frame))]
         (if (nil? handler-meta)
           (diag/handle-no-handler! event-id event frame)
-          (run-handler-cascade! envelope event-id event frame
+          (run-handler-pipeline! envelope event-id event frame
                                 frame-record handler-meta))))))
 
 (defn- process-event!

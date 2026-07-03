@@ -15,11 +15,11 @@
   consumers need above the raw stream for the common 'render this
   cascade as six dominoes' use case.
 
-  The cascade-wide `:rf.trace/dispatch-id` makes the projection robust
+  The run-wide `:rf.trace/dispatch-id` makes the projection robust
   against events the framework emits *inside* a drain even though they
   aren't `:rf.event/dispatched` — fx invocations, sub-runs, renders,
   errors. Every such event carries `:tags :rf.trace/dispatch-id` so the
-  group-by below assembles a complete cascade record.
+  group-by below assembles a complete event bundle.
 
   ## Bucketing (per Spec 009 §`:op-type` vocabulary)
 
@@ -42,7 +42,7 @@
     6. `:render`   — `:op-type :rf.view` + `:operation :rf.view/render`
 
   Events whose op-type/operation pair doesn't fit any bucket flow
-  through `:other` so the cascade-record shape is fully accountable to
+  through `:other` so the event-bundle shape is fully accountable to
   the input — `(reduce + 0 (map #(+ (count (:effects %)) ...) ...))`
   equals the input event count when every event is grouped.
 
@@ -104,10 +104,10 @@
 
     :else :other))
 
-;; ---- cascade record -------------------------------------------------------
+;; ---- event bundle ---------------------------------------------------------
 
-(def ^:no-doc empty-cascade
-  "Slot template for a cascade record. Per-cascade reduction starts here;
+(def ^:no-doc empty-event-bundle
+  "Slot template for an event bundle. Per-run reduction starts here;
   every key the consumer can rely on lives in the template.
 
   `^:no-doc` public so `re-frame.trace.tooling/event-bundle` folds the
@@ -139,26 +139,26 @@
 
 (defn- dispatch-id
   "Return an event's concrete dispatch id, or nil when the event was
-  emitted outside a dispatch cascade."
+  emitted outside a dispatch run."
   [ev]
   (get-in ev [:tags :rf.trace/dispatch-id]))
 
-(defn- cascade-id
-  "Extract the cascade identifier from an event. Per Spec 009 §Dispatch
-  correlation, `:rf.trace/dispatch-id` is cascade-wide. For
-  `:rf.event/dispatched` events, `:rf.trace/parent-dispatch-id` documents
-  inter-cascade lineage; for pair-shaped tools assembling 'the cascade
-  caused by THAT dispatch', the event's own `:rf.trace/dispatch-id` is
-  the right key (the `:rf.event/dispatched` event rides under its own
-  cascade's id). Events outside any drain (registry-time, frame-creation)
-  carry no `:rf.trace/dispatch-id` — they land in the `:ungrouped`
-  bucket."
+(defn- bundle-id
+  "Extract the event-bundle grouping identifier from an event. Per Spec
+  009 §Dispatch correlation, `:rf.trace/dispatch-id` is run-wide (shared
+  by every trace event of one pipeline run). For `:rf.event/dispatched`
+  events, `:rf.trace/parent-dispatch-id` documents inter-run lineage; for
+  pair-shaped tools assembling 'the run caused by THAT dispatch', the
+  event's own `:rf.trace/dispatch-id` is the right key (the
+  `:rf.event/dispatched` event rides under its own run's id). Events
+  outside any drain (registry-time, frame-creation) carry no
+  `:rf.trace/dispatch-id` — they land in the `:ungrouped` bucket."
   [ev]
   (or (dispatch-id ev) :ungrouped))
 
 (defn- frame-index
   "Map dispatch ids to the frames explicitly seen for that dispatch.
-  Frame-less events inside a cascade can then join the only known frame
+  Frame-less events inside a run can then join the only known frame
   deterministically without merging ambiguous multi-frame dispatch ids."
   [events]
   (reduce (fn [acc ev]
@@ -170,11 +170,11 @@
           {}
           events))
 
-(defn- cascade-frame
+(defn- bundle-frame
   "Extract the host frame from an event. nil means the event is not
   frame-qualified (registry-time, boot-time, or older traces). Older
   dispatch-scoped traces that predate explicit frame tags are treated as
-  default-frame traces so errors/warnings still ride with their cascade."
+  default-frame traces so errors/warnings still ride with their run."
   [frame-index ev]
   (or (get-in ev [:tags :frame])
       (:frame ev)
@@ -185,20 +185,20 @@
       (when (dispatch-id ev)
         default-frame)))
 
-(defn- cascade-key
-  "The stable grouping key for a cascade. Dispatch ids are only unique
-  inside a frame in the portable contract, so frame-qualified traces
-  group by `[frame dispatch-id]`. Traces without a dispatch-id are not
-  cascades and share the historical ungrouped bucket regardless of
+(defn- bundle-key
+  "The stable grouping key for an event bundle. Dispatch ids are only
+  unique inside a frame in the portable contract, so frame-qualified
+  traces group by `[frame dispatch-id]`. Traces without a dispatch-id are
+  not runs and share the historical ungrouped bucket regardless of
   frame lifecycle metadata."
   [frame-index ev]
-  (let [id (cascade-id ev)]
+  (let [id (bundle-id ev)]
     (if (= :ungrouped id)
       [nil :ungrouped]
-      [(cascade-frame frame-index ev) id])))
+      [(bundle-frame frame-index ev) id])))
 
 (defn ^:no-doc absorb
-  "Fold one trace event into the per-cascade accumulator.
+  "Fold one trace event into the per-run event-bundle accumulator.
 
   The `:event` bucket lands the event VECTOR on `:event` (slim,
   consumers' common case) AND the full trace event on `:dispatched`
@@ -206,7 +206,7 @@
   rf2-twt7m Change 1).
 
   `^:no-doc` public so `re-frame.trace.tooling/event-bundle` reuses
-  this same fold (over `empty-cascade`) rather than re-inlining the
+  this same fold (over `empty-event-bundle`) rather than re-inlining the
   six-domino classification cond a third time (rf2-ih437c). Any extra
   keys the caller seeds the accumulator with (e.g. tooling's
   `:trace-events`) are preserved untouched — `absorb` only writes the
@@ -219,15 +219,15 @@
                        ;; projection (Spec 009 §Dispatch correlation /
                        ;; rf2-ryri7): the `:rf.event/dispatched` trace
                        ;; carries `:rf.trace/parent-dispatch-id` (the
-                       ;; in-flight cascade that emitted this dispatch —
+                       ;; in-flight run that emitted this dispatch —
                        ;; an `:fx :dispatch` parent, a machine-internal
                        ;; dispatch, etc.). Under epoch-per-event every
-                       ;; child event is its own cascade; this slot is
-                       ;; the only edge linking a cascade to its spawning
-                       ;; cascade. Consumers (Xray typed pills, the
+                       ;; child event is its own run; this slot is
+                       ;; the only edge linking a run to its spawning
+                       ;; run. Consumers (Xray typed pills, the
                        ;; causality breadcrumb) walk it to relate a
-                       ;; cascade to its causal ancestors. nil for a
-                       ;; root cascade (a user / external dispatch).
+                       ;; run to its causal ancestors. nil for a
+                       ;; root run (a user / external dispatch).
                        :parent-dispatch-id (get-in ev [:tags :rf.trace/parent-dispatch-id]))
     :handler (assoc acc :handler ev)
     :fx      (assoc acc :fx ev)
@@ -237,8 +237,8 @@
     :other   (update acc :other conj ev)))
 
 (defn- first-id
-  "Lowest `:id` among the cascade's events, or `##Inf` when no event
-  carries an id. Used for sorting cascades into emission order."
+  "Lowest `:id` among the event bundle's events, or `##Inf` when no event
+  carries an id. Used for sorting event bundles into emission order."
   [{:keys [event handler fx effects subs renders other]}]
   (let [all (concat (when handler [handler])
                     (when fx [fx])
@@ -246,32 +246,32 @@
         ids (keep :id all)]
     (if (seq ids)
       (apply min ids)
-      ;; Sentinel for cascades with no event carrying an id — sort to
+      ;; Sentinel for event bundles with no event carrying an id — sort to
       ;; the end. Use a number-shaped value larger than any practical
       ;; per-process trace id; CLJS-portable (no Long/MAX_VALUE).
       #?(:clj  Long/MAX_VALUE
          :cljs js/Number.MAX_SAFE_INTEGER))))
 
-(defn- grouped-cascades
+(defn- grouped-event-bundles
   "The single grouping pass shared by `group-by-event` and
   `group-by-event-with-events`. Groups `events` by the stable
-  `[frame dispatch-id]` `cascade-key` (dispatch ids are unique only
-  within a frame — see `cascade-key`), reduces each group into a cascade
-  record, and returns a vector of `[[frame dispatch-id] evs record]`
-  triples sorted into emission order (lowest `:id` per cascade first).
+  `[frame dispatch-id]` `bundle-key` (dispatch ids are unique only
+  within a frame — see `bundle-key`), reduces each group into an event
+  bundle, and returns a vector of `[[frame dispatch-id] evs record]`
+  triples sorted into emission order (lowest `:id` per run first).
 
   Both public projections consume this so the grouping key never drifts
   between them: `group-by-event` keeps the slim record; the
   `-with-events` sibling additionally attaches `evs` as `:trace-events`."
   [events]
   (let [index  (frame-index events)
-        groups (group-by #(cascade-key index %) events)]
+        groups (group-by #(bundle-key index %) events)]
     (->> groups
          (map (fn [[[frame dispatch-id :as key] evs]]
                 [key
                  evs
                  (reduce absorb
-                         (assoc empty-cascade
+                         (assoc empty-event-bundle
                                 :dispatch-id dispatch-id
                                 :frame frame)
                          evs)]))
@@ -285,10 +285,10 @@
 
   Returns a vector of maps shaped:
 
-      {:dispatch-id <cascade-id-or-:ungrouped>
-       :parent-dispatch-id <cascade-id or nil> ;; causal-parent link from
+      {:dispatch-id <dispatch-id-or-:ungrouped>
+       :parent-dispatch-id <dispatch-id or nil> ;; causal-parent link from
                                               ;;   :rf.trace/parent-dispatch-id
-                                              ;;   (the cascade that emitted
+                                              ;;   (the run that emitted
                                               ;;   this dispatch); nil for a
                                               ;;   root / external dispatch
        :frame       <frame-id-or-nil>
@@ -312,7 +312,7 @@
   Events without a `:rf.trace/dispatch-id` tag (registry-time emits,
   frame lifecycle outside a drain, REPL evals) collect under the
   projection's `:dispatch-id :ungrouped` slot. The returned vector is
-  sorted by the lowest `:id` in each cascade, so cascades render in
+  sorted by the lowest `:id` in each run, so runs render in
   emission order.
 
   Stable / additive: future framework op-types that don't fit a
@@ -320,7 +320,7 @@
   want richer projections of `:other` can call `domino-bucket`
   directly on each event."
   [events]
-  (->> (grouped-cascades events)
+  (->> (grouped-event-bundles events)
        (mapv (fn [[_key _evs record]] record))))
 
 (defn group-by-event-with-events
@@ -337,7 +337,7 @@
   whose wire shape mirrors `(re-frame.trace.tooling/trace-buffer frame)`.
   Such consumers MUST NOT re-derive the grouping with a weaker key
   (`:rf.trace/dispatch-id` alone): dispatch ids are unique only WITHIN a
-  frame (see `cascade-key`), so a dispatch-id-only group-by merges two
+  frame (see `bundle-key`), so a dispatch-id-only group-by merges two
   same-id runs from different frames and attaches each the UNION of
   both frames' raw events. Keying by `[frame dispatch-id]` here keeps
   every record's `:trace-events` scoped to its own frame.
@@ -347,6 +347,6 @@
   slot for the consumers that need it. Returns a vector sorted by
   emission order, identical to `group-by-event`."
   [events]
-  (->> (grouped-cascades events)
+  (->> (grouped-event-bundles events)
        (mapv (fn [[_key evs record]]
                (assoc record :trace-events (vec evs))))))
