@@ -1,12 +1,20 @@
 # Template — SSR Validation Report (rf2-0m5ea)
 
-> **Status.** Direction-set validation. Documents the gap between the
-> current deps-new template body and what a Spec 011 reference SSR
-> impl-as-scaffolded-template-variant would emit. Findings here become
-> the scope for the `:include-ssr?` work bead under
-> [rf2-dolpf](003-DepsNew-Rebuild-Plan.md).
+> **Status.** CLOSED-OUT (rf2-675qdb, 2026-07-04). This report was the
+> direction-set validation + design for the `:include-ssr?` work — and it
+> IS the spec that work implemented. Both gating conditions cleared
+> (`implementation/ssr/` + `implementation/ssr-ring/` carry the full Spec
+> 011 reference impl; rf2-0m5ea closed), so §6's close-out ran: the flag is
+> wired (§3.1), the SSR file bodies are emitted (§3.2 — `core.cljc` +
+> `server.clj` + `ssr_test.clj` under `_reagent/` + `_shared/`), the
+> template tests cover the variant (§3.3), and the §6 doc flips landed
+> (000-Vision §Non-goals, 001-Substrate-Variants §SSR variant,
+> 003-DepsNew-Rebuild-Plan §5 row). The §3 recommendations below were
+> executed directly by rf2-675qdb rather than filed as separate follow-on
+> beads — the report is the deliverable. Original direction-set status +
+> gap analysis preserved below for the design record.
 >
-> **Date.** 2026-05-20.
+> **Date.** 2026-05-20 (validation); 2026-07-04 (close-out, rf2-675qdb).
 >
 > **Worktree.** `worker/template-ssr-validate`.
 >
@@ -332,23 +340,35 @@ SSR support is implementable as a template variant today.)
 | `examples/capabilities/ssr/ssr/` file inventory | `core.cljc` + `index.html` + `test/ssr/core_test.clj` — demonstrates SSR + hydration mechanics; Ring host-adapter boot reference lives in `implementation/ssr-ring/test/re_frame/ssr/ring_e2e_validator_test.clj` |
 | `implementation/ssr/src/re_frame/ssr.cljc` `:rf/hydrate` auto-registration | confirmed at L276-278 (`events/reg-event :rf/hydrate {:rf/framework-authority? true} hydrate/hydrate-event-handler`) — scaffolded apps need only `:require` `re-frame.ssr` |
 
-## 6. Recommended next actions
+## 6. Close-out (rf2-675qdb, DONE 2026-07-04)
 
-1. File three follow-on beads under [rf2-dolpf](003-DepsNew-Rebuild-Plan.md) §2.x
-   for the three sub-tasks in §3 above (flag wiring, file body, test
-   coverage). Each is single-worker scope (~30-60 minutes).
-2. Update [003-DepsNew-Rebuild-Plan.md §5](003-DepsNew-Rebuild-Plan.md#5-cross-references-to-locked-v1-emit-spec)
-   table's SSR row from "gated on rf2-0m5ea" to the new work-bead id.
-3. Update [001-Substrate-Variants.md L114-115](001-Substrate-Variants.md)
-   — drop the "lands as a separate template variant if/when SSR
-   matures" deferral; replace with the locked Reagent-only
-   `:include-ssr?` flag language.
-4. Update [000-Vision.md](000-Vision.md) §Non-goals — flip the SSR
-   line from "SSR scaffolding (Spec 011) lands as a separate
-   template variant" deferral to a tick under §Goals once §3
-   beads land.
-5. Close rf2-0m5ea once the three §3 beads are filed (this report
-   is the deliverable).
+Both gating conditions cleared, so the close-out below ran under a single
+worker (rf2-675qdb) — the report is the spec, so §3's recommendations were
+implemented directly rather than filed as separate follow-on beads.
+
+1. ✓ **§3 implemented directly, not filed as follow-on beads.** The three
+   §3 sub-tasks (flag wiring, file body, test coverage) were single-worker
+   scope, so rf2-675qdb executed them in one pass rather than filing three
+   beads under [rf2-dolpf](003-DepsNew-Rebuild-Plan.md) §2.x. Wired:
+   `coerce-include-ssr?` + the mutual-exclusion + Reagent-only guards in
+   `hooks.clj`; the `template-fn` Reagent SSR branch; the emitted
+   `_reagent/core_with_ssr.cljc`, `_reagent/server.clj`,
+   `_reagent/deps_with_ssr.edn`, and `_shared/ssr_test.clj`; and the
+   `template_test.clj` positive + negative coverage.
+2. ✓ **003-DepsNew-Rebuild-Plan §5** SSR row flipped from "gated on
+   rf2-0m5ea" to "shipped (rf2-675qdb)". The §2.1-spike watch-smoke gate
+   note is annotated as superseded by the sibling-checkout emitted-tests
+   tier.
+3. ✓ **001-Substrate-Variants** — the SSR deferral (found at §Future
+   variants, not the L114-115 the original draft named — the doc evolved)
+   is replaced with a §SSR variant section describing the live Reagent-only
+   `:include-ssr?` flag; the §Future variants block now tracks only the
+   deferred UIx + Helix SSR variants.
+4. ✓ **000-Vision §Non-goals** — the "SSR scaffolding lands behind the
+   flag once rf2-0m5ea validates" deferral is flipped to the shipped
+   opt-in exception; the three-flags list marks `:include-ssr?` shipped.
+5. ✓ **rf2-0m5ea closed** (the reference impl shipped); rf2-675qdb is this
+   close-out.
 
 ## 7. Out of scope (deferred)
 

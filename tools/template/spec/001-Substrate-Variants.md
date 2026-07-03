@@ -124,13 +124,33 @@ developer who runs `clojure -Tnew create :template
 io.github.day8/re-frame2-template ...` and then reads Guide chapter
 03 sees the same code in both places.
 
+## SSR variant (`:include-ssr? true`, Reagent-only)
+
+Both gating conditions for the SSR variant have cleared —
+`implementation/ssr/` + `implementation/ssr-ring/` carry the full Spec 011
+reference impl, and rf2-0m5ea (SSR validation) closed — so
+`:include-ssr?` is a **live Reagent-only flag** (rf2-675qdb; the
+close-out of 004-SSR-Validation-Report §6).
+
+Under `:include-ssr? true` the Reagent counter is emitted as a shared
+`core.cljc` (the same code runs the JVM render path and the CLJS
+hydration path), a `server.clj` Ring/Jetty host wired to
+`re-frame.ssr.ring/ssr-handler`, and a headless `ssr_test.clj` gate. The
+per-slice CLJS sources (`events.cljs` / `subs.cljs` / `schema.cljs` /
+`views.cljs`) are folded into `core.cljc`, so they are not emitted
+separately. The flag is **mutually exclusive** with `:include-story?`
+(004-SSR-Validation-Report §2.1). UIx + Helix SSR variants follow once the
+per-substrate adapters demonstrate parity (Spec 011 §Streaming SSR and the
+report §7 out-of-scope list track the deferred surface).
+
 ## Future variants
 
 Reserved space — not implemented:
 
-- **SSR.** Once Spec 011 has a Reagent-side reference implementation
-  the template can ship an SSR variant of the counter via the
-  locked `:include-ssr?` flag (rf2-0m5ea gates the flag work).
+- **UIx + Helix SSR.** The Spec 011 contract is substrate-agnostic
+  (`render-to-string` consumes hiccup), but the worked example + the
+  ssr-ring test corpus are Reagent-driven; the UIx / Helix SSR variants
+  land once those adapters demonstrate parity.
 - **reagent-slim.** Once the substrate-portable reagent-slim adapter
   exists the template can ship it as a fourth substrate choice.
 - **TypeScript port.** Per Spec 000 — re-frame2 is a pattern, not a
