@@ -196,6 +196,31 @@ A `:reg-frame` call carries the candidate frame `:config` (and an optional `:fra
 
 The host runs the call by invoking `reg-frame` (or the host equivalent) on `:config` and comparing the thrown `:rf.error/id` against `:expect-error` (pass iff equal); a control call (no `:expect-error`) passes iff `reg-frame` does not throw. The runner tears the registered frame down afterward (best-effort) so a well-formed control does not leak into the final-app-db snapshot. Fixtures using `:reg-frame` declare `:core/frame`.
 
+#### The `:reg-route` op — path-pattern validation taxonomy
+
+The `:reg-route` op is the routing analogue of `:reg-machine` / `:reg-frame`: it pins the **path-pattern registration-error surface** (the same [009 §thrown-error shape](../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract) `:rf.error/id` contract) for the [012 path-pattern grammar](../012-Routing.md#path-pattern-grammar-canonical). A malformed `:path` must throw `:rf.error/invalid-route-pattern` at registration, and the **one canonical optional-group spelling** is slash-inside (`{/:name}?` — rf2-av1); the slash-outside drift (`/{:base}?/about`) is rejected.
+
+A `:reg-route` call carries the candidate `:pattern` string and either an `:expect-error` (`:rf.error/invalid-route-pattern`, the id a malformed pattern must throw) or no `:expect-error` (a well-formed pattern that must validate silently):
+
+```clojure
+;; Excerpt — full file at fixtures/routing-pattern-validation.edn
+{:fixture/id           :routing/pattern-validation
+ :fixture/capabilities #{:routing/pattern-validation}
+ :fixture/calls
+ [;; Control: the canonical slash-INSIDE optional group registers cleanly.
+  {:call :reg-route :pattern "{/:base}?/about"}
+
+  ;; The slash-OUTSIDE spelling is rejected — one canonical spelling only.
+  {:call :reg-route :pattern "/{:base}?/about"
+   :expect-error :rf.error/invalid-route-pattern}
+
+  ;; A splat that is not the final segment is rejected.
+  {:call :reg-route :pattern "/files/*rest/more"
+   :expect-error :rf.error/invalid-route-pattern}]}
+```
+
+The host runs the call by validating `:pattern` at the registration boundary (the reference invokes the pure `re-frame.routing.match/validate-route-pattern!`) and comparing the thrown `:rf.error/id` against `:expect-error` (pass iff equal); a control call (no `:expect-error`) passes iff validation does not throw. The op is **pure** — no registrar mutation, no navigation. Fixtures using `:reg-route` declare `:routing/pattern-validation`.
+
 #### The `:assemble-image` op — EP-0026 image API
 
 The `:assemble-image` op pins the image-API surface — `:select-ns` namespace selection, image-order layering (the later image wins), the shadow report, and the fail-loud collision / duplicate-image-id / framework-standard / retired-key / inline-grammar taxonomy — at the conformance layer. It is a **pure** Mode-B call (no frame loop): a function of a fixture-supplied descriptor **pool** plus **image specs**, exactly mirroring the reference implementation's `re-frame.image` constructor + `re-frame.image-assembly` explicit-pool assembler.
@@ -464,6 +489,8 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `route-stale-nav-token-suppression.edn` | `:routing/stale-nav-token-suppression` | Older route load arrives after a fresh navigation; the carried nav-token is stale; runtime suppresses the result and emits `:rf.route.nav-token/stale-suppressed` |
 | `route-fragment-change.edn` | `:routing/fragment-change` | `:fragment` is part of the route slice; fragment-only changes do NOT re-fire `:on-match`; path changes do |
 | `route-navigation-blocked.edn` | `:routing/navigation-blocked` | `:can-leave` guard rejects a navigation; `:rf/pending-navigation` is set; URL unchanged; `:rf.route/continue` resumes; `:rf.route/cancel` abandons |
+| `routing-pattern-validation.edn` | `:routing/pattern-validation` | `:reg-route` Mode-B: a malformed `:path` throws `:rf.error/invalid-route-pattern`; the canonical optional-group spelling is slash-inside (`{/:name}?`); the slash-outside drift (`/{:base}?/about`) is rejected; splats must be final + singular; the bare catch-all `/*` is valid |
+| `routing-query-parse-edges.edn` | `:routing/match-url` | Query-string parse edges: duplicate keys (last-wins), a bare key (present-empty), a value with an embedded `=` (split on first `=`); undeclared keys stay strings |
 | `ssr-render-to-string.edn` | `:ssr/render-to-string` | Pure hiccup → HTML emission with text/attr escaping; void elements; doctype option |
 | `ssr-hydrate.edn` | `:ssr/hydrate` | `:rf/hydrate` seeds `app-db` from server payload; subsequent dispatches operate on hydrated state |
 | `ssr-redirect.edn` | `:ssr/redirect` | `:rf.server/redirect` truncates HTML; response carries `:status 302` + `:location` only (per [011 §Redirect precedence](../011-SSR.md#redirect-precedence)) |

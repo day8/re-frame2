@@ -121,17 +121,22 @@
                 (clojure.string/includes? body "//")
                 (clojure.string/ends-with? body "/"))
         (route-pattern-error! route-id pattern "optional groups may not contain empty segments" start))
-      (when-not (or (= \/ (.charAt ^String body 0))
-                    (and (= \: (.charAt ^String body 0))
-                         (pos? start)
-                         (= \/ (.charAt ^String pattern (dec start)))))
+      ;; CANONICAL SPELLING — slash-INSIDE the braces (rf2-av1, pinned by
+      ;; rf2-5u1r6a). The group wraps a *slash-prefixed* sub-pattern:
+      ;; `{/:slug}?`, `{/guide}?`, `{/:base}?`. The slash-OUTSIDE spelling
+      ;; (`{:base}?`, a `{` directly after a `/` with a `:`-first body) is
+      ;; REJECTED — it was an accepted-but-undocumented drift that the
+      ;; production table, the normative `:rf/route-pattern` regex, and this
+      ;; validator disagreed on. One spelling now: the leading `/` lives
+      ;; inside the braces so the group is a self-contained optional segment
+      ;; wherever it appears (leading, e.g. `{/:base}?/about`, or trailing,
+      ;; e.g. `/articles/:id{/:slug}?`).
+      (when-not (= \/ (.charAt ^String body 0))
         (route-pattern-error!
           route-id pattern
-          "optional groups must start with `/` or a named param, e.g. `{/:id}?` or `{:base}?`"
+          "optional groups must wrap a slash-prefixed sub-pattern, e.g. `{/:id}?` or `{/guide}?` (the `/` goes INSIDE the braces)"
           start))
-      (doseq [segment (if (= \/ (.charAt ^String body 0))
-                        (rest (clojure.string/split body #"/"))
-                        (clojure.string/split body #"/"))]
+      (doseq [segment (rest (clojure.string/split body #"/"))]
         (cond
           (clojure.string/starts-with? segment ":")
           (validate-route-name! route-id pattern (subs segment 1) start "param")
@@ -157,8 +162,10 @@
   splats (`*name`) occupy a whole segment with bare-identifier names; at
   most one splat, which must be final; literal segments percent-encode
   the reserved chars (`: * { } ?`); and `{...}?` optional groups close
-  with `}?`, are non-empty, non-nested, start with `/` or a named param,
-  and contain no splats."
+  with `}?`, are non-empty, non-nested, wrap a slash-prefixed sub-pattern
+  (the canonical slash-INSIDE spelling, `{/:id}?` — rf2-av1 / rf2-5u1r6a),
+  and contain no splats. A pattern may also OPEN with a leading optional
+  group (`{/:base}?/about`)."
   [route-id pattern]
   (cond
     (not (string? pattern))
@@ -167,8 +174,14 @@
     (empty? pattern)
     (route-pattern-error! route-id pattern ":path must not be empty" 0)
 
-    (not= \/ (.charAt ^String pattern 0))
-    (route-pattern-error! route-id pattern ":path must start with `/`" 0)
+    ;; A pattern must start with `/` (a segment) OR `{` (a LEADING optional
+    ;; group — the canonical slash-inside form for an optional prefix, e.g.
+    ;; `{/:base}?/about`; per Spec 012 §Path-pattern grammar rule 2 and
+    ;; rf2-av1). The group carries its own leading slash INSIDE the braces,
+    ;; so a leading group needs no `/` before it.
+    (not (or (= \/ (.charAt ^String pattern 0))
+             (= \{ (.charAt ^String pattern 0))))
+    (route-pattern-error! route-id pattern ":path must start with `/` or an optional group `{/…}?`" 0)
 
     (= "/" pattern)
     true
@@ -176,7 +189,9 @@
     :else
     (do
       (let [n (count pattern)]
-        (loop [i 1
+        ;; Start at 0 when the pattern opens with a leading optional group
+        ;; (`{…}?`), at 1 when it opens with the usual leading `/`.
+        (loop [i (if (= \{ (.charAt ^String pattern 0)) 0 1)
                splat-seen? false]
           (when (< i n)
             (let [ch (.charAt ^String pattern i)]
