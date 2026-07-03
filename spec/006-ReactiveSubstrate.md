@@ -713,14 +713,16 @@ The `on-dispose` hook lets the adapter release substrate-specific resources (a R
 2. **Eager subs.** A future `:reg-sub-by-path` (post-v1) might keep its cache slot live regardless of ref-count, for performance. v1 has no eager subs; if added, the contract surface is `entry.eager? = true` and the disposal path skips the slot.
 3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each (the parent's `on-dispose` callback calls `unsubscribe` on every `:<-` input symmetrically with the construction-time subscribes). If an input was held only by that layer-2 sub, it cascades to disposal in the same tick. The whole cascade — parent + every transitively-held input — completes within the call that drove the parent's 1 → 0 transition.
 
-### `(subscribe-once query-v) → value` / `(subscribe-once frame-id query-v) → value`
+### `(subscribe-once query-v) → value` / `(subscribe-once query-v {:frame f}) → value`
 
 The **one-shot, non-reactive read** of a subscription's current value. `subscribe-once` is the canonical end-user surface for "give me the current value of this sub *right now*, and don't retain a reference on my behalf." It is the right call from event handlers, machine actions, REPL sessions, SSR builders, and any non-reactive consumer; views and tools that want to track future changes use `subscribe` instead.
 
 ```clojure
 (subscribe-once query-v)                              ;; → value (uses the resolved current frame)
-(subscribe-once frame-id query-v)                     ;; → value (explicit-frame form)
+(subscribe-once query-v {:frame f})                   ;; → value (explicit-frame opts form)
 ```
+
+**Call-shape parallel with `subscribe` (rf2-bfadc6).** The 2-arity is **shape-discriminated on the first arg**, exactly as [`subscribe`](API.md#dispatch-and-subscribe): a query-vector first ⇒ the public `(subscribe-once query-v opts)` form (`opts` may carry `{:frame f}`; ambient when absent); a frame target first ⇒ the internal frame-first `(subscribe-once frame-id query-v)` plumbing, retired from the taught app grammar but retained for implementation / test / tooling reach. `f` is a frame-id keyword or a live frame object. Because `subscribe-once` shares `subscribe`'s exact call shape, an author who learned `(subscribe [:x] {:frame f})` writes the same `(subscribe-once [:x] {:frame f})` and the runtime binds the frame correctly — closing the same misbinding footgun EP-0024 closed for `subscribe` (`[:x]` would otherwise bind as frame-id and `{:frame f}` as query-v). `unsubscribe` (below) deliberately does **not** gain an opts-map form — it is pure teardown, never a hot in-view call, so the frame-first form is the sole explicit-frame shape.
 
 Semantically, `subscribe-once` is `subscribe` + deref + immediate `unsubscribe`:
 
@@ -737,7 +739,7 @@ subscribe-once(frame-id, query-v):
 - **One-shot.** Each call subscribes, derefs once, and unsubscribes. The caller does **not** receive a deref-able reaction; the returned value is a plain immutable value of whatever the sub computes.
 - **Non-reactive.** The caller is not registered for re-render or change notification. A subsequent `app-db` mutation that would have invalidated the slot has no observable effect on the caller of `subscribe-once` — they got their value, they're done.
 - **Synchronous teardown**. Per [§Reference counting and disposal](#reference-counting-and-disposal) the 1 → 0 transition disposes in-tick, so the one-shot read's whole lifetime — subscribe, deref, and (if this call drove the 1 → 0 transition) dispose — completes in the calling tick. A concurrent reactive subscriber (a view holding `subscribe` on the same `query-v`) keeps the slot alive via ref-count; `subscribe-once`'s decrement only triggers disposal when it owned the last reference.
-- **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context)). There is **no `:rf/default` fallback**: with no scope established the resolution raises `:rf.error/no-frame-context`. The 2-arg form is explicit and bypasses the chain.
+- **Frame-resolution.** The 1-arg form resolves the current frame via the resolution chain (dynamic-var tier, React-context tier when an adapter has registered the `:adapter/current-frame` late-bind hook per [§Frame-provider via React context](#frame-provider-via-react-context)). There is **no `:rf/default` fallback**: with no scope established the resolution raises `:rf.error/no-frame-context`. The 2-arg forms are explicit and bypass the chain — both the public `(subscribe-once query-v {:frame f})` opts form and the internal frame-first `(subscribe-once frame-id query-v)` target `f` / `frame-id` directly.
 - **Missing frame is not an error.** `subscribe-once` against a destroyed or never-created frame returns `nil` (and emits the same always-on `:rf.error/frame-destroyed` error `subscribe` does — recovery `:replaced-with-default`, per [§Lifetime contract — frame disposal](#lifetime-contract--frame-disposal) and [002 §Destroy](002-Frames.md#destroy)); it does NOT throw. (`subscribe-once` reaches this via its internal `subscribe` call.)
 - **Missing sub is not an error.** Per [§What happens when a sub references an unknown sub](#what-happens-when-a-sub-references-an-unknown-sub), an unregistered `query-v` emits `:rf.error/no-such-sub` (recovery `:replaced-with-default`) and yields `nil`; `subscribe-once` propagates the `nil`.
 - **JVM-runnable.** `subscribe-once` is part of the substrate-agnostic call-site surface; it works against the plain-atom adapter (no Reagent dependency). On the JVM, the deref step reads the substrate's container directly; tests, SSR builders, and headless tools rely on this.
@@ -750,8 +752,10 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 
 ```clojure
 (unsubscribe query-v)                                  ;; → nil (uses the resolved current frame)
-(unsubscribe frame-id query-v)                         ;; → nil (explicit-frame form)
+(unsubscribe frame-id query-v)                         ;; → nil (explicit-frame, frame-first form)
 ```
+
+**No opts-map form (deliberate, rf2-bfadc6).** Unlike `subscribe` and `subscribe-once`, `unsubscribe` does **not** accept the `(unsubscribe query-v {:frame f})` opts-map call-shape — the explicit-frame form is frame-first only. The misbinding footgun the opts form closes for the read helpers does not apply here: `unsubscribe` is pure teardown (a paired release of a `subscribe` the caller already made with a known frame), never a hot in-view call an author reaches for by muscle-memory from the `subscribe` opts form. Keeping it frame-first avoids widening the teardown surface for no ergonomic gain.
 
 **Contract MUSTs.**
 

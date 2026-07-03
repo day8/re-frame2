@@ -255,6 +255,107 @@
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n])))))
 
+;; ---- subscribe-once {:frame} opts-map call-shape (rf2-bfadc6) -------------
+;;
+;; Per rf2-bfadc6 (Mike ruled OPTION A): `subscribe-once` gains the public
+;; `{:frame}` opts-map call-shape `(subscribe-once query-v {:frame f})`,
+;; parallel to `subscribe` (EP-0024). The 2-arity is SHAPE-DISCRIMINATED on
+;; the first arg: a query-vector first ⇒ the public opts form; a frame target
+;; first ⇒ the internal frame-first form. This closes the misbinding footgun
+;; EP-0024 closed for `subscribe`: an author who learned
+;; `(subscribe [:x] {:frame f})` writes the SAME shape here and the runtime
+;; binds `f` as the frame (not `[:x]` as a frame-id and `{:frame f}` as a
+;; query-v). `unsubscribe` deliberately does NOT gain this form (guard test
+;; below).
+
+(defn- frame-cache-keys
+  "The set of query-vectors currently cached in frame `frame-id`."
+  [frame-id]
+  (set (keys @(:sub-cache (frame/frame frame-id)))))
+
+(deftest subscribe-once-opts-map-binds-the-named-frame
+  (testing "(subscribe-once query-v {:frame f}) reads frame f from OUTSIDE its
+            scope — the opts-map call-shape parallel to subscribe (rf2-bfadc6)"
+    (rf/reg-frame :bfadc6/left  {:doc "left frame"})
+    (rf/reg-frame :bfadc6/right {:doc "right frame"})
+    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
+    (rf/reg-sub :v (fn [db _] (:v db)))
+    (rf/dispatch-sync [:seed :left-value]  {:frame :bfadc6/left})
+    (rf/dispatch-sync [:seed :right-value] {:frame :bfadc6/right})
+    ;; Unwind the fixture's :rf/default scope so the read has NO ambient
+    ;; frame — the opts-map {:frame …} is the only thing naming the target.
+    (binding [frame/*current-frame* nil]
+      (is (= :left-value (rf/subscribe-once [:v] {:frame :bfadc6/left}))
+          "the opts-map {:frame :bfadc6/left} binds LEFT — not [:v] as a frame-id")
+      (is (= :right-value (rf/subscribe-once [:v] {:frame :bfadc6/right}))
+          "the opts-map {:frame :bfadc6/right} binds RIGHT")
+      ;; One-shot: no reference retained on either frame.
+      (is (not (contains? (frame-cache-keys :bfadc6/left)  [:v]))
+          "opts-map subscribe-once disposes its slot in-tick (left)")
+      (is (not (contains? (frame-cache-keys :bfadc6/right) [:v]))
+          "opts-map subscribe-once disposes its slot in-tick (right)"))))
+
+(deftest subscribe-once-opts-map-and-frame-first-agree
+  (testing "the NEW opts-map form and the RETAINED frame-first positional form
+            resolve the SAME value for the same target (rf2-bfadc6) — the
+            frame-first form is not broken by the shape-discrimination"
+    (rf/reg-frame :bfadc6/f {:doc "frame f"})
+    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
+    (rf/reg-sub :v (fn [db _] (:v db)))
+    (rf/dispatch-sync [:seed :the-value] {:frame :bfadc6/f})
+    (binding [frame/*current-frame* nil]
+      ;; Frame-first positional form (internal plumbing) — a keyword first.
+      (is (= :the-value (rf/subscribe-once :bfadc6/f [:v]))
+          "frame-first (subscribe-once frame-id query-v) still resolves")
+      ;; Public opts-map form — a query-vector first.
+      (is (= :the-value (rf/subscribe-once [:v] {:frame :bfadc6/f}))
+          "opts-map (subscribe-once query-v {:frame f}) resolves the same value")
+      ;; And they agree.
+      (is (= (rf/subscribe-once :bfadc6/f [:v])
+             (rf/subscribe-once [:v] {:frame :bfadc6/f}))
+          "both call-shapes are value-identical for the same target"))))
+
+(deftest subscribe-once-opts-map-with-empty-opts-uses-ambient
+  (testing "(subscribe-once query-v {}) with no :frame key falls through to the
+            ambient scope — the opts-map is optional, mirroring subscribe"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+    ;; Under the fixture's :rf/default with-frame scope, an opts map without
+    ;; :frame resolves the ambient frame — same as the 1-arity form.
+    (is (= 7 (rf/subscribe-once [:n] {}))
+        "opts map with no :frame reads the ambient (established-scope) frame")
+    (is (not (contains? (cache-keys) [:n]))
+        "still one-shot — the slot is disposed in-tick")))
+
+(deftest unsubscribe-did-NOT-gain-an-opts-map-form
+  (testing "unsubscribe stays FRAME-FIRST (rf2-bfadc6 Option A) — it does NOT
+            accept (unsubscribe query-v {:frame f}). A map second-arg is NOT a
+            frame target: the 2-arity treats arg1 as the frame-first target and
+            arg2 (the {:frame f} MAP) as the query-v, which keys nothing in the
+            cache — so it does NOT tear down the entry a real subscribe made.
+            This is the negative guard that no opts-map overload was added."
+    (rf/reg-frame :bfadc6/u {:doc "frame u"})
+    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
+    (rf/reg-sub :v (fn [db _] (:v db)))
+    (rf/dispatch-sync [:seed :v-value] {:frame :bfadc6/u})
+    ;; Take out a real, live subscription against frame :bfadc6/u.
+    (rf/subscribe :bfadc6/u [:v])
+    (is (contains? (frame-cache-keys :bfadc6/u) [:v])
+        "the entry is cached under frame :bfadc6/u")
+    ;; If unsubscribe HAD an opts-map form, this would decrement/dispose the
+    ;; [:v] slot. Because it does NOT, arg1 `[:v]` is read as the FRAME target
+    ;; (a vector frame-id → resolves nothing) and the {:frame …} MAP is read as
+    ;; the query-v → the cache lookup misses. The live [:v] entry survives.
+    (rf/unsubscribe [:v] {:frame :bfadc6/u})
+    (is (contains? (frame-cache-keys :bfadc6/u) [:v])
+        "the {:frame …}-as-second-arg call did NOT tear down the entry —
+         unsubscribe has NO opts-map form (frame-first only, by ruling)")
+    ;; The real, frame-first teardown DOES evict it.
+    (rf/unsubscribe :bfadc6/u [:v])
+    (is (not (contains? (frame-cache-keys :bfadc6/u) [:v]))
+        "the frame-first (unsubscribe frame-id query-v) form still tears down")))
+
 ;; ---- subscribe-before-register does NOT cache (rf2-l9u5) -----------------
 ;;
 ;; Per Spec 006 §What happens when a sub references an unknown sub:

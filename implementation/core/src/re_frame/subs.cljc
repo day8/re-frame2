@@ -1358,19 +1358,49 @@
   EP-0002: the 1-arity ambient form resolves the frame through the
   scope/hold chain via `frame/require-current-frame!` — a one-shot read
   under no established scope raises `:rf.error/no-frame-context`, never a
-  `:rf/default` floor. Pass the 2-arity form to read a named frame from
-  outside any scope."
+  `:rf/default` floor. Pass the public opts form `(subscribe-once query-v
+  {:frame target})` to read a named frame from outside any scope; `target`
+  is a frame-id keyword or a live frame object.
+
+  Per rf2-bfadc6: the 2-arity is SHAPE-DISCRIMINATED on the first arg,
+  mirroring `subscribe`: a query-vector first ⇒ the public
+  `(subscribe-once query-v opts)` form (`opts` may carry `{:frame target}`;
+  ambient when absent); a frame target first ⇒ the INTERNAL frame-first
+  `(subscribe-once frame-id query-v)` plumbing, retired from the taught app
+  grammar but retained for implementation / test / tooling reach. This
+  closes the misbinding footgun EP-0024 closed for `subscribe`: an author
+  who learned `(subscribe [:x] {:frame f})` writes the same shape here and
+  the runtime binds the frame correctly instead of reading `[:x]` as a
+  frame-id and `{:frame f}` as a query-v."
   ([query-v]
    (subscribe-once (frame/require-current-frame!
                      :subscribe-once
                      {:where    're-frame.subs/subscribe-once
                       :event-id (first query-v)})
                    query-v))
-  ([frame-id query-v]
-   (let [reaction (subscribe frame-id query-v)
-         v        (when reaction @reaction)]
-     (unsubscribe frame-id query-v)
-     v)))
+  ([a b]
+   ;; rf2-bfadc6: the 2-arity is SHAPE-DISCRIMINATED on the first arg,
+   ;; exactly as `subscribe`. A QUERY-VECTOR first ⇒ the PUBLIC
+   ;; `(subscribe-once query-v opts)` form; `opts` may carry `{:frame target}`
+   ;; (ambient when absent). Lower it to the frame-first internal arity —
+   ;; `(:frame opts)` is a keyword/object, never a vector, so the recursive
+   ;; call lands in the frame-first branch below. A frame target first (never
+   ;; a vector) ⇒ the INTERNAL frame-first `(subscribe-once frame-id query-v)`
+   ;; plumbing, retired from the taught app grammar but kept for
+   ;; implementation / test / tooling reach.
+   (if (vector? a)
+     (if-some [target (:frame b)]
+       (subscribe-once target a)
+       (subscribe-once a))
+     ;; INTERNAL frame-first. `subscribe` / `unsubscribe` each normalize a
+     ;; frame OBJECT target to its runnable-id ADDRESS, so subscribe-then-
+     ;; unsubscribe here target the same frame for every supported spelling.
+     (let [frame-id a
+           query-v  b
+           reaction (subscribe frame-id query-v)
+           v        (when reaction @reaction)]
+       (unsubscribe frame-id query-v)
+       v))))
 
 (defn- frame-state-value?
   "True when `v` is a frame-state projection map carrying at least one

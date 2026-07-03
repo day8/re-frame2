@@ -294,7 +294,7 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
   (subscribe-once query-v) → value
   (subscribe-once query-v opts) → value
   ```
-- **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Use in handler bodies, machine actions, REPL — anywhere you want the *current* value without the reactive plumbing. Not for views. Target a non-ambient frame via `{:frame …}`.
+- **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Use in handler bodies, machine actions, REPL — anywhere you want the *current* value without the reactive plumbing. Not for views. Target a non-ambient frame via the `{:frame …}` opts form `(subscribe-once query-v {:frame f})`, mirroring `subscribe` — the same call shape carries over.
 - **Example**:
   ```clojure
   ;; One-shot read of the current value — no reactive handle retained.
@@ -308,9 +308,9 @@ These are the two verbs that drive the cascade. `dispatch` says "an event happen
 - **Signature**:
   ```clojure
   (unsubscribe query-v) → nil
-  (unsubscribe query-v opts) → nil
+  (unsubscribe frame-id query-v) → nil
   ```
-- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** — see [Subscriptions](../core/concepts/subscriptions.md). Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount. Target a non-ambient frame via `{:frame …}`.
+- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** — see [Subscriptions](../core/concepts/subscriptions.md). Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount. Target a non-ambient frame with the frame-first `(unsubscribe frame-id query-v)` form — unlike `subscribe` / `subscribe-once`, `unsubscribe` has no `{:frame …}` opts form (it's pure teardown, never a hot in-view call).
 - **Example**:
   ```clojure
   ;; Manual ref-count pairing (tests / REPL) — balances an explicit subscribe.
