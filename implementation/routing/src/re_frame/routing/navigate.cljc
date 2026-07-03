@@ -425,7 +425,7 @@
                            route-id path-params query-params fragment)]
       (cond
         ;; rf2-1os1c: params/opts positional swap. An opts-only key
-        ;; (`:replace?` / `:scroll` / `:fragment` / `:bypass-leave-guard?`)
+        ;; (`:replace?` / `:scroll` / `:fragment` / `:bypass-guards?`)
         ;; sits in the PARAMS slot and is not a declared path-param of
         ;; the target route — the author almost certainly meant to pass
         ;; it as the THIRD `opts` arg. Reject loudly (caller bug; slice
