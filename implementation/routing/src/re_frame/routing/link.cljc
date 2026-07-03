@@ -12,22 +12,35 @@
   Per the rf2-2yabr cohesion split: ROUTE-LINK seam."
   (:require [re-frame.router :as router]
             [re-frame.frame :as frame]
-            [re-frame.routing.registry :as registry]))
+            [re-frame.routing.registry :as registry]
+            [re-frame.routing.strategy :as strategy]))
 
 (defn- href-attrs
   "Synthesise the `<a>` href from the link control keys (`:to` /
   `:params` / `:query` / `:fragment`), strip those control keys (plus
   `:on-click`, which the CLJS path replaces and the SSR path drops) off
-  `props`, and return `[url base-attrs]`. The base attrs carry the
+  `props`, and return `[path-url base-attrs]`. The base attrs carry the
   synthesised `:href` plus every passthrough HTML attr; both the CLJS
   and SSR render fns build on it so the control-key list lives in ONE
   place and cannot drift between the two halves of the Spec 011 render
-  contract."
-  [{:keys [to params query fragment] :as props}]
-  (let [url (registry/route-url to (or params {}) (or query {}) fragment)]
-    [url (-> props
-             (dissoc :to :params :query :fragment :on-click)
-             (assoc :href url))]))
+  contract.
+
+  rf2-aerrz5 (URL-strategy seam): `route-url` builds the PATH-FORM URL
+  (`/active`); `encode` maps it to the rendered `:href` — one of the four
+  strategy consult points. The first return value is the PATH-FORM url
+  (unencoded) — it is the behavioural navigation identity carried on the
+  `:rf/url-requested` dispatch (the click handler routes through the
+  cascade, which is path-form throughout). The rendered `:href` is the
+  ENCODED form so copy-link / open-in-new-tab land on the right address
+  (`#/active` for a hash app). The CLJS render passes its captured frame's
+  strategy `:encode`; the SSR render passes `identity` (SSR ignores
+  strategies — the path-form href is the server shell, and the hydrated
+  CLJS render fn re-encodes on the client)."
+  [{:keys [to params query fragment] :as props} encode]
+  (let [path-url (registry/route-url to (or params {}) (or query {}) fragment)]
+    [path-url (-> props
+                  (dissoc :to :params :query :fragment :on-click)
+                  (assoc :href (encode path-url)))]))
 
 #?(:cljs
    (defn- plain-left-click?
@@ -117,14 +130,7 @@
      calls; see `route-url`'s perf note for the precompute follow-on
      should it become a bottleneck."
      [{:keys [to params query fragment on-click] :as props} & children]
-     (let [[url base-attrs] (href-attrs props)
-           ;; rf2-fwz29i: anchors carrying native-handling attributes
-           ;; (`target="_blank"`, `download`) must let the browser handle
-           ;; the click — SPA interception would defeat new-tab / download.
-           ;; Computed once at render against the resolved attrs (post
-           ;; control-key strip) so the string/keyword attr forms are seen.
-           native? (native-anchor? base-attrs)
-           ;; rf2-o3nam4: CAPTURE the render-time frame ONCE, here at render —
+     (let [;; rf2-o3nam4: CAPTURE the render-time frame ONCE, here at render —
            ;; NOT at click time. `:route/link` is registered via `reg-view*`
            ;; with this prebuilt fn, so it does NOT receive the `reg-view`
            ;; macro's injected `make-capture-frame` render-time capture
@@ -145,6 +151,20 @@
            render-frame (frame/require-current-frame!
                           :route-link
                           {:where 're-frame.routing.link/route-link-render})
+           ;; rf2-aerrz5 (URL-strategy seam): the rendered `:href` is encoded
+           ;; through the RENDER-TIME frame's `:url-strategy` (default
+           ;; path-form). A hash app renders `#/active`; a history app renders
+           ;; `/active`. `url` is the PATH-FORM navigation identity carried on
+           ;; the click dispatch — the cascade is path-form throughout, so the
+           ;; encode touches ONLY the href. One of the four consult points.
+           encode (:encode (strategy/url-strategy-for-frame-id render-frame))
+           [url base-attrs] (href-attrs props encode)
+           ;; rf2-fwz29i: anchors carrying native-handling attributes
+           ;; (`target="_blank"`, `download`) must let the browser handle
+           ;; the click — SPA interception would defeat new-tab / download.
+           ;; Computed once at render against the resolved attrs (post
+           ;; control-key strip) so the string/keyword attr forms are seen.
+           native? (native-anchor? base-attrs)
            attrs (assoc base-attrs
                         :on-click
                         (fn [e]
@@ -182,9 +202,16 @@
   DOM events to intercept, so the anchor is emitted as-is and clicks
   on the hydrated page run the CLJS render fn's on-click path. Per
   Spec 011 the render tree is the contract; this is the JVM half of
-  that contract for the `:route/link` view."
+  that contract for the `:route/link` view.
+
+  rf2-aerrz5: SSR IGNORES URL strategies — the server has no address bar,
+  and a hash never reaches it. The href is emitted PATH-FORM (`encode` =
+  `identity`); on hydration the CLJS `route-link-render` re-encodes it
+  through the frame's strategy. So a hash app's server shell carries
+  `/active` and the hydrated anchor carries `#/active`, both pointing at
+  the same route."
   [props & children]
-  (let [[_url attrs] (href-attrs props)]
+  (let [[_url attrs] (href-attrs props identity)]
     (into [:a attrs] children)))
 
 ;; The façade owns the `:route/link` registration:

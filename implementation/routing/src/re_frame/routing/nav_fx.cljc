@@ -17,6 +17,7 @@
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar. Per the rf2-2yabr cohesion split: NAV-FX seam."
   (:require [re-frame.registrar :as registrar]
+            [re-frame.routing.strategy :as strategy]
             [re-frame.trace :as trace]))
 
 (defn url-bound?-from-config
@@ -197,10 +198,19 @@
 ;; `:rf.nav/push-url` and `:rf.nav/replace-url` share one body: gate on
 ;; the calling frame's URL ownership, then either drive the browser
 ;; history (CLJS) or emit the standard `:rf.fx/skipped-on-platform`
-;; trace (JVM / non-owner). The ONLY per-fx variation is the history
-;; method (`history.pushState` vs `history.replaceState`) and the
-;; `:rf.fx/id` tag, so the body lives once in `history-mutation-handler`
-;; and each handler closes over its method + fx-id.
+;; trace (JVM / non-owner). The ONLY per-fx variation is the STRATEGY
+;; op it drives (`:push!` vs `:replace!`) and the `:rf.fx/id` tag, so the
+;; body lives once in `history-mutation-handler` and each handler closes
+;; over its strategy-op key + fx-id.
+;;
+;; rf2-aerrz5 (URL-strategy seam): the URL-owning frame's `:url-strategy`
+;; (default `history-url-strategy`, path-form) is consulted HERE — one of
+;; the four egress/ingress consult points. The pushed URL arrives PATH-FORM
+;; (`route-url`/the cascade never encode); the strategy op does the encode
+;; and the actual `window.history` drive (`history-*` = pushState/replaceState
+;; on the path unchanged; `hash-*` = pushState/replaceState on `#<path>`). So
+;; a hash app pushes `#/active` while a history app pushes `/active`, from the
+;; same fx, with no branch here.
 
 #?(:cljs
    (defn- run-history-mutation!
@@ -228,18 +238,26 @@
   "Shared body for the `:rf.nav/push-url` / `:rf.nav/replace-url` fx
   handlers. `fx-id` tags the platform-skip / non-owner traces and (with
   the `-failed` suffix) the CLJS mutation-failure trace; `failed-trace-id`
-  is that pre-built `:rf.fx/<fx-id>-failed` keyword. `mutate!` is the
-  0-arg thunk that drives `window.history` on CLJS (a no-op on JVM — the
-  caller passes a CLJS-only thunk under a reader conditional); on CLJS it
-  is run through `run-history-mutation!` so a browser throw fails closed
-  to the structured failure trace rather than crashing the fx drain.
-  Non-URL-bound frames skip the history mutation: the frame's route slice
-  at `[:rf.runtime/routing :current]` still updates — only the browser-URL
-  sync is suppressed. Per Spec 012 §Multi-frame routing this is the right
-  default for story-variant / devcard / per-test fixtures."
-  [fx-id failed-trace-id frame url mutate!]
+  is that pre-built `:rf.fx/<fx-id>-failed` keyword. `strategy-op` is the
+  strategy-map key naming the history drive (`:push!` or `:replace!`).
+
+  rf2-aerrz5 (URL-strategy seam): on CLJS the URL-owning frame's
+  `:url-strategy` is resolved and its `strategy-op` fn is called with the
+  PATH-FORM `url` — the strategy encodes it (identity for history, `#`-prefix
+  for hash) and drives `window.history`. The drive runs through
+  `run-history-mutation!` so a browser throw fails closed to the structured
+  failure trace rather than crashing the fx drain. Non-URL-bound frames skip
+  the mutation: the frame's route slice at `[:rf.runtime/routing :current]`
+  still updates — only the browser-URL sync is suppressed. Per Spec 012
+  §Multi-frame routing this is the right default for story-variant / devcard /
+  per-test fixtures. SSR ignores strategies — the JVM half emits the standard
+  `:rf.fx/skipped-on-platform` trace (there is no `window` to drive)."
+  [fx-id failed-trace-id frame url strategy-op]
   (if (url-bound-frame? frame)
-    #?(:cljs (run-history-mutation! failed-trace-id fx-id frame url mutate!)
+    #?(:cljs (let [strat  (strategy/url-strategy-for-frame-id frame)
+                   drive! (get strat strategy-op)]
+               (run-history-mutation! failed-trace-id fx-id frame url
+                                      #(drive! url)))
        :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                           {:rf.fx/id fx-id :url url}))
     (trace/emit! :rf.fx :rf.fx/skipped-on-platform
@@ -287,9 +305,7 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   alive."
   [{:keys [frame]} url]
   (history-mutation-handler
-    :rf.nav/push-url :rf.fx/push-url-failed frame url
-    #?(:cljs #(.pushState js/window.history nil "" url)
-       :clj nil)))
+    :rf.nav/push-url :rf.fx/push-url-failed frame url :push!))
 
 (def replace-url-meta
   "Metadata for the `:rf.nav/replace-url` fx registration. Spec 012
@@ -321,5 +337,4 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   behaviour under the same failure class."
   [{:keys [frame]} url]
   (history-mutation-handler
-    :rf.nav/replace-url :rf.fx/replace-url-failed frame url
-    #?(:cljs #(.replaceState js/window.history nil "" url) :clj nil)))
+    :rf.nav/replace-url :rf.fx/replace-url-failed frame url :replace!))

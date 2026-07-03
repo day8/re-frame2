@@ -66,24 +66,58 @@
   {:hook :routing/current-url :artefact routing-artefact :on-absent :throw}
   ([] :delegate))
 
-(defwrapper install-history-listener!
-  "Per Spec 012 §Multi-frame routing (rf2-6qgbs.4). Install a `window`
-  `popstate` listener that dispatches `:rf.route/handle-url-change` to the
-  current URL-owning frame (`url-owner-frame-id`, resolved at pop time),
-  then sync the current URL into that frame's route slice at
-  `[:rf.runtime/routing :current]`. This is
-  the inbound (browser → app) counterpart of the outbound
-  `:rf.nav/push-url` gate: Back/Forward restores the owner frame's route,
-  whether the owner is `:rf/default` or a non-default `:url-bound? true`
-  frame. Idempotent (re-install replaces the listener — hot-reload safe).
-  CLJS-only. Late-bound via `:routing/install-history-listener!`."
-  {:hook :routing/install-history-listener! :artefact routing-artefact :on-absent :throw}
+(defwrapper install-url-listener!
+  "Per Spec 012 §URL strategies + §Multi-frame routing (rf2-aerrz5). Install
+  the URL-owning frame's browser URL-change listener — `popstate` for a
+  HISTORY-strategy app, `hashchange` for a HASH-strategy app, per the owner's
+  `:url-strategy` (default `history-url-strategy`). Each browser-driven change
+  is DECODED to a PATH-FORM URL and dispatched as `:rf.route/handle-url-change`
+  to the current URL-owning frame (`url-owner-frame-id`, resolved at fire
+  time), then the current URL is synced into that frame's route slice at
+  `[:rf.runtime/routing :current]`. This is the inbound (browser → app)
+  counterpart of the outbound `:rf.nav/push-url` gate: Back/Forward restores
+  the owner frame's route. Idempotent (re-install tears down the prior
+  listener — hot-reload safe). CLJS-only. Late-bound via
+  `:routing/install-url-listener!`.
+
+  The 0-arity resolves the strategy from the current URL owner; the 1-arity
+  takes an EXPLICIT strategy map (e.g. `rf/hash-url-strategy`) for apps whose
+  URL-owning frame is created asynchronously, so the listener kind does not
+  depend on frame-registration timing."
+  {:hook :routing/install-url-listener! :artefact routing-artefact :on-absent :throw}
+  ([]      :delegate)
+  ([strat] :delegate))
+
+(defwrapper remove-url-listener!
+  "Per Spec 012 §URL strategies. Tear down the browser URL-change listener
+  installed by `install-url-listener!` (whichever kind the strategy wired).
+  No-op when none is installed. CLJS-only. Late-bound via
+  `:routing/remove-url-listener!`."
+  {:hook :routing/remove-url-listener! :artefact routing-artefact :on-absent :throw}
   ([] :delegate))
 
+(defwrapper install-history-listener!
+  "Alias for `install-url-listener!` (rf2-aerrz5) — retained as the
+  established boot-seam name for HISTORY-strategy apps. Since the default
+  strategy is history, this behaves identically to `install-url-listener!`
+  for a path-form app; a hash app can call either name (the owner's
+  `:url-strategy` decides the listener kind). Install a browser URL-change
+  listener that dispatches `:rf.route/handle-url-change` to the current
+  URL-owning frame (`url-owner-frame-id`, resolved at fire time), then sync
+  the current URL into that frame's route slice at
+  `[:rf.runtime/routing :current]`. Idempotent (hot-reload safe). CLJS-only.
+  Late-bound via `:routing/install-history-listener!`. New code should prefer
+  `install-url-listener!`. The 1-arity takes an explicit strategy map, same as
+  `install-url-listener!`."
+  {:hook :routing/install-history-listener! :artefact routing-artefact :on-absent :throw}
+  ([]      :delegate)
+  ([strat] :delegate))
+
 (defwrapper remove-history-listener!
-  "Per Spec 012 §Multi-frame routing. Tear down the `popstate` listener
-  installed by `install-history-listener!`. No-op when none is installed.
-  CLJS-only. Late-bound via `:routing/remove-history-listener!`."
+  "Alias for `remove-url-listener!` (rf2-aerrz5). Tear down the browser
+  URL-change listener installed by `install-history-listener!` /
+  `install-url-listener!`. No-op when none is installed. CLJS-only.
+  Late-bound via `:routing/remove-history-listener!`."
   {:hook :routing/remove-history-listener! :artefact routing-artefact :on-absent :throw}
   ([] :delegate))
 

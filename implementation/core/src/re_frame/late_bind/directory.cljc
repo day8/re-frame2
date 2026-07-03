@@ -507,12 +507,20 @@
    {:key         :routing/current-url
     :producer-ns 're-frame.routing
     :description "Read the current browser URL as pathname+search+hash (CLJS) / \"/\" (JVM)."}
+   {:key         :routing/install-url-listener!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-aerrz5"
+    :description "Wire the URL-owner frame's browser URL-change listener (popstate or hashchange per its :url-strategy). CLJS-only."}
+   {:key         :routing/remove-url-listener!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-aerrz5"
+    :description "Tear down the URL-change listener installed by install-url-listener!. CLJS-only."}
    {:key         :routing/install-history-listener!
     :producer-ns 're-frame.routing
-    :description "Wire a popstate listener that drives the URL-owner frame on Back/Forward (rf2-6qgbs.4). CLJS-only."}
+    :description "Alias for install-url-listener! (rf2-aerrz5). Wire a listener that drives the URL-owner frame on Back/Forward (rf2-6qgbs.4). CLJS-only."}
    {:key         :routing/remove-history-listener!
     :producer-ns 're-frame.routing
-    :description "Tear down the popstate listener installed by install-history-listener!. CLJS-only."}
+    :description "Alias for remove-url-listener! (rf2-aerrz5). Tear down the listener installed by install-history-listener!. CLJS-only."}
    {:key         :routing/on-frame-destroyed!
     :producer-ns 're-frame.routing
     :design-bead "rf2-1hncp2"
