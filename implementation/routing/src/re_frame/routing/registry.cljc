@@ -121,7 +121,8 @@
 
 ;; ---- authoring-boundary metadata validation ------------------------------
 ;; Per Spec 012 §Reserved route-metadata keys. `reg-route` has the
-;; largest registration shape in the v2 surface (twelve reserved keys);
+;; largest registration shape in the v2 surface (the routing-owned
+;; reserved keys plus cross-feature `:head`);
 ;; a typo'd key (`:on-matched` for `:on-match`) or an opts-shaped map in
 ;; the wrong slot would otherwise pass silently at registration and fail
 ;; later at nav-time, or never. We fail LOUDLY at the authoring boundary
@@ -134,8 +135,9 @@
   "Route-metadata keys `reg-route` accepts as bare (unqualified) keys;
   any other bare key is a likely typo and is rejected at registration.
 
-  The first twelve are the routing-owned reserved keys per Spec 012
-  §Reserved route-metadata keys. `:head` is a CROSS-FEATURE reserved
+  The routing-owned reserved keys are per Spec 012 §Reserved
+  route-metadata keys (`:can-enter` joined `:can-leave` per rf2-p69yaz
+  Option A). `:head` is a CROSS-FEATURE reserved
   key owned by SSR (Spec 011 §Head/meta contract — \"routes name which
   head to use via `:head` route metadata\"); Spec 012 itself lists it as
   a valid route-metadata key alongside the routing-owned set (Spec 012
@@ -143,7 +145,9 @@
   the authoring guard does not false-flag a legitimate SSR route."
   #{;; routing-owned (Spec 012 §Reserved route-metadata keys)
     :doc :path :params :query :query-defaults :query-retain
-    :tags :parent :on-match :on-error :scroll :can-leave
+    ;; :can-enter is the first-class mirror of :can-leave (rf2-p69yaz
+    ;; Option A) — the target route's enter-gate guard sub-id.
+    :tags :parent :on-match :on-error :scroll :can-leave :can-enter
     ;; route-owned data classification (EP-0025, rf2-3r6k8i — the
     ;; `reg-route` subsystem-matrix row; projection-relative `:sensitive` /
     ;; `:large`, lowered into the per-frame elision registry at activation).
