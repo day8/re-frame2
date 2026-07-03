@@ -766,9 +766,11 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 > [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md).
 > This section states the substrate primitives that contract depends on,
 > kept consistent with the existing 008 surfaces (`re-frame.test-support`
-> / `re-frame.test-helpers` / `compute-sub`). These are NET-NEW for P1
-> unless explicitly marked otherwise; an implementer must not assume a
-> hook that does not yet exist.
+> / `re-frame.test-helpers` / `compute-sub`). These primitives have
+> landed — `settled-boundary`, the invariant sentinels / `first-bad-epoch`,
+> the run-artifact replay / determinism utilities, and `canonicalize` are
+> all shipped and build on the always-on substrate seams (`dispatch-sync`,
+> the epoch-listener seam, the one epoch tape) named below.
 
 ### `settled-boundary`
 

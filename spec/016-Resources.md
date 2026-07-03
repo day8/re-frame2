@@ -1404,7 +1404,7 @@ The infinite feed entry is an ordinary durable resource entry, so it rides the e
 
 ### Trace surfacing
 
-The `:rf.resource/*` trace family ([§Xray and AI tooling](#xray-and-ai-tooling)) gains four infinite-specific ops (reserved now; the emit catalogue lands in [009 §resources](009-Instrumentation.md), and the Xray panel spec `tools/xray/spec/024-Resources-Panel.md` lands with the emit slice, per the standing Xray-spec-currency rule — this spec slice touches no `tools/xray/` source):
+The `:rf.resource/*` trace family ([§Xray and AI tooling](#xray-and-ai-tooling)) carries four infinite-specific ops (catalogued in [009 §resources](009-Instrumentation.md) and in the Xray panel spec [`tools/xray/spec/024-Resources-Panel.md`](../tools/xray/spec/024-Resources-Panel.md)):
 
 - **`:rf.resource/load-more`** — a load-more was dispatched: feed key, resolved `:page-param`, current `:page-count`, work id.
 - **`:rf.resource/page-appended`** — a page-fetch succeeded and was appended: page index, new `:page-count`, derived `:next-page-param` (or `:terminal? true`).
