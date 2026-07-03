@@ -267,7 +267,7 @@
 
 (rf/reg-event :articles/loaded
   {:doc "The fetch came back happy. Swap in the new list and clear any stale
-         error. It arrives as `{:kind :success :value <ArticlesResponse>}` —
+         error. It arrives as `{:status :ok :value <ArticlesResponse>}` —
          the same uniform reply shape every managed request returns. Folds the
          fresh count into the home machine via `:fetch-succeeded`, and the
          `:data` region's `:resolving` `:always` cascade takes it from there,
@@ -294,8 +294,8 @@
          message, projected from the failure map. Folds the failure into the
          home machine via `:fetch-failed`, sending the `:data` region to
          `:error`."}
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    (let [message (rh/failure->message failure)]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    (let [message (rh/failure->message error)]
       {:db (-> db
                (assoc-in [:articles :status] :error)
                (assoc-in [:articles :error] message))

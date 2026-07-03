@@ -90,20 +90,21 @@ Three conveniences worth knowing:
 
 ## Handling the reply
 
-Every reply is one of two plain maps:
+Every reply is the one **canonical reply envelope** — a plain map with a closed `:status`:
 
-| Reply | Shape | Notes |
+| `:status` | Shape | Notes |
 |---|---|---|
-| Success | `{:kind :success :value value}` | `value` is the decoded 2xx body. If you supplied `:accept`, this is the value inside `{:ok value}`. |
-| Failure | `{:kind :failure :failure failure-map}` | `failure-map` is one of the [category maps below](#failures-are-a-closed-set). Branch on `(-> reply :failure :kind)`. |
+| `:ok` | `{:status :ok :value value …}` | `value` is the decoded 2xx body. If you supplied `:accept`, this is the value inside `{:ok value}`. |
+| `:error` | `{:status :error :error failure-map …}` | `failure-map` is one of the [category maps below](#failures-are-a-closed-set). Branch on `(-> reply :error :kind)`. |
+| `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:cancel/reason` alongside. |
 
-So the *reply's* `:kind` tells you which path (`:success` / `:failure`), and a failure's inner `:failure` map carries its **own** `:kind` — the category. This is HTTP's short spelling of the one reply contract every async surface shares — the full `:status`-based envelope lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests never need it.
+So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled`), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:work/id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
 
 There are two **equal** ways to receive the reply — pick by fit, not correctness.
 
 ### Separate handlers
 
-Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the reply appended as the last event argument — `[:article/loaded {:kind :success :value <decoded>}]`:
+Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the canonical reply appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. `:on-success` / `:on-failure` are pure routing sugar; both receive the identical envelope, they just route it to two named handlers:
 
 ```clojure
 (rf/reg-event :article/load
@@ -113,8 +114,8 @@ Name `:on-success` and `:on-failure` and each outcome lands in its own handler, 
                              :on-success [:article/loaded]
                              :on-failure [:article/load-error]}]]}))
 
-(rf/reg-event :article/loaded     (fn [{:keys [db]} [_ {:keys [value]}]]   …))   ;; success
-(rf/reg-event :article/load-error (fn [{:keys [db]} [_ {:keys [failure]}]] …))   ;; failure
+(rf/reg-event :article/loaded     (fn [{:keys [db]} [_ {:keys [value]}]] …))   ;; success — :value
+(rf/reg-event :article/load-error (fn [{:keys [db]} [_ {:keys [error]}]] …))   ;; failure — :error
 ```
 
 Three small handlers, each doing one thing. This is the shape to prefer when the success and failure paths are substantial or diverge — each reads and tests on its own.
@@ -132,12 +133,12 @@ Omit `:on-success` / `:on-failure` and the reply routes back to the *originating
 (rf/reg-event :counter/+1
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
-      (case (:kind reply)
-        :success {:db (-> db
-                          (update :counter/count + (-> reply :value :delta))
-                          (assoc :counter/status :idle :counter/error nil))}
-        :failure {:db (assoc db :counter/status :error
-                                :counter/error  (:failure reply))})
+      (case (:status reply)
+        :ok    {:db (-> db
+                        (update :counter/count + (-> reply :value :delta))
+                        (assoc :counter/status :idle :counter/error nil))}
+        :error {:db (assoc db :counter/status :error
+                              :counter/error  (:error reply))})
       ;; Initial branch — issue the request.
       {:db (assoc db :counter/status :loading)
        :fx [[:rf.http/managed {:request {:url "/api/inc.json"}}]]})))
@@ -194,7 +195,7 @@ The set is closed for v1; adding a category is a versioned framework change. Tha
 Two classification rules catch newcomers:
 
 - **Status is classified before the body is touched — decode runs only on 2xx.** A JSON endpoint behind a load balancer that 404s with an *HTML* error page is `:rf.http/http-4xx` with the raw HTML at `:body`, not a decode failure: the decoder never ran. If you want the structured error body many APIs return alongside a 4xx, decode `:body` yourself in the failure branch — the framework hands you the bytes and the status, on purpose.
-- **An empty (or whitespace-only) 2xx body is not a decode failure** — it's a parsed value of `nil`. The bare `204 No Content` a PUT or DELETE replies with succeeds: `:decode :json` hands your `:on-success` `{:kind :success :value nil}`. A schema `:decode` then decides whether `nil` is acceptable — `[:maybe …]` passes, a required `:map` rejects as an ordinary schema failure. Identical on the browser and the JVM, on purpose.
+- **An empty (or whitespace-only) 2xx body is not a decode failure** — it's a parsed value of `nil`. The bare `204 No Content` a PUT or DELETE replies with succeeds: `:decode :json` hands your `:on-success` the canonical `{:status :ok :value nil …}`. A schema `:decode` then decides whether `nil` is acceptable — `[:maybe …]` passes, a required `:map` rejects as an ordinary schema failure. Identical on the browser and the JVM, on purpose.
 
 ## Validating the body with `:decode`
 
@@ -286,7 +287,7 @@ Three related surfaces, one per situation.
 
 **Supersession — reuse a `:request-id`.** Give a request a stable `:request-id` — any `=`-comparable value: a keyword, a string, or a structural vector like `[:articles :load slug]` — and issuing a *new* request with the same id automatically supersedes the old one. The old reply is suppressed before delivery: your handler never sees it, only a trace row records it (`:reason :request-id-superseded`). This is the cure for the search-box race — the [tutorial demonstrates it](tutorial.md) — and it's a correctness guarantee, not an optimization: a suppressed reply *cannot* clobber fresh data no matter how late it arrives.
 
-**Manual abort — `[:rf.http/managed-abort the-id]`.** Where a supersession quietly retires the previous request, a manual abort is an explicit "stop now." It aborts whichever request currently holds the id and *does* deliver a failure reply — `{:kind :rf.http/aborted, :reason :user}` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells them apart.
+**Manual abort — `[:rf.http/managed-abort the-id]`.** Where a supersession quietly retires the previous request, a manual abort is an explicit "stop now." It aborts whichever request currently holds the id and *does* deliver a reply — a `:status :cancelled` envelope carrying `{:kind :rf.http/aborted :reason :user}` under `:error` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells them apart.
 
 **External cancel — `:abort-signal`.** If the cancel signal you want to honour already lives outside re-frame — a parent widget's lifecycle, a shared `AbortController` — hand its `.signal` to the request under `:abort-signal`. You can supply it *together with* a `:request-id` and the framework guarantees exactly one terminal outcome no matter which fires first. (`:abort-signal` is browser-only — the JVM has no `AbortController`, so `:request-id` is the cross-host cancel handle.)
 

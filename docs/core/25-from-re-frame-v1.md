@@ -263,8 +263,8 @@ A v1 codebase that registered its own `:http` fx — or leaned on `re-frame-http
 
 1. Add the `day8/re-frame2-http` artefact and require it from the namespaces that issue requests.
 2. Replace `[:http {:url ... :on-success ... :on-error ...}]` with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`. Wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) move *inside* `:request`.
-3. Rename `:on-error` → `:on-failure`. The [reply map](../resources/glossary.md#reply-map) appends as the last argument; destructure `{:keys [value]}` for success, `{:keys [failure]}` for failure.
-4. Adopt the closed `:rf.http/*` failure category set — code that branched on `(:status err)` becomes branching on the failure's `:kind`.
+3. Rename `:on-error` → `:on-failure`. The canonical [reply map](../resources/glossary.md#reply-map) appends as the last argument; destructure `{:keys [value]}` for success (reply `:status :ok`), `{:keys [error]}` for failure (reply `:status :error`, the failure map under `:error`).
+4. Adopt the closed `:rf.http/*` failure category set — code that branched on `(:status err)` becomes branching on the failure map's `:kind` (under the reply's `:error`).
 
 There are exactly **eight** failure categories, in two groups. Five are *retryable* (a re-issue can plausibly change the outcome): `:rf.http/transport` (network / DNS / connection-reset), `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, and `:rf.http/http-5xx`. Three are *non-retryable by construction*: `:rf.http/aborted` (cancelled or superseded — abort always wins), `:rf.http/decode-failure` (a 2xx whose body failed schema validation / JSON parse / your decode fn threw), and `:rf.http/accept-failure` (your `:accept` normaliser projected a structurally-valid 200 to a domain `{:failure …}`). Putting a non-retryable category in `:retry :on` fails loud at the dispatch site with `:rf.error/http-bad-retry-on` — the runtime refuses to carry a retry policy that can never fire.
 
@@ -272,9 +272,9 @@ A v1 status-code `cond` becomes a `case` over these named kinds:
 
 ```clojure
 (rf/reg-event :article/load-error
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]        ;; the failure map rides under :error
     {:db (assoc-in db [:article :error]
-           (case (:kind failure)
+           (case (:kind error)
              :rf.http/timeout        "The server took too long — try again."
              :rf.http/http-4xx       "That article doesn't exist."
              :rf.http/http-5xx       "Something broke on our end."

@@ -112,15 +112,15 @@
         first)))
 
 (defn- reply-success!
-  ([args result] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
+  ([args result] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
   ;; EP-0010: a fixture may script the reply token's :rf.cofx to pin
   ;; the host :completed-at (the managed transport stamps it on the reply
   ;; dispatch in live code).
-  ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result}) opts)))
+  ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result}) opts)))
 
 (defn- reply-failure!
-  ([args failure] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
-  ([args failure opts] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}) opts)))
+  ([args failure] (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
+  ([args failure opts] (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}) opts)))
 
 (defn- art-target
   "The map-form exact target (EP-0016 Rider 2 — the only public input form for
@@ -708,7 +708,7 @@
                   the same instance/generation)"
           ;; dispatch frame A's reply (its payload carries :rf.frame/id = A)
           ;; into the WRONG frame B.
-          (rf/dispatch-sync (conj (:on-success args-a) {:kind :success :value {:ok true}})
+          (rf/dispatch-sync (conj (:on-success args-a) {:status :ok :value {:ok true}})
                             {:frame fb})
           (is (= :pending (:status (instance fb :form/x)))
               "frame B's instance untouched by frame A's misrouted reply")
@@ -716,7 +716,7 @@
           (is (= :pending (:status (instance fa :form/x)))
               "frame A's own instance also still pending (its reply went to B)"))
         (testing "frame A's reply dispatched into frame A DOES settle it"
-          (rf/dispatch-sync (conj (:on-success args-a) {:kind :success :value {:ok true}})
+          (rf/dispatch-sync (conj (:on-success args-a) {:status :ok :value {:ok true}})
                             {:frame fa})
           (is (= :success (:status (instance fa :form/x))) "frame A settled by its own reply"))))))
 
@@ -1372,7 +1372,7 @@
         (testing "frame A's reply settles ONLY frame A's instance — frame B's
                   write stays independently in flight (no stranded instance)"
           ;; the reply event the live transport appends, dispatched into frame A
-          (rf/dispatch-sync (conj (:on-success (first @all-args)) {:kind :success :value {:ok true}})
+          (rf/dispatch-sync (conj (:on-success (first @all-args)) {:status :ok :value {:ok true}})
                             {:frame fa})
           (is (= :success (:status (instance fa :form/save-1))) "frame A settled")
           (is (= :pending (:status (instance fb :form/save-1)))

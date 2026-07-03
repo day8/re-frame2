@@ -7,16 +7,16 @@ the corresponding `:rf.http/*` event(s) on the trace stream so a
 consumer (Xray, Story, re-frame2-pair-mcp) verifies category attribution
 end-to-end.
 
-| Outcome | `data-testid` (option) | Strategy | Reply `:kind` / `:failure :kind` |
+| Outcome | `data-testid` (option) | Strategy | Reply `:status` / `:error :kind` |
 |---|---|---|---|
-| 200 success | `:success` | Live Fetch against `api/success.json` (static asset shipped under the testbed dir). | `:kind :success`, `:value {:ok true :value "http-toggle success"}` |
-| 4xx | `:rf.http/http-4xx` | Canned-failure stub with `:status 404`, raw HTML body. | `:kind :failure`, `:failure :kind :rf.http/http-4xx`, `:status 404`, `:body "<html>not found</html>"` |
-| 5xx | `:rf.http/http-5xx` | Canned-failure stub with `:status 500`, raw HTML body. | `:kind :failure`, `:failure :kind :rf.http/http-5xx`, `:status 500`, `:body "<html>server error</html>"` |
-| timeout | `:rf.http/timeout` | Canned-failure stub. | `:kind :failure`, `:failure :kind :rf.http/timeout`, `:elapsed-ms 5000`, `:limit-ms 5000` |
-| aborted | `:rf.http/aborted` | Per-testbed `:http-toggle/deferred-abortable` stub defers a canned reply by 500ms so the spec can observe `:status :loading` and click Cancel. The Cancel button fires the live `:rf.http/managed-abort` fx. | `:kind :failure`, `:failure :kind :rf.http/aborted`, `:request-id ::in-flight`, `:reason :user` |
-| transport | `:rf.http/transport` | Canned-failure stub. | `:kind :failure`, `:failure :kind :rf.http/transport`, `:message "Network unreachable"`, `:cause "ECONNREFUSED"` |
-| decode-failure | `:rf.http/decode-failure` | Canned-failure stub (live decode-failure requires a JSON endpoint that 2xxs with invalid JSON; the stub preserves the reply envelope). | `:kind :failure`, `:failure :kind :rf.http/decode-failure`, `:body-text "<<not-json>>"`, `:cause "SyntaxError: ..."` |
-| CORS | `:rf.http/cors` | Canned-failure stub. CLJS-only; the JVM never emits this category. | `:kind :failure`, `:failure :kind :rf.http/cors`, `:url "https://other.example/api/cors"` |
+| 200 success | `:success` | Live Fetch against `api/success.json` (static asset shipped under the testbed dir). | `:status :ok`, `:value {:ok true :value "http-toggle success"}` |
+| 4xx | `:rf.http/http-4xx` | Canned-failure stub with `:status 404`, raw HTML body. | `:status :error`, `:error :kind :rf.http/http-4xx`, `:status 404`, `:body "<html>not found</html>"` |
+| 5xx | `:rf.http/http-5xx` | Canned-failure stub with `:status 500`, raw HTML body. | `:status :error`, `:error :kind :rf.http/http-5xx`, `:status 500`, `:body "<html>server error</html>"` |
+| timeout | `:rf.http/timeout` | Canned-failure stub. | `:status :error`, `:error :kind :rf.http/timeout`, `:elapsed-ms 5000`, `:limit-ms 5000` |
+| aborted | `:rf.http/aborted` | Per-testbed `:http-toggle/deferred-abortable` stub defers a canned reply by 500ms so the spec can observe `:status :loading` and click Cancel. The Cancel button fires the live `:rf.http/managed-abort` fx. | `:status :cancelled`, `:error :kind :rf.http/aborted`, `:request-id ::in-flight`, `:reason :user` |
+| transport | `:rf.http/transport` | Canned-failure stub. | `:status :error`, `:error :kind :rf.http/transport`, `:message "Network unreachable"`, `:cause "ECONNREFUSED"` |
+| decode-failure | `:rf.http/decode-failure` | Canned-failure stub (live decode-failure requires a JSON endpoint that 2xxs with invalid JSON; the stub preserves the reply envelope). | `:status :error`, `:error :kind :rf.http/decode-failure`, `:body-text "<<not-json>>"`, `:cause "SyntaxError: ..."` |
+| CORS | `:rf.http/cors` | Canned-failure stub. CLJS-only; the JVM never emits this category. | `:status :error`, `:error :kind :rf.http/cors`, `:url "https://other.example/api/cors"` |
 
 ## Why canned-failure for seven of eight
 
@@ -27,7 +27,7 @@ JVM smokes in `re-frame.http-managed-test`). For a testbed whose job
 is to drive each category deterministically — across CI environments
 that may not allow outbound CORS or 503-flaky-endpoint requests —
 the canned-stub seam is the canonical move. The reply shape consumers
-read (`:kind :failure`, `:failure :kind :rf.http/<category>`, the
+read (`:status :error`, `:error :kind :rf.http/<category>`, the
 category-specific tags) is identical.
 
 The live success path is exercised because it's the simplest possible
@@ -69,7 +69,7 @@ spec can iterate the dropdown values and assert each emits its expected
   `:retry` slot is exercised by tools-side fixtures that need to assert
   on the multi-attempt cascade.
 - No `:accept` projection. The reply lands at `:value` (success path)
-  or `:failure` (failure paths) verbatim; consumers reading the
+  or `:error` (failure paths) verbatim; consumers reading the
   envelope shape don't need `:accept` to mutate it.
 - No URL parameterisation. Every outcome uses a hard-coded URL so the
   trace's `:request :url` slot is deterministic across runs.
@@ -78,7 +78,7 @@ spec can iterate the dropdown values and assert each emits its expected
 
 **Xray (26)**:
 - HTTP failure cascade visible as ordered `:rf.http/*` with category attribution — the bread-and-butter scenario this surface exists to drive.
-- Time-travel scrub forward/back mutates visible UI — every outcome produces a `:status` and `:reply` mutation observable on `data-testid="status"` and `data-testid="reply-kind"`.
+- Time-travel scrub forward/back mutates visible UI — every outcome produces a `:status` and `:reply` mutation observable on `data-testid="status"` and `data-testid="reply-status"`.
 
 **Cross-cutting (6)**:
 - HTTP failure cascade visible as ordered `:rf.http/*` with category attribution (the canonical cross-cutting scenario).

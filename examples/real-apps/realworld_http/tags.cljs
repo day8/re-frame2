@@ -185,9 +185,9 @@
          machine's `:data` via the `:set-error` action; the region lands in
          `:error`. Any earlier tags stay in `:data`, so the view can keep
          showing them if it likes."}
-  (fn handler-tags-load-failed [_ [_ {:keys [failure]}]]
+  (fn handler-tags-load-failed [_ [_ {:keys [error]}]]
     {:fx [[:dispatch [:realworld/tags
-                      [:fetch-failed {:failure (rh/failure->message failure)}]]]]}))
+                      [:fetch-failed {:failure (rh/failure->message error)}]]]]}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS — plain readers projected off the machine snapshot

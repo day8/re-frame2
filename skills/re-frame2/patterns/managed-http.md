@@ -2,7 +2,7 @@
 
 `:rf.http/managed` — the canonical HTTP fx for re-frame2. Two affordances on one registrar id: the **fx form** for direct use from event handlers, and the **machine-form wrapper** for `:spawn` from a parent state machine. The contract — args map, failure categories, retry, abort, reply addressing — is identical across both.
 
-`:rf.http/managed` is one of the four shipped instances of the **managed external effect** umbrella — alongside state-machine `:spawn`, `:rf.server/*`, `:rf.flow/*` (a WebSocket connection is the app/library-built case; re-frame2 ships **no** `:rf.ws/*`). All four inherit the eight common properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy, trace-bus observability, elision composition, built-in retry/abort/teardown, pair-tool override seam, in-flight registry). **Property 9 — the uniform reply envelope** — is *async-only*: it applies to the async-completing family (managed HTTP, resources, mutations, machine async work, route loaders, future/test timer surfaces), **not** the synchronous `:rf.server/*` / `:rf.flow/*`. Managed HTTP is in that family — completion is one reply map with a closed `:status` `{:ok :partial :error :cancelled :stale}`, delivered to a `:rf/reply-to` target, correlated by `:work/id`, with stale suppression. For HTTP the envelope is **internal**: you author against `:on-success` / `:on-failure` and the co-located `:rf/reply` + `:kind` sugar (below), which lower to it — you do not hand-write `:status`. (An HTTP `:request-id` is abort/correlation metadata, not a second stale key — the single attempt identity is `:work/id`.) See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); the rest is HTTP-specific.
+`:rf.http/managed` is one of the four shipped instances of the **managed external effect** umbrella — alongside state-machine `:spawn`, `:rf.server/*`, `:rf.flow/*` (a WebSocket connection is the app/library-built case; re-frame2 ships **no** `:rf.ws/*`). All four inherit the eight common properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy, trace-bus observability, elision composition, built-in retry/abort/teardown, pair-tool override seam, in-flight registry). **Property 9 — the uniform reply envelope** — is *async-only*: it applies to the async-completing family (managed HTTP, resources, mutations, machine async work, route loaders, future/test timer surfaces), **not** the synchronous `:rf.server/*` / `:rf.flow/*`. Managed HTTP is in that family — completion is one reply map with a closed `:status` `{:ok :error :cancelled}` (plus `:stale`, which is suppressed and never delivered), delivered directly to your reply target, correlated by `:work/id`, with stale suppression. There is **one dialect**: the canonical envelope IS what your handler receives (no `{:kind :success/:failure}` reshape). `:on-success` / `:on-failure` are pure *routing sugar* (both receive the identical envelope); the co-located default merges it under `:rf/reply`; either way you branch on `(:status reply)` and read `:value` / `:error`. (An HTTP `:request-id` is abort/correlation metadata, not a second stale key — the single attempt identity is `:work/id`.) See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); the rest is HTTP-specific.
 
 > Managed-HTTP is **v1-optional** but shipped in the CLJS reference. It lives in `day8/re-frame2-http`; requiring `re-frame.http.managed` at app boot triggers its load-time registrations.
 
@@ -24,7 +24,7 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 
 | Feature | Role |
 |---|---|
-| Co-located request and reply (default) | One handler branches on `(:rf/reply msg)` — initial-dispatch branch issues the request; reply branch handles `{:kind :success :value v}` or `{:kind :failure :failure m}`. |
+| Co-located request and reply (default) | One handler branches on `(:rf/reply msg)` — initial-dispatch branch issues the request; reply branch branches on `(:status reply)` handling `{:status :ok :value v …}`, `{:status :error :error m …}`, or `{:status :cancelled :error m …}`. |
 | Default reply addressing | Reply re-dispatches to the *originating* event id with `:rf/reply` merged. Override with explicit `:on-success` / `:on-failure`; pass `:on-failure nil` to swallow. |
 | Schema-driven decode | `:decode <malli-schema>` runs via `010`'s decode pipeline. Status-check fires BEFORE decode, so a 404 with HTML body classifies as `:rf.http/http-4xx`, never `:rf.http/decode-failure`. |
 | `:accept` post-decode normalisation | `(fn [decoded] {:ok v} or {:failure m})` lets a structurally-valid 200 surface as a domain failure. |
@@ -39,12 +39,12 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
-      (case (:kind reply)
-        :success {:db (-> db (assoc-in [:article :status] :loaded)
-                            (assoc-in [:article :data]   (:value reply))
-                            (assoc-in [:article :error]  nil))}
-        :failure {:db (-> db (assoc-in [:article :status] :error)
-                            (assoc-in [:article :error]  (:failure reply)))})
+      (case (:status reply)
+        :ok    {:db (-> db (assoc-in [:article :status] :loaded)
+                           (assoc-in [:article :data]   (:value reply))
+                           (assoc-in [:article :error]  nil))}
+        :error {:db (-> db (assoc-in [:article :status] :error)
+                           (assoc-in [:article :error]  (:error reply)))})
       {:db (-> db (assoc-in [:article :status] :loading)
                   (assoc-in [:article :error]  nil))
        :fx [[:rf.http/managed
@@ -117,7 +117,7 @@ Both layers compose. A machine's `:spawn` spawns a managed request that itself r
 
 ## Variations
 
-**Reply addressing.** Default is reply-to-origin; override with explicit `:on-success` / `:on-failure` vectors, or `:on-failure nil` to swallow. **Public HTTP compatibility reply payload**: `{:kind :success :value v}` or `{:kind :failure :failure m}` — this `:kind` map is the public sugar you author against, NOT the EP-0011 envelope. Every delivered payload is reshaped from the internal canonical reply map (`:status` / `:work/id` / `:completed-at`); a stale envelope (`:status :stale`, suppressed by `:work/id`) never dispatches an app target, so a payload reaching your handler is always current.
+**Reply addressing.** Default is reply-to-origin; override with explicit `:on-success` / `:on-failure` vectors (pure routing sugar — both receive the identical reply), or `:on-failure nil` to swallow. **The delivered reply IS the canonical EP-0011 envelope** (no reshape, no separate `:kind` dialect): `{:status :ok :value v …}`, `{:status :error :error m …}`, or `{:status :cancelled :error m …}`, plus `:work/id` / `:completed-at`. Branch on `(:status reply)`; read the decoded body from `:value` on `:ok` and the classified `:rf.http/*` failure map from `:error` on `:error` / `:cancelled`. A stale envelope (`:status :stale`, suppressed by `:work/id`) never dispatches an app target, so a reply reaching your handler is always current.
 
 **Abort.** `:request-id <id>` → `[:rf.http/managed-abort id]` cancels; reply path dispatches `:rf.http/aborted`. External `AbortController` via `:abort-signal`. The wrapper form aborts automatically on state-exit.
 

@@ -12,7 +12,7 @@
     (the common 200/204-shaped PUT/DELETE/POST-with-no-content reply),
     NOT a programmer error. Before the fix the two hosts diverged at the
     managed-cascade decode altitude: the JVM Cheshire reader surfaced an
-    empty document as end-of-stream → nil → `{:kind :success :value nil}`,
+    empty document as end-of-stream → nil → `{:status :ok :value nil …}`,
     while CLJS `js/JSON.parse(\"\")` THREW → `:rf.http/decode-failure`.
     The helper-level divergence stays deliberately pinned at the
     `util-json` unit altitude (util_json_*_test); the MANAGED path is now
@@ -43,7 +43,7 @@
             returned nil. `decode-response-body` now short-circuits the
             empty/blank case before the host JSON reader is reached, so
             the value is nil identically — `run-accept`'s default then
-            yields `{:ok nil}` → reply `{:kind :success :value nil}`."
+            yields `{:ok nil}` → reply `{:status :ok :value nil …}`."
     (is (nil? (decode/decode-response-body
                 {:body-text        ""
                  :headers          {"content-type" "application/json"}

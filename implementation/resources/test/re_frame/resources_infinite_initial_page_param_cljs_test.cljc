@@ -59,7 +59,7 @@
   "Dispatch the captured `:on-success` reply with the transport's success
   result appended as the LAST arg — the live managed-HTTP transport shape."
   [data]
-  (rf/dispatch-sync (conj (:on-success @last-managed-args) {:kind :success :value data})))
+  (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value data})))
 
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))

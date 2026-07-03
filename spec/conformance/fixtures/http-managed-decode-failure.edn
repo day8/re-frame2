@@ -11,7 +11,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "A response body that fails to decode (Malli rejection / JSON syntax error / custom decoder threw) classifies as :rf.http/decode-failure. The :on-failure target receives {:kind :failure :failure {:kind :rf.http/decode-failure ...}}."
+ :fixture/doc          "A response body that fails to decode (Malli rejection / JSON syntax error / custom decoder threw) classifies as :rf.http/decode-failure. The :on-failure target receives {:status :error :error {:kind :rf.http/decode-failure ...}}."
 
  :fixture/registry
  {:event {:articles/list       {:doc "Issue the GET."}
@@ -34,11 +34,11 @@
   {:rf.http/managed                [[:noop]]
    :rf.http/managed-canned-failure
    [[:dispatch [:articles/list-error
-                {:kind    :failure
-                 :failure {:kind         :rf.http/decode-failure
-                           :body-text    "{not-valid-json"
-                           :cause        "JSON syntax error"
-                           :schema-validation-failure? false}}]]]}}
+                {:status :error
+                 :error  {:kind         :rf.http/decode-failure
+                          :body-text    "{not-valid-json"
+                          :cause        "JSON syntax error"
+                          :schema-validation-failure? false}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
@@ -49,11 +49,11 @@
 
  :fixture/expect
  {:final-app-db
-  {:articles {:error {:kind    :failure
-                      :failure {:kind         :rf.http/decode-failure
-                                :body-text    "{not-valid-json"
-                                :cause        "JSON syntax error"
-                                :schema-validation-failure? false}}}}
+  {:articles {:error {:status :error
+                      :error  {:kind         :rf.http/decode-failure
+                               :body-text    "{not-valid-json"
+                               :cause        "JSON syntax error"
+                               :schema-validation-failure? false}}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :articles/list}}

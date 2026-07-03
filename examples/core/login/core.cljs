@@ -111,9 +111,9 @@
 ;;   fires off the login request.
 ;;
 ;; - The trailing `[:? :any]` is the slot for the HTTP reply. When a
-;;   managed-HTTP call resolves, the framework appends its reply map
-;;   (`{:kind … :value …}` or `{:kind … :failure …}`) as the last arg of
-;;   the `:on-success` / `:on-failure` event — so a delivered reply
+;;   managed-HTTP call resolves, the framework appends its canonical reply
+;;   envelope (`{:status :ok :value …}` or `{:status :error :error …}`) as
+;;   the last arg of the `:on-success` / `:on-failure` event — so a delivered reply
 ;;   arrives with three top-level elements. Forget the optional slot and
 ;;   every reply gets rejected, leaving the flow marooned in `:submitting`
 ;;   forever. (Ask me how I know.)
@@ -262,7 +262,7 @@
       ;; performing them — the action stays pure; the runtime does the
       ;; dirty work. When the reply lands, the runtime tacks it onto the
       ;; end of the :on-success / :on-failure event
-      ;; (`{:kind :success :value …}` / `{:kind :failure :failure …}`).
+      ;; (`{:status :ok :value …}` / `{:status :error :error …}`).
       (fn [{[_ creds] :event}]
         {:fx [[:rf.http/managed
                ;; `:sensitive? true` is the secret-keeper. It scrubs the
@@ -283,10 +283,11 @@
       :record-error
       ;; Remember what went wrong (for the UI) and tick the attempt
       ;; counter up by one (for the retry guard).
-      (fn [{data :data [_ {:keys [failure]}] :event}]
+      ;; rf2-ibksxg — the classified failure map rides under :error.
+      (fn [{data :data [_ {:keys [error]}] :event}]
         {:data (-> data
                    (update :attempts inc)
-                   (assoc :error (or (:message failure) "Login failed.")))})
+                   (assoc :error (or (:message error) "Login failed.")))})
 
       :lock-account
       ;; Slam the door after too many tries. This one is fire-and-forget:

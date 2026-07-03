@@ -79,10 +79,10 @@
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
 
 (defn- reply-success! [args result]
-  (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
+  (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
 
 (defn- reply-failure! [args failure]
-  (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
+  (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
 
 (def ^:private article-key
   (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))

@@ -40,11 +40,11 @@
   {:rf.http/managed                [[:noop]]
    :rf.http/managed-canned-failure
    [[:dispatch [:article/load-error
-                {:kind    :failure
-                 :failure {:kind    :rf.http/accept-failure
-                           :detail  {:reason  :missing-article
-                                     :message "Response missing :article"}
-                           :decoded {:meta {:status "ok"}}}}]]]}}
+                {:status :error
+                 :error  {:kind    :rf.http/accept-failure
+                          :detail  {:reason  :missing-article
+                                    :message "Response missing :article"}
+                          :decoded {:meta {:status "ok"}}}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
@@ -55,11 +55,11 @@
 
  :fixture/expect
  {:final-app-db
-  {:article {:error {:kind    :failure
-                     :failure {:kind    :rf.http/accept-failure
-                               :detail  {:reason  :missing-article
-                                         :message "Response missing :article"}
-                               :decoded {:meta {:status "ok"}}}}}}
+  {:article {:error {:status :error
+                     :error  {:kind    :rf.http/accept-failure
+                              :detail  {:reason  :missing-article
+                                        :message "Response missing :article"}
+                              :decoded {:meta {:status "ok"}}}}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :article/load}}

@@ -120,7 +120,7 @@
 (defn- instance [instance-id] (get-in (runtime-db) (mstate/instance-path instance-id)))
 
 (defn- reply-success! [addr-key data]
-  (rf/dispatch-sync (conj (get @last-decorated addr-key) {:kind :success :value data})))
+  (rf/dispatch-sync (conj (get @last-decorated addr-key) {:status :ok :value data})))
 
 ;; The canonical EP-0016 auth-header decoration interceptor (Spec 016
 ;; §Request decoration). Reads the bearer token from the carried frame's
@@ -258,7 +258,7 @@
       (testing "Spec 016 §Stale suppression is mandatory — the STALE,
                 fully-decorated gen-1 reply NEVER overwrites the newer entry;
                 decoration did not perturb the work-id / generation identity"
-        (rf/dispatch-sync (conj gen1-success {:kind :success :value {:stale "data"}}))
+        (rf/dispatch-sync (conj gen1-success {:status :ok :value {:stale "data"}}))
         (let [e (entry k)]
           (is (not= {:stale "data"} (:data e)) "stale decorated reply did not write")
           (is (= 2 (:generation e)) "entry still on the newer generation")

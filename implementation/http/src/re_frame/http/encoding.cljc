@@ -275,12 +275,15 @@
 
 (defn build-reply-event
   "Per Spec 014 §Reply addressing. Returns the event vector to dispatch,
-  or nil when silenced.
+  or nil when silenced. `reply-payload` is the CANONICAL reply envelope
+  (`{:status :ok/:error/:cancelled …}`, rf2-ibksxg) — `:on-success` /
+  `:on-failure` are pure routing sugar (both receive it verbatim), and the
+  co-located default merges it under `:rf/reply`.
 
-  - explicit :on-success / :on-failure: append `{:kind ... ...}` as last
-    arg of the supplied event vector.
-  - default (omitted): originating event-id with `:rf/reply` merged into
-    the original message.
+  - explicit :on-success / :on-failure: append the canonical reply map as
+    the last arg of the supplied event vector.
+  - default (omitted): originating event-id with the canonical reply map
+    merged under `:rf/reply` into the original message.
   - explicit nil: silenced."
   [{:keys [origin-event explicit-on reply-payload]}]
   (let [supplied? (:supplied? explicit-on)

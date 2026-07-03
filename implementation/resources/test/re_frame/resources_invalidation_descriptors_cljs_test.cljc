@@ -85,8 +85,8 @@
 (defn- entries [] (get-in (runtime-db) (state/entries-path)))
 
 (defn- reply-success!
-  ([args result] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
-  ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result}) opts)))
+  ([args result] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
+  ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result}) opts)))
 
 (def ^:private global-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
 (defn- session-feed-key [u] (state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))

@@ -57,12 +57,12 @@
 (defn- reply-success!
   ([data] (reply-success! @last-managed-args data))
   ([args data]
-   (rf/dispatch-sync (conj (:on-success args) {:kind :success :value data}))))
+   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value data}))))
 
 (defn- reply-failure!
   ([failure] (reply-failure! @last-managed-args failure))
   ([args failure]
-   (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}))))
+   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}))))
 
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))

@@ -87,9 +87,9 @@ In re-frame2 the definition is *just data* — one map, with its `:guards` and `
    :actions
    {:clear-error  (fn [_] {:data {:error nil}})
     :issue-request (fn [{[_ creds] :event}] {:fx [[:rf.http/managed { … }]]})
-    :record-error  (fn [{data :data [_ {:keys [failure]}] :event}]
+    :record-error  (fn [{data :data [_ {:keys [error]}] :event}]      ;; failure map under :error
                      {:data (-> data (update :attempts inc)
-                                     (assoc :error (or (:message failure) "Login failed.")))})
+                                     (assoc :error (or (:message error) "Login failed.")))})
     :store-session (fn [{[_ {:keys [value]}] :event}]
                      {:fx [[:auth.session/store {:token (:token value)}]]})}
 
@@ -417,9 +417,9 @@ XState's `assign(...)` is an action *creator* that imperatively updates context,
 
 ```clojure
 :record-error
-(fn [{data :data [_ {:keys [failure]}] :event}]
+(fn [{data :data [_ {:keys [error]}] :event}]        ;; failure map rides under :error
   {:data (-> data (update :attempts inc)
-                  (assoc :error (or (:message failure) "Login failed.")))})
+                  (assoc :error (or (:message error) "Login failed.")))})
 
 :issue-request
 (fn [{[_ creds] :event}]

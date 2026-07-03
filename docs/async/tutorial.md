@@ -42,10 +42,10 @@ Issuing a request takes two kinds of handler: one to send, one to receive. Here 
              (assoc-in [:article :data]   value))}))
 
 (rf/reg-event :article/load-error
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
              (assoc-in [:article :status] :error)
-             (assoc-in [:article :error]  failure))}))
+             (assoc-in [:article :error]  error))}))
 ```
 
 Walk the send handler first. It wrote a `:loading` status into [app-db](../core/concepts/app-db.md), returned an effect *describing* the request, and **finished**. It never paused to wait for the server. Inside `:request`, `:url` is the only required key; `:method` defaults to `:get`.
@@ -53,11 +53,11 @@ Walk the send handler first. It wrote a `:loading` status into [app-db](../core/
 When the response lands — milliseconds or seconds later — the runtime dispatches a **new event**: `:article/loaded` on success, `:article/load-error` on failure. The reply rides as one more argument appended to the event vector, so what actually arrives is:
 
 ```clojure
-[:article/loaded     {:kind :success :value <decoded-body>}]     ;; success
-[:article/load-error {:kind :failure :failure <failure-map>}]    ;; failure
+[:article/loaded     {:status :ok    :value <decoded-body> …}]   ;; success
+[:article/load-error {:status :error :error <failure-map> …}]    ;; failure
 ```
 
-That's why the receive handlers destructure `[_ {:keys [value]}]` — skip the event id, pull the reply apart. The body has already been decoded for you (JSON by default, sniffed from the Content-Type).
+That's the one canonical reply envelope — the same `:status`-keyed map every async surface delivers. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you (JSON by default, sniffed from the Content-Type).
 
 **What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map.
 
@@ -73,7 +73,7 @@ That's why the receive handlers destructure `[_ {:keys [value]}]` — skip the e
 
 ## Step 2 — turn the failure into something a user can read
 
-The failure map always carries a `:kind` — a keyword from a closed, framework-reserved set of eight categories (`:rf.http/timeout`, `:rf.http/transport`, `:rf.http/http-4xx`, …). Never a stringified exception. Because [the set is closed](http.md#failures-are-a-closed-set), your handler can branch with a plain `case`:
+The failure map (under the reply's `:error`) always carries a `:kind` — a keyword from a closed, framework-reserved set of eight categories (`:rf.http/timeout`, `:rf.http/transport`, `:rf.http/http-4xx`, …). Never a stringified exception. Because [the set is closed](http.md#failures-are-a-closed-set), your handler can branch with a plain `case`:
 
 ```clojure
 (defn failure->message [failure]
@@ -87,10 +87,10 @@ The failure map always carries a `:kind` — a keyword from a closed, framework-
     "Something unexpected happened."))
 
 (rf/reg-event :article/load-error
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]        ;; the failure map rides under :error
     {:db (-> db
              (assoc-in [:article :status]  :error)
-             (assoc-in [:article :message] (failure->message failure)))}))
+             (assoc-in [:article :message] (failure->message error)))}))
 ```
 
 And a view reads the status like any other state:

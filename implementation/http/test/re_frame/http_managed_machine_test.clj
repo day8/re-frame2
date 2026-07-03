@@ -333,9 +333,9 @@
         (rf/reg-event :legacy/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
-              (case (:kind reply)
-                :success {:db (assoc db :result (:value reply))}
-                :failure {:db (assoc db :error (:failure reply))})
+              (case (:status reply)
+                :ok    {:db (assoc db :result (:value reply))}
+                :error {:db (assoc db :error (:error reply))})
               {:fx [[:rf.http/managed
                      {:request {:url    (str "http://127.0.0.1:" port "/")
                                 :method :get}

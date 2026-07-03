@@ -97,10 +97,12 @@
       ;; credentials" to "Invalid credentials (attempt 2)" — the
       ;; visible difference between :error and :submitting-retry
       ;; once the retry lands.
-      (fn [{data :data [_ {:keys [failure]}] :event}]
+      ;; rf2-ibksxg — the classified failure map rides under :error on the
+      ;; canonical reply.
+      (fn [{data :data [_ {:keys [error]}] :event}]
         {:data (-> data
                    (update :attempts (fnil inc 0))
-                   (assoc :error (or (:message failure)
+                   (assoc :error (or (:message error)
                                      "Invalid credentials.")))})
 
       :clear-error

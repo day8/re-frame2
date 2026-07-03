@@ -109,8 +109,8 @@
 (rf/reg-event :feed/load-failed
   {:doc "The user-feed fetch didn't make it. Folds the failure into the home
          machine via `:fetch-failed`, sending the `:data` region to `:error`."}
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    (let [message (rh/failure->message failure)]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    (let [message (rh/failure->message error)]
       {:db (-> db
                (assoc-in [:feed :status] :error)
                (assoc-in [:feed :error] message))

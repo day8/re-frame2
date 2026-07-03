@@ -3,7 +3,7 @@
 ;; Per Spec 014 §The shape and §`:accept`. A simple GET, decoded as JSON,
 ;; reaches the success path; the default `:accept` returns `{:ok decoded}`
 ;; for 2xx; the runtime synthesises the canonical
-;; `{:rf/reply {:kind :success :value <decoded>}}` envelope.
+;; `{:rf/reply {:status :ok :value <decoded>}}` envelope.
 ;;
 ;; The fixture exercises the contract via :rf.http/managed-canned-success,
 ;; which Spec 014 §Testing guarantees produces the same dispatch shape the
@@ -13,7 +13,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/sub :core/fx
                          :rf.http/managed}
- :fixture/doc          "GET /articles/hello with :decode :json. The canned-success stub synthesises {:kind :success :value {:title \"hello\"}}; the explicit :on-success target receives the payload and writes it to [:article]."
+ :fixture/doc          "GET /articles/hello with :decode :json. The canned-success stub synthesises {:status :ok :value {:title \"hello\"}}; the explicit :on-success target receives the reply and writes it to [:article]."
 
  :fixture/registry
  {:event {:article/load   {:doc "Issue the GET."}
@@ -39,8 +39,8 @@
   :fx
   {:rf.http/managed                [[:noop]]
    :rf.http/managed-canned-success
-   [[:dispatch [:article/loaded {:kind  :success
-                                 :value {:title "hello" :id 42}}]]]}}
+   [[:dispatch [:article/loaded {:status :ok
+                                 :value  {:title "hello" :id 42}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
@@ -51,12 +51,12 @@
 
  :fixture/expect
  {:final-app-db
-  {:article {:kind  :success
-             :value {:title "hello" :id 42}}}
+  {:article {:status :ok
+             :value  {:title "hello" :id 42}}}
 
   :sub-values
-  {[:article] {:kind  :success
-               :value {:title "hello" :id 42}}}
+  {[:article] {:status :ok
+               :value  {:title "hello" :id 42}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :article/load}}

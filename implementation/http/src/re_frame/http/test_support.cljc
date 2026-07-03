@@ -224,15 +224,24 @@
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
         ;; envelope stamp; a nil stamp is an invariant failure, never a
         ;; synthesised `:rf/default`.
-        frame-id (frame/require-frame-stamp!
-                   (:frame frame-ctx) :rf.http/managed-canned-success
-                   {:where 'rf.http/emit-canned-success!})
-        value    (get args-map :value {:stubbed true})]
+        frame-id     (frame/require-frame-stamp!
+                       (:frame frame-ctx) :rf.http/managed-canned-success
+                       {:where 'rf.http/emit-canned-success!})
+        value        (get args-map :value {:stubbed true})
+        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        ;; rf2-ibksxg — the canned stub delivers a MINIMAL canonical reply
+        ;; (`:status :ok` + `:value`), the shape a handler actually branches
+        ;; on. A stub has no real request lifecycle, so the identity facts the
+        ;; real transport carries (`:work/id` / `:attempt` / `:completed-at`)
+        ;; are deliberately OMITTED — synthesising fake ones would add noise no
+        ;; handler reads. The real transport's full envelope is pinned by the
+        ;; lowering conformance (`http-reply-lowering-test`).
+        reply        {:status :ok :value value}]
     (dispatch-canned-reply!
-      {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
+      {:origin-event   origin-event
        :explicit-on    {:supplied? (contains? args-map :on-success)
                         :value     (:on-success args-map)}
-       :reply-payload  {:kind :success :value value}
+       :reply-payload  reply
        :kind           :success
        :frame          frame-id
        :middleware-ctx middleware-ctx})
@@ -245,17 +254,29 @@
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
         ;; envelope stamp; a nil stamp is an invariant failure, never a
         ;; synthesised `:rf/default`.
-        frame-id (frame/require-frame-stamp!
-                   (:frame frame-ctx) :rf.http/managed-canned-failure
-                   {:where 'rf.http/emit-canned-failure!})
-        kind     (or (:kind args-map) :rf.http/transport)
-        tags     (or (:tags args-map) {})
-        failure  (assoc tags :kind kind)]
+        frame-id     (frame/require-frame-stamp!
+                       (:frame frame-ctx) :rf.http/managed-canned-failure
+                       {:where 'rf.http/emit-canned-failure!})
+        kind         (or (:kind args-map) :rf.http/transport)
+        tags         (or (:tags args-map) {})
+        failure      (assoc tags :kind kind)
+        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        ;; rf2-ibksxg — deliver a MINIMAL canonical reply: the classified
+        ;; `:rf.http/*` failure map rides verbatim under `:error`, and an
+        ;; `:rf.http/aborted` kind maps to `:status :cancelled` (mirroring the
+        ;; real transport's status taxonomy) while every other kind is
+        ;; `:status :error`. The stub omits the real transport's identity facts
+        ;; (`:work/id` / `:attempt` / `:work/status` / `:completed-at`) — a
+        ;; handler branches on `:status` and reads `:error`, nothing more; the
+        ;; full envelope is pinned by the lowering conformance.
+        reply        (if (= :rf.http/aborted kind)
+                       {:status :cancelled :error failure}
+                       {:status :error :error failure})]
     (dispatch-canned-reply!
-      {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
+      {:origin-event   origin-event
        :explicit-on    {:supplied? (contains? args-map :on-failure)
                         :value     (:on-failure args-map)}
-       :reply-payload  {:kind :failure :failure failure}
+       :reply-payload  reply
        :kind           :failure
        :frame          frame-id
        :middleware-ctx middleware-ctx})

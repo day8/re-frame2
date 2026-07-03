@@ -36,7 +36,7 @@
 
    DETERMINISM. Each test installs its own capturing `:rf.http/managed` override
    and replays the reply explicitly via the transport's real 3-element reply-
-   event-append shape (`(conj on-success {:kind :success :value …})`). Routing's
+   event-append shape (`(conj on-success {:status :ok :value …})`). Routing's
    url-push is stubbed so navigation is deterministic without a browser.
 
    Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support so the
@@ -192,7 +192,7 @@
    (a frameless reply would leak into the global trace ring)."
   ([args data] (reply-success! args data :rf/default))
   ([args data frame]
-   (rf/dispatch-sync (conj (:on-success args) {:kind :success :value data})
+   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value data})
                      {:frame frame})))
 
 (defn- state-value [frame] (rf/frame-state-value frame))

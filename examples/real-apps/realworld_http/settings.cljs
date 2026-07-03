@@ -277,9 +277,9 @@
          same surface the client-side validation path uses, since both show up
          through :submit-error / :errors. One place to render \"something's
          wrong\", however it went wrong."}
-  (fn handler-settings-submit-error [_ [_ {:keys [failure]}]]
+  (fn handler-settings-submit-error [_ [_ {:keys [error]}]]
     {:fx [[:dispatch [:settings/form
-                      [:submit-failed {:submit-error (rh/failure->message failure)}]]]]}))
+                      [:submit-failed {:submit-error (rh/failure->message error)}]]]]}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

@@ -84,7 +84,8 @@
   altitude. We therefore short-circuit the empty/blank case HERE, at the
   decode altitude, returning nil on BOTH hosts before `json-parse` is
   reached — so the helper keeps its pinned per-host semantics while the
-  managed path stays host-symmetric (`{:kind :success :value nil}`)."
+  managed path stays host-symmetric (the canonical `{:status :ok :value
+  nil …}` success reply)."
   [body-text]
   (and (string? body-text) (str/blank? body-text)))
 

@@ -1,15 +1,15 @@
 (ns re-frame.http-reply-lowering-cljs-test
   "Host-symmetric (CLJS + JVM) conformance for the PURE core of the
-  managed-HTTP lowering (rf2-zqefg3.2): the canonical reply map, the
-  work-id head, and the public-compatibility reshape in
-  `re-frame.http.reply`. Runs on the `npm run test:cljs` node gate (its
-  ns matches the `cljs-test$` regexp) so the lowering's pure functor /
-  schema core is exercised on the CLJS runtime too — the end-to-end
-  real-transport groups live in the JVM-only
+  managed-HTTP lowering (rf2-zqefg3.2 / rf2-ibksxg): the canonical reply
+  map (the ONE public dialect — no compat reshape), the work-id head, and
+  the stale-suppression builders in `re-frame.http.reply`. Runs on the
+  `npm run test:cljs` node gate (its ns matches the `cljs-test$` regexp)
+  so the lowering's pure functor / schema core is exercised on the CLJS
+  runtime too — the end-to-end real-transport groups live in the JVM-only
   `http-reply-lowering-test`.
 
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
-  envelope; EP-0011 §Managed HTTP Lowering / §Public Compatibility Sugar."
+  envelope; EP-0011; rf2-ibksxg (one canonical async-reply envelope)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.reply :as http-reply]
             [re-frame.reply :as reply]))
@@ -108,22 +108,40 @@
       (is (= :user (:cancel/reason r)))
       (is (= :rf.http/aborted (get-in r [:error :kind]))))))
 
-(deftest reshape-preserves-public-spec-014-shapes
-  (testing ":ok → {:kind :success :value v}"
-    (is (= {:kind :success :value {:title "Welcome"}}
-           (http-reply/reply->public-payload
-             (http-reply/success-reply ctx {:title "Welcome"})))))
-  (testing ":error → {:kind :failure :failure f}"
-    (let [f {:kind :rf.http/http-4xx :status 404}]
-      (is (= {:kind :failure :failure f}
-             (http-reply/reply->public-payload (http-reply/failure-reply ctx f))))))
-  (testing ":cancelled → {:kind :failure :failure {:kind :rf.http/aborted …}}"
-    (let [f {:kind :rf.http/aborted :reason :user}]
-      (is (= {:kind :failure :failure f}
-             (http-reply/reply->public-payload (http-reply/aborted-reply ctx f))))))
-  (testing ":stale → nil (suppressed reply never delivered to the app target)"
-    (is (nil? (http-reply/reply->public-payload
-                {:status :stale :stale? true :stale/reason :x})))))
+(deftest no-public-payload-reshape
+  (testing "rf2-ibksxg — the compat-reply reshape (reply->public-payload) is DELETED; every family delivers the canonical envelope verbatim, no {:kind :success/:failure} dialect"
+    (is (not (contains? (ns-publics 're-frame.http.reply) 'reply->public-payload))
+        "reply->public-payload must not exist — the canonical reply is the public payload")))
+
+(deftest self-identify-failure-stamps-request-identity
+  (testing "rf2-1u9dja — self-identify-failure stamps :request/:request-id/:attempt/:max-attempts/:work-id onto a failure map"
+    (let [id-ctx {:method       :get
+                  :url          "/api/articles/42"
+                  :request-id   :article/by-id
+                  :origin-event [:article/load {:id 42}]
+                  :issuance     1
+                  :attempt      3
+                  :max-attempts 3}
+          f      (http-reply/self-identify-failure
+                   {:kind :rf.http/timeout :elapsed-ms 8000 :limit-ms 8000}
+                   id-ctx)]
+      (is (= {:method :get :url "/api/articles/42"} (:request f)))
+      (is (= :article/by-id (:request-id f)))
+      (is (= 3 (:attempt f)))
+      (is (= 3 (:max-attempts f)))
+      (is (= [:rf.work/http :article/by-id 1 3] (:work/id f)))
+      (testing "the category's own tags survive verbatim"
+        (is (= :rf.http/timeout (:kind f)))
+        (is (= 8000 (:elapsed-ms f)))))
+    (testing ":max-attempts is omitted when no retry policy was configured"
+      (let [f (http-reply/self-identify-failure
+                {:kind :rf.http/transport :message "boom"}
+                {:method :post :url "/x" :request-id nil
+                 :origin-event [:e] :attempt 1})]
+        (is (not (contains? f :max-attempts)))
+        (is (nil? (:request-id f)))
+        (is (= {:method :post :url "/x"} (:request f)))
+        (is (= [:rf.work/http :e 1 1] (:work/id f)))))))
 
 (deftest trace-summary-elides-wire-slots
   (testing "the canonical trace summary keeps identity facts verbatim"

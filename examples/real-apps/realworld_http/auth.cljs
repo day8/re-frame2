@@ -209,8 +209,8 @@
               [:dispatch [:auth/post-login-redirect]]]}))
 
     :record-error
-    (fn [{[_ {:keys [failure]}] :event}]
-      {:data {:error (rh/failure->message failure)}})
+    (fn [{[_ {:keys [error]}] :event}]
+      {:data {:error (rh/failure->message error)}})
 
     :clear-session
     (fn [_]

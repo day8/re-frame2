@@ -113,7 +113,7 @@
   reply against a re-minted (generation-11) entry."
   ([data] (reply-success! data (:on-success @last-managed-args)))
   ([data on-success]
-   (rf/dispatch-sync (conj on-success {:kind :success :value data})
+   (rf/dispatch-sync (conj on-success {:status :ok :value data})
                      {:frame frame-id :rf.cofx {:rf/time-ms 1781078400250}})))
 
 (defn- live-entry []

@@ -296,7 +296,7 @@ The pattern, distilled to a worked sketch:
 ;; ---------- Semantic retry — state machine handles 401-vs-200-vs-fatal ------
 ;; The auth machine routes by outcome:
 ;;   - :succeeded → done.
-;;   - :failed with kind :rf.http/http-status status 401 → :refreshing.
+;;   - :failed whose :error is {:kind :rf.http/http-4xx :status 401} → :refreshing.
 ;;     The refresh path itself is a managed request; on success it loops back
 ;;     to :loading-me — a *semantic* retry of the original /api/me call.
 ;;   - :failed otherwise (5xx after retries exhausted, network error,
@@ -312,16 +312,18 @@ The pattern, distilled to a worked sketch:
      :data    {:token nil :user nil :error nil}
 
      :guards
-     {:got-401? (fn [{[_ {:keys [failure]}] :event}]
-                  (and (= :rf.http/http-4xx (:kind failure))
-                       (= 401 (:status failure))))
+     ;; rf2-ibksxg — the canonical reply carries the classified :rf.http/* map
+     ;; under :error; branch on (:kind error) / (:status error).
+     {:got-401? (fn [{[_ {:keys [error]}] :event}]
+                  (and (= :rf.http/http-4xx (:kind error))
+                       (= 401 (:status error))))
       :token-stale? (fn [{:keys [data]}]
                       (some? (:token data)))}                  ;; refresh viable
 
      :actions
      {:record-token (fn [{:keys [data] [_ {:keys [token]}] :event}] {:data (assoc data :token token)})
       :record-user  (fn [{:keys [data] [_ {:keys [value]}] :event}] {:data (assoc data :user value)})
-      :record-error (fn [{:keys [data] [_ {:keys [failure]}] :event}] {:data (assoc data :error failure)})}
+      :record-error (fn [{:keys [data] [_ {:keys [error]}] :event}] {:data (assoc data :error error)})}
 
      :states
      {:loading-me

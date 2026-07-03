@@ -197,7 +197,7 @@ Part 2 fetched *cached server state* — data the app reads repeatedly and wants
 
 The `:submit-attempted?` latch flips on *every* submit click, valid or not — that's what arms the visibility rule from the last section. Notice there's no `:retry`: a submit is one click, one attempt. Silently re-posting credentials after a 5xx isn't what the user asked for, so we don't.
 
-When the round-trip finishes, the framework [dispatches](../../core/glossary.md#dispatch) the event you named in `:on-success` or `:on-failure`, with the reply tacked on as that event's last argument. This is [the uniform reply](../../core/glossary.md#the-uniform-reply): every managed async surface completes by dispatching an event carrying a [reply map](../glossary.md#reply-map), never by an awaited value. A success arrives as `{:kind :success :value <decoded-body>}`; a failure as `{:kind :failure :failure <failure-map>}`. Those two outer shapes are the whole contract — the two handlers in the next section just pull `:value` or `:failure` out of that last argument and go from there.
+When the round-trip finishes, the framework [dispatches](../../core/glossary.md#dispatch) the event you named in `:on-success` or `:on-failure`, with the reply tacked on as that event's last argument. This is [the uniform reply](../../core/glossary.md#the-uniform-reply): every managed async surface completes by dispatching an event carrying the canonical [reply map](../glossary.md#reply-map), never by an awaited value. A success arrives as `{:status :ok :value <decoded-body> …}`; a failure as `{:status :error :error <failure-map> …}`. That one `:status`-keyed shape is the whole contract — the two handlers in the next section just pull `:value` or `:error` out of that last argument and go from there.
 
 A few of the args-map slots are doing real work here, and a couple more are worth knowing about:
 
@@ -268,8 +268,8 @@ Failure sorts into two shapes, and here's the second rule the part leans on. **S
                    {} errs)))))
 
 (rf/reg-event :auth.login-form/submit-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    (let [structured (failure->form-errors failure)]
+  (fn [{:keys [db]} [_ {:keys [error]}]]        ;; the failure map rides under :error
+    (let [structured (failure->form-errors error)]
       {:db (cond-> (assoc-in db [:auth :login-form :status] :error)
              structured       (assoc-in [:auth :login-form :errors] structured)
              (not structured) (assoc-in [:auth :login-form :submit-error]

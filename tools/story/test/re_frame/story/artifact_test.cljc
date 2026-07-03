@@ -450,7 +450,7 @@
           res    (artifact/replay-run-artifact art)
           got    (:got (:app-db res))]
       (is (= :pass (:status res)))
-      (is (= :success (:kind got))
+      (is (= :ok (:status got))
           "the re-installed route stub matched — NOT the 'no stub matched'
            transport failure that fail-closes pre-fix")
       (is (= {:items [{:sku "A"}]} (:value got))
@@ -466,12 +466,12 @@
           art    (network-artifact routes [[:dispatch [:net/checkout]]])
           res    (artifact/replay-run-artifact art)
           got    (:got (:app-db res))]
-      (is (= :failure (:kind got))
+      (is (= :error (:status got))
           "the re-installed route stub synthesised the recorded failure")
-      (is (= :rf.http/http-4xx (get-in got [:failure :kind]))
+      (is (= :rf.http/http-4xx (get-in got [:error :kind]))
           "the recorded failure :kind survived — NOT :rf.http/transport
            ('no stub matched'), which is what fail-closes pre-fix")
-      (is (= 409 (get-in got [:failure :status]))
+      (is (= 409 (get-in got [:error :status]))
           "the recorded failure tags survived the round-trip"))))
 
 (deftest replay-without-network-leaves-stub-surface-untouched

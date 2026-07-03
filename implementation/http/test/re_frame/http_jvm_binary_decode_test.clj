@@ -110,7 +110,7 @@
         (rf/dispatch-sync [:blob/load {}])
         (let [db    (await-reply! #(some? (:reply %)))
               value (get-in db [:reply :value])]
-          (is (= :success (get-in db [:reply :kind])))
+          (is (= :ok (get-in db [:reply :status])))
           (is (bytes? value)
               "the decoded value must be a byte[] (the raw bytes), not a String")
           (is (= (seq raw-bytes) (seq value))
@@ -226,8 +226,8 @@
                       :timeout-ms 50}]]})))
         (rf/dispatch-sync [:slow/load {}])
         (let [db      (await-reply! #(some? (:reply %)))
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind])))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/timeout (:kind failure)))
           (is (= 50 (:limit-ms failure)))
           (is (some? (:elapsed-ms failure))

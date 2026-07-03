@@ -212,8 +212,9 @@
 ;; ============================================================================
 
 (defn failure->message
-  "Turn a failure map (the inner `:failure` of a `{:kind :failure :failure
-   {...}}` reply) into a sentence a human can actually read. Conduit reports
+  "Turn a failure map (the classified `:rf.http/*` map that rides under
+   `:error` on a `{:status :error :error {...}}` reply) into a sentence a
+   human can actually read. Conduit reports
    4xx validation problems as `{:errors {:body [\"...\"]}}`, so we surface the
    server's own words when they're there, and fall back to a friendly
    category-based message when they aren't — because \"Network error — please

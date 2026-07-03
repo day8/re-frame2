@@ -307,7 +307,7 @@
       ;; recorded :ok reply is synthesised. This is the run that was promoted.
       (let [src (artifact/replay-run-artifact art)]
         (is (= :pass (:status src)))
-        (is (= :success (:kind (:got (:app-db src))))
+        (is (= :ok (:status (:got (:app-db src))))
             "the source run matched the route stub"))
 
       ;; Re-deriving from the LINK alone must reproduce the SAME run — the
@@ -319,7 +319,7 @@
             got       (:got (:app-db from-link))]
         (is (= :pass (:status from-link))
             "the link re-derives a passing run — NOT a fail-closed one")
-        (is (= :success (:kind got))
+        (is (= :ok (:status got))
             "the re-installed route stub matched on the LINK replay — NOT the
              'no stub matched' transport failure that fail-closes without
              :network in provenance-link-keys")
@@ -406,8 +406,13 @@
           "the promoted variant's run-artifact carries the route map (NOT empty)")
       (is (= (:status src) (:status ran) :pass)
           "the promoted variant runs to the SAME status as the source run")
-      (is (= (:got (:app-db src)) (:got (:app-db ran)))
+      ;; The canonical reply envelope (rf2-ibksxg) carries `:rf.frame/id`,
+      ;; which is a fresh per-replay-run frame id — so compare the replies
+      ;; MODULO that run-specific stamp; the value/status/work-id are what
+      ;; "the same recorded reply" means here.
+      (is (= (dissoc (:got (:app-db src)) :rf.frame/id)
+             (dissoc (:got (:app-db ran)) :rf.frame/id))
           "the promoted variant reproduces the SAME recorded reply")
-      (is (= :success (:kind (:got (:app-db ran))))
+      (is (= :ok (:status (:got (:app-db ran))))
           "the route stub matched on the promoted-variant run — NOT a
            fail-closed 'no stub matched' transport failure"))))

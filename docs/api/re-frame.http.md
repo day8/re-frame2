@@ -20,7 +20,7 @@ The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-a
 
 - **Kind**: fx
 - **Args**: request-id
-- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply fires with `{:rf/reply {:kind :failure :failure {:kind :rf.http/aborted ...}}}`.
+- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply fires with `{:rf/reply {:status :cancelled :cancel/reason :user :error {:kind :rf.http/aborted ...}}}`.
 - **Example**:
   ```clojure
   (rf/reg-event :request/abort
@@ -50,19 +50,23 @@ That's enough to issue a request, decode the JSON reply, and dispatch the result
 
 ## Reply addressing
 
-Every reply is one of two plain payload maps:
+Every reply is the one **canonical reply envelope** — a plain map keyed on a closed `:status`:
 
 ```clojure
 ;; Success
-{:kind :success :value decoded-body}
+{:status :ok :value decoded-body …}
 
 ;; Failure
-{:kind    :failure
- :failure {:kind :rf.http/<category>
-           :tags {...}}}
+{:status :error
+ :error  {:kind :rf.http/<category>
+          :tags {...}}}
+
+;; Abort / cancel
+{:status :cancelled :cancel/reason :user
+ :error  {:kind :rf.http/aborted …}}
 ```
 
-Where that payload lands depends on how you addressed the reply. **Explicit `:on-success` / `:on-failure`** targets receive the **bare payload** appended as the last event-vector arg — your `:cart/loaded` handler sees `[:cart/loaded {:kind :success :value decoded-body}]` and destructures it directly (`[_ {:keys [value]}]` / `[_ {:keys [failure]}]`). **Default (co-located) addressing** — omit both targets — instead merges the same payload under `:rf/reply` into the originating message and re-dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler, which reads it at `:rf/reply`. The `:rf/reply` wrapper is the co-located form only; explicit targets get the bare `{:kind ...}` map. Both shapes detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
+Where that payload lands depends on how you addressed the reply. **`:on-success` / `:on-failure`** are pure routing sugar — both receive the **identical envelope** appended as the last event-vector arg; your `:cart/loaded` handler sees `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly (`[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure). **Default (co-located) addressing** — omit both targets — instead merges the same envelope under `:rf/reply` into the originating message and re-dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler, which reads it at `:rf/reply` and branches on `(:status reply)`. The `:rf/reply` wrapper is the co-located form only; explicit targets get the bare envelope. Both shapes detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
 
 ## Failure categories (closed set)
 

@@ -100,17 +100,19 @@
   (fn [{:keys [db]} [_ msg]]
     (cond
       ;; The reply came back happy — bump the count by the delta the server
-      ;; sent, and settle the UI to :idle.
-      (some-> msg :rf/reply :kind (= :success))
+      ;; sent, and settle the UI to :idle. The reply is the canonical envelope;
+      ;; success is `:status :ok`, the decoded body at `:value`.
+      (some-> msg :rf/reply :status (= :ok))
       {:db (-> db
                (update :counter/count + (or (:delta (:value (:rf/reply msg))) 1))
                (assoc :counter/status :idle :counter/error nil))}
 
       ;; The reply came back unhappy — stash the error so the view can show it.
-      (some-> msg :rf/reply :kind (= :failure))
+      ;; Failure is `:status :error`, the classified `:rf.http/*` map at `:error`.
+      (some-> msg :rf/reply :status (= :error))
       {:db (-> db
                (assoc :counter/status :error
-                      :counter/error  (:failure (:rf/reply msg))))}
+                      :counter/error  (:error (:rf/reply msg))))}
 
       ;; No reply yet, so this is the opening move: fire the request.
       ;; `rf.http/get` builds the same `[:rf.http/managed args-map]` vector a
@@ -124,17 +126,17 @@
 ;; ============================================================================
 ;;
 ;; The same handler shape as +1, just walking the failure side of the reply.
-;; We branch on the reply's :kind and, on :failure, keep the whole failure
-;; map. Its own :kind is the :rf.http/* category — exactly what the view
-;; reaches for to tell the user what went wrong.
+;; We branch on the reply's :status and, on :error, keep the whole failure
+;; map (it rides under :error). Its own :kind is the :rf.http/* category —
+;; exactly what the view reaches for to tell the user what went wrong.
 
 (rf/reg-event :counter/fail
   (fn [{:keys [db]} [_ msg]]
     (cond
-      (some-> msg :rf/reply :kind (= :failure))
-      {:db (assoc db :counter/status :error :counter/error (:failure (:rf/reply msg)))}
+      (some-> msg :rf/reply :status (= :error))
+      {:db (assoc db :counter/status :error :counter/error (:error (:rf/reply msg)))}
 
-      (some-> msg :rf/reply :kind (= :success))
+      (some-> msg :rf/reply :status (= :ok))
       ;; We never expect to land here — the URL is a deliberate 404.
       {:db (assoc db :counter/status :idle :counter/error nil)}
 
@@ -155,8 +157,8 @@
 ;;
 ;; The "it failed, retried, and recovered" path — without needing a flaky
 ;; endpoint to make it happen on cue. The handler issues
-;; :rf.http/managed-canned-success, which synthesises a
-;; {:kind :success :value {:delta 5}} reply: the exact shape the live fx
+;; :rf.http/managed-canned-success, which synthesises a canonical
+;; {:status :ok :value {:delta 5} …} reply: the exact shape the live fx
 ;; would deliver if its retry policy hit a real endpoint that 503s once and
 ;; then 200s. The stub lets you exercise the contract without owning a
 ;; server, and — the part that matters — the handler can't tell the
@@ -165,7 +167,7 @@
 (rf/reg-event :counter/retry-recover
   (fn [{:keys [db]} [_ msg]]
     (cond
-      (some-> msg :rf/reply :kind (= :success))
+      (some-> msg :rf/reply :status (= :ok))
       {:db (-> db
                (update :counter/count + (or (:delta (:value (:rf/reply msg))) 0))
                (assoc :counter/status :idle :counter/error nil))}
@@ -240,26 +242,32 @@
          ;; :counter/start-long via default reply addressing.
          :abort-fn (fn [reason]
                      (http-registry/clear-in-flight! request-id)
+                     ;; rf2-ibksxg — the canonical abort reply: an abort is
+                     ;; `:status :cancelled`, the `:rf.http/aborted` map under
+                     ;; `:error` (mirrors the live transport's abort path).
                      (rf/dispatch [:counter/start-long
-                                   {:rf/reply {:kind    :failure
-                                               :failure {:kind       :rf.http/aborted
-                                                         :request-id request-id
-                                                         :reason     reason}}}]
+                                   {:rf/reply {:status        :cancelled
+                                               :cancelled?    true
+                                               :cancel/reason reason
+                                               :error         {:kind       :rf.http/aborted
+                                                               :request-id request-id
+                                                               :reason     reason}}}]
                                   {:frame frame}))}))
     nil))
 
 (rf/reg-event :counter/start-long
   (fn [{:keys [db]} [_ msg]]
     (cond
-      ;; The reply branch. When Cancel fires, the :abort-fn dispatches
-      ;; :rf.http/aborted, and default reply addressing routes it right back
-      ;; here. We note the aborted classification and ease the UI to :idle.
-      (some-> msg :rf/reply :kind (= :failure))
+      ;; The reply branch. When Cancel fires, the :abort-fn dispatches the
+      ;; canonical :status :cancelled reply, and default reply addressing routes
+      ;; it right back here. We note the aborted classification (under :error)
+      ;; and ease the UI to :idle.
+      (some-> msg :rf/reply :status (= :cancelled))
       {:db (assoc db
                   :counter/status :idle
-                  :counter/error  (:failure (:rf/reply msg)))}
+                  :counter/error  (:error (:rf/reply msg)))}
 
-      (some-> msg :rf/reply :kind (= :success))
+      (some-> msg :rf/reply :status (= :ok))
       {:db (assoc db :counter/status :idle :counter/error nil)}
 
       ;; The opening move: seed a request that's genuinely in flight, ready

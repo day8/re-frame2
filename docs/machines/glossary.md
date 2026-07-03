@@ -73,9 +73,9 @@ What an [action](#action) returns: the same `{:data … :fx …}` map a [`reg-ev
 
 ```clojure
 :record-error
-(fn [{data :data [_ {:keys [failure]}] :event}]
+(fn [{data :data [_ {:keys [error]}] :event}]        ;; failure map rides under :error
   {:data (-> data (update :attempts inc)
-                  (assoc :error (:message failure)))})
+                  (assoc :error (:message error)))})
 ```
 
 See [The action effect map](concepts.md#the-action-effect-map--data-fx).

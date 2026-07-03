@@ -40,10 +40,11 @@ Here's a login flow as that one value — five states in a single map. Read it t
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
-    (fn [{data :data [_ {:keys [failure]}] :event}]
+    ;; the classified failure map rides under :error on the canonical reply
+    (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc :error (or (:message failure) "Login failed.")))})
+                 (assoc :error (or (:message error) "Login failed.")))})
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
@@ -112,7 +113,7 @@ So every event reaches the machine through the same `dispatch` and the same [eve
 
 !!! note "Async composes for free"
 
-    `:issue-request` names its reply events machine-wrapped — `:on-success [:auth.login/flow [:auth.login/success]]`, written one element short on purpose. When the request returns, [managed HTTP](../async/http.md) *appends* its reply to that inner event, so it lands back *inside* the machine as `[:auth.login/success {:kind :success :value v}]` — exactly the event `:store-session` destructures. A machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
+    `:issue-request` names its reply events machine-wrapped — `:on-success [:auth.login/flow [:auth.login/success]]`, written one element short on purpose. When the request returns, [managed HTTP](../async/http.md) *appends* its reply to that inner event, so it lands back *inside* the machine as `[:auth.login/success {:status :ok :value v …}]` — exactly the event `:store-session` destructures. A machine and an async [effect](../core/glossary.md#effect) compose with no adapter layer.
 
 ## See one run
 
@@ -203,10 +204,10 @@ An action does the side work a transition performs — but it doesn't *perform* 
 :actions
 {:clear-error  (fn [_] {:data {:error nil}})
 
- :record-error (fn [{data :data [_ {:keys [failure]}] :event}]
+ :record-error (fn [{data :data [_ {:keys [error]}] :event}]
                  {:data (-> data
                             (update :attempts inc)
-                            (assoc  :error (or (:message failure) "Login failed.")))})}
+                            (assoc  :error (or (:message error) "Login failed.")))})}
 ```
 
 The return shape — that `{:data ...}` map — gets a section of its own just below. Like guards, actions are referenced by id (`:action :clear-error`) against the machine's `:actions` map, or written inline.

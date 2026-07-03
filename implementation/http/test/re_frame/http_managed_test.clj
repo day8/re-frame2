@@ -126,9 +126,9 @@
     (rf/reg-event :article/load
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
-          (case (:kind reply)
-            :success {:db (assoc-in db [:article :data] (:value reply))}
-            :failure {:db (assoc-in db [:article :error] (:failure reply))})
+          (case (:status reply)
+            :ok    {:db (assoc-in db [:article :data] (:value reply))}
+            :error {:db (assoc-in db [:article :error] (:error reply))})
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
@@ -153,8 +153,8 @@
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (await-reply! #(some? (:auth-error %)))]
-      (is (= :failure (get-in db [:auth-error :kind])))
-      (is (= :rf.http/transport (get-in db [:auth-error :failure :kind]))))))
+      (is (= :error (get-in db [:auth-error :status])))
+      (is (= :rf.http/transport (get-in db [:auth-error :error :kind]))))))
 
 ;; ---- 3. silenced reply (on-success nil) -----------------------------------
 
@@ -270,7 +270,7 @@
     (is (nil? (:j1mo4-error (rf/app-db-value :rf/default)))
         "failure reply deferred — not present immediately")
     (let [db (await-reply! #(some? (:j1mo4-error %)))]
-      (is (= :rf.http/transport (get-in db [:j1mo4-error :failure :kind]))
+      (is (= :rf.http/transport (get-in db [:j1mo4-error :error :kind]))
           "deferred failure reply landed after the :dispatch-later tick"))))
 
 ;; ---- 3c. canned-stub path runs the :after interceptor chain (rf2-r5m22) ----
@@ -309,7 +309,7 @@
       (let [db (await-reply! #(some? (:reply %)))]
         (is (= [:before :after] @order)
             "BOTH halves of the chain fired on the canned path (was [:before] only)")
-        (is (= :success (get-in db [:reply :kind])))
+        (is (= :ok (get-in db [:reply :status])))
         (is (= :after (get-in db [:reply :value :touched-by]))
             ":after's transform of the reply-payload reached the :on-success target")
         (is (true? (get-in db [:reply :value :ok]))
@@ -348,7 +348,7 @@
       (rf/reg-http-interceptor :r5m22/fail-after
         {:after (fn [_ctx resp]
                   (reset! fired true)
-                  (if (= :failure (:kind resp))
+                  (if (= :error (:status resp))
                     (assoc resp :tagged-by-after true)
                     resp))})
       (rf/reg-event :r5m22/fail
@@ -362,7 +362,7 @@
       (let [db (await-reply! #(some? (:reply %)))]
         (is (true? @fired)
             ":after fired on the canned-failure path")
-        (is (= :failure (get-in db [:reply :kind])))
+        (is (= :error (get-in db [:reply :status])))
         (is (true? (get-in db [:reply :tagged-by-after]))
             ":after's failure-shape transform reached the :on-failure reply")))))
 
@@ -379,9 +379,9 @@
         (rf/reg-event :article/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
-              (case (:kind reply)
-                :success {:db (assoc db :article (:value reply))}
-                :failure {:db (assoc db :error  (:failure reply))})
+              (case (:status reply)
+                :ok    {:db (assoc db :article (:value reply))}
+                :error {:db (assoc db :error  (:error reply))})
               {:fx [[:rf.http/managed
                      {:request {:url (str "http://127.0.0.1:" port "/articles/hello")}
                       :decode  :json}]]})))
@@ -408,9 +408,9 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:article/load {}])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :failure (get-in db [:reply :kind])))
-          (is (= :rf.http/http-4xx (get-in db [:reply :failure :kind])))
-          (is (= 404 (get-in db [:reply :failure :status]))))
+          (is (= :error (get-in db [:reply :status])))
+          (is (= :rf.http/http-4xx (get-in db [:reply :error :kind])))
+          (is (= 404 (get-in db [:reply :error :status]))))
         (finally (stop-server! srv))))))
 
 ;; ---- 5b. HTML 404 with :decode :json — status check precedes decode ------
@@ -438,8 +438,8 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:page/load {}])
         (let [db (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind])))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/http-4xx (:kind failure))
               "status classification precedes decode: HTML body must NOT trigger :rf.http/decode-failure")
           (is (= 404 (:status failure)))
@@ -474,8 +474,8 @@
                                  (throw (ex-info "boom" {})))}]]})))
         (rf/dispatch-sync [:page/load {}])
         (let [db (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind])))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/decode-failure (:kind failure))
               "decode runs on 2xx; a thrown decoder surfaces as :rf.http/decode-failure"))
         (finally (stop-server! srv))))))
@@ -489,7 +489,7 @@
 ;; through the real `java.net.http.HttpClient` transport + the
 ;; `handle-response!` → `run-accept` → `finalise-success!` cascade: an empty
 ;; 200 body with `Content-Type: application/json` must reply
-;; `{:kind :success :value nil}`, NOT `{:kind :failure ...decode-failure}`.
+;; `{:status :ok :value nil …}`, NOT a `:status :error` decode-failure.
 
 (deftest jvm-empty-200-json-body-replies-success-nil
   (testing "rf2-upexd.1 — a 200 with an EMPTY body + application/json
@@ -511,7 +511,7 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:empty/load {}])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :success (get-in db [:reply :kind]))
+          (is (= :ok (get-in db [:reply :status]))
               "an empty 2xx JSON body is a NORMAL outcome, not a decode-failure")
           (is (nil? (get-in db [:reply :value]))
               "the decoded value of an empty JSON body is nil"))
@@ -558,8 +558,8 @@
         (rf/dispatch-sync [:upexd3/load {}])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
           ;; The reply is the terminal decode-failure.
-          (is (= :failure (get-in db [:reply :kind])))
-          (is (= :rf.http/decode-failure (get-in db [:reply :failure :kind])))
+          (is (= :error (get-in db [:reply :status])))
+          (is (= :rf.http/decode-failure (get-in db [:reply :error :kind])))
           ;; The load-bearing assertion: no phantom retry-attempt trace.
           (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
                                      @traces)]
@@ -600,8 +600,8 @@
                                 :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
         (rf/dispatch-sync [:upexd3b/load {}])
         (let [db (await-reply! #(some? (:reply %)) 8000)]
-          (is (= :failure (get-in db [:reply :kind])))
-          (is (= :rf.http/http-5xx (get-in db [:reply :failure :kind])))
+          (is (= :error (get-in db [:reply :status])))
+          (is (= :rf.http/http-5xx (get-in db [:reply :error :kind])))
           (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
                                      @traces)]
             (is (seq retry-traces)
@@ -765,8 +765,8 @@
                                 :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
         (rf/dispatch-sync [:flaky/load])
         (let [db (await-reply! #(some? (:reply %)) 8000)]
-          (is (= :failure (get-in db [:reply :kind])))
-          (is (= :rf.http/http-5xx (get-in db [:reply :failure :kind])))
+          (is (= :error (get-in db [:reply :status])))
+          (is (= :rf.http/http-5xx (get-in db [:reply :error :kind])))
           ;; The server saw all 3 attempts.
           (is (= 3 @hits)))
         (finally (stop-server! srv))))))
@@ -796,7 +796,7 @@
                                 :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
         (rf/dispatch-sync [:recover/load])
         (let [db (await-reply! #(some? (:reply %)) 8000)]
-          (is (= :success (get-in db [:reply :kind])))
+          (is (= :ok (get-in db [:reply :status])))
           (is (= {:ok true} (get-in db [:reply :value])))
           (is (= 2 @hits)))
         (finally (stop-server! srv))))))
@@ -815,8 +815,8 @@
                   :decode  :json}]]})))
     (rf/dispatch-sync [:load])
     (let [db (await-reply! #(some? (:reply %)) 5000)]
-      (is (= :failure (get-in db [:reply :kind])))
-      (is (= :rf.http/transport (get-in db [:reply :failure :kind]))))))
+      (is (= :error (get-in db [:reply :status])))
+      (is (= :rf.http/transport (get-in db [:reply :error :kind]))))))
 
 ;; ---- 8b. abort on unknown request-id is a silent no-op (rf2-kdwnq) -------
 ;;
@@ -901,8 +901,8 @@
           {:label ":slow registered as in-flight before abort"})
         (rf/dispatch-sync [:slow/abort])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :failure (get-in db [:reply :kind])))
-          (is (= :rf.http/aborted (get-in db [:reply :failure :kind]))))
+          (is (= :cancelled (get-in db [:reply :status])))
+          (is (= :rf.http/aborted (get-in db [:reply :error :kind]))))
         (.countDown latch)
         (finally (stop-server! srv))))))
 
@@ -972,8 +972,8 @@
         (rf/dispatch-sync [:on7sj/abort])
         ;; Wait for the abort reply.
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :failure (get-in db [:reply :kind])))
-          (is (= :rf.http/aborted (get-in db [:reply :failure :kind])))
+          (is (= :cancelled (get-in db [:reply :status])))
+          (is (= :rf.http/aborted (get-in db [:reply :error :kind])))
           (is (= 1 @reply-count)
               "exactly one reply must have fired immediately after abort"))
 
@@ -994,10 +994,10 @@
             (str "rf2-on7sj — exactly ONE reply must fire across abort + server-release. "
                  "Pre-fix this would dispatch TWO. Saw "
                  @reply-count " replies: "
-                 (pr-str (mapv :kind @all-replies))))
+                 (pr-str (mapv :status @all-replies))))
         (is (= 1 (count @all-replies))
             "the all-replies log carries a single entry, matching the counter")
-        (is (= :rf.http/aborted (get-in (first @all-replies) [:failure :kind]))
+        (is (= :rf.http/aborted (get-in (first @all-replies) [:error :kind]))
             "the single reply is the abort reply, not the late natural-completion one")
 
         (finally (stop-server! srv))))))
@@ -1026,7 +1026,7 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:upload])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :success (get-in db [:reply :kind])))
+          (is (= :ok (get-in db [:reply :status])))
           (is (= 1 @thunk-calls)))
         (finally (stop-server! srv))))))
 
@@ -1051,7 +1051,7 @@
       ;; dispatch ran the real :rf.http/managed transport.
       (rf/dispatch-sync [:articles/list])
       (let [db (await-reply! #(some? (:result %)) 2000)]
-        (is (= :success (get-in db [:result :kind])))
+        (is (= :ok (get-in db [:result :status])))
         (is (= [:hello :world] (get-in db [:result :value])))))))
 
 ;; ---- 11a. rf2-rzqan — bare wrapper INTERCEPTS, never reaching the real fx ---
@@ -1092,7 +1092,7 @@
         ;; Bare wrapper form — the helper alone must route to the stub.
         (rf/dispatch-sync [:rzqan/load])
         (let [db (await-reply! #(some? (:result %)) 2000)]
-          (is (= :success (get-in db [:result :kind]))
+          (is (= :ok (get-in db [:result :status]))
               "the stubbed reply landed via the route-map stub")
           (is (= {:stubbed true} (get-in db [:result :value]))
               "the configured :ok value rode through the synthesised success reply")
@@ -1161,7 +1161,7 @@
       {[:get "/v2/articles"] {:reply {:ok [:rewritten :ok]}}}
       (rf/dispatch-sync [:azrcs/list])
       (let [db (await-reply! #(some? (:result %)) 2000)]
-        (is (= :success (get-in db [:result :kind]))
+        (is (= :ok (get-in db [:result :status]))
             "the stub matched the post-`:before` url")
         (is (= [:rewritten :ok] (get-in db [:result :value]))
             "the configured :ok value for the FINAL url rode through")))))
@@ -1188,11 +1188,11 @@
       {[:get "/articles"] {:reply {:ok [:should :not :match]}}}
       (rf/dispatch-sync [:azrcs/list2])
       (let [db (await-reply! #(some? (:result %)) 2000)]
-        (is (= :failure (get-in db [:result :kind]))
+        (is (= :error (get-in db [:result :status]))
             "the stale original-url key did NOT match the post-`:before` url")
-        (is (= "no stub matched" (get-in db [:result :failure :message]))
+        (is (= "no stub matched" (get-in db [:result :error :message]))
             "the no-stub-matched synthetic failure fired (not the stale :ok)")
-        (is (= "/v2/articles" (get-in db [:result :failure :url]))
+        (is (= "/v2/articles" (get-in db [:result :error :url]))
             "the no-match failure reports the FINAL post-`:before` url")))))
 
 (deftest stub-url-erasing-before-throws-bad-request-rf2-azrcs
@@ -1265,7 +1265,7 @@
       ;; Inner scope has exited. The outer A scope's stub MUST still be live.
       (rf/dispatch-sync [:vn8qjv/load-a])
       (let [db (await-reply! #(some? (:result-a %)) 2000)]
-        (is (= :success (get-in db [:result-a :kind]))
+        (is (= :ok (get-in db [:result-a :status]))
             "outer A scope still synthesised a reply after the inner B exit")
         (is (= {:from :outer-a} (get-in db [:result-a :value]))
             "outer A scope still routed to the A stub — not cleared by inner B teardown")))))
@@ -1508,8 +1508,8 @@
                       :decode     :json}]]})))
         (rf/dispatch-sync [:slow/load])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :failure (get-in db [:reply :kind])))
-          (is (= :rf.http/timeout (get-in db [:reply :failure :kind]))))
+          (is (= :error (get-in db [:reply :status])))
+          (is (= :rf.http/timeout (get-in db [:reply :error :kind]))))
         (.countDown latch)
         (finally (stop-server! srv))))))
 
@@ -1674,11 +1674,11 @@
         ;; the reply payload as the last arg — the handler receives the
         ;; payload directly (NOT wrapped under :rf/reply).
         (let [reply @reply-data]
-          (is (= :failure (:kind reply))
-              "the reply is a :failure reply")
-          (is (= :rf.http/aborted (-> reply :failure :kind))
+          (is (= :cancelled (:status reply))
+              "the reply is a :cancelled (abort) reply")
+          (is (= :rf.http/aborted (-> reply :error :kind))
               "failure kind is :rf.http/aborted")
-          (is (not= :request-id-superseded (-> reply :failure :reason))
+          (is (not= :request-id-superseded (-> reply :error :reason))
               ":reason is NOT :request-id-superseded (this is the regression guard)"))
 
         (.countDown latch)
@@ -1722,8 +1722,8 @@
                       :decode  [:map [:id :int]]}]]})))
         (rf/dispatch-sync [:thing/load])
         (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind])))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/decode-failure (:kind failure))
               "schema validation failure is a decode failure")
           (is (true? (:schema-validation-failure? failure))
@@ -1749,7 +1749,7 @@
                       :decode  [:map [:id :int] [:status :keyword]]}]]})))
         (rf/dispatch-sync [:thing/load])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :success (get-in db [:reply :kind])))
+          (is (= :ok (get-in db [:reply :status])))
           (is (= {:id 7 :status :active} (get-in db [:reply :value]))
               "the schema coerces the string status to a keyword e2e"))
         (finally (stop-server! srv))))))
@@ -1775,8 +1775,8 @@
                       :rf.http/max-decoded-keys 2}]]})))
         (rf/dispatch-sync [:thing/load])
         (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind])))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/decode-failure (:kind failure))
               "an over-cap payload classifies as a decode failure")
           ;; The cap-throw is :rf.error/malformed-json, NOT a schema
@@ -1819,7 +1819,7 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:thing/load])
         (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
+              failure (get-in db [:reply :error])]
           (is (= :rf.http/decode-failure (:kind failure))
               "a JSON syntax error is still a decode failure")
           (is (nil? (:reason failure))
@@ -1859,8 +1859,8 @@
                                               :reason (:reason decoded)}}))}]]})))
         (rf/dispatch-sync [:op/run])
         (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind])))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/accept-failure (:kind failure))
               "an :accept-rejected 2xx classifies as :rf.http/accept-failure")
           (is (= {:kind :domain-rejected :reason "quota"} (:detail failure))
@@ -2063,8 +2063,8 @@
                                  (throw (ex-info "accept boom" {})))}]]})))
         (rf/dispatch-sync [:acceptthrow/load])
         (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind]))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status]))
               "a thrown :accept produces a FAILURE reply (caller is not stranded)")
           (is (= :rf.http/accept-failure (:kind failure))
               "the throw classifies as :rf.http/accept-failure, NOT
@@ -2095,8 +2095,8 @@
                       :accept  (fn [_decoded] nil)}]]})))
         (rf/dispatch-sync [:acceptnil/load])
         (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind]))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status]))
               "a nil :accept return STILL dispatches a reply (no infinite hang)")
           (is (= :rf.http/accept-failure (:kind failure))
               "the malformed return classifies as :rf.http/accept-failure")
@@ -2124,8 +2124,8 @@
                       :accept  (fn [_decoded] {:status :weird})}]]})))
         (rf/dispatch-sync [:acceptbad/load])
         (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :failure])]
-          (is (= :failure (get-in db [:reply :kind])))
+              failure (get-in db [:reply :error])]
+          (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/accept-failure (:kind failure))
               "a map without :ok/:failure is a malformed accept return"))
         (finally (stop-server! srv))))))
@@ -2148,7 +2148,7 @@
                       :accept  (fn [decoded] {:ok (:value decoded)})}]]})))
         (rf/dispatch-sync [:acceptok/load])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :success (get-in db [:reply :kind])))
+          (is (= :ok (get-in db [:reply :status])))
           (is (= 42 (get-in db [:reply :value]))
               "a well-formed {:ok v} still projects the success value"))
         (finally (stop-server! srv))))))

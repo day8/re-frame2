@@ -1141,7 +1141,7 @@ async function runHttpToggle(page) {
   await clearTrace(page);
 
   await clickTestId(page, 'go');
-  await expectVisible(page.locator('[data-testid="reply-kind"]'), 5000);
+  await expectVisible(page.locator('[data-testid="reply-status"]'), 5000);
 
   const outcomes = [
     ':rf.http/http-4xx',

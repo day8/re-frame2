@@ -12,10 +12,11 @@
        `:completed-at` from the reply token. Timeout → `:status :error` +
        `:work/status :timed-out`; abort → `:status :cancelled` with an
        `:rf.http/aborted` `:error`.
-    2. PUBLIC compatibility reshape — `:on-success` / `:on-failure` and the
-       co-located `(:rf/reply msg)` merge keep the exact Spec 014 §Reply
-       payload shapes (`{:kind :success :value v}` / `{:kind :failure
-       :failure f}`) even though the request lowered through the envelope.
+    2. CANONICAL delivery — `:on-success` / `:on-failure` are pure routing
+       sugar and the co-located `(:rf/reply msg)` merge both deliver the
+       ONE canonical reply envelope verbatim (`{:status :ok :value v …}` /
+       `{:status :error :error f …}`, rf2-ibksxg) — there is no
+       `{:kind :success/:failure}` public reshape.
     3. SUPERSESSION — a same-`:request-id` supersede suppresses the prior
        request's app reply target (the supersede semantic is trace-only).
 
@@ -24,7 +25,7 @@
   server); groups 1 + 3 are pinned at the pure / transport altitude.
 
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
-  envelope; EP-0011 §Managed HTTP Lowering / §Public Compatibility Sugar."
+  envelope; EP-0011; rf2-ibksxg (one canonical async-reply envelope)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -175,34 +176,32 @@
 
 ;; ===========================================================================
 ;; Group 1b — the SHARED-TARGET lowering path + the reply-mapping functor law
-;; for HTTP (rf2-9u1tvq). HTTP's compatibility addressing — append the public
-;; reply payload as the final arg of the reply target's event — IS the shared
-;; `re-frame.reply/complete` `:delivery :append` over the `:rf.http/compat-
-;; reply` payload. These pin that HTTP rides the shared target functions
-;; (`complete` / `map-completed-event`) rather than a family-private append, and that
-;; the EP-0011 functor law holds over HTTP's compat target — not only that the
+;; for HTTP (rf2-9u1tvq). HTTP's reply addressing — append the CANONICAL reply
+;; envelope as the final arg of the reply target's event (rf2-ibksxg: no
+;; compat reshape) — IS the shared `re-frame.reply/complete` `:delivery
+;; :append`. These pin that HTTP rides the shared target functions (`complete`
+;; / `map-completed-event`) rather than a family-private append, and that the
+;; EP-0011 functor law holds over HTTP's reply target — not only that the
 ;; canonical reply map is constructed.
 ;; ===========================================================================
 
-(deftest http-compat-target-lowers-through-shared-complete
-  (testing "the HTTP compat reply (public payload appended to the target event) IS re-frame.reply/complete :delivery :append — the shared-target lowering path, not a family-private append"
-    (let [reply   (http-reply/success-reply base-ctx {:title "Welcome"})
-          payload (http-reply/reply->public-payload reply) ;; the :rf.http/compat-reply body
-          target  [:article/load {:id 42}]]
-      ;; `complete` appends the compat payload as the final arg — exactly the
+(deftest http-target-lowers-through-shared-complete
+  (testing "the HTTP reply (canonical envelope appended to the target event) IS re-frame.reply/complete :delivery :append — the shared-target lowering path, not a family-private append"
+    (let [reply  (http-reply/success-reply base-ctx {:title "Welcome"})
+          target [:article/load {:id 42}]]
+      ;; `complete` appends the canonical reply as the final arg — exactly the
       ;; shape `build-reply-event` produces for an explicit reply target.
-      (is (= [:article/load {:id 42} {:kind :success :value {:title "Welcome"}}]
-             (reply/complete target payload)))
-      (testing "a failure compat payload lowers the same way through the shared append"
-        (let [f  {:kind :rf.http/http-5xx :status 503 :body "down"}
-              fp (http-reply/reply->public-payload (http-reply/failure-reply base-ctx f))]
-          (is (= [:svc/failed {:kind :failure :failure f}]
-                 (reply/complete [:svc/failed] fp))))))))
+      (is (= [:article/load {:id 42} reply]
+             (reply/complete target reply)))
+      (is (= :ok (get-in (reply/complete target reply) [2 :status])))
+      (testing "a failure reply lowers the same way through the shared append"
+        (let [fr (http-reply/failure-reply base-ctx {:kind :rf.http/http-5xx :status 503 :body "down"})]
+          (is (= [:svc/failed fr] (reply/complete [:svc/failed] fr)))
+          (is (= :rf.http/http-5xx (get-in (reply/complete [:svc/failed] fr) [1 :error :kind]))))))))
 
-(deftest http-compat-target-satisfies-functor-law
-  (testing "rf2-9u1tvq — the EP-0011 reply-mapping functor law holds over HTTP's compat target: complete(map-completed-event(f,t),reply) == f(complete(t,reply)); identity + composition"
-    (let [payload (http-reply/reply->public-payload
-                    (http-reply/success-reply base-ctx {:title "Welcome"}))
+(deftest http-target-satisfies-functor-law
+  (testing "rf2-9u1tvq — the EP-0011 reply-mapping functor law holds over HTTP's reply target: complete(map-completed-event(f,t),reply) == f(complete(t,reply)); identity + composition"
+    (let [payload (http-reply/success-reply base-ctx {:title "Welcome"})
           target  [:article/load {:id 42}]
           ;; relocate the completed reply into a wrapper event (the Cmd.map role)
           wrap    (fn [ev] [:wrap ev])
@@ -224,34 +223,20 @@
           (is (= :ok (:status reply))))))))
 
 ;; ===========================================================================
-;; Group 2a — public compatibility reshape (pure inverse projection).
+;; Group 2a — the compat reshape is GONE (rf2-ibksxg).
 ;; ===========================================================================
 
-(deftest reshape-preserves-public-shapes
-  (testing ":ok reshapes to {:kind :success :value v}"
-    (is (= {:kind :success :value {:title "Welcome"}}
-           (http-reply/reply->public-payload
-             (http-reply/success-reply base-ctx {:title "Welcome"})))))
-  (testing ":error reshapes to {:kind :failure :failure f} carrying the :rf.http/* failure"
-    (let [failure {:kind :rf.http/http-4xx :status 404 :body "nope"}]
-      (is (= {:kind :failure :failure failure}
-             (http-reply/reply->public-payload
-               (http-reply/failure-reply base-ctx failure))))))
-  (testing ":cancelled reshapes to a {:kind :failure …} reply carrying :rf.http/aborted"
-    (let [failure {:kind :rf.http/aborted :reason :user}]
-      (is (= {:kind :failure :failure failure}
-             (http-reply/reply->public-payload
-               (http-reply/aborted-reply base-ctx failure))))))
-  (testing ":stale reshapes to nil — a suppressed reply is never delivered to the app target"
-    (is (nil? (http-reply/reply->public-payload
-                {:status :stale :stale? true :stale/reason :x})))))
+(deftest no-public-payload-reshape
+  (testing "rf2-ibksxg — the {:kind :success/:failure} reshape (reply->public-payload / :rf.http/compat-reply) is DELETED; the canonical reply IS the public payload"
+    (is (not (contains? (ns-publics 're-frame.http.reply) 'reply->public-payload)))))
 
 ;; ===========================================================================
-;; Group 2b — public shape preserved END-TO-END through the real transport.
+;; Group 2b — the CANONICAL envelope is delivered END-TO-END through the real
+;; transport (rf2-ibksxg — one dialect, no reshape).
 ;; ===========================================================================
 
-(deftest real-transport-default-reply-preserves-public-shape
-  (testing "co-located (:rf/reply msg) default still receives {:kind :success :value v}"
+(deftest real-transport-default-reply-delivers-canonical-envelope
+  (testing "co-located (:rf/reply msg) default receives the canonical {:status :ok :value v …} envelope"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 200 "application/json"
@@ -266,18 +251,17 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:article/load {}])
         (let [db (await-reply! #(some? (:reply %)))]
-          ;; The PUBLIC Spec 014 §Reply payload shape — unchanged by the
-          ;; internal lowering.
-          (is (= :success (get-in db [:reply :kind])))
-          (is (= "hello"  (get-in db [:reply :value :title])))
-          ;; The canonical envelope facts (:status / :work/id / :completed-at)
-          ;; are INTERNAL — they MUST NOT leak into the public payload.
-          (is (not (contains? (:reply db) :status)))
-          (is (not (contains? (:reply db) :work/id))))
+          ;; The canonical reply envelope — the ONE dialect delivered to the app.
+          (is (= :ok (get-in db [:reply :status])))
+          (is (= "hello" (get-in db [:reply :value :title])))
+          (is (= :completed (get-in db [:reply :work/status])))
+          (is (= :http (get-in db [:reply :work/kind])))
+          ;; the retired {:kind :success} dialect is GONE
+          (is (not (contains? (:reply db) :kind))))
         (finally (stop-server! srv))))))
 
-(deftest real-transport-explicit-on-failure-preserves-public-shape
-  (testing "explicit :on-failure still receives {:kind :failure :failure {:kind :rf.http/http-5xx …}}"
+(deftest real-transport-explicit-on-failure-delivers-canonical-envelope
+  (testing "explicit :on-failure receives the canonical {:status :error :error {:kind :rf.http/http-5xx …} …} envelope"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 503 "text/plain" "down")))]
@@ -290,10 +274,120 @@
         (rf/reg-event :svc/failed (fn [{:keys [db]} [_ payload]] {:db (assoc db :got payload)}))
         (rf/dispatch-sync [:svc/call])
         (let [db (await-reply! #(some? (:got %)))]
-          (is (= :failure (get-in db [:got :kind])))
-          (is (= :rf.http/http-5xx (get-in db [:got :failure :kind])))
-          (is (= 503 (get-in db [:got :failure :status])))
-          (is (not (contains? (:got db) :status)) "no canonical envelope leak"))
+          (is (= :error (get-in db [:got :status])))
+          (is (= :failed (get-in db [:got :work/status])))
+          ;; the classified :rf.http/* failure map rides VERBATIM under :error
+          (is (= :rf.http/http-5xx (get-in db [:got :error :kind])))
+          (is (= 503 (get-in db [:got :error :status])))
+          (is (not (contains? (:got db) :kind)) "no retired :kind dialect"))
+        (finally (stop-server! srv))))))
+
+;; ===========================================================================
+;; Group 2c — rf2-1u9dja: the public failure `:error` map is SELF-IDENTIFYING.
+;; Every failure category carries :request {:method :url}, :request-id,
+;; :attempt/:max-attempts, and :work/id — WHICH request failed, not only what
+;; kind of failure it was (debugging-dx finding 3). Exercised end-to-end
+;; through the real transport for the categories a test server can trigger.
+;; ===========================================================================
+
+(defn- fetch-failure-error
+  "Issue one managed GET against `url` (retry `max-attempts`, `request-id`),
+  drive it, and return the `:error` map of the delivered failure reply."
+  [url {:keys [request-id max-attempts]}]
+  (rf/reg-event :sid/call
+    (fn [_ _]
+      {:fx [[:rf.http/managed
+             (cond-> {:request    {:method :get :url url}
+                      :decode     :json
+                      :on-failure [:sid/failed]}
+               request-id   (assoc :request-id request-id)
+               max-attempts (assoc :retry {:on #{:rf.http/http-5xx :rf.http/transport}
+                                           :max-attempts max-attempts
+                                           :backoff {:base-ms 1 :factor 1 :max-ms 1}}))]]}))
+  (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+  (rf/dispatch-sync [:sid/call])
+  (get-in (await-reply! #(some? (:reply %))) [:reply :error]))
+
+(deftest failure-reply-is-self-identifying-4xx
+  (testing "an :rf.http/http-4xx failure echoes :request/:request-id/:attempt/:work-id"
+    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 404 "text/plain" "nope")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/gone")
+              err (fetch-failure-error url {:request-id :sid/get})]
+          (is (= :rf.http/http-4xx (:kind err)) "category tag survives")
+          (is (= {:method :get :url url} (:request err)) "echoes the caller's wire envelope")
+          (is (= :sid/get (:request-id err)) ":request-id is uniform (not aborted-only)")
+          (is (= 1 (:attempt err)))
+          (is (= [:rf.work/http :sid/get 1 1] (:work/id err)) "correlation join to the trace")
+          ;; category-specific tags still ride
+          (is (= 404 (:status err))))
+        (finally (stop-server! srv))))))
+
+(deftest failure-reply-is-self-identifying-transport
+  (testing "an :rf.http/transport failure (connection refused) is self-identifying"
+    ;; Port 1 is reliably closed — connection refused → :rf.http/transport.
+    (let [url "http://127.0.0.1:1/x"
+          err (fetch-failure-error url {:request-id :sid/xport})]
+      (is (= :rf.http/transport (:kind err)))
+      (is (= {:method :get :url url} (:request err)))
+      (is (= :sid/xport (:request-id err)))
+      (is (= [:rf.work/http :sid/xport 1 1] (:work/id err))))))
+
+(deftest failure-reply-is-self-identifying-5xx-with-retry
+  (testing "an :rf.http/http-5xx failure after exhausted retries carries :attempt/:max-attempts"
+    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 503 "text/plain" "down")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/down")
+              err (fetch-failure-error url {:request-id :sid/five-xx :max-attempts 3})]
+          (is (= :rf.http/http-5xx (:kind err)))
+          (is (= {:method :get :url url} (:request err)))
+          (is (= 3 (:attempt err)) "the final (third) attempt is reported")
+          (is (= 3 (:max-attempts err)) "the retry ceiling rides the failure")
+          (is (= [:rf.work/http :sid/five-xx 1 3] (:work/id err))
+              "the work-id's attempt slot matches the exhausting attempt"))
+        (finally (stop-server! srv))))))
+
+(deftest failure-reply-is-self-identifying-decode
+  (testing "an :rf.http/decode-failure (malformed JSON on 200) is self-identifying"
+    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 200 "application/json" "{not json")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/bad")
+              err (fetch-failure-error url {:request-id :sid/decode})]
+          (is (= :rf.http/decode-failure (:kind err)))
+          (is (= {:method :get :url url} (:request err)))
+          (is (= :sid/decode (:request-id err)))
+          (is (= [:rf.work/http :sid/decode 1 1] (:work/id err))))
+        (finally (stop-server! srv))))))
+
+(deftest failure-reply-is-self-identifying-aborted
+  (testing "an :rf.http/aborted reply (:status :cancelled) is self-identifying too"
+    (let [gate (java.util.concurrent.CountDownLatch. 1)
+          srv  (start-server!
+                 (fn [^HttpExchange ex]
+                   (try (.await gate 2 java.util.concurrent.TimeUnit/SECONDS)
+                        (catch InterruptedException _ nil))
+                   (write-response! ex 200 "application/json" "{\"v\":1}")))]
+      (try
+        (let [url (str "http://127.0.0.1:" (:port srv) "/slow")]
+          (rf/reg-event :sid/go
+            (fn [_ _]
+              {:fx [[:rf.http/managed
+                     {:request    {:method :get :url url}
+                      :request-id :sid/abort
+                      :decode     :json
+                      :on-failure [:sid/failed]}]]}))
+          (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+          (rf/reg-event :sid/abort! (fn [_ _] {:fx [[:rf.http/managed-abort :sid/abort]]}))
+          (rf/dispatch-sync [:sid/go])
+          (rf/dispatch-sync [:sid/abort!])
+          (.countDown gate)
+          (let [reply (get-in (await-reply! #(some? (:reply %))) [:reply])
+                err   (:error reply)]
+            (is (= :cancelled (:status reply)) "abort is a :status :cancelled reply")
+            (is (= :rf.http/aborted (:kind err)))
+            (is (= {:method :get :url url} (:request err)))
+            (is (= :sid/abort (:request-id err)))
+            (is (= [:rf.work/http :sid/abort 1 1] (:work/id err)))))
         (finally (stop-server! srv))))))
 
 (deftest real-transport-emits-canonical-replied-trace
@@ -375,8 +469,8 @@
         ;; one delivered reply (request #2's), never the supersede of #1.
         (is (= 1 (count @replies))
             "only the surviving request's reply is delivered; the superseded one is suppressed")
-        (is (= :success (:kind (first @replies)))
-            "the surviving reply is request #2's success")
+        (is (= :ok (:status (first @replies)))
+            "the surviving reply is request #2's canonical :status :ok success")
         (finally (stop-server! srv))))))
 
 (deftest supersede-distinct-work-ids-and-canonical-stale-trace

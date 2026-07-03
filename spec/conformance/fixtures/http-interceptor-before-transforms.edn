@@ -95,13 +95,13 @@
 
  :fixture/expect
  {:final-app-db
-  {:article            {:kind  :success
-                        :value {:title "hello" :id 42}}
+  {:article            {:status :ok
+                        :value  {:title "hello" :id 42}}
    :interceptor-marker :auth-applied}
 
   :sub-values
-  {[:article]            {:kind  :success
-                          :value {:title "hello" :id 42}}
+  {[:article]            {:status :ok
+                          :value  {:title "hello" :id 42}}
    [:interceptor-marker] :auth-applied}
 
   ;; Order: the registration trace fires at :app/init. The first
