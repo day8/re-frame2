@@ -248,7 +248,7 @@
 ;; The host-facing focus entry point: a host (Story) sends a small,
 ;; data-shaped focus command from a narrative beat / failed assertion /
 ;; inspect command and the embedded Xray surface focuses the right
-;; panel + epoch + cascade + app-db path. Story owns the
+;; panel + epoch + event-bundle + app-db path. Story owns the
 ;; action/intent; Xray owns panel semantics. `def`-alias (not a wrapper
 ;; fn) so `(= focus/focus! core/focus!)` holds and DCE inlines the call
 ;; site — same posture as the mount re-exports above. The command shape

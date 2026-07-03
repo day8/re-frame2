@@ -580,11 +580,11 @@
   `:handler-id`, `:source`, `:origin`, `:dispatch-id`, `:since-ms`,
   `:between`, `:pred`).
 
-  Per rf2-g1b2m / rf2-8uwce the ring is now per-frame and cascade-
+  Per rf2-g1b2m / rf2-8uwce the ring is now per-frame and event-
   keyed. `:frame` selects the frame (defaults to the sole-registered
   one via `resolve-frame`); the response emits raw trace events (via
   `{:flat true}`) so the legacy flat-event consumer shape is
-  preserved. Cascade-bundle reads land in a follow-on bead — this
+  preserved. Event-bundle reads land in a follow-on bead — this
   tool is the historical flat-events surface and stays so.
 
   Returns `{:ok? true :events <vec> :count <n> :frame <frame-id>}`
@@ -1243,7 +1243,7 @@
 
   Per rf2-g1b2m / rf2-8uwce trace rings are per-frame; iterate every
   registered frame and merge — issues fired across multiple frames
-  during a single cascade reconstruct correctly. `:flat true` opts
+  during a single event-bundle reconstruct correctly. `:flat true` opts
   into the raw flat-event shape so the existing issue filter walks
   the same vocabulary.
 
@@ -1386,7 +1386,7 @@
   OPTS map as `{:origin *current-origin*}` (defaults to `:xray-mcp`), so
   the emitted `:rf.event/dispatched` trace carries `[:tags
   :rf.event/origin]` and `get-trace-buffer {:origin <origin>}` can
-  isolate the tool-dispatched cascade. Returns `{:ok? true :event-id <kw>
+  isolate the tool-dispatched event-bundle. Returns `{:ok? true :event-id <kw>
   :frame <id> :origin <kw> :mode <kw>}`.
 
   Modes: `:queued` (default — non-blocking `rf/dispatch`); `:sync`
@@ -1413,7 +1413,7 @@
        ;; `:rf.event/dispatched` trace as `[:tags :rf.event/origin]` (Spec
        ;; 002 §Frame target resolution / Spec 009 §Origin). A `{:tags
        ;; {:origin …}}` event-meta path was NEVER read by the framework, so
-       ;; tool-dispatched cascades were indistinguishable from app-origin
+       ;; tool-dispatched event-bundles were indistinguishable from app-origin
        ;; ones on the trace bus.
        (do
          (rf/with-frame fid
@@ -1473,7 +1473,7 @@
 
 (defn replace-app-db!
   "Tool: `replace-app-db`. Inject `:value` into a frame's `app-db`,
-  bypassing the cascade. Schema-validates against current schemas via
+  bypassing the event-bundle. Schema-validates against current schemas via
   `rf/replace-app-db!` (renamed from `rf/reset-frame-db!`, EP-0001
   rf2-tfepxu); the framework's wrapper returns `true` on success and
   `false` on any of the three documented failure rows

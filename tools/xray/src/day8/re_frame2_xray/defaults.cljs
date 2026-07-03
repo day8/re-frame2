@@ -43,7 +43,7 @@
     - the frame picker (`:rf.xray/set-target-frame`), or
     - the mount-time discovery policy (`focusable-head-frame-id` — the
       operator-present interactive tier that uniquely resolves the head
-      app cascade's frame; unique resolution, NOT synthesis).
+      app event-bundle's frame; unique resolution, NOT synthesis).
 
   When none of those select a target the slot stays `nil`; the
   `:rf.xray/target-frame` sub reports `nil` and the panels render their

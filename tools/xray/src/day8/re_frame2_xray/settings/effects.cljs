@@ -455,7 +455,7 @@
       (catch :default _ nil)))
   nil)
 
-(defn apply-cascades-retained!
+(defn apply-events-retained!
   "Write `n` (the events-retained count) through to the substrate's
   per-frame trace ring via `(rf/configure! {:trace-buffer
   {:events-retained N}})`. This caps how many events each frame's
@@ -657,7 +657,7 @@
     ;; trace artefact isn't loaded (the late-bind hook in
     ;; `re-frame.core/configure!` returns nil so the call is a tap-only
     ;; no-op).
-    (apply-cascades-retained! (get-in s [:buffer :events-retained]))
+    (apply-events-retained! (get-in s [:buffer :events-retained]))
     ;; Panel-position is intentionally NOT applied at boot — the
     ;; preload's auto-open already handles the default `:right-rail`
     ;; case, and reopening into the saved position would surprise a

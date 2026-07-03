@@ -296,7 +296,7 @@
   `[:rf.resource/opaque <digest>]` token or the `:rf/redacted` fail-closed
   sentinel. Re-projecting such a value MUST be the identity (idempotence): a
   forwarder pipeline may run egress more than once (re-egress on re-render /
-  re-subscribe / cascade), and hashing an already-projected handle would mint
+  re-subscribe / event-bundle), and hashing an already-projected handle would mint
   a NEW, different handle — silently changing the live node's identity across
   the boundary and breaking stable graph connectivity."
   [v]
@@ -508,7 +508,7 @@
   Returns the graph with redacted node value fields + projected live
   resource identities; `:mode` / `:frame` unchanged. IDEMPOTENT — a value may
   egress more than once (re-egress on re-render / re-subscribe / a forwarder
-  cascade), and re-projecting an already-projected graph is the IDENTITY:
+  event-bundle), and re-projecting an already-projected graph is the IDENTITY:
   `redact-graph-for-egress` ∘ `redact-graph-for-egress` == `redact-graph-for-
   egress` (rf2-g197ep). `rf/elide-wire-value` is a no-op over an already-
   `:rf/redacted` value (the sentinel is a non-matchable scalar), and the

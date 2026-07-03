@@ -23,7 +23,7 @@
 
   The pure-data projection lives in
   `panels/routing-helpers/simulate-navigation-preview` — JVM-portable
-  so the unit-test target covers the cascade. This ns is the view
+  so the unit-test target covers the event-bundle. This ns is the view
   layer only."
   (:require [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.theme.tokens

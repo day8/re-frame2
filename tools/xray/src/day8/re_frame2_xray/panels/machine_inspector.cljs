@@ -79,7 +79,7 @@
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             ;; rf2-nugvv — the per-machine prev/next nav routes its focus
-            ;; mutation through the spine's `focus-cascade-reducer` so the
+            ;; mutation through the spine's `focus-event-bundle-reducer` so the
             ;; jump stamps `:mode :retro` (and resolves the settling
             ;; dispatch-id) — a bare `[:focus :epoch-id]` write is silently
             ;; overridden by `compose-focus`'s LIVE+unpaused head-tracking,
@@ -909,12 +909,12 @@
   ;;
   ;;   1. **Start from the COMPOSED focus, not the raw `:focus` slot.**
   ;;      In LIVE+unpaused mode `compose-focus` derives the effective
-  ;;      `:epoch-id` to the head cascade's settling epoch, ignoring the
+  ;;      `:epoch-id` to the head event-bundle's settling epoch, ignoring the
   ;;      stored slot. Walking from the raw slot's `:epoch-id` (often nil
   ;;      on a fresh session) made the step start from the wrong place
   ;;      and the scope machine resolve off the wrong epoch.
   ;;
-  ;;   2. **Mutate focus through `spine/focus-cascade-reducer`, not a
+  ;;   2. **Mutate focus through `spine/focus-event-bundle-reducer`, not a
   ;;      bare `[:focus :epoch-id]` write.** A bare epoch-id write is
   ;;      silently overridden by `compose-focus`'s LIVE+unpaused head-
   ;;      tracking (`eff-epoch-id` snaps back to head), so the panel
@@ -931,7 +931,7 @@
           ;; LIVE head-tracking, the frame picker, and retro pins.
           (composed-focus [db]
             (spine/compose-focus (get db :focus)
-                                 (spine/db->cascades db)
+                                 (spine/db->event-bundles db)
                                  (spine/db->show-ungrouped? db)
                                  (get db :epoch-history [])))
           (scope-machine-id [db focus]
@@ -959,12 +959,12 @@
                   pred    (case direction
                             :prev #(neg? %)
                             :next #(>= % (count history)))
-                  ;; The head cascade's dispatch-id so the reducer can
+                  ;; The head event-bundle's dispatch-id so the reducer can
                   ;; pick :live vs :retro correctly when the jump lands
                   ;; back on head.
-                  cascades        (spine/db->cascades db)
+                  event-bundles   (spine/db->event-bundles db)
                   show-ungrouped? (spine/db->show-ungrouped? db)
-                  head-id         (spine/focusable-head-id cascades show-ungrouped?)]
+                  head-id         (spine/focusable-head-id event-bundles show-ungrouped?)]
               (loop [i (step cur-idx)]
                 (cond
                   (or (nil? mid) (pred i))
@@ -978,7 +978,7 @@
                     (if dispatch-id
                       ;; Reuse the canonical spine focus mutation so the
                       ;; jump stamps mode + dispatch-id and sticks.
-                      (spine/focus-cascade-reducer
+                      (spine/focus-event-bundle-reducer
                         db dispatch-id frame-id epoch-id head-id)
                       ;; No settling dispatch-id (trace elided / synthetic
                       ;; epoch) — pin the epoch-id directly AND force

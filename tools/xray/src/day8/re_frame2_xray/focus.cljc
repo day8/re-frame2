@@ -5,7 +5,7 @@
 
   A small, **data-shaped focus command** a host (Story) sends to focus
   an already-embedded Xray surface onto a specific panel + epoch +
-  cascade + app-db path — driven from a narrative beat, a failed
+  event-bundle + app-db path — driven from a narrative beat, a failed
   assertion, a canvas inspect command, or a docs/test link.
 
   This is the channel the StoryUI decision register
@@ -57,7 +57,7 @@
        :panel       <tab-id>     ; which L4 tab to surface
                                  ;   (one of `valid-panels`)
        :epoch-id    <epoch-id>   ; settling epoch to pin the spine to
-       :dispatch-id <id>         ; cascade root to pin the spine to
+       :dispatch-id <id>         ; event-bundle root to pin the spine to
                                  ;   (alternative to :epoch-id; both is fine)
        :path        [<k> ...]    ; app-db path to highlight in the App-db panel
        :source      {...}}       ; OPAQUE provenance — Story's intent context;
@@ -93,7 +93,7 @@
   ## Why ordered dispatches
 
   The events are dispatched in a fixed order — `:frame` FIRST (so the
-  per-frame epoch ring is re-seeded before any epoch / cascade pin
+  per-frame epoch ring is re-seeded before any epoch / event-bundle pin
   lands; `:rf.xray/set-frame` clears the pinned `:dispatch-id` and
   re-seeds `:epoch-history`, so a later `:focus-epoch` resolves against
   the correct frame's ring), THEN `:dispatch-id` / `:epoch-id` (the
@@ -213,11 +213,11 @@
     1. `[:rf.xray/select-frame <frame>]` — re-scope FIRST so the
        per-frame epoch ring is re-seeded before any pin resolves.
     2. `[:rf.xray/focus-event <dispatch-id> <frame>]` — when
-       `:dispatch-id` present. The cascade pin carries the frame so
-       `cascade-by-id`'s per-frame disambiguation works.
+       `:dispatch-id` present. The event-bundle pin carries the frame so
+       `event-bundle-by-id`'s per-frame disambiguation works.
     3. `[:rf.xray/focus-epoch <epoch-id>]` — when `:epoch-id` present
        AND `:dispatch-id` absent. (When both are supplied the
-       cascade pin wins — it carries the frame and the spine resolves
+       event-bundle pin wins — it carries the frame and the spine resolves
        the settling epoch from it; an explicit `:epoch-id` is the
        lighter selector for callers that only have the epoch.)
     4. `[:rf.xray/select-tab <panel>]` — when `:panel` present. The
@@ -336,7 +336,7 @@
 
      Unknown panel is the one rejected case — a typo'd selector would
      otherwise silently land the L4 'unknown tab' stub. Every other
-     field is permissive (a missing epoch / evicted cascade degrades
+     field is permissive (a missing epoch / evicted event-bundle degrades
      through the spine's existing placeholder UX, not an error here).
 
      The command's optional `:sync?` control field fires `dispatch-sync`

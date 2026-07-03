@@ -51,7 +51,7 @@
       (mount-cancellation-cascade-popover!    mount-point opts) → unmount-fn
 
       ;; Inline content surface — managed-fx wire-boundary diff. The
-      ;; canonical embed of the per-cascade managed-fx records list.
+      ;; canonical embed of the per-event-bundle managed-fx records list.
       (mount-managed-fx! mount-point opts) → unmount-fn
 
   Plus the master entry that mounts the full 4-layer shell:
@@ -107,7 +107,7 @@
   |---|---|---|
   | **epoch-panel** | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` |
   | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area) | `:rf.xray/open-segment-inspector` |
-  | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
+  | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused event-bundle's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
   | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into a flat list of rows, each with a stage column + colour-coded left edge, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
   | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-event` |
   | **routing** | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
@@ -231,7 +231,7 @@
 
 (defn mount-epoch-panel!
   "Mount Xray's Epoch tab in isolation at `mount-point`.
-  Renders the numbered cascade — the focused epoch's complete
+  Renders the numbered event-bundle — the focused epoch's complete
   computational timeline (DISPATCH → COEFFECTS → HANDLER → FLOW →
   FX → SUBSCRIPTIONS → VIEWS) with conditional rendering per the
   trace stream."
@@ -240,7 +240,7 @@
 
 (defn mount-app-db-diff!
   "Mount Xray's App-DB tab in isolation at `mount-point`. Renders the
-  sections-per-cluster structural diff for the focused cascade."
+  sections-per-cluster structural diff for the focused event-bundle."
   ([mount-point]      (mount-app-db-diff! mount-point nil))
   ([mount-point opts] (render-panel! app-db-diff/Panel mount-point opts)))
 
@@ -253,7 +253,7 @@
 
 (defn mount-trace!
   "Mount Xray's Trace tab in isolation at `mount-point`. Renders the
-  trace-buffer feed for the focused cascade."
+  trace-buffer feed for the focused event-bundle."
   ([mount-point]      (mount-trace! mount-point nil))
   ([mount-point opts] (render-panel! trace/Panel mount-point opts)))
 
@@ -342,8 +342,8 @@
   "The managed-fx wire-boundary diff template's mountable wrapper —
   reads `:rf.xray/managed-fx-for-focused-event` and renders the
   records list. `managed-fx-template/records-list` is a pure fn over
-  a records vector; this reg-view ties it to the focused cascade's
-  managed-fx sub so consumers get the per-cascade managed-fx content
+  a records vector; this reg-view ties it to the focused event-bundle's
+  managed-fx sub so consumers get the per-event-bundle managed-fx content
   inline.
 
   Exposing this as a reg-view (rather than a plain fn) follows the
@@ -360,8 +360,8 @@
 (defn mount-managed-fx!
   "Mount the managed-fx wire-boundary diff list in isolation at
   `mount-point`. Renders one record-panel per managed-fx invocation
-  inside the focused cascade's managed-fx records. Empty when the
-  focused cascade had no managed-fx records."
+  inside the focused event-bundle's managed-fx records. Empty when the
+  focused event-bundle had no managed-fx records."
   ([mount-point]      (mount-managed-fx! mount-point nil))
   ([mount-point opts] (render-panel! ManagedFxList mount-point opts)))
 

@@ -4,14 +4,14 @@
 
   ## Why
 
-  The L2 event list reads `:rf.xray/filtered-cascades` (filtered) while
-  the raw stream lives on `:rf.xray/cascades`. When filters suppress
+  The L2 event list reads `:rf.xray/filtered-event-bundles` (filtered) while
+  the raw stream lives on `:rf.xray/event-bundles`. When filters suppress
   rows — for example a persisted `:machine` IN-pill from
   `re-frame2.xray.filters.v1` in localStorage — the indicator makes the
   suppression visible so the list never reads as a broken tool.
 
   This ns is the pure data primitive behind the affordance: given the
-  raw + filtered visible-cascade counts and the active filter state,
+  raw + filtered visible-event-bundle counts and the active filter state,
   it answers 'is anything hidden, how many, and what is the cause?'.
 
   ## Frame is a view SCOPE, not a filter
@@ -27,7 +27,7 @@
 
   The hidden count is computed against the SAME visible-row set the L2
   list renders — i.e. both the raw and filtered vectors must already be
-  passed through the list's `l2-cascade-visible?` predicate by the
+  passed through the list's `l2-event-bundle-visible?` predicate by the
   caller (the `:rf.xray/hidden-by-filters` sub does this). That keeps
   the message's N consistent with the rows the user actually sees:
   the `:ungrouped` bucket never inflates the count, and the
@@ -39,11 +39,11 @@
   (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]))
 
 (defn hidden-count
-  "How many visible cascades the active filters / frame-pin / mutes are
+  "How many visible event-bundles the active filters / frame-pin / mutes are
   suppressing: `(max 0 (- raw-visible-count filtered-visible-count))`.
 
   Both counts MUST be taken over the list's visible-row set (post
-  `l2-cascade-visible?`) so N matches the rows the user sees. Clamped
+  `l2-event-bundle-visible?`) so N matches the rows the user sees. Clamped
   at zero so a transient count skew (filtered briefly larger than raw
   mid-recompute) never renders a negative."
   [raw-visible-count filtered-visible-count]
@@ -65,7 +65,7 @@
   mute set. This is the predicate behind 'is there anything a Clear
   Filters click would reset?'. It is independent of the hidden COUNT — a
   pill can be active yet hide nothing (it happens to match every current
-  cascade); the count is what gates the message's render, this predicate
+  event-bundle); the count is what gates the message's render, this predicate
   is what 'Clear Filters' acts on.
 
   The frame is a view SCOPE, not a filter — it is NOT part

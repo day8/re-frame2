@@ -15,7 +15,7 @@
   `compose-focus` derives `:epoch-id` by correlating the focused
   cascade `:dispatch-id` (from the raw trace stream's cascade list,
   depth 1000) against `:rf.xray/epoch-history` via
-  `epoch-id-for-cascade` → `dispatch-id-of-epoch`. Pre-fix that helper
+  `epoch-id-for-event-bundle` → `dispatch-id-of-epoch`. Pre-fix that helper
   walked the record's `:trace-events` for a `:dispatch-id` tag — but
   `:trace-events-keep` ELIDES `:trace-events` from all but the most-
   recent N records, and the post-settle reactive back-fill (rf2-qs6dl
@@ -90,7 +90,7 @@
     (rf/dispatch-sync [:rf.xray/focus-event dispatch-id frame-id])))
 
 (defn- below-host-cascades []
-  (filterv #(= frame-below (:frame %)) (sub-xray [:rf.xray/cascades])))
+  (filterv #(= frame-below (:frame %)) (sub-xray [:rf.xray/event-bundles])))
 
 ;; ---------------------------------------------------------------------------
 
@@ -117,10 +117,10 @@
                               history)]
         (is (= (:dispatch-id head) (:dispatch-id head-record))
             "head epoch's :dispatch-id slot must equal the head cascade id"))
-      (is (:has-cascade? reactive)
+      (is (:has-event-bundle? reactive)
           (str "Views (:rf.xray/reactive-data) saw no focused epoch record — "
                "rf2-rly4a. reactive-data: " (pr-str (select-keys reactive
-                                                                 [:has-cascade?
+                                                                 [:has-event-bundle?
                                                                   :epoch-id]))))
       (is (= (:epoch-id focus) (:epoch-id trace))
           "Trace (:rf.xray/trace-feed) epoch-id must equal the focused epoch-id")
@@ -169,7 +169,7 @@
             (str "RETRO focus on a trace-elided epoch resolved the WRONG (or nil) "
                  "epoch-id — rf2-rly4a. focus: " (pr-str focus)
                  " expected epoch-id: " (pr-str (:epoch-id old-record))))
-        (is (:has-cascade? reactive)
+        (is (:has-event-bundle? reactive)
             "Views saw no record for the trace-elided focused epoch — rf2-rly4a")
         (is (= (:epoch-id old-record) (:epoch-id trace))
             "Trace feed did not scope to the trace-elided focused epoch — rf2-rly4a")))))

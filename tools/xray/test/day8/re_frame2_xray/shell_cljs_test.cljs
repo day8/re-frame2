@@ -24,7 +24,7 @@
        Trace / Machines / Issues) and clicking a tab updates
        `:rf.xray/selected-tab` so the L4 detail panel rebinds.
 
-    4. The L2 event list reads `:rf.xray/cascades` and clicking a
+    4. The L2 event list reads `:rf.xray/event-bundles` and clicking a
        row dispatches `:rf.xray/focus-event` so the spine rebinds
        atomically per spec/018 §6.
 
@@ -1189,7 +1189,7 @@
 ;; The L2 row paints a light-pink WASH (`:bg-issue-row` token, painted as a
 ;; flat `:background-image` gradient layer so it composes OVER the focus /
 ;; hover `:background-color`) when its epoch CONTAINS AN ISSUE — keyed off
-;; the canonical `l2-timeline/cascade-has-issue?` predicate, which reuses
+;; the canonical `l2-timeline/event-bundle-has-issue?` predicate, which reuses
 ;; the same Issues-ribbon `issue-event?` set. The `:li` carries
 ;; `data-rf-xray-issue-row="true"` for the issue case (absent otherwise) so
 ;; the contract is pinnable without parsing the inline gradient string.
@@ -2161,9 +2161,9 @@
 ;; (8) Pure helpers — event-id pluck
 ;; -------------------------------------------------------------------------
 
-(deftest event-id-of-cascade-plucks-first-element
-  (is (= :foo/bar (shell/event-id-of-cascade {:event [:foo/bar {:x 1}]})))
-  (is (nil? (shell/event-id-of-cascade {:event nil}))
+(deftest event-id-of-event-bundle-plucks-first-element
+  (is (= :foo/bar (shell/event-id-of-event-bundle {:event [:foo/bar {:x 1}]})))
+  (is (nil? (shell/event-id-of-event-bundle {:event nil}))
       "missing event → nil"))
 
 ;; -------------------------------------------------------------------------
@@ -2312,19 +2312,19 @@
             chip caller can decide whether to render anything."
     (is (= "" (shell/format-clock-time nil)))))
 
-(deftest cascade-dispatched-time-ms-reads-dispatched-slot
+(deftest event-bundle-dispatched-time-ms-reads-dispatched-slot
   (testing "rf2-vbbq0 — the chip's source-of-truth for the cascade's
             walltime is `:dispatched :time`. Each trace event carries
             `:time (interop/now-ms)` per `re-frame.trace.cljc build-event`."
-    (is (= 1234567 (shell/cascade-dispatched-time-ms
+    (is (= 1234567 (shell/event-bundle-dispatched-time-ms
                      {:dispatch-id 1
                       :dispatched  {:time 1234567}})))
-    (is (nil? (shell/cascade-dispatched-time-ms {:dispatch-id 1}))
+    (is (nil? (shell/event-bundle-dispatched-time-ms {:dispatch-id 1}))
         "no :dispatched slot → nil")
-    (is (nil? (shell/cascade-dispatched-time-ms
+    (is (nil? (shell/event-bundle-dispatched-time-ms
                 {:dispatch-id 1 :dispatched {}}))
         "dispatched slot without :time → nil")
-    (is (nil? (shell/cascade-dispatched-time-ms
+    (is (nil? (shell/event-bundle-dispatched-time-ms
                 {:dispatch-id 1 :dispatched {:time "not-a-number"}}))
         "non-numeric :time is treated as absent — defence-in-depth")))
 
@@ -2415,7 +2415,7 @@
 
 (deftest relative-time-now-ms-sub-derives-from-cascades
   (testing "rf2-0s2at — `:rf.xray/relative-time-now-ms` is derived
-            from `:rf.xray/cascades`: it returns the dispatched-time
+            from `:rf.xray/event-bundles`: it returns the dispatched-time
             of the MOST RECENT cascade. Returns nil when there are no
             cascades (or none carrying a `:dispatched :time` stamp);
             the L2 view's render-time fallback covers that edge."
@@ -2655,7 +2655,7 @@
     (xray-setup!)
     ;; Two cascades on :rf/default. Seed an epoch-history whose records
     ;; carry literal :dispatch-id ↔ :epoch-id links so the focus resolves
-    ;; an :epoch-id (epoch-id-for-cascade matches the literal slot).
+    ;; an :epoch-id (epoch-id-for-event-bundle matches the literal slot).
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:baz/qux]))
     (rf/with-frame :rf/xray

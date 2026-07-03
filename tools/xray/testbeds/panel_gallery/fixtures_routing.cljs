@@ -9,9 +9,9 @@
     - `:rf.xray/current-route-slice` — defaults to the target-frame
       runtime-db's `[:rf.runtime/routing :current]` slice; test override
       slot at `:rf.xray/set-current-route-slice-override-for-test`.
-    - `:rf.xray/cascades` — drives the FROM/TO detection. Seed via
+    - `:rf.xray/event-bundles` — drives the FROM/TO detection. Seed via
       `:rf.xray/sync-trace-buffer` + `:rf.xray/focus-event` so
-      the spine's focused cascade carries the
+      the spine's focused event-bundle carries the
       `:rf.route.nav-token/allocated` emit.
     - `:rf.xray.routing/query` + `:rf.xray.routing/sim-url` —
       UI-state slots driven by `:rf.xray.routing/set-query` and
@@ -113,7 +113,7 @@
                :route-id    route-id}})
 
 (defn nav-buffer
-  "Trace buffer carrying one cascade that navigates to `to-route`.
+  "Trace buffer carrying one event-bundle that navigates to `to-route`.
 
   The 4-arity threads a `from-route`: the runtime emits
   `:rf.route/deactivated` for the prior route on a cross-route nav, and
@@ -128,6 +128,6 @@
     (deactivated-trace 3 dispatch-id from-route)]))
 
 (defn no-nav-buffer
-  "Trace buffer carrying one cascade that does NOT navigate."
+  "Trace buffer carrying one event-bundle that does NOT navigate."
   [dispatch-id event-vec]
   [(event-dispatched-trace 1 dispatch-id event-vec)])

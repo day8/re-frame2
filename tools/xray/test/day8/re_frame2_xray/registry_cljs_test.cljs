@@ -23,7 +23,7 @@
     - The full smoke surface: that every registered name resolves to
       a handler after `register-xray-handlers!` runs.
     - Cross-panel composite subs (per-panel tests don't exercise
-      `:rf.xray/cascades`-driven projections end-to-end).
+      `:rf.xray/event-bundles`-driven projections end-to-end).
 
   ## Trade-off: smoke + high-value, not 1-per-registration
 
@@ -154,7 +154,7 @@
    ;; rf2-okvit — app-db tab current-state inspector section model
    ;; (derived from the atomic sub above).
    :rf.xray/app-db-state
-   :rf.xray/cascades
+   :rf.xray/event-bundles
    ;; First-class edn-inspector widget owns the WHOLE renderer contract
    ;; — browse + diff + mini — via `:rf.xray.edn-inspector/*` events &
    ;; subs (rf2-oqa60 phase 1 + rf2-q3dzw phase 5). The pre-rf2-q3dzw
@@ -214,9 +214,9 @@
    ;; `:rf.xray.machine-inspector/diff-mode`) are gone — FULL+DIFF is
    ;; the single rendering across every consumer surface.
    ;; rf2-7ed9ms — renamed off the retired-panel name `:rf.xray/event-detail`
-   ;; to the behaviour name `:rf.xray/focused-cascade-detail`.
-   :rf.xray/focused-cascade-detail
-   :rf.xray/filtered-cascades
+   ;; to the behaviour name `:rf.xray/focused-event-bundle-detail`.
+   :rf.xray/focused-event-bundle-detail
+   :rf.xray/filtered-event-bundles
    ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
    ;; (raw vs filtered visible counts + the active filter cause).
    :rf.xray/hidden-by-filters
@@ -392,7 +392,7 @@
    ;; rf2-t2dsh — L2/L3 seam-handle event-list height.
    :rf.xray/events-list-height-px
    ;; rf2-vbbq0 / rf2-0s2at — L2 row relative-time chip anchor (sub
-   ;; composed off `:rf.xray/cascades` — dispatched-time of the most
+   ;; composed off `:rf.xray/event-bundles` — dispatched-time of the most
    ;; recent cascade; flips on event arrival, not on a per-second tick).
    :rf.xray/relative-time-now-ms
    :rf.xray/selected-tab
@@ -414,7 +414,7 @@
    :rf.xray/settings-open?
    :rf.xray/show-me-when-this-changed-result
    :rf.xray/show-tool-frames?
-   ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-cascade bucket.
+   ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-event-bundle bucket.
    :rf.xray/show-ungrouped?
    ;; rf2-r4nao — Static Machines Sim sub-mode subs (rehost from
    ;; rf2-v869p Phase 2; ns moved from :rf.xray/sim-* to
@@ -454,14 +454,14 @@
    ;; removed with rf2-td380 + rf2-gkczt. The feed now projects the arc
    ;; shape (envelope + 4 phase bands) per spec/023 (rf2-l2f2g).
    :rf.xray/trace-feed
-   ;; rf2-wcfsy — layer-3 composite over `:rf.xray/cascades` +
+   ;; rf2-wcfsy — layer-3 composite over `:rf.xray/event-bundles` +
    ;; `:rf.xray/focus`; returns the focused cascade record (or nil
    ;; when no focus is pinned). Replaces an inline `some` scan that
    ;; ran on every Trace-panel render — the composite memoises on
    ;; its input signals so the scan only re-runs when cascades /
    ;; focus actually change. Read by the Trace panel's
-   ;; `cascade-status-bar`.
-   :rf.xray.trace/focused-cascade
+   ;; `event-bundle-status-bar`.
+   :rf.xray.trace/focused-event-bundle
    ;; Reactive panel (rf2-wyvf2 · spec/021 §3 · renamed from Views per
    ;; §11.5; tab key stays `:views`, display label rebases). Reads the
    ;; focused cascade's `:trace-events` for the substrate ops landed in
@@ -1200,7 +1200,7 @@
         (trace-collector/set-frameless-ring-depth!
           trace-collector/default-frameless-ring-depth)))))
 
-;; ---- :rf.xray/cascades — xray-internal filter (rf2-g1pt8) ------------
+;; ---- :rf.xray/event-bundles — xray-internal filter (rf2-g1pt8) ------------
 
 (defn- mk-cascade
   "Build a minimal cascade record for the data-layer filter test —
@@ -1230,9 +1230,9 @@
                      :frame       :rf/default}})))
 
 (deftest sub-cascades-filters-xray-internal-events
-  (testing "per rf2-g1pt8 — `:rf.xray/cascades` hard-filters cascades
+  (testing "per rf2-g1pt8 — `:rf.xray/event-bundles` hard-filters cascades
             whose event-id is in the `rf.xray` namespace at the
-            data-layer so every downstream consumer (filtered-cascades,
+            data-layer so every downstream consumer (filtered-event-bundles,
             L2 event list, spine, popovers, all tabs) inherits the
             filter automatically. Synthetic dispatched-event mix: 2
             user-app + 3 Xray-internal → sub returns only the 2
@@ -1245,18 +1245,18 @@
          {:dispatch-id 3 :event-vec [:checkout/start]}
          {:dispatch-id 4 :event-vec [:rf.xray/select-tab :event]}
          {:dispatch-id 5 :event-vec [:rf.xray/open-settings]}])
-      (let [cascades @(rf/subscribe [:rf.xray/cascades])
+      (let [cascades @(rf/subscribe [:rf.xray/event-bundles])
             event-ids (mapv #(first (:event %)) cascades)]
         (is (= 2 (count cascades))
             "the 3 :rf.xray/* cascades are filtered; the 2 user-app cascades survive")
         (is (= [:cart/add-item :checkout/start] event-ids)
             "the surviving cascades carry the user-app event-ids in oldest-first order")
-        (is (every? (complement self-noise/xray-internal-cascade?) cascades)
+        (is (every? (complement self-noise/xray-internal-event-bundle?) cascades)
             "no Xray-internal cascade leaks past the data-layer filter")))))
 
-(deftest sub-cascades-filter-also-applies-to-filtered-cascades
-  (testing "per rf2-g1pt8 — because `:rf.xray/filtered-cascades`
-            composes against `:rf.xray/cascades`, the data-layer
+(deftest sub-cascades-filter-also-applies-to-filtered-event-bundles
+  (testing "per rf2-g1pt8 — because `:rf.xray/filtered-event-bundles`
+            composes against `:rf.xray/event-bundles`, the data-layer
             filter propagates automatically. Synthetic Xray-internal
             cascades are gone before the auto-filter facade even sees
             them, so the L2 list (which subscribes to filtered-
@@ -1267,7 +1267,7 @@
         [{:dispatch-id 1 :event-vec [:cart/add-item]}
          {:dispatch-id 2 :event-vec [:rf.xray/select-tab :machines]}
          {:dispatch-id 3 :event-vec [:checkout/start]}])
-      (let [filtered @(rf/subscribe [:rf.xray/filtered-cascades])
+      (let [filtered @(rf/subscribe [:rf.xray/filtered-event-bundles])
             event-ids (mapv #(first (:event %)) filtered)]
         (is (= [:cart/add-item :checkout/start] event-ids)
             "the :rf.xray/select-tab cascade is filtered out at the data-layer")))))
@@ -1283,7 +1283,7 @@
         [{:dispatch-id 1 :event-vec [:cart/add-item {:item-id "apple"}]}
          {:dispatch-id 2 :event-vec [:cart/remove-item {:item-id "apple"}]}
          {:dispatch-id 3 :event-vec [:checkout/start]}])
-      (let [cascades @(rf/subscribe [:rf.xray/cascades])]
+      (let [cascades @(rf/subscribe [:rf.xray/event-bundles])]
         (is (= 3 (count cascades))
             "user-app-only buffer is untouched by the filter")
         (is (= [:cart/add-item :cart/remove-item :checkout/start]
@@ -1355,17 +1355,17 @@
 
 ;; ---- (3) high-value composite sub shapes --------------------------------
 
-(deftest sub-focused-cascade-detail-shape-on-empty-buffer
-  (testing ":rf.xray/focused-cascade-detail returns the canonical shape on an empty buffer"
+(deftest sub-focused-event-bundle-detail-shape-on-empty-buffer
+  (testing ":rf.xray/focused-event-bundle-detail returns the canonical shape on an empty buffer"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/focused-cascade-detail])]
-        (is (contains? data :cascades))
+      (let [data @(rf/subscribe [:rf.xray/focused-event-bundle-detail])]
+        (is (contains? data :event-bundles))
         (is (contains? data :selected-dispatch-id))
-        (is (contains? data :selected-cascade))
-        (is (= [] (:cascades data)))
+        (is (contains? data :selected-event-bundle))
+        (is (= [] (:event-bundles data)))
         (is (nil? (:selected-dispatch-id data)))
-        (is (nil? (:selected-cascade data)))))))
+        (is (nil? (:selected-event-bundle data)))))))
 
 ;; rf2-p53m2 — `sub-app-db-diff-shape-on-empty-history` was removed: the
 ;; `:rf.xray/app-db-diff` composite it exercised had no production view
@@ -1425,7 +1425,7 @@
         (is (contains? data :subs-ran))
         (is (contains? data :subs-skipped))
         (is (contains? data :views-rendered))
-        (is (false? (:has-cascade? data)))))))
+        (is (false? (:has-event-bundle? data)))))))
 
 ;; ---- (4) high-value event contracts -------------------------------------
 
@@ -1663,7 +1663,7 @@
       ;; Each `is` proves the subscribe + deref completes without throwing.
       ;; The contract is that the registry's composites tolerate empty
       ;; inputs; per-panel tests cover the populated cases.
-      (doseq [sub-id [:rf.xray/focused-cascade-detail
+      (doseq [sub-id [:rf.xray/focused-event-bundle-detail
                       ;; rf2-p53m2 — `:rf.xray/app-db-diff` pruned (dead
                       ;; surface); the app-db tab's composite is now
                       ;; `:rf.xray/app-db-current+diff` → `:rf.xray/app-db-state`.
@@ -1677,7 +1677,7 @@
                       ;; `:rf.xray/views-data`; renamed to `:rf.xray/
                       ;; reactive-data` per spec/021 §11.5 / §3).
                       ;; Empty-frame contract: returns map with
-                      ;; `:has-cascade? false`.
+                      ;; `:has-event-bundle? false`.
                       :rf.xray/reactive-data]]
         (is (some? @(rf/subscribe [sub-id]))
             (str sub-id " must not throw on an empty frame"))))))

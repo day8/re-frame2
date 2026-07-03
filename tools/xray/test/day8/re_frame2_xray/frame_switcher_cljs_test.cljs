@@ -166,7 +166,7 @@
           "empty list, no picker options"))))
 
 (deftest available-frames-sub-filters-tool-frames-and-preserves-order
-  (testing "the sub composes off `:rf.xray/cascades` so it picks up
+  (testing "the sub composes off `:rf.xray/event-bundles` so it picks up
             every frame present in the trace stream — minus the
             internal-frames filter set (spec/018 §8 I1)"
     ;; Seed BEFORE setup! so the sub's first compute reads the populated

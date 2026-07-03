@@ -54,8 +54,8 @@ typed pills + keyword-pattern pills in the same bucket is supported.
 
 **The frame is NOT in this composition (rf2-4vp5j).** The frame picker
 is a single, defaulted VIEW SCOPE, not a filter predicate. The
-`:rf.xray/filtered-cascades` sub scopes cascades to the selected frame
-(`matcher/filter-cascades-by-view-scope`) BEFORE applying the IN/OUT
+`:rf.xray/filtered-event-bundles` sub scopes cascades to the selected frame
+(`matcher/filter-event-bundles-by-view-scope`) BEFORE applying the IN/OUT
 pills + mutes; the frame scope is never counted as "hidden" and is never
 reset by the `:rf.xray/clear-all-filters` event. Pills + mutes are the
 only suppressing filters this doc models. (rf2-pjjwh — the `Clear Filters`

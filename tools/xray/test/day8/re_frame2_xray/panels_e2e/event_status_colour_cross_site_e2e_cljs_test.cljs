@@ -29,8 +29,8 @@
   ## Consumer site under test
 
   Post rf2-pjjwh the status-colour vocabulary has a SINGLE render site —
-  the L4 Trace cascade-status bar (`trace/Panel` <div>
-  `data-testid='rf-xray-trace-cascade-status-bar-<status>'`). The L2
+  the L4 Trace event-bundle-status bar (`trace/Panel` <div>
+  `data-testid='rf-xray-trace-event-bundle-status-bar-<status>'`). The L2
   event-row's trailing status stripe was retired (it was not in the Figma
   mock); the L4 Event header dot was removed earlier (rf2-ad7zx.17). This
   suite exercises the REAL trace bus → cascade projection → spine focus →
@@ -88,14 +88,14 @@
     (let [trace-tree (trace/Panel)
           trace-bar  (first (th/find-by-attr-prefix
                               trace-tree :data-testid
-                              "rf-xray-trace-cascade-status-bar-"))]
+                              "rf-xray-trace-event-bundle-status-bar-"))]
       (get (th/attrs trace-bar) :data-rf-xray-status))))
 
 ;; ---- tests --------------------------------------------------------------
 
-(deftest success-cascade-status-rides-trace-bar
+(deftest success-event-bundle-status-rides-trace-bar
   (testing "rf2-b8pui / rf2-pjjwh — happy-path host dispatch settles to
-            :settled-success at the L4 Trace cascade-status bar through
+            :settled-success at the L4 Trace event-bundle-status bar through
             the REAL trace bus → projection → spine → render pipeline.
             (The L2 row stripe + Event header dot are both retired.)"
     (e2e/with-host-and-xray-frames
@@ -106,11 +106,11 @@
               _        (focus-cascade! focus-id)
               status   (read-trace-status focus-id)]
           (is (= "settled-success" status)
-              "L4 Trace cascade-status bar did not classify a clean :counter/inc as :settled-success"))))))
+              "L4 Trace event-bundle-status bar did not classify a clean :counter/inc as :settled-success"))))))
 
-(deftest error-cascade-status-rides-trace-bar
+(deftest error-event-bundle-status-rides-trace-bar
   (testing "rf2-b8pui / rf2-pjjwh — a host handler-exception settles to
-            :settled-error at the L4 Trace cascade-status bar. Catches
+            :settled-error at the L4 Trace event-bundle-status bar. Catches
             the regression class where the trace projection drops the
             error trace, the spine focuses on the wrong cascade, or the
             consumer rolls its own colour decision."
@@ -122,4 +122,4 @@
               _        (focus-cascade! focus-id)
               status   (read-trace-status focus-id)]
           (is (= "settled-error" status)
-              "L4 Trace cascade-status bar did not classify a handler-throw as :settled-error"))))))
+              "L4 Trace event-bundle-status bar did not classify a handler-throw as :settled-error"))))))

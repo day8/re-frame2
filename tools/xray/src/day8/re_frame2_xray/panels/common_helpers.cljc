@@ -14,7 +14,7 @@
       shared across the trace / routes / issues-ribbon / mcp-server
       ribbons so all four feeds share an identical visual clock.
     - `dispatch-id-of-epoch` — resolve an `:rf/epoch-record`'s settling
-      cascade-id by walking its `:trace-events`. Shared by
+      event-bundle-id by walking its `:trace-events`. Shared by
       time-travel-helpers; previously duplicated as
       `dispatch-id-from-epoch` / `dispatch-id-of-epoch` with
       identical algebra.
@@ -137,7 +137,7 @@
 ;; ---- epoch → dispatch-id resolution -------------------------------------
 
 (defn dispatch-id-of-epoch
-  "Return an `:rf/epoch-record`'s settling cascade `:dispatch-id`, or nil
+  "Return an `:rf/epoch-record`'s settling event-bundle `:dispatch-id`, or nil
   when none is known (synthetic epochs from `replace-app-db!`, a rejected
   dispatch that never reached run-start).
 
@@ -145,18 +145,18 @@
   (pinned in `re-frame.epoch.assembly/build-record` from the settling
   event's `:rf.event/run-start` tags) — read it directly. This is the stable
   link between the epoch ring (epoch-id space) and the raw trace stream's
-  cascade list (dispatch-id space) that Xray's `:rf.xray/focus`
+  event-bundle list (dispatch-id space) that Xray's `:rf.xray/focus`
   correlation pivots on, and it survives both `:trace-events-keep`
   elision on older records and the post-settle reactive back-fill (which
   pads `:trace-events` with nil-`:dispatch-id` sub-run / render events).
 
   Falls back to a `:trace-events` walk for records produced before the
-  slot existed (or restored fixtures that omit it) — the first cascade-
+  slot existed (or restored fixtures that omit it) — the first event-bundle-
   root `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` tag. The fallback is nil-
   safe: a record with neither the slot nor a dispatch-id-bearing trace
   yields nil.
 
-  Pure data → cascade-id-or-nil. Used by Xray's `:rf.xray/focus`
+  Pure data → event-bundle-id-or-nil. Used by Xray's `:rf.xray/focus`
   epoch-id correlation and the time-travel panel (when building a fresh
   pin or deciding chip presentation)."
   [epoch-record]

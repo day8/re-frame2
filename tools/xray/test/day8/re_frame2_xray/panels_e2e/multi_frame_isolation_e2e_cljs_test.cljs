@@ -10,7 +10,7 @@
     2. Cross-frame fan-out — `cross-bump` (dispatched against
        `:counter/a`) lands a `::inc` in `:counter/b` AND a
        `::log-append` in `:log` via a fx-driven cross-frame dispatch.
-    3. Xray surfaces all three frames in `:rf.xray/cascades` with
+    3. Xray surfaces all three frames in `:rf.xray/event-bundles` with
        distinct `:frame` tags.
     4. Selecting a `:counter/b`-tagged cascade by dispatch-id flips
        Xray's focused cascade off the head and onto the chosen row.
@@ -81,7 +81,7 @@
         (let [cascades  (e2e/xray-cascades)
               frame-ids (set (map :frame cascades))]
           (is (contains? frame-ids mf/frame-a)
-              ":counter/a cascade missing from :rf.xray/cascades")
+              ":counter/a cascade missing from :rf.xray/event-bundles")
           (is (contains? frame-ids mf/frame-b)
               ":counter/b cascade missing — cross-frame dispatch lost its :frame tag (rf2-83d4x class)")
           (is (contains? frame-ids mf/frame-log)
@@ -102,4 +102,4 @@
         ;; parallel_frames_e2e_cljs_test for the same pattern).
         (e2e/dispatch-xray [:rf.xray/set-target-frame mf/frame-b])
         (is (= mf/frame-b (e2e/xray-focused-frame))
-            "focused-cascade :frame is not :counter/b after re-targeting Xray onto :counter/b")))))
+            "focused-event-bundle :frame is not :counter/b after re-targeting Xray onto :counter/b")))))

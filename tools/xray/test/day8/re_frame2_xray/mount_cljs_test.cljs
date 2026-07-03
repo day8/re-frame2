@@ -948,10 +948,10 @@
                :frame       frame-id
                :rf.event/v       [event-id]}})
 
-(deftest first-open!-seeds-target-frame-from-head-focusable-cascade-frame
+(deftest first-open!-seeds-target-frame-from-head-focusable-event-bundle-frame
   (testing "rf2-boyc2 — first open! reads the trace-bus buffer, projects
             it through the same `group-by-event` + Xray-internal filter
-            the `:rf.xray/cascades` sub uses, and seeds `:target-frame`
+            the `:rf.xray/event-bundles` sub uses, and seeds `:target-frame`
             from the head focusable cascade's `:frame`. This closes the
             initial-mount race where the App-DB panel rendered the boot
             empty-state for an observed frame whose `:epoch-history`
@@ -1019,7 +1019,7 @@
 
 (deftest first-open!-ignores-xray-internal-cascades-when-picking-seed-frame
   (testing "rf2-boyc2 — the seed-frame projection applies the same
-            Xray-internal hard-filter the `:rf.xray/cascades` sub
+            Xray-internal hard-filter the `:rf.xray/event-bundles` sub
             uses (per rf2-g1pt8). Without the filter a Xray-internal
             tool-frame cascade could be chosen as the head, but those
             are invisible in the L2 list — picking that frame as the
@@ -1051,7 +1051,7 @@
               (is (= :cart-frame @(rf/subscribe [:rf.xray/target-frame]))
                   "head L2-visible cascade is :cart-frame — the Xray-
                    internal cascade is filtered out of the projection
-                   the way the `:rf.xray/cascades` sub filters it"))))))))
+                   the way the `:rf.xray/event-bundles` sub filters it"))))))))
 
 (deftest open!-is-idempotent-on-xray-frame-registration
   (testing "subsequent open!s after the frame is registered surgical-

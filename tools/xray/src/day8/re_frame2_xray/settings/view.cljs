@@ -610,7 +610,7 @@
      ;; invariant (tool frames observing themselves = anti-pattern).
      ;; If a future use case needs the override it can re-add the UI.
 
-     ;; ── Show :ungrouped pseudo-cascade events (rf2-r9lyy) ──────
+     ;; ── Show :ungrouped pseudo-event-bundle events (rf2-r9lyy) ──────
      ;;
      ;; Opt-in surface for the `:ungrouped` bucket produced by
      ;; `re-frame.trace.projection/group-by-event` (registry-time
@@ -633,7 +633,7 @@
                                 [:rf.xray/settings-update
                                  :general :show-ungrouped?
                                  (boolean (.. % -target -checked))])}]
-       "Show :ungrouped pseudo-cascade events in L2"]
+       "Show :ungrouped pseudo-event-bundle events in L2"]
       [:p {:style (hint-style)}
        "Reveals events outside any dispatch — "
        [:code {:style {:font-family mono-stack
@@ -645,7 +645,7 @@
 
      ;; Removed 2026-05-27 — "Always show unchanged subs in the
      ;; Reactive panel" toggle. The `:show-unchanged-subs?` setting
-     ;; slot stays; default OFF keeps the per-cascade footer
+     ;; slot stays; default OFF keeps the per-event-bundle footer
      ;; disclosure pattern (spec/021 §3.4) — unchanged subs are
      ;; coverage signal, not signal-of-the-moment.
 
@@ -869,7 +869,7 @@
 ;; * Events retained (slot `:buffer :events-retained`, rf2-5u03ig)
 ;;   — wired to the framework's per-frame trace ring via
 ;;   `(rf/configure! {:trace-buffer {:events-retained N}})` (see
-;;   `settings/effects.cljs §apply-cascades-retained!`). The matching
+;;   `settings/effects.cljs §apply-events-retained!`). The matching
 ;;   `:rf.xray/settings-update :buffer :events-retained` event
 ;;   applies it live; `apply-all!` replays the persisted value on boot.
 ;;

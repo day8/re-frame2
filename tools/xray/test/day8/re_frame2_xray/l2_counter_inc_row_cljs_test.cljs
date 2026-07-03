@@ -6,7 +6,7 @@
 
   Live on the parallel-frames testbed: clicking `+` on the `:below`
   frame incremented the counter and created a new epoch (eid 8), but
-  NO new cascade appeared in `:rf.xray/cascades` — the L2 event list
+  NO new cascade appeared in `:rf.xray/event-bundles` — the L2 event list
   showed no new row.
 
   ## Root cause (rf2-avvwm, #1961) — verified DUP
@@ -24,8 +24,8 @@
   observed is the inverse: when the orphan's `:dispatch-id` did NOT
   match (the per-frame harvest split it), the real `:rf.event/dispatched`
   could land in a cascade whose `:event` vector never resolved, so
-  `shell/cascade-has-event?` returned false and the L2 filter
-  (`shell/l2-cascade-visible?`) dropped the row entirely.
+  `shell/event-bundle-has-event?` returned false and the L2 filter
+  (`shell/l2-event-bundle-visible?`) dropped the row entirely.
 
   avvwm's fix (#1961) keeps out-of-cascade emits UNCORRELATED — the
   `:frame/created` never rides the next epoch's `:trace-events`. So a
@@ -38,8 +38,8 @@
   exact L2-row pipeline Xray uses —
 
     `projection/group-by-event`
-      → `self-noise/xray-internal-cascade?` (the shared hard-filter)
-      → `shell/l2-cascade-visible?` (the L2 visibility predicate)
+      → `self-noise/xray-internal-event-bundle?` (the shared hard-filter)
+      → `shell/l2-event-bundle-visible?` (the L2 visibility predicate)
 
   and assert the POST-avvwm counter-inc epoch surfaces as exactly one
   visible L2 cascade row carrying the `:counter/inc` event vector. The
@@ -96,8 +96,8 @@
   ([events] (visible-l2-rows events false))
   ([events show-ungrouped?]
    (->> (projection/group-by-event events)
-        (remove self-noise/xray-internal-cascade?)
-        (filterv #(shell/l2-cascade-visible? % show-ungrouped?)))))
+        (remove self-noise/xray-internal-event-bundle?)
+        (filterv #(shell/l2-event-bundle-visible? % show-ungrouped?)))))
 
 ;; ---- 1. POST-avvwm: counter-inc epoch surfaces as an L2 row -------------
 
@@ -114,9 +114,9 @@
             "the cascade is attributed to the :below frame")
         (is (= dispatch-id-8 (:dispatch-id c))
             "the cascade carries the epoch's dispatch-id (eid 8)")
-        (is (true? (shell/cascade-has-event? c))
-            "cascade-has-event? is true — the L2 filter keeps the row")
-        (is (false? (shell/ungrouped-cascade? c))
+        (is (true? (shell/event-bundle-has-event? c))
+            "event-bundle-has-event? is true — the L2 filter keeps the row")
+        (is (false? (shell/ungrouped-event-bundle? c))
             "the row is a real cascade, not the :ungrouped pseudo-bucket")))))
 
 ;; ---- 2. PRE-avvwm contrast: the orphan used to fold in -----------------

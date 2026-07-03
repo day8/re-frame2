@@ -75,9 +75,9 @@
   (is (= {:kind :never :params {}}
          (typed/canonicalise-pill {}))))
 
-;; ---- cascade-trace-events -----------------------------------------------
+;; ---- event-bundle-trace-events -----------------------------------------------
 
-(deftest cascade-trace-events-walks-every-bucket
+(deftest event-bundle-trace-events-walks-every-bucket
   (let [cascade (mk-cascade {:handler {:operation :handler}
                              :fx      {:operation :fx}
                              :effects [{:operation :effect1}
@@ -85,31 +85,31 @@
                              :subs    [{:operation :sub}]
                              :renders [{:operation :render}]
                              :other   [{:operation :other}]})
-        events  (typed/cascade-trace-events cascade)
+        events  (typed/event-bundle-trace-events cascade)
         ops     (set (map :operation events))]
     (is (= #{:handler :fx :effect1 :effect2 :sub :render :other} ops))))
 
-(deftest cascade-trace-events-empty-cascade
-  (is (empty? (typed/cascade-trace-events (mk-cascade {:event [:foo]})))))
+(deftest event-bundle-trace-events-empty-cascade
+  (is (empty? (typed/event-bundle-trace-events (mk-cascade {:event [:foo]})))))
 
 ;; ---- :event-id-pattern kind ---------------------------------------------
 
 (deftest event-id-pattern-typed-shape
   (let [cascade (mk-cascade {:event [:auth/login]})
         pill    {:kind :event-id-pattern :params {:pattern :auth/*}}]
-    (is (typed/cascade-matches-pill? cascade pill))))
+    (is (typed/event-bundle-matches-pill? cascade pill))))
 
 (deftest event-id-pattern-legacy-shape
   (testing "rf2-ak4ms legacy `{:pattern :auth/*}` still matches via the
             canonicaliser — back-compat with already-persisted pills"
     (let [cascade (mk-cascade {:event [:auth/login]})]
-      (is (typed/cascade-matches-pill? cascade {:pattern :auth/*}))
-      (is (typed/cascade-matches-pill? cascade {:pattern :auth/login}))
-      (is (not (typed/cascade-matches-pill? cascade {:pattern :order/*}))))))
+      (is (typed/event-bundle-matches-pill? cascade {:pattern :auth/*}))
+      (is (typed/event-bundle-matches-pill? cascade {:pattern :auth/login}))
+      (is (not (typed/event-bundle-matches-pill? cascade {:pattern :order/*}))))))
 
 (deftest event-id-pattern-no-match
   (let [cascade (mk-cascade {:event [:order/submit]})]
-    (is (not (typed/cascade-matches-pill?
+    (is (not (typed/event-bundle-matches-pill?
                cascade {:kind :event-id-pattern :params {:pattern :auth/*}})))))
 
 ;; ---- :machine kind ------------------------------------------------------
@@ -119,26 +119,26 @@
     (let [cascade (mk-cascade {:event   [:user/click]
                                :handler (tagged {:machine-id :form})})
           pill    {:kind :machine :params {:machine-id :form}}]
-      (is (typed/cascade-matches-pill? cascade pill)))))
+      (is (typed/event-bundle-matches-pill? cascade pill)))))
 
 (deftest machine-kind-matches-via-effects-tag
   (let [cascade (mk-cascade {:event   [:user/click]
                              :effects [(tagged {:rf.fx/id    :rf.machine/transition
                                                 :machine-id :form})]})
         pill    {:kind :machine :params {:machine-id :form}}]
-    (is (typed/cascade-matches-pill? cascade pill))))
+    (is (typed/event-bundle-matches-pill? cascade pill))))
 
 (deftest machine-kind-no-match-different-id
   (let [cascade (mk-cascade {:event   [:user/click]
                              :effects [(tagged {:machine-id :other})]})
         pill    {:kind :machine :params {:machine-id :form}}]
-    (is (not (typed/cascade-matches-pill? cascade pill)))))
+    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
 
 (deftest machine-kind-no-match-no-machine-events
   (let [cascade (mk-cascade {:event   [:user/click]
                              :effects [(tagged {:rf.fx/id :db})]})
         pill    {:kind :machine :params {:machine-id :form}}]
-    (is (not (typed/cascade-matches-pill? cascade pill)))))
+    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
 
 (deftest machine-kind-nil-target-never-matches
   (testing "nil `:machine-id` in the pill — guards against a half-filled
@@ -146,7 +146,7 @@
     (let [cascade (mk-cascade {:event   [:foo]
                                :effects [(tagged {:machine-id :form})]})
           pill    {:kind :machine :params {:machine-id nil}}]
-      (is (not (typed/cascade-matches-pill? cascade pill))))))
+      (is (not (typed/event-bundle-matches-pill? cascade pill))))))
 
 ;; ---- :http-correlation kind ---------------------------------------------
 
@@ -156,7 +156,7 @@
                                                 :correlation-id "abc-123"})]})
         pill    {:kind :http-correlation
                  :params {:correlation-id "abc-123"}}]
-    (is (typed/cascade-matches-pill? cascade pill))))
+    (is (typed/event-bundle-matches-pill? cascade pill))))
 
 (deftest http-correlation-matches-response-event
   (testing "the same correlation-id stamps both issuing fx and response
@@ -166,14 +166,14 @@
                                                 :correlation-id "abc-123"})]})
           pill    {:kind :http-correlation
                    :params {:correlation-id "abc-123"}}]
-      (is (typed/cascade-matches-pill? cascade pill)))))
+      (is (typed/event-bundle-matches-pill? cascade pill)))))
 
 (deftest http-correlation-no-match
   (let [cascade (mk-cascade {:event   [:user/load]
                              :effects [(tagged {:correlation-id "different"})]})
         pill    {:kind :http-correlation
                  :params {:correlation-id "abc-123"}}]
-    (is (not (typed/cascade-matches-pill? cascade pill)))))
+    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
 
 ;; ---- :fx kind -----------------------------------------------------------
 
@@ -181,19 +181,19 @@
   (let [cascade (mk-cascade {:event   [:user/load]
                              :effects [(tagged {:rf.fx/id :rf.http/managed})]})
         pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
-    (is (typed/cascade-matches-pill? cascade pill))))
+    (is (typed/event-bundle-matches-pill? cascade pill))))
 
 (deftest fx-kind-matches-via-fx-bucket
   (let [cascade (mk-cascade {:event [:user/load]
                              :fx    (tagged {:rf.fx/id :rf.http/managed})})
         pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
-    (is (typed/cascade-matches-pill? cascade pill))))
+    (is (typed/event-bundle-matches-pill? cascade pill))))
 
 (deftest fx-kind-no-match-different-fx
   (let [cascade (mk-cascade {:event   [:user/load]
                              :effects [(tagged {:rf.fx/id :db})]})
         pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
-    (is (not (typed/cascade-matches-pill? cascade pill)))))
+    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
 
 ;; ---- composition: IN bucket OR within, AND across modes -----------------
 
@@ -207,8 +207,8 @@
           filters   {:in [{:kind :machine :params {:machine-id :form}}
                           {:kind :http-correlation :params {:correlation-id "abc"}}]
                      :out []}]
-      (is (typed/keep-cascade? cascade-a filters))
-      (is (typed/keep-cascade? cascade-b filters)))))
+      (is (typed/keep-event-bundle? cascade-a filters))
+      (is (typed/keep-event-bundle? cascade-b filters)))))
 
 (deftest in-out-composition
   (testing "spec/018 §7 — IN bucket AND NOT OUT bucket"
@@ -219,7 +219,7 @@
           filters {:in  [{:kind :machine :params {:machine-id :form}}]
                    :out [{:kind   :event-id-pattern
                           :params {:pattern :user/*}}]}]
-      (is (not (typed/keep-cascade? cascade filters))))))
+      (is (not (typed/keep-event-bundle? cascade filters))))))
 
 (deftest mixed-bucket-typed-and-legacy
   (testing "typed pills and legacy keyword-pattern pills compose inside
@@ -232,14 +232,14 @@
           filters   {:in [{:pattern :auth/*}
                           {:kind :machine :params {:machine-id :form}}]
                      :out []}]
-      (is (typed/keep-cascade? cascade-a filters))
-      (is (typed/keep-cascade? cascade-b filters)))))
+      (is (typed/keep-event-bundle? cascade-a filters))
+      (is (typed/keep-event-bundle? cascade-b filters)))))
 
 (deftest empty-filters-keep-everything
   (let [cascade (mk-cascade {:event [:anything]})]
-    (is (typed/keep-cascade? cascade {:in [] :out []}))))
+    (is (typed/keep-event-bundle? cascade {:in [] :out []}))))
 
-(deftest filter-cascades-preserves-order
+(deftest filter-event-bundles-preserves-order
   (let [c1 (assoc (mk-cascade {:event   [:user/load]
                                :effects [(tagged {:rf.fx/id :rf.http/managed})]})
                   :dispatch-id 1)
@@ -251,7 +251,7 @@
         filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
                  :out []}]
     (is (= [1 3] (mapv :dispatch-id
-                       (typed/filter-cascades [c1 c2 c3] filters))))))
+                       (typed/filter-event-bundles [c1 c2 c3] filters))))))
 
 ;; ---- causal-parent matching under epoch-per-event (rf2-a1eld) ------------
 ;;
@@ -288,7 +288,7 @@
           filters {:in  [{:kind :machine :params {:machine-id :form}}]
                    :out []}
           kept    (mapv :dispatch-id
-                        (typed/filter-cascades [parent child other] filters))]
+                        (typed/filter-event-bundles [parent child other] filters))]
       (is (= [10 20] kept)
           "both the spawning parent AND the machine child survive; the
            unrelated cascade is dropped"))))
@@ -308,7 +308,7 @@
                           :params {:correlation-id "abc-123"}}]
                    :out []}
           kept    (mapv :dispatch-id
-                        (typed/filter-cascades [parent child other] filters))]
+                        (typed/filter-event-bundles [parent child other] filters))]
       (is (= [100 200] kept)
           "both the request-issuing parent AND the http child survive"))))
 
@@ -326,7 +326,7 @@
           filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
                    :out []}
           kept    (mapv :dispatch-id
-                        (typed/filter-cascades [parent child other] filters))]
+                        (typed/filter-event-bundles [parent child other] filters))]
       (is (= [1 2] kept)
           "both the spawning parent AND the fx child survive"))))
 
@@ -346,11 +346,11 @@
           filters {:in  [{:kind :machine :params {:machine-id :form}}]
                    :out []}
           kept    (mapv :dispatch-id
-                        (typed/filter-cascades [root mid leaf] filters))]
+                        (typed/filter-event-bundles [root mid leaf] filters))]
       (is (= [1 2 3] kept)
           "root → mid → leaf all survive via the whole-chain walk"))))
 
-(deftest out-pill-stays-cascade-local-does-not-drop-ancestor
+(deftest out-pill-stays-event-bundle-local-does-not-drop-ancestor
   (testing "an OUT (hide) pill suppresses only the cascade carrying its
             tag, never an ancestor — hiding a child's fx must not silently
             drop the originating user event (rf2-a1eld)"
@@ -363,7 +363,7 @@
           filters {:in  []
                    :out [{:kind :fx :params {:fx-id :noisy/fx}}]}
           kept    (mapv :dispatch-id
-                        (typed/filter-cascades [parent child] filters))]
+                        (typed/filter-event-bundles [parent child] filters))]
       (is (= [1] kept)
           "only the tagged child is hidden; the parent survives"))))
 
@@ -379,7 +379,7 @@
                    :out []}
           ;; both match (a reaches b via its parent link; b matches
           ;; directly) and the walk does NOT hang on the 1↔2 cycle.
-          kept    (mapv :dispatch-id (typed/filter-cascades [a b] filters))]
+          kept    (mapv :dispatch-id (typed/filter-event-bundles [a b] filters))]
       (is (= [1 2] kept)))))
 
 ;; ---- pill-label / pill-glyph --------------------------------------------

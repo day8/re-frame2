@@ -18,7 +18,7 @@
   `re-frame.trace.tooling/register-listener!` surface. After that, any
   REAL `(rf/dispatch-sync ev {:frame :host})` into the host fans out
   through the trace bus → Xray's `:trace-buffer` slot →
-  `:rf.xray/cascades` / `:rf.xray/focus` / every panel sub.
+  `:rf.xray/event-bundles` / `:rf.xray/focus` / every panel sub.
 
   ## Why no test seam
 
@@ -117,7 +117,7 @@
   ;; `:target-frame` / `:trace-buffer` resolve to the canonical
   ;; shapes. `mount.cljs/ensure-xray-frame!` does the same.
   (let [buffer     (trace-collector/buffer-for-test)
-        cascades   (into [] (remove self-noise/xray-internal-cascade?)
+        cascades   (into [] (remove self-noise/xray-internal-event-bundle?)
                          (projection/group-by-event buffer))
         seed-frame (or (spine/focusable-head-frame-id cascades)
                        defaults/default-target-frame)]
@@ -174,7 +174,7 @@
           (dispatch-host [:counter/inc] {:frame :app})
           (let [cascade @(sub-xray [:rf.xray/focus])]
             (is (= [:counter/inc]
-                   (-> cascade :head-cascade :event))))))
+                   (-> cascade :head-event-bundle :event))))))
 
   See the helper fns below (`dispatch-host`, `dispatch-xray`,
   `sub-host`, `sub-xray`) for the canonical access surface inside
@@ -261,23 +261,23 @@
 ;; ---- assertion helpers ---------------------------------------------------
 
 (defn xray-cascades
-  "Convenience accessor — current value of `:rf.xray/cascades` (the
+  "Convenience accessor — current value of `:rf.xray/event-bundles` (the
   shared projection over the trace buffer, with Xray-internal
   cascades filtered out)."
   []
-  (sub-xray [:rf.xray/cascades]))
+  (sub-xray [:rf.xray/event-bundles]))
 
 (defn xray-focused-event
   "Convenience accessor — return the `:event` vector of the cascade
   Xray's spine is currently focused on, or nil if no cascade exists
   yet. Reads `:rf.xray/focus` for the focused `:dispatch-id` then
-  walks `:rf.xray/cascades` to find the matching cascade.
+  walks `:rf.xray/event-bundles` to find the matching cascade.
 
   Useful in panel tests asserting 'Xray is currently looking at the
   host event we just dispatched'."
   []
   (let [focus    (sub-xray [:rf.xray/focus])
-        cascades (sub-xray [:rf.xray/cascades])
+        cascades (sub-xray [:rf.xray/event-bundles])
         head-id  (:dispatch-id focus)]
     (some (fn [c] (when (= head-id (:dispatch-id c)) (:event c)))
           cascades)))
@@ -289,15 +289,15 @@
   carries `:app` in the cascade-`:frame` slot."
   []
   (let [focus    (sub-xray [:rf.xray/focus])
-        cascades (sub-xray [:rf.xray/cascades])
+        cascades (sub-xray [:rf.xray/event-bundles])
         head-id  (:dispatch-id focus)]
     (some (fn [c] (when (= head-id (:dispatch-id c)) (:frame c)))
           cascades)))
 
 (defn host-cascades-only
-  "Return the subset of `:rf.xray/cascades` whose `:frame` is the
+  "Return the subset of `:rf.xray/event-bundles` whose `:frame` is the
   supplied host-frame id. Filters out the Xray-internal cascades
-  (those are already removed by the `:rf.xray/cascades` sub) and any
+  (those are already removed by the `:rf.xray/event-bundles` sub) and any
   cascades that landed on other frames (e.g. cross-frame dispatch
   fan-out in multi-frame testbeds). 1-arity defaults to
   `default-host-frame`."

@@ -4,13 +4,13 @@
   ## Purpose
 
   The URL → route resolver is a Static surface verb (browse), not a
-  Dynamic cascade lens. Paste a URL, see every route that matches plus
+  Dynamic event-bundle lens. Paste a URL, see every route that matches plus
   its 6-rule `:rf.route/rank` tuple; the winner is the first row by
   rank-descending (mirrors `match-url`).
 
   The implementation reuses the
   `panels.routing-helpers/simulate-url` pure helper — the 6-rule
-  rank cascade lives there, JVM-portable. This ns is the view +
+  rank event-bundle lives there, JVM-portable. This ns is the view +
   dispatch layer only.
 
   ## State slot
@@ -33,7 +33,7 @@
   `[static catch-all? total -splat -optional -reg-index]` per
   `parse-pattern` (the catch-all discriminator precedes total-length
   so the bare `/*` is demoted below all concrete routes);
-  surface it verbatim — the lens is about exposing the cascade, not
+  surface it verbatim — the lens is about exposing the event-bundle, not
   interpreting it."
   [rank]
   [:span {:style {:font-family mono-stack

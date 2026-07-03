@@ -138,7 +138,7 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.xray/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.xray/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.xray/epoch-recorded` dispatch. |
 | `:rf.xray/target-frame-db` | `:rf.xray/target-frame`, `:rf.xray/epoch-history` | The host frame's current `app-db` value (via `rf/app-db-value`). | Every settled epoch on the target frame. |
-| `:rf.xray/cascades` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-by-event`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/focused-cascade-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
+| `:rf.xray/event-bundles` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-by-event`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/focused-event-bundle-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
 
 ### Events
 
@@ -179,13 +179,13 @@ which was also a consumer.)
 
 | Sub | Inputs | Returns | When recomputes |
 |---|---|---|---|
-| `:rf.xray/focused-cascade-detail` | `:rf.xray/cascades`, `:rf.xray/focus` | `{:cascades [...] :selected-dispatch-id ... :selected-dispatch-frame ... :selected-cascade ...}` — composite. **rf2-7ed9ms** renamed this sub from `:rf.xray/event-detail` (retired-panel vocabulary) to the behaviour name `:rf.xray/focused-cascade-detail`: it means "the focused cascade's detail record", not "the Event Detail panel's data". Derives the focused cascade off the spine `:rf.xray/focus` (rf2-ee38b.2 removed the standalone `:rf.xray/selected-dispatch-id` / `-frame` shim subs — focus is the single source of truth; the `:selected-dispatch-id`/`-frame` KEYS in this composite's return map remain live). `:selected-cascade` is `nil` when no selection OR when the id is no longer in the buffer. | Cascades or focus change. |
+| `:rf.xray/focused-event-bundle-detail` | `:rf.xray/event-bundles`, `:rf.xray/focus` | `{:event-bundles [...] :selected-dispatch-id ... :selected-dispatch-frame ... :selected-event-bundle ...}` — composite. **rf2-7ed9ms** renamed this sub from `:rf.xray/event-detail` (retired-panel vocabulary) to the behaviour name `:rf.xray/focused-event-bundle-detail`: it means "the focused cascade's detail record", not "the Event Detail panel's data". Derives the focused cascade off the spine `:rf.xray/focus` (rf2-ee38b.2 removed the standalone `:rf.xray/selected-dispatch-id` / `-frame` shim subs — focus is the single source of truth; the `:selected-dispatch-id`/`-frame` KEYS in this composite's return map remain live). `:selected-event-bundle` is `nil` when no selection OR when the id is no longer in the buffer. | Cascades or focus change. |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.xray/select-dispatch-id` | `[_ dispatch-id]` | Sets selection (writes through the spine via `spine/focus-cascade-reducer`). |
+| `:rf.xray/select-dispatch-id` | `[_ dispatch-id]` | Sets selection (writes through the spine via `spine/focus-event-bundle-reducer`). |
 | `:rf.xray/clear-selected-dispatch-id` | `[_]` | Drops selection (resets spine focus to LIVE per rf2-s0s5x Phase A). |
 
 ## Time-travel scrubber
@@ -698,7 +698,7 @@ audit the registry surface without grepping the source.
 ## Vision — per-id metadata for golden-path navigation
 
 **Bug class:** "I'm reading an unfamiliar Xray codebase; I see
-`:rf.xray/cascades` in the source; what's its shape? where is it
+`:rf.xray/event-bundles` in the source; what's its shape? where is it
 registered? what consumes it?"
 
 Today the catalogue enumerates names + roles. The next-step affordance

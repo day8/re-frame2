@@ -58,7 +58,7 @@
 (defn- seed-history-only!
   "Drive ONLY `:rf.xray/sync-epoch-history` into the `:rf/xray` frame —
   the exact gallery panel-gallery seed (no `:rf.xray/sync-trace-buffer`,
-  so `:rf.xray/cascades` stays empty and `compose-focus` has no head
+  so `:rf.xray/event-bundles` stays empty and `compose-focus` has no head
   cascade to auto-follow)."
   [history]
   (rf/with-frame :rf/xray
@@ -70,7 +70,7 @@
       {}
       (fn []
         (seed-history-only! three-epoch-history)
-        (is (empty? (e2e/sub-xray [:rf.xray/cascades]))
+        (is (empty? (e2e/sub-xray [:rf.xray/event-bundles]))
             "precondition: no cascades seeded — this is the gallery's
              history-only seed path")
         (let [focus (e2e/sub-xray [:rf.xray/focus])]

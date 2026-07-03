@@ -61,7 +61,7 @@
 
   ## Inline `← changed` annotation (spec/021 §4.3)
 
-  Each section carries a `:before` slice (from the cascade's `db-before`,
+  Each section carries a `:before` slice (from the event-bundle's `db-before`,
   threaded by `app-db-diff-helpers/current-state-sections`'s 2-arity).
   When a pre-image is present and differs, the value body passes
   `:before` to the edn-inspector widget — painting inline `← was X`

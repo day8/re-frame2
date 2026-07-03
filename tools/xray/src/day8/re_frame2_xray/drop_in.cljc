@@ -16,7 +16,7 @@
   — can plug into Xray by attaching its trace source here. The
   panels (Event detail, Trace, App-db diff, machine inspector, …)
   light up against the host's events exactly as they would against a
-  native re-frame2 cascade.
+  native re-frame2 event-bundle.
 
   ## What the host MUST supply
 
@@ -99,7 +99,7 @@
 ;; Hosts that don't number their own events still want cursor-based
 ;; filtering (the `:since` axis the framework's filter vocabulary
 ;; honours on `(rf/trace-buffer fid {:since N})`) to work — otherwise
-;; the L2 event list, the `:rf.xray/focused-cascade-detail` composite,
+;; the L2 event list, the `:rf.xray/focused-event-bundle-detail` composite,
 ;; and every other panel that diffs the buffer by id would lose its
 ;; ability to point at a specific event. The drop-in keeps its own
 ;; monotonic counter, namespaced under `:rf.xray.drop-in/id-counter`

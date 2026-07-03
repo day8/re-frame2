@@ -30,9 +30,9 @@
   ## What this ns no longer owns
 
   The pre-rf2-43koh `trace_bus.cljc` carried a separate 1000-event
-  process-global ring. The framework's per-frame cascade-keyed rings
+  process-global ring. The framework's per-frame event-keyed rings
   + B4 dedup (rf2-g1b2m + rf2-8uwce) supersede that surface — Xray's
-  separate ring was redundant. The cascade list, the L2 event list,
+  separate ring was redundant. The event-bundle list, the L2 event list,
   the spine, every panel-side consumer now reads via the per-frame
   ring snapshot in app-db.
 
@@ -63,7 +63,7 @@
 ;; Mike's rf2-3g9nw D2=a ruling preserves the `:show-ungrouped?` UX
 ;; (per rf2-r9lyy) by keeping a small, capped Xray-side ring for
 ;; frameless events at the listener boundary. The depth is bounded
-;; (default 100 events; framework's per-frame default is 50 cascades)
+;; (default 100 events; framework's per-frame default is 50 event-bundles)
 ;; because frameless events are rare in a healthy app — most happen at
 ;; boot or during a REPL session. A bigger buffer would buy little
 ;; signal.
@@ -153,7 +153,7 @@
 ;; framework's per-frame rings + the frameless secondary ring into
 ;; Xray's app-db's `:trace-buffer` slot once per JS tick. Same-tick
 ;; listener callbacks request a sync; one microtask drains the queue
-;; with a single snapshot dispatch — capping the cascade depth at 1
+;; with a single snapshot dispatch — capping the event-bundle depth at 1
 ;; regardless of host trace-event volume. The pre-rf2-43koh shape used
 ;; the same coalescer; what changed is the SOURCE (per-frame rings
 ;; instead of the retired Xray ring atom).
@@ -182,7 +182,7 @@
   same self-noise discipline the `xray-internal-event?` predicate and
   the `:rf.trace/frame-no-emit?` framework gate apply at the listener
   + emit-time boundaries. Reading from tool-frame rings here would
-  surface Xray's own machinery in the user-facing cascade list. Pre-
+  surface Xray's own machinery in the user-facing event-bundle list. Pre-
   alpha posture: drop unconditionally; tool-frame introspection is a
   separate feature surface if needed (rf2-43koh consumer substrate).
 
@@ -212,7 +212,7 @@
   Public so `mount.cljs` can drive the first-mount seed
   synchronously alongside the `:rf.xray/sync-trace-buffer` dispatch,
   bypassing the microtask coalescer (the seed must commit before the
-  first paint reads `:rf.xray/cascades`)."
+  first paint reads `:rf.xray/event-bundles`)."
   []
   (let [tool-frames #{:rf/xray :rf/re-frame2-pair}
         frame-ids   (remove tool-frames (frame/frame-ids))
@@ -246,7 +246,7 @@
       deterministically aligns Xray's reactive surface against the
       framework's rings after each host dispatch, bypassing the
       microtask coalescer.
-    - The `mount.cljs` first-mount seed (lifts pre-mount cascades into
+    - The `mount.cljs` first-mount seed (lifts pre-mount event-bundles into
       the app-db slot at first Ctrl+Shift+C).
     - The retroactive privacy scrub (post-clear, the rings + secondary
       ring are both empty so the snapshot also lands empty).
@@ -268,7 +268,7 @@
   "Schedule a coalesced sync into `:rf/xray`'s `:trace-buffer` slot.
   Same-tick callers collapse to a single dispatch carrying the snapshot
   drawn from every registered frame's ring + the frameless secondary
-  ring. Caps the cascade depth at 1 regardless of trace volume; the
+  ring. Caps the event-bundle depth at 1 regardless of trace volume; the
   router's drain-depth headroom cannot gate the mirror under
   saturation."
   []
@@ -341,7 +341,7 @@
 ;; egress profile from a sensitive-revealing boundary
 ;; (`:rf.egress/local-raw`) back to the redacting default MUST clear every
 ;; place a sensitive event could live. The reveal is NOT a one-way
-;; trapdoor — a sensitive cascade buffered while the raw profile was active
+;; trapdoor — a sensitive event-bundle buffered while the raw profile was active
 ;; would otherwise remain visible after the user expected privacy restored.
 ;;
 ;; Three places hold trace data post-rf2-43koh:
@@ -403,7 +403,7 @@
   per-frame ring populated naturally use a real `rf/dispatch-sync` so
   the framework's trace pipeline runs end-to-end. This helper is the
   shortest path to put a synthetic event in the projection pipeline
-  for testing panels, filters, and the cascade list — without
+  for testing panels, filters, and the event-bundle list — without
   spinning a full host runtime.
 
   When `:rf/xray` is registered, also refreshes the app-db slot

@@ -179,7 +179,7 @@ The header carries:
   branches.
 
   > **rf2-nugvv (2026-06-04)** — the nav mutates focus through the
-  > spine's `focus-cascade-reducer` (stamping `:mode :retro` + resolving
+  > spine's `focus-event-bundle-reducer` (stamping `:mode :retro` + resolving
   > the target epoch's settling `:dispatch-id`), starting from the
   > COMPOSED focus rather than the raw `:focus` slot. A bare
   > `[:focus :epoch-id]` write is silently overridden by

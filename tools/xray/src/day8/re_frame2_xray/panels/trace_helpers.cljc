@@ -47,7 +47,7 @@
   — the per-frame settling epoch's raw trace slice — which folds the
   complete domino trail for one event: both the synchronous event-side
   rows (dispatch-id N) AND the async reactive rows (`:rf.sub/run` /
-  `:rf.view/render`, nil dispatch-id) that fire post-cascade. The record
+  `:rf.view/render`, nil dispatch-id) that fire post-event-bundle. The record
   is resolved via the shared `panels.shared.focus-resolver` against
   `:rf.xray/focus` + `:rf.xray/epoch-history`, exactly as the Issues /
   App-DB Diff panels resolve theirs.
@@ -341,7 +341,7 @@
 ;; of a single list of rows, each carrying a STAGE column + a colour-coded
 ;; left edge. The stage is the Epoch panel's pipeline step — DISPATCH /
 ;; COEFFECT / HANDLER / FLOW / SIDE-EFFECTS / SUBSCRIPTIONS / VIEWS — so
-;; the Trace stage column + edge match the Epoch panel's numbered cascade
+;; the Trace stage column + edge match the Epoch panel's numbered event-bundle
 ;; exactly. ONE mental model, DRY: the label + colour are resolved
 ;; through `panels.epoch.badge` (the Epoch panel's own badge taxonomy),
 ;; never a parallel palette.
@@ -416,7 +416,7 @@
   "The uppercase stage label for a row's STAGE — the Epoch panel's own
   badge label (`DISPATCH`, `SIDE EFFECTS`, `SUBSCRIPTIONS`, …) resolved
   through `epoch.badge/label` so the Trace stage column reads identically
-  to the Epoch cascade. Pure data → string; JVM-testable."
+  to the Epoch event-bundle. Pure data → string; JVM-testable."
   [row-or-ev]
   (epoch-badge/label (stage row-or-ev)))
 

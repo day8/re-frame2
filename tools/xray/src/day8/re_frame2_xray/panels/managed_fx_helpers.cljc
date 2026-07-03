@@ -5,7 +5,7 @@
 
   ## What the panel needs
 
-  One uniform record per managed-fx invocation in a focused cascade,
+  One uniform record per managed-fx invocation in a focused event-bundle,
   satisfying [`spec/Managed-Effects.md`'s eight-property
   contract](../../../../spec/Managed-Effects.md). Across five surfaces
   (HTTP / WebSocket / machine `:spawn` / SSR `:rf.server/*` /
@@ -52,12 +52,12 @@
   ## Surface adapters
 
   Each adapter is a fn `(adapter fx-event surface-events handler-event)`
-  taking three slices off the cascade:
+  taking three slices off the event-bundle:
 
     - `fx-event`        — the `:rf.fx/handled` event for this fx
                           invocation (carries `:fx-id`, `:fx-args`,
                           `:dispatch-id`, `:frame` on `:tags`).
-    - `surface-events`  — the other trace events on the same cascade
+    - `surface-events`  — the other trace events on the same event-bundle
                           for this surface (e.g.
                           `:rf.http/retry-attempt`,
                           `:rf.http/aborted-on-actor-destroy`,
@@ -66,10 +66,10 @@
     - `handler-event`   — the dispatched response event vector (if
                           known via the fx-args `:on-success` /
                           `:on-failure` / `:on-done` slot or via the
-                          cascade's child `:event` slot).
+                          event-bundle's child `:event` slot).
 
   Each adapter returns one record per managed-fx invocation in the
-  cascade. The composite-sub layer walks the cascade once, partitions
+  event-bundle. The composite-sub layer walks the event-bundle once, partitions
   the effects by surface, and routes each to the right adapter.
 
   ## What's NOT addressed (yet)
@@ -88,7 +88,7 @@
 
 (def surfaces
   "Canonical render-order — the same order the template list uses, so a
-  cascade with HTTP + machine-invoke + flow records always renders in
+  event-bundle with HTTP + machine-invoke + flow records always renders in
   the same vertical order."
   [:http :websocket :machine-invoke :ssr-fx :flow])
 
@@ -260,11 +260,11 @@
     :rf.error/flow-eval-exception})
 
 (defn- surface-events-for
-  "Filter `cascade-other-events` to the operations a given surface
-  emits. The `:other` slot of the cascade record per
+  "Filter `event-bundle-other-events` to the operations a given surface
+  emits. The `:other` slot of the event-bundle record per
   `re-frame.trace.projection/group-by-event` is where these non-domino
   traces land. Pure fn."
-  [cascade-other-events surface]
+  [event-bundle-other-events surface]
   (let [ops (case surface
               :http           http-trace-operations
               :websocket      websocket-trace-operations
@@ -272,7 +272,7 @@
               :ssr-fx         ssr-fx-trace-operations
               :flow           flow-trace-operations
               #{})]
-    (filterv #(contains? ops (:operation %)) (or cascade-other-events []))))
+    (filterv #(contains? ops (:operation %)) (or event-bundle-other-events []))))
 
 ;; ---- status derivation --------------------------------------------------
 
@@ -317,7 +317,7 @@
                   (get-in failed [:tags :reason]))}))
 
 (defn- surface-events->cancel-cause
-  "When the cascade includes an abort trace, surface its cause so the
+  "When the event-bundle includes an abort trace, surface its cause so the
   panel header can render `cancel: :actor-destroyed`. Returns nil when
   no cancellation is present."
   [surface-events]
@@ -413,7 +413,7 @@
       nil)))
 
 (defn- non-http-wire-timing
-  "Same synthesised two-phase waterfall (`:issued` → end of cascade) for
+  "Same synthesised two-phase waterfall (`:issued` → end of event-bundle) for
   non-HTTP surfaces — used to show *some* timing even when the surface
   doesn't carry native per-phase data. Returns nil when no end-event
   is available so the panel renders `n/a`."
@@ -467,8 +467,8 @@
   "HTTP surface adapter. Pull request payload off `:fx-args :request`;
   pull HTTP status / response off the surface events; fold the
   per-phase wire timing where available."
-  [fx-ev cascade-other]
-  (let [surface-events (surface-events-for cascade-other :http)
+  [fx-ev event-bundle-other]
+  (let [surface-events (surface-events-for event-bundle-other :http)
         args           (fx-args-of fx-ev)
         request        (when (map? args) (:request args))
         ;; A successful response trace (if any) carries `:response`
@@ -510,8 +510,8 @@
   (`:url`, `:socket-id`, frame payload); the surface events carry
   connection-state transitions. Per the divergence allowance, ship a
   basic record now — bi-directional frame timeline is a follow-on."
-  [fx-ev cascade-other]
-  (let [surface-events (surface-events-for cascade-other :websocket)
+  [fx-ev event-bundle-other]
+  (let [surface-events (surface-events-for event-bundle-other :websocket)
         args           (fx-args-of fx-ev)
         rec            (common-record :websocket fx-ev surface-events)]
     (assoc rec
@@ -526,8 +526,8 @@
   trace carries the TYPE (`:machine-id`), the instance address
   (`:spawned-id`), and the declarative invocation path (`:invoke-id`,
   rf2-0ggtr5 — was `:spawn-id`)."
-  [fx-ev cascade-other]
-  (let [surface-events (surface-events-for cascade-other :machine-invoke)
+  [fx-ev event-bundle-other]
+  (let [surface-events (surface-events-for event-bundle-other :machine-invoke)
         args           (fx-args-of fx-ev)
         spawned        (some #(when (= (:operation %) :rf.machine.lifecycle/spawned) %)
                              surface-events)
@@ -543,8 +543,8 @@
   contribution (status code, header name+value, cookie); the surface
   events carry render lifecycle. Records sit per-call, so a request
   with N `:rf.server/set-header` calls produces N records."
-  [fx-ev cascade-other]
-  (let [surface-events (surface-events-for cascade-other :ssr-fx)
+  [fx-ev event-bundle-other]
+  (let [surface-events (surface-events-for event-bundle-other :ssr-fx)
         args           (fx-args-of fx-ev)
         rec            (common-record :ssr-fx fx-ev surface-events)]
     (assoc rec
@@ -559,8 +559,8 @@
   "Managed-flow adapter. The fx-args carry the registration (for
   `:rf.fx/reg-flow`) or the flow-id (`:rf.fx/clear-flow`); surface
   events carry per-flow computation / failure traces."
-  [fx-ev cascade-other]
-  (let [surface-events (surface-events-for cascade-other :flow)
+  [fx-ev event-bundle-other]
+  (let [surface-events (surface-events-for event-bundle-other :flow)
         args           (fx-args-of fx-ev)
         computed       (some #(when (= (:operation %) :rf.flow/computed) %)
                              surface-events)
@@ -577,25 +577,25 @@
    :ssr-fx         ssr-fx-adapter
    :flow           flow-adapter})
 
-;; ---- cascade walker ----------------------------------------------------
+;; ---- event-bundle walker ----------------------------------------------------
 
-(defn cascade->managed-fx-records
-  "Walk a cascade record (per `re-frame.trace.projection/group-by-event`)
+(defn event-bundle->managed-fx-records
+  "Walk an event-bundle record (per `re-frame.trace.projection/group-by-event`)
   and project one managed-fx record per `:rf.fx/handled` (or
   `:rf.fx/override-applied`, etc.) event whose fx-id classifies as a
   managed-fx surface.
 
-  Pure fn. Returns a vector of records in cascade order. Each record
+  Pure fn. Returns a vector of records in event-bundle order. Each record
   carries the surface-specific projection of `req` / `wire` / `res` /
   `handler` / `status` / `phase` / `correlation-id` / `cancel-cause`.
 
   When `paths-by-dispatch-id` is supplied (per the composite sub) the
   record's `:paths-touched` is filled with the app-db diff paths that
-  changed during this cascade — the F.4 'app-db wasn't updated' bug
+  changed during this event-bundle — the F.4 'app-db wasn't updated' bug
   class lights up when this list is empty for an OK-status record."
-  ([cascade]
-   (cascade->managed-fx-records cascade nil))
-  ([{:keys [effects other dispatch-id] :as _cascade} paths-by-dispatch-id]
+  ([event-bundle]
+   (event-bundle->managed-fx-records event-bundle nil))
+  ([{:keys [effects other dispatch-id] :as _event-bundle} paths-by-dispatch-id]
    (let [fx-events     (filterv managed-fx-effect? (or effects []))
          path-touched  (when paths-by-dispatch-id
                          (get paths-by-dispatch-id dispatch-id []))]
@@ -662,7 +662,7 @@
    :F.2  [:req]                          ;; bad-request payload inspector
    :F.3  [:handler :failure]             ;; failed response handler
    :F.4  [:paths-touched :status]        ;; app-db wasn't updated
-   :F.5  [:cancel-cause :correlation-id] ;; cancellation cascade (deferred to rf2-wvkn)
+   :F.5  [:cancel-cause :correlation-id] ;; cancellation event-bundle (deferred to rf2-wvkn)
    :F.6  [:correlation-id]               ;; stale response — id mismatch in header
    :F.7  [:failure]                      ;; remaining structured-failure surfacing
    :F.8  [:status :stubbed?]             ;; stub/override visibility

@@ -117,7 +117,7 @@
           (is (= unmount-sentinel unmount)
               "adapter's unmount fn is returned to the caller"))
         ;; Side-effect — handlers landed.
-        (is (some? (registrar/handler :sub :rf.xray/cascades))
+        (is (some? (registrar/handler :sub :rf.xray/event-bundles))
             "register-xray-handlers! ran as a side-effect of mount")
         (is (some? (frame/frame :rf/xray))
             ":rf/xray frame is registered as a side-effect of mount")))))
@@ -252,10 +252,10 @@
         (panels/mount-trace! :mount-3)
         (is (= 3 (count @capture))
             "every mount call delegates to substrate-adapter/render")
-        ;; Handlers landed exactly once — :rf.xray/cascades is a
+        ;; Handlers landed exactly once — :rf.xray/event-bundles is a
         ;; cross-panel primitive registered inside the orchestrator's
         ;; sentinel guard.
-        (is (some? (registrar/handler :sub :rf.xray/cascades)))))))
+        (is (some? (registrar/handler :sub :rf.xray/event-bundles)))))))
 
 ;; ---- contract — panel mount routes through mount/ensure-xray-frame! ---
 ;;

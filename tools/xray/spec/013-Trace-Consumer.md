@@ -96,7 +96,7 @@ cover residual classes the frame gate misses:
    (top-level or `:tags :frame`) resolves to `:rf/xray`. Belt-and-
    braces against reactive sub-read / view-render emits that slipped
    past the frame gate.
-2. **`xray-internal-cascade?` / `xray-internal-event-id?`** —
+2. **`xray-internal-event-bundle?` / `xray-internal-event-id?`** —
    cascades whose `:event` vector's head is a keyword in the
    `rf.xray` namespace (`:rf.xray/focus-event`,
    `:rf.xray/select-tab`, etc.). These can be dispatched WITHOUT a
@@ -104,7 +104,7 @@ cover residual classes the frame gate misses:
    helpers) — the framework chain-resolves them onto `:rf/default`,
    so the trace envelope carries `:frame :rf/default` and slips past
    the frame gate + `xray-internal-event?`. The data-layer filter at
-   the `:rf.xray/cascades` sub closes that hole structurally without
+   the `:rf.xray/event-bundles` sub closes that hole structurally without
    forcing every call site to thread `:frame`.
 
 Both predicates are pure-data + JVM-runnable. The privacy gate sits
@@ -335,9 +335,9 @@ Panels read the buffer through layer-1 subscriptions:
 - **`:rf.xray/trace-buffer`** — flat vector of trace events,
   oldest-first by `:id`. Reads `(get db :trace-buffer)` off Xray's
   app-db; populated by the coalesced microtask sync.
-- **`:rf.xray/cascades`** — chained off `:rf.xray/trace-buffer`,
+- **`:rf.xray/event-bundles`** — chained off `:rf.xray/trace-buffer`,
   composes `re-frame.trace.projection/group-by-event` and applies
-  the `self-noise/xray-internal-cascade?` data-layer filter (per
+  the `self-noise/xray-internal-event-bundle?` data-layer filter (per
   `rf2-g1pt8`). Every downstream consumer reads from this projection;
   the L2 event list, the spine, the Event / Issues / Trace / Views
   tabs.
@@ -520,7 +520,7 @@ ring depth as a numeric input labelled
 "Events retained (:buffer/events-retained)" (default 50).
 Writes through to `(rf/configure! {:trace-buffer
 {:events-retained N}})` via `settings/effects.cljs
-§apply-cascades-retained!` — the matching `:rf.xray/settings-update
+§apply-events-retained!` — the matching `:rf.xray/settings-update
 :buffer :events-retained` event applies it live, and `apply-all!`
 replays the persisted value on boot (rf2-5u03ig).
 

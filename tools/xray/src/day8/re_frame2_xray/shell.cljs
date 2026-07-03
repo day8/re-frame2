@@ -35,7 +35,7 @@
     `:rf.xray/follow-head`. Pressing `⏭` (or `Space` in paused-LIVE,
     or `L` in RETRO) snaps focus back to head — the operations the
     mode pill used to host.
-  - **Frame picker** — single-select dropdown over the cascade list's
+  - **Frame picker** — single-select dropdown over the event-bundle list's
     distinct frames. Excludes `:rf/xray` by default per §8 I1.
   - **Filter pills** — IN (green, `+`) and OUT (magenta, `×`) pills
     + trailing `[+]` add-pill. Click any pill → edit popup.
@@ -86,7 +86,7 @@
   `:panel` via `panel-registry/reg-l4-tab!` and the shell mounts the
   active tab through `panel-registry/tab-by-id`. Post rf2-5gl5r +
   rf2-gbz39 the six Dynamic tabs all mount real panels — Epoch →
-  `epoch-panel/Panel` (the canonical numbered cascade per 021 §9.1;
+  `epoch-panel/Panel` (the canonical numbered event-bundle per 021 §9.1;
   supersedes the retired Event/Handler panel), App-db →
   `app-db-diff/Panel`, Views → `reactive-panel/Panel` (the 021 §3
   three-stacked-tables design, rf2-8ve8z), Trace → `trace/Panel`,
@@ -226,13 +226,13 @@
 
 ;; ---- helpers (pure, exported for tests) ---------------------------------
 
-(defn event-id-of-cascade
-  "Best-effort pluck of the event-id from a cascade's `:event` slot.
+(defn event-id-of-event-bundle
+  "Best-effort pluck of the event-id from an event-bundle's `:event` slot.
   The slot is the raw event vector ([:foo/bar …]); the first element
-  is the event id. nil when the cascade is unrouted or the event slot
+  is the event id. nil when the event-bundle is unrouted or the event slot
   is empty."
-  [cascade]
-  (let [ev (:event cascade)]
+  [event-bundle]
+  (let [ev (:event event-bundle)]
     (when (vector? ev)
       (first ev))))
 
@@ -245,10 +245,10 @@
 
   - `event-id` is the first element of the event vector.
   - Renders in the mode `accent` colour so it pops out of the row.
-  - When the cascade carries no event vector, falls back to a
+  - When the event-bundle carries no event vector, falls back to a
     `<no event>` chip in the secondary text colour. (Per rf2-639lc
-    the L2 event list filters those cascades out via
-    `cascade-has-event?`; the fallback is defence-in-depth.)"
+    the L2 event list filters those event-bundles out via
+    `event-bundle-has-event?`; the fallback is defence-in-depth.)"
   [event-vec]
   (if (vector? event-vec)
     [:span {:style {:color       (:accent tokens)
@@ -265,7 +265,7 @@
   coordinates, handler duration) appear in this tooltip + in the
   Epoch panel detail on row click.
 
-  Pure data — JVM-runnable. nil-safe per cascade slot. Returns a
+  Pure data — JVM-runnable. nil-safe per event-bundle slot. Returns a
   newline-joined string suitable for an HTML `:title` attribute.
 
   Slot ordering (most useful first):
@@ -274,14 +274,14 @@
     3. `frame: <id>`
     4. Source coordinate `<file>:<line>:<col>` (when `:rf.trace/call-site`
        rode the `:rf.event/dispatched` emit per rf2-twt7m Change 1)
-    5. `handler: <ms>ms` (when the cascade carried a `:handler` emit
+    5. `handler: <ms>ms` (when the event-bundle carried a `:handler` emit
        with `:elapsed-ms`)
     6. Trailing hint: `Click → open Event detail`"
-  [cascade]
-  (let [event-vec     (:event cascade)
-        dispatch-id   (:dispatch-id cascade)
-        frame-id      (:frame cascade)
-        dispatched    (:dispatched cascade)
+  [event-bundle]
+  (let [event-vec     (:event event-bundle)
+        dispatch-id   (:dispatch-id event-bundle)
+        frame-id      (:frame event-bundle)
+        dispatched    (:dispatched event-bundle)
         call-site     (:rf.trace/call-site dispatched)
         coord-str     (when (map? call-site)
                         (let [{:keys [file line column]} call-site]
@@ -289,7 +289,7 @@
                             (cond-> file
                               line   (str ":" line)
                               column (str ":" column)))))
-        handler       (:handler cascade)
+        handler       (:handler event-bundle)
         handler-ms    (or (:elapsed-ms handler)
                           (get-in handler [:tags :elapsed-ms]))
         lines (cond-> []
@@ -301,35 +301,35 @@
                 true                (conj "Click → open Event detail"))]
     (str/join "\n" lines)))
 
-(defn cascade-has-event?
-  "True iff `cascade` carries a real `:event` vector (`(first :event)`
+(defn event-bundle-has-event?
+  "True iff `event-bundle` carries a real `:event` vector (`(first :event)`
   resolves to a non-nil event-id). False for the `:ungrouped` bucket
   produced by `re-frame.trace.projection/group-by-event` for registry-
   time emits / frame lifecycle outside a drain / REPL evals — those
   carry no event vector. Per rf2-639lc the L2 event list filters this
   bucket out so the user never sees a `<no event>` placeholder row."
-  [cascade]
-  (some? (event-id-of-cascade cascade)))
+  [event-bundle]
+  (some? (event-id-of-event-bundle event-bundle)))
 
-(defn ungrouped-cascade?
-  "True iff `cascade` is the `:ungrouped` bucket produced by
+(defn ungrouped-event-bundle?
+  "True iff `event-bundle` is the `:ungrouped` bucket produced by
   `re-frame.trace.projection/group-by-event`. Used to give the
   bucket a distinct muted treatment in L2 when the rf2-r9lyy
   opt-in (`:settings/show-ungrouped?`) is on."
-  [cascade]
-  (= :ungrouped (:dispatch-id cascade)))
+  [event-bundle]
+  (= :ungrouped (:dispatch-id event-bundle)))
 
-(defn l2-cascade-visible?
-  "Pure helper. Should `cascade` render as a row in the L2 event
-  list? Always true for cascades carrying a real `:event` vector;
+(defn l2-event-bundle-visible?
+  "Pure helper. Should `event-bundle` render as a row in the L2 event
+  list? Always true for event-bundles carrying a real `:event` vector;
   for the `:ungrouped` bucket, only true when the user has opted
   in via Settings → General → Power user → 'Show :ungrouped pseudo-
-  cascade events in L2' (rf2-r9lyy). The ribbon nav (`◀ ▶ ⏭`) and
+  event-bundle events in L2' (rf2-r9lyy). The ribbon nav (`◀ ▶ ⏭`) and
   L2 walk both compose against this predicate so the visible row
   set, the boundary detection, and the focus walk all agree."
-  [cascade show-ungrouped?]
-  (or (cascade-has-event? cascade)
-      (and show-ungrouped? (ungrouped-cascade? cascade))))
+  [event-bundle show-ungrouped?]
+  (or (event-bundle-has-event? event-bundle)
+      (and show-ungrouped? (ungrouped-event-bundle? event-bundle))))
 
 ;; rf2-ad7zx.15 — ONE shared column layout for the L2 event list, so the
 ;; column-header row (`l2-column-header`) and every data row (`event-row`)
@@ -600,7 +600,7 @@
 ;; ---- Relative-time chip (rf2-vbbq0 / rf2-0s2at) --------------------------
 ;;
 ;; Each L2 row carries a small right-aligned chip showing how long ago the
-;; cascade was dispatched ("5s", "2m", "1h", "3d"). Mike's design call
+;; event-bundle was dispatched ("5s", "2m", "1h", "3d"). Mike's design call
 ;; (2026-05-19 Q10): bring datetime BACK to the default row, but as a
 ;; dynamic relative chip — NOT an absolute timestamp, NOT the sequence
 ;; number (dropped in R3-C), NOT the duration (not interesting).
@@ -616,7 +616,7 @@
 ;;   diff ≥ 24h              → "Nd"
 ;;
 ;; Anchor (rf2-0s2at): the "now" each row computes against is the
-;; dispatched-time of the MOST RECENT cascade in the spine, not a
+;; dispatched-time of the MOST RECENT event-bundle in the spine, not a
 ;; wall-clock tick. The earlier design (rf2-vbbq0 original) drove
 ;; the anchor with a per-second `setInterval` so old rows rolled
 ;; into their next bucket on time. Watching the parallel-frames
@@ -624,14 +624,14 @@
 ;; flicker the L2 list constantly — relative time is meaningful
 ;; BETWEEN events, not between seconds. Each new event re-establishes
 ;; "now"; between events the list stays frozen. Anchor flips arrive
-;; on the existing reactive path (a new cascade appears in
-;; `:rf.xray/cascades`) so no timer / no internal trace pollution.
+;; on the existing reactive path (a new event-bundle appears in
+;; `:rf.xray/event-bundles`) so no timer / no internal trace pollution.
 ;;
 ;; The view subscribes to `:rf.xray/relative-time-now-ms` (sub
-;; composed off `:rf.xray/cascades` — see `registry.cljs`).
+;; composed off `:rf.xray/event-bundles` — see `registry.cljs`).
 
 (defn format-relative-time
-  "Pure helper. Given two epoch-ms values (current time + the cascade's
+  "Pure helper. Given two epoch-ms values (current time + the event-bundle's
   dispatched-time), returns the chip display string per the bucket
   contract in the section comment above. Nil-safe on `then-ms` (returns
   the empty string so the caller can decide whether to render anything).
@@ -666,7 +666,7 @@
     :else     (str n)))
 
 (defn format-clock-time
-  "CLJS-side helper (rf2-3f2di A8). Given an epoch-ms (the cascade's
+  "CLJS-side helper (rf2-3f2di A8). Given an epoch-ms (the event-bundle's
   dispatched `:time`), returns the ABSOLUTE wall-clock string the L2
   `timestamp` column renders — `HH:MM:SS.mmm` (e.g. `12:30:05.123`) per
   the authoritative reference event-list (`tools/xray/design-reference/
@@ -687,7 +687,7 @@
            (pad3 (.getMilliseconds d))))))
 
 (defn format-absolute-time
-  "CLJS-side helper. Given an epoch-ms (the cascade's dispatched
+  "CLJS-side helper. Given an epoch-ms (the event-bundle's dispatched
   `:time`), returns an absolute-time tooltip string for the chip's
   `:title` attribute. Used as the power-user reveal that complements
   the `HH:MM:SS.mmm` clock column — clicking the row still opens the
@@ -703,14 +703,14 @@
           loc (.toLocaleTimeString d)]
       (str loc " · " iso " (epoch-ms " then-ms ")"))))
 
-(defn cascade-dispatched-time-ms
-  "Pluck the cascade's dispatched-time from `:dispatched :time` (every
+(defn event-bundle-dispatched-time-ms
+  "Pluck the event-bundle's dispatched-time from `:dispatched :time` (every
   trace event carries `:time (interop/now-ms)` per `re-frame.trace.cljc
-  build-event`). Returns nil when the cascade has no `:dispatched`
+  build-event`). Returns nil when the event-bundle has no `:dispatched`
   slot or the slot's `:time` is not a number — defence-in-depth for
-  cascades synthesised by tests that omit the field."
-  [cascade]
-  (let [t (get-in cascade [:dispatched :time])]
+  event-bundles synthesised by tests that omit the field."
+  [event-bundle]
+  (let [t (get-in event-bundle [:dispatched :time])]
     (when (number? t) t)))
 
 (defn relative-time-chip
@@ -727,9 +727,9 @@
   `:rf.xray/event-list-col-widths` sub so the two surfaces never drift
   out of column alignment.
 
-  Renders nothing when the cascade carries no dispatched-time stamp."
-  [cascade _now-ms col-px]
-  (when-let [then-ms (cascade-dispatched-time-ms cascade)]
+  Renders nothing when the event-bundle carries no dispatched-time stamp."
+  [event-bundle _now-ms col-px]
+  (when-let [then-ms (event-bundle-dispatched-time-ms event-bundle)]
     (let [label   (format-clock-time then-ms)
           tooltip (format-absolute-time then-ms)]
       [:span {:data-testid     "rf-xray-row-time-chip"
@@ -752,8 +752,8 @@
 (defn duration-cell
   "Render the L2 row's trailing `duration` column (rf2-lnod7) — the
   Figma EventList's fourth column. Right-aligned handler wall-time
-  (`1.2 ms`), sourced from the cascade's `:handler` trace event via
-  `l2-timeline/cascade-duration-label`. Shares the header `duration`
+  (`1.2 ms`), sourced from the event-bundle's `:handler` trace event via
+  `l2-timeline/event-bundle-duration-label`. Shares the header `duration`
   column's right-aligned width with the same `col-px` source so the
   value right-aligns under the header label; spacing from the
   preceding timestamp column comes from the row's shared flex `gap`.
@@ -764,13 +764,13 @@
   out of column alignment.
 
   ALWAYS renders the cell span (occupying its column width) so the
-  columns stay aligned row-to-row; when the cascade carries no measured
+  columns stay aligned row-to-row; when the event-bundle carries no measured
   handler duration the cell is simply blank rather than collapsing the
   column."
-  [cascade col-px]
-  (let [label (l2-timeline/cascade-duration-label cascade)]
+  [event-bundle col-px]
+  (let [label (l2-timeline/event-bundle-duration-label event-bundle)]
     [:span {:data-testid   "rf-xray-row-duration"
-            :data-duration (str (l2-timeline/cascade-duration-ms cascade))
+            :data-duration (str (l2-timeline/event-bundle-duration-ms event-bundle))
             :style {:color         (:text-tertiary tokens)
                     :flex-shrink   0
                     :font-family   mono-stack
@@ -783,9 +783,9 @@
 ;; ---- Relative-time anchor (rf2-0s2at) ------------------------------------
 ;;
 ;; No timer. The anchor is the dispatched-time of the most recent
-;; cascade — see the `:rf.xray/relative-time-now-ms` sub in
+;; event-bundle — see the `:rf.xray/relative-time-now-ms` sub in
 ;; `registry.cljs`. It re-fires on the standard reactive path when a
-;; new cascade lands in `:rf.xray/cascades`, so old rows recompute
+;; new event-bundle lands in `:rf.xray/event-bundles`, so old rows recompute
 ;; their relative-time exactly when fresh context arrives. (Earlier
 ;; rf2-vbbq0 design used a `setInterval`-driven tick; rf2-0s2at
 ;; replaced it after Mike observed constant L2 flicker watching the
@@ -1100,17 +1100,17 @@
 
   - `focus` — `:rf.xray/focus` (carries `:dispatch-id` + `:mode` +
     `:paused?`).
-  - `cascades` — `:rf.xray/filtered-cascades` (frame view-scope + pills
+  - `event-bundles` — `:rf.xray/filtered-event-bundles` (frame view-scope + pills
     + mutes already applied).
   - `show-ungrouped?` — `:rf.xray/show-ungrouped?` (the L2 visibility
     predicate must agree with what the user sees).
 
   Pure-data → map; JVM-runnable so the boundary logic is testable
   without a CLJS runtime."
-  [{:keys [focus cascades show-ungrouped?]}]
+  [{:keys [focus event-bundles show-ungrouped?]}]
   (let [focused-id      (:dispatch-id focus)
-        event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
-        ids             (mapv :dispatch-id event-cascades)
+        event-bundles  (filterv #(l2-event-bundle-visible? % show-ungrouped?) event-bundles)
+        ids             (mapv :dispatch-id event-bundles)
         at-head?        (or (empty? ids)
                             (= focused-id (last ids))
                             (nil? focused-id))
@@ -1165,7 +1165,7 @@
         ;; per the authority reference, so the chrome ribbon subscribes to
         ;; the spine state the events ribbon used to own.
         focus          @(rf/subscribe [:rf.xray/focus])
-        cascades       @(rf/subscribe [:rf.xray/filtered-cascades])
+        event-bundles       @(rf/subscribe [:rf.xray/filtered-event-bundles])
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
         ;; rf2-8zd80 — the chrome `+ filter` and the events-ribbon are
         ;; mutually-exclusive add affordances. Hide the chrome button
@@ -1175,7 +1175,7 @@
         no-filters?    (zero? (+ (count (:in filters)) (count (:out filters))))
         {:keys [at-head? at-tail? live?]}
         (nav-boundary-state {:focus           focus
-                             :cascades        cascades
+                             :event-bundles        event-bundles
                              :show-ungrouped? show-ungrouped?})]
     [:div {:data-testid "rf-xray-ribbon"
            :style {:display          "flex"
@@ -1451,18 +1451,18 @@
   inline column widths from. The parent (`event-list`) subscribes
   ONCE per paint and threads the resolved map through props so each
   row doesn't re-subscribe per render."
-  [{:keys [cascade focused-id auto-track? now-ms col-widths dispatch-fn]}]
+  [{:keys [event-bundle focused-id auto-track? now-ms col-widths dispatch-fn]}]
   (let [dispatch-fn (or dispatch-fn rf/dispatch*)
-        id          (:dispatch-id cascade)
+        id          (:dispatch-id event-bundle)
         focused?    (= id focused-id)
         ;; rf2-ad7zx.12 — the Figma `source` column tag (source name as
         ;; text; `ui` for the default app-code source). Per rf2-1ve9h
         ;; the prior `:rf/dispatch-origin` axis was collapsed into
         ;; `:source` — the single closed-enum functional-origin axis.
-        source         (l2-timeline/source-of cascade)
+        source         (l2-timeline/source-of event-bundle)
         source-tag     (l2-timeline/origin-source-tag source)
-        ev-id       (event-id-of-cascade cascade)
-        event-vec   (:event cascade)
+        ev-id       (event-id-of-event-bundle event-bundle)
+        event-vec   (:event event-bundle)
         ;; rf2-pjjwh — the active row is marked by background (Figma
         ;; EventList's `isActive` → `bg-[var(--devtools-hover)]`). No
         ;; border ring, no trailing status stripe — those are not in the
@@ -1482,7 +1482,7 @@
         ;; rf2-b8guz — light-pink WASH when this event's epoch CONTAINS
         ;; AN ISSUE (any error / warning / schema-violation / … — the
         ;; SAME set the Issues ribbon/feed aggregates, via the canonical
-        ;; `l2-timeline/cascade-has-issue?` predicate). The cross-epoch
+        ;; `l2-timeline/event-bundle-has-issue?` predicate). The cross-epoch
         ;; "this event had a problem" cue at the spine. Painted as a flat
         ;; `:background-image` gradient layer (the `:bg-issue-row` token,
         ;; a low-opacity rose wash) so it COMPOSES OVER the focused-row /
@@ -1490,7 +1490,7 @@
         ;; row reads pink whether focused or not, and the focus highlight
         ;; survives underneath. Nil when no issue, so a clean row paints
         ;; only its base background.
-        has-issue?  (l2-timeline/cascade-has-issue? cascade)
+        has-issue?  (l2-timeline/event-bundle-has-issue? event-bundle)
         issue-wash  (when has-issue?
                       (str "linear-gradient(" (:bg-issue-row tokens) ", "
                            (:bg-issue-row tokens) ")"))
@@ -1500,13 +1500,13 @@
         ref-fn      (when focused? (focused-row-ref id auto-track?))
         ;; rf2-pjjwh — body-click is pure SELECTION (drives the L3 tabs).
         ;; The focus-set lens (and its body-click-clears-focus branch)
-        ;; was retired; row click selects the cascade, full stop.
+        ;; was retired; row click selects the event-bundle, full stop.
         body-click  (fn [_e]
                       ;; rf2-r0o63 — dispatch through the captured
                       ;; instance-frame dispatcher (threaded from the
-                      ;; `event-list` reg-view) so the focus-cascade
+                      ;; `event-list` reg-view) so the focus-event
                       ;; write lands on this shell's frame.
-                      (dispatch-fn [:rf.xray/focus-event id (:frame cascade)]))]
+                      (dispatch-fn [:rf.xray/focus-event id (:frame event-bundle)]))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Xray is
     ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in
@@ -1515,7 +1515,7 @@
     ;; rf2-6gstp — keyboard a11y. Rows expose `role="button"` +
     ;; `tab-index="0"` + `aria-label` so keyboard-only users can Tab
     ;; into the list and operate it. Enter / Space activates the body
-    ;; (select cascade); Shift+F10 + ContextMenu key open the row's
+    ;; (select event-bundle); Shift+F10 + ContextMenu key open the row's
     ;; context menu (Mute / Hide event-type) — the same affordance
     ;; right-click users get. The audit (2026-05-20) flagged this
     ;; surface as P1 because the menu's actions had no keyboard path.
@@ -1587,7 +1587,7 @@
                   ;; args, sequence number, frame, source coord, handler
                   ;; duration) surface in this hover tooltip + the L4
                   ;; Epoch panel on click.
-                  :title (row-tooltip-text cascade)
+                  :title (row-tooltip-text event-bundle)
                   :style {:display       "flex"
                           :align-items   "center"
                           ;; rf2-ad7zx.15 — shared column gap + horizontal
@@ -1671,7 +1671,7 @@
      ;; A user-resizable cell (rf2-6ni62) aligned under the header's
      ;; `source` label, carrying the dispatch-origin as a short text tag.
      ;; The reference tags EVERY row, so the default app-code origin
-     ;; (`:user`, plus nil/unknown synthetic cascades) renders `ui` rather
+     ;; (`:user`, plus nil/unknown synthetic event-bundles) renders `ui` rather
      ;; than a blank cell. rf2-pjjwh dropped the leading origin-prefix
      ;; glyph — the mock carries the source tag as plain text only.
      [:span {:data-testid (when source-tag (str "rf-xray-row-origin-" source-tag))
@@ -1695,7 +1695,7 @@
      ;; Timestamp column (rf2-3f2di A8) — absolute wall-clock
      ;; `HH:MM:SS.mmm`, right-aligned. The chip carries an absolute-time
      ;; `:title` tooltip as the power-user reveal.
-     (relative-time-chip cascade now-ms (:timestamp col-widths))
+     (relative-time-chip event-bundle now-ms (:timestamp col-widths))
      ;; rf2-6ni62 — divider sits between `timestamp` and `duration`.
      [col-divider {:col-id    :duration
                    :col-px    (:duration col-widths)
@@ -1704,7 +1704,7 @@
      ;; Duration cell (rf2-lnod7) — the trailing `duration` column,
      ;; restoring the Figma EventList's fourth column. Handler wall-time
      ;; (`1.2 ms`), right-aligned, flush against the row's trailing edge.
-     (duration-cell cascade (:duration col-widths))]))
+     (duration-cell event-bundle (:duration col-widths))]))
 
 ;; ---- events ribbon (rf2-4vp5j) -----------------------------------------
 ;;
@@ -1963,7 +1963,7 @@
   + keyboard + reset that the corner-grip lacked.
 
   Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.xray/filtered-
-  cascades` (NOT raw `:rf.xray/cascades`) so the L1 ribbon's IN/OUT
+  event-bundles` (NOT raw `:rf.xray/event-bundles`) so the L1 ribbon's IN/OUT
   pills drive the list at the data layer — virtualisation budgets
   the post-filter row count, and the ribbon's `[◀ ▶ ⏭]` nav walks
   the same filtered list (per spec/018 §6 'Atomicity contract').
@@ -1971,13 +1971,13 @@
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/xray`.
 
-  Per rf2-639lc the list filters out `:ungrouped` cascades (those
+  Per rf2-639lc the list filters out `:ungrouped` event-bundles (those
   with no `:event` vector — registry-time emits / frame lifecycle
   outside a drain / REPL evals). Without the filter the L2 list
   rendered a leading `<no event>` placeholder row that leaked the
   projection's internal bucket into the user-facing event timeline.
   Other panels (Performance, etc.) keep reading
-  `:rf.xray/cascades` directly so the bucket remains available where
+  `:rf.xray/event-bundles` directly so the bucket remains available where
   it is meaningful.
 
   Per rf2-ieg6d Bug 1 the focused row carries a `:ref` callback that
@@ -2002,23 +2002,23 @@
         ;; rf2-t2dsh — list height is driven by the L2/L3 seam handle.
         ;; The sub returns a clamped px value; default == 200 px.
         list-height-px @(rf/subscribe [:rf.xray/events-list-height-px])
-        cascades       @(rf/subscribe [:rf.xray/filtered-cascades])
+        event-bundles       @(rf/subscribe [:rf.xray/filtered-event-bundles])
         ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
         ;; events ribbon (`events-ribbon`); the L2 list no longer renders
         ;; the banner itself. The events ribbon is the always-present
         ;; second stratum so the count surfaces above the list rather
         ;; than as an inline banner inside it.
         focus          @(rf/subscribe [:rf.xray/focus])
-        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
+        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-event-bundle
         ;; bucket. Default OFF preserves silent-by-default; ON
         ;; surfaces the bucket as a muted L2 row that focuses the
         ;; bucket on click so downstream panels populate.
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
         ;; rf2-0s2at — one subscribe per render drives every chip's
         ;; relative-time text. The sub returns the dispatched-time of
-        ;; the most recent cascade (the anchor flips on event arrival,
+        ;; the most recent event-bundle (the anchor flips on event arrival,
         ;; not on a per-second tick). Falls back to `(interop/now-ms)`
-        ;; when the buffer is empty / no cascade carries a stamp — at
+        ;; when the buffer is empty / no event-bundle carries a stamp — at
         ;; that point there are no rows to render against the anchor
         ;; anyway, but the chip's render-time guard keeps the bucket
         ;; computation defined.
@@ -2032,7 +2032,7 @@
         auto-track?    (and (= :live (:mode focus))
                             (:head? focus)
                             (not (:paused? focus)))
-        event-cascades (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)]
+        event-bundles (filterv #(l2-event-bundle-visible? % show-ungrouped?) event-bundles)]
     [:div {:data-testid "rf-xray-event-list-wrap"
            :style {:display "flex" :flex-direction "column"}}
      ;; rf2-4vp5j — the hidden-by-filters message now lives in the
@@ -2057,7 +2057,7 @@
                     ;; pseudo-elements can't be set via React inline-style.
                     :scrollbar-width "thin"
                     :scrollbar-color "rgba(107, 112, 128, 0.4) transparent"}}
-      (if (empty? event-cascades)
+      (if (empty? event-bundles)
         [:div {:data-testid "rf-xray-event-list-empty"
                :style {:padding   "16px"
                        :color     (:text-secondary tokens)
@@ -2077,9 +2077,9 @@
                [:ul {:style {:list-style "none" :margin 0 :padding 0
                             :display "flex" :flex-direction "column"
                             :gap "2px"}}]
-              (for [cascade event-cascades]
-                ^{:key (str (:dispatch-id cascade))}
-                [event-row {:cascade     cascade
+              (for [event-bundle event-bundles]
+                ^{:key (str (:dispatch-id event-bundle))}
+                [event-row {:event-bundle     event-bundle
                             :focused-id  focused-id
                             :auto-track? auto-track?
                             :now-ms      now-ms
@@ -2679,7 +2679,7 @@
     [editor-hint/Toast]
     ;; Cancellation-cascade popover (rf2-59e7k) — single waterfall view
     ;; of the rf2-wvkn cancellation contract. Opened from the Trace tab
-    ;; (right-click a destroy-event row → 'Show cancellation cascade')
+    ;; (right-click a destroy-event row → 'Show cancellation event-bundle')
     ;; or imperatively via `:rf.xray/cancellation-cascade-open`. Same
     ;; mount discipline as the other popovers: shell-root mount so
     ;; subscribes resolve through the `:rf/xray` frame-provider;

@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.event.event-status-colour
   "Event-lifecycle status colour — the canonical TanStack-style pure fn
-  that maps a cascade's lifecycle state to a single palette token
+  that maps an event-bundle's lifecycle state to a single palette token
   (rf2-b76v4, parent rf2-vtd5z).
 
   ## Why this lives in `panels/event/`
@@ -16,9 +16,9 @@
       with no notion of error/warning/in-flight at the row level.
     - `panels/event-detail/outcome-colour` mapped `:ok` / `:error` /
       `:warning` onto green / red / yellow at the Event header dot.
-    - `panels/trace` had no per-row cascade-status surface — every
-      trace row in the focused cascade rendered with the same neutral
-      chrome regardless of the cascade's terminal state.
+    - `panels/trace` had no per-row event-bundle-status surface — every
+      trace row in the focused event-bundle rendered with the same neutral
+      chrome regardless of the event-bundle's terminal state.
 
   This ns is the new central map. The hex-resolution wrapper
   `event-status-colour` is the one fn three call sites consume; the
@@ -34,7 +34,7 @@
 
       Status            Token            Hex (dark)  When
       ----------------  ---------------  ----------  -----------------------
-      :in-flight        :accent          #539bf5     cascade still building
+      :in-flight        :accent          #539bf5     event-bundle still building
                                                      (LIVE head, not yet
                                                      settled). The single
                                                      accent (GitHub blue) —
@@ -45,7 +45,7 @@
                                                      exception, no warnings.
       :settled-error    :red             #F87171     handler threw, or an
                                                      :rf.error/* trace
-                                                     landed in the cascade.
+                                                     landed in the event-bundle.
       :paused-by-tool   :info            #79c0ff     spine paused
                                                      (LIVE+paused) — e.g.
                                                      a tool has claimed
@@ -60,30 +60,30 @@
                                                      reserved for the `▥`
                                                      whole-redacted row
                                                      marker.
-      :stale            :yellow          #FBBF24     cascade replayed via
+      :stale            :yellow          #FBBF24     event-bundle replayed via
                                                      time-travel / RETRO
                                                      mode. The TanStack
                                                      analog is the
                                                      `isStale` flag; in
-                                                     Xray, a cascade in
+                                                     Xray, an event-bundle in
                                                      RETRO mode is the
                                                      state being inspected
                                                      out of LIVE order.
 
   ## Input shape
 
-  The `event-status-colour` fn takes a map of the cascade's pertinent
+  The `event-status-colour` fn takes a map of the event-bundle's pertinent
   lifecycle slots. Every field is optional; missing fields are treated
   as falsey / unknown. Callers project off whatever they have:
 
       {:outcome      :ok | :error | :warning | nil
-                                  ;; from `event-detail/cascade-outcome`
-       :focused?     <bool>       ;; spine focus is on this cascade
+                                  ;; from `event-detail/event-bundle-outcome`
+       :focused?     <bool>       ;; spine focus is on this event-bundle
        :paused?      <bool>       ;; spine :paused? slot
        :mode         :live | :retro
-       :in-flight?   <bool>       ;; cascade dispatched but no terminal
+       :in-flight?   <bool>       ;; event-bundle dispatched but no terminal
                                   ;; trace yet (rare in Xray today —
-                                  ;; cascades are buffer-projected after
+                                  ;; event-bundles are buffer-projected after
                                   ;; settle — but the slot is reserved
                                   ;; for the live in-progress surface a
                                   ;; follow-on bead will wire up)
@@ -110,7 +110,7 @@
       drives the broader row/header status, which the user reads
       AS WELL AS the glyph.)
     - `:error` always wins over `:stale` so a RETRO-replayed errored
-      cascade still surfaces as red.
+      event-bundle still surfaces as red.
     - `:focused?` is captured by the caller's existing focus chrome
       (bg-active, cyan border in `event-row`); the status fn does NOT
       override the focus highlight — both can coexist in the row's
@@ -148,7 +148,7 @@
 ;; ---- classification ------------------------------------------------------
 
 (defn classify-status
-  "Pure classifier: map a per-cascade lifecycle-state input map onto a
+  "Pure classifier: map a per-event-bundle lifecycle-state input map onto a
   single status keyword. Returns one of `:in-flight` /
   `:settled-success` / `:settled-error` / `:paused-by-tool` / `:stale`.
 
@@ -171,7 +171,7 @@
 ;; ---- public colour resolver ---------------------------------------------
 
 (defn event-status-token
-  "Resolve the cascade's lifecycle state to a token KEYWORD (not the
+  "Resolve the event-bundle's lifecycle state to a token KEYWORD (not the
   hex). Useful for callers that want to colour-tag a span without
   inlining the hex (e.g. data-testid suffixes, style-map composition
   through `theme/tokens`).
@@ -181,7 +181,7 @@
   (get status->token (classify-status state) :accent))
 
 (defn event-status-colour
-  "Resolve the cascade's lifecycle state to a hex colour string,
+  "Resolve the event-bundle's lifecycle state to a hex colour string,
   routing through `status->token` + `theme/tokens` so the palette
   has exactly one source of truth.
 
@@ -191,22 +191,22 @@
     - `event-detail/Panel`  — Event L4 header status dot + label
     - `panels/trace`        — per-row left-edge stripe when the row's
                               parent dispatch-id is in the focused
-                              cascade
+                              event-bundle
 
   Pure data → string; JVM-runnable."
   [state]
   (get tokens/tokens (event-status-token state) (:accent tokens/tokens)))
 
-;; ---- cascade-outcome (relocated from event_detail.cljs · rf2-5gl5r) ----
+;; ---- event-bundle-outcome (relocated from event_detail.cljs · rf2-5gl5r) ----
 ;;
-;; Pure-data classifier: project a cascade's `:other` bucket onto the
+;; Pure-data classifier: project an event-bundle's `:other` bucket onto the
 ;; outcome triad `:ok | :error | :warning`. Originally a private helper
 ;; in the retired event-detail panel; the trace panel's
-;; `cascade-status-bar` reads it via `cascade->state` (below), and the
+;; `event-bundle-status-bar` reads it via `event-bundle->state` (below), and the
 ;; existing JVM test corpus targets it directly. Lifted into the
-;; event-status-colour ns alongside `cascade->state` because the two
-;; are co-consumed (the typical call shape is `(cascade->state cascade
-;; focus cascade-outcome)`) — keeping them in the same place removes
+;; event-status-colour ns alongside `event-bundle->state` because the two
+;; are co-consumed (the typical call shape is `(event-bundle->state event-bundle
+;; focus event-bundle-outcome)`) — keeping them in the same place removes
 ;; the dependency-injection indirection the prior cross-ns split forced.
 
 (defn- error-trace?
@@ -228,38 +228,38 @@
       (and (keyword? operation) (= "rf.warning" (namespace operation)))))
 
 (defn- has-error?
-  "True iff the cascade carries ANY error trace (severity `:error` /
+  "True iff the event-bundle carries ANY error trace (severity `:error` /
   `:rf.error/*`) in its `:other` bucket. Pure predicate."
   [{:keys [other]}]
   (boolean (some error-trace? (or other []))))
 
 (defn- has-warning?
-  "True iff the cascade carries any non-fatal warning that should pivot
+  "True iff the event-bundle carries any non-fatal warning that should pivot
   the outcome glyph to ⚠ (amber). Pure predicate."
   [{:keys [other]}]
   (boolean (some warning-trace? (or other []))))
 
-(defn cascade-outcome
-  "Project a cascade record into an outcome-summary map:
+(defn event-bundle-outcome
+  "Project an event-bundle record into an outcome-summary map:
 
       {:event-id    <kw>           ;; first element of :event vec
        :glyph       \"✓\" | \"✗\" | \"⚠\"
        :outcome     :ok | :error | :warning
        :duration-ms <num-or-nil>
        :dispatch-id <int>
-       :ssr?        <bool>}        ;; true when this was an SSR-hydration cascade
+       :ssr?        <bool>}        ;; true when this was an SSR-hydration event-bundle
 
   Pure data → data. JVM-portable. Relocated from the retired
-  event-detail panel (rf2-5gl5r); the trace panel's cascade-status-bar
+  event-detail panel (rf2-5gl5r); the trace panel's event-bundle-status-bar
   is the surviving consumer alongside the JVM unit-test corpus."
-  [{:keys [event handler dispatch-id] :as cascade}]
+  [{:keys [event handler dispatch-id] :as event-bundle}]
   (let [event-id    (when (vector? event) (first event))
         duration-ms (get-in handler [:tags :duration-ms])
         ssr?        (or (= :rf.ssr/hydrated event-id)
                         (= :rf.ssr/hydration-complete event-id))
         [outcome glyph] (cond
-                          (has-error? cascade)   [:error   "✗"]
-                          (has-warning? cascade) [:warning "⚠"]
+                          (has-error? event-bundle)   [:error   "✗"]
+                          (has-warning? event-bundle) [:warning "⚠"]
                           :else                  [:ok      "✓"])]
     {:event-id    event-id
      :glyph       glyph
@@ -268,47 +268,47 @@
      :dispatch-id dispatch-id
      :ssr?        ssr?}))
 
-;; ---- convenience: cascade → state map -----------------------------------
+;; ---- convenience: event-bundle → state map -----------------------------------
 
-(defn cascade->state
-  "Project a cascade record + focus map onto the lifecycle-state input
+(defn event-bundle->state
+  "Project an event-bundle record + focus map onto the lifecycle-state input
   map `event-status-colour` consumes. Callers that already have the
-  cascade in hand can call this once per row rather than threading the
+  event-bundle in hand can call this once per row rather than threading the
   pieces by hand.
 
-  - `cascade`       — the projected cascade record (`:errors`, `:other`,
+  - `event-bundle`       — the projected event-bundle record (`:errors`, `:other`,
                       `:event`, `:handler`)
   - `focus`         — the spine focus map (`:dispatch-id`, `:mode`,
                       `:paused?`); pass nil for callers that don't have
                       it (e.g. JVM unit tests building the state map by
                       hand)
-  - `outcome-fn`    — a fn `(cascade) -> :ok|:error|:warning`. Default
-                      `cascade-outcome` (above). The injection seam
+  - `outcome-fn`    — a fn `(event-bundle) -> :ok|:error|:warning`. Default
+                      `event-bundle-outcome` (above). The injection seam
                       survives from the pre-rf2-5gl5r era where this
                       ns deliberately avoided a circular dep on
                       `panels/event-detail`; with that panel retired,
                       the default behaviour is the common path.
 
   Pure data → map; JVM-runnable."
-  ([cascade focus]
-   (cascade->state cascade focus cascade-outcome))
-  ([cascade focus outcome-fn]
-  (let [outcome   (some-> cascade outcome-fn :outcome)
+  ([event-bundle focus]
+   (event-bundle->state event-bundle focus event-bundle-outcome))
+  ([event-bundle focus outcome-fn]
+  (let [outcome   (some-> event-bundle outcome-fn :outcome)
         ;; rf2-bz7flo — frame-strict focused? check. Dispatch ids are unique
         ;; only WITHIN a frame, so when a multi-frame caller renders two
-        ;; same-id cascades from different frames, a dispatch-id-only match
-        ;; would mark BOTH focused/paused/stale. When both the cascade and
+        ;; same-id event-bundles from different frames, a dispatch-id-only match
+        ;; would mark BOTH focused/paused/stale. When both the event-bundle and
         ;; focus carry a `:frame`, require them to agree; degrade to a plain
         ;; dispatch-id match when either is frameless (single-frame focus,
-        ;; JVM unit tests building the cascade by hand).
-        cascade-frame (:frame cascade)
+        ;; JVM unit tests building the event-bundle by hand).
+        event-bundle-frame (:frame event-bundle)
         focus-frame   (:frame focus)
         focused?  (boolean
-                    (and cascade focus
-                         (= (:dispatch-id cascade) (:dispatch-id focus))
-                         (or (nil? cascade-frame)
+                    (and event-bundle focus
+                         (= (:dispatch-id event-bundle) (:dispatch-id focus))
+                         (or (nil? event-bundle-frame)
                              (nil? focus-frame)
-                             (= cascade-frame focus-frame))))
+                             (= event-bundle-frame focus-frame))))
         stale?    (boolean (and focused? (= :retro (:mode focus))))]
     {:outcome    outcome
      :focused?   focused?

@@ -9,11 +9,11 @@
       {:records [<record> ...]}
 
   where each record satisfies the eight-property contract from
-  [`panels/managed-fx-helpers/cascade->managed-fx-records`](managed_fx_helpers.cljc).
+  [`panels/managed-fx-helpers/event-bundle->managed-fx-records`](managed_fx_helpers.cljc).
 
   The composite is keyed to the spine's `:rf.xray/focus` — it
-  recomputes whenever the user clicks a different cascade in the L2
-  event list, scrubs through history, or a new cascade lands at head
+  recomputes whenever the user clicks a different event-bundle in the L2
+  event list, scrubs through history, or a new event-bundle lands at head
   in LIVE mode.
 
   ## Cross-link
@@ -38,23 +38,23 @@
   []
 
   ;; Composite sub — produces the records vector for the focused
-  ;; cascade. Re-derives on every spine flip / cascade-list change /
+  ;; event-bundle. Re-derives on every spine flip / event-bundle-list change /
   ;; focus move.
   (rf/reg-sub :rf.xray/managed-fx-for-focused-event
-    :<- [:rf.xray/cascades]
+    :<- [:rf.xray/event-bundles]
     :<- [:rf.xray/focus]
-    (fn [[cascades focus] _query]
-      ;; rf2-bz7flo — resolve the focused cascade frame-strictly. Dispatch
+    (fn [[event-bundles focus] _query]
+      ;; rf2-bz7flo — resolve the focused event-bundle frame-strictly. Dispatch
       ;; ids are unique only within a frame, so keying by dispatch-id alone
-      ;; could surface managed-fx rows from a foreign frame's same-id cascade
-      ;; while the returned `:frame` is the focused frame. `cascade-by-focus`
+      ;; could surface managed-fx rows from a foreign frame's same-id event-bundle
+      ;; while the returned `:frame` is the focused frame. `event-bundle-by-focus`
       ;; keys by both `:frame` + `:dispatch-id` when focus carries a frame.
       (let [dispatch-id (:dispatch-id focus)
-            cascade     (spine/cascade-by-focus cascades focus)]
+            event-bundle     (spine/event-bundle-by-focus event-bundles focus)]
         {:dispatch-id dispatch-id
          :frame       (:frame focus)
-         :records     (if cascade
-                        (h/cascade->managed-fx-records cascade)
+         :records     (if event-bundle
+                        (h/event-bundle->managed-fx-records event-bundle)
                         [])}))))
 
 ;; The HANDLER DISPATCHED row's `:on-click` dispatches the spine's

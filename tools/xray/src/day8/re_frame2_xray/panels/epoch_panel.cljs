@@ -9,7 +9,7 @@
   > **\"What happened in this epoch?\"**
 
   A single epoch's complete computational timeline as a numbered
-  vertical cascade — dispatch → coeffects → handler → flow → fx →
+  vertical event-bundle — dispatch → coeffects → handler → flow → fx →
   subscriptions → views. The pipeline is a faithful projection of
   the focused epoch's `:trace-events`; each step is conditional, so
   the view renders only the steps that actually fired.
@@ -19,9 +19,9 @@
   Registered against `:dynamic` mode at order 5 (between Machines (4)
   and Routing (6)). This panel is the **canonical** \"what happened
   in this epoch?\" surface — it presents the full timeline as a
-  delightful numbered cascade including the reactive trailing edge
+  delightful numbered event-bundle including the reactive trailing edge
   (SUBSCRIPTIONS + VIEWS). The Reactive tab covers a complementary
-  axis (per-sub recomputation detail across cascades) and remains
+  axis (per-sub recomputation detail across event-bundles) and remains
   side-by-side with this panel.
 
   ## Frame integration
@@ -203,7 +203,7 @@
          ;; rf2-ahhgn — the TOOL-SIDE outcome (`:ok` / `:error`) derived
          ;; from the projected steps (any step carrying an exception or
          ;; schema violation reads `:error`). Surfaced so the panel
-         ;; header signals a failed cascade — the framework epoch-record
+         ;; header signals a failed event-bundle — the framework epoch-record
          ;; `:outcome` slot stays `:ok` for a recovered handler exception
          ;; by spec, and is NOT the panel's outcome (see
          ;; `projection/epoch-outcome`).
@@ -223,7 +223,7 @@
   ;; pair in the expanded-set. State lives on the Xray app-db so toggles
   ;; survive sub-recomputes + integrate naturally with time-travel.
   ;; The current view doesn't render expansion UI for every row (the
-  ;; design prefers always-visible content for the cascade's punch),
+  ;; design prefers always-visible content for the event-bundle's punch),
   ;; but the surface is in place so follow-on rich expansions
   ;; (full-handler source code, full-fx EDN, etc.) compose without
   ;; reshaping the panel.
@@ -261,7 +261,7 @@
   ;;   :unchanged           — show only recompute rows whose value didn't change
   ;;
   ;; Preference lives on the Xray app-db so it survives focus shifts;
-  ;; default is `:changed` because most subs recompute on a cascade
+  ;; default is `:changed` because most subs recompute on an event-bundle
   ;; but report no value change (rf2-kfh1v hide-unchanged-by-default
   ;; rationale is preserved as the default mode).
 
@@ -292,7 +292,7 @@
   ;;
   ;; The Epoch tab is the master inverse of the other Dynamic tabs:
   ;; the six tabs (Epoch · App-db · Views · Trace · Machines ·
-  ;; Routing) read in cascade order, and Epoch renders every step
+  ;; Routing) read in event-bundle order, and Epoch renders every step
   ;; the other tabs detail as one timeline. (History: Epoch was
   ;; added alongside the then-existing tabs; rf2-5gl5r since retired
   ;; the Handler tab and rf2-gbz39 removed the Issues tab — issues
@@ -305,7 +305,7 @@
      :mnem  "e"
      :modes #{:dynamic}
      ;; -1 places Epoch leftmost (before Handler's :order 0). Mike's
-     ;; pair-debug call 2026-05-26: the cascade-pipeline view is the
+     ;; pair-debug call 2026-05-26: the event-bundle pipeline view is the
      ;; primary "what just happened" surface; it belongs first.
      :order -1
      :panel Panel}))

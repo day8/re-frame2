@@ -26,7 +26,7 @@
 
   The matcher (`filters/matcher.cljc`) operates on event-id only —
   event-id is the implicit, only scope. The dialog creates exactly
-  one pill shape: `{:pattern <kw-or-str>}` keyed off the cascade's
+  one pill shape: `{:pattern <kw-or-str>}` keyed off the event-bundle's
   event-id. (Typed-predicate kinds — machine / http-correlation / fx
   — arrive via right-click affordances on other panels, not this
   dialog; see `filters/typed_predicates.cljc`.)

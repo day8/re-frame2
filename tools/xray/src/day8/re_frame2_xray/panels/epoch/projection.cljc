@@ -3626,8 +3626,8 @@
   per-stage ✓/✗/⊘ retired in rf2-9wq0v — a clean run was all ticks / no
   information, and a failure already shows on its inline exception card).
   This status still drives the SKIPPED-body branch (`:skipped` → the
-  'did not run' placeholder) and the overall cascade-outcome banner
-  (`cascade-outcome` / `epoch-outcome` scan `:error`).
+  'did not run' placeholder) and the overall event-bundle-outcome banner
+  (`event-bundle-outcome` / `epoch-outcome` scan `:error`).
 
   A failure (`:error`) takes precedence over a skip — a step that both was
   marked skipped AND carries an attached error reads `:error` (the error is
@@ -3658,8 +3658,8 @@
   exception or a schema violation fired this cascade), else `:ok`.
 
   This is the TOOL-SIDE outcome the Epoch panel surfaces — the SAME
-  trace-derived `:error`/`:ok` signal `event-status-colour/cascade-outcome`
-  computes for the L2 list / Event header / Trace bar (a cascade carrying
+  trace-derived `:error`/`:ok` signal `event-status-colour/event-bundle-outcome`
+  computes for the L2 list / Event header / Trace bar (an event bundle carrying
   an `:rf.error/*` trace reads `:error`). It is DELIBERATELY NOT the
   framework epoch-record `:outcome` slot, which stays `:ok` for a
   recovered handler exception by spec (Spec-Schemas §`:rf/epoch-record`
@@ -3997,7 +3997,7 @@
                            ;; leaves) is part of "who fired this and with
                            ;; what world facts", so it reads next to the
                            ;; dispatch site. Silent-by-default — nil
-                           ;; (filtered below) when the cascade surfaced no
+                           ;; (filtered below) when the event bundle surfaced no
                            ;; `:rf.cofx` map (older runtimes / the prod-
                            ;; elided arm). rf2-n9v5ga — the declared
                            ;; recordable id set (when a resolver is supplied)

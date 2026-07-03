@@ -4,10 +4,10 @@
   ## Why this exists
 
   The App-DB downstream-subs popover (rf2-op9v2 / PR #1747) lists every
-  sub that ran in the focused cascade — full cascade, not path-filtered.
+  sub that ran in the focused event-bundle — full event-bundle, not path-filtered.
   Without per-sub `:input-paths` attribution the popover can't surgically
   answer 'which subs read THIS path?'. The substrate's
-  `:rf.cascade/captured` aggregate doesn't carry per-sub input-paths
+  `:rf.event-bundle/captured` aggregate doesn't carry per-sub input-paths
   either: subs read app-db via arbitrary handler-fn bodies (`get-in`,
   destructuring, walks), and the substrate adapter has no tap on those
   reads.
@@ -217,7 +217,7 @@
 (defn resolve-many
   "Batch form — return `{sub-id input-paths}` for every sub-id in the
   registry. Tools that need the full map (e.g. Xray's downstream
-  popover walking every cascade-captured sub) call this once per
+  popover walking every event-bundle-captured sub) call this once per
   walk to amortise the registrar projection."
   ([]
    (resolve-many (sub-meta-map)))
@@ -283,7 +283,7 @@
   `path-vec` may be `nil`; treated as `[]` (root) — falls through to
   rule 3 with no keyword segments, so non-nil non-empty layer-1
   leaves always EXCLUDE when the path is root. Operators hovering
-  the root would expect every sub in the cascade — for that case the
+  the root would expect every sub in the event-bundle — for that case the
   caller should bypass this filter entirely (path-vec `[]` is a
   whole-db signal)."
   [input-paths path-vec]

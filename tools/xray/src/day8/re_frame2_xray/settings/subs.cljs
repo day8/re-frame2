@@ -73,7 +73,7 @@
   ;; "Project default: <name>" hint shows what flipping back to the
   ;; default will land on. Reads the atom directly — there is no
   ;; app-db mirror because the host atom is single-write at boot, not
-  ;; a per-cascade reactive surface.
+  ;; a per-event-bundle reactive surface.
   (rf/reg-sub :rf.xray/editor-host-default
     (fn [_db _query]
       (config/get-host-editor-default)))
@@ -100,7 +100,7 @@
                    (config/get-setting :general :show-tool-frames?)))))
 
   ;; rf2-r9lyy — convenience sub: should the L2 event list surface
-  ;; the `:ungrouped` pseudo-cascade bucket (registry-time emits /
+  ;; the `:ungrouped` pseudo-event-bundle bucket (registry-time emits /
   ;; frame lifecycle / `:rf.ssr/hydration-mismatch` / REPL evals)?
   ;; OFF by default — Xray is silent-by-default per Mike's 2026-05-19
   ;; closure of rf2-q60yf. Flipping ON re-includes the bucket in L2

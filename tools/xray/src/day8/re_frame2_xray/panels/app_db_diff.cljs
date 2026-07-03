@@ -123,7 +123,7 @@
      [:div {:style panel-body-host-style}
       ;; rf2-5kfxe.2 / rf2-yng0y — key the state body by the focused
       ;; epoch-id so each epoch navigation forces a clean React re-mount
-      ;; per cascade (replaying the diff-flash CSS animation as
+      ;; per event-bundle (replaying the diff-flash CSS animation as
       ;; originally intended, and flushing any per-mount carryover). This
       ;; is a COMPLEMENT to the atomic sub above, not a substitute: a
       ;; remount alone does not fix a sub-level stale-`before` (a fresh

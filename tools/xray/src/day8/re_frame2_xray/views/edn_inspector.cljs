@@ -3514,7 +3514,7 @@
             ;;
             ;; The choice is per-consumer-panel: App-DB / Handler /
             ;; Trace pass a stable :site-id derived from their
-            ;; cascade epoch + slot role; throw-away surfaces (popup
+            ;; event-bundle epoch + slot role; throw-away surfaces (popup
             ;; previews, table-cell minis) omit it.
             effective-id  (or site-id mount-id)
             ;; `subscribe` is the lexical frame-aware closure
