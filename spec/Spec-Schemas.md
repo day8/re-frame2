@@ -1122,13 +1122,28 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:recovery        {:optional true} :keyword]])
 
 (def DrainDepthExceededTags
+  ;; rf2-fcbrjo — the DEV-TRACE tags for `:rf.error/drain-depth-exceeded`.
+  ;; The category is now ALWAYS-ON (Spec 009 §Error event catalogue); this
+  ;; schema governs the dev-only `trace/emit-error!` payload (the rich half,
+  ;; DCE'd in production), which carries `:last-event` (the full vector) and
+  ;; the human `:reason` prose alongside the structural cycle evidence. The
+  ;; ALWAYS-ON record is a STRUCTURAL-ONLY sibling (ids / counts only — no
+  ;; `:last-event` vector, no `:reason`) documented in the Spec 009 catalogue
+  ;; row's `:tags` cell; see `:tail-event-ids` there for the cycle evidence.
   [:map
-   [:category   :keyword]
-   [:frame      :keyword]
-   [:depth      :int]
-   [:queue-size :int]
-   [:last-event {:optional true} [:vector :any]]
-   [:rollback?  {:optional true} :boolean]])
+   [:category          :keyword]
+   [:frame             :keyword]
+   [:depth             :int]
+   [:queue-size        :int]
+   [:last-event        {:optional true} [:vector :any]]
+   ;; Cycle evidence (rf2-fcbrjo): the id of the last-settled event, the ring
+   ;; of the last K settled event-ids (the repeating suffix names the runaway
+   ;; cycle), and the ids dropped from the queue at the halt. Ids only.
+   [:last-event-id     {:optional true} :any]
+   [:tail-event-ids    {:optional true} [:vector :any]]
+   [:dropped-event-ids {:optional true} [:vector :any]]
+   [:reason            {:optional true} :string]
+   [:rollback?         {:optional true} :boolean]])
 
 (def DispatchSyncInHandlerTags
   [:map
