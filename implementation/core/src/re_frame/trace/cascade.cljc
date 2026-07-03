@@ -144,9 +144,9 @@
                                                ;; kicked off the in-flight drain).
                                                ;; Threaded from `:rf.sub/cause-event-id`
                                                ;; on the recompute trace tag (sourced
-                                               ;; via the `:epoch/cascade-cause` late-
+                                               ;; via the `:epoch/run-cause` late-
                                                ;; bind hook at emit time). nil when the
-                                               ;; sub ran outside any cascade or the
+                                               ;; sub ran outside any run or the
                                                ;; epoch artefact is absent — consumers
                                                ;; (Xray's Epoch panel SUBSCRIPTIONS
                                                ;; section) read it to credit each

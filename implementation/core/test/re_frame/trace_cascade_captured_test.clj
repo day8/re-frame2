@@ -439,9 +439,9 @@
 ;;
 ;; The reactive recompute path also stamps `:rf.sub/cause-event-id` (when
 ;; the optional `re-frame.epoch` artefact is on the classpath and the sub
-;; runs inside an in-flight cascade): the head of the event vector that
+;; runs inside an in-flight event run): the head of the event vector that
 ;; kicked off the dispatching drain. Mirrors `:rf.view/cause-event-id`
-;; (per rf2-25zo2) — same `:epoch/cascade-cause` late-bind hook source.
+;; (per rf2-25zo2) — same `:epoch/run-cause` late-bind hook source.
 ;;
 ;; The Mike-ruled posture is "option b" attribution-only (no behavioural
 ;; change to the reactive flush). The tag carries which event invalidated
@@ -450,14 +450,14 @@
 ;; would otherwise misattribute the run to itself.
 
 (deftest sub-run-cause-event-id-stamped-inside-dispatch
-  (testing "rf2-okz1u — a sub-run that fires INSIDE an in-flight cascade
+  (testing "rf2-okz1u — a sub-run that fires INSIDE an in-flight event run
             carries :rf.sub/cause-event-id naming the dispatching event.
             The plain-atom JVM path recomputes on deref (no cached
-            reaction); land the recompute inside the cascade window by
+            reaction); land the recompute inside the run window by
             using an fx-handler that derefs — fx runs after :db-changed
             commits, while the event's handler-scope is still bound and
-            the in-flight cascade buffer holds the :rf.event/run-start
-            the :epoch/cascade-cause lookup consumes. Mirrors the
+            the in-flight run buffer holds the :rf.event/run-start
+            the :epoch/run-cause lookup consumes. Mirrors the
             views-side precedent at view_rendered_op_cljs_test/
             rf-view-rendered-carries-cause-event-id-in-cascade."
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -498,8 +498,8 @@
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     ;; The seed dispatch has settled. The subscribe + deref below runs
-    ;; OUTSIDE any in-flight cascade — the in-flight buffer is empty so
-    ;; the `:epoch/cascade-cause` hook returns no `:cause-event-id`. The
+    ;; OUTSIDE any in-flight run — the in-flight buffer is empty so
+    ;; the `:epoch/run-cause` hook returns no `:cause-event-id`. The
     ;; tag MUST be absent from the emitted `:rf.sub/run` tags.
     (let [events (collect-trace
                    (fn []

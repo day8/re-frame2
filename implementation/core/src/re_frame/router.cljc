@@ -2033,8 +2033,8 @@
   post-commit `:db` schema-validation failure rolls the container
   back to the pre-handler value AND treats the dispatch as failed —
   flows do NOT evaluate and `:fx` does NOT walk. The pre-handler db is
-  read from the cascade's pre-handler frame-state snapshot
-  (`frame/*cascade-frame-state-before*`'s app-db partition) — NOT from
+  read from the run's pre-handler frame-state snapshot
+  (`frame/*run-frame-state-before*`'s app-db partition) — NOT from
   `[:coeffects :db]`, which an `:rf.interceptor/path` handler focuses to
   a slice (rf2-wfy2kq); see the `db-before` binding below. Downstream
   queued events still drain per run-to-completion (handled by
@@ -2115,16 +2115,16 @@
         ;; :db])` is the path SLICE, not the full app-db — and rolling back to
         ;; it would install the slice as the WHOLE app-db, destroying every key
         ;; outside `p` (data corruption on the recovery path). Source instead
-        ;; from the cascade's pre-handler frame-state snapshot
-        ;; (`frame/*cascade-frame-state-before*`, bound by `run-one-pass!`
-        ;; around the WHOLE cascade) — the canonical full pre-handler frame-
+        ;; from the run's pre-handler frame-state snapshot
+        ;; (`frame/*run-frame-state-before*`, bound by `run-one-pass!`
+        ;; around the WHOLE event run) — the canonical full pre-handler frame-
         ;; state, whose app-db projection is `=` the un-focused coeffect by
         ;; construction (both read the live container before the handler runs in
         ;; `assemble-initial-ctx`) yet is immune to mid-chain path focusing.
         ;; Fall back to the coeffect only when the var is unbound (no real
-        ;; cascade in flight — REPL / direct call; the rollback path cannot fire
-        ;; there since nothing commits out-of-cascade).
-        db-before      (if-let [fs-before frame/*cascade-frame-state-before*]
+        ;; run in flight — REPL / direct call; the rollback path cannot fire
+        ;; there since nothing commits out-of-run).
+        db-before      (if-let [fs-before frame/*run-frame-state-before*]
                          (get fs-before frame/app-partition-key)
                          (get-in final-ctx [:coeffects :db]))
         ;; Pre-handler runtime-db partition (EP-0001 rf2-adwcv6): the
@@ -2745,9 +2745,9 @@
   record. That record is owned by a single site — the epoch destroy hook
   (`re-frame.epoch.listeners/on-frame-destroyed!`), invoked synchronously
   from `frame/destroy-frame!` (step 8) the instant the handler destroyed
-  its own frame. That site carries the cascade's harvested buffer AND the
-  pre-cascade / destroy-time frame-state snapshots (threaded via
-  `frame/*cascade-frame-state-before*` + the destroy-time container read), so it
+  its own frame. That site carries the run's harvested buffer AND the
+  pre-run / destroy-time frame-state snapshots (threaded via
+  `frame/*run-frame-state-before*` + the destroy-time container read), so it
   builds a record with real `:frame-state-before` / `:frame-state-after`
   (and their `:db-*` app-db projections) per Spec-Schemas
   §`:rf/epoch-record` §Outcomes. Routing a second `:halted-destroy` commit
@@ -2786,9 +2786,9 @@
   the same drain. EP-0001 (rf2-3aizt1, decision #2): the snapshot is the whole
   frame-state (both partitions), so an epoch carries machine snapshots / route
   slice / SSR metadata, not just app-db. The per-event `frame-state-before` is
-  also bound to `frame/*cascade-frame-state-before*` around `process-event!`
+  also bound to `frame/*run-frame-state-before*` around `process-event!`
   so a handler that destroys its own frame mid-drain can recover the
-  pre-cascade snapshot for its `:halted-destroy` epoch record (rf2-9neiq)."
+  pre-run snapshot for its `:halted-destroy` epoch record (rf2-9neiq)."
   [frame-id router drain-depth]
   (loop [depth      0
          last-event nil]
@@ -2837,17 +2837,17 @@
               ;; §Recordable coeffects) so the durable causal-time fact is
               ;; replayable rather than an ambient assembly-time clock read.
               time-ms   (-> envelope :rf.cofx :rf/time-ms)]
-          ;; Per rf2-9neiq: expose this event's pre-cascade frame-state to a
+          ;; Per rf2-9neiq: expose this event's pre-run frame-state to a
           ;; handler that calls `destroy-frame!` on its OWN frame mid-drain.
-          ;; `destroy-frame!`'s epoch hook reads `frame/*cascade-frame-state-before*`
-          ;; for the `:halted-destroy` record's pre-cascade snapshot — the
-          ;; value the frame-state held before this in-flight event's cascade
+          ;; `destroy-frame!`'s epoch hook reads `frame/*run-frame-state-before*`
+          ;; for the `:halted-destroy` record's pre-run snapshot — the
+          ;; value the frame-state held before this in-flight event's run
           ;; began, which is otherwise gone by the time the (post-dissoc)
-          ;; epoch hook fires. rf2-bh56rc: `*cascade-time-ms*` is bound the
+          ;; epoch hook fires. rf2-bh56rc: `*run-time-ms*` is bound the
           ;; same way so the mid-drain `:halted-destroy` record's
           ;; `:committed-at` is THIS event's causal time, not an ambient read.
-          (binding [frame/*cascade-frame-state-before* fs-before
-                    frame/*cascade-time-ms*            time-ms]
+          (binding [frame/*run-frame-state-before* fs-before
+                    frame/*run-time-ms*            time-ms]
             (process-event! envelope))
           (let [fs-after (frame/frame-state-value frame-id)]
             (settle-event-epoch! frame-id fs-before fs-after time-ms))

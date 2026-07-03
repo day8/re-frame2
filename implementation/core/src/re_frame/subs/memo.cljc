@@ -161,18 +161,21 @@
                        `:added` chrome without inferring from
                        `:prev-value nil`. Not wire-sensitive. Per
                        Spec 009 §`:rf.sub/run`.
-    :cascade?        — `true` when this is a layer-2+ sub (an upstream
-                       SUB drove the recompute); `false` for a layer-1
-                       sub (an app-db path change drove it).
+    :cascade?        — SENSE (rf2-p4cd9c): reactive-graph propagation, NOT
+                       the event-pipeline-run sense — kept per the glw1bh
+                       sense-guard (and it is public Spec 009 wire vocab:
+                       `:rf.sub/cascade?`). `true` when this is a layer-2+
+                       sub (an upstream SUB drove the recompute); `false`
+                       for a layer-1 sub (an app-db path change drove it).
     :cause-sub       — for a cascade, the upstream `:<-` query-vector
                        whose value changed (`changed-cause-sub`); nil
                        for a layer-1 sub OR a layer-2+ first recompute
                        (no prior input to diff against).
-    :cause-event-id  — the dispatching cascade's event-id (the head of
+    :cause-event-id  — the dispatching run's event-id (the head of
                        the event vector that kicked off the in-flight
                        drain). Names which event invalidated this sub's
                        reactive input. Sourced from the in-flight
-                       cascade buffer via the `:epoch/cascade-cause`
+                       run buffer via the `:epoch/run-cause`
                        late-bind hook — same source the views path uses
                        for `:rf.view/cause-event-id`.
                        OMITTED (key absent, not nil) when the sub runs
@@ -273,6 +276,9 @@
         ;; marks without a reactive container deref. See the ns docstring
         ;; §Privacy for why we MUST NOT elide here.
         (if interop/debug-enabled?
+          ;; `cascade?` here = REACTIVE-GRAPH propagation (kept sense,
+          ;; rf2-p4cd9c): true iff this sub has upstream SUB inputs (layer-2+).
+          ;; NOT the event-pipeline-run sense; public wire key :rf.sub/cascade?.
           (let [cascade?  (boolean (seq input-signals))
                 cause-sub (changed-cause-sub prev-in-vals in-vals input-signals)
                 ;; The render-key of the view whose render is
@@ -287,28 +293,28 @@
                                          :views/reading-render-key)]
                             (f))
                 ;; `:rf.sub/cause-event-id` names the
-                ;; dispatching cascade whose handler-body invalidated
+                ;; dispatching run whose handler-body invalidated
                 ;; this sub's reactive input. Same source the views path
                 ;; uses for `:rf.view/cause-event-id`: the
-                ;; in-flight cascade buffer published by re-frame.epoch
-                ;; under the `:epoch/cascade-cause` late-bind hook. The
-                ;; hook walks the frame's per-cascade buffer and returns
+                ;; in-flight run buffer published by re-frame.epoch
+                ;; under the `:epoch/run-cause` late-bind hook. The
+                ;; hook walks the frame's per-run buffer and returns
                 ;; the FIRST `:rf.event/run-start` event-id it sees —
-                ;; i.e. the cascade's dispatching event vector head
+                ;; i.e. the run's dispatching event vector head
                 ;; (`(first event)`). Resolved through late-bind so this
                 ;; .cljc subs layer stays free of a static require on
                 ;; the optional epoch artefact. Returns nil when the
                 ;; epoch artefact is absent OR the sub runs outside any
-                ;; in-flight cascade (e.g. a `:rf.sub/run` driven by a
+                ;; in-flight run (e.g. a `:rf.sub/run` driven by a
                 ;; post-settle reactive flush against no live drain);
                 ;; the tag is OMITTED in those cases so consumers
                 ;; (Xray's Epoch panel SUBSCRIPTIONS section) read it
                 ;; only when meaningful. Inside the
                 ;; `interop/debug-enabled?` gate so the lookup + lift
                 ;; DCE under :advanced + goog.DEBUG=false.
-                cause-fn        (late-bind/get-fn-cached :epoch/cascade-cause)
-                cascade-cause   (when cause-fn (cause-fn frame-id))
-                cause-event-id  (:cause-event-id cascade-cause)]
+                cause-fn        (late-bind/get-fn-cached :epoch/run-cause)
+                run-cause       (when cause-fn (cause-fn frame-id))
+                cause-event-id  (:cause-event-id run-cause)]
             (trace/emit! :rf.sub :rf.sub/run
                          (cond-> {:rf.sub/id             query-id
                                   :rf.sub/query-v        query-v

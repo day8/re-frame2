@@ -757,10 +757,10 @@
    {:key         :epoch/capture-event
     :producer-ns 're-frame.epoch
     :description "Capture an event into the in-flight epoch buffer."}
-   {:key         :epoch/cascade-cause
+   {:key         :epoch/run-cause
     :producer-ns 're-frame.epoch
     :design-bead "rf2-25zo2"
-    :description "Walk a frame's in-flight cascade buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution. Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
+    :description "Walk a frame's in-flight event-run buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution — the event-pipeline-run (one traversal), keyed off the buffer's :rf.event/run-start marker (rf2-p4cd9c: run sense, not the reactive graph). Consumed by re-frame.views at view-render emit time so the Xray Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
    {:key         :epoch/record-render!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-qs6dl"
@@ -814,7 +814,7 @@
     :description "Clear every registered epoch-settled callback (test isolation)."}
    {:key         :epoch/on-frame-destroyed
     :producer-ns 're-frame.epoch
-    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id fs-before fs-after): fs-before is the in-flight event's pre-cascade frame-state snapshot (frame/*cascade-frame-state-before*), fs-after the destroy-time frame-state value captured before teardown — the real :frame-state-before/:frame-state-after slots (and their :db-* app-db projections) a mid-drain :halted-destroy epoch record carries per Spec-Schemas §:rf/epoch-record §Outcomes (rf2-9neiq / rf2-3aizt1). Both nil for an out-of-cascade destroy."}
+    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id fs-before fs-after): fs-before is the in-flight event's pre-run frame-state snapshot (frame/*run-frame-state-before*), fs-after the destroy-time frame-state value captured before teardown — the real :frame-state-before/:frame-state-after slots (and their :db-* app-db projections) a mid-drain :halted-destroy epoch record carries per Spec-Schemas §:rf/epoch-record §Outcomes (rf2-9neiq / rf2-3aizt1). Both nil for an out-of-run destroy."}
    {:key         :epoch/projected-record
     :producer-ns 're-frame.epoch
     :design-bead "rf2-mrsck"

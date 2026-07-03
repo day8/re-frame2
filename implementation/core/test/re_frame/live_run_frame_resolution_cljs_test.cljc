@@ -1,9 +1,11 @@
-(ns re-frame.live-cascade-frame-resolution-cljs-test
+(ns re-frame.live-run-frame-resolution-cljs-test
   "EP-0023 §Frame-derived live registration resolution — the OPERATIONAL
   acceptance (rf2-uejnt3). Slice .9 (rf2-32siq3.9) landed the resolution SEAM
   (`registrar/*generation*` + `live-frame/call-with-frame-resolution`) and proved
   it routes `registrar/lookup` when bound MANUALLY. This suite proves the seam is
-  now invoked from the LIVE cascade: a REAL `(rf/dispatch [...] {:frame F})` (and
+  now invoked from the LIVE event run (rf2-p4cd9c: renamed live-cascade ->
+  live-run — the run sense, one real dispatch's traversal): a REAL
+  `(rf/dispatch [...] {:frame F})` (and
   a real `(rf/subscribe F [...])`) resolves the event / sub handler through the
   TARGET frame's resolved image generation END-TO-END — NOT through the global
   registrar, and NOT via a manual `*generation*` binding.
@@ -14,7 +16,7 @@
   `[:counter/value]` writes/returns one value; the frame's IMAGE registers the
   SAME ids with a DIFFERENT impl. A frame-targeted dispatch/subscribe must run
   the IMAGE's impl, proving `router/process-event!` and `subs/subscribe` wrap the
-  cascade with `call-with-frame-resolution` (rf2-uejnt3). A realm-only / no-image
+  event run with `call-with-frame-resolution` (rf2-uejnt3). A realm-only / no-image
   frame is unaffected (absence-is-default).
 
   ## One runnable image-loaded frame (EP-0024 §One live frame registry, rf2-tu2vr7)
@@ -67,7 +69,7 @@
 ;; `register!` stores — for an event that is `events/event-handler-meta` (carries
 ;; `:handler-fn` + the wrapping `:interceptors`), merged with the provenance /
 ;; kind / id keys image assembly groups + dedupes by. So a generation-routed
-;; `registrar/lookup :event` returns a descriptor the cascade can run directly.
+;; `registrar/lookup :event` returns a descriptor the run can execute directly.
 ;; ---------------------------------------------------------------------------
 
 (defn- event-desc
@@ -104,11 +106,11 @@
   (testing "a globally-registered [:counter/inc] writes :global; the frame's
             IMAGE registers the SAME id writing :image. A REAL
             (rf/dispatch-sync [:counter/inc] {:frame :counter/main}) runs the
-            IMAGE handler END-TO-END — proving process-event! wraps the cascade
+            IMAGE handler END-TO-END — proving process-event! wraps the run
             with call-with-frame-resolution (rf2-uejnt3), NOT a manual binding."
     ;; A runnable frame RECORD under :counter/main (EP-0013 substrate).
     (rf/reg-frame :counter/main {:doc "image-loaded counter frame"})
-    ;; The GLOBAL handler — the value the cascade would write if it (wrongly)
+    ;; The GLOBAL handler — the value the run would write if it (wrongly)
     ;; resolved through the global registrar.
     (rf/reg-event :counter/inc
       (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
@@ -122,10 +124,10 @@
       ;; A REAL frame-targeted dispatch — no manual *generation* binding.
       (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
       (is (= :image (:written-by (rf/app-db-value :counter/main)))
-          "the IMAGE handler ran — the cascade resolved [:event :counter/inc]
+          "the IMAGE handler ran — the run resolved [:event :counter/inc]
            through the target frame's resolved image generation, end-to-end")
       (is (nil? registrar/*generation*)
-          "the generation binding did NOT leak past the cascade"))))
+          "the generation binding did NOT leak past the run"))))
 
 ;; ===========================================================================
 ;; 2. THE ACCEPTANCE — a REAL frame-targeted subscribe resolves the sub
@@ -218,7 +220,7 @@
   (testing "a child [:counter/step] dispatched via :fx from the image's
             [:counter/inc] handler re-enters process-event! for :counter/main
             and re-derives the generation — so it ALSO resolves through the
-            frame's image (the cascade stays coherent across child dispatches)"
+            frame's image (the drain stays coherent across child dispatches)"
     (rf/reg-frame :counter/main {:doc "image-loaded counter frame"})
     ;; GLOBAL versions both children should NEVER run.
     (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (assoc db :inc :global)}))
@@ -238,7 +240,7 @@
         (is (= :image (:inc db))  "the parent resolved the image's inc handler")
         (is (= :image (:step db))
             "the CHILD dispatch re-derived the generation and resolved the
-             image's step handler too (coherent across the cascade)")))))
+             image's step handler too (coherent across the drain)")))))
 
 ;; ===========================================================================
 ;; 6. THE COLLAPSE HEADLINE (EP-0023 collapse slice 1, rf2-32siq3.32) — two
@@ -397,7 +399,7 @@
             inline body lowers to the same runnable descriptor shape a
             :include-ns-selected handler carries (rf2-ffc6s0)"
     (rf/reg-frame :inline/main {:doc "inline-image counter frame"})
-    ;; A GLOBAL handler the cascade would (wrongly) run if it resolved through
+    ;; A GLOBAL handler the run would (wrongly) execute if it resolved through
     ;; the global registrar — present so the assertion proves the IMAGE ran.
     (rf/reg-event :counter/inc
       (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
@@ -417,7 +419,7 @@
         (is (= :inline (:written-by db))
             "the inline body ran, not the global handler"))
       (is (nil? registrar/*generation*)
-          "the generation binding did NOT leak past the cascade"))))
+          "the generation binding did NOT leak past the run"))))
 
 (deftest inline-registrations-sub-fn-body-runs-through-subscribe
   (testing "an image built from INLINE :registrations with a REAL layer-1 sub
@@ -442,7 +444,7 @@
       (is (nil? registrar/*generation*)
           "the generation binding did NOT leak past the build"))))
 
-(deftest inline-registrations-fx-fn-body-runs-through-cascade
+(deftest inline-registrations-fx-fn-body-runs-through-pipeline
   (testing "an image built from INLINE :registrations with a REAL fx fn body
             runs that effect END-TO-END when an inline event handler emits it
             (rf2-ffc6s0)"
@@ -601,7 +603,7 @@
   (testing "(c) a CHILD :dispatch emitted from the reloaded no-id frame's handler
             re-enters process-event! for the SAME runnable-id, re-derives the
             generation from the (patched) registry slot, and resolves the v2-only
-            child — proving the whole cascade stays on the reloaded image
+            child — proving the whole drain stays on the reloaded image
             (rf2-3az1vn P1)"
     (let [;; v1 parent has no child wiring. v2 parent emits a v2-only child via :fx.
           pool-v1 [(event-desc "ex.cd.v1" :counter/inc

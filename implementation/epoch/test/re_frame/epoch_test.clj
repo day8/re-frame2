@@ -1950,7 +1950,7 @@
   (testing "the :halted-destroy partial record committed when a handler
             destroys its OWN frame mid-drain carries the DESTROYING event's
             causal token :time-ms as :committed-at — threaded via the
-            router-bound frame/*cascade-time-ms*, NOT an ambient now-ms read
+            router-bound frame/*run-time-ms*, NOT an ambient now-ms read
             at assembly time (rf2-bh56rc / EP-0010 §Time). The ring is
             dropped in the same destroy step, so the record is observed via
             a register-epoch-listener! callback."
