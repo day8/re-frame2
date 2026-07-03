@@ -81,6 +81,9 @@
             [re-frame.http.privacy-headers :as http-privacy-headers]
             [re-frame.ssr.payload-policy :as ssr-payload-policy]
             [re-frame.routing :as routing]
+            ;; rf2-5u1r6a — the pure path-pattern validator, driven by the
+            ;; `:reg-route` Mode-B op (routing-pattern-validation.edn).
+            [re-frame.routing.match :as routing-match]
             ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
             ;; fixture event moved out of the `re-frame.routing` production
             ;; façade to this test-support ns. The routing/stale-nav-token-
@@ -180,6 +183,8 @@
     ;; exercises it (the old inject-cofx-time validation is retired).
     :schemas/cofx
     :routing/ranking
+    ;; rf2-5u1r6a — path-pattern registration-validation (Mode-B :reg-route).
+    :routing/pattern-validation
     :routing/fragment
     :routing/blocking
     :routing/nav-token
@@ -265,9 +270,18 @@
   ;; gate the fixture. Listed here so the CLJS runner reports the
   ;; streaming fixture as an intentional out-of-claim skip rather than
   ;; failing the suite.
+  ;;
+  ;; rf2-5lqar2 — :ssr/render-tree-hash (the render-tree canonical-traversal
+  ;; hash pin, Spec 011:386) is gated by the ssr-artefact runner
+  ;; (`re-frame.ssr-conformance-test`, which implements the `:render-tree-hash`
+  ;; call op against `ssr/render-tree-hash`). This host-agnostic corpus runner
+  ;; does not carry that call op, so `ssr-render-tree-hash.edn` is an
+  ;; intentional out-of-claim skip here rather than an unknown-capability
+  ;; failure — matching the JVM core runner's allowlist.
   #{:ssr/suspense-boundary
     :ssr/hydration-payload
-    :ssr/chunked-response})
+    :ssr/chunked-response
+    :ssr/render-tree-hash})
 
 ;; ---- fixture loading (compile-time inlined) -------------------------------
 
@@ -1120,6 +1134,31 @@
          :detail  (when (some? thrown)
                     (str "reg-frame\n"
                          "    expected: no error (well-formed config)\n"
+                         "    thrown:   " (ex-message thrown)))}))
+
+    ;; rf2-5u1r6a — path-pattern validation Mode-B (Spec 012 §Path-pattern
+    ;; grammar + 009 §The thrown-error shape). Mirror of the JVM runner: the
+    ;; pure `validate-route-pattern!` throws :rf.error/invalid-route-pattern
+    ;; on a malformed :path (incl. the rejected slash-outside optional-group
+    ;; spelling); absent `:expect-error` ⇒ a well-formed pattern must NOT throw.
+    :reg-route
+    (let [want-error (:expect-error call)
+          thrown     (try (routing-match/validate-route-pattern!
+                            (:route-id call :rf.test/pattern) (:pattern call)) nil
+                          (catch :default e e))]
+      (if want-error
+        (let [got-id (:rf.error/id (ex-data thrown))
+              ok?    (= want-error got-id)]
+          {:passed? ok?
+           :detail  (when-not ok?
+                      (str "reg-route " (pr-str (:pattern call)) "\n"
+                           "    expected error :rf.error/id: " want-error "\n"
+                           "    actual   error :rf.error/id: " got-id "\n"
+                           "    thrown:                       " (some-> thrown ex-message)))})
+        {:passed? (nil? thrown)
+         :detail  (when (some? thrown)
+                    (str "reg-route " (pr-str (:pattern call)) "\n"
+                         "    expected: no error (well-formed pattern)\n"
                          "    thrown:   " (ex-message thrown)))}))
 
     ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops. Mirror

@@ -172,7 +172,7 @@ nav:
     - "Quickstart: a counter in five minutes": core/quickstart.md
     - "The loop, one piece at a time":
       - core/concepts/index.md
-      - "1. Events and the cascade": core/concepts/events-and-the-cascade.md
+      - "1. Events and the pipeline": core/concepts/events-and-the-pipeline.md
       - "2. app-db: state in one place": core/concepts/app-db.md
       - "3. Effects and coeffects: the world": core/concepts/effects-and-coeffects.md
       - "4. Subscriptions: derived values": core/concepts/subscriptions.md

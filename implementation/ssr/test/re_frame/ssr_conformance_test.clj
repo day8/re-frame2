@@ -188,6 +188,8 @@
     :core/fx
     :core/error
     :ssr/render-to-string
+    ;; rf2-5lqar2 — the render-tree canonical-traversal hash pin (011:386).
+    :ssr/render-tree-hash
     :ssr/hydration
     :ssr/hydration-payload
     :ssr/response-contract
@@ -478,6 +480,23 @@
       {:passed? (= want out)
        :detail  (when (not= want out)
                   (str "render-to-string\n"
+                       "    input:    " (pr-str (:input call)) "\n"
+                       "    expected: " (pr-str want) "\n"
+                       "    actual:   " (pr-str out)))})
+
+    ;; rf2-5lqar2 — the render-tree canonical-traversal pin Spec 011:386
+    ;; promises. `render-tree-hash` is the FNV-1a 32-bit hash over the
+    ;; canonical-EDN traversal (depth-first shape; sorted attribute keys;
+    ;; nil pruned). The fixture pins the reference hash VALUE for a small
+    ;; corpus plus same-hash LAW pairs; the value branch is per-host, the
+    ;; law pairs are pattern-level.
+    :render-tree-hash
+    (let [out  (try (ssr/render-tree-hash (:input call))
+                    (catch Throwable e (str "<error: " (.getMessage e) ">")))
+          want (:expect call)]
+      {:passed? (= want out)
+       :detail  (when (not= want out)
+                  (str "render-tree-hash\n"
                        "    input:    " (pr-str (:input call)) "\n"
                        "    expected: " (pr-str want) "\n"
                        "    actual:   " (pr-str out)))})

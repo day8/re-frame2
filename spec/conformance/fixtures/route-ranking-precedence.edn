@@ -33,9 +33,20 @@
    :route/catch-all       {:path "/*"}
    :route/files.rest      {:path "/files/*rest" :params [:map [:rest :string]]}
 
-   ;; Rule 5 — exact beats optional-group
+   ;; Rule 5 — exact beats optional-group. The optional group is spelled
+   ;; slash-INSIDE the braces (`{/:base}?`, rf2-av1 / rf2-5u1r6a); the
+   ;; slash-outside `/{:base}?/about` drift is rejected at registration.
    :route/about           {:path "/about"}
-   :route/optional-about  {:path "/{:base}?/about"}
+   :route/optional-about  {:path "{/:base}?/about"}
+
+   ;; Rank arithmetic: segments INSIDE an optional group count toward
+   ;; NEITHER rule-1 static-count NOR rule-3 total-length (rf2-5u1r6a). So
+   ;; for "/docs/guide", `/docs{/guide}?` scores static-count 1 / length 1
+   ;; (the `guide` inside the group is uncounted) while `/docs/:page` scores
+   ;; static-count 1 / length 2 — a maybe-present segment must never outrank
+   ;; an always-present one, so the concrete `/docs/:page` wins at rule 3.
+   :route/docs.optional   {:path "/docs{/guide}?"}
+   :route/docs.page       {:path "/docs/:page" :params [:map [:page :string]]}
 
    ;; Rule 6 — registration order final-tiebreak (also: warning on equal scores)
    :rf.route/equal.first     {:path "/equal-score/:x" :params [:map [:x :string]]}
@@ -69,6 +80,15 @@
   {:call :match-url :url "/about"
    :expect {:route-id :route/about :params {} :query {} :fragment nil :validation-failed? false}}
 
+  ;; Rank arithmetic (rf2-5u1r6a): /docs/guide — the concrete /docs/:page
+  ;; wins over /docs{/guide}? even though the literal `guide` would (if it
+  ;; counted) tie the static count at 2. The group's inner `guide` counts
+  ;; toward NEITHER static-count nor total-length, so /docs{/guide}? scores
+  ;; length 1 while /docs/:page scores length 2 and wins at rule 3. A
+  ;; maybe-present segment never outranks an always-present one.
+  {:call :match-url :url "/docs/guide"
+   :expect {:route-id :route/docs.page :params {:page "guide"} :query {} :fragment nil :validation-failed? false}}
+
   ;; Rule 6: /equal-score/x — :rf.route/equal.first wins (registered first)
   {:call :match-url :url "/equal-score/x"
    :expect {:route-id :rf.route/equal.first :params {:x "x"} :query {} :fragment nil :validation-failed? false}}
@@ -80,7 +100,11 @@
   ;; "users.me has greater rank than users.detail" rather than literal values).
   {:call :assert-rank-greater :winner :route/users.me   :loser :route/users.detail}
   {:call :assert-rank-greater :winner :route/files.named :loser :route/files.splat}
-  {:call :assert-rank-greater :winner :route/about      :loser :route/optional-about}]
+  {:call :assert-rank-greater :winner :route/about      :loser :route/optional-about}
+  ;; Rank arithmetic (rf2-5u1r6a): the concrete /docs/:page out-ranks
+  ;; /docs{/guide}? — the group's inner literal is uncounted, so length
+  ;; breaks the tie at rule 3 in favour of the always-present segment.
+  {:call :assert-rank-greater :winner :route/docs.page  :loser :route/docs.optional}]
 
  :fixture/expect
  {;; Rule 6 also emits a registration-time warning for the equal-score pair.

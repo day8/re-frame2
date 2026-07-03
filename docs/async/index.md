@@ -2,7 +2,7 @@
 
 Sooner or later your app must talk to a server, and the moment it does you inherit a family of problems: errors, timeouts, retries, loading states, stale replies racing each other.
 
-re-frame2's answer is the **managed request**. You describe the request as data, return it from a pure [event handler](../core/concepts/effects-and-coeffects.md), and finish. The runtime performs it. The reply arrives later as an **ordinary [event](../core/concepts/events-and-the-cascade.md)** — success and failure each named:
+re-frame2's answer is the **managed request**. You describe the request as data, return it from a pure [event handler](../core/concepts/effects-and-coeffects.md), and finish. The runtime performs it. The reply arrives later as an **ordinary [event](../core/concepts/events-and-the-pipeline.md)** — success and failure each named:
 
 ```clojure
 {:fx [[:rf.http/managed {:request    {:url "/api/articles/intro"}

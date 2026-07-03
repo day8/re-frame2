@@ -1,0 +1,62 @@
+;; Conformance fixture: routing/pattern-validation
+;;
+;; Pins the path-pattern registration-error surface (rf2-5u1r6a): a malformed
+;; `:path` throws `:rf.error/invalid-route-pattern` at registration, and the
+;; ONE canonical optional-group spelling is slash-INSIDE (`{/:name}?`, rf2-av1)
+;; — the slash-OUTSIDE drift (`/{:base}?/about`) is rejected. Mode-B
+;; `:reg-route` calls drive the PURE validator: `:expect-error` rows pin each
+;; fail-loud discriminator; controls (no `:expect-error`) pin the well-formed
+;; spellings that must NOT throw.
+;;
+;; Per [012 §Path-pattern grammar (canonical)](../../012-Routing.md#path-pattern-grammar-canonical)
+;; and [009 §The thrown-error shape](../../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract).
+
+{:fixture/id           :routing/pattern-validation
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/pattern-validation}
+ :fixture/doc          "reg-route pattern validation: malformed patterns throw :rf.error/invalid-route-pattern; the canonical optional-group spelling is slash-INSIDE ({/:name}?) — leading, trailing, sequenced, and root-only groups are accepted, the slash-outside spelling is rejected, splats must be final and singular, and the bare catch-all /* is valid."
+
+ :fixture/registry {}
+
+ :fixture/calls
+ [;; ---- Controls: well-formed patterns register cleanly (no throw) --------
+  {:call :reg-route :pattern "/"}
+  {:call :reg-route :pattern "/cart"}
+  {:call :reg-route :pattern "/cart/items/:id"}
+  ;; Optional group — CANONICAL slash-INSIDE spelling, every position:
+  {:call :reg-route :pattern "/articles/:id{/:slug}?"}   ;; trailing group
+  {:call :reg-route :pattern "{/:base}?/about"}          ;; LEADING group
+  {:call :reg-route :pattern "/docs{/guide}?"}           ;; literal-in-group
+  {:call :reg-route :pattern "/docs{/:section}?{/:page}?"} ;; two sequential groups
+  {:call :reg-route :pattern "{/:base}?"}                ;; root-only group
+  ;; Splats:
+  {:call :reg-route :pattern "/files/*rest"}             ;; named splat
+  {:call :reg-route :pattern "/*"}                       ;; bare catch-all
+
+  ;; ---- Fail-loud: the slash-OUTSIDE optional-group spelling is REJECTED --
+  ;; This is the drift rf2-5u1r6a closes — the production table, the
+  ;; :rf/route-pattern regex, and the validator now all reject it.
+  {:call :reg-route :pattern "/{:base}?/about"
+   :expect-error :rf.error/invalid-route-pattern}
+  {:call :reg-route :pattern "/{:base}?"
+   :expect-error :rf.error/invalid-route-pattern}
+
+  ;; ---- Fail-loud: structural malformations -----------------------------
+  {:call :reg-route :pattern "articles"          ;; missing leading /
+   :expect-error :rf.error/invalid-route-pattern}
+  {:call :reg-route :pattern "/a//b"             ;; empty path segment
+   :expect-error :rf.error/invalid-route-pattern}
+  {:call :reg-route :pattern "/a{/:b"            ;; unclosed optional group
+   :expect-error :rf.error/invalid-route-pattern}
+  {:call :reg-route :pattern "/docs{/guide}"     ;; group missing `?` suffix
+   :expect-error :rf.error/invalid-route-pattern}
+  {:call :reg-route :pattern "/a{//:x}?"         ;; empty segment inside group
+   :expect-error :rf.error/invalid-route-pattern}
+  {:call :reg-route :pattern "/foo/:BAD NAME"    ;; non-identifier param name
+   :expect-error :rf.error/invalid-route-pattern}
+
+  ;; ---- Fail-loud: splat cardinality / position -------------------------
+  {:call :reg-route :pattern "/files/*rest/more" ;; splat not final
+   :expect-error :rf.error/invalid-route-pattern}
+  {:call :reg-route :pattern "/files/*a/*b"      ;; more than one splat
+   :expect-error :rf.error/invalid-route-pattern}]}

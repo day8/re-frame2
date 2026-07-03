@@ -645,11 +645,13 @@ The terminology comes from re-frame v1; the semantics carry over.
 
 | Layer | Inputs | Example | Recompute trigger |
 |---|---|---|---|
-| **Layer-1** | Reads `app-db` directly | `(reg-sub :user (fn [db _] (:user db)))` | The path it reads from `app-db` changes by `=`. |
+| **Layer-1** | Reads `app-db` directly | `(reg-sub :user (fn [db _] (:user db)))` | The body re-runs on **every** commit (the algorithm above runs each layer-1 body against the new partition projection unconditionally); the `=` check on the *result* gates propagation, not the run. |
 | **Layer-2** | Reads other subs via `:<-` | `(reg-sub :user-name :<- [:user] (fn [u _] (:name u)))` | Any input sub's value changes by `=`. |
 | **Layer-3** | Reads other subs via `:<-`, where one or more inputs are themselves layer-2 | `(reg-sub :user-greeting :<- [:user-name] :<- [:locale] (fn [...] ...))` | Any input sub's value changes by `=`. |
 
 Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them all the same. The distinction matters for understanding the cascade order (layer-1 settles before layer-2, layer-2 before layer-3) but not for the implementation, which uses `:<-` chain depth implicitly via topological iteration.
+
+**Layer-1 bodies MUST be cheap.** Because every layer-1 body re-runs on every commit (it is the propagation gate — it must run to decide whether to propagate), a layer-1 body must be a plain slice: a `get` / `get-in`, nothing more. Put a `sort-by` or any real computation in a layer-1 body and that work runs on every commit, in every frame, including commits that touch unrelated state. Push the computation into a layer-2 `:<-` sub, where it runs only when the extracted slice actually changes by `=`.
 
 ### Subscription input producers — app-db reader, static, parametric input-fn
 

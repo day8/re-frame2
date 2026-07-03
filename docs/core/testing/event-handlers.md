@@ -52,7 +52,7 @@ One setup detail makes it work. Your test namespace needs three requires — `cl
 
 !!! note "A handler may legitimately return `nil`"
 
-    A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Events and the cascade](../concepts/events-and-the-cascade.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
+    A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Events and the pipeline](../concepts/events-and-the-pipeline.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
 
 ## 2. A handler that needs the world
 

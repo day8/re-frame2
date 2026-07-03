@@ -47,9 +47,10 @@
 (defonce react-root (atom nil))
 
 (defn ^:dev/after-load mount! []
-  (when (exists? js/document)
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 ;; The seed is just `[:todo/initialise]` — it folds the saved
                 ;; todos (via the `:todo.storage/todos` coeffect in db.cljs)

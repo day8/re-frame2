@@ -19,7 +19,7 @@ The rationale that justifies the pattern's shape lives across re-frame's existin
 
 The headline shape:
 
-- **Frames** are isolated runtime boundaries — `{state, queue, sub-cache, id}` (multi-instance, per-test, per-request, per-session) (Spec 002).
+- **Frames** are isolated runtime boundaries — `{state, queue, sub-cache, id}` (multi-instance, per-test, per-request) (Spec 002).
 - **Registration** carries rich metadata; every registered entity is queryable (Spec 001 / 010).
 - **Views** are pure functions of `(state, props) → render-tree`; the render-tree is serialisable data (Spec 004).
 - The **CLJS reference** makes concrete bindings (atom, Malli, Reagent, hiccup, ...) without committing the pattern to them.
@@ -40,7 +40,7 @@ A claim to be "this pattern" requires an implementation to supply this minimal c
 - **Event handler contract**: `(coeffects, event) → effects-map` — the handler's first argument is the coeffects map (app-db under `:db`, the frame stamp under `:rf.frame/id`, declared coeffects, per [002 §The event handler contract](002-Frames.md#the-event-handler-contract), EP-0018 D4), not a bare state value. The v1 `(state, event)` shape is the `:db`-only specialisation of this.
 - **Registered-fx resolver**: an effects map is interpreted by looking up its keys against the registry.
 - **Subscription / derivation system**: `query → value-from-state`, with stable composition.
-- **Frame**: an isolated runtime boundary `{state, queue, sub-cache, id}`. Multi-instance, per-test, per-request, per-session — all the same shape.
+- **Frame**: an isolated runtime boundary `{state, queue, sub-cache, id}`. Multi-instance, per-test, per-request — all the same shape.
 - **Dispatch envelope**: `{event, frame, overrides, trace-id, source}` — an *open map*; consumers tolerate unknown keys.
 - **Run-to-completion drain semantics** (per frame): an event's cascade settles before the next event is processed.
 - **View contract**: `(state, props) → render-tree`. Pure. The render-tree is a serialisable data structure.
@@ -425,7 +425,7 @@ Per [011-SSR.md](011-SSR.md): `:fx-overrides` and `:interceptor-overrides` move 
 
 ### "Frame" vocabulary
 
-`Frame` in the original re-frame meant "an instance of an app." In re-frame2, `frame` is redefined explicitly: **a frame is an isolated runtime boundary**. Multi-instance widget, per-test fixture, per-request server-side render, per-session — all the same shape. See [002-Frames.md](002-Frames.md).
+`Frame` in the original re-frame meant "an instance of an app." In re-frame2, `frame` is redefined explicitly: **a frame is an isolated runtime boundary**. Multi-instance widget, per-test fixture, per-request server-side render — all the same shape. See [002-Frames.md](002-Frames.md).
 
 ## Pointers to per-area Specs
 

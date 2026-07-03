@@ -151,19 +151,54 @@ Prefer a single map payload over positional arguments — it's self-describing a
 
 Because an event is just data, it can be logged, recorded, and replayed — the basis of re-frame2's testability and time-travel.
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md).
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
 
-### **event cascade**
+<a id="event-cascade"></a>
+### **event pipeline**
 
-The fixed, ordered run one dispatched [event](#event) sets off — re-frame2's name for a single turn of the loop. The [event handler](#event-handler) runs and returns an [effect map](#effect-map); the new [app-db](#app-db) is committed atomically; effects fire; [subscriptions](#subscription) re-derive; and [views](#view) render from the new state.
+The fixed stage sequence one dispatched [event](#event) traverses. It has a [**write side**](#write-side) and a [**read side**](#read-side), split at the [**commit**](#commit) — nothing crosses between them except the committed value. The write side runs per event — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform); the read side runs once per [drain](#drain--run-to-completion) at settle — [derive](#derive) → [render](#render).
 
 ```clojure
-;; dispatch → handler → effect map → commit → effects → derivations → render
+;; write side (per event):  assemble → transform → commit → perform
+;; read side  (per drain):  derive → render
 ```
 
-The view renders once, at the end, from the committed state — never mid-cascade.
+The commit is the seam: the write side is transactional up to it and best-effort after it, and the [view](#view) renders once, from the committed state — never mid-run.
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md). One dispatched event leaves behind one [epoch](#epoch), the before/after record of that cascade.
+One traversal of the pipeline is a [**run**](#run); the record a run leaves behind is an [**epoch**](#epoch). Read the triple as **pipeline** (the structure) / **run** (one traversal) / **epoch** (the record). The to-fixed-point family — running the whole queue before the read side — is a [**drain**](#drain--run-to-completion).
+
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md). (Older prose called this the *event cascade* or a *turn of the loop*; those spellings are retired for the event-traversal sense — the machines *cancellation cascade* keeps its name.)
+
+### **run**
+
+One traversal of the [event pipeline](#event-pipeline) — a single dispatched [event](#event) carried through every stage, write side then read side. It's the middle term of the triple: the [**pipeline**](#event-pipeline) is the fixed structure, a **run** is one trip through it, and the [**epoch**](#epoch) is the record that trip leaves. One dispatch = one run = one epoch. (A whole queue run to a fixed point before the read side is a [drain](#drain--run-to-completion), which is many runs but one read side.)
+
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+
+### **write side**
+
+The first half of the [event pipeline](#event-pipeline) — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform) — the part that runs *once per [event](#event)* and computes and applies the change. It's transactional up to the [commit](#commit) (a throwing handler installs nothing) and best-effort after it. The [commit](#commit) is the seam that ends it; nothing crosses to the [read side](#read-side) except the value the commit lands.
+
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+
+### **read side**
+
+The second half of the [event pipeline](#event-pipeline) — [derive](#derive) → [render](#render) — the part that runs *once per [drain](#drain--run-to-completion)*, after the queue settles, and brings the screen up to date. It reads only the value the [commit](#commit) landed; it never sees a half-written [app-db](#app-db), and it runs once no matter how many events the drain settled.
+
+Related: [Subscriptions](concepts/subscriptions.md), [Events & the pipeline](concepts/events-and-the-pipeline.md).
+
+### **world**
+
+The map of declared facts assembled for an [event handler](#event-handler) to read — everything from the outside the handler is allowed to see, gathered as data. [app-db](#app-db) is one entry (always present, under `:db`), not otherwise special; the clock, a fresh id, a storage read are other entries a handler declares with `:rf.cofx/requires`. The world is the handler's first argument — its [coeffects](#coeffect) map — assembled by the pipeline's [assemble](#assemble) stage before the handler runs.
+
+```clojure
+;; the assembled world a handler receives — app-db is just one fact in it
+{:db {…}  :today "2026-07-04"  :new-id #uuid "…"}
+```
+
+A [**frame**](#frame) is a *running* world: a world plus the runtime machinery (queue, caches, lifecycle) that keeps it alive and re-assembles it per event.
+
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md), [frame](#frame).
 
 ### **event envelope**
 
@@ -188,7 +223,7 @@ Most application code never reads an event envelope directly. It is the router's
  :rf.cofx  {:rf/time-ms 1781078400123}}
 ```
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md), [Frames](concepts/frames.md), [Effects & Coeffects](concepts/effects-and-coeffects.md).
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md), [Frames](concepts/frames.md), [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
 ### **event handler**
 
@@ -208,13 +243,13 @@ Register one with `reg-event`:
     {:db (update db :cart/items conj item)}))
 ```
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md).
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
 
 ### **flow**
 
 A pure derivation that re-frame2 keeps materialised at a path in [app-db](#app-db). The point: because the derived value lives *in* app-db, your [event handlers](#event-handler) can read it as plain state — whereas a [subscription](#subscription)'s value is only available to [views](#view).
 
-You declare the `:inputs` to watch, a pure `:derive` function, and the `:output-path` to maintain; whenever an input changes, the framework re-runs `:derive` and writes the result, in step with the [event cascade](#event-cascade):
+You declare the `:inputs` to watch, a pure `:derive` function, and the `:output-path` to maintain; whenever an input changes, the framework re-runs `:derive` and writes the result, in step with the [event pipeline](#event-pipeline):
 
 ```clojure
 (rf/reg-flow
@@ -229,7 +264,7 @@ Related: [Flows](concepts/flows.md), [toggling a derivation at runtime](concepts
 
 ### **frame**
 
-An isolated, running instance of an app. A frame owns the state and runtime machinery for that instance — its [app-db](#app-db), [runtime-db](#runtime-db), event queue, subscription cache, and lifecycle.
+An isolated, running instance of an app. **A frame is a running [world](#world)** — a world (the map of declared facts, [app-db](#app-db) among them) plus the runtime machinery that keeps it alive: its [runtime-db](#runtime-db), event queue, subscription cache, and lifecycle.
 
 A frame supplies *state*; its *behaviour* comes from an [image](#image). Crucially, **a frame isolates state, not registrations** — the registry is process-global, so the *same* event handlers, subscriptions, views, effects, flows, and machines run in every frame, each against that frame's own state. Most frames use the default image (all registrations); advanced setups hand a frame a *selected* one.
 
@@ -438,48 +473,80 @@ Related: [Views](concepts/views.md). Use "component" for React-analogy callouts 
 
 ## The Verbs
 
+The six pipeline stages — [**assemble → transform → commit → perform**](#write-side) (the [write side](#write-side), per event) and [**derive → render**](#read-side) (the [read side](#read-side), per drain) — are the verbs of the [event pipeline](#event-pipeline); they lead this section, in pipeline order.
+
+### **assemble**
+
+The pipeline's first stage: gather the [**world**](#world) an [event handler](#event-handler) will read — [app-db](#app-db) (`:db`) plus every fact the event declared with `:rf.cofx/requires` — into one [coeffects](#coeffect) map, before the handler runs. This is where declared facts (the clock, a fresh id, a storage read) enter as data, so the handler stays pure.
+
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md), [world](#world).
+
+### **transform**
+
+The pipeline's second stage: run the pure [event handler](#event-handler) — the assembled [world](#world) and the [event](#event) in, an [effect map](#effect-map) out. It *transforms* the world into a description of the change (`{:db … :fx …}`) and performs none of it; the stages after the [commit](#commit) carry that description out.
+
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md), [event handler](#event-handler).
+
 ### **commit**
 
-The single, deferred, all-or-nothing write of the new [app-db](#app-db) at the end of an [event](#event) — no observer ever sees a half-written app-db. The `:db` your [event handler](#event-handler) returns is *staged* and lands once, atomically, after flows run, so a throwing handler or flow installs *nothing*.
+The single, deferred, all-or-nothing write of the new [app-db](#app-db) — and the **seam** of the [event pipeline](#event-pipeline). It is the one point the committed value crosses from the [write side](#write-side) to the [read side](#read-side); nothing else crosses. Everything before it (assemble, transform) is transactional — the `:db` your [event handler](#event-handler) returns is *staged* and lands once, atomically, after flows run, so a throwing handler or flow installs *nothing* — and everything after it ([perform](#perform)) is best-effort. No observer ever sees a half-written app-db.
 
 ```clojure
-;; the :db you return is staged; it's committed once, at the end, atomically
+;; the :db you return is staged; it's committed once, atomically — the write/read seam
 ```
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md).
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+
+### **perform**
+
+The pipeline's fourth stage and the last of the [write side](#write-side): run the `:fx` rows the [transform](#transform) returned, in source order, after the [commit](#commit). This is the *only* place the system touches the world — the HTTP call, the navigation, the follow-up dispatch — carried out by the [effect handler](#effect-handler) registered for each id. Past the [commit](#commit) seam it's best-effort: an effect that throws doesn't un-commit the state.
+
+Related: [Effects & Coeffects](concepts/effects-and-coeffects.md), [effect](#effect).
+
+### **derive**
+
+The pipeline's fifth stage and the first of the [read side](#read-side): recompute the [subscriptions](#subscription) (and the rest of [the derivation graph](#the-derivation-graph)) that watch the changed parts of the committed [app-db](#app-db). Values that come out equal (by `=`) to last time prune everything downstream. The read side runs once per [drain](#drain--run-to-completion), so derivation happens against settled state, never mid-run. (The public verb you write is [`subscribe`](#subscribe--derive); *derive* names the stage.)
+
+Related: [Subscriptions](concepts/subscriptions.md).
+
+### **render**
+
+The pipeline's sixth and final stage: the [views](#view) that deref a *changed* [subscription](#subscription) re-run, producing fresh [hiccup](#hiccup), and the [substrate](#substrate) patches just the DOM that moved. Because it runs once per [drain](#drain--run-to-completion) from settled state, the screen never flickers through an intermediate value.
+
+Related: [Views](concepts/views.md).
 
 ### **dispatch**
 
 Enqueue an [event](#event) for a [frame](#frame) to process.
 
-`dispatch` wraps the event in an [event envelope](#event-envelope) and returns immediately; the [event handler](#event-handler) runs later, during the [event cascade](#event-cascade). (Its synchronous sibling `dispatch-sync` runs the cascade *now* — mainly for tests and boot.)
+`dispatch` wraps the event in an [event envelope](#event-envelope) and returns immediately; the [event handler](#event-handler) runs later, during the [pipeline run](#event-pipeline) the event kicks off. (Its synchronous sibling `dispatch-sync` runs the pipeline *now* — mainly for tests and boot.)
 
 ```clojure
 (rf/dispatch [:cart/add-item {:sku "BK-1"}]
   {:frame :checkout})
 ```
 
-Related: [event](#event), [event envelope](#event-envelope), [event cascade](#event-cascade).
+Related: [event](#event), [event envelope](#event-envelope), [event pipeline](#event-pipeline).
 
 ### **dispatch-sync**
 
-Like [`dispatch`](#dispatch), but it runs the [event](#event) and its whole [cascade](#event-cascade) to completion *before returning*, instead of queuing for the next tick. The right call at boot, in tests, and at the REPL — never from inside a running handler (which raises `:rf.error/dispatch-sync-in-handler`).
+Like [`dispatch`](#dispatch), but it runs the [event](#event) and drains the whole queue to completion *before returning*, instead of queuing for the next tick. The right call at boot, in tests, and at the REPL — never from inside a running handler (which raises `:rf.error/dispatch-sync-in-handler`).
 
 ```clojure
 (rf/dispatch-sync [:app/initialise])   ;; app-db is committed before the next line
 ```
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md).
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
 
 ### **drain / run-to-completion**
 
-The runtime drains the *whole* event queue to a fixed point — running every queued [event](#event) to completion — before [subscriptions](#subscription) recompute and [views](#view) render. So the UI updates once, from a settled state, never mid-flight.
+The runtime drains the *whole* event queue to a fixed point — running the [write side](#write-side) of every queued [event](#event) to completion — before the [read side](#read-side) runs. So the write side runs *per event*, the read side runs *once per drain* at settle, and the UI updates once, from a settled state, never mid-flight. A drain is many [pipeline runs](#event-pipeline) sharing one read side.
 
 ```clojure
-;; all queued events run to completion, THEN subs recompute, THEN views render
+;; every queued event's write side runs, THEN — once — subs recompute and views render
 ```
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md). Hyphenate **run-to-completion** consistently.
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md). Hyphenate **run-to-completion** consistently.
 
 ### **elide**
 
@@ -515,7 +582,7 @@ Name your handlers and machinery at boot time with [registration](#registration)
 (rf/reg-event :cart/clear (fn [{:keys [db]} _] {:db (dissoc db :cart)}))
 ```
 
-Related: [Events & the cascade](concepts/events-and-the-cascade.md). There is **one** `reg-event`: `reg-event-db`/`-fx`/`-ctx` are gone.
+Related: [Events & the pipeline](concepts/events-and-the-pipeline.md). There is **one** `reg-event`: `reg-event-db`/`-fx`/`-ctx` are gone.
 
 ### **subscribe / derive**
 
@@ -614,15 +681,15 @@ Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
 
 ## Observability
 
-re-frame2's observability surface — everything tools read to show you the loop. The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)); the always-on error and event streams survive production. See [Observability](concepts/observability.md).
+re-frame2's observability surface — everything tools read to show you the pipeline. The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)); the always-on error and event streams survive production. See [Observability](concepts/observability.md).
 
 ### **trace stream**
 
-The live, in-process feed of [trace events](#trace-event) the runtime emits at every step of the loop — event dispatched, handler run, sub recomputed, effect fired. Every tool ([Xray](#xray), Story, the pair MCP) is just a reader of it; there's no second source of truth. Dev-only — [elided](#elide) from production.
+The live, in-process feed of [trace events](#trace-event) the runtime emits at every stage of the pipeline — event dispatched, handler run, sub recomputed, effect fired. Every tool ([Xray](#xray), Story, the pair MCP) is just a reader of it; there's no second source of truth. Dev-only — [elided](#elide) from production.
 
 ### **trace event**
 
-One immutable record on the [trace stream](#trace-stream): an `:operation` (what happened), an `:op-type` (its family), a timestamp, and tags — including the id that correlates a whole [cascade](#event-cascade). Filter by `:op-type` to slice the stream; the always-on `:errors`/`:events` records are the production-surviving subset.
+One immutable record on the [trace stream](#trace-stream): an `:operation` (what happened), an `:op-type` (its family), a timestamp, and tags — including the id that correlates a whole [pipeline run](#event-pipeline). Filter by `:op-type` to slice the stream; the always-on `:errors`/`:events` records are the production-surviving subset.
 
 ### **listener**
 
@@ -630,10 +697,10 @@ A callback you register (`register-listener!`) on a named stream — `:trace`, `
 
 ### **epoch**
 
-The record one [event cascade](#event-cascade) leaves behind — its trigger event, the before/after [app-db](#app-db), and the cascade's [trace events](#trace-event). The epoch is re-frame2's **unit of time-travel**: [Xray](#xray) rewinds, replays, and inspects history one epoch at a time.
+The record one [pipeline run](#event-pipeline) leaves behind — its trigger event, the before/after [app-db](#app-db), and the run's [trace events](#trace-event). The epoch is re-frame2's **unit of time-travel**: [Xray](#xray) rewinds, replays, and inspects history one epoch at a time. It's the last term of the triple: [pipeline](#event-pipeline) (structure) / [run](#run) (one traversal) / **epoch** (the record).
 
 ```clojure
-;; one dispatch = one cascade = one epoch (the record)
+;; one dispatch = one run = one epoch (the record)
 ```
 
 Epochs live on the dev-only observability surface — they're [elided](#elide) from production builds.
@@ -646,10 +713,10 @@ Restoring a [frame](#frame) to the exact state it held at an earlier [epoch](#ep
 
 ### **Xray**
 
-The dev inspector: an in-app panel that reads the [trace stream](#trace-stream) and per-frame [epoch](#epoch) history so you debug the loop, not the DOM.
+The dev inspector: an in-app panel that reads the [trace stream](#trace-stream) and per-frame [epoch](#epoch) history so you debug the pipeline, not the DOM.
 
 ```clojure
-;; open Xray to step through epochs, inspect app-db, and read the cascade
+;; open Xray to step through epochs, inspect app-db, and read each pipeline run
 ```
 
 Related: [Debug with Xray](how-to/debug-with-xray.md).
