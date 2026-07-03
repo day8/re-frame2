@@ -117,6 +117,8 @@ Now the honest part, because it's only fair to put it plainly. A counter in plai
 
     At counter scale the ceremony is pure overhead, and no framework essay should talk you out of the simpler tool. Godspeed.
 
+    Inside a re-frame2 app, though, "does *this* value go in app-db or stay a `useState`?" is a real per-value judgment, and this page argues only the default (app-db, for the reasons above). The full placement rule — the default, the tightly-worded render-mechanical exception (uncommitted IME composition, transient focus/hover, animation interpolation), and the forbidden tier (anything a handler, sub, schema, or tool reads) — lives in [Spec 004 §Where ephemeral view-state lives](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md), which owns it.
+
 The ceremony is a fixed cost per feature. The claim is that it amortises: the same shape that feels like bureaucracy at thirty lines is the only thing keeping you sane at thirty thousand. That claim needs to be specific to be believable, so here it is.
 
 ## The bounded-cost claim
