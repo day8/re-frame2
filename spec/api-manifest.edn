@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 493,
+ :var-count 496,
  :tier-vocab
  [:front-porch
   :advanced
@@ -59,16 +59,19 @@
   {:namespace "re-frame.adapter.helix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.helix", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.helix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix", :var "use-resource-lease", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.helix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.helix", :var "wrap-view", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent", :var "with-resource-lease", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "use-resource-lease", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "wrap-view", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.core", :var "->interceptor", :tier :implementation, :kind :macro, :owner "002", :status "EP-0022 (internal lowering only)", :facade? true, :runtime-verified? true}

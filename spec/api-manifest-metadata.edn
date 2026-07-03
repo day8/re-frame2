@@ -71,10 +71,12 @@
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent" :var "with-resource-lease" :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- UIx adapter (day8/re-frame2-uix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "use-resource-lease"  :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -83,6 +85,7 @@
   ;; --- Helix adapter (day8/re-frame2-helix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.helix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.helix" :var "use-resource-lease"  :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
