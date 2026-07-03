@@ -71,7 +71,7 @@ Optional metadata keys (per the [001-Registration §Registration grammar](001-Re
 |---|---|
 | `:doc` | One-sentence what-and-why; surfaces in tooling. |
 | `:schema` | Malli schema for the output value, validated on every recompute in dev (see [§Flow output validation](#flow-output-validation)). |
-| `:frame` | The frame the flow registers against (the *override* — see [§Frame-scoping](#frame-scoping)). The mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §The `:frame` registration-metadata key](Conventions.md#the-frame-registration-metadata-key)). |
+| `:frame` | The frame the flow registers against (the *override* — see [§Frame-scoping](#frame-scoping)). The mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §`reg-*` frame-binding convention](Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). |
 | `:sensitive` / `:large` / `:large?` | EP-0025 output data-classification declarations (see [§Flow output data classification](#flow-output-data-classification-ep-0025) and [015-Data-Classification](015-Data-Classification.md)). |
 | `:ns`, `:line`, `:file` | Source coordinates (auto-captured by the registration macro per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). |
 
@@ -97,7 +97,7 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 `reg-flow` returns its `flow-id` — the primary id under which the flow registers — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Under the 3-slot grammar the id is the first positional argument, exactly like the rest of the `reg-*` family.
 
-`reg-flow` reads the frame the flow registers against from the `:frame` metadata key — the frame is the mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §The `:frame` registration-metadata key](Conventions.md#the-frame-registration-metadata-key)). The frame is resolved by the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): the runtime reads the frame from the carried token — an explicit `:frame` metadata key (*override*) or a surrounding `with-frame` / `frame-provider` *scope* — and **never synthesises one from absence**. There is no `:rf/default` fall-through. A `reg-flow` outside any scope with no `:frame` metadata key is the registration-time case and fails with `:rf.error/no-frame-context`:
+`reg-flow` reads the frame the flow registers against from the `:frame` metadata key — the frame is the mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §`reg-*` frame-binding convention](Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). The frame is resolved by the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): the runtime reads the frame from the carried token — an explicit `:frame` metadata key (*override*) or a surrounding `with-frame` / `frame-provider` *scope* — and **never synthesises one from absence**. There is no `:rf/default` fall-through. A `reg-flow` outside any scope with no `:frame` metadata key is the registration-time case and fails with `:rf.error/no-frame-context`:
 
 ```clojure
 (rf/reg-flow :rectangle/area
@@ -344,6 +344,8 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 | `:rf.flow/failed` | A flow's `:derive` fn threw during recompute. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the atomicity contract (the event aborts — no install, `app-db` unchanged, no `:rf.event/db-changed`, `:fx` skipped; `last-inputs` rolled back so every flow re-attempts; router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
 
 Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Xray's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
+
+<a id="flow-output-data-classification-ep-0025"></a>
 
 **Flow classification — TWO distinct mechanisms.** Two classification mechanisms touch a flow, at **different granularities**; they COEXIST and compose. Do not conflate them:
 
