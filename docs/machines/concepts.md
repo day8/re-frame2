@@ -428,7 +428,7 @@ To *also* validate the inbound event vector, use the three-argument `reg-machine
    :states  {...}})
 ```
 
-The `:schemas` map's sub-keys are a closed set. Two of them — `:data` and `:output` — are wired up to actually run a check (you've now seen both). The other three — `:events`, `:tags`, and `:meta` — are accepted so you can declare them today, but they don't validate anything yet; they're reserved for future wiring. Either way, a sub-key *outside* the set (a typo, or one you hoped was live but isn't) fails loud at registration rather than silently validating nothing.
+The `:schemas` map's sub-keys are a closed set. Two of them — `:data` and `:output` — are wired up to actually run a check (you've now seen both). The other three — `:events`, `:tags`, and `:meta` — are accepted so you can declare them today, but they don't validate anything yet; they're accepted declaration-only, each with a recorded post-v1 wiring trigger (see [Spec 005 §The `:schemas` map](../../spec/005-StateMachines.md#the-schemas-map)). Either way, a sub-key *outside* the set (a typo, or one you hoped was live but isn't) fails loud at registration rather than silently validating nothing.
 
 ??? info "Coming from TypeScript?"
 
