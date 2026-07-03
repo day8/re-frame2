@@ -156,7 +156,7 @@ The opts map (third slot) is open; the runtime recognises four keys:
 
 Hosts and apps may add their own opts under a namespace.
 
-> **From re-frame v1.** `useNavigate`-style imperative calls and `secretary`'s `(set! js/window.location ...)` both become an ordinary `dispatch`. That means navigation is now *interceptable* and *replayable* like any other event — a navigate shows up in [Xray](../core/glossary.md#xray) on the same wire as your business events, and time-travel rewinds it for free, because it was never a side-channel.
+> **From re-frame v1.** `useNavigate`-style imperative calls and `secretary`'s `(set! js/window.location ...)` both become an ordinary `dispatch`. That means navigation is now *interceptable* and *replayable* like any other event — a navigate shows up in [Xray](../core/glossary.md#xray) on the same wire as your business events, and time-travel rewinds it for free, because it was never a side-channel. And this holds for **hash-URL apps too** — the shape most secretary-era apps have. Declare `:url-strategy rf/hash-url-strategy` on your URL-owning frame and the router speaks `#/…` at the edges (link hrefs, history, the URL-change listener) while `route-url` / `match-url` stay path-form; you use `:rf.route/navigate` and `route-link` exactly as a path-URL app does. There is no `(set! js/window.location.hash …)` side-channel left to write. See [URL strategies](#url-strategies) below.
 
 !!! warning "Params is 2nd, opts is 3rd"
 
@@ -445,16 +445,36 @@ Back/forward, deep links, and the initial page load are all, underneath, URL cha
 ```clojure
 ;; Adapted from examples/capabilities/routing/routing/core.cljs (client-only)
 (rf/reg-frame :rf/default {:doc "The app frame." :url-bound? true})
-(rf/install-history-listener!)
+(rf/install-url-listener!)
 ```
 
-`:url-bound? true` declares which [frame](../core/concepts/frames.md) owns the browser URL. Ownership is always explicit, never inferred. Only one frame may hold it — a second claimant is a loud `:rf.error/duplicate-url-binding` — and having *no* owner is legal too: URL pushes and the popstate listener simply no-op.
+`:url-bound? true` declares which [frame](../core/concepts/frames.md) owns the browser URL. Ownership is always explicit, never inferred. Only one frame may hold it — a second claimant is a loud `:rf.error/duplicate-url-binding` — and having *no* owner is legal too: URL pushes and the URL-change listener simply no-op.
 
 Frames without the flag still route internally, in memory. That's a feature, not a gap: a [Story](../core/concepts/observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`.
 
-`install-history-listener!` installs the `popstate` listener (aimed at whichever frame owns the URL) and syncs the URL into state once at startup, so deep links and refreshes land on the right page. It's idempotent — hot-reload can call it again — and `rf/remove-history-listener!` tears it down.
+`install-url-listener!` installs the URL-change listener (aimed at whichever frame owns the URL) and syncs the URL into state once at startup, so deep links and refreshes land on the right page. It's idempotent — hot-reload can call it again — and `rf/remove-url-listener!` tears it down. (`install-history-listener!` is retained as an alias — history is the default strategy, so the two behave identically for a path-URL app.)
 
 > **From re-frame v1.** This is where the inversion lands hardest. In v1 the browser URL was the source of truth and your router *reacted* to it. Here the frame's state is the source of truth and the URL is a *print-out* of it. So a back-button press is, literally, a dispatch: popstate fires, the URL-change handler runs, the slice updates, the views re-derive. And [time-travel](../core/how-to/debug-with-xray.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never truth, only a projection.
+
+### URL strategies
+
+By default the router speaks **path-form** URLs (`/active`) — it uses the HTML5 History API and a `popstate` listener. But plenty of apps live at a **hash** URL (`#/active`): no-server-rewrite static hosting needs it, and it's the shape most secretary-era re-frame v1 apps have. A **`:url-strategy`** on the URL-owning frame switches the address-bar shape without changing anything else:
+
+```clojure
+(rf/reg-frame :app {:url-bound?   true
+                    :url-strategy rf/hash-url-strategy})   ;; default: rf/history-url-strategy
+```
+
+That one line is all it takes. `route-url` and `match-url` stay path-form — they still build and read `/active` — and the strategy encodes the `#` at exactly four edges: the `route-link` href, `pushState`, `replaceState`, and the URL-change listener (a hash app listens for `hashchange`, a history app for `popstate`). So your links are ordinary `route-link`s, navigation is ordinary `:rf.route/navigate`, and Back/Forward flows through the same event path — the `#` is a rendering detail the strategy owns. Two strategies ship, and the line holds at two:
+
+- `rf/history-url-strategy` — the default, path-form.
+- `rf/hash-url-strategy` — `#`-prefixed, for static hosting and v1 migrations.
+
+Memory URLs need no third strategy: a frame that isn't `:url-bound?` is already URL-free, so a Story variant or a test frame is the "memory" case for free.
+
+When your URL-owning frame is created *asynchronously* — e.g. by a `frame-provider` whose React effect registers it just after mount — pass the strategy explicitly so the listener kind doesn't depend on registration timing: `(rf/install-url-listener! rf/hash-url-strategy)`. The [TodoMVC example](https://github.com/day8/re-frame2/tree/main/examples/core/todomvc) is a hash app wired exactly this way.
+
+> **SSR ignores strategies.** On the server there's no address bar and a hash never arrives — the request URL is fed in path-form and `route-link` renders a path-form `<a href>` shell. On hydration the client re-encodes the href through the frame's strategy, so the server ships `/active` and the hydrated anchor becomes `#/active`, both pointing at the same route. The shape is a client-only concern.
 
 > **Frames seed with events, not config.** Note the frame carries `:doc` and `:url-bound?` and nothing else — there's no `:db` or `:initial-db` config key. A frame's startup state is built by dispatching ordinary events via `:initial-events`: `(rf/reg-frame :app {:initial-events [[:rf/set-db {…}] [:app/initialise]]})`. "Events are the unit of state change" holds even for the very first state. See [Frames](../core/concepts/frames.md) for the full lifecycle.
 
