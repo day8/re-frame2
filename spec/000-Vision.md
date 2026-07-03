@@ -37,7 +37,7 @@ A claim to be "this pattern" requires an implementation to supply this minimal c
 
 - **Identity primitive** with the required properties (stable, namespaceable, value-equal, cheap to compare, serialisable, human-readable, reflective). Clojure keywords play this role in the CLJS reference; other hosts need an equivalent. See [§The identity primitive](#the-identity-primitive--required-properties) below.
 - **Registry** keyed by `(kind, id)` carrying per-entry metadata (`:doc`, source coords, tags, and *optionally* schema references if the implementation provides a schema layer).
-- **Event handler contract**: `(state, event) → effects-map`.
+- **Event handler contract**: `(coeffects, event) → effects-map` — the handler's first argument is the coeffects map (app-db under `:db`, the frame stamp under `:rf.frame/id`, declared coeffects, per [002 §The event handler contract](002-Frames.md#the-event-handler-contract), EP-0018 D4), not a bare state value. The v1 `(state, event)` shape is the `:db`-only specialisation of this.
 - **Registered-fx resolver**: an effects map is interpreted by looking up its keys against the registry.
 - **Subscription / derivation system**: `query → value-from-state`, with stable composition.
 - **Frame**: an isolated runtime boundary `{state, queue, sub-cache, id}`. Multi-instance, per-test, per-request, per-session — all the same shape.
@@ -109,7 +109,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | Identity primitive (per [§The identity primitive](#the-identity-primitive--required-properties)) | yes | keywords | per host (branded strings, Id wrapper, sealed classes, …) | — |
 | Persistent data structures with structural sharing for `app-db` and frame state (in service of [§Frame state revertibility](#frame-state-revertibility)) | yes | yes (Clojure persistent collections) | per host — TS / Squint: Immer or Immutable.js (native JS without a library has prohibitive deep-copy cost); Kotlin/JS: im.kt or kotlinx.collections.immutable; Fable / Scala.js / PureScript / Melange / ReScript / Reason: native PDS from the source language (zero ceremony) | — |
 | Registry by `(kind, id)` with metadata | yes | yes | — | — |
-| Event handler contract `(state, event) → effects-map` | yes | yes | — | — |
+| Event handler contract `(coeffects, event) → effects-map` (the first arg is the coeffects map; `(state, event)` is its `:db`-only specialisation) | yes | yes | — | — |
 | Closed effect-map shape (`:db` and `:fx` only at top level) | yes | yes | — | — |
 | Subscription / derivation system | yes | yes (Reagent ratoms) | — | — |
 | Frame as isolated runtime boundary | yes | yes | — | — |
@@ -533,11 +533,13 @@ Plain fns continue to work inside an established frame scope; a plain fn carries
 
 ### Event shape and dispatch envelope
 
-The user-facing event shape is a vector. The internal dispatch envelope adds `:frame`, `:trace-id`, `:source` alongside the user-facing `:event` vector; handlers see these as additional keys in their `m`. Detailed in [002-Frames.md §Routing: the dispatch envelope](002-Frames.md).
+The user-facing event shape is a vector. The internal dispatch envelope adds `:frame`, `:trace-id`, `:source` alongside the user-facing `:event` vector. Event handlers see the frame stamp under `:rf.frame/id`, and `:trace-id` / `:source` when threaded, as keys in their coeffects `m` (see §Handler context map below and [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx)). Detailed in [002-Frames.md §Routing: the dispatch envelope](002-Frames.md).
 
 ### Handler context map
 
-`reg-event` handlers receive `m`, the coeffects map, which carries `:frame` (always present), `:trace-id` (optional), `:source` (optional) alongside `:db` / `:event` / the declared coeffects. The handler is **two-arg** `(fn [m event-vec] ...)` (EP-0018 D4) and returns the closed effects map (`{:db … :fx …}`) or `nil`; `event-vec` is `(:event m)`. There is one event form — `reg-event-db` / `reg-event-fx` are removed and `reg-event-ctx` is framework-internal (per [EP-0018](../docs/EP/EP-0018-one-event-registration.md)).
+`reg-event` handlers receive `m`, the coeffects map, which carries `:db`, `:event`, `:rf.db/runtime`, the frame stamp under **`:rf.frame/id`** (the event-context spelling — there is no bare `:frame` coeffect, per [002 §One carrier, one name](002-Frames.md#one-carrier-one-name--the-frame-stamp)), the recordable-coeffect record under `:rf.cofx`, and the handler's declared coeffects flat, plus `:source` / `:trace-id` when threaded. The handler is **two-arg** `(fn [m event-vec] ...)` (EP-0018 D4) and returns the closed effects map (`{:db … :fx …}`) or `nil`; `event-vec` is `(:event m)`. There is one event form — `reg-event-db` / `reg-event-fx` are removed and `reg-event-ctx` is framework-internal (per [EP-0018](../docs/EP/EP-0018-one-event-registration.md)).
+
+A `reg-fx` handler receives a **separate, smaller** map (`:frame` — the frame *id*, not the record — plus `:event`, and a runtime-internal `:envelope`); it is not the event-handler coeffects map. Both maps carry the frame value as an **id keyword, never the live record**. The canonical shape of both is pinned in [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx).
 
 ### `reg-frame` and `make-frame`
 

@@ -388,7 +388,7 @@ The effects-map and coeffects model are as elsewhere in this spec; the rest of t
 
 #### Event context threads both partitions
 
-A standard event context threads both partitions plus the frame id and the handler's declared recordable coeffects:
+A standard event context threads both partitions plus the frame id and the handler's declared recordable coeffects (the canonical shape is pinned in [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx) — this is the event-context half; the fx-handler ctx is a separate, smaller map):
 
 ```clojure
 {:coeffects
@@ -584,7 +584,7 @@ If the frame's initialisation needs to fire multiple events, list them as separa
 
 `:on-destroy` remains a **single** event dispatched before teardown.
 
-The framework stamps each setup dispatch with the frame's id automatically — the user doesn't write `dispatch` or specify `:frame`. If a setup handler needs the frame-id at runtime, it reads `(:frame m)` from its context. Each setup step carries construction provenance (`:source :frame-init` plus its step index) so the trace and tools can tell frame-init events apart from ordinary runtime events.
+The framework stamps each setup dispatch with the frame's id automatically — the user doesn't write `dispatch` or specify `:frame`. If a setup handler needs the frame-id at runtime, it reads `(:rf.frame/id m)` from its context — a setup handler is an ordinary event handler, so it reads the event-context spelling of the frame stamp, not a bare `:frame` coeffect (per [§One carrier, one name](#one-carrier-one-name--the-frame-stamp)). Each setup step carries construction provenance (`:source :frame-init` plus its step index) so the trace and tools can tell frame-init events apart from ordinary runtime events.
 
 [Spec 007 — Stories](007-Stories.md) keeps its own richer setup grammar (loaders, `:rf.story/*`) and neither desugars to nor couples to `:initial-events` (per [EP-0027 §Out of scope](../docs/EP/EP-0027-frame-initial-events.md)).
 
@@ -1406,7 +1406,7 @@ The trickiest correctness question. Consider:
 
 When `:load-todo` is dispatched in frame `:todo`, the `:my-app/http` effect fires (`:my-app/http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md)). Some time later, the HTTP machinery dispatches `[:todo-loaded ...]`. **It must dispatch into `:todo`, not `:rf/default`** — otherwise the response lands in the wrong app-db.
 
-The mechanism is symmetric with how event handlers receive their context: **fx handlers receive the same `m` that the originating event handler received**, including `:frame`. Routing follows from explicit data, not implicit state.
+The mechanism is symmetric with how event handlers receive their context: **an fx handler receives the frame id in its ctx `m` under `:frame`** — the same frame the originating event ran in, carried as explicit data. Routing follows from explicit data, not implicit state. (The fx ctx is a small map distinct from the event handler's coeffects map — see [§The binary fx-handler signature](#the-binary-fx-handler-signature).)
 
 #### The binary fx-handler signature
 
@@ -1424,11 +1424,11 @@ The mechanism is symmetric with how event handlers receive their context: **fx h
 ;;         [:dispatch [:event-2]]]}
 ```
 
-`m` is the same map the originating event handler received — same `:db`, `:event`, `:frame`, `:trace-id`, `:source`, plus any cofx. fx handlers ignore the keys they don't care about.
+`m` is the fx-handler ctx — a **small map distinct from the event handler's coeffects map**: it carries `:frame` (the active frame **id** — a keyword, never the live record), `:event` (the originating event vector), and a runtime-internal `:envelope` (the parent dispatch envelope). It does **not** carry the event handler's `:db` / `:rf.cofx` / declared-flat coeffects — an fx reaches app-db only through a dispatched event. Through `(:envelope m)` a user fx MAY observe the envelope's `:trace-id` / `:origin` / `:source`, but SHOULD NOT depend on the slot. The canonical shape of both maps is pinned in [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx). fx handlers ignore the keys they don't care about.
 
-For sync fx that dispatch (or otherwise need to know the frame), the pattern is `(rf/dispatch event {:frame (:frame m)})`.
+For sync fx that dispatch (or otherwise need to know the frame), the pattern is `(rf/dispatch event {:frame (:frame m)})` — `(:frame m)` is the frame **id**, fed straight into the public `:frame` opt (schema `:keyword`, per [§`:rf/dispatch-opts`](Spec-Schemas.md#rfdispatch-opts)).
 
-The runtime needs to resolve fx-handlers against the frame record (for `:fx-overrides`) and to thread the originating envelope through to reserved fxs that queue children (`:dispatch`, `:dispatch-later`, per [§Cascade propagation](#cascade-propagation)). Both reach the fx-handler as fields of `m` (`:frame` is already documented above; the parent envelope is available at `(:envelope m)` for reserved-fx implementations). User fxs typically read only `(:frame m)`; the `(:envelope m)` slot is a runtime-internal handle that the four reserved fx defmethods consume — see [§Drain-loop pseudocode](#drain-loop-pseudocode).
+The runtime needs to resolve the frame **record** (for `:fx-overrides`, and so reserved fxs can queue children — `:dispatch`, `:dispatch-later`, per [§Cascade propagation](#cascade-propagation)) and to thread the originating envelope through to those reserved fxs. It resolves the record **from the id** at the do-fx choke point (an O(1) registry lookup — the registry is the source of truth for live frames); the record itself never rides in `m`. The parent envelope is available at `(:envelope m)` for reserved-fx implementations. User fxs typically read only `(:frame m)`; the `(:envelope m)` slot is a runtime-internal handle that the four reserved fx defmethods consume — see [§Drain-loop pseudocode](#drain-loop-pseudocode).
 
 #### Async fx capture the frame in a closure
 
@@ -1918,13 +1918,18 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    synchronously before the next begins. Errors trace and continue.
       ;;    The fx-handler is invoked with the binary `(m args)` contract
       ;;    documented in [§The binary fx-handler signature](#the-binary-fx-handler-signature):
-      ;;    `m` is the same context map the originating event handler received,
-      ;;    carrying `:frame`, `:envelope`, `:event`, plus cofx. The runtime
-      ;;    needs the frame record (to resolve `:fx-overrides`) and the parent
-      ;;    envelope (so reserved fxs that queue children — `:dispatch`,
-      ;;    `:dispatch-later` — can copy envelope fields onto the child envelope,
-      ;;    per [§Cascade propagation](#cascade-propagation)); both reach the
-      ;;    fx-handler as fields of `m`, not as separate positional arguments.
+      ;;    `m` is the fx-handler ctx — a SMALL map DISTINCT from the event
+      ;;    handler's coeffects map, carrying `:frame` (the frame ID, never the
+      ;;    record), `:event`, and the runtime-internal `:envelope`. It does NOT
+      ;;    carry `:db` / cofx. The runtime needs the frame RECORD (to resolve
+      ;;    `:fx-overrides`) and the parent envelope (so reserved fxs that queue
+      ;;    children — `:dispatch`, `:dispatch-later` — can copy envelope fields
+      ;;    onto the child envelope, per [§Cascade propagation](#cascade-propagation));
+      ;;    the record is resolved FROM `(:frame m)` at the do-fx choke point
+      ;;    (registry lookup), and the envelope reaches the reserved fx as
+      ;;    `(:envelope m)` — neither rides as a separate positional argument,
+      ;;    and neither puts the live record into the handler-visible map.
+      ;;    Per Spec-Schemas §`:rf/handler-context`.
       ;;    Skipped on a pre-install throw — the chain context records the
       ;;    throw under `:rf/interceptor-error` (handler / interceptor) or
       ;;    `:rf/flow-error` (flow transform); either suppresses the walk.
@@ -1938,7 +1943,9 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    `(:rf/interceptor-error final-ctx)` / `(:rf/flow-error final-ctx)`.
       ;;    A literal port MUST read these off the chain context, not effects.
       (when-not (or (:rf/interceptor-error effects) (:rf/flow-error effects))
-       (let [m (handler-context frame envelope)]      ;; same `m` the event handler saw
+       (let [m (fx-handler-context frame envelope)]   ;; the SMALL fx ctx: {:frame <id> :event <ev> :envelope <envelope>}
+                                                      ;; — NOT the event handler's coeffects map; `:frame` is the id, resolved
+                                                      ;; from `(:id frame)`, never the record (Spec-Schemas §`:rf/handler-context`)
         (doseq [[fx-id args] (:fx effects)]
           (try
             (let [fx-handler (lookup-fx frame fx-id)]  ;; honors :fx-overrides
@@ -1984,13 +1991,17 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       (assoc :event event)))
 
 ;; Reserved-fx defmethods follow the same binary `(m args)` contract as
-;; user fxs. They reach the frame record and the parent envelope through
-;; `m` — `(:frame m)` and `(:envelope m)` — rather than as separate
-;; positional arguments. This keeps reserved and user fxs uniform: they
-;; are all `(fn [m args] ...)` to the resolver.
+;; user fxs. They read the frame ID and the parent envelope off `m` —
+;; `(:frame m)` (the id keyword, NOT the record) and `(:envelope m)` —
+;; rather than as separate positional arguments. Where the reserved fx
+;; needs the live frame RECORD (the router queue / state container), it
+;; RESOLVES it from the id via the registry (`resolve-frame`, O(1)) at
+;; this choke point — the record never rides in `m`. This keeps reserved
+;; and user fxs uniform: they are all `(fn [m args] ...)` to the resolver,
+;; and every handler-visible map stays portable (Spec-Schemas §`:rf/handler-context`).
 
 (defmethod do-fx :dispatch [m ev]
-  (let [frame           (:frame m)
+  (let [frame           (resolve-frame (:frame m))  ;; record ← id (registry lookup)
         parent-envelope (:envelope m)
         ;; Queue position is the dispatch's ORIGIN, not its target: a
         ;; child emitted from a MACHINE handler's own processing
@@ -2009,7 +2020,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
     (dispatch frame child)))
 
 (defmethod do-fx :dispatch-later [m {:keys [ms event]}]
-  (let [frame           (:frame m)
+  (let [frame           (resolve-frame (:frame m))  ;; record ← id (registry lookup)
         parent-envelope (:envelope m)
         child           (child-envelope parent-envelope event)]
     (interop/set-timeout!

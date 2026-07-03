@@ -8,7 +8,7 @@
 The Malli forms below are the **canonical** shape descriptions for the CLJS reference. For a different in-scope host:
 
 - **Schema-bearing dynamic host** (CLJS+Malli; Squint+Zod): translate each Malli form into the host's schema language. The shape is identical; the syntax differs.
-- **Statically typed host** (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS): translate each Malli form into a type definition. The shape is identical; runtime validation is unnecessary if the type system enforces correctness throughout. A boundary validator (e.g., Zod for incoming JSON) may still be useful at system edges.
+- **Statically typed host** (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS): translate each Malli form into a type definition. The shape is identical; runtime validation *of user-declared schemas* is unnecessary if the type system enforces correctness throughout. A boundary validator (e.g., Zod for incoming JSON) may still be useful at system edges. **This applies to the user-schema plane only** — the type system covers the shapes a user declares. It does **not** discharge the *runtime shape policing at framework boundaries* the `:core/*` conformance fixtures require (closed effect-map rejection, classification-effect payloads, `input-fn` returns, interceptor refs, dispatch opts): those shapes reach the runtime after types erase (through function boundaries, the wire, or hot-swapped handlers), so a conformant static-host port still ships that policing layer regardless of its type system.
 
 A port can translate the Malli forms below mechanically. The CLJS canonical and TypeScript transcription:
 
@@ -176,6 +176,50 @@ The registration-metadata value declaring a handler's (or machine named-entry's)
 ```
 
 A malformed value (a non-vector, or an entry that is neither a keyword nor an `[id arg]` tuple) is `:rf.error/cofx-request-invalid` at registration; a referenced id with no `reg-cofx` registration is `:rf.error/unregistered-cofx`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`. The key lives uniformly on `reg-event` — with the one event form (EP-0018) there is no db-only handler exempt from coeffect declaration (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)).
+
+### `:rf/handler-context` (the map handlers receive — event-context and fx-handler-ctx)
+
+> **Layer:** Runtime
+> **Owner:** [002-Frames §Event context threads both partitions](002-Frames.md#event-context-threads-both-partitions) (event-context) + [002-Frames §The binary fx-handler signature](002-Frames.md#the-binary-fx-handler-signature) (fx-handler-ctx)
+> **Status:** v1-required
+> **Conformance:** `implementation/core/test/re_frame/event_context_coeffect_keys_test.clj` (event-context key set) + `spec/conformance/fixtures/cofx-*.edn` (event-context) + `implementation/core/test/re_frame/fx_test.cljc` (fx-handler-ctx `:frame`)
+
+The single most-touched runtime shape in application code: the map a handler receives as its first argument. **There are two related-but-distinct shapes**, and conflating them is the historical corpus bug this entry retires. Both share one invariant: **the frame value they carry is the frame *id* (a keyword), NEVER the live frame record** — handler-visible maps are portable data (replay-, SSR-, and headless-safe per [002 §Recordable coeffects](002-Frames.md#recordable-coeffects)); the do-fx layer resolves record-from-id at its own choke point (an O(1) registry lookup — the registry is the source of truth for live frames), so no host object ever rides in a map an application handler sees.
+
+**1. The event-context (coeffects) map** — what an **event handler** (`reg-event`, including machine handlers and `:initial-events` setup handlers) receives. The frame id appears under **`:rf.frame/id`** — the *event-context spelling* of the frame stamp; there is **no bare `:frame` coeffect** (retired per [002 §One carrier, one name](002-Frames.md#one-carrier-one-name--the-frame-stamp), EP-0002 R3):
+
+```clojure
+(def HandlerContextEventCoeffects
+  [:map
+   [:db                                    :any]                      ;; the app-db partition value (the inherited bare key)
+   [:event                                 [:vector :any]]            ;; the event vector — `(:event m)`, the fold's own arg
+   [:rf.db/runtime                         :any]                      ;; the runtime-db partition value (by reference)
+   [:rf.frame/id                           :keyword]                  ;; the running frame's ID — the event-context spelling; NOT the record, NOT a bare `:frame`
+   [:rf.cofx                #'Cofx]                                   ;; the envelope's recordable-coeffect map (always staged — a framework context key, reachable how `:event` is)
+   [:rf.cofx/mint-policy    {:optional true} :keyword]                ;; framework-internal: the resolved effective mint policy (not for app bodies)
+   [:source                 {:optional true} :keyword]                ;; the envelope's trigger kind, when threaded (see `:rf/dispatch-envelope` `:source`)
+   [:trace-id               {:optional true} :any]]                   ;; the envelope's trace id, when threaded
+   ;; open: declared recordable/ambient coeffects arrive FLAT under their own
+   ;;   owner-qualified ids (per `:rf.cofx/requires` — 002 §Recordable coeffects);
+   ;;   a leaf on the token but undeclared by this handler is NOT delivered flat.
+  )
+```
+
+The exact framework-default key set (no declarations, no threaded `:trace-id`) is `#{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source}`, pinned by `event_context_coeffect_keys_test.clj`. Threading a `:trace-id` adds `:trace-id`; declared coeffects add their own flat ids; the bare `:frame` coeffect never reappears.
+
+**2. The fx-handler ctx (`m`)** — what a **binary fx-handler** (`reg-fx`) and the four reserved fx defmethods receive as their first argument. It is a **small, distinct map** — NOT the event-context map above. The frame id appears under **`:frame`** (a *sanctioned `:frame` survivor* per [002 §One carrier, one name](002-Frames.md#one-carrier-one-name--the-frame-stamp)):
+
+```clojure
+(def HandlerContextFx
+  [:map
+   [:frame                                 :keyword]                  ;; the active frame's ID — a sanctioned `:frame` survivor; NOT the record
+   [:event    {:optional true}             [:vector :any]]            ;; the originating event vector (present when there is an origin event) — 014 §Reply addressing
+   [:envelope {:optional true}             #'DispatchEnvelope]])      ;; the parent dispatch envelope — a runtime-internal handle the FOUR reserved fx consume; user fxs MAY observe `:trace-id` / `:origin` / `:source` through it, but SHOULD NOT depend on the slot's presence
+```
+
+A user fx reads only `(:frame m)` (and optionally `(:event m)`); the `(:envelope m)` slot is a runtime-internal handle for the reserved child-queueing fx (`:dispatch`, `:dispatch-later`) — see [002 §Cascade propagation](002-Frames.md#cascade-propagation). The fx ctx does **not** carry `:db` / `:rf.cofx` / declared-flat coeffects: an fx that needs app-db reads it through a dispatched event, not off `m` (fx handlers may not modify app-db directly).
+
+> **Why the record never rides.** If the live record rode in either map, handler contexts would be non-serialisable and host-object-bearing, colliding with recordable-coeffect replay ([002 §Recordable coeffects](002-Frames.md#recordable-coeffects)) and headless / JVM handler evaluation ([000 §Capability vs mechanism](000-Vision.md#capability-vs-mechanism-host-discretion-items)). Id-only keeps both maps portable; the do-fx layer resolves the record from the id at the point it actually needs the router/state container (registry lookup), and the public `dispatch` / `subscribe` API takes a frame **id OR value** and resolves internally.
 
 ### `:rf/interceptor-ref` (the interceptor reference, EP-0022)
 
