@@ -105,24 +105,36 @@
 
     :rf.error/no-such-handler                  → 404 :not-found
     :rf.error/no-such-route                    → 404 :not-found
+    :rf.error/cofx-value-invalid               → 400 :bad-request
     :rf.error/schema-validation-failure
-      AND (get-in trace-event [:tags :where])
-          ∈ #{:event :cofx}                    → 400 :bad-request
+      AND (get-in trace-event [:tags :where]) = :event
+                                               → 400 :bad-request
     anything else                              → 500 :internal-error
                                                  (fallback-public-error)
 
-  The 400 arm is GATED on the failure's `:where` tag (rf2-37o5by). A
-  `:rf.error/schema-validation-failure` is client-facing — a 400
-  `:bad-request` — only when the rejected value entered through a
-  client-supplied surface: an inbound EVENT payload (`:where :event`)
-  or a request COFX (`:where :cofx`), per Spec 011 §Default projector.
-  Server-side schema surfaces — notably server-fx arg schemas
-  (`:where :fx-args`, per Spec 010 §Validation order step 5) — fail
-  validation because of a SERVER-side defect (a handler built a
+  `:rf.error/cofx-value-invalid` is a CLIENT-INPUT fault (rf2-57ehvw): a
+  non-recordable / out-of-`:schema` `:rf.cofx` value that entered through
+  the dispatch boundary — the surface through which client-supplied
+  coeffects arrive (EP-0017:386; per Spec 011 §Default projector). It is
+  the current category that replaced the retired
+  `:rf.error/schema-validation-failure :where :cofx` shape (the
+  injection-time cofx-validation path was retired), so it earns its own
+  unconditional 400 arm — a bad client coeffect is bad client input, a
+  400, never a server-fault 500.
+
+  The `:rf.error/schema-validation-failure` 400 arm is GATED on the
+  failure's `:where` tag (rf2-37o5by). It is client-facing — a 400
+  `:bad-request` — only when the rejected value entered through the
+  client-supplied EVENT payload surface (`:where :event`), per Spec 011
+  §Default projector. Server-side schema surfaces — notably server-fx
+  arg schemas (`:where :fx-args`, per Spec 010 §Validation order step 5)
+  — fail validation because of a SERVER-side defect (a handler built a
   malformed fx args map), not because the client sent bad input. A
   client-facing 400 would mislabel a server bug as a user error, so a
-  non-:event/:cofx schema-validation-failure falls through to the
-  locked generic-500.
+  non-:event schema-validation-failure falls through to the locked
+  generic-500. (`:where :cofx` no longer appears on this category — a bad
+  request coeffect now surfaces as `:rf.error/cofx-value-invalid`,
+  handled by its own arm above.)
 
   The non-enumerated default covers the 500-class trace events
   (:rf.error/handler-exception, :rf.error/sub-exception,
@@ -145,11 +157,25 @@
      :message    "Page not found"
      :retryable? false}
 
+    ;; A non-recordable / out-of-`:schema` `:rf.cofx` value supplied at
+    ;; the dispatch boundary — client-supplied input (rf2-57ehvw). This
+    ;; category REPLACED the retired
+    ;; `:rf.error/schema-validation-failure :where :cofx` shape, so it
+    ;; earns an UNCONDITIONAL 400 (bad client input is a client fault,
+    ;; never a server-fault 500).
+    :rf.error/cofx-value-invalid
+    {:status     400
+     :code       :bad-request
+     :message    "Invalid input"
+     :retryable? false}
+
     :rf.error/schema-validation-failure
-    ;; GATED (rf2-37o5by): only a client-surface failure
-    ;; (`:where :event` / `:cofx`) is a client-facing 400. A server-side
-    ;; failure (`:where :fx-args`, etc.) falls through to the 500 default.
-    (if (#{:event :cofx} (get-in trace-event [:tags :where]))
+    ;; GATED (rf2-37o5by): only a client-surface EVENT-payload failure
+    ;; (`:where :event`) is a client-facing 400. A server-side failure
+    ;; (`:where :fx-args`, etc.) falls through to the 500 default.
+    ;; (`:where :cofx` is retired for this category — a bad request cofx
+    ;; now rides `:rf.error/cofx-value-invalid`, handled above.)
+    (if (= :event (get-in trace-event [:tags :where]))
       {:status     400
        :code       :bad-request
        :message    "Invalid input"
