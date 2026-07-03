@@ -213,28 +213,47 @@ The snippets above are the whole app *except* for boot. Boot is the one place yo
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [quickstart.counter :as counter]))
+            ;; These namespaces are required for their registrations.
+            [quickstart.counter :refer [counter-app]]))
 
-(defonce root (rdc/create-root (js/document.getElementById "app")))
+;; Namespace load does no DOM work. The root is created lazily by mount!.
+(defonce react-root (atom nil))
+
+(def app-frame :rf/default)
+
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (rdc/create-root el)))
+    (rdc/render @react-root
+                [rf/frame-provider {:id             app-frame
+                                    :initial-events [[:counter/initialise]]}
+                 [counter-app]])))
 
 (defn run []
-  (rf/init! reagent-adapter/adapter)              ; install the Reagent adapter
-  (rf/reg-frame :rf/default                        ; the frame this app runs in,
-    {:doc "Counter app."                           ; seeded by its initial events
-     :initial-events [[:counter/initialise]]})
-  (rdc/render root
-              [rf/frame-provider {:frame :rf/default}
-               [counter/counter-app]]))
+  (rf/init! reagent-adapter/adapter)
+  (mount!))
 ```
 
-Three lines, and each names exactly one decision. [`init!`](glossary.md#init) installs the [**adapter**](glossary.md#adapter) — the small map of glue functions that teaches the framework how *this* rendering library (Reagent here; UIx and Helix are the other shipped options) turns subscriptions into re-renders. `reg-frame` creates the [**frame**](glossary.md#frame) this app runs in, *and seeds it*: `:initial-events` is an ordered vector of setup events dispatched synchronously into the fresh frame, drained to settled state before `reg-frame` returns — so app-db holds `{:counter/value 0}` before the first paint, with no separate seed dispatch to remember. And [`frame-provider`](glossary.md#frame-provider) — here in its `{:frame …}` shape — scopes the mounted views to that already-registered frame, so every `subscribe` and `dispatch` inside resolves there.
+Two calls in `run`, and each names exactly one decision. [`init!`](glossary.md#init) installs the [**adapter**](glossary.md#adapter) — the small map of glue functions that teaches the framework how *this* rendering library (Reagent here; UIx and Helix are the other shipped options) turns subscriptions into re-renders. `mount!` creates the [**frame**](glossary.md#frame) this app runs in *and seeds it*, through the [`frame-provider`](glossary.md#frame-provider) at the render root — here in its `{:id …}` **ensure** shape. On first mount that provider creates the frame named by `:id` and runs `:initial-events`: an ordered vector of setup events dispatched into the fresh frame, drained to settled state — so app-db holds `{:counter/value 0}` before the first paint, with no separate seed dispatch to remember. Every `subscribe` and `dispatch` in the rendered subtree resolves to that frame. On a later remount under the same `:id` — a hot reload — the provider hands back the live frame instead of re-seeding, which is why app-db survives a code change. (The `defonce` root and `^:dev/after-load mount!` are the two pieces that make that hot reload safe; [Boot and mount an app](how-to/boot-and-mount-an-app.md) is the full story.)
 
 !!! note "Where did `:initial-db` go?"
 
-    A frame always starts with `app-db = {}`; there is no `:db` (or `:initial-db`, or `:on-create`) config key. Seeding is *itself an event* — that's the whole reason the seed goes through `:initial-events` rather than a magic config slot. It keeps "events are the unit of state change" honest: the initial state is built by the very same dispatch-and-cascade machinery that handles every later change, so it shows up in the inspector ledger like any other event. (Need to set app-db wholesale rather than from a handler? The framework's `[:rf/set-db {…}]` event does exactly that as a first step.) If you genuinely need to dispatch into the frame *after* boot — a REPL poke, a test — [`with-frame`](glossary.md#frame) pins the frame for a body of `dispatch` / `dispatch-sync` calls, and [`capture-frame`](glossary.md#capture-frame) hands you a frame api — a callable bundle of a frame's ops — to carry across async.
+    A frame always starts with `app-db = {}`; there is no `:db` (or `:initial-db`, or `:on-create`) config key. Seeding is *itself an event* — that's the whole reason the seed goes through `:initial-events` rather than a magic config slot. It keeps "events are the unit of state change" honest: the initial state is built by the very same dispatch-and-cascade machinery that handles every later change, so it shows up in the inspector ledger like any other event, run once when the provider first creates the frame. (Need to set app-db wholesale rather than from a handler? The framework's `[:rf/set-db {…}]` event does exactly that as a first step.) If you genuinely need to dispatch into the frame *after* boot — a REPL poke, a test — [`with-frame`](glossary.md#frame) pins the frame for a body of `dispatch` / `dispatch-sync` calls, and [`capture-frame`](glossary.md#capture-frame) hands you a frame api — a callable bundle of a frame's ops — to carry across async.
 
 A [**frame**](glossary.md#frame) is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](glossary.md#image); by default that's the one implicit image projected from everything you've registered, so you don't name it. (A frame isolates *state*, not registrations — those live in a process-wide [registrar](glossary.md#registrar) every frame shares.) This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)) — at which point the payoff lands: because your views were never bound to a global app-db, the same `counter-app` mounts into a second frame with a second, independent app-db, no changes.
 
-!!! note "`frame-provider`'s two shapes — `{:frame …}` vs `{:id …}`"
+!!! note "`frame-provider`'s two shapes — `{:id …}` vs `{:frame …}`"
 
-    We used the `{:frame …}` *scope* shape because *we* created the frame at top level with `reg-frame`, and the component's only job is to *scope* that existing frame into the React tree (it creates and destroys nothing). The same component's `{:id …}` *ensure* shape brings a frame into being: hand it `{:id :session :initial-events [[:rf/set-db {}]]}` and *it* creates the frame on first mount and reuses it on remount without re-seeding — the right tool when a view should bring its own frame into being (a modal, a per-tab session, a Story canvas). Neither shape destroys the frame on unmount; when you want a frame torn down with its component, do it explicitly with `make-frame` + `destroy-frame!`. Same scoping power; the difference is whether the frame already exists or the provider ensures it.
+    We used the `{:id …}` *ensure* shape because it brings the frame into being: on first mount *it* creates the frame named by `:id`, runs `:initial-events` once to seed it, and reuses it on remount without re-seeding — the right default when a view should bring its own frame into being (an app root, a modal, a per-tab session, a Story canvas). The same component's `{:frame …}` *scope* shape only *scopes* a frame someone else already created:
+
+    ```clojure
+    (rf/reg-frame :rf/default
+      {:doc "Counter app." :initial-events [[:counter/initialise]]})
+
+    [rf/frame-provider {:frame :rf/default}
+     [counter-app]]
+    ```
+
+    Reach for it when boot, a test, or an SSR/request setup creates the frame with `reg-frame` *before* rendering, and the provider's only job is to scope that existing frame into the React tree (it creates and destroys nothing). Neither shape destroys the frame on unmount; when you want a frame torn down with its component, do it explicitly with `make-frame` + `destroy-frame!`. Same scoping power; the difference is whether the provider ensures the frame or scopes one that already exists.

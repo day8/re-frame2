@@ -72,7 +72,7 @@
 
 ;; -- Mount -------------------------------------------------------------------
 ;;
-;; The React root lives in an atom and is created lazily inside `run`, never
+;; The React root lives in an atom and is created lazily inside `mount!`, never
 ;; at ns-load. The rule: loading a namespace must touch no DOM. Otherwise
 ;; two example namespaces that get required together would both lunge for
 ;; the shared `#app` element and race to `create-root` on it — and races
@@ -82,7 +82,7 @@
 (defonce react-root (atom nil))
 
 ;; The frame's whole life story fits in one place: the `frame-provider {:id
-;; app-frame …}` in `run` below. First mount creates the frame and runs its
+;; app-frame …}` in `mount!` below. First mount creates the frame and runs its
 ;; `:initial-events` once to seed app-db. After that, every
 ;; `dispatch`/`subscribe` in the tree finds its way home to that frame.
 ;; Mount again under the same `:id` — a hot reload, say — and the provider
@@ -97,6 +97,22 @@
 ;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
+;; `mount!` is browser setup: create the root lazily, then render the view tree
+;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; each reload so your edited views re-render into the same root and same frame.
+;; This is the canonical mount/boot shape, spelled the same in the quickstart,
+;; the boot-and-mount how-to, and the todomvc example. See
+;; `docs/core/how-to/boot-and-mount-an-app.md`.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (rdc/create-root el)))
+    (rdc/render @react-root
+                [rf/frame-provider {:id             app-frame
+                                    :initial-events [[:counter/initialise]]}
+                 [counter-app]])))
+
 (defn run []
   ;; `init!` tells re-frame2 which reactive substrate to render through —
   ;; here, Reagent. Each adapter ns exports an `adapter` var; you require the
@@ -104,10 +120,4 @@
   ;; installs the adapter for the whole process, not a frame — frames come
   ;; later, via the provider. See `docs/core/glossary.md#init`.
   (rf/init! reagent-adapter/adapter)
-  (when (exists? js/document)
-    (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
-                                    :initial-events [[:counter/initialise]]}
-                 [counter-app]])))
+  (mount!))
