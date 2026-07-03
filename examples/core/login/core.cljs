@@ -111,9 +111,9 @@
 ;;   fires off the login request.
 ;;
 ;; - The trailing `[:? :any]` is the slot for the HTTP reply. When a
-;;   managed-HTTP call resolves, the framework appends its reply map
-;;   (`{:kind … :value …}` or `{:kind … :failure …}`) as the last arg of
-;;   the `:on-success` / `:on-failure` event — so a delivered reply
+;;   managed-HTTP call resolves, the framework appends its canonical reply
+;;   envelope (`{:status :ok :value …}` or `{:status :error :error …}`) as
+;;   the last arg of the `:on-success` / `:on-failure` event — so a delivered reply
 ;;   arrives with three top-level elements. Forget the optional slot and
 ;;   every reply gets rejected, leaving the flow marooned in `:submitting`
 ;;   forever. (Ask me how I know.)
