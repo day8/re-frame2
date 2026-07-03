@@ -2270,16 +2270,14 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
   [:map
    [:children         [:vector InvokeAllChildSpec]]                         ;; vector of ≥ 1 child spec
    [:join             {:optional true}
-                      [:or
-                       [:enum :all :any]
-                       [:map [:n   pos-int?]]
-                       [:map [:fn  fn?]]]]                                  ;; default :all
+                      [:enum :all :any]]                                    ;; default :all — closed two-member enum (rf2-w8gxxz cut {:n N} / {:fn pred})
    [:on-child-done    :keyword]                                             ;; child → parent event keyword (required)
    [:on-child-error   :keyword]                                             ;; child → parent event keyword (required)
    [:on-all-complete  {:optional true} [:vector :any]]                      ;; required iff :join is :all (registration-time check)
-   [:on-some-complete {:optional true} [:vector :any]]                      ;; required iff :join is :any / {:n N} / {:fn ...}
-   [:on-any-failed    {:optional true} [:vector :any]]                      ;; optional; if absent, child failures don't short-circuit
-   [:cancel-on-decision? {:optional true} :boolean]])                       ;; default true
+   [:on-some-complete {:optional true} [:vector :any]]                      ;; required iff :join is :any
+   [:on-any-failed    {:optional true} [:vector :any]]])                    ;; optional; if absent, child failures don't short-circuit
+;; Sibling cancellation on join resolution is UNCONDITIONAL — rf2-w8gxxz cut
+;; the `:cancel-on-decision?` key (no non-cancelling-join opt-out).
 ;; `:spawn-all` carries NO spawn-level `:timeout` of its own (unlike single
 ;; `:spawn`, EP-0029 A4). A wall-clock deadline bounding a `:spawn-all`-bearing
 ;; state uses the STATE-level `:timeout` / `:on-timeout` (above) or a general

@@ -145,7 +145,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 
 ## Pointers
 
-Full rationale — `:spawn-all` runtime, join-state layout, `:join` modes (`:all` / `:any` / `{:n N}` / `{:fn pred}`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/spawn.md` §Final states. (Partial joins use `{:n N}`, NOT `:n-of` — and require `:on-some-complete`; `:all` requires `:on-all-complete`, per `re-frame.machines.lifecycle-fx.validation`.)
+Full rationale — `:spawn-all` runtime, join-state layout, the `:join` enum (`:all` / `:any`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/spawn.md` §Final states. (`:any` requires `:on-some-complete`; `:all` requires `:on-all-complete`, per `re-frame.machines.lifecycle-fx.validation`. A quorum "N of M" join uses the data-only `:after` + `:done-guard` idiom, not a `:join` mode.)
 
 ---
 

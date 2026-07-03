@@ -4,7 +4,7 @@
 
 Reach for this leaf when a `:spawn`d child issues `:rf.http/managed` requests, holds a websocket, or owns any in-flight side effect — and the parent might decide to leave the `:spawn`-bearing state. The cleanup is automatic; this leaf tells you what is guaranteed and what to add by hand for non-HTTP side effects.
 
-> **Mental model — think in xstate, map onto re-frame2.** In xstate, leaving an `invoke`-bearing state stops the invoked actor; re-frame2 keeps that intuition — leaving a `:spawn`-bearing state destroys the child — but the **abort cascade is richer and the mechanism differs**. There is no `ActorRef` to `.stop()` and no per-actor mailbox: the snapshot lives in the runtime-db partition (at `[:rf.runtime/machines :snapshots <id>]`), and a single destroy hook fires across every trigger (state exit, `:after` timeout, `:spawn-all` cancel-on-decision, frame teardown, imperative destroy), automatically aborting the actor's in-flight `:rf.http/managed` requests. re-frame2 uses **no `core.async`** in the cancellation path — for non-HTTP resources (websocket, timer, external stream) you wire cleanup into the child's `:exit` action, not a channel close. Sketch the lifecycle the xstate way, then lean on the exit cascade rather than an explicit teardown call.
+> **Mental model — think in xstate, map onto re-frame2.** In xstate, leaving an `invoke`-bearing state stops the invoked actor; re-frame2 keeps that intuition — leaving a `:spawn`-bearing state destroys the child — but the **abort cascade is richer and the mechanism differs**. There is no `ActorRef` to `.stop()` and no per-actor mailbox: the snapshot lives in the runtime-db partition (at `[:rf.runtime/machines :snapshots <id>]`), and a single destroy hook fires across every trigger (state exit, `:after` timeout, `:spawn-all` join resolution, frame teardown, imperative destroy), automatically aborting the actor's in-flight `:rf.http/managed` requests. re-frame2 uses **no `core.async`** in the cancellation path — for non-HTTP resources (websocket, timer, external stream) you wire cleanup into the child's `:exit` action, not a channel close. Sketch the lifecycle the xstate way, then lean on the exit cascade rather than an explicit teardown call.
 
 ## The guarantee
 
@@ -12,7 +12,7 @@ When the runtime destroys a spawned actor by **any** trigger, every in-flight `:
 
 1. **Parent state exit** — any transition out of the `:spawn`-bearing state.
 2. **Parent's `:after` firing** — wall-clock timeout exits the state; same cascade as (1).
-3. **`:spawn-all` cancel-on-decision** — when the join resolves, surviving siblings are torn down (default `:cancel-on-decision? true`).
+3. **`:spawn-all` join resolution** — when the join resolves, surviving siblings are unconditionally torn down.
 4. **`:spawn-all` parent state exit** — symmetric to (1) but iterates every child the `:children` map tracks.
 5. **Imperative `[:rf.machine/destroy <actor-id>]`** from a user-authored action.
 6. **Frame destroy** — `frame.cljc`'s frame-exit walk destroys each surviving machine, firing the same hook per actor.
@@ -95,11 +95,11 @@ If the value lives only in the child's `:data` and the child never reported it u
 - **No `core.async` channels.** The framework does not use, depend on, or accept core.async in the cancellation path. If your child wraps a stream-shaped external API (a websocket, a Server-Sent Events feed), close the host handle directly from an `:exit` action — don't reach for `core.async/close!`.
 - **`:rf.http/aborted-on-actor-destroy` is a trace event, not an error category.** The reply path sees `:rf.http/aborted` with `:reason :actor-destroyed` — same `:on-failure` callback as any other abort. Don't write `:on-error` handlers that try to discriminate; check the failure map's `:reason` if you care.
 - **Frame-destroy cascades to every machine, every request.** A frame teardown destroys every machine instance in the frame (Spec 002 §Lifecycle), which fires the destroy hook per actor, which aborts every in-flight HTTP they owned. This is the "page navigation cleans up the previous screen" guarantee — you do not need to wire abort calls into route-leave handlers.
-- **`:spawn-all` cancel-on-decision is uniform with single-`:spawn` destroy.** When the join resolves and surviving siblings are torn down, each sibling's HTTP aborts via the same hook. No per-trigger code path; no separate registration.
+- **`:spawn-all` sibling teardown on join resolution is uniform with single-`:spawn` destroy.** When the join resolves and surviving siblings are torn down, each sibling's HTTP aborts via the same hook. No per-trigger code path; no separate registration.
 
 ## Why one mechanism, not two
 
-The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all` exit, cancel-on-decision, `:after` cascade, frame destroy, imperative destroy. There is no per-trigger HTTP-abort code path. Authors writing a `:spawn`-based child whose body fires `:rf.http/managed` get cleanup automatically, with no `:exit` action threading `:rf.http/managed-abort` calls per known `:request-id` (Spec 005 §Why one mechanism, not two).
+The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all` exit, join-resolution sibling teardown, `:after` cascade, frame destroy, imperative destroy. There is no per-trigger HTTP-abort code path. Authors writing a `:spawn`-based child whose body fires `:rf.http/managed` get cleanup automatically, with no `:exit` action threading `:rf.http/managed-abort` calls per known `:request-id` (Spec 005 §Why one mechanism, not two).
 
 ## Deeper material
 

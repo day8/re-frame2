@@ -1577,7 +1577,7 @@ at state `:authing`.")
 
 When a state declares `:spawn-all`, the chart shows the N parallel
 children as a horizontal row of mini-machines, each with their own
-state. The join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`)
+state. The join condition (`:all` / `:any`)
 renders as a label below the row.
 
 As children complete or fail, the row updates:
@@ -1862,8 +1862,8 @@ projection + the detail panel (Phase 3).
 
 ### M.4 — `:spawn-all` never joins
 
-**Bug class:** N children spawned; join condition is `:all` (or `:any` /
-`{:n M}` / `{:fn ...}`); some complete, some don't, the parent stays
+**Bug class:** N children spawned; join condition is `:all` (or `:any`);
+some complete, some don't, the parent stays
 stuck. Author wants per-child status, what each is doing right now, the
 join-state map (`:done #{:cfg :flag} :failed #{} :resolved? false`), and
 whether `:on-any-failed` is wired.
@@ -1887,7 +1887,6 @@ card**:
 │  ⧖ :dash    :load-dashboards#4     running 2.4s                   │
 │  :on-all-complete  → [:assets-loaded]                             │
 │  :on-any-failed    → [:asset-load-failed]                         │
-│  :cancel-on-decision?  true                                        │
 └────────────────────────────────────────────────────────────────────┘
 ```
 

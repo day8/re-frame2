@@ -695,9 +695,9 @@ A spawned actor may issue multiple `:rf.http/managed` requests in its lifetime. 
 
 #### Sibling actors are not affected
 
-When actor A is destroyed, only A's in-flight requests are aborted. Actor B's in-flight requests — including under the same `:spawn-all` if `:cancel-on-decision? false` and B has not yet been told to stop — are unaffected.
+When actor A is destroyed, only A's in-flight requests are aborted. Actor B's in-flight requests — a sibling under the same `:spawn-all` that has not yet been told to stop — are unaffected until B itself is torn down.
 
-`:spawn-all`'s cancel-on-decision (per [Spec 005 §Cancel-on-decision](005-StateMachines.md#cancel-on-decision-default-true)) emits one `:rf.machine/destroy` per surviving sibling, so each sibling's HTTP cascade independently fires the `:http/abort-on-actor-destroy` hook against its own actor-id.
+`:spawn-all` sibling cancellation on join resolution (per [Spec 005 §Cancel-on-decision](005-StateMachines.md#cancel-on-decision-default-true)) emits one `:rf.machine/destroy` per surviving sibling, so each sibling's HTTP cascade independently fires the `:http/abort-on-actor-destroy` hook against its own actor-id.
 
 #### Direct dispatches from event handlers — NOT covered
 
@@ -1208,7 +1208,7 @@ A parent that needs two parallel HTTP requests uses [Spec 005 §Spawn-and-join v
    :on-any-failed    [:hydrate/aborted]}}}
 ```
 
-Each child gets its own wrapper actor; cancel-on-decision (default `true`) tears down survivors when the join resolves; per-sibling cancellation cascades fire the `:http/abort-on-actor-destroy` hook independently per [§Sibling actors are not affected](#sibling-actors-are-not-affected).
+Each child gets its own wrapper actor; join resolution unconditionally tears down survivors; per-sibling cancellation cascades fire the `:http/abort-on-actor-destroy` hook independently per [§Sibling actors are not affected](#sibling-actors-are-not-affected).
 
 ### When to use the fx form vs the machine form
 

@@ -6,7 +6,7 @@
 
   Per `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3 — when a
   parent machine destroys a child (`:spawn` exit, `:after` fire,
-  `:spawn-all` cancel-on-decision, explicit `[:rf.machine/destroy <id>]`,
+  `:spawn-all` join resolution, explicit `[:rf.machine/destroy <id>]`,
   or parent-frame teardown), every in-flight `:rf.http/managed` request
   the child held aborts. Each abort emits a
   `:rf.http/aborted-on-actor-destroy` trace event (per Spec 014 §Abort
