@@ -6,7 +6,7 @@
 >
 > **Code samples are in ClojureScript** (the CLJS reference). The contract is host-agnostic; the spec calls out per-host divergences (CLJS Fetch / JVM `java.net.http.HttpClient`) explicitly per row.
 >
-> `:rf.http/managed` is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the nine properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy under `:rf.http/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown, in-flight registry, per-frame interceptor scoping, and — property 9 — the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) for async completions, onto which managed HTTP [lowers its replies](#lowering-onto-the-uniform-reply-envelope)).
+> `:rf.http/managed` is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the nine properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy under `:rf.http/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown, in-flight registry, per-frame interceptor scoping, and — property 9 — the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) for async completions, which managed HTTP delivers as its [one canonical reply payload](#reply-payload-shape--the-one-canonical-envelope)).
 
 ## Abstract
 
