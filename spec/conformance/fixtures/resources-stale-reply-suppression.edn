@@ -1,0 +1,64 @@
+;; Conformance fixture: resources/stale-reply-suppression
+;;
+;; Spec 016 §Cancellation is opportunistic; stale suppression is mandatory —
+;; a late reply carrying an OLDER generation / work-id than the entry's current
+;; in-flight generation is SUPPRESSED: it never mutates the newer entry. The
+;; reply handler verifies the reply's :work/id + :generation against the live
+;; entry (`live-slot-for-reply`); a mismatch drops the write and emits
+;; :rf.resource/stale-suppressed. This is the resource analogue of the routing
+;; stale-nav-token suppression (route-stale-nav-token-suppression.edn) — the
+;; same superseded-by-a-newer-generation race, keyed on the durable entry
+;; generation rather than a nav token.
+;;
+;; ensure mints generation 1; a refetch supersedes to generation 2 (forcing a
+;; new work record and marking the gen-1 work :suppressed). The gen-1 reply,
+;; arriving late, carries the stale work-id + generation 1 → suppressed. The
+;; entry stays on generation 2, still :loading (no usable data landed), and its
+;; data is NOT the stale payload.
+
+{:fixture/id           :resources/stale-reply-suppression
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:resources/stale-suppression}
+ :fixture/doc          "ensure :res/article (slug=w) → gen 1; refetch supersedes → gen 2; the late gen-1 reply carrying the stale work-id + generation is suppressed (:rf.resource/stale-suppressed) — the entry stays gen 2 / :loading and never takes the stale {:stale \"data\"} payload."
+
+ :fixture/registry
+ {:resource
+  {:res/article {:scope         :rf.scope/global
+                 :params-schema [:map [:slug :string]]
+                 :url-template  "/api/articles/"}}
+  ;; No-op the managed-HTTP fx; the replies are driven directly below.
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; Step 1: ensure → :loading, generation 1.
+  [:rf.resource/ensure {:resource :res/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :s 1] :cause :first-load}]
+
+  ;; Step 2: refetch → forces a new generation (2), supersedes the gen-1 work.
+  [:rf.resource/refetch {:resource :res/article :scope :rf.scope/global
+                         :params {:slug "w"} :cause :manual-refresh}]
+
+  ;; Step 3: the OLD gen-1 reply arrives late, carrying the stale work-id +
+  ;; generation 1. Verified against the live entry (now generation 2), it
+  ;; MISMATCHES and is suppressed — no write, :rf.resource/stale-suppressed.
+  [:rf.resource.internal/succeeded
+   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
+    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+    :generation   1
+    :data         {:stale "data"}}]]
+
+ :fixture/expect
+ {;; The stale reply did not write: the entry is still first-loading on its
+  ;; current (gen-2) work; no usable data; not the stale payload.
+  :sub-values
+  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+   {:status :loading :data nil :error nil :refresh-error nil
+    :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
+
+  :trace-emissions
+  [;; The late gen-1 reply was suppressed against the current gen-2 entry.
+   {:operation :rf.resource/stale-suppressed
+    :tags      {:generation 1}}]}}
