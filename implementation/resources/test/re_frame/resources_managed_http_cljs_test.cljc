@@ -14,7 +14,7 @@
        the top level of the managed-HTTP args UNCHANGED (transport retry
        belongs to managed HTTP);
     4. the REAL reply shape — the managed-HTTP transport appends
-       `{:kind :success :value <data>}` / `{:kind :failure :failure
+       `{:status :ok :value <data>}` / `{:status :error :error
        <envelope>}` as the LAST arg of the internal reply event, and the
        runtime reads the decoded data / failure envelope from there;
     5. generation/stale suppression via the real reply shape — a late
@@ -105,13 +105,13 @@
   result appended as the LAST arg — exactly the shape the live managed-HTTP
   transport produces (Spec 014 §Reply addressing)."
   [args data]
-  (rf/dispatch-sync (conj (:on-success args) {:kind :success :value data})))
+  (rf/dispatch-sync (conj (:on-success args) {:status :ok :value data})))
 
 (defn- reply-failure!
   "Dispatch the captured `:on-failure` reply with the transport's failure
   result appended as the LAST arg — the live transport shape."
   [args failure]
-  (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
+  (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
 
 (defn- article-spec
   ([] (article-spec {}))
@@ -220,7 +220,7 @@
                         :params {:slug "w"} :owner [:lease :sv 1]}])
     (is (= :loading (:status (entry scoped-key))))
     (testing "Spec 014/016 — the decoded data arrives in the APPENDED
-              transport result ({:kind :success :value …}), not inline"
+              transport result ({:status :ok :value …}), not inline"
       (reply-success! @last-managed-args {:title "Welcome"})
       (let [e (entry scoped-key)]
         (is (= :loaded (:status e)))
@@ -432,7 +432,7 @@
   `frame-id`, with the verification `payload` (which carries `:rf.frame/id`)."
   [frame-id payload data]
   (rf/dispatch-sync (conj [(nth (:on-success @last-managed-args) 0) payload]
-                          {:kind :success :value data})
+                          {:status :ok :value data})
                     {:frame frame-id}))
 
 (deftest lowering-stamps-receiving-frame-into-reply-payload

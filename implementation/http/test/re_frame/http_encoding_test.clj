@@ -180,7 +180,10 @@
 ;; and — per rf2-smqkq — an explicitly supplied non-vector non-nil value
 ;; (malformed) which must throw rather than silently default-merge.
 
-(def ^:private reply-payload {:kind :success :value 42})
+;; rf2-ibksxg — build-reply-event is payload-shape-agnostic; it appends /
+;; merges whatever reply map it is given. The payload is now the CANONICAL
+;; reply envelope (`{:status :ok :value …}`), not the retired {:kind …} dialect.
+(def ^:private reply-payload {:status :ok :value 42})
 
 (deftest build-reply-event-explicit-nil-is-silenced
   (testing "explicit :on-success nil silences the reply"

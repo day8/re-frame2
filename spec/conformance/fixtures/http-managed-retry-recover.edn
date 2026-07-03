@@ -42,8 +42,8 @@
    :rf.http/managed-canned-success
    ;; Recovered-on-retry shape per Spec 014 §Reply payload shape.
    [[:dispatch [:flaky/load-success
-                {:kind  :success
-                 :value {:ok true :recovered-on :attempt-2}}]]]}}
+                {:status :ok
+                 :value  {:ok true :recovered-on :attempt-2}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
@@ -54,8 +54,8 @@
 
  :fixture/expect
  {:final-app-db
-  {:flaky {:data {:kind  :success
-                  :value {:ok true :recovered-on :attempt-2}}}}
+  {:flaky {:data {:status :ok
+                  :value  {:ok true :recovered-on :attempt-2}}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :flaky/load}}

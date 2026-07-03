@@ -24,7 +24,7 @@
    browser. A unit test wants synchronous settle, so each test installs its own
    `:rf.http/managed` override: a capturing no-op whose reply the test replays
    explicitly via the transport's real 3-element reply-event-append shape
-   (`(conj on-success {:kind :success :value …})`) — the genuine shape the live
+   (`(conj on-success {:status :ok :value …})`) — the genuine shape the live
    managed-HTTP transport produces (Spec 014 §Reply addressing). Routing's URL
    push is stubbed so navigation is deterministic without a browser.
 
@@ -147,12 +147,12 @@
    handler for an infinite resource)."
   ([data] (reply-success! @last-managed-args data))
   ([args data]
-   (rf/dispatch-sync (conj (:on-success args) {:kind :success :value data}))))
+   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value data}))))
 
 (defn- reply-failure!
   ([failure] (reply-failure! @last-managed-args failure))
   ([args failure]
-   (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}))))
+   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}))))
 
 (defn- page
   "The enveloped page shape the example's demo backend produces:

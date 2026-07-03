@@ -807,8 +807,8 @@
                      (is (true? @read-fired)
                          "the body reader was reached before the timeout fired")
                      (let [reply (first @replies)]
-                       (is (= :failure (:kind reply)))
-                       (is (= :rf.http/timeout (get-in reply [:failure :kind]))
+                       (is (= :error (:status reply)))
+                       (is (= :rf.http/timeout (get-in reply [:error :kind]))
                            "a stalled body read finalises as the canonical :rf.http/timeout failure"))
                      (is (empty? (registry/in-flight-snapshot))
                          "the in-flight registry is cleared — the slow-loris handle is not pinned")
@@ -906,10 +906,10 @@
                        {:timeout-ms 2000 :label "cljs abort reply"})))
             (.then (fn [_]
                      (let [reply (first @replies)]
-                       (is (= :failure (:kind reply)))
-                       (is (= :rf.http/aborted (get-in reply [:failure :kind]))
+                       (is (= :cancelled (:status reply)))
+                       (is (= :rf.http/aborted (get-in reply [:error :kind]))
                            "abort during backoff dispatches the canonical :rf.http/aborted reply")
-                       (is (= :user (get-in reply [:failure :reason]))))
+                       (is (= :user (get-in reply [:error :reason]))))
                      ;; Wait past the original backoff deadline and assert the
                      ;; retry never fetched again (proving the timer was
                      ;; cancelled, not merely that the reply arrived first).
@@ -986,10 +986,10 @@
                      (is (= 1 (count @replies))
                          "exactly one reply — the prep failure is delivered once")
                      (let [reply (first @replies)]
-                       (is (= :failure (:kind reply)))
-                       (is (= :rf.http/transport (get-in reply [:failure :kind]))
+                       (is (= :error (:status reply)))
+                       (is (= :rf.http/transport (get-in reply [:error :kind]))
                            "a throwing body thunk surfaces as the managed :rf.http/transport category")
-                       (is (= :request-prep (get-in reply [:failure :stage]))
+                       (is (= :request-prep (get-in reply [:error :stage]))
                            "the :stage discriminator marks this as a request-preparation failure"))
                      (is (empty? (registry/in-flight-snapshot))
                          "the in-flight registry is cleared — the failed-prep request is not pinned")
@@ -1037,9 +1037,9 @@
             (.then (fn [_]
                      (is (= 1 (count @replies)))
                      (let [reply (first @replies)]
-                       (is (= :rf.http/transport (get-in reply [:failure :kind]))
+                       (is (= :rf.http/transport (get-in reply [:error :kind]))
                            "an encode failure surfaces as the managed :rf.http/transport category")
-                       (is (= :request-prep (get-in reply [:failure :stage]))))
+                       (is (= :request-prep (get-in reply [:error :stage]))))
                      (is (empty? (registry/in-flight-snapshot)))
                      (restore)
                      (done)))
@@ -1088,7 +1088,7 @@
                      (is (= 1 (count @replies))
                          "exactly one FINAL reply after the retries exhaust")
                      (let [reply (first @replies)]
-                       (is (= :rf.http/transport (get-in reply [:failure :kind]))
+                       (is (= :rf.http/transport (get-in reply [:error :kind]))
                            "the final reply carries the :rf.http/transport prep-failure category"))
                      (is (empty? (registry/in-flight-snapshot)))
                      (restore)

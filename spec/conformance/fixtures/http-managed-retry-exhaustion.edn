@@ -41,12 +41,12 @@
    :rf.http/managed-canned-failure
    ;; Final-after-retries-exhausted shape per Spec 014 §Reply payload shape.
    [[:dispatch [:flaky/load-error
-                {:kind    :failure
-                 :failure {:kind        :rf.http/http-5xx
-                           :status      503
-                           :status-text "Service Unavailable"
-                           :body        {:err true}
-                           :headers     {}}}]]]}}
+                {:status :error
+                 :error  {:kind        :rf.http/http-5xx
+                          :status      503
+                          :status-text "Service Unavailable"
+                          :body        {:err true}
+                          :headers     {}}}]]]}}
 
  :fixture/frame-config
  {:initial-events []
@@ -57,12 +57,12 @@
 
  :fixture/expect
  {:final-app-db
-  {:flaky {:error {:kind    :failure
-                   :failure {:kind        :rf.http/http-5xx
-                             :status      503
-                             :status-text "Service Unavailable"
-                             :body        {:err true}
-                             :headers     {}}}}}
+  {:flaky {:error {:status :error
+                   :error  {:kind        :rf.http/http-5xx
+                            :status      503
+                            :status-text "Service Unavailable"
+                            :body        {:err true}
+                            :headers     {}}}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :flaky/load}}

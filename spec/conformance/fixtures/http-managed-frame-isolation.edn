@@ -43,8 +43,8 @@
    ;; reply lands on the same frame the originating request was issued
    ;; from. The :value carries a frame-distinguishable token so the
    ;; fixture can assert where each reply landed.
-   [[:dispatch [:article/loaded {:kind  :success
-                                 :value {:from :stub}}]]]}}
+   [[:dispatch [:article/loaded {:status :ok
+                                 :value  {:from :stub}}]]]}}
 
  ;; Each frame carries its own :fx-overrides — multi-frame fixtures pass
  ;; per-frame opts via :fixture/frames, not the single-frame
@@ -63,10 +63,10 @@
 
  :fixture/expect
  {:final-app-dbs
-  {:tab.left  {:article {:kind  :success
-                         :value {:from :stub}}}
-   :tab.right {:article {:kind  :success
-                         :value {:from :stub}}}}
+  {:tab.left  {:article {:status :ok
+                         :value  {:from :stub}}}
+   :tab.right {:article {:status :ok
+                         :value  {:from :stub}}}}
 
   ;; The :rf.fx/override-applied trace carries {:from :to} only — it
   ;; does not tag the frame (the override seam runs at fx dispatch

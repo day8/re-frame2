@@ -1001,8 +1001,8 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-xform])
         (let [reply (await-reply-with-payload!)]
-          (is (= :success (:kind reply))
-              "the reply still classifies as :success")
+          (is (= :ok (:status reply))
+              "the reply still classifies as :status :ok")
           (is (= :after (get-in reply [:value :touched-by]))
               ":after's mutation of (:value reply) reaches the on-success target")
           (is (= "payload" (get-in reply [:value :original]))
@@ -1186,10 +1186,10 @@
       (try
         (rf/reg-http-interceptor :auth-refresh
           {:after (fn [_ctx resp]
-                    (if (and (= :failure (:kind resp))
+                    (if (and (= :error (:status resp))
                              (= :rf.http/http-4xx
-                                (get-in resp [:failure :kind]))
-                             (= 401 (get-in resp [:failure :status])))
+                                (get-in resp [:error :kind]))
+                             (= 401 (get-in resp [:error :status])))
                       (assoc resp :auth-refresh-required true)
                       resp))})
         (rf/reg-event :uheqq/load-401
@@ -1201,12 +1201,12 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-401])
         (let [reply (await-reply-with-payload!)]
-          (is (= :failure (:kind reply))
-              "the 401 classifies as a failure reply")
-          (is (= :rf.http/http-4xx (get-in reply [:failure :kind]))
+          (is (= :error (:status reply))
+              "the 401 classifies as a :status :error reply")
+          (is (= :rf.http/http-4xx (get-in reply [:error :kind]))
               "failure category is :rf.http/http-4xx")
-          (is (= 401 (get-in reply [:failure :status]))
-              "status 401 rides on the failure slot")
+          (is (= 401 (get-in reply [:error :status]))
+              "status 401 rides on the failure map under :error")
           (is (true? (:auth-refresh-required reply))
               ":after attached :auth-refresh-required so a downstream handler can mint the refresh dispatch"))
         (finally (stop-server! srv))))))

@@ -197,10 +197,10 @@
         (Thread/sleep 150)
 
         (let [reply (first @replies)]
-          (is (= :failure (:kind reply)))
-          (is (= :rf.http/aborted (get-in reply [:failure :kind]))
+          (is (= :cancelled (:status reply)))
+          (is (= :rf.http/aborted (get-in reply [:error :kind]))
               "user-abort-first finalises as :rf.http/aborted")
-          (is (= :user (get-in reply [:failure :reason]))
+          (is (= :user (get-in reply [:error :reason]))
               "the user-abort source determines :reason :user"))
         (is (= 1 (count @replies))
             "AT MOST ONE terminal outcome — the once-only :finalised? CAS")

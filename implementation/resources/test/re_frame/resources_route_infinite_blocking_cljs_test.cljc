@@ -140,7 +140,7 @@
   (let [args @last-managed-args]
     (is (= :rf.resource.internal/page-succeeded (first (:on-success args)))
         "page-0 of an infinite feed is addressed at the PAGE success handler")
-    (rf/dispatch-sync (conj (:on-success args) {:kind :success :value pg}))))
+    (rf/dispatch-sync (conj (:on-success args) {:status :ok :value pg}))))
 
 (defn- reply-page-failure!
   "Dispatch the captured page reply's `:on-failure` with the transport's
@@ -150,7 +150,7 @@
   (let [args @last-managed-args]
     (is (= :rf.resource.internal/page-failed (first (:on-failure args)))
         "page-0 of an infinite feed is addressed at the PAGE failure handler")
-    (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}))))
+    (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}))))
 
 (defn- register-blocking-infinite-route! []
   (rf/reg-resource :feed/articles (feed-spec {}) feed-spec-request)
@@ -265,7 +265,7 @@
     (is (not (state/infinite-entry? e)) "the contrast resource is SCALAR, not infinite")
     ;; settle the scalar via the SCALAR failed handler (its live reply shape)
     (rf/dispatch-sync (conj (:on-failure @last-managed-args)
-                            {:kind :failure :failure {:status 503 :message "upstream down"}}))
+                            {:status :error :error {:status 503 :message "upstream down"}}))
     (testing "a SCALAR blocking first-load failure flips the route to :error (parity with #2)"
       (is (= :error (:transition (slice)))
           "scalar first-load failure errors the route — infinite page-0 (#2) now matches it")
@@ -301,7 +301,7 @@
     (let [args @last-managed-args]
       (is (= 1 (:rf.resource/page-index (second (:on-failure args))))
           "the load-more fetches page index 1 (a positive page, not page 0)")
-      (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
+      (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
     (testing "a load-more (N>0) failure keeps the feed :loaded + records :page-error"
       (let [e (entry k)]
         (is (= :loaded (:status e)) "load-more failure leaves the feed :loaded (data kept)")
