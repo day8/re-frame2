@@ -64,6 +64,7 @@
             [re-frame.interceptor :as interceptor]
             [re-frame.identity :as identity]
             [re-frame.error :as error]
+            [re-frame.reg-meta :as reg-meta]
             [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -161,6 +162,10 @@
                     (:id descriptor))]
      (when (and (some? value-id) (not= value-id id))
        (throw-interceptor-id-mismatch! id descriptor value-id)))
+   ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS: a retired
+   ;; bare key (`:spec`) hard-errors, an unknown bare key warns, namespaced/known
+   ;; keys pass. `reg-interceptor` adds no per-kind keys beyond the base shape.
+   (reg-meta/validate-registration-metadata! :interceptor 'rf/reg-interceptor id metadata)
    (registrar/register! interceptor-kind id
                         (-> metadata
                             source-coords/merge-coords

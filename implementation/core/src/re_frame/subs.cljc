@@ -36,6 +36,7 @@
             [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.live-frame :as live-frame]
+            [re-frame.reg-meta :as reg-meta]
             [re-frame.classification :as classification]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
@@ -234,6 +235,10 @@
                                          :recovery  :no-recovery}))
                    (throw e)))
         {:keys [meta handler-fn input-kind input-signals input-fn]} parsed]
+    ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS: a retired
+    ;; bare key (`:spec`) hard-errors, an unknown bare key warns, namespaced/known
+    ;; keys pass. Runs on the user meta before the registrar write.
+    (reg-meta/validate-registration-metadata! :sub 'rf/reg-sub id meta)
     ;; EP-0025 — VALIDATE the sub's `:sensitive` / `:large` / `:large?`
     ;; classification declarations fail-loud BEFORE the registrar write. The
     ;; classification is DERIVED from the registrar meta at read time (no
