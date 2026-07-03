@@ -153,10 +153,11 @@
    runtime-db at [:rf.runtime/machines :snapshots :auth/flow].
 
    :return-to is the breadcrumb: the post-login bounce-back target the routing
-   auth-guard drops here (routing.cljs) when it turns a logged-out user away
-   from a `:requires-auth` route. `:auth/post-login-redirect` reads and clears
-   it (auth.cljs). It only exists for the brief window between that redirect and
-   the next successful login."
+   `:rf.route/entry-blocked` handler drops here (routing.cljs) when the
+   `:can-enter` auth gate turns a logged-out user away from a `:requires-auth`
+   route. `:auth/post-login-redirect` reads and clears it (auth.cljs). It only
+   exists for the brief window between that redirect and the next successful
+   login."
   [:map
    [:user      [:maybe User]]
    [:token     [:maybe :string]]

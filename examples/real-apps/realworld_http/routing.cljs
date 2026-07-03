@@ -71,19 +71,22 @@
 (rf/reg-route :realworld.user/settings
   {:doc  "User settings page (requires auth)."
    :on-match [[:settings/load]]
-   :tags #{:requires-auth}} "/settings")
+   :tags #{:requires-auth}
+   :can-enter [:realworld.routing/authed?]} "/settings")
 
 (rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth)."
    :tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
-   :can-leave [:editor/can-leave?]} "/editor")
+   :can-leave [:editor/can-leave?]
+   :can-enter [:realworld.routing/authed?]} "/editor")
 
 (rf/reg-route :realworld.editor/edit
   {:doc       "Edit an existing article (requires auth)."
    :params    [:map [:slug :string]]
    :tags      #{:requires-auth}
    :can-leave [:editor/can-leave?]
+   :can-enter [:realworld.routing/authed?]
    :on-match  [[:editor/load-article]]} "/editor/:slug")
 
 (rf/reg-route :realworld.article/show
@@ -115,118 +118,55 @@
   {:doc  "Fallback when no other route matches."} "/_404")
 
 ;; ============================================================================
-;; AUTH GUARD
+;; AUTH GATE — :can-enter
 ;; ============================================================================
 ;;
-;; Route-level auth isn't a special routing feature — it's just an interceptor.
-;; That's the nice part: because guards are ordinary interceptors, they compose
-;; and stack like anything else. This one watches for navigation toward any
-;; route tagged `:requires-auth` (`:realworld.user/settings`,
-;; `:realworld.editor/new`, `:realworld.editor/edit`), and if you're not signed
-;; in it sends you to login instead — stashing where you were headed under
-;; `:return-to` so you can be bounced back afterward. See the routing guide on
-;; guards: ../../../docs/routing/concepts.md#blocking-a-navigation
+;; Route-level auth is the framework's `:can-enter` guard — the first-class
+;; mirror of `:can-leave`. Each `:requires-auth` route (`:realworld.user/settings`,
+;; `:realworld.editor/new`, `:realworld.editor/edit`) declares
+;; `:can-enter [:realworld.routing/authed?]`. The runtime consults that guard on
+;; the ONE navigation gate, so a protected page can't be reached logged-out by
+;; ANY door — programmatic nav, a link click, a URL-bar deep-link, or a
+;; Back/Forward — with zero per-door plumbing. See the routing guide on guards:
+;; ../../../docs/routing/concepts.md#blocking-a-navigation
 ;;
-;; It's wired into the demo frame via `frame-provider`'s `:interceptors` in
-;; core.cljs. For anything that isn't a navigation, it hands the ctx straight
-;; back, untouched. For navigations, it covers EVERY way into a route, so a
-;; protected page can't be reached logged-out by any door:
+;; This is the whole reason `:can-enter` shipped: the auth gate used to be a
+;; hand-rolled interceptor that flattened all three nav events down to one
+;; `{:id :params}` target, skipped the protected handler, and stashed a bespoke
+;; `[:auth :return-to]` resume crumb — ~100 lines re-implementing what
+;; `:rf/pending-navigation` + `:rf.route/continue` already do. Now it's a guard
+;; sub plus one `:rf.route/entry-blocked` handler.
+
+;; The guard sub. `true` → OK to enter. It reads the durable `[:auth :user]`
+;; presence (not the machine's `:authed` state), so a deep-link that arrives
+;; DURING session restore judges a logged-in user correctly. `:can-enter` subs
+;; receive the pending target as a second arg — unused here, since the answer is
+;; the same for every protected route (are you signed in?).
+(rf/reg-sub :realworld.routing/authed?
+  {:doc "The :can-enter auth guard: true when a user is signed in. Read by the
+         :requires-auth routes' :can-enter slot."}
+  :<- [:auth/user]
+  (fn [user _] (some? user)))
+
+;; The block handler — the enter-block mirror of a confirm dialog. When
+;; `:can-enter` rejects, the runtime writes `:rf/pending-navigation` (with the
+;; target the user aimed at) and dispatches `:rf.route/entry-blocked`. This
+;; handler turns that into a login redirect and stashes the target for the
+;; post-login bounce-back. The auth machine's `:store-session` action
+;; (auth.cljs) reads `[:auth :return-to]` on a successful login and navigates
+;; there — the SAME resume path the interceptor version used, minus the
+;; hand-rolled three-door flattening.
 ;;
-;;   - `:rf.route/navigate`          — programmatic nav (the navbar);
-;;     `(second event)` is the target route id.
-;;   - `:rf/url-requested`           — an anchor (`rf/route-link`) click;
-;;     the request map carries `:to` (the target route id) + `:params`.
-;;   - `:rf.route/handle-url-change` — typing in the URL bar, a reload, a
-;;     popstate; `(second event)` is a URL string, resolved via `rf/match-url`.
-;;
-;; Guarding only `:rf.route/navigate` would be a classic fail-open: a
-;; logged-out user who typed `/settings`, reloaded a protected page, or clicked
-;; a link would sail right in — and its on-match drain would fire off a request
-;; the real backend just 401s. So `resolve-nav-target` flattens all three
-;; events down to one `{:id :params}` target, and a single redirect path
-;; handles the lot.
-;;
-;; How the redirect works: the `:before` sets `:rf/skip-handler?`, so the
-;; protected route's own handler never runs — its slice never commits and its
-;; on-match drain never fires — and then it dispatches
-;; `:rf.route/navigate :realworld.auth/login`. (Why skip-and-dispatch instead
-;; of just rewriting the event? The runtime picks the handler from the ORIGINAL
-;; event id before interceptors run, so swapping `[:coeffects :event]` to a
-;; different id would still run the first handler. Skipping sidesteps the whole
-;; problem.)
-;;
-;; The bounce-back (`:return-to`) takes a little care. You can't smuggle it
-;; through `:rf.route/navigate`'s opts (the 3rd arg): the navigate handler only
-;; keeps `:query` / `:fragment` / `:replace?` / `:scroll` /
-;; `:bypass-leave-guard?` and drops everything else, so an opts-borne
-;; `:return-to` would just evaporate. Instead the `:before` writes the target
-;; to `[:auth :return-to]` with a `:db` effect (committed before the login
-;; dispatch's `:fx` runs). Later, on a successful login, the auth machine's
-;; `:store-session` action reads that slot, sends you there (or home if it's
-;; empty), and clears it (auth.cljs).
-
-(defn- resolve-nav-target
-  "Boil any navigation event down to one shape — `{:id <route-id> :params
-   <map>}` — or nil when the event isn't a navigation at all (the guard's cue
-   to step aside). Three different events come in; one tidy target goes out, so
-   the redirect below doesn't care HOW the user got here:
-
-     - `:rf.route/navigate`          → `(second event)` is the route id,
-       `(nth event 2)` the path params (programmatic nav).
-     - `:rf/url-requested`           → an anchor click; the request map carries
-       `:to` (route id) + `:params`, and falls back to resolving `:url` via
-       `rf/match-url` when `:to` isn't there.
-     - `:rf.route/handle-url-change` → URL bar / reload / popstate; the URL
-       string is matched to a route via `rf/match-url`."
-  [[ev-id a b]]
-  (case ev-id
-    :rf.route/navigate
-    {:id a :params (or b {})}
-
-    :rf/url-requested
-    (let [{:keys [to params url]} a]
-      (cond
-        to  {:id to :params (or params {})}
-        url (when-let [{:keys [route-id params]} (routing/match-url url)]
-              {:id route-id :params (or params {})})))
-
-    :rf.route/handle-url-change
-    (when-let [{:keys [route-id params]} (routing/match-url a)]
-      {:id route-id :params (or params {})})
-
-    nil))
-
-;; Register the guard as a named interceptor here, then refer to it by id
-;; (`:realworld.routing/auth-guard`) from the demo frame's `:interceptors` in
-;; core.cljs. `reg-interceptor` runs at load time and core.cljs requires this
-;; ns, so the descriptor is sitting ready before the frame-provider ever tries
-;; to resolve the id.
-(rf/reg-interceptor :realworld.routing/auth-guard
-  {:doc "The route-level auth guard: steer logged-out users away from
-         `:requires-auth` routes to login, and remember where they were going
-         so we can send them back afterward."}
-  {:before (fn auth-guard-before [ctx]
-             (if-let [{:keys [id params]} (resolve-nav-target
-                                            (get-in ctx [:coeffects :event]))]
-               (let [route-meta  (rf/handler-meta :route id)
-                     needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
-                     logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-                 (if (and needs-auth? (not logged-in?))
-                   ;; Three moves: skip the original handler (so the protected
-                   ;; slice and its on-match never commit), remember where they
-                   ;; were headed for the bounce-back, and dispatch the login
-                   ;; navigation. The SAME redirect, whichever door they came
-                   ;; through.
-                   (-> ctx
-                       (assoc :rf/skip-handler? true)
-                       (assoc-in [:effects :db]
-                                 (assoc-in (get-in ctx [:coeffects :db])
-                                           [:auth :return-to]
-                                           {:id id :params params}))
-                       (assoc-in [:effects :fx]
-                                 [[:dispatch [:rf.route/navigate :realworld.auth/login]]]))
-                   ctx))
-               ctx))})
+;; The pending-nav slot carries `:rejecting-route` (the target route-id) and
+;; `:requested-url`; we resolve the params off the URL so a deep-link like
+;; `/editor/my-slug` bounces back to the right article after login.
+(rf/reg-event :rf.route/entry-blocked
+  {:doc "Steer a logged-out visitor who tried to enter a :requires-auth route to
+         login, remembering where they were headed for the bounce-back."}
+  (fn [{:keys [db]} [_ {:keys [rejecting-route requested-url]}]]
+    (let [params (:params (routing/match-url requested-url))]
+      {:db (assoc-in db [:auth :return-to] {:id rejecting-route :params (or params {})})
+       :fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]})))
 
 ;; ============================================================================
 ;; ROUTER WIRING
