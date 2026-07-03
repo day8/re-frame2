@@ -40,9 +40,11 @@
                    start mark and the `:after`'s read), per-request
                    header parsing, auth-token refresh keyed off the
                    originating event, …
-    - `response` — `{:kind :success :value <decoded>}` or
-                   `{:kind :failure :failure <failure-map>}`. The shape
-                   matches the reply-payload `build-reply-event`
+    - `response` — the canonical reply envelope (rf2-ibksxg):
+                   `{:status :ok :value <decoded> …}` or
+                   `{:status :error :error <failure-map> …}` (an abort is
+                   `{:status :cancelled :error <aborted-map> …}`). The
+                   shape matches the reply-payload `build-reply-event`
                    appends to `:on-success` / `:on-failure`.
 
   Returns the (possibly-transformed) response map; the runtime threads
@@ -142,9 +144,9 @@
   `ctx` carries `:request` (the request map), `:args` (the full
   `:rf.http/managed` args), `:frame` (the frame-id), and `:event` (the
   originating event vector). `:before` returns a (possibly-modified)
-  ctx. `:after` receives the ctx unchanged plus the response map
-  (`{:kind :success :value v}` or `{:kind :failure :failure f}`) and
-  returns the (possibly-transformed) response.
+  ctx. `:after` receives the ctx unchanged plus the canonical reply
+  envelope (`{:status :ok :value v …}` or `{:status :error :error f …}`,
+  rf2-ibksxg) and returns the (possibly-transformed) response.
 
   Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured
   at the `rf/reg-http-interceptor` call site by the JVM-emitted macro in
@@ -393,8 +395,9 @@
   Each `:after` receives `(fn [ctx response] response')` — `ctx` is the
   middleware-ctx the `:before` chain produced for THIS request (carried
   forward by the transport so the `:after` sees the exact same shape
-  the `:before` ended with). `response` is `{:kind :success :value v}`
-  or `{:kind :failure :failure f}`.
+  the `:before` ended with). `response` is the canonical reply envelope
+  (`{:status :ok :value v …}` or `{:status :error :error f …}`,
+  rf2-ibksxg).
 
   Interceptors without an `:after` slot are transparent in the response
   chain (acc passes through unchanged). Throws by `:after` propagate
