@@ -56,7 +56,11 @@ Plus the cross-cutting:
 
 References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to entries in [§Cross-cutting gaps](#cross-cutting-gaps-across-multiple-specs).
 
+**Freshness watermark.** Every scoring table below carries an **_As-of `<date>`_** line naming the last audit pass that verified it against the live corpus. A table is only trustworthy as of its watermark: a Spec edited after its table's As-of date may have falsified a row, and an AI reading a stale row generates against a shape the corpus no longer has. The watermark is the audit's own freshness contract — when a Spec change falsifies a row (per the co-edit question in [SPEC-AUTHORING §SA-9](SPEC-AUTHORING.md)), the fixing PR re-verifies the affected table and advances its As-of date. Cross-cutting goal tables and the SA-3 / SA-4 reports carry the same watermark line.
+
 ### Spec 000 — Vision
+
+_As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
@@ -72,6 +76,8 @@ References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to
 **Gaps:** none significant. The doc serves its purpose.
 
 ### Spec 002 — Frames
+
+_As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
@@ -98,9 +104,9 @@ References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to
 - ✓ Read the *expanded* metadata to see the effective config rather than re-deriving from the preset name.
 - ✓ Override individual keys when the preset's default doesn't fit, rather than hand-rolling a full metadata map.
 
-Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixture frames) should declare `:preset :test`; story-driven examples should declare `:preset :story`; the SSR example should declare `:preset :ssr-server`. Drift here surfaces as a follow-up bead.
-
 ### Spec 004 — Views
+
+_As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
@@ -117,10 +123,12 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 
 **Gaps:**
 1. Pick a canonical hiccup-invocation form and document the others as alternatives — three forms is a P1 hit. (Tracked as **G-E**.)
-2. Make the plain-Reagent-fn-routes-to-default footgun loud (warn at render time when a plain fn renders under a non-default frame). (Tracked as **G-D**.)
+2. ~~Make the plain-Reagent-fn-routes-to-default footgun loud.~~ **Resolved by EP-0002** (see **G-D** below): there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — a structured runtime error, not a warning.
 3. Consider whether Form-1/2/3 are all needed or whether Form-2's outer-fn-side-effects should be discouraged in favour of Form-1 + an explicit setup event. (Tracked as **G-F**.)
 
 ### Spec 005 — State Machines
+
+_As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
@@ -142,6 +150,8 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 
 ### Spec 008 — Testing
 
+_As-of 2026-07-04._
+
 | Property | Score | Notes |
 |---|---|---|
 | P1 Regularity | ✓ | One fixture lifecycle (`make-frame` / `destroy-frame!`); one synchronous trigger; one assertion macro. |
@@ -157,22 +167,26 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 
 ### Spec 009 — Instrumentation
 
+_As-of 2026-07-04._
+
 | Property | Score | Notes |
 |---|---|---|
 | P1 Regularity | ✓ | One trace event shape; one listener API. |
 | P2 Named things | ✓ | `:id`, `:operation`, `:op-type` all id'd. |
 | P3 Data before magic | ✓ | Trace events are open maps. |
 | P4 Public query surfaces | ✓ | The trace stream IS the query surface for runtime behaviour. |
-| P5 Schemas | ◐ | Trace event shape has stable required keys but no Malli schema is registered for it. Should be `(rf/reg-app-schema [:rf/trace] {:schema TraceEventSchema})` or similar. |
+| P5 Schemas | ✓ | Trace event shape has stable required keys and a registered Malli schema — [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md) — one of the five load-bearing schemas carrying Owner/Status/Conformance metadata (see §SA-3 below). The schema is a spec-catalogue entry, **not** `reg-app-schema`: the trace stream is not app-db data (`reg-app-schema` validates app-db paths only), so it is not registered through the app-schema surface. |
 | P6 Deterministic execution | ✓ | Per-trace events for every drain step. |
 | P7 Machine-readable errors | ◐ | Errors emit trace events but the *error event shape* isn't formally defined alongside the others. |
 | P8 Low hidden context | ✓ | All emit sites are visible in source. |
 
 **Gaps:**
-1. Register a Malli schema for the trace event shape.
+1. ~~Register a Malli schema for the trace event shape.~~ **Resolved** — [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md) registers it (one of the five load-bearing schemas per §SA-3).
 2. Define error trace events as a first-class subset. (Tracked as **G-A**.)
 
 ### Spec 010 — Schemas
+
+_As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
@@ -188,6 +202,8 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 **Gaps:** validation-error envelope as a structured shape (alongside other errors). (Tracked as **G-A**.)
 
 ### Spec 011 — SSR
+
+_As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
@@ -205,6 +221,8 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 ## Cross-cutting goal: AI-implementable from the spec alone
 
 [000-Vision §AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone) (Goal 2) is the meta-property that grades the spec corpus's *completeness* — can an AI build v1 from `/spec/` alone? Audit dimension: **spec self-containedness** — every spec must be readable without consulting re-frame v1 source, and every shape on the wire must be schema'd.
+
+_As-of 2026-07-04._
 
 | Spec | Score | Notes |
 |---|---|---|
@@ -226,6 +244,8 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 
 [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-substrate-with-implementor-chosen-capabilities) (Goal 6) makes conformance graded against the implementor's claimed capability list. Audit dimension: **capability-conformance clarity** — does each spec section name which capabilities it depends on?
 
+_As-of 2026-07-04._
+
 | Spec | Score | Notes |
 |---|---|---|
 | 000-Vision | ✓ | Goal text + the FSM-richness / actor-model breakdown name each capability and its v1-claim status. Host-profile matrix has capability-list rows. |
@@ -241,6 +261,8 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 
 [000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility) (Goal 3) is a top-level goal that several Specs are responsible for satisfying together. Audit summary:
 
+_As-of 2026-07-04._
+
 | Spec | Score | Notes |
 |---|---|---|
 | 000-Vision | ✓ | Names the goal; explains rationale, implications, and the boundary at the registered-fx seam (external side effects need compensation, not reversal). Marks persistent data structures as pattern-required in the host-profile matrix. |
@@ -251,7 +273,7 @@ Worked-example check: `examples/real-apps/realworld_http/auth.cljs` (test fixtur
 | 006-ReactiveSubstrate | ✓ | [006 §Revertibility constraints on adapters](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters) locks the rule: adapter-internal state is allowed iff derivable from the frame's value. Memoisation caches, reaction caches, and listener registries are derivable; non-derivable observer state is prohibited. Reagent and plain-atom reference adapters audited compliant. DOM render output sits at the registered-fx seam (per Goal 3) and is out of scope for frame-state revert. |
 | 009-Instrumentation | ✓ | Trace stream is append-only and not part of frame state, so revert is well-defined: "drop trace events after timestamp T" is a separate operation from frame-state revert. |
 | 010-Schemas | n/a | Schemas are static registry data; not in scope for frame revert. |
-| 012-Routing | ✓ | `:route` lives at a reserved app-db key, so route state reverts with the rest of `app-db`. |
+| 012-Routing | ✓ | The route slice lives in the frame's **runtime-db** partition at `[:rf.runtime/routing :current]` (per [012 §`runtime-db` slices](012-Routing.md#runtime-db-slices) and [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)); runtime-db is part of the frame value, so route state reverts with the rest of the frame on epoch restore. |
 
 **Gaps:** none. Spec 006's §Revertibility constraints on adapters closes the previously-noted gap; every Spec scores ✓ on Goal 3 alignment.
 
@@ -289,6 +311,8 @@ The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation)
 
 [SPEC-AUTHORING.md §SA-3](SPEC-AUTHORING.md) commits the corpus to: "Every shape that flows on the wire or appears in a spec example MUST have a schema in [Spec-Schemas.md](Spec-Schemas.md)." This report is the audit's running cross-reference table: every shape-shaped artefact named in the numbered specs MUST map to one of (a) a `:rf/<id>` schema entry in Spec-Schemas.md, (b) an explicit host-type exemption (a host's primitive that doesn't need cross-host schema coverage), or (c) a generated EDN catalogue derived from the corpus.
 
+_As-of 2026-07-04._
+
 **Current state.** The shape catalogue carries 37 schema sections; the per-section Owner / Status / Conformance metadata that makes the projection auditable was demonstrated on 5 load-bearing schemas (`:rf/dispatch-envelope`, `:rf/effect-map`, `:rf/trace-event`, `:rf/epoch-record`, `:rf/hydration-payload`). The full sweep across the remaining ~32 schema sections is still pending.
 
 **Audit cadence.** This report is regenerated per AI-Audit run. Per-section completeness gates on SA-3:
@@ -305,6 +329,8 @@ The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation)
 ## SA-4 open-questions report
 
 [SPEC-AUTHORING.md §SA-8](SPEC-AUTHORING.md) commits the AI-Audit pass to "produce a corpus-wide report enumerating every `## Open questions` heading across the per-Spec docs, with each item's SA-4 classification (one of `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking`) and its required cross-link." SA-8 names this report's home as the AI-Audit doc; this section is that home.
+
+_As-of 2026-07-04._
 
 **Current state.** Sixteen numbered/companion docs carry a `## Open questions` heading (000, 001, 002, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 016, and Design-TransducerRouter). The per-item SA-4 classification enumeration — the table of every open-question item with its `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking` verdict and cross-link — has **not yet been generated**; it is the next AI-Audit sweep's deliverable and is the open SA-8 obligation. Until that sweep lands, SA-4 compliance is verified per-Spec by narrative review (the prior pass moved the three overdue `(RESOLVED)`-labelled specs — 002, 005, 013 — out of `## Open questions`), not mechanically through this table.
 
