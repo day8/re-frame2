@@ -184,7 +184,8 @@
 
 (deftest continue-re-issues-via-url-requested-with-bypass
   (testing ":rf.route/continue re-emits :rf/url-requested with
-            :bypass-leave-guard? true, running the policy chain"
+            :bypass-guards? #{:leave}, running the policy chain (the enter
+            guard still re-runs — rf2-p69yaz point 6)"
     (rf/reg-route :editor/article
                   {:params    [:map [:id :string]]
                    :can-leave :editor/can-leave?} "/editor/articles/:id")

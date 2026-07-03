@@ -305,7 +305,7 @@
         blocked (can-leave/maybe-block-navigation
                   rdb frame
                   event-vec url
-                  (:bypass-leave-guard? opts)
+                  (:bypass-guards? opts)
                   pending-nav-allocation)]
     (or blocked
         ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
@@ -348,7 +348,7 @@
         blocked (can-leave/maybe-block-navigation
                   rdb frame
                   event-vec url
-                  (:bypass-leave-guard? opts)
+                  (:bypass-guards? opts)
                   pending-nav-allocation)]
     (or blocked
         ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.

@@ -1083,7 +1083,7 @@
 ;; Spec 012 §Navigation is an event: the two trailing maps (params 2nd,
 ;; opts 3rd) are positionally ambiguous. The disambiguating guard
 ;; (rf2-1os1c) rejects an opts-only key (:replace? / :scroll / :fragment /
-;; :bypass-leave-guard?) sitting in the PARAMS slot when it is not a
+;; :bypass-guards?) sitting in the PARAMS slot when it is not a
 ;; declared path-param of the target route, and emits
 ;; :rf.error/navigate-arity-misuse.
 

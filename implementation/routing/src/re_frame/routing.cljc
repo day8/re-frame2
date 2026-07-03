@@ -332,6 +332,16 @@
                      (assoc framework-authority-meta
                             :sensitive [[:requested-url] [:requested-by-event]])
                      can-leave/navigation-blocked-handler)
+;; rf2-p69yaz point 5: `:rf.route/entry-blocked` is the ENTER-block mirror
+;; of `:rf.route/navigation-blocked` — the runtime dispatches it (carrying
+;; the pending-nav map) when a target route's `:can-enter` guard rejects.
+;; It carries the SAME route carriers (`:requested-url`, `:requested-by-event`),
+;; so it declares the SAME `:sensitive` slots so `project-trace-event`
+;; redacts them on the trace egress copy (EP-0015 rf2-jfaucw).
+(events/reg-event :rf.route/entry-blocked
+                     (assoc framework-authority-meta
+                            :sensitive [[:requested-url] [:requested-by-event]])
+                     can-leave/entry-blocked-handler)
 (events/reg-event :rf.route/continue
                      framework-authority-meta
                      can-leave/continue-handler)

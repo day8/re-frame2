@@ -705,8 +705,8 @@
 ;;
 ;; The block above restored the address bar to the rejecting route's URL via
 ;; replaceState. On `:rf.route/continue` the resume re-dispatches the
-;; original `[:rf.route/handle-url-change requested-url {:bypass-leave-guard?
-;; true}]`, which rewrites the slice but emits NO history mutation (it
+;; original `[:rf.route/handle-url-change requested-url {:bypass-guards?
+;; #{:leave}}]`, which rewrites the slice but emits NO history mutation (it
 ;; assumes the browser already moved). After the restore that assumption is
 ;; false — so without a fix the slice commits to /cart while the address bar
 ;; stays on /editor/articles/X, leaving the visible route and the browser
