@@ -37,11 +37,9 @@
             ;; Pulled in for its side effect: loading it wires up the hooks that
             ;; make `rf/reg-app-schema` actually do something.
             [re-frame.schemas]
-            [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
             [clojure.set]
-            [clojure.string :as str])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [clojure.string :as str]))
 
 (def cols
   "Number of spreadsheet columns (A..Z)."
@@ -97,7 +95,7 @@
 ;; — `:rf/default`, the same name `run` mounts down below. The id is all that's
 ;; needed: we can register the schema here at load time, before the frame
 ;; actually exists, and it snaps into place once the frame is created.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:cells] {:schema CellsState}))
 
 ;; ============================================================================
@@ -385,7 +383,7 @@
 ;; One cell. It has two faces: while you're editing it shows an <input> holding
 ;; the raw text; otherwise it shows the computed value. Which face we wear comes
 ;; straight from subscriptions, so any edit anywhere just flows back in.
-(reg-view cell-view [id]
+(rf/reg-view cell-view [id]
   (let [editing-id @(subscribe [:cells/editing-id])
         editing?   (= editing-id id)
         raw        @(subscribe [:cells/raw   id])
@@ -427,7 +425,7 @@
                                 (dispatch [:cells/commit id (.. % -target -value)]))}]
        display)]))
 
-(reg-view cells-grid []
+(rf/reg-view cells-grid []
   [:table.cells-grid
    [:thead [:tr [:th] (for [c (range cols)] ^{:key c} [:th (char (+ 65 c))])]]
    [:tbody

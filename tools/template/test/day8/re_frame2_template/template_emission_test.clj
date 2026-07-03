@@ -81,10 +81,12 @@
   load-order assertion below.
 
   Both `:require` and `:require-macros` are walked: the Reagent scaffold
-  brings `reg-view` in via `:require-macros [re-frame.core :refer
-  [reg-view]]` and calls it bare, so walking `:require-macros` too keeps
-  that central macro visible to the surface-drift audit. `:refer`-ed
-  symbols from either clause feed the bare-symbol audit below."
+  brings `re-frame.core` in via the one-require form
+  `[re-frame.core :as rf]` and calls `rf/reg-view` qualified, so the
+  qualified-symbol audit sees that central macro. Walking `:require-macros`
+  too keeps any `:refer`-ed symbols visible to the surface-drift audit,
+  and `:refer`-ed symbols from either clause feed the bare-symbol audit
+  below."
   [ns-form]
   (let [clauses    (drop 2 ns-form) ;; skip `ns` + ns-sym
         require?   #(and (sequential? %)
@@ -404,12 +406,13 @@
   shapes are audited:
 
     1. `<alias>/<sym>` qualified references whose alias resolves to a
-       `re-frame.*` ns (e.g. `rf/dispatch`).
+       `re-frame.*` ns (e.g. `rf/dispatch`, `rf/reg-view` — the Reagent
+       scaffold uses the one-require form `[re-frame.core :as rf]` and
+       calls `rf/reg-view` qualified). Without this, a rename of
+       `reg-view` would ship the Reagent scaffold broken-but-green.
     2. Bare, `:refer`-ed framework symbols whose source ns
-       is `re-frame.*` (e.g. the Reagent scaffold's `(reg-view …)`,
-       brought in via `:require-macros [re-frame.core :refer [reg-view]]`
-       and called unqualified). Without this, a rename of `reg-view`
-       would ship the Reagent scaffold broken-but-green."
+       is `re-frame.*` (none in the current scaffolds, but the audit
+       still covers the shape so a future `:refer` stays honest)."
   [substrate ^java.io.File file root]
   (when (.isFile file)
     (let [forms      (read-cljs-forms file)

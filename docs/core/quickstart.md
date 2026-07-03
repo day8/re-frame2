@@ -14,8 +14,7 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
 
 ```clojure
 (ns quickstart.counter
-  (:require [re-frame.core :as rf])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require [re-frame.core :as rf]))
 
 ;; STATE TRANSITIONS — pure functions of state, easy to read and to test.
 (defn inc-value [db] (update db :counter/value inc))
@@ -40,7 +39,7 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
 
 ;; VIEW — reg-view hands the view a ready-to-use `dispatch` and
 ;; `subscribe`, so you don't import or wire them yourself.
-(reg-view counter-app []
+(rf/reg-view counter-app []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "−"]
    [:span @(subscribe [:counter/value])]
@@ -54,7 +53,7 @@ A few words on the moving parts — five nouns and one verb, and they're the who
 - An [**event handler**](glossary.md#event-handler) (a "handler") is the pure function that receives an event and returns a map describing what should happen next: `{:db next-state}` here, where `:db` is the new value of app-db. Read that map as *"the next state, and anything else to do."* For the counter there's nothing else, so it's just `:db` — but the same shape grows to carry an HTTP request or a follow-up event without changing the handler's signature.
 - A [**subscription**](glossary.md#subscription) is a named, derived read of app-db, and a [**view**](glossary.md#view) renders from subscriptions and dispatches events back.
 
-(That last line — `reg-view` — needs the `:require-macros` form at the top because `reg-view` is a macro; a plain `:require` covers everything else. Don't sweat the distinction; it's the one piece of Clojure boilerplate on the page.)
+(One `require` and you're done: `[re-frame.core :as rf]` is the whole import — events, subscriptions, and `reg-view` all come through it, no second `:require-macros` line to remember.)
 
 That returned map is the handler's [**effect map**](glossary.md#effect-map), and its keys are a small, closed set: for application handlers, just `:db` (replace app-db) and `:fx` (an ordered vector of further [effects](glossary.md#effect) to run — dispatch another event, fire an HTTP request, write to local storage). Anything else in that set is reserved for the framework. Returning a key the framework doesn't recognise is a loud error rather than a silent no-op — there's no "I'll quietly ignore the typo" mode; this is the framework's standing [fail-loud](glossary.md#fail-loud-not-silent) posture, which you'll see again and again. (`:fx` is the subject of [Effects and coeffects](concepts/effects-and-coeffects.md); for the counter, `:db` alone is the whole story.)
 

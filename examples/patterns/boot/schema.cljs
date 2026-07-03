@@ -29,8 +29,7 @@
             ;; publishes the default validator, and requiring it is the CLJS
             ;; opt-in — skip it and the validator soft-passes, so a malformed
             ;; slice slides through with no failure trace.
-            [re-frame.schemas.malli])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+            [re-frame.schemas.malli]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the mocked endpoints return
@@ -156,7 +155,7 @@
 ;; This app lives in the `:rf/default` frame (see `core/run`), so we name that
 ;; frame explicitly with `with-frame`. The registrations then carry a frame
 ;; stamp even though they run at module-load, before `init!`.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   ;; The :spawn-all children stage their payloads into [:boot/staging] before
   ;; signalling done, and :enter-hydrating reads them back out. We register
   ;; the slot so those staging writes get schema-checked like everything else.

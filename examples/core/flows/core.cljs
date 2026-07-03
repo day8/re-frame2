@@ -39,9 +39,7 @@
             ;; re-frame.flows once wires up the flow API; leave it out and the
             ;; reg-flow calls below raise :rf.error/flows-artefact-missing.
             [re-frame.flows]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; FLOWS
@@ -63,7 +61,7 @@
 ;; :rf.fx/reg-flow from inside a handler — that route carries the dispatching
 ;; frame along for you, no naming required.)
 ;; See docs/core/glossary.md#frame-identity-is-carried-not-found.
-(with-frame :rf/default
+(rf/with-frame :rf/default
 
 (rf/reg-flow
   {:id     :cart/subtotal
@@ -233,7 +231,7 @@
 (defn- money [cents]
   (str "$" (.toFixed (/ cents 100) 2)))
 
-(reg-view cart-line [{:keys [sku name price qty]}]
+(rf/reg-view cart-line [{:keys [sku name price qty]}]
   [:tr {:data-testid (str "cart-line-" sku)}
    [:td name]
    [:td (money price)]
@@ -243,7 +241,7 @@
     [:button {:on-click #(dispatch [:cart/inc-qty sku])} "+"]]
    [:td (money (* price qty))]])
 
-(reg-view cart-app []
+(rf/reg-view cart-app []
   (let [items            @(subscribe [:cart/items])
         subtotal         @(subscribe [:cart/subtotal])
         total            @(subscribe [:cart/total])

@@ -30,7 +30,7 @@ UI is just those Vars composed. (The document rows inside the sidebar
 are plain inline hiccup, not their own registration.)
 
 ```clojure
-(reg-view notebook []
+(rf/reg-view notebook []
   [:div.nb-shell
    [sidebar]
    [editor]

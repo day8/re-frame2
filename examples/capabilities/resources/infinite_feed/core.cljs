@@ -60,7 +60,6 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            [re-frame.views]
             ;; Managed HTTP — the built-in transport resources fetch over.
             ;; Loading it registers the `:rf.http/managed` fx that every page
             ;; fetch runs on. See docs/resources/glossary.md#managed-http.
@@ -79,8 +78,7 @@
             ;; declare its resources. On entry a route ensures page 0 of an
             ;; infinite feed — just the first page, not the whole pile.
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; THE INFINITE RESOURCE — one growing feed, its pages held as the value
@@ -246,7 +244,7 @@
 (def ^:private feed-query
   {:resource :feed/timeline :scope :rf.scope/global :params {}})
 
-(reg-view home-page []
+(rf/reg-view home-page []
   [:div
    [:h1 "Infinite feed demo"]
    [:p "A load-more / infinite-scroll timeline as a first-class re-frame2
@@ -258,10 +256,10 @@
                        :data-testid "route-link-timeline"}
         "Open the timeline →"]]])
 
-(reg-view feed-row [{:keys [title]}]
+(rf/reg-view feed-row [{:keys [title]}]
   [:li {:data-testid "feed-row"} title])
 
-(reg-view timeline-page []
+(rf/reg-view timeline-page []
   ;; The route's `:resources` already ensured page 0 on the way in. All the view
   ;; does is read the whole feed view-model, passively, through
   ;; `[:rf.resource/infinite-state …]`.
@@ -319,12 +317,12 @@
           :else
           [:p {:data-testid "feed-end"} "— you're all caught up —"])])]))
 
-(reg-view not-found-page []
+(rf/reg-view not-found-page []
   [:div
    [:h1 "Not found"]
    [:p [rf/route-link {:to :infinite-feed.app/home :data-testid "route-link-home"} "Home"]]])
 
-(reg-view root-view []
+(rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :infinite-feed.app/home     [home-page]
     :infinite-feed.app/timeline [timeline-page]

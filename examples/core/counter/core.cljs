@@ -16,9 +16,7 @@
    `dispatch`/`subscribe`."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; -- Events / subs -----------------------------------------------------------
 ;;
@@ -59,7 +57,7 @@
 ;; Var named for the symbol, which is how `counter-app` can name
 ;; `counter-buttons` just below. See `docs/core/concepts/views.md`.
 
-(reg-view counter-buttons []
+(rf/reg-view counter-buttons []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
    [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:counter/value])]
@@ -69,7 +67,7 @@
 ;; ceremonial for one child, but it gives `run` a single tree to wrap in
 ;; the `frame-provider` that stands up the frame.
 
-(reg-view counter-app []
+(rf/reg-view counter-app []
   [counter-buttons])
 
 ;; -- Mount -------------------------------------------------------------------

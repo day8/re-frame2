@@ -21,16 +21,14 @@
       `cond` picking apart the raw `:state` vector. Same answer, far nicer
       to read."
   (:require [re-frame.core :as rf]
-            [re-frame.views]
             [websocket.messages]
-            [websocket.connection])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [websocket.connection]))
 
 ;; ============================================================================
 ;; STATUS — the machine's connection state, rendered
 ;; ============================================================================
 
-(reg-view ^{:doc "Reads the machine's tag union (via this example's per-tag
+(rf/reg-view ^{:doc "Reads the machine's tag union (via this example's per-tag
                   subs) and boils it down to one status word. A state can
                   carry several tags at once, so a priority order —
                   failed > reconnecting > connected > connecting >
@@ -70,7 +68,7 @@
 ;; LIFECYCLE BUTTONS
 ;; ============================================================================
 
-(reg-view ^{:doc "The three lifecycle buttons: Connect, Drop (fake a
+(rf/reg-view ^{:doc "The three lifecycle buttons: Connect, Drop (fake a
                   transport error), and Disconnect (a clean goodbye). Drop
                   is the fun one — it reaches into the mock-server seam to
                   kill the socket, then sit back and watch the pill walk
@@ -109,7 +107,7 @@
 ;; SEND FORM
 ;; ============================================================================
 
-(reg-view ^{:doc "The message form. Connected? Your message goes straight
+(rf/reg-view ^{:doc "The message form. Connected? Your message goes straight
                   out. Not yet — disconnected, reconnecting, connecting?
                   It's queued instead, to be flushed the moment you next
                   reach :connected. The `Queued: N` text on the right is
@@ -139,7 +137,7 @@
 ;; SUBSCRIBE + REQUEST + SERVER-PUSH DEMO
 ;; ============================================================================
 
-(reg-view ^{:doc "Three buttons for the three trickier paths: subscribe
+(rf/reg-view ^{:doc "Three buttons for the three trickier paths: subscribe
                   (the topic survives reconnects, and the mock acks with a
                   synthetic push), request-reply (fire a request, watch the
                   correlated reply come back), and 'trigger server push'
@@ -177,7 +175,7 @@
 ;; INBOX
 ;; ============================================================================
 
-(reg-view ^{:doc "The inbox: everything that's arrived, newest at the top.
+(rf/reg-view ^{:doc "The inbox: everything that's arrived, newest at the top.
                   Server pushes and correlated replies alike all flow
                   through :ws/handle-message into [:messages :received],
                   and land here."}
@@ -195,7 +193,7 @@
 ;; ROOT
 ;; ============================================================================
 
-(reg-view ^{:doc "Root view of the websocket example app."}
+(rf/reg-view ^{:doc "Root view of the websocket example app."}
           root-view []
   [:div.app
    [:h1 "WebSocket — connection machine"]

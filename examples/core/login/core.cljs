@@ -67,8 +67,7 @@
             ;; Turns on the canned-success / canned-failure stub fxs our
             ;; demo stub leans on (docs/core/how-to/test-a-cascade.md).
             [re-frame.http.test-support]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; SCHEMAS
@@ -546,7 +545,7 @@
 ;; the machine. And "are we busy?" / "what went wrong?" are answered by the
 ;; machine — the `:auth/busy` tag and the `:auth.login/error` sub. Slice
 ;; owns the draft; machine owns the status; the view just renders them.
-(reg-view ^{:doc "The login form view: email + password + submit button + error display."}
+(rf/reg-view ^{:doc "The login form view: email + password + submit button + error display."}
           login-form []
   (let [draft @(subscribe [:auth.login/draft])
         busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)
@@ -577,7 +576,7 @@
 ;; What you see once the flow hits :locked-out (tagged :auth/locked). That
 ;; state has no way out, so we replace the form wholesale instead of leaving
 ;; a zombie form on screen that takes input and ignores it.
-(reg-view ^{:doc "Locked-account panel shown when the login flow reaches :locked-out."}
+(rf/reg-view ^{:doc "Locked-account panel shown when the login flow reaches :locked-out."}
           locked-panel []
   [:div.locked {:data-testid "locked-panel"}
    [:h2 "Account locked"]
@@ -586,7 +585,7 @@
 ;; The top-level switch. It reads two tags off the machine and shows one of
 ;; three faces: a welcome when authed, the locked panel when locked, and the
 ;; form the rest of the time.
-(reg-view ^{:doc "Picks what to show by login state: welcome / locked panel / the form."}
+(rf/reg-view ^{:doc "Picks what to show by login state: welcome / locked panel / the form."}
           login-banner []
   (let [authed? @(rf/machine-has-tag? :auth.login/flow :auth/authenticated)
         locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)]
@@ -596,7 +595,7 @@
        locked? [locked-panel]
        :else   [login-form])]))
 
-(reg-view root-view []
+(rf/reg-view root-view []
   [:div.app
    [:h1 "Sign in"]
    [login-banner]])

@@ -26,9 +26,7 @@
             ;; Loading re-frame.schemas registers its late-bind hooks, which
             ;; is what makes rf/reg-app-schema resolve below.
             [re-frame.schemas]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -51,7 +49,7 @@
 ;; name that frame here. Binding is by id, which is why this works even though
 ;; it runs at ns-load — before the provider has actually created the frame.
 ;; From here on, every commit to the `[:flight]` slice is validated.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:flight] {:schema FlightState}))
 
 ;; ============================================================================
@@ -196,7 +194,7 @@
 ;; VIEW
 ;; ============================================================================
 
-(reg-view flight-booker []
+(rf/reg-view flight-booker []
   (let [trip-type        @(subscribe [:flight/trip-type])
         start-text       @(subscribe [:flight/start-text])
         return-text      @(subscribe [:flight/return-text])

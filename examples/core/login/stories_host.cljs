@@ -51,8 +51,7 @@
             [login.stories]
             ;; The shared Story-host helper, which owns the fiddly bits: the
             ;; live-app↔Story-shell hash router and the React-root handle.
-            [re-frame.testbed.story-host :as story-host])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.testbed.story-host :as story-host]))
 
 ;; -- The live-app frame ----------------------------------------------------
 ;;
@@ -68,7 +67,7 @@
     {:doc          "Login showcase live-app frame."
      :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}}))
 
-(reg-view login-app []
+(rf/reg-view login-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}
    [:p {:style {:font-size "13px" :color "#666" :margin "0 0 1em 0"}}
     "Open "

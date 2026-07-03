@@ -18,8 +18,7 @@
   (:require [re-frame.core :as rf]
             ;; The schemas runtime. Loading it registers the hooks, so
             ;; rf/reg-app-schemas has something to resolve at the call site below.
-            [re-frame.schemas])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+            [re-frame.schemas]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the RealWorld API returns
@@ -144,7 +143,7 @@
 ;; a frame creation or seed. It binds the id at ns-load; the frame itself doesn't
 ;; exist until the provider first renders.
 
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schemas
     {[:auth]                 AuthSlice
      [:auth :login-form]     FormSlice
