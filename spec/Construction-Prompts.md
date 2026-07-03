@@ -3,7 +3,7 @@
 > **Type:** Construction Prompts
 > Per-kind AI-scaffolding templates for new code in the re-frame2 pattern. Sibling to [MIGRATION.md](../migration/from-re-frame-v1/README.md) (which covers upgrades of existing code).
 
-CP-10 (story / variant / workspace) is post-v1; its sketch lives in 007-Stories.md (CP-10 sketch) and the full template lands here when `re-frame.stories` ships.
+CP-10 (story / variant / workspace) scaffolds the Story authoring surface — the `re-frame.story` tools artefact ([`tools/story/`](../tools/story/)) has shipped, so its full template lives in the catalogue below; the design sketch lives in [007-Stories.md](007-Stories.md).
 
 ## Purpose
 
@@ -1048,6 +1048,196 @@ The drain settles before `with-frame` returns; the final state is captured.
 - Page template injects the payload as a `<script>` element with `id="__rf_payload"`.
 - All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
 
+### CP-10. Scaffold a story (story / variant / workspace)
+
+**When to use this prompt:** the user wants to *demonstrate a view in a named state* — an isolated preview of a component, a catalogue of its states for QA or design review, a documentation page, or a headless fixture that a `cljs.test` deftest drives. If you can name the component and the states you want to show it in, you have a **story** (the topic) whose **variants** (the states) render in a **workspace** (the layout). This is re-frame2's Storybook parity surface — but a variant is *pure data*, not a function, so it round-trips as EDN, drives visual-regression, and doubles as a test fixture.
+
+The Story authoring surface lives in the `re-frame.story` tools artefact (`(:require [re-frame.story :as story])`), registered on the tool-owned side-table — `:story` / `:variant` / `:workspace` are **not** framework registry kinds. Enumerate via `(story/registrations :story)` / `:variant` / `:workspace`. See [007-Stories.md](007-Stories.md) for the design and [tools/story/spec/](../tools/story/spec/) for the full library spec.
+
+**Pre-flight delta (in addition to the shared preamble above — the registry is Story's, not the framework registrar's):**
+
+- **Id-shape convention (library-owned prefixes, per [Conventions §Library-owned prefixes](Conventions.md#library-owned-prefixes)):**
+  - Story: `:story.<path>` — dotted segments organise the tool's navigator tree. Examples: `:story.auth.login-form`, `:story.cart.summary`.
+  - Variant: `:story.<path>/<variant>` — always belongs to exactly one story; the story id is everything before `/`. Examples: `:story.auth.login-form/empty`, `:story.auth.login-form/validation-error`.
+  - Workspace: `:Workspace.<Path>/<name>` — a layout artefact. Examples: `:Workspace.Auth/all-states`, `:Workspace.Auth/docs`.
+- **Verify the ids are unused** on the Story side-table: `(story/registrations :story)`, `(story/registrations :variant)`, `(story/registrations :workspace)` (NOT `(rf/registrations ...)` — these kinds are library-owned).
+- **Identify the component.** The `:component` slot on `reg-story` is a **registered `:view` id** — verify it via `(rf/registrations :view)`; if the view doesn't exist yet, scaffold it via CP-4 first.
+- **Identify the events each variant drives.** `:setup` / `:script` steps dispatch registered events — each must be registered (`(rf/registrations :event)`) or scaffolded via CP-1.
+- **Register project tags before use.** A variant `:tags` set may only carry registered tags; the seven canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) auto-register at Story load, but project-specific tags must be `reg-tag`'d first or the variant raises `:rf.error/unknown-tag`.
+
+**Key idea: a variant is data, not a function.** Every field in a variant body is plain data — vectors, maps, keywords, strings — no fn-valued slots. Where Storybook takes a decorator *function*, re-frame2 takes a registered *id* (`story/reg-decorator :centered-layout {...}`); the closure lives at the decorator's registration site, never at the variant call site. This is what makes a variant wire-portable, storable, diffable, and usable as a test fixture. See [007-Stories.md §Variant artefact contract](007-Stories.md#variant-artefact-contract--variants-are-data-not-functions).
+
+**Template — Form A (story + separate variants; hot-reload-friendly):**
+
+```clojure
+(ns my-app.stories.login-form
+  (:require [re-frame.story :as story]))
+
+;; The story — the topic. Declares the component + shared fixtures.
+(story/reg-story :story.auth.login-form
+  {:doc        "The login form component."
+   :component  :app.auth/login-form            ;; a registered :view id (verify via CP-4)
+   :decorators [[:centered-layout]]            ;; id-valued; the closure lives at reg-decorator
+   :args       {:placeholder  "you@example.com"
+                :submit-label "Sign in"}
+   :argtypes   {:placeholder  {:control :text}
+                :submit-label {:control :text}}
+   :tags       #{:dev :docs}})
+
+;; Each variant — one named state. Registers against the parent story;
+;; inherits its decorators/args, overrides by key. :setup is pure data —
+;; a vector of tagged steps settled into the variant's frame in order.
+(story/reg-variant :story.auth.login-form/empty
+  {:doc   "Fresh form, nothing entered."
+   :setup [[:dispatch [:auth/initialise]]]})
+
+(story/reg-variant :story.auth.login-form/validation-error
+  {:doc   "Invalid email shown inline after submit."
+   :setup [[:dispatch [:auth/initialise]]
+           [:dispatch [:auth/email-changed "not-an-email"]]
+           [:dispatch [:auth/login-pressed]]]
+   :tags  #{:dev :docs :test}})               ;; also usable as a test fixture
+```
+
+**Template — Form B (combined; one form per story, desugars to Form A):**
+
+The `:variants` map desugars at macro-expansion time to N independent `reg-variant` calls, so hot-reload-by-variant still works. Choose by ergonomics — both forms are first-class.
+
+```clojure
+(story/reg-story :story.auth.login-form
+  {:doc       "The login form component."
+   :component :app.auth/login-form
+   :args      {:placeholder "you@example.com"}
+   :tags      #{:dev :docs}
+   :variants  {:empty            {:setup [[:dispatch [:auth/initialise]]]}
+               :validation-error {:setup [[:dispatch [:auth/initialise]]
+                                          [:dispatch [:auth/email-changed "not-an-email"]]
+                                          [:dispatch [:auth/login-pressed]]]
+                                  :tags  #{:dev :docs :test}}}})
+```
+
+**Template — composed variant (`:extends` a base by id, override by data):**
+
+```clojure
+(story/reg-variant :story.auth.login-form/loading-with-prefill
+  {:extends :story.auth.login-form/loading    ;; parent variant id; merged at registration
+   :setup   [[:dispatch [:auth/initialise]]
+             [:dispatch [:auth/email-changed "alice@example.com"]]
+             [:dispatch [:auth/password-changed "hunter2"]]
+             [:dispatch [:auth/login-pressed]]]
+   :tags    #{:dev :docs}})
+```
+
+`:extends` resolves at registration (child wins key-by-key, pure-data merge, no inheritance ceremony); it must resolve to a registered variant id, and cycles are a registration error.
+
+**Template — workspace (a layout over variants):**
+
+```clojure
+;; :grid — side-by-side cells (QA / review)
+(story/reg-workspace :Workspace.Auth/all-states
+  {:doc      "Every login-form state side by side, for QA review."
+   :layout   :grid
+   :variants [:story.auth.login-form/empty
+              :story.auth.login-form/validation-error
+              :story.auth.login-form/loading]})
+
+;; :prose — markdown-flavoured documentation page interleaving prose + variants
+(story/reg-workspace :Workspace.Auth/docs
+  {:doc     "Auth flow documentation page."
+   :layout  :prose
+   :content [{:type :prose   :body "## The login flow\n\n..."}
+             {:type :variant :id :story.auth.login-form/empty}
+             {:type :prose   :body "When the email is invalid:"}
+             {:type :variant :id :story.auth.login-form/validation-error}]})
+```
+
+**Stubbing effects for a variant (per-variant, id-valued):** stub an fx via a decorator reference rather than a mocking layer baked into `reg-variant`. The stubbed fx may be the framework-shipped `:rf.http/managed` or a user-supplied fx; the mechanism is the same.
+
+```clojure
+(story/reg-variant :story.auth.login-form/loading
+  {:doc        "Submit pressed, server response pending."
+   :setup      [[:dispatch [:auth/initialise]]
+                [:dispatch [:auth/email-changed "alice@example.com"]]
+                [:dispatch [:auth/login-pressed]]]
+   :decorators [[:force-fx-stub :rf.http/managed {:status :pending}]]})
+```
+
+**Pattern-level discipline (per [007-Stories.md](007-Stories.md)):**
+
+- **Variants are pure data.** No fn-valued slots. Decorators, loaders, and arg→event maps are all id-valued references; the only fn-valued part is the *registered handler* an id points to.
+- **The component and every dispatched event are already registered** (`:view` / `:event` kinds). A story is a demonstration, not a place to define new app behaviour.
+- **Ids follow the library-owned prefixes** (`:story.*` / `:Workspace.*`); the hierarchy is recoverable from the id alone — no separate `:title` field.
+- **Args resolve by precedence:** global < story < variant (deep-merge). Declare shared args once on the story; override per-variant.
+- **A variant tagged `:test`** doubles as a headless fixture — drive it from a `cljs.test` deftest via `run-variant` (Story is Causa/Story CLJS-unit-first; a Playwright spec is the exception, not the default).
+
+**Smoke test (headless via `run-variant`, per [tools/story/spec/Tutorial-CLJS-Unit.md](../tools/story/spec/Tutorial-CLJS-Unit.md)):**
+
+`run-variant` runs the four-phase lifecycle (loaders → events → render → play) and returns a result map; assert on `:lifecycle` + `:app-db` + `:assertions`. It resolves synchronously when the variant has no `:loaders`; drive it under `cljs.test/async` when loaders are present.
+
+```clojure
+(deftest login-form-validation-error-shows-inline
+  (async done
+    (-> (story/run-variant :story.auth.login-form/validation-error)
+        (async-lib/then
+          (fn [result]
+            (is (= :ready (:lifecycle result))
+                "lifecycle reached :ready after the four phases")
+            (is (= :invalid (-> result :app-db :auth :email-status))
+                "the invalid-email setup left the form in the error state")
+            (is (empty? (filter #(false? (:passed? %)) (:assertions result)))
+                "no in-variant :script assertions failed")
+            (story/destroy-variant! :story.auth.login-form/validation-error)
+            (done))))))
+```
+
+**AI-first checklist:**
+
+- Story / variant / workspace ids are namespaced under the library-owned prefixes (`:story.*` / `:Workspace.*`) and unused on the Story side-table.
+- `:component` is a registered `:view` id; every event a `:setup` / `:script` step dispatches is a registered `:event` id.
+- The variant body is **100% data** — no fn-valued slots; decorators/loaders/arg-maps are id-valued references.
+- Every tag in a variant's `:tags` set is registered (canonical tag or `reg-tag`'d project tag).
+- `:extends`, where used, resolves to a registered variant id; no cycles.
+- Each variant has a one-sentence `:doc`.
+- A workspace's `:layout` matches its content slot (`:grid`/`:tabs` → `:variants`; `:prose` → `:content`; `:variants-grid` → enumerated; `:custom` → `:render`).
+- A `:test`-tagged variant is drivable headlessly via `run-variant` (`:lifecycle` reaches `:ready`; asserted `:app-db` / `:assertions`).
+- Registration forms elide in production builds (the `reg-*` macros gate on `re-frame.story.config/enabled?`).
+
+**Example — full worked artefact (story + variants + workspace + a driving deftest):**
+
+```clojure
+(ns my-app.stories.counter
+  (:require [re-frame.story :as story]))
+
+(story/reg-story :story.counter
+  {:doc       "A minimal counter widget."
+   :component :app.counter/widget
+   :tags      #{:dev :docs}})
+
+(story/reg-variant :story.counter/empty
+  {:doc   "Fresh counter at zero."
+   :setup [[:dispatch [:counter/initialise]]]})
+
+(story/reg-variant :story.counter/at-five
+  {:doc    "Counter driven to five, then asserted in-variant."
+   :setup  [[:dispatch [:counter/initialise]]]
+   :script [[:dispatch [:counter/set 5]]
+            [:assert [:rf.assert/path-equals [:count] 5]]]
+   :tags   #{:dev :docs :test}})
+
+(story/reg-workspace :Workspace.Counter/states
+  {:doc      "Counter states side by side."
+   :layout   :grid
+   :variants [:story.counter/empty
+              :story.counter/at-five]})
+
+;; A deftest drives the :test-tagged variant headlessly:
+(deftest counter-at-five-lands-on-five
+  (let [result (story/run-variant :story.counter/at-five)]  ;; sync — no :loaders
+    (is (= :ready (:lifecycle result)))
+    (is (= 5 (-> result :app-db :count)))
+    (story/destroy-variant! :story.counter/at-five)))
+```
+
 ### CP-11. Register an interceptor
 
 **When to use this prompt:** the user wants a piece of **full-context program behaviour** that runs around event handlers — an auth gate, an audit log, trace-payload redaction, a coeffect injection, an effect rewrite, a focus on an `app-db` sub-slice. Event registration is one `reg-event` form, with `context -> context` work expressed as interceptors ([EP-0018](../docs/EP/EP-0018-one-event-registration.md)); an interceptor is **load-bearing program structure** — a first-class **registered** member, authored once with `reg-interceptor` and referenced from event/frame `:interceptors` chains by id ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md)). Reach for this whenever a behaviour must wrap *more than one* handler, or must be named, addressable, override-able, and visible in tooling. A one-off transform that belongs to a single handler stays inside that handler's body — interceptors are for cross-cutting, reusable behaviour.
@@ -1228,4 +1418,5 @@ The [7GUIs example series](../examples/core/seven_guis/README.md) and the [login
 | CP-7 (route) | [Routing example](../examples/capabilities/routing/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:rf.route/navigate`, `:rf.route/handle-url-change`, `route-link`, server-and-client-shared handler |
 | CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../examples/core/login/core.cljs) and [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) also attach event schemas |
 | CP-9 (SSR setup) | [SSR example](../examples/capabilities/ssr/ssr/core.cljc) — single `.cljc` file demonstrating both server (`handle-request` returning HTML+payload) and client (`:rf/hydrate` seeding) flows; JVM-runnable smoke test |
+| CP-10 (story) | The [Story CLJS-unit tutorial](../tools/story/spec/Tutorial-CLJS-Unit.md) walks a `reg-story` + `reg-variant` + `run-variant`-driven deftest end to end; the [Xray panel-gallery testbeds](../tools/xray/testbeds/panel_gallery/) register real `story/reg-story` / `reg-variant` artefacts across the panel surface (Story lives in `tools/story/`, not `examples/`) |
 | CP-11 (interceptor) | [Circle Drawer](../examples/core/seven_guis/circle_drawer/core.cljs) registers the `:undoable` static interceptor (`{:before :after}`) and references it by id from undoable events. (RealWorld's auth gate is NOT an interceptor — auth-on-a-route is the declarative `:can-enter` guard per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol); interceptors are for cross-cutting policy spanning many routes.) |
