@@ -36,7 +36,10 @@ These rows are **pattern-required** in [000 §Host-profile matrix](000-Vision.md
 | **View contract** | Pure `(state, props) → render-tree`; render-tree is serialisable data | [004](004-Views.md) |
 | **Trace event stream** | Structured events from well-defined emit sites | [009](009-Instrumentation.md) |
 | **Error contract** | Structured trace events for runtime failures (handler exceptions, schema validation, drain depth, no-such-handler, ...) | [009 §Error contract](009-Instrumentation.md#error-contract) |
+| **Runtime shape policing** | Proactive, trace-emitting rejection of malformed framework-boundary shapes — closed effect-map top-level keys, classification-effect payloads, `input-fn` returns, interceptor refs, dispatch opts — **not dischargeable by static types** (they erase at the runtime boundary) | [002](002-Frames.md), [009 §Error contract](009-Instrumentation.md#error-contract) |
 | **Conformance corpus consumption** | Run the corpus against the implementation; report passes per claimed capability | [conformance/README](conformance/README.md) |
+
+**Two validation planes — keep them apart.** The row above (**runtime shape policing**) is the framework proactively rejecting malformed shapes at its *own* contract boundaries — a plane distinct from the **user-declared schema validation** of [Q4](#q4-schemas). The policing plane is pattern-required in **every** host and cannot be delegated to the host type system: the malformed shapes reach the runtime across the fixture DSL, the wire (hydration payloads, deserialised JSON), and hot-swapped handlers — *after* static types have erased — so a typed port with a lenient boundary still fails the `:core/*` fixtures that exercise it (`effect-map-shape-bad-top-level-key` requires the runtime to emit `:rf.error/effect-map-shape`, drop the offending key, and still apply `:db`). Answering Q4 *yes-via-host-types* or *no* scopes only the user-schema plane; it never removes this obligation.
 
 ### Optional (declare yes/no; conformance is graded against the claimed list)
 
@@ -70,7 +73,9 @@ In **dynamically typed in-scope hosts** (CLJS, Squint) this is a runtime schema 
 
 **Three answers, not two:** *yes-runtime-schema*, *yes-via-host-types*, or *no*. The pattern requires *shape description*; the mechanism is host-discretion (per [000 §Host-profile matrix](000-Vision.md#host-profile-matrix)).
 
-**Gate:** does the host have a strong static type system that already describes the runtime shapes? If yes, "yes-via-host-types" is usually the right answer.
+**Q4 governs the user-schema plane only.** These three answers scope **validation of your declared schemas** ([010](010-Schemas.md)) — `app-db` shapes, event args, sub returns. They do **not** touch the framework's own [runtime shape policing](#required-not-gated-every-implementation-ships-these) of its boundary contracts (closed effect-map, classification payloads, `input-fn` returns, interceptor refs, dispatch opts), which is a [Required](#required-not-gated-every-implementation-ships-these) obligation in every host *regardless of the Q4 answer*. A static type system describes your schemas at *compile* time; it cannot police shapes that cross the runtime boundary after types have erased — so "yes-via-host-types" is a legitimate answer for the user-schema plane, never a way to discharge the policing plane.
+
+**Gate:** does the host have a strong static type system that already describes the *user-declared* runtime shapes? If yes, "yes-via-host-types" is usually the right answer **for this plane** — the framework's boundary policing above is unaffected.
 
 #### Q5. Stories?
 
