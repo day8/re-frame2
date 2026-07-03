@@ -3562,7 +3562,7 @@ In XState the lifecycle binding is **total and substrate-agnostic**: stopping an
 
 The substitute is **re-frame-native and rides the same destroy cascade**: bind the resource's teardown to the child's **`:exit` action**. On destroy the runtime runs the actor's `:exit` before dissociating its snapshot (per [§Spawning](#spawning--dynamic-actors) and the `:rf.machine/destroy` semantics in [§Action effect map](#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx)), so an `:exit` action that emits the matching cancel fx (close the socket, `clearInterval`, terminate the worker, unsubscribe) releases the resource on *every* code path out of the state — including the `:after`-timeout, join-resolution sibling cancel, and frame-destroy paths, all of which route through the same teardown. The general rule:
 
-> Auto-cancel on destroy covers `:rf.http/managed` requests and `:after` timers only. For any other lifecycle-bound resource a child actor holds, write an `:exit` action that releases it — it then cancels on the same destroy cascade as the two built-in kinds.
+> Auto-cancel on destroy covers exactly three framework-managed kinds: `:rf.http/managed` requests, `:after` timers, and `:rf.resource/*` owner leases held under `[:machine <actor-id>]`. For any other lifecycle-bound resource a child actor holds, write an `:exit` action that releases it — it then cancels on the same destroy cascade as the three built-in kinds.
 
 ### Why one mechanism, not two
 
