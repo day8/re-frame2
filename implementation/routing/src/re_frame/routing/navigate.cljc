@@ -37,8 +37,11 @@
   "Keys the trailing `opts` map recognises (Spec 012 §Navigation is an
   event) that are NOT path-param names. An occurrence of one of these in
   the PARAMS slot — and not as a declared path-param of the target route
-  — is the classic params/opts swap and is rejected (rf2-1os1c)."
-  #{:replace? :scroll :fragment :bypass-leave-guard?})
+  — is the classic params/opts swap and is rejected (rf2-1os1c).
+  `:bypass-guards?` (rf2-p69yaz point 8) is the SET-valued rename of the
+  former single `:bypass-leave-guard?` opt — it skips `:leave` / `:enter`
+  / both guards for one navigation."
+  #{:replace? :scroll :fragment :bypass-guards?})
 
 (defn- misplaced-opts-keys
   "Disambiguate the params/opts positional swap (rf2-1os1c). Returns the
@@ -468,15 +471,17 @@
                          frame (assoc :frame frame)))
           {})
 
-        ;; Leave-guard check runs first (mirrors the URL-driven path,
-        ;; where `maybe-block-navigation` precedes `url-change-fx`): a
-        ;; blocked guard wins even over a rule-3 no-op so the pending-nav
-        ;; protocol stays uniform across both entry points.
+        ;; The navigation gate runs first (mirrors the URL-driven path,
+        ;; where `maybe-block-navigation` precedes `url-change-fx`): it
+        ;; evaluates the current route's `:can-leave` THEN the target's
+        ;; `:can-enter` (rf2-p69yaz Option A). A blocked guard wins even
+        ;; over a rule-3 no-op so the pending-nav protocol stays uniform
+        ;; across both entry points.
         :else
         (if-let [blocked (can-leave/maybe-block-navigation
                            rdb frame
                            event-vec url
-                           (:bypass-leave-guard? opts)
+                           (:bypass-guards? opts)
                            pending-nav-allocation)]
           blocked
           (if identical-nav?

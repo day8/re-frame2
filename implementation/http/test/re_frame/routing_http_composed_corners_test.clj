@@ -261,7 +261,7 @@
 ;;    stays canonical (no orphans from the cancelled-and-resumed branch)
 ;;
 ;; The continue branch re-issues the original navigation with
-;; :bypass-leave-guard? true. The nav-token advances on the new
+;; :bypass-guards? #{:leave}. The nav-token advances on the new
 ;; :rf.route/transitioned; any in-flight managed HTTP from before the
 ;; pending-nav cycle is still in the registry until naturally aborted /
 ;; resolved — but the continued nav's own HTTP requests are tracked
