@@ -259,7 +259,7 @@ This is why `:spawn` is worth using instead of firing an HTTP request from a pla
 2. **The parent's `:after` firing** — a wall-clock timeout (next section) is just a state exit.
 3. **`:spawn-all` cancel-on-decision** — surviving siblings are torn down when the join resolves.
 4. **Imperative `[:rf.machine/destroy <id>]`**.
-5. **Frame destroy** — when the [frame is torn down](glossary.md#snapshot) (e.g. the view unmounts), every surviving machine in it is destroyed. This is the "navigating away cleans up the previous screen" guarantee — you don't wire abort calls into route-leave handlers.
+5. **Frame destroy** — when the [frame is torn down](glossary.md#snapshot) by an explicit `destroy-frame!`, every surviving machine in it is destroyed. Note that **a frame is not destroyed by a view unmounting or by navigating away** — frames [survive unmount by design](../core/concepts/frames.md) (tearing one down is a deliberate `destroy-frame!`, not a cleanup effect). So this trigger fires when a component that *owns* a frame's whole lifetime destroys it (a modal with a throwaway world torn down on close), or when a per-request SSR frame is disposed at end-of-request — not on every route change. Cross-route teardown of a machine's resources rides its `:exit` cascade (triggers 1–4 above), which is why you don't wire abort calls into route-leave handlers even though the frame itself lives on.
 
 ### What auto-cancels — and what you wire by hand
 

@@ -77,7 +77,9 @@
 (rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth)."
    :tags      #{:requires-auth}
-   :on-match  [[:editor/initialise]]
+   ;; Per-entry SLICE reset (not :editor/initialise): the :editor/can-submit?
+   ;; flow is a boot-time singleton, so each visit only wipes the slice.
+   :on-match  [[:editor/reset]]
    :can-leave [:editor/can-leave?]
    :can-enter [:realworld.routing/authed?]} "/editor")
 
