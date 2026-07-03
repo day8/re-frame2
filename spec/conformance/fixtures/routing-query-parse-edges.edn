@@ -1,0 +1,47 @@
+;; Conformance fixture: routing/query-parse-edges
+;;
+;; Pins the three query-string parse edges that two URLSearchParams-reasonable
+;; ports would otherwise diverge on corpus-green (rf2-5u1r6a, folding the
+;; second-implementor finding-3 rider): duplicate keys, a bare key with no
+;; `=`, and a value carrying an embedded `=`. Mirrors routing-plus-decode.edn's
+;; structure — pure match-url calls, string-keyed :query (the route declares
+;; no :query vocabulary, so the keyword-interning DoS closure keeps every key
+;; a string).
+;;
+;; Per [012 §Query strings and fragments §`+` is a literal](../../012-Routing.md#-is-a-literal).
+
+{:fixture/id           :routing/query-parse-edges
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url}
+ :fixture/doc          "Query-string parse edges: duplicate keys (last-wins), a bare key (present-empty), and a value with an embedded `=` (split on the first `=` only). Undeclared keys stay strings (selective-keywording DoS closure)."
+
+ :fixture/registry
+ {:route
+  ;; No :query vocabulary declared → every URL query key stays a string
+  ;; (the keyword-interning DoS closure). The edges below are asserted on
+  ;; the raw string-keyed slice, host-identical.
+  {:route/q {:path "/q"}}}
+
+ :fixture/calls
+ [;; (1) Duplicate keys — LAST occurrence wins. `?a=1&a=2` → {"a" "2"}.
+  {:call :match-url :url "/q?a=1&a=2"
+   :expect {:route-id :route/q :params {} :query {"a" "2"} :fragment nil :validation-failed? false}}
+
+  ;; (2) A bare key (no `=`) is PRESENT-EMPTY. `?flag` → {"flag" ""}.
+  {:call :match-url :url "/q?flag"
+   :expect {:route-id :route/q :params {} :query {"flag" ""} :fragment nil :validation-failed? false}}
+
+  ;; (3) Split on the FIRST `=` only — later `=` are literal value chars.
+  ;; `?next=/a=b` → {"next" "/a=b"}, NOT {"next" "/a"}.
+  {:call :match-url :url "/q?next=/a=b"
+   :expect {:route-id :route/q :params {} :query {"next" "/a=b"} :fragment nil :validation-failed? false}}
+
+  ;; Compose (1)+(2)+(3): last-wins across a bare and an `=`-valued dup, plus
+  ;; the empty-pair filter (`&&`) from the sibling routing-plus-decode.edn.
+  {:call :match-url :url "/q?k=x&&flag&k=y=z"
+   :expect {:route-id :route/q :params {} :query {"k" "y=z" "flag" ""} :fragment nil :validation-failed? false}}
+
+  ;; Present-empty value (`?foo=`) stays distinct from a bare key — both are
+  ;; "" but this row pins the `=`-with-no-value case explicitly for contrast.
+  {:call :match-url :url "/q?foo="
+   :expect {:route-id :route/q :params {} :query {"foo" ""} :fragment nil :validation-failed? false}}]}

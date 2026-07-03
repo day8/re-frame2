@@ -1515,42 +1515,29 @@
                      (if all-present?
                        (let [[i' parts'] (emit-group (inc i) parts)]
                          (recur i' parts'))
-                       ;; rf2-8zvajk: ELIDE the group — and own the
-                       ;; separator-slash elision so a slash-OWNED inline
-                       ;; group (`{:base}?`, body without a leading `/`) does
-                       ;; not orphan a literal `/`. The grammar permits two
-                       ;; optional-group shapes (Spec 012 §Path-pattern grammar
-                       ;; rule 2 + `validate-optional-group!`): the group either
-                       ;; OWNS its leading slash (`{/:id}?` — the `/` is inside
-                       ;; the body, so eliding the body drops it cleanly) or is
-                       ;; SLASH-OWNED INLINE (`{:base}?` — bracketed by LITERAL
-                       ;; `/`s in the surrounding pattern, e.g. `/{:base}?/about`
-                       ;; or `/docs/{:section}?/about`). Spec 012's own
-                       ;; ranking-rule-5 example uses the inline shape
-                       ;; (`/about` beats `/{:base}?/about`), so it is
-                       ;; spec-endorsed and cannot be rejected at registration.
-                       ;; For the inline shape the present form is
-                       ;; `/before/<v>/after`; the absent form must collapse to
-                       ;; `/before/after` (one separator, not two). Without this,
-                       ;; the prior emitter left BOTH literal slashes, producing
-                       ;; `//about` — a PROTOCOL-RELATIVE URL (`route-link` would
-                       ;; render `href="//about"`, a modifier-click escapes the
-                       ;; app; programmatic `pushState` skips/rejects it, so the
-                       ;; route slice and the address bar diverge).
+                       ;; ELIDE the group. Per rf2-5u1r6a the ONLY accepted
+                       ;; optional-group spelling is slash-INSIDE (`{/:id}?`,
+                       ;; `{/:base}?` — rf2-av1): the group OWNS its leading
+                       ;; slash inside the body, so eliding the whole group
+                       ;; drops that slash cleanly and can never orphan a
+                       ;; bracketing literal `/`. The slash-OUTSIDE inline
+                       ;; spelling (`{:base}?` between literal `/`s, e.g.
+                       ;; `/{:base}?/about`) — which rf2-8zvajk once accepted
+                       ;; and which is what produced the `//about`
+                       ;; protocol-relative-URL footgun on elision — is now
+                       ;; REJECTED at registration by `validate-optional-group!`,
+                       ;; so it can no longer reach this emitter.
                        ;;
-                       ;; Rule: the slash BEFORE the elided group is redundant
-                       ;; when the group is followed by a separator `/` (the
-                       ;; trailing slash supplies the join) or when nothing
-                       ;; follows (a dangling trailing `/`). Pop that leading
-                       ;; separator unless it is the lone ROOT slash (so
-                       ;; `/{:base}?` absent stays `/`, never `""`). A
-                       ;; slash-OWNING group (`{/:id}?`) has a NON-slash char
-                       ;; before `{` (`...articles{` → last part `"articles"`),
-                       ;; so the guard is a no-op for it — its existing clean
-                       ;; elision is unchanged. A global `//`→`/` collapse is
-                       ;; deliberately NOT used: a splat value legitimately
-                       ;; carries embedded `//` (`{:rest "a//b"}` → `/files/a//b`)
-                       ;; and must survive.
+                       ;; The separator-elision guard below is retained as
+                       ;; defence-in-depth: for a slash-INSIDE group the char
+                       ;; before `{` is a NON-slash (`...articles{` → last part
+                       ;; `"articles"`), so `prev-slash?` is false and the
+                       ;; guard is a no-op — the clean body elision stands. It
+                       ;; only ever fires for a would-be slash-outside shape,
+                       ;; which is now unreachable; a global `//`→`/` collapse
+                       ;; is still deliberately NOT used because a splat value
+                       ;; legitimately carries embedded `//` (`{:rest "a//b"}`
+                       ;; → `/files/a//b`) and must survive.
                        (let [prev-slash? (= "/" (peek parts))
                              next-slash? (and (< close-end n)
                                               (= \/ (.charAt ^String pattern close-end)))
@@ -1584,7 +1571,15 @@
 
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
-           path-out (apply str parts)
+           ;; rf2-5u1r6a: a pattern whose ENTIRE path is a leading optional
+           ;; group (`{/:base}?`) elides to the empty string when the param
+           ;; is absent — but the empty string is not a URL. Normalise it to
+           ;; the root `/` (the group's own leading slash is the only slash
+           ;; the pattern carries, so its absence lands at root). This is the
+           ;; slash-INSIDE analogue of the old slash-outside `root-only?`
+           ;; guard; `{/:base}?` absent → `/`, present → `/x`.
+           path-out (let [s (apply str parts)]
+                      (if (= "" s) "/" s))
            ;; rf2-w3qgc: `emitted-query` (the nil-elided query map) is
            ;; computed once at the top of the fn so the SAME elided map
            ;; both feeds `:query`-schema validation AND drives URL emission.

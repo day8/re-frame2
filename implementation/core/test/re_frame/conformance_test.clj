@@ -188,6 +188,11 @@
     ;; `inject-cofx`).
     :schemas/cofx
     :routing/ranking
+    ;; rf2-5u1r6a — the path-pattern registration-validation surface
+    ;; (`routing-pattern-validation.edn`): malformed patterns throw
+    ;; :rf.error/invalid-route-pattern; the canonical optional-group spelling
+    ;; is slash-inside; the slash-outside drift is rejected. Mode-B :reg-route.
+    :routing/pattern-validation
     :routing/fragment
     :routing/blocking
     :routing/nav-token
@@ -1184,6 +1189,37 @@
       {:passed? (= (:url call) rebuilt)
        :detail  (when (not= (:url call) rebuilt)
                   (str "round-trip " (:url call) " → " rebuilt))})
+
+    ;; Mode-B route-pattern validation (rf2-5u1r6a). Pins the path-grammar
+    ;; registration-error surface (Spec 012 §Path-pattern grammar + 009
+    ;; §The thrown-error shape) against the PURE `validate-route-pattern!`
+    ;; validator — no registrar, no navigation. `:pattern` is the raw `:path`
+    ;; string; `:expect-error :rf.error/invalid-route-pattern` ⇒ the validator
+    ;; must throw an ex-info whose `:rf.error/id` slot equals that id (a
+    ;; malformed pattern OR the rejected slash-outside optional-group spelling);
+    ;; absent `:expect-error` ⇒ a well-formed pattern that must NOT throw.
+    ;; Mirror of the `:reg-machine` / `:reg-frame` Mode-B convention.
+    :reg-route
+    (let [validate! (requiring-resolve 're-frame.routing.match/validate-route-pattern!)
+          want-error (:expect-error call)
+          thrown     (try (validate! (:route-id call :rf.test/pattern) (:pattern call)) nil
+                          (catch clojure.lang.ExceptionInfo e e)
+                          (catch Throwable e e))]
+      (if want-error
+        (let [got-id (when (instance? clojure.lang.ExceptionInfo thrown)
+                       (:rf.error/id (ex-data thrown)))
+              ok?    (= want-error got-id)]
+          {:passed? ok?
+           :detail  (when-not ok?
+                      (str "reg-route " (pr-str (:pattern call)) "\n"
+                           "    expected error :rf.error/id: " want-error "\n"
+                           "    actual   error :rf.error/id: " got-id "\n"
+                           "    thrown:                       " (some-> thrown ex-message)))})
+        {:passed? (nil? thrown)
+         :detail  (when (some? thrown)
+                    (str "reg-route " (pr-str (:pattern call)) "\n"
+                         "    expected: no error (well-formed pattern)\n"
+                         "    thrown:   " (ex-message thrown)))}))
 
     ;; rank-vs-rank assertion: both winner and loser exist; winner's rank
     ;; tuple compares greater than loser's via lex compare.

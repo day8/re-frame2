@@ -3200,9 +3200,27 @@ The canonical **path-pattern grammar** for `reg-route`'s `:path` value. Per [012
   ;; The shape is a string — the schema below is descriptive (a regex constraint), not structural.
   ;; A formal data-form grammar (vector-of-segments) is post-v1; this string
   ;; form is the v1 contract.
+  ;;
+  ;; A pattern is the root `/`, or one-or-more ELEMENTS with an optional
+  ;; trailing `/`. An element is either a `/`-prefixed segment (literal,
+  ;; `/:param`, or splat `/*name` / bare `/*`) OR a slash-INSIDE optional
+  ;; group `{/…}?` (rf2-av1 / rf2-5u1r6a — the group wraps a slash-prefixed
+  ;; sub-pattern, so the `/` lives inside the braces). Elements compose in any
+  ;; order: a group may LEAD (`{/:base}?/about`), TRAIL (`/articles/:id{/:slug}?`),
+  ;; or sequence (`/docs{/:section}?{/:page}?`). The slash-OUTSIDE spelling
+  ;; (`/{:base}?/about`) is NOT accepted.
   [:and :string
-   [:re #"^(?:/|(?:/(?:[^:*{}/?][^/?{}]*|:[a-zA-Z][a-zA-Z0-9_-]*|\*[a-zA-Z][a-zA-Z0-9_-]*|\{/[^/{}]+\}\?))+/?)$"]])
+   [:re #"^(?:/|(?:(?:/(?:[^:*{}/?][^/?{}]*|:[a-zA-Z][a-zA-Z0-9_-]*|\*(?:[a-zA-Z][a-zA-Z0-9_-]*)?)|\{(?:/(?:[^:*{}/?][^/?{}]*|:[a-zA-Z][a-zA-Z0-9_-]*))+\}\?)+/?))$"]])
 ```
+
+The regex is descriptive, not exhaustive: the two **context-sensitive** grammar
+constraints — a splat must be the *final* segment, and at most one splat may
+appear — are enforced by the imperative registration-time validator
+(`re-frame.routing.match/validate-route-pattern!`), which throws
+`:rf.error/invalid-route-pattern` (per [012 §Path-pattern grammar](012-Routing.md#path-pattern-grammar-canonical)).
+The regex pins the *lexical* shape (segment / param / splat / optional-group
+spelling); the validator adds the ordering and cardinality rules a flat regex
+cannot express.
 
 Productions (per 012):
 
@@ -3211,8 +3229,8 @@ Productions (per 012):
 | `/` (root) | Root pattern. |
 | `/literal` | Literal segment. |
 | `/:name` | Named param segment. |
-| `{/:name}?` or `{/literal}?` | Optional segment group; final group only; not nested. |
-| `/*name` | Catch-all (splat); must be the final segment; at most one per pattern. |
+| `{/:name}?` or `{/literal}?` | Optional segment group; the `/` lives INSIDE the braces (slash-inside). May lead, trail, or sequence; not nested. |
+| `/*name` | Catch-all (splat); must be the final segment; at most one per pattern. `/*` (unnamed) is the bare catch-all. |
 
 Implementations register this schema via `reg-app-schema [:rf/route-pattern]` so a route's `:path` value can be validated at registration time and the conformance harness can lint route tables.
 
