@@ -124,7 +124,7 @@ Per-`:id` variant keys:
 
 | Key | Required | Meaning |
 |---|---|---|
-| `:spec` | yes | Presentation-ready join-spec — `{:node-id <string> :join <:all\|:any\|{:n N}\|{:fn _}> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present (and `:node-id` is set) the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state. The host (Xray) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. No `:node-id` → dormant. |
+| `:spec` | yes | Presentation-ready join-spec — `{:node-id <string> :join <:all\|:any> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present (and `:node-id` is set) the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state. The host (Xray) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. No `:node-id` → dormant. |
 | `:on-child-click` | no | `(fn [child-key] ...)`. Fires on a join-inspector child-row click; Xray pivots to the child instance. |
 
 **`:id :cancellation-cascade`** (rf2-3ow55) — cancellation cascade waterfall.

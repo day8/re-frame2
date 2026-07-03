@@ -3,9 +3,11 @@
   `:spawn-all` spawn-and-join surface that gives parallel-region
   state-machines a single declarative shape.
 
-  The test scenarios cover the four join-condition shapes
-  (:all / :any / {:n N} / {:fn pred}) plus cancel-on-decision
-  semantics and registration-time validation.
+  The test scenarios cover the CLOSED two-member join grammar
+  (:all default + :any — rf2-w8gxxz cut {:n N} / {:fn pred} /
+  :cancel-on-decision?), unconditional sibling cancellation on the join
+  decision, and registration-time validation (including that a removed
+  mode is now REJECTED as an unknown join spec).
 
   Children dispatch their completion via [<parent-id> [:on-child-done
   <child-id> & extra]] (or :on-child-error). The runtime intercepts
@@ -146,47 +148,6 @@
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots c-id])))
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :spawned :sup/fail-test [:hydrating]])))))))
 
-;; ---- :join {:n N} fires :on-some-complete and cancels extras ------------
-
-(deftest join-n-of-fires-some-complete-and-cancels-extras
-  (testing ":join {:n 3} fires :on-some-complete after 3rd :go; remaining 2 cancelled"
-    (let [child  (mk-child :sup/n-test :done :failed)
-          parent {:initial :idle
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working
-                   {:spawn-all
-                    {:children         [{:id :a :machine-id :child/na :start [:set-id :a]}
-                                        {:id :b :machine-id :child/nb :start [:set-id :b]}
-                                        {:id :c :machine-id :child/nc :start [:set-id :c]}
-                                        {:id :d :machine-id :child/nd :start [:set-id :d]}
-                                        {:id :e :machine-id :child/ne :start [:set-id :e]}]
-                     :join             {:n 3}
-                     :on-child-done    :done
-                     :on-child-error   :failed
-                     :on-some-complete [:phase/three-done]}
-                    :on    {:phase/three-done :ready}}
-                   :ready  {}}}]
-      (doseq [k [:child/na :child/nb :child/nc :child/nd :child/ne]]
-        (rf/reg-machine k child))
-      (rf/reg-machine :sup/n-test parent)
-      (rf/dispatch-sync [:sup/n-test [:start]])
-      (let [jstate (get-in (frame-db) [:rf.runtime/machines :spawned :sup/n-test [:working]])
-            ids    (:children jstate)]
-        (is (= 5 (count ids)))
-        (rf/dispatch-sync [(:a ids) [:go]])
-        (rf/dispatch-sync [(:b ids) [:go]])
-        (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/n-test [:working]])]
-          (is (= 2 (count (:done j))))
-          (is (false? (:resolved? j))))
-        (rf/dispatch-sync [(:c ids) [:go]])
-        (is (= :ready (:state (snapshot :sup/n-test))))
-        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:d ids)])))
-        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:e ids)])))
-        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:a ids)])))
-        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:b ids)])))
-        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:c ids)])))))))
-
 ;; ---- :join :any fires :on-some-complete on first child ------------------
 
 (deftest join-any-fires-on-first-child
@@ -217,46 +178,12 @@
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:a ids)])))
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:c ids)])))))))
 
-;; ---- :join {:fn pred} fires when predicate returns truthy ----------------
-
-(deftest join-fn-pred-fires-when-truthy
-  (testing ":join {:fn (fn [{:keys [done failed]}] (>= (count done) 2))} fires when 2+ done"
-    (let [child  (mk-child :sup/fn-test :done :failed)
-          parent {:initial :idle
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working
-                   {:spawn-all
-                    {:children         [{:id :a :machine-id :child/fna :start [:set-id :a]}
-                                        {:id :b :machine-id :child/fnb :start [:set-id :b]}
-                                        {:id :c :machine-id :child/fnc :start [:set-id :c]}]
-                     :join             {:fn (fn [{:keys [done]}] (>= (count done) 2))}
-                     :on-child-done    :done
-                     :on-child-error   :failed
-                     :on-some-complete [:phase/two-done]}
-                    :on    {:phase/two-done :ready}}
-                   :ready {}}}]
-      (doseq [k [:child/fna :child/fnb :child/fnc]]
-        (rf/reg-machine k child))
-      (rf/reg-machine :sup/fn-test parent)
-      (rf/dispatch-sync [:sup/fn-test [:start]])
-      (let [ids (:children (get-in (frame-db) [:rf.runtime/machines :spawned :sup/fn-test [:working]]))]
-        (rf/dispatch-sync [(:a ids) [:go]])
-        ;; After 1 done, predicate returns false — no resolution.
-        (is (= :working (:state (snapshot :sup/fn-test))))
-        (rf/dispatch-sync [(:b ids) [:go]])
-        ;; After 2 done, predicate returns true — fires :on-some-complete.
-        (is (= :ready (:state (snapshot :sup/fn-test))))
-        ;; :c was cancelled.
-        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:c ids)])))))))
-
 ;; ---- unsatisfiable join warning ------------------------------------------
 ;;
-;; A {:n N} / {:fn} (or :all / :any) join with NO :on-any-failed silently
-;; hangs forever once enough children fail that the success condition is
-;; unreachable. The runtime emits a one-shot
-;; :rf.warning/spawn-all-join-unsatisfiable on the fold that first makes the
-;; join unsatisfiable.
+;; An :all / :any join with NO :on-any-failed silently hangs forever once
+;; enough children fail that the success condition is unreachable. The
+;; runtime emits a one-shot :rf.warning/spawn-all-join-unsatisfiable on the
+;; fold that first makes the join unsatisfiable.
 
 (defn- record-warnings!
   "Register a listener capturing :rf.warning/spawn-all-join-unsatisfiable
@@ -269,54 +196,50 @@
             (swap! a conj ev))))
     [a #(trace-tooling/unregister-listener! k)]))
 
-(deftest n-of-join-unsatisfiable-after-failures-warns
-  (testing "C5: a {:n 3} join with no :on-any-failed warns once when failures
-            make 3-done unreachable (and the parent stays hung)"
+(deftest all-join-unsatisfiable-after-failure-warns
+  (testing "C5: an :all join with no :on-any-failed warns once when a failure
+            makes all-done unreachable (and the parent stays hung)"
     (let [[warns unregister!] (record-warnings! ::unsat-n)
           child  (mk-child :sup/unsat-n :done :failed)
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
                    :working
-                   ;; 4 children, need 3 done, NO :on-any-failed.
+                   ;; 3 children, need ALL done, NO :on-any-failed.
                    {:spawn-all
                     {:children         [{:id :a :machine-id :child/un-a :start [:set-id :a]}
                                         {:id :b :machine-id :child/un-b :start [:set-id :b]}
-                                        {:id :c :machine-id :child/un-c :start [:set-id :c]}
-                                        {:id :d :machine-id :child/un-d :start [:set-id :d]}]
-                     :join             {:n 3}
+                                        {:id :c :machine-id :child/un-c :start [:set-id :c]}]
+                     :join             :all
                      :on-child-done    :done
                      :on-child-error   :failed
-                     :on-some-complete [:phase/done]}
+                     :on-all-complete  [:phase/done]}
                     :on    {:phase/done :ready}}
                    :ready {}}}]
       (try
-        (doseq [k [:child/un-a :child/un-b :child/un-c :child/un-d]]
+        (doseq [k [:child/un-a :child/un-b :child/un-c]]
           (rf/reg-machine k child))
         (rf/reg-machine :sup/unsat-n parent)
         (rf/dispatch-sync [:sup/unsat-n [:start]])
         (let [ids (:children (get-in (frame-db) [:rf.runtime/machines :spawned :sup/unsat-n [:working]]))]
-          ;; one done (need 3 of 4 — still satisfiable: 1 done + 3 pending = 4 ≥ 3)
+          ;; one done (need all 3 — still satisfiable, no failures yet)
           (rf/dispatch-sync [(:a ids) [:go]])
           (is (empty? @warns) "still satisfiable after 1 done — no warning yet")
-          ;; one fail → 1 done, 1 failed, 2 pending → max-possible = 3 ≥ 3 (still OK)
+          ;; one fail → :all can never complete (a failed child never joins :done) → UNSAT
           (rf/dispatch-sync [(:b ids) [:fail]])
-          (is (empty? @warns) "still satisfiable after 1 fail — no warning yet")
-          ;; second fail → 1 done, 2 failed, 1 pending → max-possible = 2 < 3 → UNSAT
-          (rf/dispatch-sync [(:c ids) [:fail]])
           (is (= 1 (count @warns))
               "exactly one :rf.warning/spawn-all-join-unsatisfiable on the fold that broke it")
           ;; a further fail must NOT re-warn (one-shot)
-          (rf/dispatch-sync [(:d ids) [:fail]])
+          (rf/dispatch-sync [(:c ids) [:fail]])
           (is (= 1 (count @warns)) "no duplicate warning on subsequent failures")
           (is (= :working (:state (snapshot :sup/unsat-n)))
               "the parent stays hung on the :spawn-all state (the documented footgun)")
           (let [w (first @warns)]
             (is (= :sup/unsat-n (get-in w [:tags :actor-id])))
-            (is (= {:n 3} (get-in w [:tags :join])))))
+            (is (= :all (get-in w [:tags :join])))))
         (finally (unregister!))))))
 
-(deftest n-of-join-with-on-any-failed-does-not-warn
+(deftest all-join-with-on-any-failed-does-not-warn
   (testing "C5 control: a join WITH :on-any-failed resolves on the first
             failure, so the unsatisfiable warning never fires"
     (let [[warns unregister!] (record-warnings! ::unsat-guarded)
@@ -328,19 +251,18 @@
                    {:spawn-all
                     {:children         [{:id :a :machine-id :child/gn-a :start [:set-id :a]}
                                         {:id :b :machine-id :child/gn-b :start [:set-id :b]}
-                                        {:id :c :machine-id :child/gn-c :start [:set-id :c]}
-                                        {:id :d :machine-id :child/gn-d :start [:set-id :d]}]
-                     :join             {:n 3}
+                                        {:id :c :machine-id :child/gn-c :start [:set-id :c]}]
+                     :join             :all
                      :on-child-done    :done
                      :on-child-error   :failed
-                     :on-some-complete [:phase/done]
+                     :on-all-complete  [:phase/done]
                      :on-any-failed    [:phase/failed]}
                     :on    {:phase/done   :ready
                             :phase/failed :error}}
                    :ready {}
                    :error {}}}]
       (try
-        (doseq [k [:child/gn-a :child/gn-b :child/gn-c :child/gn-d]]
+        (doseq [k [:child/gn-a :child/gn-b :child/gn-c]]
           (rf/reg-machine k child))
         (rf/reg-machine :sup/guarded-n parent)
         (rf/dispatch-sync [:sup/guarded-n [:start]])
@@ -400,7 +322,7 @@
                            {:s {:spawn-all {:children        [{:id :x :machine-id :foo}]
                                              :on-child-done   :done
                                              :on-child-error  :failed}}}}))))
-  (testing ":spawn-all with :join {:n 3} but no :on-some-complete — rejected"
+  (testing ":spawn-all with :join :any but no :on-some-complete — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"machine-spawn-all-bad-shape"
@@ -408,9 +330,50 @@
                           {:initial :s
                            :states
                            {:s {:spawn-all {:children       [{:id :x :machine-id :foo}]
-                                             :join           {:n 3}
+                                             :join           :any
                                              :on-child-done  :done
                                              :on-child-error :failed}}}}))))
+  ;; rf2-w8gxxz — the join grammar is a CLOSED two-member enum (:all + :any).
+  ;; The removed modes ({:n N}, {:fn pred}) and the removed
+  ;; :cancel-on-decision? key are now REJECTED as an unknown join spec /
+  ;; unknown node key.
+  (testing "rf2-w8gxxz: :spawn-all with the removed :join {:n 2} mode — rejected"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"machine-spawn-all-bad-shape"
+          (rf/reg-machine :bad/join-n
+                          {:initial :s
+                           :states
+                           {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
+                                             :join             {:n 2}
+                                             :on-child-done    :done
+                                             :on-child-error   :failed
+                                             :on-some-complete [:some]}}}}))))
+  (testing "rf2-w8gxxz: :spawn-all with the removed :join {:fn pred} mode — rejected"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"machine-spawn-all-bad-shape"
+          (rf/reg-machine :bad/join-fn
+                          {:initial :s
+                           :states
+                           {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
+                                             :join             {:fn (fn [_] true)}
+                                             :on-child-done    :done
+                                             :on-child-error   :failed
+                                             :on-some-complete [:some]}}}}))))
+  (testing "rf2-w8gxxz: :spawn-all with the removed :cancel-on-decision? key — rejected"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"machine-spawn-all-bad-shape"
+          (rf/reg-machine :bad/cancel-off
+                          {:initial :s
+                           :states
+                           {:s {:spawn-all {:children            [{:id :x :machine-id :foo}]
+                                             :join                :any
+                                             :cancel-on-decision? false
+                                             :on-child-done       :done
+                                             :on-child-error      :failed
+                                             :on-some-complete    [:some]}}}}))))
   ;; A :spawn-all child must declare EXACTLY ONE of :machine-id /
   ;; :definition (XOR): a child carrying BOTH is rejected, as is a child
   ;; carrying NEITHER.
@@ -562,109 +525,24 @@
                (:join-event (:data snap)))
             "resolution event carries decisive child-id and forwarded payload")))))
 
-;; ---- late-completion under :cancel-on-decision? false --------------------
+;; ---- sibling cancellation on the join decision + late-completion ---------
 ;;
 ;; intercept-spawn-all-event has a post-resolution branch (the
 ;; `(:resolved? join-state)` cond arm) that fires when a child-done event
 ;; arrives AFTER the join already resolved. It emits the
-;; :rf.machine.spawn-all/late-completion trace.
+;; :rf.machine.spawn-all/late-completion trace (stale reply; record frozen).
 ;;
-;; XState v5 alignment (rf2-obczvv) — when `:cancel-on-decision? false`,
-;; surviving siblings RUN TO COMPLETION and "their results land in the
-;; join-state" (Spec 005 §Cancel-on-decision), so a tool observing the
-;; join-state sees the FULL late-completion record. The late child's result
-;; therefore FOLDS into :done / :failed (the record updates) while the
-;; :resolved? latch stays true and NO further parent event / cancellation
-;; fires (the completion is suppressed from RE-RESOLVING the join). The old
-;; behaviour FROZE :done at resolution and dropped every late completion —
-;; the divergence this bead aligns away.
+;; rf2-w8gxxz — sibling cancellation on the join decision is now
+;; UNCONDITIONAL (the `:cancel-on-decision? false` protocol that let
+;; siblings run to completion was cut). When the join resolves, surviving
+;; siblings are DESTROYED (the cancellation cascade fires :rf.machine/destroy
+;; + :rf.machine.spawn/cancelled-on-join-resolution per survivor) and the
+;; record stays frozen at the decisive child.
 
-(deftest late-completion-cancel-off-folds-into-record
-  (testing "rf2-obczvv: with :cancel-on-decision? false, child-done events
-            arriving after join resolution FOLD into the join-state record
-            (so tools see the full late record) — :resolved? stays latched,
-            no further parent event fires, and the late-completion trace
-            still fires"
-    (let [traces (atom [])
-          child  (mk-child :sup/late :asset/loaded :asset/failed)
-          ;; Parent stays in :hydrating across resolution by NOT
-          ;; declaring an :on for the resolution event. The runtime
-          ;; still dispatches it, but no transition fires — the join
-          ;; slot survives so late children flow through the
-          ;; :resolved? branch.
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   :hydrating
-                   {:spawn-all
-                    {:children            [{:id :a :machine-id :child/la :start [:set-id :a]}
-                                           {:id :b :machine-id :child/lb :start [:set-id :b]}
-                                           {:id :c :machine-id :child/lc :start [:set-id :c]}]
-                     :join                :any
-                     :cancel-on-decision? false
-                     :on-child-done       :asset/loaded
-                     :on-child-error      :asset/failed
-                     :on-some-complete    [:race/won]}}}}]
-      (rf/reg-machine :child/la child)
-      (rf/reg-machine :child/lb child)
-      (rf/reg-machine :child/lc child)
-      (rf/reg-machine :sup/late parent)
-      (rf/register-listener! :trace ::late-cb
-                             (fn [ev] (swap! traces conj ev)))
-      (try
-        (rf/dispatch-sync [:sup/late [:start]])
-        (let [ids (get-in (frame-db) [:rf.runtime/machines :spawned :sup/late [:hydrating] :children])]
-          ;; First child resolves the :any join.
-          (rf/dispatch-sync [(:a ids) [:go]])
-          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/late [:hydrating]])]
-            (is (true? (:resolved? j)) ":any resolved on first :go")
-            (is (= #{:a} (:done j))))
-          ;; Sibling b completes AFTER resolution — with cancel OFF its
-          ;; result FOLDS into :done (the full late record is observable).
-          (rf/dispatch-sync [(:b ids) [:go]])
-          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/late [:hydrating]])]
-            (is (= #{:a :b} (:done j))
-                "rf2-obczvv: late completion FOLDS into :done (cancel-off) —
-                 the join-state is no longer frozen at resolution")
-            (is (true? (:resolved? j)) ":resolved? stays true — no re-resolution"))
-          ;; A third late sibling folds too — :done accretes the full record.
-          (rf/dispatch-sync [(:c ids) [:go]])
-          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/late [:hydrating]])]
-            (is (= #{:a :b :c} (:done j))
-                "every surviving sibling's late completion lands in the record")
-            (is (true? (:resolved? j)) ":resolved? still latched")))
-        (let [late-traces (->> @traces
-                               (filter #(= :rf.machine.spawn-all/late-completion
-                                           (:operation %))))
-              ;; No further resolution / parent event fires for the late folds.
-              resolution-traces (->> @traces
-                                     (filter #(= :rf.machine.spawn-all/some-completed
-                                                 (:operation %))))]
-          (is (= 2 (count late-traces))
-              "one late-completion trace per late sibling (b and c)")
-          (is (= #{:b :c} (set (map #(:child-id (:tags %)) late-traces)))
-              "traces carry the late children's ids")
-          (is (every? #(true? (:folded? (:tags %))) late-traces)
-              "rf2-obczvv: each late trace marks :folded? true (cancel-off)")
-          (is (every? #(= :stale (:rf.reply/status (:tags %))) late-traces)
-              "the completion is still classified stale — suppressed from re-resolving")
-          (is (= 1 (count resolution-traces))
-              "the join resolves EXACTLY ONCE — no late fold re-fires the parent event"))
-        (finally
-          (rf/unregister-listener! :trace ::late-cb))))))
-
-;; Negative control: with :cancel-on-decision? true (the default) the
-;; surviving siblings are DESTROYED at resolution (the cancellation cascade
-;; fires :rf.machine/destroy + :rf.machine.spawn/cancelled-on-join-resolution
-;; per survivor). The record stays frozen at resolution — the fold-on-late
-;; behaviour is gated on cancel-OFF, so the default path is unchanged. This
-;; pins that the rf2-obczvv fold does NOT bleed into the cancel-on default.
-
-(deftest late-completion-cancel-on-default-cancels-siblings-record-frozen
-  (testing "rf2-obczvv negative control: with :cancel-on-decision? true the
-            surviving siblings are cancelled at resolution and the join-state
-            record stays frozen at :a — the late-fold path is cancel-off only,
-            so the default behaviour is unchanged"
+(deftest join-resolution-cancels-siblings-record-frozen
+  (testing "rf2-w8gxxz: when an :any join resolves, the surviving sibling is
+            cancelled at resolution and the join-state record stays frozen at
+            the decisive child :a"
     (let [traces (atom [])
           child  (mk-child :sup/cancel :asset/loaded :asset/failed)
           parent {:initial :idle
@@ -675,7 +553,6 @@
                     {:children            [{:id :a :machine-id :child/ca :start [:set-id :a]}
                                            {:id :b :machine-id :child/cb :start [:set-id :b]}]
                      :join                :any
-                     ;; cancel-on-decision? defaults to true (omitted)
                      :on-child-done       :asset/loaded
                      :on-child-error      :asset/failed
                      :on-some-complete    [:race/won]}}}}]
@@ -695,14 +572,70 @@
                                  (filter #(= :rf.machine.spawn/cancelled-on-join-resolution
                                              (:operation %))))]
           (is (pos? (count cancel-traces))
-              "cancel-on (default): surviving sibling :b is cancelled at resolution")
-          ;; The record stays frozen at :a — the cancel-off late-fold path
-          ;; never runs for the default cancel-on join (the survivor is gone).
+              "surviving sibling :b is cancelled at resolution (unconditional)")
+          ;; The record stays frozen at :a — the survivor was destroyed, so
+          ;; no late completion arrives to mutate the record.
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating]])]
             (is (= #{:a} (:done j))
-                "rf2-obczvv: the record stays frozen — fold is cancel-OFF only")))
+                "rf2-w8gxxz: the record stays frozen at resolution")))
         (finally
           (rf/unregister-listener! :trace ::cancel-cb))))))
+
+(deftest late-completion-of-known-child-is-stale-record-frozen
+  (testing "rf2-w8gxxz: a post-resolution completion of a KNOWN child (the
+            :resolved? latch already flipped) traces
+            :rf.machine.spawn-all/late-completion with a :stale reply, does
+            NOT fold into the record (no :folded? tag), and fires no further
+            parent event"
+    (let [traces (atom [])
+          child  (mk-child :sup/latek :asset/loaded :asset/failed)
+          ;; Parent stays in :hydrating across resolution by NOT declaring an
+          ;; :on for the resolution event, so the join slot survives and a
+          ;; re-dispatch of a known child-id flows through the :resolved?
+          ;; branch.
+          parent {:initial :idle
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:spawn-all
+                    {:children            [{:id :a :machine-id :child/lka :start [:set-id :a]}
+                                           {:id :b :machine-id :child/lkb :start [:set-id :b]}]
+                     :join                :any
+                     :on-child-done       :asset/loaded
+                     :on-child-error      :asset/failed
+                     :on-some-complete    [:race/won]}}}}]
+      (rf/reg-machine :child/lka child)
+      (rf/reg-machine :child/lkb child)
+      (rf/reg-machine :sup/latek parent)
+      (rf/register-listener! :trace ::latek-cb
+                             (fn [ev] (swap! traces conj ev)))
+      (try
+        (rf/dispatch-sync [:sup/latek [:start]])
+        (let [ids (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating] :children])]
+          ;; :a resolves the :any join.
+          (rf/dispatch-sync [(:a ids) [:go]])
+          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
+            (is (true? (:resolved? j)) ":any resolved on first :go")
+            (is (= #{:a} (:done j))))
+          ;; Re-dispatch a KNOWN child-id's completion AFTER resolution (the
+          ;; late straggler). It flows through the :resolved? branch.
+          (rf/dispatch-sync [:sup/latek [:asset/loaded :a]])
+          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
+            (is (= #{:a} (:done j))
+                "rf2-w8gxxz: the record stays frozen — no fold on late completion")
+            (is (true? (:resolved? j)) ":resolved? still latched")))
+        (let [late-traces (->> @traces
+                               (filter #(= :rf.machine.spawn-all/late-completion
+                                           (:operation %))))]
+          (is (= 1 (count late-traces)) "one late-completion trace fired")
+          (let [tags (:tags (first late-traces))]
+            (is (= :a (:child-id tags)) "trace carries the late child's id")
+            (is (= :stale (:rf.reply/status tags))
+                "the late completion is classified stale")
+            (is (not (contains? tags :folded?))
+                "rf2-w8gxxz: no :folded? tag — the fold machinery was cut")))
+        (finally
+          (rf/unregister-listener! :trace ::latek-cb))))))
 
 ;; ---- forged child-id rejection -------------------------------------------
 ;;

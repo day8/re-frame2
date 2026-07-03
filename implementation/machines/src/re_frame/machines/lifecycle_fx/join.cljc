@@ -17,20 +17,17 @@
    4. Adds `<child-id>` to `:done` or `:failed`.
    5. If `:resolved?` is already true, this is a post-resolution
       late-completion (it fires NO further parent event — the
-      `:resolved?` latch already flipped). Per Spec 005 §Cancel-on-decision
-      (rf2-obczvv, XState v5 alignment): when `:cancel-on-decision? false`
-      the surviving siblings run to completion, so the late child's result
-      STILL folds into the `:done` / `:failed` record (tools observing the
-      join-state see the full late-completion record) — only re-resolution
-      is suppressed. Under the default `:cancel-on-decision? true` the
-      siblings were destroyed at resolution, so a straggler with no live
-      join is dropped (record frozen). The `:rf.machine.spawn-all/late-
-      completion` trace fires on both paths, carrying `:folded?`.
-   6. Else evaluates the join condition. On resolution:
+      `:resolved?` latch already flipped). Surviving siblings are
+      UNCONDITIONALLY destroyed at resolution (rf2-w8gxxz cut the
+      `:cancel-on-decision? false` protocol), so a straggler with no live
+      join is a genuinely stale completion: the record stays frozen and
+      the `:rf.machine.spawn-all/late-completion` trace fires (stale
+      reply), with no `:done` / `:failed` fold.
+   6. Else evaluates the join condition. The join grammar is a CLOSED
+      two-member enum — `:all` (default) + `:any`. On resolution:
         - latches `:resolved?` true,
-        - if `:cancel-on-decision?` (default true), emits per-sibling
-          `:rf.machine/destroy` fx and `:rf.machine.spawn/cancelled-on-
-          join-resolution` traces,
+        - unconditionally emits per-sibling `:rf.machine/destroy` fx and
+          `:rf.machine.spawn/cancelled-on-join-resolution` traces,
         - dispatches the parent join event via `:fx [[:dispatch ...]]`.
    7. Writes the new join state back into app-db.
 
@@ -107,13 +104,18 @@
 (defn- join-condition-met?
   "Evaluate the join condition against the current join state.
   Returns truthy iff the join has resolved on the success-side
-  (`:on-all-complete` / `:on-some-complete` should fire)."
+  (`:on-all-complete` / `:on-some-complete` should fire).
+
+  The join grammar is a CLOSED two-member enum — `:all` (default) and
+  `:any` (Promise.all / Promise.any precedent). Quorum (`{:n N}`) and
+  predicate (`{:fn pred}`) joins are expressed with the data-only `:after`
+  + `:done-guard` idiom (Spec 005 §Composition with hierarchy and
+  `:after`); re-adding `{:n}` later is a compatible widening."
   [spec join-state]
   (let [join     (:join spec :all)
         children (:children spec)
         n-total  (count children)
-        n-done   (count (:done   join-state))
-        n-failed (count (:failed join-state))]
+        n-done   (count (:done   join-state))]
     (cond
       (= :all join)
       (= n-done n-total)
@@ -121,24 +123,16 @@
       (= :any join)
       (>= n-done 1)
 
-      (and (map? join) (pos-int? (:n join)))
-      (>= n-done (:n join))
-
-      (and (map? join) (fn? (:fn join)))
-      ((:fn join) {:done   (:done   join-state)
-                   :failed (:failed join-state)
-                   :total  n-total})
-
       :else false)))
 
 (defn- join-unsatisfiable?
   "Decide whether `spec`'s join condition can NEVER be met by the remaining
   undecided children, given `join-state`'s current
-  `:done` / `:failed` folds. The footgun this guards: a `{:n N}` / `{:fn}`
-  (or `:any` / `:all`) join with NO `:on-any-failed` silently hangs FOREVER
-  once enough children have FAILED that the success condition is
-  unreachable — no resolution event ever dispatches, the parent rests on
-  the `:spawn-all` state, and nothing surfaces the dead join.
+  `:done` / `:failed` folds. The footgun this guards: an `:all` / `:any`
+  join with NO `:on-any-failed` silently hangs FOREVER once enough children
+  have FAILED that the success condition is unreachable — no resolution
+  event ever dispatches, the parent rests on the `:spawn-all` state, and
+  nothing surfaces the dead join.
 
   `max-possible-done` is the largest `:done` count still achievable — the
   current `:done` plus every child not yet decided (every pending child
@@ -146,14 +140,7 @@
   ceiling cannot satisfy the condition:
 
     - `:all`        — any failure makes all-done unreachable.
-    - `{:n N}`      — `max-possible-done < N`.
     - `:any`        — `max-possible-done < 1` (every child failed).
-    - `{:fn pred}`  — opaque to look-ahead; only PROVABLY terminal once every
-                      child has reported (`done`+`failed` = total) and the
-                      predicate still rejects. (A custom pred MAY reject a
-                      future it would later accept, so we cannot predict mid-
-                      flight — but an all-reported-and-still-false join is
-                      definitively stuck.)
 
   Returns false for a still-satisfiable (or already-resolved) join."
   [spec join-state]
@@ -168,11 +155,6 @@
     (cond
       (= :all join)               (pos? n-failed)
       (= :any join)               (< max-possible-done 1)
-      (and (map? join) (pos-int? (:n join)))
-                                  (< max-possible-done (:n join))
-      (and (map? join) (fn? (:fn join)))
-                                  (and (zero? n-pending)
-                                       (not (join-condition-met? spec join-state)))
       :else                       false)))
 
 (defn- compute-resolution
@@ -306,10 +288,12 @@
 (defn- build-resolution-fx
   "Build the fx vector to fire on resolution: per-survivor
   `:rf.machine/destroy` (with one
-  `:rf.machine.spawn/cancelled-on-join-resolution` trace each) when
-  `:cancel-on-decision?` is true, followed by the join-event dispatch
-  carrying the decisive child's forwarded payload. Per Spec 005
-  §Spawn-and-join, the dispatched event shape is:
+  `:rf.machine.spawn/cancelled-on-join-resolution` trace each), followed by
+  the join-event dispatch carrying the decisive child's forwarded payload.
+  Cancelling surviving siblings on the join decision is UNCONDITIONAL —
+  the removed `:cancel-on-decision? false` protocol let siblings run to
+  completion (rf2-w8gxxz cut it). Per Spec 005 §Spawn-and-join, the
+  dispatched event shape is:
 
       [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]
 
@@ -320,10 +304,8 @@
   cancellation traces reach the cascade's `:trace-events` slot."
   [frame-id parent-id invoke-id spec join-state'' child-id child-extra
    {:keys [resolved? resolution-event join-event-kw]}]
-  (let [cancel? (let [c (:cancel-on-decision? spec)]
-                  (if (nil? c) true (boolean c)))
-        cancel-fx
-        (when (and resolved? cancel?)
+  (let [cancel-fx
+        (when resolved?
           (let [completed-ids (into #{} (concat (:done   join-state'')
                                                 (:failed join-state'')))
                 survivors     (->> (:children join-state'')
@@ -450,44 +432,15 @@
           ;; it is SUPPRESSED from RE-RESOLVING the join — exactly the
           ;; §Stale-suppression "fires no further parent event" rule.
           ;;
-          ;; BUT the late child's RESULT still folds into the join-state
-          ;; RECORD when `:cancel-on-decision? false` (rf2-obczvv, XState v5
-          ;; alignment). Per Spec 005 §Cancel-on-decision: with cancellation
-          ;; OFF, surviving siblings RUN TO COMPLETION and "their results
-          ;; land in the join-state" so "tools observing the join-state see
-          ;; the full late-completion record." Folding the late child into
-          ;; `:done` / `:failed` and writing it back is the record update;
-          ;; the `:resolved?` latch stays true and NO resolution event /
-          ;; cancellation fires (the stale reply records the suppression).
-          ;; This reconciles the two halves of the §Cancel-on-decision
-          ;; contract: the record IS updated (the full late record is
-          ;; observable) while the parent macrostep is NOT re-driven.
-          ;;
-          ;; When `:cancel-on-decision?` is TRUE (the default) the surviving
-          ;; siblings were DESTROYED at resolution, so a late completion is a
+          ;; Surviving siblings are UNCONDITIONALLY destroyed at resolution
+          ;; (rf2-w8gxxz cut the `:cancel-on-decision? false` protocol that
+          ;; let them run to completion), so a late completion is always a
           ;; genuinely stale straggler with no live join to fold into — the
-          ;; record is left frozen at resolution (the historical drop). The
-          ;; public trace shape (`:actor-id` / `:invoke-id` / `:child-id` /
-          ;; `:kind`) is preserved on both paths.
+          ;; record is left frozen at resolution. The public trace shape
+          ;; (`:actor-id` / `:invoke-id` / `:child-id` / `:kind`) is
+          ;; preserved; no `:done` / `:failed` fold, no re-resolution.
           (:resolved? join-state)
-          (let [cancel?     (let [c (:cancel-on-decision? spec)]
-                              (if (nil? c) true (boolean c)))
-                spawned-id  (get-in join-state [:children child-id])
-                ;; The late child is only foldable when it is a real,
-                ;; not-yet-decided child (a forged / already-folded id must
-                ;; not mutate the record). Fold only when cancel is OFF AND
-                ;; this child-id is a known child not already in :done/:failed.
-                already?    (let [completed (into #{} (concat (:done   join-state)
-                                                              (:failed join-state)))]
-                              (contains? completed child-id))
-                fold?       (and (not cancel?)
-                                 (contains? (:children join-state) child-id)
-                                 (not already?))
-                join-state' (if fold?
-                              (case kind
-                                :done   (update join-state :done   (fnil conj #{}) child-id)
-                                :failed (update join-state :failed (fnil conj #{}) child-id))
-                              join-state)
+          (let [spawned-id  (get-in join-state [:children child-id])
                 stale-reply (m-reply/stale-join-child-reply
                               {:parent-id    parent-id
                                :invoke-id    invoke-id
@@ -503,10 +456,6 @@
                                   :child-id   child-id
                                   :kind       kind
                                   :frame      frame-id
-                                  ;; rf2-obczvv — whether the late result was
-                                  ;; folded into the record (cancel-off) or
-                                  ;; dropped (cancel-on, no live join).
-                                  :folded?    fold?
                                   ;; reply-envelope vocabulary (Managed-Effects §9)
                                   :work/id               (:work/id summary)
                                   :work/kind             (:work/kind summary)
@@ -518,16 +467,10 @@
                            (some? (:completed-at summary))
                            (assoc :completed-at          (:completed-at summary)
                                   :rf.reply/completed-at (:completed-at summary))))
-            ;; Write back the folded record (cancel-off) so tools observing
-            ;; the join-state see the full late-completion record; for the
-            ;; cancel-on / forged / already-folded paths `join-state'` is
-            ;; identical and `runtime-db` is unchanged. NO resolution fx —
-            ;; the join stays latched `:resolved?`, fires no further event.
-            {:rf.db/runtime (if fold?
-                              (assoc-in runtime-db
-                                        (paths/spawned-path parent-id invoke-id)
-                                        join-state')
-                              runtime-db)
+            ;; NO record mutation and NO resolution fx — the join stays
+            ;; latched `:resolved?` and fires no further event (the stale
+            ;; reply records the suppression).
+            {:rf.db/runtime runtime-db
              :fx []})
 
           ;; Forged / unknown child-id: the inbound `child-id` is NOT in

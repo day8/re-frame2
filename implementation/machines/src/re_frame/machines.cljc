@@ -22,7 +22,7 @@
       frame's runtime-db [:rf.runtime/machines :spawn-counter <machine-id>]
       slot (hand-emitted) — no process-global state.
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
-      :spawn's plus a join condition (:all / :any / {:n N} / {:fn pred}).
+      :spawn's plus a closed two-member join condition (:all / :any).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
     - The :rf.machine/dispatch-to-system reserved fx-id — a machine
       action sends a message to its spawned child actor by :system-id
