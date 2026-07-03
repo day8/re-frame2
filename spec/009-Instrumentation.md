@@ -2392,7 +2392,7 @@ Partition commits happen at the frame-state commit boundary. The runtime emits `
 
 ### Privacy / sensitive data in traces
 
-> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture this section grounds — per-slot schema `:sensitive?` metadata is the canonical privacy marker. (The legacy handler-meta `:sensitive?` annotation has been removed; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.)
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture this section grounds — per-slot schema `:sensitive?` metadata is the canonical privacy marker. (The legacy handler-meta `:sensitive?` annotation has been removed; sensitive data marking is path-based per the [Spec 015](015-Data-Classification.md) data-classification mechanism (EP-0025).)
 
 Trace events carry dispatched event vectors, handler return values, (under [§Trace event for app-db changes](#trace-event-for-app-db-changes)) `app-db` snapshots, and (on `:rf.view/rendered`) view render args/props (`:rf.view/render-args`, rpgq8) — any of which may contain user input that should not leave the developer's machine: passwords, auth tokens, payment details, PII captured from form fields. Tools that ship traces off-box (error-monitor forwarders per [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), remote dev dashboards, the Xray-MCP / re-frame2-pair servers per [Tool-Pair.md](Tool-Pair.md)) must not emit that data verbatim. Each such user-data slot is elided at emit time through the single shared `re-frame.elision/elide-wire-value` walker (via the [Spec 015](015-Data-Classification.md) classification-projection chokepoint) before the event reaches any listener; `:rf.view/render-args` gets the identical treatment as the `:rf.event/db` snapshot.
 
@@ -2412,7 +2412,7 @@ The declaration surface is path-based (EP-0025). Apps classify **durable app-db*
 
 > **NOTE:** The handler-meta `:sensitive?` registration-metadata
 > annotation has been removed. Sensitive data marking is path-based per the
-> upcoming data-classification mechanism (separate spec doc; in progress) —
+> [Spec 015](015-Data-Classification.md) data-classification mechanism (EP-0025) —
 > sensitivity is a property of the data value at a path, not of the
 > handler that touched it. The trace-event `:sensitive?` top-level stamp
 > (see [§Trace-event field: `:sensitive?` at the top level](#trace-event-field-sensitive-at-the-top-level)) is now driven exclusively by the schema-derived
