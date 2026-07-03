@@ -317,8 +317,10 @@
               [:dispatch [:auth/ensure-session-feed]]]}))
 
     :record-error
-    (fn [{[_ {:keys [failure]}] :event}]
-      {:data {:error (rh/failure->message failure)}})
+    ;; rf2-ibksxg — the appended HTTP reply is the canonical envelope; the
+    ;; classified `:rf.http/*` failure map rides under `:error` (was `:failure`).
+    (fn [{[_ {:keys [error]}] :event}]
+      {:data {:error (rh/failure->message error)}})
 
     :clear-session
     (fn [_]
