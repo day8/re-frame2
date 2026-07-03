@@ -464,10 +464,12 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 
 - **Spec 014 — HTTP requests.** Implementations MAY ship `:rf.http/managed`; when they do, the contract in [014-HTTPRequests.md](014-HTTPRequests.md) is fixed. The CLJS reference ships it. Other-language ports decide independently.
 
-### Post-v1 (foundation hooks ship in v1; ergonomic libraries land later)
+### Shipped (foundation hooks in 002; ergonomic libraries land on top)
 
-- **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure factory `make-machine-handler`, pure `machine-transition`, the `:raise` reserved fx-id (machine-internal), and the `:rf.machine/spawn` / `:rf.machine/destroy` canonical actor-lifecycle fx-ids). Pattern adopted from xstate.
-- **Spec 007 — Stories, Variants, Workspaces.** Storybook-class tooling. Layered on Specs 002 and 008.
+The foundation hooks ship in 002; the two ergonomic libraries below both landed in-tree.
+
+- **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure factory `make-machine-handler`, pure `machine-transition`, the `:raise` reserved fx-id (machine-internal), and the `:rf.machine/spawn` / `:rf.machine/destroy` canonical actor-lifecycle fx-ids). Pattern adopted from xstate. Shipped: `implementation/machines/`, conformance-pinned.
+- **Spec 007 — Stories, Variants, Workspaces.** Storybook-class tooling. Layered on Specs 002 and 008. Shipped: the `re-frame.story` library in `tools/story/`.
 
 ### New / deferred
 
@@ -486,7 +488,6 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 ### Out of Scope for v1
 
 - **Multiple different apps on one page** (different handler sets sharing a single page). Out of scope, full stop — iframes serve this case. Multi-frame in re-frame2 is "multiple instances of the *same* app's handlers" (devcards, widgets, story variants, test fixtures).
-- **State machines as a shipped library** — Spec 005 is post-v1; the foundation hooks ship in v1 inside [002-Frames.md](002-Frames.md).
 - **Persistence / offline** — see Goal #10 dispositions above.
 - **Authentication / sessions library** — see Goal #10 dispositions above.
 
@@ -504,13 +505,9 @@ Layers 2 and 3 are tooling, not specification, but are first-class deliverables 
 
 ## Open questions
 
-These remain open at 000. Per-Spec documents track narrower open questions in their own appendices.
+None open at 000. Per-Spec documents track narrower open questions in their own appendices.
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Event-id re-registration warnings" classifies as **`:still-blocking`** for design polish at the 000-Vision tier — the load-bearing prose lives at [002 §Open questions — Event-id collisions on re-registration](002-Frames.md#event-id-collisions-on-re-registration), where the same item is classified the same way. The `~~Audit the re-frame.alpha namespace~~` entry that previously lived here as a strike-through pointer has been migrated to `## Resolved decisions` per SA-4's migration rule.
-
-### Event-id re-registration warnings
-
-Hot-reloading the same handler under the same id is normal and expected (figwheel/shadow-cljs save). But re-registering with a *different* function — accidentally, e.g. two namespaces colliding on `:save` — is silent last-write-wins. Open: how loud should re-frame2 warn at registration time, and is the warning on by default? Linked: [002 §Open questions — Event-id collisions on re-registration](002-Frames.md#event-id-collisions-on-re-registration).
+> **SA-4 note.** The "Event-id re-registration warnings" entry that previously lived here (`:still-blocking`) has been migrated to `## Resolved decisions` per SA-4's migration rule — the decision landed at [001 §Re-registration of a different function — collision warning](001-Registration.md#re-registration-of-a-different-function--collision-warning). The `~~Audit the re-frame.alpha namespace~~` strike-through pointer was migrated to `## Resolved decisions` by the same rule.
 
 ## Resolved decisions
 
@@ -526,6 +523,10 @@ The `re-frame.alpha` namespace is **not part of v2**. The alpha experiment was a
 - `reg-flow`, `flow<-`, `clear-flow`, `get-flow`, the `:flow` and `:live?` registered subs — **promoted to `re-frame.core`** under the `flow` family per [Spec 013](013-Flows.md). The migration is a namespace switch.
 
 Migration entries land at [MIGRATION §M-23](../migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed).
+
+### Event-id re-registration warnings
+
+Hot-reloading the same handler under the same id is normal and expected (figwheel/shadow-cljs save); re-registering the same id from a *different* source location — accidentally, e.g. two namespaces colliding on `:save` — does **not** silently clobber. The decision landed at 001: a provenance-preserving registration source store (per [EP-0023 §Namespace-Selected Images](../docs/EP/EP-0023-image-loaded-frames.md)) keyed by `[kind id provenance-namespace]` retains both descriptors, so a cross-namespace duplicate fails image assembly rather than being masked, and the dev-time `:rf.warning/registration-collision` source-coord warning (recommended on in dev) is the early signal. Load-bearing prose: [001 §Re-registration of a different function — collision warning](001-Registration.md#re-registration-of-a-different-function--collision-warning); the 002 half of the sub-cache/hot-reload story lives at [002 §Resolved decisions](002-Frames.md#resolved-decisions).
 
 ### Plain Reagent fns under non-default frames
 
