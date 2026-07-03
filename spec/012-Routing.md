@@ -1197,7 +1197,7 @@ A more elaborate router with **native nested layouts** — true `<Outlet/>` slot
 
 Future expansion may revisit:
 - A `:layout` slot on `reg-route` (separate from `:parent`) so a route can declare which layout component wraps its leaf view.
-- Parent-route `:on-match` events that cascade to children (today, child routes must duplicate the parent's `:on-match` if they need the same data).
+- Parent-route `:resources`/`:on-match` that cascade to children (today, child routes must duplicate the parent's data plan if they need the same reads — see [§Open questions → Native nested layouts](#native-nested-layouts-post-v1) for the flagship duplication the deferral now records).
 - An `<Outlet/>`-equivalent primitive for the child render slot.
 
 The `:parent` + chain-sub convention is sufficient for the common case and doesn't preclude a richer mechanism later.
@@ -1546,7 +1546,7 @@ On the server there is no `window` and no address bar: the request URL is fed in
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all seven items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all eight items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
 
 ### Declarative `:on-leave` route hook (post-v1)
 
@@ -1559,7 +1559,15 @@ What `:on-leave` would add over these is a *route-declared, non-machine, non-res
 
 ### Native nested layouts (post-v1)
 
-Per [§Nested layouts](#nested-layouts) the v1 surface is `:parent` + the `:rf.route/chain` sub — the rendering side reads the layout chain as data and composes shells top-down. A richer mechanism — true `<Outlet/>`-style render slots, parent-loader cascades, and partial revalidation on child-only navigations (parent doesn't re-run when only the leaf changes) — is a substrate-shaped addition rather than a data convention. Deferred until apps surface a real cost the chain-sub pattern can't carry; the `:parent` convention does not preclude a richer slot mechanism later.
+Per [§Nested layouts](#nested-layouts) the v1 surface is `:parent` + the `:rf.route/chain` sub — the rendering side reads the layout chain as data and composes shells top-down. A richer mechanism — true `<Outlet/>`-style render slots, **parent-loader cascades** (a parent route's `:resources`/`:on-match` inherited by children so a child doesn't restate the parent's data plan), and partial revalidation on child-only navigations (parent doesn't re-run when only the leaf changes) — is a substrate-shaped addition rather than a data convention. Deferred until apps surface a real cost the chain-sub pattern can't carry; the `:parent` convention does not preclude a richer slot mechanism later.
+
+**The duplication tax is already on the record — the motivating case the deferral lacked.** The data half of nesting (a parent-route data plan that cascades to children) is missing today: child routes must **duplicate the parent's `:resources`/`:on-match`** if they need the same reads (per the [§Nested layouts](#nested-layouts) future-expansion note). The flagship RealWorld-on-resources example already pays this, three ways over:
+
+- **Byte-identical sibling entries.** `:realworld.profile/show` and `:realworld.profile/favorites` carry the *same* profile-banner read verbatim — `{:resource :realworld/profile :params (fn [route] {:username …}) :blocking? true}` — restated in each route's `:resources` (`examples/real-apps/realworld_resources/routing.cljs` lines 169-171 and 190-192).
+- **A helper *function* to stay DRY.** The `:realworld/home` / `:realworld/home-tag` sibling pair shares its three-read plan only by factoring it through a `home-resources` helper *function* (`routing.cljs` lines 54-84) — which degrades the [§The route table is data](#the-route-table-is-data) property at exactly the nesting boundary: the shared plan stops being greppable data and becomes a call.
+- **Zero `:parent` uptake corpus-wide.** No example registers a route `:parent` (grep the corpus: the only `:parent-id` hits are unrelated machine `:data`). The render-chain convention exists but the corpus never reaches for it, because it carries layout but not data — so the shared-data cases route around it into duplication instead.
+
+The concrete drift risk this invites: change the banner entry's `:blocking?` on one profile tab and not the other, and the two tabs get silently divergent loading/SSR-wait UX — no lint, no error. A cascade design (effective plan = ancestors' entries then the leaf's, deduped by resolved `[scope resource-id canonical-params]` identity; the same-route re-fire rule refined per contributing ancestor so a sibling-leaf nav under an unchanged parent skips the parent's re-dispatches) would let the shell own the banner once — but it trades away a route's data needs being readable off its own registration, which the corpus's explicitness bias resists. That tension is why this stays a post-v1 open question rather than a shipped surface; the receipts above give the revisit its motivating cost.
 
 ### Data-form path patterns (post-v1)
 
@@ -1582,6 +1590,12 @@ Per [§Redirects and guards](#redirects-and-guards) v1 redirects compose as inte
 Per [§Per-route data loading](#per-route-data-loading) a route's `:resources` plan runs on **activation** — the click pays the load. There is no *pre-navigation* prefetch surface: hovering a link cannot warm the destination route's data before the user commits, so the click then pays a blocking round-trip. React Router (`<Link prefetch>`) and TanStack Router (`preload` / intent) both ship this. The engine is ~95% built — [016 §Active owners and causes](016-Resources.md#active-owners-and-causes) already supports ownerless, cause-only `ensure` entries (the focus/reconnect scans use exactly this shape), and unowned entries are GC-eligible — so the missing piece is a **route-plan-level** prefetch verb, not new cache machinery. App-space hover-`ensure` already works *per resource*, but route-plan prefetch in app space forces every link site to re-derive the destination's params / `:when` / scope precedence — the exact duplication the plan machinery exists to prevent.
 
 **Design to flip post-v1 (attached verbatim so the flip is cheap).** A public `[:rf.route/prefetch target]` event that runs the route's `:resources` plan in **WARM mode**: entries `ensure` **ownerless** (cause-only, so the warmed data is GC-eligible if the navigation never happens), `:blocking?` is **ignored** (a prefetch never blocks anything), and `:on-match` is **deliberately NOT run** (prefetch warms *data*, it does not activate the route — no side effects, no navigation). Paired surfaces: a `route-link` `:prefetch :intent` opt (warm on hover/focus intent), one trace op (`:rf.route/prefetched`, warm-mode marker), and a scorecard row. Deferred — not shipped in v1; hover-prefetch stays unavailable until post-v1, and the competitive gap vs TanStack/React Router stays open but is now on the record. The warm-mode design above makes the post-v1 flip a small, additive surface (one event + one link opt + one trace op) that does not disturb the activation-time `:resources` contract.
+
+### Route-driven code loading — the `:load` seam (post-v1, seam only)
+
+The **code-loading axis** — per-route code splitting, so a route's view code is not in the first-paint bundle until that route is reached — is named here so it stops being a blind spot. v1 ships no story for it, shipped *or* deferred *or* rejected: the [§The root view dispatches on `:rf.route/id`](#the-root-view-dispatches-on-rfrouteid) pattern resolves each route's leaf view at render time, which requires every route's view code loaded up front, and nothing in this spec speaks to lazily-loaded route code. React Router v7's route modules (`lazy:`) and TanStack Router's prefetchable chunks make "don't ship the admin panel to every visitor" a config line; re-frame2 apps that outgrow single-bundle today must hand-roll a host module loader (a CLJS app would reach for `shadow.lazy` plus a "module pending" sentinel) that races `:on-match` with no defined interaction.
+
+CLJS whole-program optimisation plus gzip pushes the single-bundle wall much further out than in JS-ecosystem apps, and no example or user has hit it — so this is deliberately **seam-only, committing to nothing**. The shape a post-v1 revisit would consider (recorded so the axis is on the map, not blessed): a host-discretion route-metadata key `:load` naming a host-specific loadable (a `shadow.lazy` loadable, in the CLJS reference) that the runtime resolves *before* dispatching `:on-match`, folding into the existing transition protocol — `:rf.route/transition` stays `:loading` until the load and `:on-match` both settle, a load failure routes through the route's existing `:on-error` under a new `:rf.error/route-load-failed` category, a superseded in-flight load is discarded like any other stale async (per [§Navigation tokens](#navigation-tokens--stale-result-suppression)), and SSR ignores `:load` on the server side because server bundles are eager — the runtime already knows which side it is on (the `:server`/`:client` platform split, [011](011-SSR.md)). The contract, were it ever shipped, would be only the ordering and the error category — never a particular module system. Deferred until an app demonstrates the single-bundle cost; naming the seam now costs one item and commits the spec to nothing.
 
 ## Resolved decisions
 
