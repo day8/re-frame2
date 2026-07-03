@@ -355,9 +355,11 @@
     (doseq [[flow-id flow-meta] flow-registry]
       (when-let [body (get flow-bodies flow-id)]
         (let [output-fn (conformance/realise-flow-output-fn body)]
-          (rf/reg-flow (-> flow-meta
-                           (assoc :id flow-id)
-                           (assoc :derive output-fn))))))))
+          ;; rf2-bqstzr — the 3-slot grammar: `(reg-flow flow-id metadata
+          ;; derive-fn)`. The fixture `flow-meta` carries the reflection keys
+          ;; (`:inputs` / `:output-path` / …) as the metadata middle slot; the
+          ;; realised `output-fn` is the pure `:derive` value slot.
+          (rf/reg-flow flow-id flow-meta output-fn))))))
 
 ;; ---- trace capture -------------------------------------------------------
 

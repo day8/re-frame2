@@ -666,9 +666,9 @@
     (doseq [[flow-id flow-meta] flow-registry]
       (when-let [body (get flow-bodies flow-id)]
         (let [output-fn (conformance/realise-flow-output-fn body)]
-          (rf/reg-flow (-> flow-meta
-                           (assoc :id flow-id)
-                           (assoc :derive output-fn))))))))
+          ;; rf2-bqstzr — the 3-slot grammar: (reg-flow flow-id metadata
+          ;; derive-fn). `flow-meta` is the reflection metadata middle slot.
+          (rf/reg-flow flow-id flow-meta output-fn))))))
 
 (defn- realise-classification-effects!
   "Apply a fixture's `:fixture/classification-effects` data-classification

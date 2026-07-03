@@ -213,9 +213,9 @@
     ;; output) so the topo dependency rule produces NO edge — both would be
     ;; 'ready' and the shared slot [:dest] would be written in undefined order.
     ;; So the second registration is rejected.
-    (rf/reg-flow {:id :a :inputs [[:src-a]] :derive identity :output-path [:dest]})
+    (rf/reg-flow :a {:inputs [[:src-a]] :output-path [:dest]} identity)
     (let [thrown (try
-                   (rf/reg-flow {:id :b :inputs [[:src-b]] :derive identity :output-path [:dest]})
+                   (rf/reg-flow :b {:inputs [[:src-b]] :output-path [:dest]} identity)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
@@ -235,8 +235,8 @@
   (testing "rf2-um6d9 — flows writing to DISJOINT sibling paths under a shared parent register cleanly (the common valid case is unaffected) — and TERMINATES"
     ;; TERMINATION GUARD: the integrated equivalent of the disjoint-map test —
     ;; this reg-flow call must complete, not hang the suite.
-    (rf/reg-flow {:id :w :inputs [[:in-w]] :derive identity :output-path [:rect :w]})
-    (rf/reg-flow {:id :h :inputs [[:in-h]] :derive identity :output-path [:rect :h]})
+    (rf/reg-flow :w {:inputs [[:in-w]] :output-path [:rect :w]} identity)
+    (rf/reg-flow :h {:inputs [[:in-h]] :output-path [:rect :h]} identity)
     (let [committed (get (flows/flows-snapshot) :rf/default)]
       (is (contains? committed :w) "the [:rect :w] flow registered")
       (is (contains? committed :h) "the [:rect :h] flow registered — no false-positive overlap"))))
@@ -247,8 +247,8 @@
     (rf/reg-frame :frame-b {:doc "isolated frame b"})
     ;; Same flow-id-shape, same output :output-path, but DIFFERENT frames —
     ;; their writes land in different app-dbs, so no collision.
-    (rf/reg-flow {:id :x :inputs [[:in]] :derive identity :output-path [:dest]} {:frame :frame-a})
-    (rf/reg-flow {:id :x :inputs [[:in]] :derive identity :output-path [:dest]} {:frame :frame-b})
+    (rf/reg-flow :x {:frame :frame-a :inputs [[:in]] :output-path [:dest]} identity)
+    (rf/reg-flow :x {:frame :frame-b :inputs [[:in]] :output-path [:dest]} identity)
     (is (contains? (get (flows/flows-snapshot) :frame-a) :x)
         "frame-a holds its :x flow")
     (is (contains? (get (flows/flows-snapshot) :frame-b) :x)
@@ -262,9 +262,9 @@
     ;; holds ONE entry for :a and detect-output-path-overlap! (which
     ;; scans DISTINCT entries) never compares :a's path against itself.
     ;; A false positive here would break hot-reload of any flow.
-    (rf/reg-flow {:id :a :inputs [[:src]] :derive identity :output-path [:dest]})
+    (rf/reg-flow :a {:inputs [[:src]] :output-path [:dest]} identity)
     (is (nil? (try
-                (rf/reg-flow {:id :a :inputs [[:src]] :derive (fn [v] v) :output-path [:dest]})
+                (rf/reg-flow :a {:inputs [[:src]] :output-path [:dest]} (fn [v] v))
                 nil
                 (catch clojure.lang.ExceptionInfo e e)))
         "re-registering :a with the same :output-path must not throw :rf.error/flow-path-overlap")
@@ -275,15 +275,15 @@
   (testing "rf2-um6d9 — adding the overlap check does not disturb the cycle check or the happy path"
     ;; Happy path: a real dependency (B reads what A writes) registers and
     ;; topo-sorts cleanly — disjoint OUTPUTS, a genuine input edge.
-    (rf/reg-flow {:id :a :inputs [[:seed]]  :derive identity :output-path [:a-out]})
-    (rf/reg-flow {:id :b :inputs [[:a-out]] :derive identity :output-path [:b-out]})
+    (rf/reg-flow :a {:inputs [[:seed]] :output-path [:a-out]} identity)
+    (rf/reg-flow :b {:inputs [[:a-out]] :output-path [:b-out]} identity)
     (is (= #{:a :b} (set (keys (get (flows/flows-snapshot) :rf/default))))
         "a clean dependency topology (disjoint outputs, real edge) registers both flows")
     ;; Cycle check still fires: C reads B's output [:b-out]; re-registering
     ;; B to read C's output [:c-out] closes the cycle b → c → b.
-    (rf/reg-flow {:id :c :inputs [[:b-out]] :derive identity :output-path [:c-out]})
+    (rf/reg-flow :c {:inputs [[:b-out]] :output-path [:c-out]} identity)
     (let [thrown (try
-                   (rf/reg-flow {:id :b :inputs [[:a-out] [:c-out]] :derive identity :output-path [:b-out]})
+                   (rf/reg-flow :b {:inputs [[:a-out] [:c-out]] :output-path [:b-out]} identity)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (= :rf.error/flow-cycle (:rf.error/id (ex-data thrown)))

@@ -563,10 +563,7 @@
 
       ;; A flow whose :derive recomputes when [:n] changes (outermost
       ;; :after of the cascade).
-      (rf/reg-flow {:id     :timing/doubled
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 2 (or n 0)))
-                    :output-path   [:doubled]})
+      (rf/reg-flow :timing/doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 (or n 0))))
       (rf/reg-fx :timing/side (fn [_ _] :ok))
       (rf/reg-event :timing/seed
         (fn [_ _]

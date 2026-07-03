@@ -39,16 +39,16 @@
                 ;; a db-reading resolver (the :inherit default — fail-closed
                 ;; off-box); NOT explicitly declassified.
                 (rf/reg-resource-scope :rs/session
-                  {:inputs  {:username [:db [:auth :user :username]]}
-                   :resolve (fn [{:keys [username]} _]
-                              (when username [:rf.scope/session {:username username}]))})
+                  {:inputs {:username [:db [:auth :user :username]]}}
+                  (fn [{:keys [username]} _]
+                    (when username [:rf.scope/session {:username username}])))
                 ;; an explicitly :rf.egress/public resolver (the declassified
                 ;; audit surface — rides verbatim off-box).
                 (rf/reg-resource-scope :rs/public-locale
-                  {:inputs  {:locale [:db [:i18n :locale]]}
-                   :rf.egress/output-sensitivity :rf.egress/public
-                   :resolve (fn [{:keys [locale]} _]
-                              (when locale [:rf.scope/locale {:locale locale}]))}))}))
+                  {:inputs {:locale [:db [:i18n :locale]]}
+                   :rf.egress/output-sensitivity :rf.egress/public}
+                  (fn [{:keys [locale]} _]
+                    (when locale [:rf.scope/locale {:locale locale}]))))}))
 
 (def ^:private secret "jake-SECRET")
 

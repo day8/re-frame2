@@ -118,10 +118,7 @@
   (testing ":rf.flow/skip carries :rf.sub/input-paths-unchanged naming the flow's input paths"
     (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:x 0 :y 0}}))
     (rf/reg-event :bump-z (fn [{:keys [db]} _]     {:db (assoc db :z (inc (or (:z db) 0)))}))
-    (rf/reg-flow {:id     :sum
-                  :inputs [[:x] [:y]]
-                  :derive (fn [x y] (+ x y))
-                  :output-path   [:derived :sum]})
+    (rf/reg-flow :sum {:inputs [[:x] [:y]] :output-path [:derived :sum]} (fn [x y] (+ x y)))
     (rf/dispatch-sync [:seed])
     ;; First non-seed dispatch — flow recomputes. Second — inputs stable,
     ;; flow emits :rf.flow/skip.

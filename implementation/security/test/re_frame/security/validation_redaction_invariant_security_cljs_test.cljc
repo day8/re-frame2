@@ -424,11 +424,7 @@
         ;; sentinel so, absent redaction, it rides verbatim in :value /
         ;; :explain on the trace bus.
         (rf/reg-event :flow/seed (fn [{:keys [db]} _] {:db {:in failing-sensitive-value}}))
-        (rf/reg-flow {:id     :flow/secret
-                      :inputs [[:in]]
-                      :derive (fn [in] in)            ;; pass the bad value through
-                      :output-path   [:derived]
-                      :schema sensitive-map-schema})
+        (rf/reg-flow :flow/secret {:inputs [[:in]] :output-path [:derived] :schema sensitive-map-schema} (fn [in] in))
         (let [trace (capture-failure
                       #(rf/dispatch-sync [:flow/seed]))]
           (assert-no-leak ":where :flow-output (production path)" trace)

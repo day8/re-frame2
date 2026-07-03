@@ -57,23 +57,25 @@
 ;; ============================================================================
 ;;
 ;; `reg-resource-scope` registers a pure resolver under an id, and every
-;; derived-scope site points at it with `{:from-db :realworld/session}`. The
-;; declared `:inputs` name the one app-db fact that decides the scope — the
-;; authenticated user's `:username` — which earns two things: the runtime
-;; re-resolves the scope only when that exact path changes (login, logout, account
-;; switch), and tooling can tell you precisely which fact decides a resource's
-;; identity. `:resolve` is pure: it builds the canonical session-scope value, or
-;; returns `nil` when logged out (the fail-closed 'unresolved' answer).
+;; derived-scope site points at it with `{:from-db :realworld/session}`. Per the
+;; canonical 3-slot grammar the resolver fn is the value (third) slot, and the
+;; metadata middle slot's declared `:inputs` name the one app-db fact that
+;; decides the scope — the authenticated user's `:username` — which earns two
+;; things: the runtime re-resolves the scope only when that exact path changes
+;; (login, logout, account switch), and tooling can tell you precisely which fact
+;; decides a resource's identity. The resolver is pure: it builds the canonical
+;; session-scope value, or returns `nil` when logged out (the fail-closed
+;; 'unresolved' answer).
 
 (rf/reg-resource-scope :realworld/session
-  {:doc     "The current session's resource cache scope — the per-user leak
-             boundary, made explicit and auditable. Derived from the single
-             app-db fact that decides it (the authenticated user's username), and
-             nil when logged out (fail-closed)."
-   :inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username
-                [:rf.scope/session {:username username}]))})
+  {:doc    "The current session's resource cache scope — the per-user leak
+            boundary, made explicit and auditable. Derived from the single
+            app-db fact that decides it (the authenticated user's username), and
+            nil when logged out (fail-closed)."
+   :inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username
+      [:rf.scope/session {:username username}])))
 
 ;; ============================================================================
 ;; CONVENIENCE — the concrete value for the few non-resource sites that want it

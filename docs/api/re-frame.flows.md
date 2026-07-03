@@ -15,10 +15,9 @@ A **flow** is a piece of *registered, named, observable, restorable* derived sta
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (reg-flow flow)
-  (reg-flow flow opts)
+  (reg-flow flow-id metadata derive-fn)
   ```
-- **Description**: Register a flow. The flow map carries `:id`, `:inputs`, `:derive`, `:output-path`. `opts` is a map (currently `{:frame frame-id}`) selecting the owning frame. Returns the flow's `:id` (per the `reg-*` return-value convention).
+- **Description**: Register a flow, in the canonical 3-slot registration grammar: `flow-id` first, the pure `derive-fn` last, and `metadata` — the reflection-config map — in the middle carrying `:inputs`, `:output-path` (both required), plus optional `:doc` / `:schema` / the output-classification keys and the `:frame` mounting key (which selects the owning frame). A `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`). Returns `flow-id` (per the `reg-*` return-value convention).
 
 ### `clear-flow`
 
@@ -35,18 +34,17 @@ A **flow** is a piece of *registered, named, observable, restorable* derived sta
   (flows/clear-flow :cart/subtotal)
   ```
 
-## The flow map
+## The 3-slot grammar
 
-`reg-flow` takes a flow map. A minimal flow:
+`reg-flow` is `(reg-flow flow-id metadata derive-fn)`. A minimal flow:
 
 ```clojure
-(rf/reg-flow
-  {:id     :cart/subtotal
-   :inputs [[:cart :items] [:tax :rate]]      ;; vector of frame-state paths
-   :derive (fn [items rate]                    ;; values arrive positionally
-             (let [subtotal (reduce + (map :price items))]
-               (* subtotal (+ 1 rate))))
-   :output-path [:cart :subtotal]})
+(rf/reg-flow :cart/subtotal
+  {:inputs [[:cart :items] [:tax :rate]]      ;; vector of frame-state paths
+   :output-path [:cart :subtotal]}
+  (fn [items rate]                             ;; values arrive positionally
+    (let [subtotal (reduce + (map :price items))]
+      (* subtotal (+ 1 rate)))))
 
 ;; Now [:cart :subtotal] in app-db is always derived. Read it via a plain
 ;; sub or a plain handler. Adding an item triggers recompute; updating the
@@ -58,27 +56,27 @@ input path with `:rf.db/runtime` — the partition key is stripped before the
 read. Outputs stay `app-db`-only.
 
 ```clojure
-(rf/reg-flow
-  {:id     :nav/on-checkout?
-   :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] ;; runtime-db input
-   :derive (fn [route-id] (= route-id :checkout))
-   :output-path [:nav :on-checkout?]})                               ;; app-db output
+(rf/reg-flow :nav/on-checkout?
+  {:inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] ;; runtime-db input
+   :output-path [:nav :on-checkout?]}                                ;; app-db output
+  (fn [route-id] (= route-id :checkout)))
 ```
 
-`:inputs` is a **positional vector** of frame-state paths; the values at those paths arrive as positional args to `:derive` in the same order (a map-keyed `:inputs` form is a deferred design option, not v1). Each path reads against the pending frame-state's two partitions — a **bare** path reads `app-db`, and a path led by `:rf.db/runtime` reads `runtime-db`. The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised frame-state.
+`:inputs` is a **positional vector** of frame-state paths; the values at those paths arrive as positional args to the `derive-fn` in the same order (a map-keyed `:inputs` form is a deferred design option, not v1). Each path reads against the pending frame-state's two partitions — a **bare** path reads `app-db`, and a path led by `:rf.db/runtime` reads `runtime-db`. The metadata slot is pure data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised frame-state.
 
-| Key | Required | Notes |
+| Slot / key | Required | Notes |
 |---|---|---|
-| `:id` | yes | The registry key. Use a namespaced keyword. |
-| `:inputs` | yes | A vector of frame-state path vectors. Read positionally; the value at each path is passed to `:derive` in order. A bare path reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db`. |
-| `:derive` | yes | `(fn [in-1 in-2 ...] new-output)`. Pure; receives the input values positionally; called every time inputs change; must be deterministic. |
-| `:output-path` | yes | Where to write the output in `app-db`. |
-| `:doc` | no | One-sentence what-and-why; surfaces in tooling. |
-| `:schema` | no | Malli schema for the **output value**. Validated on every recompute in dev (and elided in production, like all schema validation). On failure the runtime emits `:rf.error/schema-validation-failure :where :flow-output` — **observational**: the output is still written (a flow output is materialised state downstream already reads), the trace surfaces the producer bug. Routes through the registered validator, so an app without the schemas artefact pays nothing. |
+| `flow-id` (slot 1) | yes | The registry key. Use a namespaced keyword. |
+| `derive-fn` (slot 3) | yes | `(fn [in-1 in-2 ...] new-output)`. Pure; receives the input values positionally; called every time inputs change; must be deterministic. |
+| `:inputs` (metadata) | yes | A vector of frame-state path vectors. Read positionally; the value at each path is passed to the `derive-fn` in order. A bare path reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db`. |
+| `:output-path` (metadata) | yes | Where to write the output in `app-db`. |
+| `:doc` (metadata) | no | One-sentence what-and-why; surfaces in tooling. |
+| `:frame` (metadata) | no | The frame the flow registers against (the override; else the surrounding `with-frame` scope). |
+| `:schema` (metadata) | no | Malli schema for the **output value**. Validated on every recompute in dev (and elided in production, like all schema validation). On failure the runtime emits `:rf.error/schema-validation-failure :where :flow-output` — **observational**: the output is still written (a flow output is materialised state downstream already reads), the trace surfaces the producer bug. Routes through the registered validator, so an app without the schemas artefact pays nothing. |
 
 #### Frame-scoping
 
-The `:flow` registrar slot is **last-registration-wins across frames** — registering the same id against multiple frames shares one registrar slot keyed by `flow-id` only. For full per-frame discovery read the encapsulated runtime registry via the public snapshot accessor `re-frame.flows/flows-snapshot` (it returns the `{frame-id {flow-id flow-map}}` shape) — **not** the private `@re-frame.flows/flows` atom, which is an implementation detail behind the snapshot contract. The per-frame runtime registry is the source of truth for evaluation.
+Flows are **single-store**: the `:flow` registrar kind is RESERVED-but-empty (`reg-flow` does not write it). The same id can register against multiple frames with divergent definitions. For per-frame discovery read the encapsulated runtime registry via the public snapshot accessor `re-frame.flows/flows-snapshot` (it returns the `{frame-id {flow-id flow-map}}` shape) or the frame-scoped `re-frame.flows/flow-meta-at` — **not** the private `@re-frame.flows/flows` atom, which is an implementation detail behind the snapshot contract. The per-frame runtime registry is the source of truth for evaluation.
 
 #### Frame-destroy teardown
 
@@ -90,10 +88,10 @@ Sometimes you want to register or clear a flow from inside an event handler — 
 
 | `[fx-id args]` | Args | Status | Intuition |
 |---|---|---|---|
-| `[:rf.fx/reg-flow flow-map]` | a flow map (same shape as `reg-flow`) | v1 | Register a flow at runtime via `:fx`. |
+| `[:rf.fx/reg-flow [flow-id metadata derive-fn]]` | the 3-slot triple (same shape as `reg-flow`) | v1 | Register a flow at runtime via `:fx`. The dispatching frame threads through as the `:frame` metadata key. |
 | `[:rf.fx/clear-flow id]` | flow id | v1 | Clear a registered flow at runtime via `:fx`. |
 
-The signature mirrors `reg-flow` / `clear-flow` exactly — same opts, same return semantics. Use whichever surface matches your call site.
+The signature mirrors `reg-flow` / `clear-flow` exactly — the same 3-slot triple, same return semantics. Use whichever surface matches your call site.
 
 ```clojure
 ;; Clear a runtime-registered flow from inside a handler — e.g. disengaging a
@@ -116,10 +114,10 @@ In the common case the lag is invisible — you register a flow in an `:enter`-s
   (fn [_ _]
     ;; Step 2 wants a running order total derived from the quantity and
     ;; unit price the user entered back on step 1.
-    {:fx [[:rf.fx/reg-flow {:id          :wizard/order-total
-                            :inputs      [[:wizard :qty] [:wizard :unit-price]]
-                            :derive      (fn [qty unit-price] (* qty unit-price))
-                            :output-path [:wizard :order-total]}]
+    {:fx [[:rf.fx/reg-flow [:wizard/order-total
+                            {:inputs      [[:wizard :qty] [:wizard :unit-price]]
+                             :output-path [:wizard :order-total]}
+                            (fn [qty unit-price] (* qty unit-price))]]
           [:dispatch [:wizard/settle]]]}))   ;; flow computes on THIS drain
 
 (rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain

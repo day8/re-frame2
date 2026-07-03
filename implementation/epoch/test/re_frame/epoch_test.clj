@@ -2080,11 +2080,7 @@
     ;; flow throws on every eval, so registering it after the seed keeps
     ;; the baseline untouched and isolates the throw to the :bump drain.
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/reg-flow {:id     :boom
-                  :inputs [[:n]]
-                  :derive (fn [_] (throw (ex-info "flow boom" {:why :test})))
-                  :output-path   [:derived :doomed]}
-                 {:frame :test/main})
+    (rf/reg-flow :boom {:frame :test/main :inputs [[:n]] :output-path [:derived :doomed]} (fn [_] (throw (ex-info "flow boom" {:why :test}))))
     (rf/dispatch-sync [:bump] {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)
@@ -2124,11 +2120,7 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 2 :h 3}}))
     (rf/reg-event :bump-w (fn [{:keys [db]} _] {:db (update db :w inc)}))
-    (rf/reg-flow {:id     :rect/area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :test/main})
+    (rf/reg-flow :rect/area {:frame :test/main :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
 
     (rf/dispatch-sync [:seed]   {:frame :test/main})  ;; area=6
     (rf/dispatch-sync [:bump-w] {:frame :test/main})  ;; area=9
@@ -2547,11 +2539,7 @@
     (rf/reg-event :init (fn [{:keys [db]} _]      {:db {:w 2 :h 3}}))
     (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
     (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
-    (rf/reg-flow {:id     :rect/area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :test/main})
+    (rf/reg-flow :rect/area {:frame :test/main :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
 
     (rf/dispatch-sync [:init]    {:frame :test/main})  ;; area=6
     (rf/dispatch-sync [:w! 5]    {:frame :test/main})  ;; area=15
@@ -2576,11 +2564,7 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event :init (fn [{:keys [db]} _]      {:db {:w 1 :h 1}}))
     (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
-    (rf/reg-flow {:id     :rect/area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :test/main})
+    (rf/reg-flow :rect/area {:frame :test/main :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
 
     (rf/dispatch-sync [:init]   {:frame :test/main})  ;; area=1
     (rf/dispatch-sync [:w! 4]   {:frame :test/main})  ;; area=4

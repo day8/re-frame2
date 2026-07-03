@@ -53,10 +53,7 @@
     ;; compile-time classpath.
     (with-hook-as-nil :flows/reg-flow
       (fn []
-        (let [thrown (try (rf/reg-flow {:id     :late-bind-missing/probe
-                                        :inputs []
-                                        :derive (fn [] 0)
-                                        :output-path   [:probe]})
+        (let [thrown (try (rf/reg-flow :late-bind-missing/probe {:inputs [] :output-path [:probe]} (fn [] 0))
                           nil
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)

@@ -36,12 +36,20 @@
   {:before (fn [] (registrar/clear-kind! :resource-scope))
    :after  (fn [] (registrar/clear-kind! :resource-scope))})
 
-(def ^:private session-spec
-  "The canonical declared-inputs resolver (Spec 016 §The :inputs grammar)."
-  {:doc     "Viewer session scope."
-   :inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username [:rf.scope/session {:username username}]))})
+;; rf2-bqstzr — the canonical declared-inputs resolver split into the 3-slot
+;; grammar's metadata middle slot (`session-meta`: `:doc` + `:inputs`) and the
+;; value `:resolve` fn (`session-resolve`), so call sites read
+;; `(reg-resource-scope id session-meta session-resolve)`.
+(def ^:private session-meta
+  "The canonical declared-inputs resolver metadata (Spec 016 §The :inputs
+  grammar) — the 3-slot MIDDLE slot."
+  {:doc    "Viewer session scope."
+   :inputs {:username [:db [:auth :user :username]]}})
+
+(defn- session-resolve
+  "The canonical resolver fn — the 3-slot VALUE slot."
+  [{:keys [username]} _ctx]
+  (when username [:rf.scope/session {:username username}]))
 
 ;; ===========================================================================
 ;; 1. Registration + introspection + the :resource-scope kind
@@ -54,7 +62,7 @@
 
 (deftest reg-resource-scope-registers-and-introspects
   (testing "reg-resource-scope writes a :resource-scope registrar entry"
-    (is (= :realworld/session (resources/reg-resource-scope :realworld/session session-spec)))
+    (is (= :realworld/session (resources/reg-resource-scope :realworld/session session-meta session-resolve)))
     (is (contains? (registrar/registrations :resource-scope) :realworld/session))
     (is (= [:realworld/session] (resources/scope-resolver-ids))))
   (testing "scope-resolver-meta reads the canonical spec back"
@@ -72,33 +80,48 @@
 ;; ===========================================================================
 
 (deftest reg-resource-scope-fail-closed
-  (testing "a fn-less :inputs map throws invalid-resource-scope-spec"
+  ;; rf2-bqstzr — the 3-slot grammar `(reg-resource-scope scope-id metadata
+  ;; resolve-fn)`: the resolver fn is the VALUE slot, `:inputs` lives in the
+  ;; metadata MIDDLE slot.
+  (testing "a non-fn value slot throws invalid-resource-scope-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
           (resources/reg-resource-scope :s/no-resolve
-                                        {:inputs {:x [:db [:x]]}}))))
-  (testing "a non-map non-fn resolver throws"
+                                        {:inputs {:x [:db [:x]]}}
+                                        "not a fn"))))
+  (testing "a non-map non-fn value slot throws (2-arg sugar, value not a fn)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
           (resources/reg-resource-scope :s/bad "not a resolver"))))
+  (testing "a non-map metadata slot throws"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
+          (resources/reg-resource-scope :s/bad-meta "not a map" (fn [_ _] nil)))))
+  (testing "a :resolve left inside the metadata map is rejected as mislocated"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
+          (resources/reg-resource-scope :s/mislocated
+                                        {:inputs {:x [:db [:x]]}
+                                         :resolve (fn [_ _] nil)}
+                                        (fn [_ _] nil)))))
   (testing "a non-map :inputs throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
           (resources/reg-resource-scope :s/bad-inputs
-                                        {:inputs [:not :a :map]
-                                         :resolve (fn [_ _] nil)}))))
+                                        {:inputs [:not :a :map]}
+                                        (fn [_ _] nil)))))
   (testing "a malformed input descriptor (not a 2-vector) throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
           (resources/reg-resource-scope :s/bad-desc
-                                        {:inputs {:x [:db]}
-                                         :resolve (fn [_ _] nil)}))))
+                                        {:inputs {:x [:db]}}
+                                        (fn [_ _] nil)))))
   (testing "an unknown source head throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
           (resources/reg-resource-scope :s/bad-src
-                                        {:inputs {:x [:cookie [:x]]}
-                                         :resolve (fn [_ _] nil)})))))
+                                        {:inputs {:x [:cookie [:x]]}}
+                                        (fn [_ _] nil))))))
 
 (deftest runtime-source-is-reserved-not-shipped
   ;; Spec 016 §Route-derived scope is reserved — `[:runtime path]` is named
@@ -109,9 +132,9 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-source-reserved"
           (resources/reg-resource-scope :s/tenant
-                                        {:inputs  {:tenant [:runtime [:rf.runtime/routing :current :params :tenant]]}
-                                         :resolve (fn [{:keys [tenant]} _]
-                                                    (when tenant [:rf.scope/tenant {:tenant tenant}]))})))))
+                                        {:inputs {:tenant [:runtime [:rf.runtime/routing :current :params :tenant]]}}
+                                        (fn [{:keys [tenant]} _]
+                                          (when tenant [:rf.scope/tenant {:tenant tenant}])))))))
 
 ;; ===========================================================================
 ;; 3. [:db path] input evaluation (EP-0012 rf.path)
@@ -131,7 +154,7 @@
 ;; ===========================================================================
 
 (deftest resolve-resource-scope-against-supplied-db
-  (resources/reg-resource-scope :realworld/session session-spec)
+  (resources/reg-resource-scope :realworld/session session-meta session-resolve)
   (testing "resolves the concrete scope from a supplied db value (canonicalized)"
     (is (= [:rf.scope/session {:username "jake"}]
            (resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
@@ -150,8 +173,8 @@
   ;; (the shared concrete-scope canonicalization path) — it can never become
   ;; a silent wrong cache scope.
   (resources/reg-resource-scope :s/typo
-                                {:inputs  {}
-                                 :resolve (fn [_ _] :rf.scope/glabal)})
+                                {:inputs {}}
+                                (fn [_ _] :rf.scope/glabal))
   (testing "a resolved :rf.scope/* typo is rejected at canonicalization"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
@@ -183,7 +206,7 @@
 ;; ===========================================================================
 
 (deftest from-db-reference-resolution
-  (resources/reg-resource-scope :realworld/session session-spec)
+  (resources/reg-resource-scope :realworld/session session-meta session-resolve)
   (testing "from-db-reference? recognises only {:from-db …} maps"
     (is (scope/from-db-reference? {:from-db :realworld/session}))
     (is (not (scope/from-db-reference? :rf.scope/global)))
@@ -212,7 +235,7 @@
 (deftest output-sensitivity-claim-silently-ignored
   (testing "a resolver carries no :output-sensitivity on its canonical spec
             (the propagation enum is gone — EP-0025)"
-    (resources/reg-resource-scope :s/default session-spec)
+    (resources/reg-resource-scope :s/default session-meta session-resolve)
     (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/default)))))
   (testing "a present :rf.egress/output-sensitivity key is silently ignored, not
             stored, and registration does NOT throw (Spec 015 §No propagation:
@@ -220,7 +243,8 @@
     (doseq [claim [:rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
       (is (= :s/claim
              (resources/reg-resource-scope :s/claim
-                                           (assoc session-spec :rf.egress/output-sensitivity claim))))
+                                           (assoc session-meta :rf.egress/output-sensitivity claim)
+                                           session-resolve)))
       (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/claim))))))
   (testing "the whole-db fn sugar carries no :output-sensitivity"
     (resources/reg-resource-scope :s/sugar-claim (fn [_db _ctx] nil))
@@ -229,7 +253,8 @@
             no :rf.error/invalid-resource-scope-spec throw"
     (is (= :s/was-typo-claim
            (resources/reg-resource-scope :s/was-typo-claim
-                                         (assoc session-spec :rf.egress/output-sensitivity :rf.egress/publik))))))
+                                         (assoc session-meta :rf.egress/output-sensitivity :rf.egress/publik)
+                                         session-resolve)))))
 
 (deftest input-db-paths-extracts-the-dependency-graph
   (testing "input-db-paths returns the concrete :db paths a resolver reads"
@@ -243,3 +268,40 @@
     (is (= [] (scope/input-db-paths {}))))
   (testing "the whole-db sugar's synthetic [:db []] is the root path [[]]"
     (is (= [[]] (scope/input-db-paths {:db [:db []]})))))
+
+;; ===========================================================================
+;; 8. The canonical 3-slot registration grammar (rf2-bqstzr)
+;; ===========================================================================
+
+(deftest reg-resource-scope-conforms-to-3-slot-grammar
+  ;; rf2-bqstzr — `reg-resource-scope` is `(reg-resource-scope scope-id
+  ;; metadata resolve-fn)`: the `:resolve` fn is the value slot, `:inputs`
+  ;; lives in the metadata middle slot, matching reg-resource / reg-mutation /
+  ;; reg-route.
+  (testing "the 3-arg form stores :inputs from the metadata slot and the value
+            fn as :resolve"
+    (resources/reg-resource-scope :s/three-slot
+                                  {:doc "3-slot." :inputs {:username [:db [:auth :user :username]]}}
+                                  session-resolve)
+    (let [m (resources/scope-resolver-meta :s/three-slot)]
+      (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
+      (is (identical? session-resolve (:resolve m)))
+      (is (false? (:whole-db? m)))))
+  (testing "the resolver first arg is the resolved inputs map"
+    (is (= [:rf.scope/session {:username "jake"}]
+           (resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
+                                             :s/three-slot))))
+  (testing "the 2-arg sugar (no metadata) selects the whole-db form"
+    (resources/reg-resource-scope :s/two-slot
+                                  (fn [db _ctx]
+                                    (when-let [u (get-in db [:auth :user :username])]
+                                      [:rf.scope/session {:username u}])))
+    (is (true? (:whole-db? (resources/scope-resolver-meta :s/two-slot))))
+    (is (= [:rf.scope/session {:username "jake"}]
+           (resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
+                                             :s/two-slot))))
+  (testing ":doc-only metadata (no :inputs) still selects the whole-db form"
+    (resources/reg-resource-scope :s/doc-only
+                                  {:doc "Whole-db, documented."}
+                                  (fn [db _ctx] (get-in db [:tenant])))
+    (is (true? (:whole-db? (resources/scope-resolver-meta :s/doc-only))))))

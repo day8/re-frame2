@@ -473,10 +473,7 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:width 0 :height 0}}))
     (rf/reg-event :w! (fn [{:keys [db]} [_ w]] {:db (assoc db :width w)}))
     (rf/reg-event :h! (fn [{:keys [db]} [_ h]] {:db (assoc db :height h)}))
-    (rf/reg-flow {:id     :rect/area
-                  :inputs [[:width] [:height]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:area]})
+    (rf/reg-flow :rect/area {:inputs [[:width] [:height]] :output-path [:area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])
@@ -949,10 +946,7 @@
     ;; `flows/flow-meta-at` / `flows/flows-snapshot`, asserted in the flows
     ;; artefact's own tests. The fixture's ambient `(with-frame :rf/default …)`
     ;; scope resolves the frame this registers against.
-    (rf/reg-flow {:id     :rf2-o1bp/flow1
-                  :inputs []
-                  :derive (fn [_inputs] :computed)
-                  :output-path   [:rf2-o1bp/flow-output]})
+    (rf/reg-flow :rf2-o1bp/flow1 {:inputs [] :output-path [:rf2-o1bp/flow-output]} (fn [_inputs] :computed))
 
     ;; ---- :http-interceptor --------------------------------------------
     ;; reg-http-interceptor uses its own per-frame atom (not the

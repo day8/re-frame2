@@ -62,11 +62,7 @@
 (deftest destroy-frame-clears-per-frame-flow-registry-slot
   (testing "destroying a frame drops its slot from re-frame.flows.registry/flows"
     (rf/reg-frame :fc/scratch {:doc "scratch frame for destroy teardown test"})
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/scratch})
+    (rf/reg-flow :area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (is (contains? (flows/flows-snapshot) :fc/scratch)
         "precondition: the flow registered under the scratch frame's slot")
     (frame/destroy-frame! :fc/scratch)
@@ -79,11 +75,7 @@
   (testing "destroying a frame removes the destroyed-frame entry from each flow's last-inputs row"
     (rf/reg-frame :fc/scratch {:doc "scratch frame for last-inputs teardown test"})
     (rf/reg-event :fc/seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/scratch})
+    (rf/reg-flow :area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     ;; Drive a drain on the scratch frame so the dirty-check populates
     ;; `last-inputs[:area][:fc/scratch]`.
     (rf/dispatch-sync [:fc/seed] {:frame :fc/scratch})
@@ -104,16 +96,8 @@
     (rf/reg-frame :fc/b {:doc "frame B"})
     (rf/reg-event :fc/seed-a (fn [{:keys [db]} _] {:db {:w 2 :h 5}}))
     (rf/reg-event :fc/seed-b (fn [{:keys [db]} _] {:db {:w 7 :h 9}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/a})
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/b})
+    (rf/reg-flow :area {:frame :fc/a :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
+    (rf/reg-flow :area {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:fc/seed-a] {:frame :fc/a})
     (rf/dispatch-sync [:fc/seed-b] {:frame :fc/b})
     (is (= [2 5] (get-in (flows/last-inputs-snapshot) [:area :fc/a])))
@@ -129,11 +113,7 @@
 (deftest destroy-frame-drops-per-frame-entry-when-last-owner
   (testing "destroying the only frame that owned a flow id drops its per-frame entry (rf2-en00bk: no registrar slot to prune)"
     (rf/reg-frame :fc/scratch {:doc "scratch frame"})
-    (rf/reg-flow {:id     :sole-area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/scratch})
+    (rf/reg-flow :sole-area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (is (some? (flows/flow-meta-at :sole-area {:frame :fc/scratch}))
         "precondition: the per-frame store carries the flow")
     (is (nil? (registrar/lookup :flow :sole-area))
@@ -152,10 +132,8 @@
     (rf/reg-frame :fc/b {:doc "frame B"})
     (let [f-a (fn [w h] (* (or w 0) (or h 0)))
           f-b (fn [w h] (+ (or w 0) (or h 0)))]
-      (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :derive f-a :output-path [:rect :area]}
-                   {:frame :fc/a})
-      (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :derive f-b :output-path [:rect :area]}
-                   {:frame :fc/b})
+      (rf/reg-flow :shared {:frame :fc/a :inputs [[:w] [:h]] :output-path [:rect :area]} f-a)
+      (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} f-b)
       ;; Destroy :fc/a. :fc/b still holds :shared with its OWN divergent body.
       (frame/destroy-frame! :fc/a)
       (is (nil? (flows/flow-meta-at :shared {:frame :fc/a}))
@@ -169,8 +147,7 @@
   (testing "destroying a frame that does NOT register the id leaves the registering frame's entry untouched (rf2-en00bk)"
     (rf/reg-frame :fc/a {:doc "frame A"})
     (rf/reg-frame :fc/b {:doc "frame B"})
-    (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :derive (fn [w h] h) :output-path [:rect :area]}
-                 {:frame :fc/b})
+    (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] h))
     ;; Destroy :fc/a — it never registered :shared.
     (frame/destroy-frame! :fc/a)
     (is (some? (flows/flow-meta-at :shared {:frame :fc/b}))
@@ -184,11 +161,7 @@
       (dotimes [i N]
         (let [frame-id (keyword "fc" (str "ephemeral-" i))]
           (rf/reg-frame frame-id {:doc (str "ephemeral frame " i)})
-          (rf/reg-flow {:id     :churn
-                        :inputs [[:n]]
-                        :derive (fn [n] (or n 0))
-                        :output-path   [:result]}
-                       {:frame frame-id})
+          (rf/reg-flow :churn {:frame frame-id :inputs [[:n]] :output-path [:result]} (fn [n] (or n 0)))
           (rf/reg-event :fc/seed-churn (fn [{:keys [db]} [_ v]] {:db {:n v}}))
           (rf/dispatch-sync [:fc/seed-churn i] {:frame frame-id})
           (frame/destroy-frame! frame-id)))
@@ -205,11 +178,7 @@
   (testing "registering a frame under a reused id after destroy starts with no leftover flow state"
     (rf/reg-frame :fc/scratch {:doc "first incarnation"})
     (rf/reg-event :fc/seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/scratch})
+    (rf/reg-flow :area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (rf/dispatch-sync [:fc/seed] {:frame :fc/scratch})
     (frame/destroy-frame! :fc/scratch)
     (rf/reg-frame :fc/scratch {:doc "second incarnation"})
@@ -239,18 +208,8 @@
             :large (declarations) flow-sourced entries vanish with the frame
             record, with no explicit teardown scrub"
     (rf/reg-frame :fc/scratch {:doc "scratch frame for flow-output-mark teardown"})
-    (rf/reg-flow {:id        :creds
-                  :inputs    [[:n]]
-                  :derive    (fn [n] {:secret n})
-                  :output-path      [:derived :creds]
-                  :sensitive [[:secret]]}
-                 {:frame :fc/scratch})
-    (rf/reg-flow {:id     :blob
-                  :inputs [[:n]]
-                  :derive (fn [n] {:bytes n})
-                  :output-path   [:derived :blob]
-                  :large? true}
-                 {:frame :fc/scratch})
+    (rf/reg-flow :creds {:frame :fc/scratch :inputs [[:n]] :output-path [:derived :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
+    (rf/reg-flow :blob {:frame :fc/scratch :inputs [[:n]] :output-path [:derived :blob] :large? true} (fn [n] {:bytes n}))
     ;; Precondition: the flow-sourced declarations are installed in the LIVE
     ;; frame's elision registry (the same surface flows_output_marks_test
     ;; reads). The sensitive subpath roots at :output-path ++ [:secret]; the large
@@ -283,12 +242,7 @@
     ;; whole-value convention) — the removed `:rf.egress/output-sensitivity`
     ;; propagation claim's replacement.
     (rf/reg-frame :fc/scratch {:doc "first incarnation"})
-    (rf/reg-flow {:id          :token
-                  :inputs      [[:n]]
-                  :derive      (fn [n] {:jwt n})
-                  :output-path [:auth :token]
-                  :sensitive   [[]]}
-                 {:frame :fc/scratch})
+    (rf/reg-flow :token {:frame :fc/scratch :inputs [[:n]] :output-path [:auth :token] :sensitive [[]]} (fn [n] {:jwt n}))
     (is (contains? (elision/sensitive-declarations :fc/scratch) [:auth :token])
         "precondition: the first incarnation installed a whole-output sensitive mark")
     (frame/destroy-frame! :fc/scratch)
@@ -327,11 +281,7 @@
           registrar-before (registrar/lookup :flow :leak/probe)
           thrown          (atom nil)]
       (try
-        (rf/reg-flow {:id     :leak/probe
-                      :inputs [[:n]]
-                      :derive (fn [n] (* (or n 0) 10))
-                      :output-path   [:out]}
-                     {:frame :fc/scratch})
+        (rf/reg-flow :leak/probe {:frame :fc/scratch :inputs [[:n]] :output-path [:out]} (fn [n] (* (or n 0) 10)))
         (catch clojure.lang.ExceptionInfo e
           (reset! thrown (ex-data e))))
       (is (= :rf.error/flow-frame-not-live (:rf.error/id @thrown))
@@ -356,11 +306,7 @@
           registrar-before (registrar/lookup :flow :typo/flow)
           thrown           (atom nil)]
       (try
-        (rf/reg-flow {:id     :typo/flow
-                      :inputs [[:n]]
-                      :derive (fn [n] (or n 0))
-                      :output-path   [:out]}
-                     {:frame :fc/never})
+        (rf/reg-flow :typo/flow {:frame :fc/never :inputs [[:n]] :output-path [:out]} (fn [n] (or n 0)))
         (catch clojure.lang.ExceptionInfo e
           (reset! thrown (ex-data e))))
       (is (= :rf.error/flow-frame-not-live (:rf.error/id @thrown))
@@ -381,11 +327,7 @@
     ;; The resurrection attempt — rejected, mutates nothing.
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"rf.error/flow-frame-not-live"
-          (rf/reg-flow {:id     :leak/probe
-                        :inputs [[:n]]
-                        :derive (fn [n] (* (or n 0) 10))
-                        :output-path   [:out]}
-                       {:frame :fc/scratch}))
+          (rf/reg-flow :leak/probe {:frame :fc/scratch :inputs [[:n]] :output-path [:out]} (fn [n] (* (or n 0) 10))))
         "reg-flow on the dead frame is rejected")
     ;; Re-register the same id and drive a drain — the stale flow must NOT run.
     (rf/reg-frame :fc/scratch {:doc "second incarnation"})

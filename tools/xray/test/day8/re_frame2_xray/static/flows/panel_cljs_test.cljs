@@ -371,18 +371,18 @@
             this regression."
     (production-setup-xray!)
     ;; Register REAL flows against host frame A via the public facade.
-    (rf/reg-flow {:id          :user/full-name
-                  :inputs      [[:user :first] [:user :last]]
-                  :derive      (fn [first* last*] (str first* " " last*))
+    (rf/reg-flow :user/full-name
+                 {:inputs      [[:user :first] [:user :last]]
                   :output-path [:derived :full-name]
-                  :doc         "concat first + last"}
-                 {:frame :flows-test/frame-a})
-    (rf/reg-flow {:id          :cart/total
-                  :inputs      [[:cart :items]]
-                  :derive      (fn [_] 0)
+                  :doc         "concat first + last"
+                  :frame       :flows-test/frame-a}
+                 (fn [first* last*] (str first* " " last*)))
+    (rf/reg-flow :cart/total
+                 {:inputs      [[:cart :items]]
                   :output-path [:cart :total]
-                  :doc         "sum of cart items"}
-                 {:frame :flows-test/frame-a})
+                  :doc         "sum of cart items"
+                  :frame       :flows-test/frame-a}
+                 (fn [_] 0))
     ;; Read through the LIVE production sub — NOT the override seam — inside
     ;; the :rf/xray frame the panel seats in. nil picker frame → list every
     ;; frame's flows (see scope-to-frame), so the catalogue carries both.
@@ -411,18 +411,18 @@
           derive-b (fn [first* last*] (str last* ", " first*))]
       ;; Same flow-id :user/full-name, two frames, DIVERGENT :derive +
       ;; :output-path.
-      (rf/reg-flow {:id          :user/full-name
-                    :inputs      [[:user :first] [:user :last]]
-                    :derive      derive-a
+      (rf/reg-flow :user/full-name
+                   {:inputs      [[:user :first] [:user :last]]
                     :output-path [:derived :natural]
-                    :doc         "first last"}
-                   {:frame :flows-test/frame-a})
-      (rf/reg-flow {:id          :user/full-name
-                    :inputs      [[:user :first] [:user :last]]
-                    :derive      derive-b
+                    :doc         "first last"
+                    :frame       :flows-test/frame-a}
+                   derive-a)
+      (rf/reg-flow :user/full-name
+                   {:inputs      [[:user :first] [:user :last]]
                     :output-path [:derived :sortable]
-                    :doc         "last, first"}
-                   {:frame :flows-test/frame-b})
+                    :doc         "last, first"
+                    :frame       :flows-test/frame-b}
+                   derive-b)
       (rf/with-frame :rf/xray
         (let [snapshot @(rf/subscribe [:rf.xray.static.flows/registered-flows])
               entry-a  (get-in snapshot [:flows-test/frame-a :user/full-name])

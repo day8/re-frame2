@@ -99,16 +99,19 @@
 ;; lighter `:editor/reset` (slice wipe only), so no fresh flow registration
 ;; leaks on each visit.
 
+;; The 3-slot triple `[flow-id metadata derive-fn]` (rf2-bqstzr) — the exact
+;; shape both `reg-flow` and `:rf.fx/reg-flow` take, so `[:rf.fx/reg-flow
+;; can-submit-flow]` splats it straight through.
 (def can-submit-flow
-  {:id     :editor/can-submit?
-   :doc    "True when the editor draft is both valid AND dirty (it differs from
-            the loaded baseline). Kept in app-db so the submit handler can read
-            it as plain data."
-   :inputs [[:editor :draft] [:editor :baseline]]
-   :derive (fn [draft baseline]
-             (and (empty? (validate-draft draft))
-                  (not= draft baseline)))
-   :output-path [:editor :can-submit?]})
+  [:editor/can-submit?
+   {:doc    "True when the editor draft is both valid AND dirty (it differs from
+             the loaded baseline). Kept in app-db so the submit handler can read
+             it as plain data."
+    :inputs [[:editor :draft] [:editor :baseline]]
+    :output-path [:editor :can-submit?]}
+   (fn [draft baseline]
+     (and (empty? (validate-draft draft))
+          (not= draft baseline)))])
 
 (defn article-body [draft]
   {:article {:title       (:title draft)

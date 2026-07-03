@@ -156,15 +156,16 @@ A resource-scope resolver is the **third resources kind** (alongside resources a
 - **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
-  (reg-resource-scope scope-id resolver)
+  (reg-resource-scope scope-id metadata resolve-fn)
+  (reg-resource-scope scope-id resolve-fn)           ;; whole-db sugar (no metadata)
   ```
-- **Description**: Register a PURE named scope resolver under `scope-id`. `resolver` is either the canonical declared-inputs map `{:inputs {name [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)}` — where the `:resolve` first arg is ALWAYS the resolved inputs map (the one stable Name-over-place meaning) — or the single documented explicit alternative, the whole-db fn sugar `(fn [db ctx] -> scope|nil)` (whose first arg is the whole db, the one deliberate exception). The only shipped input source is `[:db <rf-path>]` (a concrete `:rf/path`); `[:runtime …]` (route-derived scope) is **reserved** and rejected loudly. The `:resolve` fn MUST be pure (it MUST NOT fetch, dispatch, mutate state, or read ambient host state); the `ctx` arg is reserved and invoked as literal `nil` in this slice. A `nil` resolve result is **fail-closed**. Writes a `:resource-scope`-kind registrar entry carrying the canonical spec plus captured source coords; returns `scope-id`. Implementation ships in `day8/re-frame2-resources`; require `re-frame.resources` at boot — an app that omits the artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
+- **Description**: Register a PURE named scope resolver under `scope-id` in the canonical 3-slot grammar: the `:resolve` fn is the value (third) slot, and `metadata` — the middle slot — carries the declared `:inputs {name [:db <rf-path>]}` (plus optional `:doc`). The resolver's first arg is ALWAYS the resolved inputs map (the one stable Name-over-place meaning). **Omitting `:inputs`** (the 2-arg sugar, or a `:doc`-only metadata) selects the whole-db form — the resolver reads the whole db as its first arg (the one deliberate, documented exception). The only shipped input source is `[:db <rf-path>]` (a concrete `:rf/path`); `[:runtime …]` (route-derived scope) is **reserved** and rejected loudly. The resolver fn MUST be pure (it MUST NOT fetch, dispatch, mutate state, or read ambient host state); the `ctx` arg is reserved and invoked as literal `nil` in this slice. A `nil` resolve result is **fail-closed**. A `:resolve` left inside the metadata map, or a non-fn value slot, is rejected loudly. Writes a `:resource-scope`-kind registrar entry carrying the canonical spec plus captured source coords; returns `scope-id`. Implementation ships in `day8/re-frame2-resources`; require `re-frame.resources` at boot — an app that omits the artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
-  {:inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username [:rf.scope/session {:username username}])))
 
 ;; referenced from a resource / payload / route as {:from-db :realworld/session}
 ```

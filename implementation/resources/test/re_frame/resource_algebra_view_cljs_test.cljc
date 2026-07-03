@@ -177,9 +177,9 @@
     ;; the resolver id + its declared [:db <rf-path>] inputs are STATIC facts
     ;; (declared, not executed), even while the params stay generic.
     (rf/reg-resource-scope :session/current-tenant
-                           {:inputs  {:tenant-id [:db [:session :tenant-id]]}
-                            :resolve (fn [{:keys [tenant-id]} _ctx]
-                                       [:rf.scope/session {:tenant-id tenant-id}])})
+                           {:inputs {:tenant-id [:db [:session :tenant-id]]}}
+                           (fn [{:keys [tenant-id]} _ctx]
+                             [:rf.scope/session {:tenant-id tenant-id}]))
     (rf/reg-resource :tenant/article
                      (article-spec {:scope {:from-db :session/current-tenant}})
                      article-spec-request)
@@ -387,9 +387,9 @@
       (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:session :tenant-id]]})))
     ;; resolver reading the frame-sensitive path — NO propagation now.
     (rf/reg-resource-scope :session/tenant
-                           {:inputs  {:tenant-id [:db [:session :tenant-id]]}
-                            :resolve (fn [{:keys [tenant-id]} _]
-                                       (when tenant-id [:rf.scope/tenant tenant-id]))})
+                           {:inputs {:tenant-id [:db [:session :tenant-id]]}}
+                           (fn [{:keys [tenant-id]} _]
+                             (when tenant-id [:rf.scope/tenant tenant-id])))
     ;; a tenant-scoped resource NOT declared :sensitive? — the derived scope is
     ;; NO LONGER inherited as sensitive (the secret rides; fail-open).
     (rf/reg-resource :derived/article

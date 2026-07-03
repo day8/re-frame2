@@ -293,10 +293,7 @@
               (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
   ;; :flows — the subscription's policy TWIN: same sum-cart, materialized
   ;; into app-db `:after-event`.
-  (rf/reg-flow {:id     :cart/materialized-total
-                :inputs [[:cart :items]]
-                :derive sum-cart
-                :output-path   [:cart :total]})
+  (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items]] :output-path [:cart :total]} sum-cart)
   ;; :resources — a process node (runtime-db / external authority); declares
   ;; a route-owned resource so the route gets a :param activation edge.
   (rf/reg-resource :article/by-slug

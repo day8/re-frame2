@@ -63,13 +63,12 @@
 ;; See docs/core/glossary.md#frame-identity-is-carried-not-found.
 (rf/with-frame :rf/default
 
-(rf/reg-flow
-  {:id     :cart/subtotal
-   :doc    "Every line item's price × qty, summed. Materialised into app-db
+(rf/reg-flow :cart/subtotal
+  {:doc    "Every line item's price × qty, summed. Materialised into app-db
             so the checkout handler can read it as ordinary data."
    :inputs [[:cart :items]]
-   :derive (fn [items] (reduce + 0 (map line-total items)))
-   :output-path [:cart :subtotal]})
+   :output-path [:cart :subtotal]}
+  (fn [items] (reduce + 0 (map line-total items))))
 
 ;; Here's the cascade. `:cart/total` reads another flow's output
 ;; (`[:cart :subtotal]`) alongside the discount rate. The runtime spots that
@@ -83,15 +82,14 @@
 ;; live, it derives a flat 10% off the current subtotal. And because it reads
 ;; `[:cart :subtotal]`, the rate stays fresh as the cart changes — a tiered
 ;; "5% over $50" rule would drop straight in.
-(rf/reg-flow
-  {:id     :cart/total
-   :doc    "Subtotal less the active discount. Reads :cart/subtotal's output
+(rf/reg-flow :cart/total
+  {:doc    "Subtotal less the active discount. Reads :cart/subtotal's output
             and the discount rate you can toggle at runtime."
    :inputs [[:cart :subtotal] [:cart :discount-rate]]
-   :derive (fn [subtotal discount-rate]
-             (let [rate (or discount-rate 0)]
-               (Math/round (* subtotal (- 1 rate)))))
-   :output-path [:cart :total]}))
+   :output-path [:cart :total]}
+  (fn [subtotal discount-rate]
+    (let [rate (or discount-rate 0)]
+      (Math/round (* subtotal (- 1 rate)))))))
 
 ;; ============================================================================
 ;; EVENTS
@@ -151,14 +149,14 @@
          discount rate, then nudge a re-walk so :cart/total recomputes."}
   (fn handler-cart-apply-discount [_ _]
     {:fx [[:rf.fx/reg-flow
-           {:id     :cart/discount-rate
-            :doc    "The active discount rate — feature-gated, so it only
-                     exists while the discount is engaged. It reads the live
-                     subtotal so the rule has room to grow; for now it's a
-                     flat 10% off."
-            :inputs [[:cart :subtotal]]
-            :derive (fn [_subtotal] 0.10)
-            :output-path [:cart :discount-rate]}]
+           [:cart/discount-rate
+            {:doc    "The active discount rate — feature-gated, so it only
+                      exists while the discount is engaged. It reads the live
+                      subtotal so the rule has room to grow; for now it's a
+                      flat 10% off."
+             :inputs [[:cart :subtotal]]
+             :output-path [:cart :discount-rate]}
+            (fn [_subtotal] 0.10)]]
           [:dispatch [:cart/touch]]]}))
 
 (rf/reg-event :cart/remove-discount

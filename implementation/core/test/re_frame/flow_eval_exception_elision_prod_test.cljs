@@ -65,13 +65,10 @@
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/flow-throw
                        (fn [{:keys [db]} _] {:db {:token "string-value"}}))
-      (rf/reg-flow {:id     :str-len
-                    :inputs [[:token]]
-                    :derive (fn [t]
+      (rf/reg-flow :str-len {:inputs [[:token]] :output-path [:str-len]} (fn [t]
                               (when (string? t)
                                 (throw (ex-info "no strings allowed" {})))
-                              (count t))
-                    :output-path   [:str-len]})
+                              (count t)))
       (rf/dispatch-sync [:prod/flow-throw])
       (is (= 1 (count @seen))
           "listener fired exactly once — prod-elision contract holds")

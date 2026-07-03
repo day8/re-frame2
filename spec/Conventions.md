@@ -345,7 +345,7 @@ The **Override tier** column records whether a `:fx-overrides` entry targeting t
 | `:rf.machine/spawn` | `re-frame.machines` (canonical) | Spawn a dynamic actor; record its id into the parent's `:data` via `:on-spawn`. Registered globally so user event handlers (and machine actions) emit it from `:fx` to register a new live actor. Args per `:rf.fx/spawn-args`. | REJECT | 005 |
 | `:rf.machine/destroy` | `re-frame.machines` (canonical) | Destroy a dynamic actor: runs the actor's `:exit` action, dissociates its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:rf.machine/spawn`. Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx). | REJECT | 005 |
 | `:rf.machine/dispatch-to-system` | `re-frame.machines` (canonical) | A machine action sends a message to its spawned child actor addressed by `:system-id`. Args are the single 2-element pair `[<system-id> <event-vector>]`; resolves the binding in the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and dispatches the event to the bound actor (no-op when unbound). The fx counterpart to the `dispatch-to-system` fn (`re-frame.core`). Per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name). | OVERRIDABLE (pure lookup-then-dispatch; no runtime-db write) | 005 |
-| `:rf.fx/reg-flow` | runtime `do-fx` | Register a flow at runtime (per [013 §Dynamic toggle via fx](013-Flows.md#dynamic-toggle-via-fx)). Args: a flow map. | REJECT | 013 |
+| `:rf.fx/reg-flow` | runtime `do-fx` | Register a flow at runtime (per [013 §Dynamic toggle via fx](013-Flows.md#dynamic-toggle-via-fx)). Args: the 3-slot triple `[flow-id metadata derive-fn]` (rf2-bqstzr). | REJECT | 013 |
 | `:rf.fx/clear-flow` | runtime `do-fx` | Clear a registered flow; `dissoc-in` on its `:output-path`. Args: a flow id. | REJECT | 013 |
 | `:rf.nav/push-url` | `re-frame.routing` (canonical) | `pushState` for the URL. `:client` platform only. Per [012 §Effects (`reg-fx`)](012-Routing.md#effects-reg-fx). | OVERRIDABLE | 012 |
 | `:rf.nav/replace-url` | `re-frame.routing` (canonical) | `replaceState` for the URL. `:client` platform only. Per [012 §Effects (`reg-fx`)](012-Routing.md#effects-reg-fx). | OVERRIDABLE | 012 |
@@ -1384,7 +1384,7 @@ The rule for new public surfaces: if a token belongs to the closed handler vocab
 
 ## `reg-*` return-value convention
 
-Every `reg-*` registration surface returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. This is uniform across the family: `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-frame` / `reg-view` / `reg-view*` / `reg-machine` / `reg-machine*` / `reg-app-schema` / `reg-route` / `reg-flow` / `reg-head` / `reg-error-projector` / `reg-resource` / `reg-mutation` all return their first positional id argument. `reg-flow` returns the `:id` value of its flow-map (the primary id is carried by the map, not a separate arg); `reg-app-schema` returns its `path` (the path IS the registration id for app-db schemas, even though app-db schemas are not a registrar kind — they live in the schemas artefact's per-frame side-table per [010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)).
+Every `reg-*` registration surface returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. This is uniform across the family: `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-frame` / `reg-view` / `reg-view*` / `reg-machine` / `reg-machine*` / `reg-app-schema` / `reg-route` / `reg-flow` / `reg-resource-scope` / `reg-head` / `reg-error-projector` / `reg-resource` / `reg-mutation` all return their first positional id argument. `reg-app-schema` returns its `path` (the path IS the registration id for app-db schemas, even though app-db schemas are not a registrar kind — they live in the schemas artefact's per-frame side-table per [010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)).
 
 The uniformity is load-bearing. It lets call-site code thread the registration id without a separate literal:
 
@@ -1400,12 +1400,12 @@ Tooling, generators, and CP scaffolds rely on the return value to chain registra
 
 ## `reg-*` frame-binding convention — opts kwarg, not main arg
 
-The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose registrations are frame-scoped — it answers "which frame's registry does this slot live in", and is orthogonal to the registration's identity and behaviour. The uniform shape across the family is therefore: **`:frame` rides in the registration-metadata map, never mixed into the main registration arg or the handler/value slot**. For surfaces that carry an explicit metadata map (`reg-app-schema`), `:frame` is a key in that map alongside `:schema` / `:doc`; for surfaces whose primary arg is itself the registration value (`reg-flow`, `clear-flow`), `:frame` rides a trailing `opts` map.
+The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose registrations are frame-scoped — it answers "which frame's registry does this slot live in", and is orthogonal to the registration's identity and behaviour. The uniform shape across the family is therefore: **`:frame` rides in the registration-metadata map, never mixed into the main registration arg or the handler/value slot**. For surfaces that carry an explicit metadata middle slot (`reg-app-schema`, and — since rf2-bqstzr — `reg-flow`), `:frame` is a key in that map alongside `:schema` / `:doc` / `:inputs`; for a teardown surface whose primary arg is itself the id (`clear-flow`), `:frame` rides a trailing `opts` map (there is no metadata slot on a `clear-*` surface).
 
 ```clojure
 ;; correct — :frame separated from the registration's identity/behaviour
-(rf/reg-flow flow-map)
-(rf/reg-flow flow-map {:frame :session})
+(rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:area]} (fn [w h] (* w h)))
+(rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:area] :frame :session} (fn [w h] (* w h)))
 
 (rf/reg-app-schema [:user] {:schema UserSchema})
 (rf/reg-app-schema [:user] {:schema UserSchema :frame :session})

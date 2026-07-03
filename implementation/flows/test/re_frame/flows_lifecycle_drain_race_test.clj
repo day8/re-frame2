@@ -108,10 +108,7 @@
           release     (CountDownLatch. 1)]
       (rf/reg-event :seed       (fn [{:keys [db]} _] {:db {:n 5}}))
       (rf/reg-event :bump-input (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-      (rf/reg-flow {:id     :doubled
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 2 (or n 0)))
-                    :output-path   [:out]})
+      (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
       (rf/dispatch-sync [:seed])
       (is (= 10 (:out (rf/app-db-value :rf/default)))
           "precondition: the flow materialised :out = 2 × :n")
@@ -206,10 +203,7 @@
       (rf/reg-event :seed     (fn [{:keys [db]} _] {:db {:n 5}}))
       (rf/reg-event :unrelated (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
       ;; Original flow: :out = 2 × :n.
-      (rf/reg-flow {:id     :scaled
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 2 (or n 0)))
-                    :output-path   [:out]})
+      (rf/reg-flow :scaled {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
       (rf/dispatch-sync [:seed])
       (is (= 10 (:out (rf/app-db-value :rf/default)))
           "precondition: the original flow materialised :out = 2 × :n = 10")
@@ -227,11 +221,7 @@
               ;; the new flow, then parks at register! under the drain-lock.
               replacer
               (future
-                (rf/reg-flow {:id     :scaled
-                              :inputs [[:n]]
-                              :derive (fn [n] (* 100 (or n 0)))
-                              :output-path   [:out]}
-                             {:frame :rf/default}))
+                (rf/reg-flow :scaled {:frame :rf/default :inputs [[:n]] :output-path [:out]} (fn [n] (* 100 (or n 0)))))
               ;; Thread B: once the new flow is published (but invalidation
               ;; not yet applied), dispatch an UNRELATED event. Its inputs
               ;; ([:n]) are =-equal to the previous run; it spin-CAS-waits on
@@ -308,10 +298,7 @@
           release    (CountDownLatch. 1)] ;; resume the handler → swap + materialise
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
       ;; OLD flow: :out-a = 2 × :n.
-      (rf/reg-flow {:id     :scaled
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 2 (or n 0)))
-                    :output-path   [:out-a]})
+      (rf/reg-flow :scaled {:inputs [[:n]] :output-path [:out-a]} (fn [n] (* 2 (or n 0))))
       (rf/dispatch-sync [:seed])
       (is (= 10 (:out-a (rf/app-db-value :rf/default)))
           "precondition: the OLD flow materialised :out-a = 2 × :n = 10")
@@ -334,11 +321,7 @@
                        (fn [{:keys [db]} _]
                          (.countDown in-handler)
                          (await! release "replace-scaled handler release")
-                         (rf/reg-flow {:id     :scaled
-                                       :inputs [[:n]]
-                                       :derive (fn [n] (* 100 (or n 0)))
-                                       :output-path   [:out-b]}
-                                      {:frame :rf/default})
+                         (rf/reg-flow :scaled {:frame :rf/default :inputs [[:n]] :output-path [:out-b]} (fn [n] (* 100 (or n 0))))
                          {:db db}))
 
       (let [;; Thread A: the replacement drain. Parks in the handler holding
@@ -410,10 +393,7 @@
   (testing "in-drain reg-flow :output-path move vacates the old path through the deferred commit"
     (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
     ;; OLD flow: :out-a = 2 × :n.
-    (rf/reg-flow {:id     :scaled
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 (or n 0)))
-                  :output-path   [:out-a]})
+    (rf/reg-flow :scaled {:inputs [[:n]] :output-path [:out-a]} (fn [n] (* 2 (or n 0))))
     (rf/dispatch-sync [:seed])
     (is (= 10 (:out-a (rf/app-db-value :rf/default)))
         "precondition: the OLD flow materialised :out-a = 2 × :n = 10")
@@ -422,11 +402,7 @@
     ;; [:out-b] (100 × :n) and returns its db UNCHANGED — a PLAIN replacement.
     (rf/reg-event :move-scaled
                   (fn [{:keys [db]} _]
-                    (rf/reg-flow {:id     :scaled
-                                  :inputs [[:n]]
-                                  :derive (fn [n] (* 100 (or n 0)))
-                                  :output-path   [:out-b]}
-                                 {:frame :rf/default})
+                    (rf/reg-flow :scaled {:frame :rf/default :inputs [[:n]] :output-path [:out-b]} (fn [n] (* 100 (or n 0))))
                     {:db db}))
     (rf/dispatch-sync [:move-scaled] {:frame :rf/default})
 
@@ -448,20 +424,13 @@
   ;; call-shape split (`frame/in-drain?`) keeps the direct-vacate path intact.
   (testing "out-of-drain reg-flow :output-path move vacates the old path immediately"
     (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
-    (rf/reg-flow {:id     :scaled
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 (or n 0)))
-                  :output-path   [:out-a]})
+    (rf/reg-flow :scaled {:inputs [[:n]] :output-path [:out-a]} (fn [n] (* 2 (or n 0))))
     (rf/dispatch-sync [:seed])
     (is (= 10 (:out-a (rf/app-db-value :rf/default)))
         "precondition: :out-a = 10")
 
     ;; Top-level re-registration (NOT inside a drain) that moves the path.
-    (rf/reg-flow {:id     :scaled
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 100 (or n 0)))
-                  :output-path   [:out-b]}
-                 {:frame :rf/default})
+    (rf/reg-flow :scaled {:frame :rf/default :inputs [[:n]] :output-path [:out-b]} (fn [n] (* 100 (or n 0))))
     (is (not (contains? (rf/app-db-value :rf/default) :out-a))
         ":out-a vacated immediately by the direct out-of-drain write")
 

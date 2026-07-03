@@ -343,11 +343,28 @@
   `(fn [chain-ctx] chain-ctx')` for the request-side middleware chain."
   [fx-id args ctx]
   (case fx-id
+    ;; rf2-bqstzr — `:rf.fx/reg-flow` now carries the 3-slot triple
+    ;; `[flow-id metadata derive-fn]` (matching the `reg-flow` macro / fn). The
+    ;; fixture DSL still describes a flow with a single map `{:id … :inputs …
+    ;; :body … :output-path …}` (a data description, not the API call), so this
+    ;; interpreter LOWERS that map into the triple: pull the `:id` out as the
+    ;; first slot, realise `:body` → the pure `derive-fn` third slot, and leave
+    ;; the remaining reflection keys (`:inputs` / `:output-path` / `:doc` /
+    ;; `:schema`) as the metadata middle slot. A fixture that already supplies a
+    ;; literal triple vector passes through resolved element-wise.
     :rf.fx/reg-flow
-    (if (and (map? args) (contains? args :body))
-      (let [body          (:body args)
-            other-resolved (resolve-value (dissoc args :body) ctx)]
-        (assoc other-resolved :derive (realise-flow-output-fn body)))
+    (cond
+      (and (map? args) (contains? args :body))
+      (let [body           (:body args)
+            derive-fn      (realise-flow-output-fn body)
+            flow-id        (:id args)
+            metadata       (resolve-value (dissoc args :id :body) ctx)]
+        [flow-id metadata derive-fn])
+
+      (vector? args)
+      (mapv #(resolve-value % ctx) args)
+
+      :else
       (resolve-value args ctx))
 
     :rf.fx/reg-http-interceptor

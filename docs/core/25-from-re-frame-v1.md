@@ -293,13 +293,12 @@ The skill applies steps 1–4 unprompted and stops at an optional step 5 (collap
 This is the one v1 concept that maps onto something with a genuinely new name and a slightly different shape. v1's `on-changes` interceptor said "when these in-paths change, compute and write to that out-path." v2's [**flows**](glossary.md#flow) say the same thing — same compute-on-input-change semantics — but the wiring moves. In v1 you bolted `on-changes` onto each event's interceptor chain by hand; in v2 you register a flow once with the runtime, and it runs the derivation automatically after *every* event handler, before the new `:db` lands. It's also toggleable at runtime, which `on-changes` never was.
 
 ```clojure
-(rf/reg-flow
-  {:id     :editor/word-count
-   :inputs [[:editor :title] [:editor :body]]   ;; vector of app-db paths
-   :derive (fn [title body]                       ;; pure: (in-1, in-2, ...) → output
-             (count (re-seq #"\S+" (str title " " body))))
+(rf/reg-flow :editor/word-count
+  {:inputs [[:editor :title] [:editor :body]]    ;; vector of app-db paths
    :output-path [:editor :word-count]             ;; where the result is written
-   :doc    "Live word count of the article being edited."})
+   :doc    "Live word count of the article being edited."}
+  (fn [title body]                                ;; pure: (in-1, in-2, ...) → output
+    (count (re-seq #"\S+" (str title " " body)))))
 ```
 
 Internalise one thing before you reach for them, because the easy mistake is to treat flows as a sub replacement and end up with a smell.
@@ -312,7 +311,7 @@ Internalise one thing before you reach for them, because the easy mistake is to 
 
 Flows can also reach what `on-changes` couldn't. `on-changes` was statically wired into specific events at registration time, so a derivation that should run conditionally — only while a wizard step is active, only when a feature gate is engaged — had no clean shape. Flows are runtime-registered and runtime-clearable via the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` effects. So the migration sometimes *improves* the code it touches: a thing that was awkwardly always-on becomes cleanly conditional.
 
-The rewrite itself is Type B. Mechanically it's `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :derive f :output-path out-path})`, but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditional rather than always-on. An app with no `on-changes` sees no migration here at all.
+The rewrite itself is Type B. Mechanically it's `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path} f)`, but the agent stops to ask about the `flow-id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditional rather than always-on. An app with no `on-changes` sees no migration here at all.
 
 ## Growing into images and frames
 
