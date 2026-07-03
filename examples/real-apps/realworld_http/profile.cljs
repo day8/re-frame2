@@ -190,8 +190,8 @@
      :fx [[:dispatch [:ui/profile [:fetch-succeeded]]]]}))
 
 (rf/reg-event :profile/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    (let [message (rh/failure->message failure)]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    (let [message (rh/failure->message error)]
       {:db (-> db
                (assoc-in [:profile :status] :error)
                (assoc-in [:profile :error] message))
@@ -232,10 +232,10 @@
              (assoc-in [:profile.articles :loaded-at] time-ms))}))
 
 (rf/reg-event :profile.articles/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
         (assoc-in [:profile.articles :status] :error)
-        (assoc-in [:profile.articles :error] (rh/failure->message failure)))}))
+        (assoc-in [:profile.articles :error] (rh/failure->message error)))}))
 
 (rf/reg-event :profile.favorites/load
   {:doc "Fetch the articles this user favorited. Public; house retry. Also
@@ -272,10 +272,10 @@
              (assoc-in [:profile.favorites :loaded-at] time-ms))}))
 
 (rf/reg-event :profile.favorites/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
         (assoc-in [:profile.favorites :status] :error)
-        (assoc-in [:profile.favorites :error] (rh/failure->message failure)))}))
+        (assoc-in [:profile.favorites :error] (rh/failure->message error)))}))
 
 ;; ============================================================================
 ;; FOLLOW / UNFOLLOW
