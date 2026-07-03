@@ -117,6 +117,8 @@ Plain Reagent fns (`(defn my-view [...] ...)`) do not enter through `reg-view`'s
 
 If the runtime can derive a cheap function-name hint (e.g. via `(.-displayName fn)`) it MAY emit `[:rf.view/<name> nil]` for tooling-friendliness, but `[:rf.view/anonymous nil]` is the safe default and the canonical fallback. The CLJS reference today emits `[:rf.view/anonymous nil]` unconditionally; the per-name optimisation is reserved as a future addition.
 
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the per-name render-key hint is a **post-v1, untracked note** — a design direction with no concrete tracking bead filed yet (so it does not qualify as `:post-v1 tracked`, which requires a `rf2-<id>`). **Fires-when trigger:** a tool needs to disambiguate anonymous render nodes by name (e.g. a story / xray view-tree wanting stable per-view labels for plain-Reagent fns). Until then it stays an untracked note, not committed work; a tracking bead is filed only when that trigger fires.
+
 #### Production elision
 
 The `:render-key` tuple is part of the trace surface; per [Spec 009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code), trace emission elides entirely under `^boolean ^:goog-define re-frame.interop.debug-enabled?`. The instance-token mint, the `*render-key*` binding, the `:rf.view/render` emission, and the `:rf.view/render-args` capture all sit behind that gate — production builds incur zero allocation, zero counter activity, zero binding-frame overhead, and (critically) no raw user render-args reach the production bundle.
