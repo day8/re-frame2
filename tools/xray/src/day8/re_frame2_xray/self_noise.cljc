@@ -149,4 +149,4 @@
   Pure-data + JVM-runnable; matches the other self-noise predicates'
   shape so the JVM test corpus can drive it directly."
   [buffer]
-  (into [] (remove xray-internal-cascade?) (projection/group-cascades buffer)))
+  (into [] (remove xray-internal-cascade?) (projection/group-by-event buffer)))

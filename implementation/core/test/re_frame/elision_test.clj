@@ -449,7 +449,7 @@
 
 (deftest streamed-cascades-elide-per-element-frame
   ;; rf2-1we9fa defect 2 — the streaming subscribe drain walks several
-  ;; frames' cascade bundles in one tick (all-frame streams, or a filter
+  ;; frames' event bundles in one tick (all-frame streams, or a filter
   ;; frame != the operating frame). Per EP-0015 sensitive/large
   ;; declarations are PER FRAME, so eliding each bundle MUST resolve the
   ;; `:frame` opt from THAT bundle's own frame — NOT a single operating
@@ -463,7 +463,7 @@
   (install-class! :elision-test/frame-a [[:secret-a]] [])
   (install-class! :elision-test/frame-b [[:secret-b]] [])
   ;; Two bundles streamed in one tick, each carrying both slots, each
-  ;; stamped with its own frame (as group-cascades-with-events emits).
+  ;; stamped with its own frame (as group-by-event-with-events emits).
   (let [bundle-a {:frame :elision-test/frame-a
                   :secret-a "A-private" :secret-b "A-public"}
         bundle-b {:frame :elision-test/frame-b

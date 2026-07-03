@@ -2461,33 +2461,34 @@
 ;; (KEPT on the façade: `elide-wire-value` — the path walker — and
 ;; `project-egress` — the record-level boundary.)
 
-(def ^{:doc "Project a sequence of raw trace events into one cascade
-  record per `:dispatch-id`. Pure data — JVM and CLJS. Used by
-  `re-frame-10x`, Xray, and other tools that present cascade-level
-  views over the raw event stream. Per Spec 009 §Trace projection."}
-  group-cascades  trace-projection/group-cascades)
+(def ^{:doc "Project a sequence of raw trace events into one event-bundle
+  record per `:dispatch-id` (one dequeued event / pipeline run). Pure data
+  — JVM and CLJS. Used by `re-frame-10x`, Xray, and other tools that
+  present event-level views over the raw event stream. Per Spec 009
+  §Trace projection."}
+  group-by-event  trace-projection/group-by-event)
 
 ;; Facade-export classification (diff-time rule): TOOL-FACING projection
-;; primitive, sibling to `group-cascades`. Same `[frame dispatch-id]`
-;; grouping, additionally attaching each cascade's raw `:trace-events`.
-;; Justified: Tool-Pair streaming consumers (re-frame2-pair cascade
-;; bundles) need both the six-domino record AND each cascade's raw events
+;; primitive, sibling to `group-by-event`. Same `[frame dispatch-id]`
+;; grouping, additionally attaching each run's raw `:trace-events`.
+;; Justified: Tool-Pair streaming consumers (re-frame2-pair event
+;; bundles) need both the six-domino record AND each run's raw events
 ;; keyed by the SAME frame-scoped key the framework uses — re-deriving the
 ;; grouping consumer-side with a weaker (dispatch-id-only) key mixes
 ;; foreign-frame events (rf2 trace-contract drift). Pure data; JVM + CLJS.
-(def ^{:doc "Like `group-cascades`, but each cascade record additionally
-  carries a `:trace-events` slot with the vector of raw trace events that
-  composed it — keyed by the same frame-scoped `[frame dispatch-id]`
-  grouping. Pure data — JVM and CLJS. The correct projection for
-  consumers needing both the six-domino record and each cascade's raw
-  events (e.g. re-frame2-pair streaming cascade bundles), so they never
-  re-derive the grouping with a weaker dispatch-id-only key. Per Spec 009
-  §Trace projection."}
-  group-cascades-with-events  trace-projection/group-cascades-with-events)
+(def ^{:doc "Like `group-by-event`, but each event-bundle record
+  additionally carries a `:trace-events` slot with the vector of raw
+  trace events that composed it — keyed by the same frame-scoped
+  `[frame dispatch-id]` grouping. Pure data — JVM and CLJS. The correct
+  projection for consumers needing both the six-domino record and each
+  run's raw events (e.g. re-frame2-pair streaming event bundles), so they
+  never re-derive the grouping with a weaker dispatch-id-only key. Per
+  Spec 009 §Trace projection."}
+  group-by-event-with-events  trace-projection/group-by-event-with-events)
 
 (def ^{:doc "Classify a trace event into one of the six domino buckets
   (`:event` / `:event-handler` / `:fx` / `:db` / `:sub` / `:view`).
-  Pure fn used by trace projections and cascade views. Per Spec 009
+  Pure fn used by trace projections and event-bundle views. Per Spec 009
   §Trace projection."}
   domino-bucket   trace-projection/domino-bucket)
 
@@ -2673,11 +2674,14 @@
 (defn configure!
   "Configure process-level runtime knobs from a single nested map. v1 keys:
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
-    :trace-buffer  {:cascades-retained N}           per-frame trace-ring cascade count
+    :trace-buffer  {:events-retained N}             per-frame trace-ring retained-event
+                                                    count — one slot per EVENT (one dequeued
+                                                    event / pipeline run), regardless of how
+                                                    many TRACE EVENTS that run emitted
                                                     (default 50; 0 disables retention).
                                                     Applied to `:rf/default` and to every
                                                     frame that did not set its own
-                                                    `:rf.trace/cascades-retained` metadata.
+                                                    `:rf.trace/events-retained` metadata.
                                                     Per Spec 009 §Per-frame trace rings.
     :elision       {:rf.size/threshold-bytes N}     wire-elision size threshold
                                                     (default 16384; 0 disables runtime
@@ -2688,7 +2692,7 @@
   spellings:
 
       (configure! {:epoch-history {:depth 100}
-                   :trace-buffer  {:cascades-retained 25}
+                   :trace-buffer  {:events-retained 25}
                    :elision       {:rf.size/threshold-bytes 8192}})
 
   The argument MUST be a map (a non-map arg fails loudly). A missing

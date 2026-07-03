@@ -1723,17 +1723,17 @@
     ;; either way; `trace.cljc` owns the canonical set + predicate.
     (trace/set-frame-no-emit! id (true? (:rf.trace/frame-no-emit? config)))
     ;; Per Spec 009 §Retention contract: apply
-    ;; the per-frame `:rf.trace/cascades-retained` override at
+    ;; the per-frame `:rf.trace/events-retained` override at
     ;; registration time. Honoured on BOTH first registration and re-
     ;; registration so a hot-reload can flip it either way. When the
     ;; key is absent the frame inherits the process-default. Routed via
     ;; late-bind so production CLJS bundles (where trace.tooling is
     ;; not loaded) short-circuit cleanly — the trace-ring machinery is
     ;; dev-only and there's nothing to configure in prod.
-    (when (contains? config :rf.trace/cascades-retained)
+    (when (contains? config :rf.trace/events-retained)
       (when-let [set-retained! (late-bind/get-fn-cached
-                                :trace.tooling/set-frame-cascades-retained!)]
-        (set-retained! id (:rf.trace/cascades-retained config))))
+                                :trace.tooling/set-frame-events-retained!)]
+        (set-retained! id (:rf.trace/events-retained config))))
     (let [existing (get @frames id)]
       (cond
         ;; First registration: create everything.

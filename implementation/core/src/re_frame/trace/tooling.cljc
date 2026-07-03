@@ -7,27 +7,28 @@
 
   ## Per-frame trace rings (rf2-g1b2m / rf2-8uwce)
 
-  Each frame owns its own cascade-keyed ring. Storage shape (per frame):
+  Each frame owns its own per-event ring. Storage shape (per frame):
 
-      {:cascades-retained N             ;; the per-frame ring depth (cap)
+      {:events-retained N               ;; the per-frame ring depth (cap)
        :override?         <boolean>     ;; true iff N came from an explicit
-                                        ;; per-frame `:rf.trace/cascades-retained`
-       :cascade-order [<dispatch-id> ...]  ;; oldest-first cascade slots
+                                        ;; per-frame `:rf.trace/events-retained`
+       :cascade-order [<dispatch-id> ...]  ;; oldest-first per-event slots
        :cascades {<dispatch-id> [<event> ...]}}
 
-  - The unit of retention is the cascade (one `:rf.trace/dispatch-id` =
-    one slot). When cascade #N+1 arrives, the OLDEST cascade slot (and
-    every trace event emitted under its `:dispatch-id`) is evicted as a
-    unit.
-  - `:cascades-retained` defaults to 50; per-frame override via
-    `:rf.trace/cascades-retained` on `reg-frame`.
+  - The unit of retention is the EVENT — one dequeued event / pipeline
+    run (one `:rf.trace/dispatch-id`) = one slot, regardless of how many
+    trace events that run emitted. When event #N+1 arrives, the OLDEST
+    slot (and every trace event emitted under its `:dispatch-id`) is
+    evicted as a unit.
+  - `:events-retained` defaults to 50; per-frame override via
+    `:rf.trace/events-retained` on `reg-frame`.
   - `:override?` distinguishes an explicit per-frame override from an
-    inherited process default. EVERY ring stores `:cascades-retained`
+    inherited process default. EVERY ring stores `:events-retained`
     (it is the live cap consulted on each push), so the cap value alone
     cannot tell the two apart — `configure-trace-buffer!` keys on
     `:override?` to decide which rings the new process default may
     retune (rf2-va65k).
-  - `:cascades-retained 0` disables retention (no slots allocated; the
+  - `:events-retained 0` disables retention (no slots allocated; the
     live stream still fires).
   - Frameless emits (no `:rf.trace/dispatch-id` in scope) **skip the
     rings entirely** (B3 ruling, rf2-g1b2m, 2026-05-25); they stream
@@ -62,7 +63,7 @@
   Per Spec 009 §Per-frame trace rings."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            ;; rf2-ih437c: `cascade-bundle` reuses the six-domino fold
+            ;; rf2-ih437c: `event-bundle` reuses the six-domino fold
             ;; (`absorb` over `empty-cascade`) from the projection ns
             ;; rather than re-inlining the classification cond. Both nss
             ;; are dev-side and bundle-isolated from production CLJS (the
@@ -105,7 +106,7 @@
 ;;
 ;; Storage shape (per Spec 009 §Per-frame trace rings):
 ;;
-;;   trace-rings  = {<frame-id> {:cascades-retained N
+;;   trace-rings  = {<frame-id> {:events-retained N
 ;;                               :override?         <boolean>
 ;;                               :cascade-order [<dispatch-id> ...]
 ;;                               :cascades       {<dispatch-id> [<event>...]}}}
@@ -114,26 +115,29 @@
 ;;   currently held in this frame's ring; eviction pops the head.
 ;; - `:cascades` is a flat map from `:dispatch-id` → trace events
 ;;   emitted under that dispatch, in arrival order.
-;; - The slot count is bounded by `:cascades-retained` (default 50).
+;; - The slot count is bounded by `:events-retained` (default 50) — one
+;;   slot per EVENT (one dequeued event / pipeline run), regardless of how
+;;   many trace events that run emitted.
 ;; - `:override?` true iff the cap is an explicit per-frame override
-;;   (`set-frame-cascades-retained!`); false for an inherited default.
+;;   (`set-frame-events-retained!`); false for an inherited default.
 ;;   `configure-trace-buffer!` retunes inherited rings, skips overrides.
 ;; - Frames lazily allocate slots on first emit. Apps with one frame
 ;;   pay one slot of ring overhead.
 
-(def ^:private default-cascades-retained
+(def ^:private default-events-retained
   "Per Spec 009 §Per-frame trace rings — the per-frame retention default
-  when neither `:rf.trace/cascades-retained` on `reg-frame` nor
-  `(configure :trace-buffer ...)` supplies one. 50 cascades — enough to
-  cover a short interactive session without per-frame memory pressure."
+  when neither `:rf.trace/events-retained` on `reg-frame` nor
+  `(configure :trace-buffer ...)` supplies one. 50 retained events (one
+  slot per dequeued event / pipeline run) — enough to cover a short
+  interactive session without per-frame memory pressure."
   50)
 
 (defonce ^:private trace-rings (atom {}))
 
-;; Process-default cascades-retained — applies to `:rf/default` and any
-;; frame that did not set per-frame `:rf.trace/cascades-retained` metadata.
+;; Process-default events-retained — applies to `:rf/default` and any
+;; frame that did not set per-frame `:rf.trace/events-retained` metadata.
 ;; Per Spec 009 §Retention contract — the single knob.
-(defonce ^:private process-cascades-retained (atom default-cascades-retained))
+(defonce ^:private process-events-retained (atom default-events-retained))
 
 (defn- empty-ring
   "A fresh ring at cap `retained`. `override?` records whether the cap is
@@ -141,35 +145,37 @@
   default) so `configure-trace-buffer!` can tell the two apart."
   ([retained] (empty-ring retained false))
   ([retained override?]
-   {:cascades-retained retained
+   {:events-retained retained
     :override?         override?
     :cascade-order     []
     :cascades          {}}))
 
 (defn- effective-retained
-  "Return the live cascades-retained cap for `frame-id`. Honours the
+  "Return the live events-retained cap for `frame-id`. Honours the
   ring's stored cap (whether it came from an explicit per-frame override
   or a previously-inherited process default — both store
-  `:cascades-retained`) before falling back to the current process
+  `:events-retained`) before falling back to the current process
   default for a frame that has no ring yet."
   [rings frame-id]
-  (or (get-in rings [frame-id :cascades-retained])
-      @process-cascades-retained))
+  (or (get-in rings [frame-id :events-retained])
+      @process-events-retained))
 
-(defn set-frame-cascades-retained!
-  "Apply a per-frame `:rf.trace/cascades-retained` override (called
+(defn set-frame-events-retained!
+  "Apply a per-frame `:rf.trace/events-retained` override (called
   from `frame.cljc`'s `reg-frame` when the config carries the key).
-  Trims existing slots if the new value is lower than current
-  occupancy; raising keeps existing cascades and grows the slot cap.
+  The retained unit is one slot per EVENT (one dequeued event / pipeline
+  run), regardless of how many trace events that run emitted. Trims
+  existing slots if the new value is lower than current occupancy;
+  raising keeps existing slots and grows the slot cap.
 
   Always writes a COMPLETE ring (`:cascade-order` + `:cascades` present)
   and stamps `:override? true`. Registering a per-frame cap BEFORE the
   frame's first emit therefore leaves a valid (empty) ring rather than a
-  partial `{:cascades-retained N}` map — a partial map would later make
+  partial `{:events-retained N}` map — a partial map would later make
   `push-to-ring!` start `:cascade-order` from nil, `conj` a list, and
   crash `subvec` once the cap was exceeded (rf2-va65k finding 2).
 
-  Per Spec 009 §Lowering cascades-retained on a populated ring."
+  Per Spec 009 §Lowering events-retained on a populated ring."
   [frame-id retained]
   (when (and interop/debug-enabled? (number? retained) (not (neg? retained)))
     (swap! trace-rings
@@ -190,7 +196,7 @@
                        evicted    (subvec order 0 drop-n)
                        kept-order (subvec order drop-n)]
                    (assoc rings frame-id
-                          {:cascades-retained retained
+                          {:events-retained retained
                            :override?         true
                            :cascade-order     kept-order
                            :cascades          (apply dissoc cascades evicted)}))
@@ -200,7 +206,7 @@
                  ;; empty ring instead of a partial map — finding 2).
                  :else
                  (assoc rings frame-id
-                        {:cascades-retained retained
+                        {:events-retained retained
                          :override?         true
                          :cascade-order     order
                          :cascades          cascades}))))))
@@ -259,7 +265,7 @@
                      (let [existing (get rings frame-id (empty-ring retained override?))
                            ;; Defensive nil-coercion: a ring written before
                            ;; this frame's first emit is now always complete
-                           ;; (set-frame-cascades-retained! writes a full
+                           ;; (set-frame-events-retained! writes a full
                            ;; ring), but coerce anyway so any future partial
                            ;; ring can't make `conj` build a list / `subvec`
                            ;; throw (rf2-va65k finding 2).
@@ -277,7 +283,7 @@
                                  (recur (subvec o 1) (dissoc c oldest)))
                                [o c]))]
                        (assoc rings frame-id
-                              {:cascades-retained retained
+                              {:events-retained retained
                                :override?         override?
                                :cascade-order     order''
                                :cascades          cascades''}))))))))))
@@ -386,18 +392,18 @@
 
 ;; ---- trace-buffer reader -------------------------------------------------
 ;;
-;; Per Spec 009 §`trace-buffer` API — per-frame, cascade bundles by
+;; Per Spec 009 §`trace-buffer` API — per-frame, event bundles by
 ;; default. `:flat true` opt returns raw trace events.
 
-(defn- cascade-bundle
-  "Project the events for one cascade into a Spec 009 cascade-bundle
-  (the `group-cascades` shape, per-cascade).
+(defn- event-bundle
+  "Project the events for one pipeline run into a Spec 009 event bundle
+  (the `group-by-event` shape, per run / dequeued event).
 
   rf2-ih437c: folds with `re-frame.trace.projection/absorb` over
   `projection/empty-cascade` — the canonical six-domino classification
   + slot set — rather than re-inlining the bucketing cond + the six
   `*-bucket?`/`*-marker?` predicates a second time. The seed map carries
-  the extra `:trace-events` slot the cascade-bundle wire shape needs;
+  the extra `:trace-events` slot the event-bundle wire shape needs;
   `absorb` only writes the domino slots, so `:trace-events` (and the
   pre-seeded `:dispatch-id` / `:frame`) survive the fold untouched."
   [frame-id dispatch-id events]
@@ -409,7 +415,7 @@
           events))
 
 (defn- match-cascade?
-  "Filter a cascade bundle against the cascade-level filter keys."
+  "Filter an event bundle against the bundle-level filter keys."
   [bundle {:keys [event-id origin dispatch-id since-ms between pred]}]
   (let [[t0 t1] (when (and (sequential? between)
                            (= 2 (count between)))
@@ -463,16 +469,16 @@
          (or (nil? pred) (pred ev)))))
 
 (defn- frame-ring-cascades
-  "Materialise `frame-id`'s ring as an oldest-first vector of cascade
+  "Materialise `frame-id`'s ring as an oldest-first vector of event
   bundles. Returns an empty vector when the frame has no recorded
-  cascades (including the destroyed-frame / unknown-frame case per
+  events (including the destroyed-frame / unknown-frame case per
   Spec 009 §Reads against a destroyed / missing frame)."
   [rings frame-id]
   (if-let [ring (get rings frame-id)]
     (let [order    (:cascade-order ring)
           cascades (:cascades ring)]
       (mapv (fn [dispatch-id]
-              (cascade-bundle frame-id dispatch-id (get cascades dispatch-id)))
+              (event-bundle frame-id dispatch-id (get cascades dispatch-id)))
             order))
     []))
 
@@ -488,13 +494,13 @@
 
 (defn trace-buffer
   "Per-frame trace ring reader. Returns the named frame's retained
-  cascades, oldest-first.
+  events, oldest-first (one bundle per dequeued event / pipeline run).
 
   Two arities:
-    (trace-buffer frame-id)        — cascade bundles (default)
+    (trace-buffer frame-id)        — event bundles (default)
     (trace-buffer frame-id opts)   — opts filter map
 
-  Cascade-bundle shape:
+  Event-bundle shape:
     {:dispatch-id <id>
      :frame       <frame-id>
      :trace-events [<ev> ...]
@@ -510,7 +516,7 @@
 
   Opt keys recognised (per Spec 009 §Filter vocabulary):
     :flat true      — return raw trace events (oldest-first) instead
-                      of cascade bundles. The escape hatch for callers
+                      of event bundles. The escape hatch for callers
                       with pre-existing flat-stream code.
     :operation      — (:flat-only) exact :operation match
     :op-type        — (:flat-only) exact :op-type match
@@ -522,10 +528,10 @@
                       — the prior `:rf/dispatch-origin` filter key was
                       collapsed)
     :sensitive?     — (:flat-only) :sensitive? match
-    :event-id       — cascade :event first-element OR (:flat) :tags :rf.trace/event-id
-    :origin         — cascade root :rf.event/origin OR (:flat) per-event
-    :dispatch-id    — cascade :dispatch-id OR (:flat) per-event
-    :since-ms       — cascade earliest-time OR (:flat) per-event :time
+    :event-id       — bundle :event first-element OR (:flat) :tags :rf.trace/event-id
+    :origin         — bundle root :rf.event/origin OR (:flat) per-event
+    :dispatch-id    — bundle :dispatch-id OR (:flat) per-event
+    :since-ms       — bundle earliest-time OR (:flat) per-event :time
     :between [t0 t1]— same axis, window
     :pred           — arbitrary predicate, receives bundle or event
 
@@ -563,30 +569,32 @@
 
 (defn clear-trace-rings!
   "Drop EVERY frame's ring + reset the process-default
-  cascades-retained back to its initial value + clear the B4 dedup
+  events-retained back to its initial value + clear the B4 dedup
   table. Test-fixture / `clear-all!`-shaped helper — symmetric with
   the listener registry's `clear-listeners!`. Production no-op."
   []
   (when interop/debug-enabled?
     (reset! trace-rings {})
-    (reset! process-cascades-retained default-cascades-retained)
+    (reset! process-events-retained default-events-retained)
     (clear-dedup-table!))
   nil)
 
 (defn configure-trace-buffer!
   "Apply a process-default ring depth. Per Spec 009 §Retention contract:
 
-      (configure :trace-buffer {:cascades-retained N})
+      (configure :trace-buffer {:events-retained N})
 
   Sets the per-process default that applies to `:rf/default` and to
-  every frame that did not set its own `:rf.trace/cascades-retained`
+  every frame that did not set its own `:rf.trace/events-retained`
   metadata. Frames with explicit per-frame metadata are NOT overridden.
+  The retained unit is one slot per EVENT (one dequeued event / pipeline
+  run), regardless of how many trace events that run emitted.
 
-  When `:cascades-retained 0`, the ring is disabled but the surface
-  remains live. Per Spec 009 §Cascades-retained-zero semantics.
+  When `:events-retained 0`, the ring is disabled but the surface
+  remains live. Per Spec 009 §Events-retained-zero semantics.
 
-  `:cascades-retained` is the SOLE recognised opt. An opts map that
-  lacks a usable `:cascades-retained` (e.g. the retired `{:depth N}`
+  `:events-retained` is the SOLE recognised opt. An opts map that
+  lacks a usable `:events-retained` (e.g. the retired `{:depth N}`
   shape, or a negative / non-numeric value) is a no-op that emits a
   `:rf.warning/trace-buffer-unrecognised-opts` trace rather than
   failing silently — a misconfigured retention knob would otherwise
@@ -594,10 +602,10 @@
   tuned (per Spec 009 §Error & warning catalog).
 
   No-op in production. Returns nil."
-  [{:keys [cascades-retained] :as opts}]
+  [{:keys [events-retained] :as opts}]
   (when (and interop/debug-enabled?
-             (not (and (number? cascades-retained)
-                       (not (neg? cascades-retained)))))
+             (not (and (number? events-retained)
+                       (not (neg? events-retained)))))
     ;; Loud-not-silent: a config call that supplied opts we can't apply
     ;; is a misuse the runtime recovers from (the ring stays at its
     ;; current default) but must surface. Routed through the late-bound
@@ -609,21 +617,21 @@
                    {:category :rf.warning/trace-buffer-unrecognised-opts
                     :opts     opts
                     :reason   (str "(configure! {:trace-buffer ...}) accepts only "
-                                   "{:cascades-retained N} where N is a non-negative "
+                                   "{:events-retained N} where N is a non-negative "
                                    "integer; got " (pr-str opts) ". Retention is "
                                    "unchanged. The retired {:depth N} shape is not "
-                                   "supported — use {:cascades-retained N}.")})))
+                                   "supported — use {:events-retained N}.")})))
   (when (and interop/debug-enabled?
-             (number? cascades-retained)
-             (not (neg? cascades-retained)))
-    (reset! process-cascades-retained cascades-retained)
+             (number? events-retained)
+             (not (neg? events-retained)))
+    (reset! process-events-retained events-retained)
     ;; Apply the new default to every frame whose cap was INHERITED
     ;; (`:override? false`), retuning + trimming the already-allocated
     ;; ring. Frames carrying an explicit per-frame override
     ;; (`:override? true`) are left untouched. Keying on `:override?`
-    ;; (not the always-present `:cascades-retained` key) is the fix for
+    ;; (not the always-present `:events-retained` key) is the fix for
     ;; rf2-va65k finding 1: every allocated ring stores
-    ;; `:cascades-retained`, so the old `(some? (get-in ... :cascades-retained))`
+    ;; `:events-retained`, so the old `(some? (get-in ... :events-retained))`
     ;; guard was always true and silently skipped EVERY existing ring —
     ;; lowering the default never trimmed an already-used inherited frame.
     (swap! trace-rings
@@ -635,22 +643,22 @@
                   (let [order    (or (:cascade-order ring) [])
                         cascades (or (:cascades ring) {})]
                     (cond
-                      (zero? cascades-retained)
+                      (zero? events-retained)
                       (assoc acc frame-id (empty-ring 0))
 
-                      (> (count order) cascades-retained)
-                      (let [drop-n     (- (count order) cascades-retained)
+                      (> (count order) events-retained)
+                      (let [drop-n     (- (count order) events-retained)
                             kept-order (subvec order drop-n)
                             evicted    (subvec order 0 drop-n)]
                         (assoc acc frame-id
-                               {:cascades-retained cascades-retained
+                               {:events-retained events-retained
                                 :override?         false
                                 :cascade-order     kept-order
                                 :cascades          (apply dissoc cascades evicted)}))
 
                       :else
                       (assoc acc frame-id
-                             {:cascades-retained cascades-retained
+                             {:events-retained events-retained
                               :override?         false
                               :cascade-order     order
                               :cascades          cascades})))))
@@ -711,8 +719,8 @@
 (late-bind/set-fn! :trace.tooling/dedup-allow?        dedup-allow?)
 (late-bind/set-fn! :trace.tooling/clear-dedup-table!  clear-dedup-table!)
 (late-bind/set-fn! :trace.tooling/release-frame-ring! release-frame-ring!)
-(late-bind/set-fn! :trace.tooling/set-frame-cascades-retained!
-                   set-frame-cascades-retained!)
+(late-bind/set-fn! :trace.tooling/set-frame-events-retained!
+                   set-frame-events-retained!)
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
