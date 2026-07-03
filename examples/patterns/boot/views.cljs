@@ -29,10 +29,9 @@
    The views are deliberately bare. The point is the boot shape, not a
    pretty UI."
   (:require [re-frame.core :as rf]
-            [boot.boot])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [boot.boot]))
 
-(reg-view ^{:doc "The waiting screen — what you see while the boot
+(rf/reg-view ^{:doc "The waiting screen — what you see while the boot
                   machine is still working through its phases."}
           boot-progress []
   (let [state @(subscribe [:app.boot/state])]
@@ -51,7 +50,7 @@
       ". The main app view does not mount until the boot reaches "
       [:code ":ready"] "."]]))
 
-(reg-view ^{:doc "The :failed screen — shows what went wrong and offers
+(rf/reg-view ^{:doc "The :failed screen — shows what went wrong and offers
                   a retry that re-runs the boot from the top."}
           boot-failed []
   (let [err @(subscribe [:app.boot/error])]
@@ -67,7 +66,7 @@
                :on-click    #(dispatch [:app/boot [:boot/restart]])}
       "Retry boot"]]))
 
-(reg-view ^{:doc "The main app — the screen the boot was clearing the
+(rf/reg-view ^{:doc "The main app — the screen the boot was clearing the
                   way for. By the time it renders, all four loaded slices
                   are sitting in app-db, populated and stable."}
           main-app []
@@ -97,7 +96,7 @@
        (for [{:keys [id path]} routes]
          ^{:key id} [:li (str id " → " path)])]]]))
 
-(reg-view ^{:doc "The fork in the road. Reads the boot machine's state
+(rf/reg-view ^{:doc "The fork in the road. Reads the boot machine's state
                   and picks one of three screens — and it's the only
                   place in the app that makes that call."}
           root-view []

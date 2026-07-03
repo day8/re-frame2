@@ -26,9 +26,7 @@
             ;; Pulling in `re-frame.schemas` wires up the hooks that teach
             ;; `rf/reg-app-schema` how to do its job. Require it, then use it.
             [re-frame.schemas]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -69,7 +67,7 @@
 ;; provider has mounted, so there's no frame "in scope" to pick up implicitly.
 ;; We just say which one out loud with `with-frame`. The `:rf/default` here is
 ;; the same frame the render root's `frame-provider` names below.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:drawer] {:schema DrawerState}))
 
 ;; ============================================================================
@@ -229,7 +227,7 @@
 ;; VIEW
 ;; ============================================================================
 
-(reg-view drawer-view []
+(rf/reg-view drawer-view []
   (let [circles    @(subscribe [:drawer/circles])
         dialog     @(subscribe [:drawer/dialog])
         can-undo?  @(subscribe [:drawer/can-undo?])

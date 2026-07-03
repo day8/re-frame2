@@ -9,9 +9,7 @@
   derived state, dispatch events when the user does something. No business logic
   sneaks in here. See docs/core/glossary.md (view)."
   (:require [clojure.string :as str]
-            [re-frame.core :as rf]
-            [re-frame.views])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.core :as rf]))
 
 ;; Each filter is a ROUTE, so its link is a `route-link` naming the route id —
 ;; never a hand-built `#/active` string. The router's hash strategy (declared on
@@ -145,7 +143,7 @@
 ;; body `dispatch` and `subscribe` arrive in scope for free, which is exactly why
 ;; the root is the one threading them down to the helpers below.
 ;; See docs/core/concepts/views.md.
-(reg-view root-view []
+(rf/reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]
     [:<>
      [:section.todoapp

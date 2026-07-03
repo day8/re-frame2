@@ -19,14 +19,13 @@
    dispatch is the only seam where React's lifecycle reaches them."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
-            [long-running-work.worker])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [long-running-work.worker]))
 
 ;; ============================================================================
 ;; SUB-COMPONENTS
 ;; ============================================================================
 
-(reg-view ^{:doc "The overall progress bar. Reads :work/progress-fraction
+(rf/reg-view ^{:doc "The overall progress bar. Reads :work/progress-fraction
                   (a number from 0.0 to 1.0) and grows a div's width to
                   match."}
           progress-bar []
@@ -55,7 +54,7 @@
                                    "#9e9e9e")
                      :transition "width 60ms linear"}}]]]))
 
-(reg-view ^{:doc "The per-shard breakdown. One little bar per worker, so
+(rf/reg-view ^{:doc "The per-shard breakdown. One little bar per worker, so
                   you can watch the parallel children making their own
                   independent progress."}
           shard-breakdown []
@@ -82,7 +81,7 @@
                 :data-testid (str "shard-counter-" (name shard-id))}
          (str processed " / " total)]])]))
 
-(reg-view ^{:doc "The status line — the parent machine's current :state,
+(rf/reg-view ^{:doc "The status line — the parent machine's current :state,
                   plus its recorded :outcome once it lands in a terminal
                   state (the little badge at the end)."}
           status-line []
@@ -96,7 +95,7 @@
         [:strong "Outcome: "]
         [:span {:data-testid "outcome-value"} (name outcome)]])]))
 
-(reg-view ^{:doc "The control panel. Three buttons, three events into
+(rf/reg-view ^{:doc "The control panel. Three buttons, three events into
                   the parent machine:
 
                   - Start  → [:work/flow [:start]]. The parent goes
@@ -132,7 +131,7 @@
 ;; WORK-BENCH WRAPPER — where unmount becomes cancellation
 ;; ============================================================================
 
-(reg-view ^{:doc "The work-bench — the widget that holds the whole demo,
+(rf/reg-view ^{:doc "The work-bench — the widget that holds the whole demo,
                   and the one that vanishes when you click 'Hide'. Watch
                   its `r/with-let` cleanup: on unmount it dispatches
                   [:work/flow [:cancel]] into the parent. The parent's
@@ -180,7 +179,7 @@
 (rf/reg-sub :ui/show-bench?
   (fn [db _] (get-in db [:ui :show-bench?] true)))
 
-(reg-view ^{:doc "The top-level root: a Show/Hide button and the
+(rf/reg-view ^{:doc "The top-level root: a Show/Hide button and the
                   work-bench, rendered only when shown. Hiding the bench
                   unmounts it, and that's what kicks off the cascade —
                   see work-bench above."}

@@ -47,7 +47,6 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            [re-frame.views]
             ;; Managed HTTP is the transport a resource fetch rides on.
             ;; Requiring it registers the `:rf.http/managed` effect that every
             ;; ensure ultimately runs onto. See the managed-HTTP glossary entry:
@@ -67,8 +66,7 @@
             ;; route key, so it's loading *both* that makes a route allowed to
             ;; declare `:resources`.
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; RESOURCES — named, cached server-state reads
@@ -347,7 +345,7 @@
 ;; PAGES — passive reads; the runtime owns the state
 ;; ============================================================================
 
-(reg-view home-page []
+(rf/reg-view home-page []
   [:div
    [:h1 "Resources demo"]
    [:p "Server-state as named, cached reads. Views are passive; route entry,
@@ -360,7 +358,7 @@
 ;; open. The detail it shows was ensured under an app lease over in
 ;; `:resources.app/preview-opened`, and will be released by
 ;; `:resources.app/preview-closed`. The panel's whole job is to read and render.
-(reg-view preview-panel [slug]
+(rf/reg-view preview-panel [slug]
   (let [state @(subscribe [:rf.resource/state {:resource :article/by-slug
                                                :params  {:slug slug}}])]
     [:div.preview {:data-testid "preview-panel"}
@@ -380,7 +378,7 @@
 ;; The MACHINE-OWNED reader panel. Here the live reader actor owns this detail
 ;; for its whole lifetime; the panel just reads it passively. Hit stop and the
 ;; actor is destroyed, which is what releases the owner.
-(reg-view reader-panel [slug]
+(rf/reg-view reader-panel [slug]
   (let [state @(subscribe [:rf.resource/state {:resource :article/by-slug
                                                :params  {:slug slug}}])]
     [:div.reader {:data-testid "reader-panel"}
@@ -398,7 +396,7 @@
                :on-click    #(dispatch [:resources.app/stop-reader])}
       "Stop reader"]]))
 
-(reg-view articles-page []
+(rf/reg-view articles-page []
   ;; Getting here already ensured the list — that's what this route's
   ;; `:resources` metadata bought us. All the view has to do now is read the
   ;; resource's full state, passively.
@@ -457,7 +455,7 @@
         (when reader
           [reader-panel (:slug reader)])])]))
 
-(reg-view article-detail-page []
+(rf/reg-view article-detail-page []
   ;; Same deal as the list page: arriving here already ensured :article/by-slug
   ;; for the slug in the URL. The view just reads the result.
   (let [slug  (:slug @(subscribe [:rf.route/params]))
@@ -482,12 +480,12 @@
                          :data-testid "route-link-back"}
           "← Back"]]]))
 
-(reg-view not-found-page []
+(rf/reg-view not-found-page []
   [:div
    [:h1 "Not found"]
    [:p [rf/route-link {:to :resources.app/home :data-testid "route-link-home"} "Home"]]])
 
-(reg-view root-view []
+(rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :resources.app/home           [home-page]
     :resources.app/articles       [articles-page]

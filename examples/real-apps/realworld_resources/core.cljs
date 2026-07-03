@@ -53,8 +53,7 @@
             [realworld-resources.auth :as auth]
             [realworld-resources.settings :as settings]
             [realworld-resources.article-editor :as editor]
-            [realworld-resources.views :as views])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [realworld-resources.views :as views]))
 
 ;; ============================================================================
 ;; INITIALISATION
@@ -88,7 +87,7 @@
 ;; APP-SHELL VIEWS
 ;; ============================================================================
 
-(reg-view header []
+(rf/reg-view header []
   (let [authed? @(subscribe [:auth/authenticated?])
         user    @(subscribe [:auth/user])]
     [:nav.navbar.navbar-light
@@ -115,13 +114,13 @@
           [:li.nav-item [rf/route-link {:to :realworld.auth/login :class "nav-link" :data-testid "nav-signin"} "Sign in"]]
           [:li.nav-item [rf/route-link {:to :realworld.auth/register :class "nav-link" :data-testid "nav-signup"} "Sign up"]]])]]]))
 
-(reg-view footer []
+(rf/reg-view footer []
   [:footer [:div.container
             [rf/route-link {:to :realworld/home :class "logo-font"} "conduit"]
             [:span.attribution "An interactive learning project from Thinkster."
              " Code & design licensed under MIT."]]])
 
-(reg-view ^{:doc "The 'you have unsaved changes' dialog. It appears when a
+(rf/reg-view ^{:doc "The 'you have unsaved changes' dialog. It appears when a
                    `:can-leave` guard blocks a navigation — typically the editor
                    refusing to throw away a dirty draft. It reads the blocked
                    navigation off the `:rf/pending-navigation` sub; the buttons
@@ -139,10 +138,10 @@
                 :on-click #(dispatch [:rf.route/cancel (:id pending)])}
        "Stay"]]]))
 
-(reg-view not-found-page []
+(rf/reg-view not-found-page []
   [:div.not-found-page [:h1 "Page not found"] [rf/route-link {:to :realworld/home} "Home"]])
 
-(reg-view root-view []
+(rf/reg-view root-view []
   [:div.app
    [header]
    [pending-nav-dialog]

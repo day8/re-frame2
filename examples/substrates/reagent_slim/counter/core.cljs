@@ -22,11 +22,9 @@
    that exercises the pure-CLJS SSR path the gate inspects. Read past them."
   (:require [reagent2.dom.client                :as rdc]
             [re-frame.core                      :as rf]
-            [re-frame.views]
             ;; Monorepo-only spelling (see the ns docstring). Your app picks
             ;; slim by its deps coordinate, not by naming this namespace.
-            [re-frame.adapter.reagent-slim      :as reagent-slim-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent-slim      :as reagent-slim-adapter]))
 
 ;; -- Events / subs (the handler registry is app-global) ----------------------
 ;;
@@ -56,13 +54,13 @@
 ;; at render time rather than baking one in. Here it finds slim (see `boot!`).
 ;; See docs/core/concepts/views.md.
 
-(reg-view counter-buttons []
+(rf/reg-view counter-buttons []
   [:div
    [:button {:on-click #(dispatch [:counter/dec])} "-"]
    [:span {:style {:margin "0 1em"} :data-testid "counter-value"} @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
-(reg-view counter-app []
+(rf/reg-view counter-app []
   [counter-buttons])
 
 ;; -- Mount -------------------------------------------------------------------

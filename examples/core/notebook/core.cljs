@@ -37,9 +37,7 @@
   (:require [reagent.dom.client :as rdc]
             [clojure.string     :as str]
             [re-frame.core      :as rf]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; SEED DATA
@@ -300,7 +298,7 @@
 ;; what it needs and dispatches on interaction — pure functions of state,
 ;; nothing reaching out to mutate. See docs/core/concepts/views.md.
 
-(reg-view sidebar []
+(rf/reg-view sidebar []
   (let [docs        @(subscribe [:notebook/documents])
         selected-id @(subscribe [:notebook/selected-id])]
     [:nav.nb-sidebar
@@ -323,7 +321,7 @@
      [:footer.nb-sidebar-footer
       [:span "Reagent substrate"]]]))
 
-(reg-view editor []
+(rf/reg-view editor []
   (let [body @(subscribe [:notebook/selected-body])
         sel  @(subscribe [:notebook/selected])]
     [:section.nb-editor
@@ -336,7 +334,7 @@
        :spellCheck  "false"
        :on-change   #(dispatch [:notebook/edit-body (.. % -target -value)])}]]))
 
-(reg-view preview []
+(rf/reg-view preview []
   (let [blocks @(subscribe [:notebook/selected-hiccup])]
     [:section.nb-preview
      [:header.nb-pane-header
@@ -345,7 +343,7 @@
      (into [:article.nb-rendered {:data-testid "notebook-preview"}]
            (or blocks []))]))
 
-(reg-view notebook []
+(rf/reg-view notebook []
   [:div.nb-shell
    [sidebar]
    [editor]

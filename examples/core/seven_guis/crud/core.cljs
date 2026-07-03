@@ -29,9 +29,7 @@
             ;; is what makes `rf/reg-app-schema` below mean anything. Guide:
             ;; docs/core/how-to/validate-with-schemas.md.
             [re-frame.schemas]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -67,7 +65,7 @@
 ;; checks. Note we register against the frame before it exists — the name is all
 ;; the machinery needs to hang the schema on.
 ;; See docs/core/how-to/validate-with-schemas.md.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:crud] {:schema CrudState}))
 
 ;; ============================================================================
@@ -180,7 +178,7 @@
 ;; VIEW
 ;; ============================================================================
 
-(reg-view crud-view []
+(rf/reg-view crud-view []
   (let [people      @(subscribe [:crud/filtered-people])
         filter-text @(subscribe [:crud/filter-text])
         selected-id @(subscribe [:crud/selected-id])

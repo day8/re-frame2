@@ -27,9 +27,7 @@
             ;; hooks that make `rf/reg-app-schema` resolve. No var from it is
             ;; used directly — it just has to be on the page.
             [re-frame.schemas]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -54,7 +52,7 @@
 ;; `frame-provider` at the render root runs this app in `:rf/default`, so we
 ;; name that same frame here and bind the schema to it. From then on, every
 ;; commit to the `[:temp]` slice is checked against `TempState`.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:temp] {:schema TempState}))
 
 ;; ============================================================================
@@ -167,7 +165,7 @@
 ;; bidirectional "trap" the 7GUIs page warns about never even comes up, because
 ;; the fields don't know each other exists.
 
-(reg-view ^{:doc "Two text inputs, °C and °F, kept in sync through app-db."}
+(rf/reg-view ^{:doc "Two text inputs, °C and °F, kept in sync through app-db."}
           temperature-converter []
   (let [c-text @(subscribe [:temp/celsius-text])
         f-text @(subscribe [:temp/fahrenheit-text])]

@@ -40,7 +40,6 @@
   fx and the same reply shape, end to end, through Reagent and Fetch."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.views]
             ;; Managed HTTP ships in its own artefact (day8/re-frame2-http).
             ;; Requiring this once at boot is what registers `:rf.http/managed`
             ;; and its family — skip it and the first fx dispatch fails loud
@@ -59,8 +58,7 @@
             ;; head / options). Each builds the canonical
             ;; [:rf.http/managed args-map] vector so the call site stays a line.
             [re-frame.http :as rf.http]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; APP-DB SHAPE
@@ -302,7 +300,7 @@
 ;; sneaks in here. A view reads derived state and fires events; that's the
 ;; whole contract, and keeping it that thin is what keeps it predictable.
 
-(reg-view counter-view []
+(rf/reg-view counter-view []
   (let [count  @(subscribe [:counter/count])
         status @(subscribe [:counter/status])
         error  @(subscribe [:counter/error])]
@@ -321,7 +319,7 @@
       [:button {:on-click #(dispatch [:counter/start-long])}      "Start long"]
       [:button {:on-click #(dispatch [:counter/cancel])}          "Cancel"]]]))
 
-(reg-view counter-app []
+(rf/reg-view counter-app []
   [counter-view])
 
 ;; ============================================================================

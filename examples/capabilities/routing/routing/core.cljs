@@ -22,7 +22,6 @@
      agreement"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.views]
             ;; Routing lives in its own artefact (day8/re-frame2-routing), so
             ;; you opt into it with a require. The require has a side effect:
             ;; it registers the route subs that the `rf/reg-route` calls below
@@ -30,8 +29,7 @@
             ;; :rf.error/routing-artefact-missing — which is the runtime's
             ;; polite way of saying "you asked for routing but never packed it".
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; ROUTES
@@ -102,14 +100,14 @@
 ;; See the routing guide, "Linking from views":
 ;; ../../../docs/routing/concepts.md#linking-from-views
 
-(reg-view home-page []
+(rf/reg-view home-page []
   [:div
    [:h1 "Welcome"]
    [:p [rf/route-link {:to :routing.app/articles
                        :data-testid "route-link-articles"}
         "See the articles →"]]])
 
-(reg-view articles-page []
+(rf/reg-view articles-page []
   [:div
    [:h1 "Articles"]
    [:ul
@@ -120,7 +118,7 @@
                            :data-testid (str "route-link-article-" id)}
             title]])]])
 
-(reg-view article-detail-page []
+(rf/reg-view article-detail-page []
   (let [id      (:id @(subscribe [:rf.route/params]))
         article @(subscribe [:routing.app/article-by-id id])]
     ;; The "← Back" link is the same in both cases — found or not — so it's
@@ -136,7 +134,7 @@
                          :data-testid "route-link-back-to-articles"}
           "← Back"]]]))
 
-(reg-view not-found-page []
+(rf/reg-view not-found-page []
   (let [url (:url @(subscribe [:rf.route/params]))]
     [:div
      [:h1 "Not found"]
@@ -150,7 +148,7 @@
 ;; <Switch>, no nesting. The URL changes, the sub updates, this re-renders the
 ;; new page. If you were expecting more machinery, that's the whole trick:
 ;; routing is just another sub feeding just another view.
-(reg-view root-view []
+(rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :routing.app/home           [home-page]
     :routing.app/articles       [articles-page]

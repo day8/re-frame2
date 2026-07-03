@@ -92,9 +92,7 @@
             ;; (`:rf.http/managed-canned-success` / `-failure`). Our little
             ;; per-app demo stub below just delegates to these.
             [re-frame.http.test-support]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; CONSTANTS
@@ -140,7 +138,7 @@
 ;; same id `run`'s `frame-provider {:id …}` sets up), so we name it here.
 ;; Frame identity is carried, not magically found; see the frames glossary:
 ;; ../../../docs/core/glossary.md#frame-identity-is-carried-not-found
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:new-todo] {:schema NewTodoSlice}))
 
 ;; ============================================================================
@@ -582,46 +580,46 @@
 ;; VIEWS — one per render-model keyword
 ;; ============================================================================
 
-(reg-view ^{:doc "State 1 — Nothing: a blank slate with a 'Get started' nudge."}
+(rf/reg-view ^{:doc "State 1 — Nothing: a blank slate with a 'Get started' nudge."}
           view-nothing []
   [:div.state.state-nothing
    [:h2 "Welcome"]
    [:p "You haven't loaded any todos yet."]
    [:button {:on-click #(dispatch [:nine-states.demo/load {:n 0}])} "Get started"]])
 
-(reg-view ^{:doc "State 2 — Loading: spinner / skeleton."}
+(rf/reg-view ^{:doc "State 2 — Loading: spinner / skeleton."}
           view-loading []
   [:div.state.state-loading
    [:p "Loading todos…"]])
 
-(reg-view ^{:doc "Error branch — the fetch failed; apologise and offer a retry."}
+(rf/reg-view ^{:doc "Error branch — the fetch failed; apologise and offer a retry."}
           view-error []
   (let [err @(subscribe [:todos/error])]
     [:div.state.state-error
      [:p.error (str "Couldn't load: " (:message err))]
      [:button {:on-click #(dispatch [:nine-states.demo/load {:n 4}])} "Retry"]]))
 
-(reg-view ^{:doc "State 3 — Empty: 'No todos yet' + CTA to add one."}
+(rf/reg-view ^{:doc "State 3 — Empty: 'No todos yet' + CTA to add one."}
           view-empty []
   [:div.state.state-empty
    [:h2 "No todos yet"]
    [:p "Add your first todo using the form below."]])
 
-(reg-view ^{:doc "State 4 — One: focused single-item layout."}
+(rf/reg-view ^{:doc "State 4 — One: focused single-item layout."}
           view-one []
   (let [todo (first @(subscribe [:todos/items]))]
     [:div.state.state-one
      [:h2 "Your todo"]
      [:p.title (:title todo)]]))
 
-(reg-view ^{:doc "State 5 — Some: standard list."}
+(rf/reg-view ^{:doc "State 5 — Some: standard list."}
           view-some []
   (let [todos @(subscribe [:todos/items])]
     [:div.state.state-some
      [:h2 (str (count todos) " todos")]
      [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))
 
-(reg-view ^{:doc "State 6 — Too Many: more than anyone wants to scroll, so
+(rf/reg-view ^{:doc "State 6 — Too Many: more than anyone wants to scroll, so
                   show a search box and truncate the rest."}
           view-too-many []
   (let [todos    @(subscribe [:todos/items])
@@ -634,19 +632,19 @@
      (when (pos? overflow)
        [:p.overflow (str "…and " overflow " more.")])]))
 
-(reg-view ^{:doc "State 7 — Incorrect: per-field validation error + recovery path."}
+(rf/reg-view ^{:doc "State 7 — Incorrect: per-field validation error + recovery path."}
           view-incorrect []
   (let [err @(subscribe [:new-todo/field-error :title])]
     [:div.state.state-incorrect
      [:p.error (str "We can't add that todo: " err)]
      [:p "Please fix the title field below and submit again."]]))
 
-(reg-view ^{:doc "State 8 — Correct: success feedback (toast / checkmark)."}
+(rf/reg-view ^{:doc "State 8 — Correct: success feedback (toast / checkmark)."}
           view-correct []
   [:div.state.state-correct
    [:p.success "✓ Todo added."]])
 
-(reg-view ^{:doc "State 9 — Done/Frozen: archived list. Read-only."}
+(rf/reg-view ^{:doc "State 9 — Done/Frozen: archived list. Read-only."}
           view-done []
   (let [todos @(subscribe [:todos/items])]
     [:div.state.state-done
@@ -666,7 +664,7 @@
 ;; ask, don't tell. Move that tag to another state tomorrow and these views
 ;; don't change a line.
 
-(reg-view ^{:doc "The add-a-todo form — the thing that drives the form
+(rf/reg-view ^{:doc "The add-a-todo form — the thing that drives the form
                   region through states 7 (Incorrect) and 8 (Correct)."}
           new-todo-form []
   (let [draft       @(subscribe [:new-todo/draft])
@@ -685,7 +683,7 @@
      [:button {:type "submit" :disabled read-only?} "Add"]
      (when field-err [:p.error field-err])]))
 
-(reg-view ^{:doc "Your remote control: one button per state, so you can
+(rf/reg-view ^{:doc "Your remote control: one button per state, so you can
                   jump the demo straight to any of the nine."}
           control-panel []
   (let [read-only? @(rf/machine-has-tag? :ui/nine-states :mode/read-only)]
@@ -713,7 +711,7 @@
                :data-testid "ns-button-archive"
                :disabled read-only?} "9. Archive (Done)"]]))
 
-(reg-view ^{:doc "The root view, and the punchline of the whole example: a
+(rf/reg-view ^{:doc "The root view, and the punchline of the whole example: a
                   single `case` over :ui/render picks exactly one per-state
                   view. The control panel and form sit alongside it,
                   always on. Nine states, one branch."}

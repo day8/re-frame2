@@ -67,7 +67,6 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            [re-frame.views]
             ;; Managed HTTP — the one transport every resource and mutation
             ;; lowers its read/write onto. Loading the ns registers the
             ;; `:rf.http/managed` fx. Guide:
@@ -85,8 +84,7 @@
             ;; `:resources` key — that's how the board route ensures the board on
             ;; entry.
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view reg-event reg-sub]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
 ;; THE DOMAIN — issues + statuses
@@ -388,24 +386,24 @@
 ;; ordinary slices in the usual loop: an event writes, a sub reads, the view
 ;; reads the sub.
 
-(reg-event :linearlite/set-fail-next-write
+(rf/reg-event :linearlite/set-fail-next-write
   (fn [db [_ on?]] (assoc db :fail-next-write? on?)))
 
-(reg-event :linearlite/set-new-issue-draft
+(rf/reg-event :linearlite/set-new-issue-draft
   (fn [db [_ text]] (assoc db :new-issue-draft text)))
 
-(reg-event :linearlite/begin-edit
+(rf/reg-event :linearlite/begin-edit
   (fn [db [_ id title]] (assoc db :editing {:id id :title title})))
 
-(reg-event :linearlite/set-edit-draft
+(rf/reg-event :linearlite/set-edit-draft
   (fn [db [_ text]] (assoc-in db [:editing :title] text)))
 
-(reg-event :linearlite/cancel-edit
+(rf/reg-event :linearlite/cancel-edit
   (fn [db _] (dissoc db :editing)))
 
-(reg-sub :linearlite/fail-next-write? (fn [db _] (boolean (:fail-next-write? db))))
-(reg-sub :linearlite/new-issue-draft  (fn [db _] (or (:new-issue-draft db) "")))
-(reg-sub :linearlite/editing          (fn [db _] (:editing db)))
+(rf/reg-sub :linearlite/fail-next-write? (fn [db _] (boolean (:fail-next-write? db))))
+(rf/reg-sub :linearlite/new-issue-draft  (fn [db _] (or (:new-issue-draft db) "")))
+(rf/reg-sub :linearlite/editing          (fn [db _] (:editing db)))
 
 ;; --- the write events (fire the mutation, then get out of the way) ----------
 ;;
@@ -415,7 +413,7 @@
 ;; the board passively; the runtime does the real work — apply the optimistic
 ;; patch, send the request, commit or roll back on the reply.
 
-(reg-event :linearlite/create-issue
+(rf/reg-event :linearlite/create-issue
   (fn [{:keys [db]} [_ title]]
     (let [tmp-id (next-issue-id)]
       {:db (assoc db :new-issue-draft "")
@@ -425,7 +423,7 @@
                          :instance [:create tmp-id]
                          :cause    [:user :linearlite/create-issue]}]]]})))
 
-(reg-event :linearlite/commit-edit
+(rf/reg-event :linearlite/commit-edit
   (fn [{:keys [db]} [_ id title]]
     {:db (dissoc db :editing)
      :fx [[:dispatch [:rf.mutation/execute
@@ -434,7 +432,7 @@
                        :instance [:edit id]
                        :cause    [:user :linearlite/edit-title]}]]]}))
 
-(reg-event :linearlite/change-status
+(rf/reg-event :linearlite/change-status
   (fn [_ [_ id status]]
     {:fx [[:dispatch [:rf.mutation/execute
                       {:mutation :linearlite/change-status
@@ -461,7 +459,7 @@
 ;; VIEWS — passive board read + watched mutation instances
 ;; ============================================================================
 
-(reg-view fail-toggle []
+(rf/reg-view fail-toggle []
   (let [armed? @(subscribe [:linearlite/fail-next-write?])]
     [:label.fail-toggle {:data-testid "fail-toggle"}
      [:input {:type      "checkbox"
@@ -470,7 +468,7 @@
                                      (.. % -target -checked)])}]
      [:span "Fail the next write (simulate a server failure → rollback)"]]))
 
-(reg-view new-issue-form []
+(rf/reg-view new-issue-form []
   (let [draft @(subscribe [:linearlite/new-issue-draft])]
     [:form.new-issue {:data-testid "new-issue-form"
                       :on-submit   (fn [e]
@@ -484,7 +482,7 @@
               :on-change   #(dispatch [:linearlite/set-new-issue-draft (.. % -target -value)])}]
      [:button {:type :submit :data-testid "new-issue-submit"} "Add issue"]]))
 
-(reg-view status-picker [{:keys [id status]}]
+(rf/reg-view status-picker [{:keys [id status]}]
   ;; Pick a new column. This fires the optimistic change-status mutation: the
   ;; card jumps right away, then commits or rolls back when the reply lands.
   [:select {:data-testid (str "status-" id)
@@ -494,7 +492,7 @@
    (for [{s-id :id s-label :label} statuses]
      ^{:key s-id} [:option {:value (name s-id)} s-label])])
 
-(reg-view issue-card [{:keys [issue editing]}]
+(rf/reg-view issue-card [{:keys [issue editing]}]
   (let [{:keys [id title status optimistic?]} issue
         editing-this? (= id (:id editing))
         ;; Watch this card's in-flight writes, passively. `:optimistic?` stays
@@ -532,14 +530,14 @@
      [:div.issue-actions
       [status-picker {:id id :status status}]]]))
 
-(reg-view board-column [{:keys [status issues editing]}]
+(rf/reg-view board-column [{:keys [status issues editing]}]
   [:div.column {:data-testid (str "column-" (:id status))}
    [:h2 (:label status)]
    (into [:ul.issue-list]
          (for [issue issues]
            ^{:key (:id issue)} [issue-card {:issue issue :editing editing}]))])
 
-(reg-view board-page []
+(rf/reg-view board-page []
   ;; The route already ensured the board on entry (via its `:resources`
   ;; metadata), so this view just reads the whole thing passively through
   ;; `[:rf.resource/data …]`. Every write patches the cache, so the view
@@ -577,12 +575,12 @@
                               :issues  (filterv #(= (:id status) (:status %)) issues)
                               :editing editing}])))]))
 
-(reg-view not-found-page []
+(rf/reg-view not-found-page []
   [:div
    [:h1 "Not found"]
    [:p [rf/route-link {:to :linearlite.app/board :data-testid "route-link-board"} "Back to the board"]]])
 
-(reg-view root-view []
+(rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :linearlite.app/board [board-page]
     :rf.route/not-found   [not-found-page]

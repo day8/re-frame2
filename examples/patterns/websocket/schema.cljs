@@ -19,8 +19,7 @@
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Requiring it wires up the hooks that make `rf/reg-app-schema`
             ;; resolve at the call site below — no require, no schema.
-            [re-frame.schemas])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+            [re-frame.schemas]))
 
 ;; ============================================================================
 ;; CONNECTION MACHINE :data SHAPE
@@ -106,5 +105,5 @@
 ;; scope. Call it bare at ns-load and you get :rf.error/no-frame-context.
 ;; This example lives in the :rf/default frame, so we name that frame
 ;; explicitly. See docs/core/glossary.md#capture-frame.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:messages]                   {:schema MessagesSlice}))

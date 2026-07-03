@@ -14,14 +14,13 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [state-machine-walkthrough.core])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [state-machine-walkthrough.core]))
 
 ;; ============================================================================
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view ^{:doc "The login form. Two threads of state run through it, and the
+(rf/reg-view ^{:doc "The login form. Two threads of state run through it, and the
                   whole view is easier to read once you separate them.
 
                   Thread one is the DRAFT — the email and password being typed.
@@ -77,7 +76,7 @@
                                          [:auth.login/dismiss]])}
          "Dismiss"]])]))
 
-(reg-view ^{:doc "A little banner up top that names the machine's current state —
+(rf/reg-view ^{:doc "A little banner up top that names the machine's current state —
                   handy for watching the transitions happen live. The
                   `data-state` attribute mirrors the state keyword into the DOM
                   so a test can assert the lockout transition without squinting
@@ -90,13 +89,13 @@
                      :data-state (when state (name state))}
       (if state (name state) "(uninitialised)")]]))
 
-(reg-view ^{:doc "The end of the road: what you see once the account locks out."}
+(rf/reg-view ^{:doc "The end of the road: what you see once the account locks out."}
           locked-panel []
   [:div.locked {:data-testid "locked-panel"}
    [:h2 "Account locked"]
    [:p "Three failed attempts. Contact support to unlock."]])
 
-(reg-view root-view []
+(rf/reg-view root-view []
   (let [locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)]
     [:div.app
      [:h1 "State-machines walkthrough — login lockout"]

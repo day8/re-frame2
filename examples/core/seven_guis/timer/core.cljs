@@ -27,9 +27,7 @@
             ;; Pulling this in registers the hooks that teach the frame how to
             ;; validate against a schema — that's what makes `rf/reg-app-schema` work.
             [re-frame.schemas]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 (def tick-ms
   "Wall-clock delay, in milliseconds, between one tick and the next. 100ms is
@@ -55,7 +53,7 @@
 ;; `frame-provider` picks (see `run`) — so the schema guards the very frame
 ;; whose commits it's meant to validate. If you want the why and the how of
 ;; schemas, that's docs/core/how-to/validate-with-schemas.md.
-(with-frame :rf/default
+(rf/with-frame :rf/default
   (rf/reg-app-schema [:timer] {:schema TimerState}))
 
 ;; ============================================================================
@@ -171,7 +169,7 @@
 ;; VIEW
 ;; ============================================================================
 
-(reg-view timer-view []
+(rf/reg-view timer-view []
   (let [progress @(subscribe [:timer/progress-pct])
         seconds  @(subscribe [:timer/elapsed-seconds])
         duration @(subscribe [:timer/duration-ms])]

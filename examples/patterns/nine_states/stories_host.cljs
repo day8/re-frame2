@@ -57,8 +57,7 @@
             ;; The shared Story-host helper — it owns the
             ;; live-app↔Story-shell hash router and the React-root handle,
             ;; so we don't have to.
-            [re-frame.testbed.story-host :as story-host])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.testbed.story-host :as story-host]))
 
 ;; -- The live-app frame ----------------------------------------------------
 ;;
@@ -78,7 +77,7 @@
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:nine-states.app/initialise])))
 
-(reg-view nine-states-app []
+(rf/reg-view nine-states-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}
    [:p {:style {:font-size "13px" :color "#666" :margin "0 0 1em 0"}}
     "Open "
