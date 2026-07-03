@@ -136,7 +136,7 @@
 
 (deftest coerce-opts-throws-on-bad-arg
   (testing "Per rf2-yv62u — a non-keyword, non-map argument throws
-            :rf.error/bad-app-schemas-arg. numbers, strings, vectors all
+            :rf.error/app-schemas-bad-arg. numbers, strings, vectors all
             fail. (rf2-iszpyg — nil is now accepted as {}; see
             coerce-opts-accepts-nil-as-empty-opts.)"
     (doseq [bad-arg [42 "frame-a" [:a :b] :well/-actually-keyword-is-ok]]
@@ -157,7 +157,7 @@
             ;; and trails the [:rf.error/<id>] token; branch on the canonical
             ;; :rf.error/id, never on the (non-normative) message bytes.
             (let [data (ex-data thrown)]
-              (is (= :rf.error/bad-app-schemas-arg (:rf.error/id data))
+              (is (= :rf.error/app-schemas-bad-arg (:rf.error/id data))
                   "ex-data carries the canonical :rf.error/id discriminator")
               (is (= bad-arg (:received data))
                   ":received slot carries the bad input verbatim"))))))))
@@ -190,7 +190,7 @@
 
 (deftest reg-app-schema-bad-opts-shape-fails-loud
   (testing "rf2-52dfy — a non-keyword, non-map opts shape throws
-            :rf.error/bad-app-schemas-arg, matching coerce-opts (the read
+            :rf.error/app-schemas-bad-arg, matching coerce-opts (the read
             surface's contract). No silent mis-registration."
     (doseq [bad-arg ["tenant-a" 42 [:tenant :a]]]
       (let [thrown (try (rf/reg-app-schema [:user] {:schema [:map] :frame bad-arg})
@@ -199,7 +199,7 @@
             (str "bad opts " (pr-str bad-arg) " throws ex-info"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
           ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
-          (is (= :rf.error/bad-app-schemas-arg (:rf.error/id (ex-data thrown)))
+          (is (= :rf.error/app-schemas-bad-arg (:rf.error/id (ex-data thrown)))
               "ex-data names the same error category the read surface uses"))))))
 
 (deftest reg-app-schema-valid-opts-map-registers-fine
@@ -226,7 +226,7 @@
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo thrown))
       ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
-      (is (= :rf.error/bad-app-schemas-arg (:rf.error/id (ex-data thrown)))))))
+      (is (= :rf.error/app-schemas-bad-arg (:rf.error/id (ex-data thrown)))))))
 
 ;; ---- EP-0024 frame-value targeting (rf2-7pllal) --------------------------
 ;;
@@ -330,7 +330,7 @@
 (deftest resolve-frame-rejects-non-keyword-frame-target-loud
   (testing "rf2-7pllal / rf2-5429ec — an explicit `:frame` that resolves to a
             NON-keyword target (a string, a vector, a number, OR a non-frame
-            MAP) fails loud with :rf.error/bad-app-schemas-arg rather than
+            MAP) fails loud with :rf.error/app-schemas-bad-arg rather than
             silently becoming a registry key no keyword-id read can reach (no
             silent swallow). Per rf2-wvh95f F2 the `:frame` target rides FLAT in
             the metadata map (`{:schema … :frame <target>}`); per rf2-5429ec the
@@ -349,7 +349,7 @@
         (when (instance? clojure.lang.ExceptionInfo thrown)
           ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
           (let [data (ex-data thrown)]
-            (is (= :rf.error/bad-app-schemas-arg (:rf.error/id data))
+            (is (= :rf.error/app-schemas-bad-arg (:rf.error/id data))
                 "names the canonical bad-arg category")
             (is (= bad-frame (:received data))
                 ":received carries the offending :frame value verbatim")))
@@ -403,7 +403,7 @@
 
 (deftest reg-app-schema-rejects-bare-schema-and-schemaless-metadata
   (testing "rf2-5429ec coverage-gap — extract-app-schema-from-metadata fails
-            LOUD with :rf.error/bad-app-schema-metadata for the two authoring
+            LOUD with :rf.error/app-schema-bad-metadata for the two authoring
             slips the F2 (:schema-in-metadata) grammar must reject: a bare
             old-style schema as the 2nd arg, and a metadata map with no :schema."
     ;; (a) bare schema where the metadata map now goes (the common F2 slip)
@@ -411,14 +411,14 @@
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "a bare schema 2nd arg throws")
-      (is (= :rf.error/bad-app-schema-metadata (:rf.error/id (ex-data thrown)))
+      (is (= :rf.error/app-schema-bad-metadata (:rf.error/id (ex-data thrown)))
           "names the bad-metadata category"))
     ;; (b) metadata map present but no :schema key
     (let [thrown (try (rf/reg-app-schema [:user] {:doc "no schema here"})
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "a :schema-less metadata map throws")
-      (is (= :rf.error/bad-app-schema-metadata (:rf.error/id (ex-data thrown)))
+      (is (= :rf.error/app-schema-bad-metadata (:rf.error/id (ex-data thrown)))
           ":schema is REQUIRED — its absence is never an implicit pass"))))
 
 (deftest frame-value-without-explicit-id-uses-runnable-id
@@ -458,12 +458,12 @@
 ;; subsequent commit's validation throw, silently disabling post-commit
 ;; validation for the whole frame.
 ;;
-;; Fix: fail loud at registration time with `:rf.error/bad-app-schema-path`
+;; Fix: fail loud at registration time with `:rf.error/app-schema-bad-path`
 ;; BEFORE the store mutation, so the malformed shape can never land.
 
 (deftest reg-app-schema-rejects-non-sequential-path-shapes
   (testing "rf2-sk0ql — a non-sequential scalar `path` (bare keyword,
-            string, number, nil) throws :rf.error/bad-app-schema-path and
+            string, number, nil) throws :rf.error/app-schema-bad-path and
             does NOT mutate schemas-by-frame"
     (doseq [bad-path [:n "user" 42 nil {:not :a-path} #{:n}]]
       (let [before (schemas/snapshot-schemas-by-frame)
@@ -473,12 +473,12 @@
             (str "bad path " (pr-str bad-path) " throws ex-info"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
           ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
-          (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown)))
+          (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown)))
               "ex-data names the path-shape error category")
           (let [data (ex-data thrown)]
             (is (= bad-path (:received data))
                 ":received slot carries the bad path verbatim")
-            (is (= :rf.error/bad-app-schema-path (:rf.error/id data))
+            (is (= :rf.error/app-schema-bad-path (:rf.error/id data))
                 ":rf.error/id slot carries the framework error id")))
         (is (= before (schemas/snapshot-schemas-by-frame))
             (str "store is unchanged after rejecting " (pr-str bad-path)
@@ -568,7 +568,7 @@
                         (catch clojure.lang.ExceptionInfo e e))]
         (is (instance? clojure.lang.ExceptionInfo thrown)
             (str "bad-segment path " (pr-str bad-path) " throws"))
-        (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown)))
+        (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown)))
             (str "structured :rf.error/id for " (pr-str bad-path)))
         (is (= before (schemas/snapshot-schemas-by-frame))
             (str "store unchanged after rejecting " (pr-str bad-path)))))))
@@ -616,7 +616,7 @@
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "the batch with one bad-segment key throws")
-      (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown))))
+      (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown))))
       (is (= before (schemas/snapshot-schemas-by-frame))
           "NOTHING in the batch landed — atomic all-or-nothing")
       (is (nil? (schemas/app-schema-at [:good] :bulk-frame))
@@ -635,7 +635,7 @@
           "a batch with a bad path key throws")
       (when (instance? clojure.lang.ExceptionInfo thrown)
         ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
-        (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown)))
+        (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown)))
             "names the path-shape error category"))
       (is (= before (schemas/snapshot-schemas-by-frame))
           "NO entry from the batch landed — all-or-nothing")
@@ -658,7 +658,7 @@
 ;; whose FIRST segment reaches into the runtime-db partition — a
 ;; `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the
 ;; retired legacy app-db `:rf/runtime` root — with the DISTINCT id
-;; `:rf.error/app-schema-runtime-path` (not `:rf.error/bad-app-schema-path`).
+;; `:rf.error/app-schema-runtime-path` (not `:rf.error/app-schema-bad-path`).
 ;; App schemas validate ONLY app-db: `validate-app-schema!` reads
 ;; `(get-in app-db path)`, so a runtime path either detonates every dev
 ;; commit (a normal `[:map …]` schema over a `nil` slot) or silently
@@ -792,7 +792,7 @@
             router silently treated as a pass."
     ;; The bypass input: a bare-keyword path. Registration now throws.
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/bad-app-schema-path"
+                          #":rf.error/app-schema-bad-path"
                           (rf/reg-app-schema :n {:schema :int})))
     ;; Nothing landed, so validate-app-schema! is a clean pass — it does
     ;; NOT throw the ISeq IllegalArgumentException any more.

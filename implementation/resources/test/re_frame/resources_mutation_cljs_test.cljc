@@ -190,13 +190,13 @@
   (testing "rf2-wvh95f F1 — the request handler is the THIRD slot; a :request
             left INSIDE the metadata map is rejected as a mislocated key"
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/no-req
                            {:params-schema [:map] :request (fn [_ _] {:request {:url "/x"}})}
                            (fn [_ _] {:request {:url "/x"}})))))
   (testing "EP-0003 §Mutations — a mutation spec MUST declare :params-schema"
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/no-schema {} (fn [_ _] {:request {:url "/x"}})))))
   (testing "rf2-t65lqt — a non-map metadata (the MIDDLE slot) is rejected with
             the canonical error id naming the mutation, not a raw host throw"
@@ -204,15 +204,15 @@
                   nil
                   (catch #?(:clj Throwable :cljs :default) e e))]
       (is (some? ex) "a non-map metadata must throw, not silently mis-register")
-      (is (= :rf.error/invalid-mutation-spec (:rf.error/id (ex-data ex)))
+      (is (= :rf.error/mutation-bad-spec (:rf.error/id (ex-data ex)))
           "non-map metadata surfaces the canonical mutation registration error")
       (is (= [] (:value (ex-data ex)))
           "the rejected non-map value rides the :value ex-data slot"))
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/bad-str "nope" save-article-request)))
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/bad-nil nil save-article-request)))))
 
 (deftest reg-mutation-rejects-invalidate-timing-typo
@@ -224,12 +224,12 @@
   ;; loudly AT REGISTRATION rather than as a silent runtime no-op.
   (testing "a typo'd :invalidate-timing is rejected at reg-mutation"
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/typo
                            (save-article-spec {:invalidate-timing :after-succes}) save-article-request))))
   (testing "a non-keyword :invalidate-timing is rejected"
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/non-kw
                            (save-article-spec {:invalidate-timing "after-success"}) save-article-request))))
   (testing "every value in the closed enum registers cleanly"

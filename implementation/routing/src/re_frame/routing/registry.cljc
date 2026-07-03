@@ -176,7 +176,7 @@
 
 (defn- validate-route-metadata!
   "Authoring-boundary guardrail for `reg-route` (rf2-45b95). Throws
-  `:rf.error/invalid-route-metadata` (canonical thrown-error shape, per
+  `:rf.error/route-bad-metadata` (canonical thrown-error shape, per
   Spec 009) when `metadata` carries a BARE key outside the reserved set —
   the common typo case (`:on-matched` for `:on-match`). Namespaced keys
   (`:myapp/analytics-id`) are host/app extension points and always pass
@@ -191,7 +191,7 @@
   [id metadata]
   (when-not (map? metadata)
     (throw (route-error
-             :rf.error/invalid-route-metadata
+             :rf.error/route-bad-metadata
              'rf/reg-route
              (str "route " id "'s metadata must be a map, got " (pr-str (type metadata)))
              {:route-id id :value metadata})))
@@ -203,7 +203,7 @@
                   metadata)]
     (when (seq bad)
       (throw (route-error
-               :rf.error/invalid-route-metadata
+               :rf.error/route-bad-metadata
                'rf/reg-route
                (str "route " id " declares unknown metadata "
                     (if (= 1 (count bad)) "key " "keys ")
@@ -250,13 +250,13 @@
   the conflict."
   [id metadata path]
   ;; Reject non-map metadata FIRST (rf2-45b95 authoring-boundary guard) with
-  ;; the canonical `:rf.error/invalid-route-metadata`. Under the 3-slot
+  ;; the canonical `:rf.error/route-bad-metadata`. Under the 3-slot
   ;; grammar (rf2-wvh95f F1) the metadata slot may be any value, so this must
   ;; run before the `contains?`/`assoc` below — both of which throw a raw
   ;; ClassCastException/IllegalArgumentException on a non-associative value.
   (when-not (map? metadata)
     (throw (route-error
-             :rf.error/invalid-route-metadata
+             :rf.error/route-bad-metadata
              'rf/reg-route
              (str "route " id "'s metadata must be a map, got " (pr-str (type metadata)))
              {:route-id id :value metadata})))
@@ -265,7 +265,7 @@
   ;; home); reject it loudly so the grammar change cannot be half-applied.
   (when (contains? metadata :path)
     (throw (route-error
-             :rf.error/invalid-route-metadata
+             :rf.error/route-bad-metadata
              'rf/reg-route
              (str "route " id " declares :path inside its metadata map — per "
                   "rf2-wvh95f F1 the path pattern is the THIRD slot: "

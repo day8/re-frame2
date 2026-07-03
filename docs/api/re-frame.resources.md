@@ -21,7 +21,7 @@ The resource surfaces are on the `re-frame.core` facade (`reg-resource` / `reg-m
   ```clojure
   (reg-resource resource-id metadata request-fn)
   ```
-- **Description**: Register a resource as data. The `metadata` is the MIDDLE registration-metadata map (the **required, fail-closed `:scope` policy**, `:params-schema`, `:doc`, …); the `request-fn` (which returns the [managed-HTTP args map](re-frame.http.md)) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/invalid-resource-spec`. Validates the reconstructed spec — the **required, fail-closed `:scope` policy** first, then `:params-schema` — and writes a `:resource`-kind registrar entry. Returns `resource-id`. (The stored introspection spec from `resource-meta` reconstructs `:request` onto the metadata map.)
+- **Description**: Register a resource as data. The `metadata` is the MIDDLE registration-metadata map (the **required, fail-closed `:scope` policy**, `:params-schema`, `:doc`, …); the `request-fn` (which returns the [managed-HTTP args map](re-frame.http.md)) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/resource-bad-spec`. Validates the reconstructed spec — the **required, fail-closed `:scope` policy** first, then `:params-schema` — and writes a `:resource`-kind registrar entry. Returns `resource-id`. (The stored introspection spec from `resource-meta` reconstructs `:request` onto the metadata map.)
 
 #### The resource spec
 
@@ -95,7 +95,7 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
   ```clojure
   (reg-mutation mutation-id metadata request-fn)
   ```
-- **Description**: Register a mutation as data under `mutation-id`. The `metadata` is the MIDDLE registration-metadata map (`:params-schema`, `:invalidates`, `:patches`, `:doc`, …); the `request-fn` (the [managed-HTTP write](re-frame.http.md)) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/invalid-mutation-spec`. Validates the reconstructed spec and writes a `:mutation`-kind registrar entry (the causal-write counterpart of `:resource`). Returns `mutation-id`. An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`. (The stored introspection spec from `mutation-meta` reconstructs `:request` onto the metadata map.)
+- **Description**: Register a mutation as data under `mutation-id`. The `metadata` is the MIDDLE registration-metadata map (`:params-schema`, `:invalidates`, `:patches`, `:doc`, …); the `request-fn` (the [managed-HTTP write](re-frame.http.md)) is the THIRD value slot. A non-map `metadata` is rejected loudly with `:rf.error/mutation-bad-spec`. Validates the reconstructed spec and writes a `:mutation`-kind registrar entry (the causal-write counterpart of `:resource`). Returns `mutation-id`. An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`. (The stored introspection spec from `mutation-meta` reconstructs `:request` onto the metadata map.)
 
 ```clojure
 (rf/reg-mutation :article/save

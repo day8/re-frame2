@@ -1603,7 +1603,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; partition (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container
   ;; root, or the legacy `:rf/runtime` root). App schemas validate only
   ;; app-db, so this is a CATEGORY error hard-rejected at the pre-mutation
-  ;; gate — distinct from the SHAPE error `:rf.error/bad-app-schema-path`.
+  ;; gate — distinct from the SHAPE error `:rf.error/app-schema-bad-path`.
   ;; `:received` carries the offending path; `:frame` the resolved
   ;; registration frame (nil when no scope is established); `:reason` states
   ;; the honest remedy — runtime-db is framework-owned, so drop the runtime
@@ -3283,7 +3283,7 @@ Open shape — implementations may add `:rf.route/...`-namespaced keys (e.g., th
 > **Owner:** [012-Routing §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys)
 > **Status:** v1-required
 
-The shape of the **stored / effective** route-meta. Reserved keys per [012 §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys). The canonical 3-slot grammar is `(reg-route id metadata path)` — the **`:path` pattern is the third VALUE slot**, not a key in the metadata map the author passes. The registrar merges that value into the stored metadata under `:path`, so this stored shape still carries `:path` (and `validate-route-metadata!` runs against the post-merge map); the AUTHORING input map (the middle slot) omits `:path` — declaring `:path` inside it is a loud `:rf.error/invalid-route-metadata`.
+The shape of the **stored / effective** route-meta. Reserved keys per [012 §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys). The canonical 3-slot grammar is `(reg-route id metadata path)` — the **`:path` pattern is the third VALUE slot**, not a key in the metadata map the author passes. The registrar merges that value into the stored metadata under `:path`, so this stored shape still carries `:path` (and `validate-route-metadata!` runs against the post-merge map); the AUTHORING input map (the middle slot) omits `:path` — declaring `:path` inside it is a loud `:rf.error/route-bad-metadata`.
 
 ```clojure
 (def RouteMetadata

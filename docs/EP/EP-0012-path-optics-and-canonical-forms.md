@@ -104,7 +104,7 @@ failure behavior:
 | Surface | Accepts | On a malformed path |
 |---|---|---|
 | `path` interceptor (`re-frame.std-interceptors`) | varargs segments, coerced with `vec` | nothing rejected |
-| `reg-app-schema` (`re-frame.schemas.storage`) | any `sequential?`, except runtime-db roots | throws `:rf.error/bad-app-schema-path` or `:rf.error/app-schema-runtime-path` |
+| `reg-app-schema` (`re-frame.schemas.storage`) | any `sequential?`, except runtime-db roots | throws `:rf.error/app-schema-bad-path` or `:rf.error/app-schema-runtime-path` |
 | marks `:sensitive` / `:large` (`re-frame.marks`) | vector of path vectors with scalar segments; `[]` marks the whole value | throws `:rf.error/bad-marks` |
 | flow `:inputs` / `:path` (`re-frame.flows.registry`) | non-empty vector of keyword/string/integer/symbol/boolean segments | throws a stable flow-validation error |
 
@@ -929,7 +929,7 @@ path semantics:
 
 ```clojure
 ;; 1. Schema registration: any sequential? accepted except runtime-db
-;;    roots; malformed shapes throw :rf.error/bad-app-schema-path.
+;;    roots; malformed shapes throw :rf.error/app-schema-bad-path.
 (rf/reg-app-schema [:billing :invoices] Invoices)
 
 ;; 2. Marks declaration (output-relative): a vector of path vectors

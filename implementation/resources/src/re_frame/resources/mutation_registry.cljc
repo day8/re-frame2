@@ -71,14 +71,14 @@
   [mutation-id spec]
   (when-not (map? spec)
     (throw (registration-error
-             :rf.error/invalid-mutation-spec
+             :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id "'s spec must be a map, got "
                   (pr-str (type spec)))
              {:mutation-id mutation-id :value spec})))
   (when-not (contains? spec :request)
     (throw (registration-error
-             :rf.error/invalid-mutation-spec
+             :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id " declares no :request. For "
                   ":transport :rf.http/managed (the only initial-scope "
@@ -87,7 +87,7 @@
              {:mutation-id mutation-id})))
   (when-not (contains? spec :params-schema)
     (throw (registration-error
-             :rf.error/invalid-mutation-spec
+             :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id " declares no :params-schema. "
                   ":params-schema is REQUIRED — it validates and canonicalizes "
@@ -105,7 +105,7 @@
   (let [timing (:invalidate-timing spec)]
     (when (and (some? timing) (not (contains? invalidate-timings timing)))
       (throw (registration-error
-               :rf.error/invalid-mutation-spec
+               :rf.error/mutation-bad-spec
                'rf/reg-mutation
                (str "mutation " mutation-id " declares an :invalidate-timing of "
                     (pr-str timing) " outside the closed enum "
@@ -154,7 +154,7 @@
   (let [oc (:on-conflict spec)]
     (when (and (some? oc) (not (contains? mstate/on-conflict-policies oc)))
       (throw (registration-error
-               :rf.error/invalid-mutation-spec
+               :rf.error/mutation-bad-spec
                'rf/reg-mutation
                (str "mutation " mutation-id " declares an :on-conflict of "
                     (pr-str oc) " outside the closed enum "
@@ -174,7 +174,7 @@
   ;; privacy class as a resource's, Spec 016 clause 4).
   (when-let [{:keys [axis reason]} (classification/classification-declaration-defect spec)]
     (throw (registration-error
-             :rf.error/invalid-mutation-spec
+             :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id " declares a malformed " axis
                   " data-classification: " reason ". Per EP-0025 a mutation "
@@ -260,12 +260,12 @@
   ;; `assoc`/`contains?` runs against it. Reconstructing `:request` onto a
   ;; non-map metadata (the slip after the rf2-wvh95f F1 grammar change) would
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
-  ;; integer") instead of the public `:rf.error/invalid-mutation-spec`. Mirrors
-  ;; reg-route's `invalid-route-metadata` non-map guard. The catalogue row
+  ;; integer") instead of the public `:rf.error/mutation-bad-spec`. Mirrors
+  ;; reg-route's `route-bad-metadata` non-map guard. The catalogue row
   ;; already documents "or the spec was not a map" with a `:value` slot.
   (when-not (map? metadata)
     (throw (registration-error
-             :rf.error/invalid-mutation-spec
+             :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id "'s metadata (the MIDDLE slot) must "
                   "be a map, got " (pr-str (type metadata)) ". Per rf2-wvh95f "
@@ -277,7 +277,7 @@
   ;; left INSIDE the metadata map is a mislocated key; reject it loudly.
   (when (contains? metadata :request)
     (throw (registration-error
-             :rf.error/invalid-mutation-spec
+             :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id " declares :request inside its "
                   "metadata map — per rf2-wvh95f F1 the request handler is the "

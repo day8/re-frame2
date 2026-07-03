@@ -1993,7 +1993,7 @@
 ;; FALSE GREEN: schema enforcement silently disabled for the whole batch.
 ;;
 ;; THE FIX: reject nil / non-map FIRST, before any store mutation, with
-;; the explicit error id `:rf.error/bad-app-schemas-batch`. `{}` stays
+;; the explicit error id `:rf.error/app-schemas-bad-batch`. `{}` stays
 ;; the documented empty no-op (covered by the test above).
 ;;
 ;; NEGATIVE CONTROL: each rejecting case asserts the schema registry was
@@ -2006,9 +2006,9 @@
   (testing "rf/reg-app-schemas rejects a nil first argument (not a silent no-op)"
     (let [before @storage/schemas-by-frame]
       (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo #":rf.error/bad-app-schemas-batch"
+            clojure.lang.ExceptionInfo #":rf.error/app-schemas-bad-batch"
             (rf/reg-app-schemas nil))
-          (str "nil batch must reject with :rf.error/bad-app-schemas-batch, "
+          (str "nil batch must reject with :rf.error/app-schemas-bad-batch, "
                "not silently no-op to [] (the false-green this bead fixes)"))
       (is (= before @storage/schemas-by-frame)
           (str "negative control: a rejected nil batch must NOT mutate the "
@@ -2019,7 +2019,7 @@
     (let [ex (try (rf/reg-app-schemas nil) nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "nil batch threw")
-      (is (= :rf.error/bad-app-schemas-batch
+      (is (= :rf.error/app-schemas-bad-batch
              (:rf.error/id (ex-data ex)))
           "ex-data carries the explicit error category")
       (is (= nil (:received (ex-data ex)))
@@ -2040,7 +2040,7 @@
       (testing (str "non-map arg " (pr-str bad))
         (let [before @storage/schemas-by-frame]
           (is (thrown-with-msg?
-                clojure.lang.ExceptionInfo #":rf.error/bad-app-schemas-batch"
+                clojure.lang.ExceptionInfo #":rf.error/app-schemas-bad-batch"
                 (rf/reg-app-schemas bad))
               (str (pr-str bad) " must reject as a non-map batch"))
           (is (= before @storage/schemas-by-frame)

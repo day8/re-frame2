@@ -75,7 +75,7 @@
 (deftest reg-route-classification-bare-keys-accepted
   (testing ":sensitive / :large pass the authoring-boundary bare-key guard"
     ;; The reserved-key guard rejects bare keys outside the reserved set; the
-    ;; EP-0025 keys are now in it, so they don't trip :rf.error/invalid-route-metadata.
+    ;; EP-0025 keys are now in it, so they don't trip :rf.error/route-bad-metadata.
     (is (some? (rf/reg-route :route/x {:sensitive [[:query :t]]} "/x")))))
 
 (deftest reg-route-rejects-malformed-classification-loud
@@ -472,7 +472,7 @@
 ;;       SINGLETON current-route, so a "clear" verb is meaningless by design.
 ;;       They are SILENTLY IGNORED by validate+extract (returns nil — no
 ;;       classification), BUT the reg-route bare-key guard rejects them LOUD
-;;       (they are unreserved bare keys → :rf.error/invalid-route-metadata), so
+;;       (they are unreserved bare keys → :rf.error/route-bad-metadata), so
 ;;       a typo does fail at the authoring boundary. Pin both halves.
 ;;
 ;;   (2) :sensitive [[:query "token"]] with a STRING segment is accepted at
@@ -501,11 +501,11 @@
             reserved set, so reg-route's authoring-boundary guard fails it LOUD
             (a typo cannot silently no-op at registration)"
     (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo #"\[:rf.error/invalid-route-metadata\]"
+          clojure.lang.ExceptionInfo #"\[:rf.error/route-bad-metadata\]"
           (rf/reg-route :route/clear1 {:clear-sensitive [[:query :token]]} "/clear1"))
         ":clear-sensitive is an unreserved bare key → rejected at reg-route")
     (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo #"\[:rf.error/invalid-route-metadata\]"
+          clojure.lang.ExceptionInfo #"\[:rf.error/route-bad-metadata\]"
           (rf/reg-route :route/clear2 {:clear-large [[:params :payload]]} "/clear2"))
         ":clear-large is an unreserved bare key → rejected at reg-route")))
 

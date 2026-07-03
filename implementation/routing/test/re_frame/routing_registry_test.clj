@@ -2032,7 +2032,7 @@
 
 (deftest reg-route-rejects-unknown-bare-metadata-key
   (testing "rf2-45b95: a typo'd bare metadata key (:on-matched for
-            :on-match) throws :rf.error/invalid-route-metadata at
+            :on-match) throws :rf.error/route-bad-metadata at
             registration, naming the bad key"
     (let [ex (try
                (rf/reg-route :route/typo {:on-matched [[:load]]} "/typo")
@@ -2040,7 +2040,7 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "reg-route THROWS on an unknown bare metadata key (no silent accept)")
-      (is (= :rf.error/invalid-route-metadata (:rf.error/id (ex-data ex)))
+      (is (= :rf.error/route-bad-metadata (:rf.error/id (ex-data ex)))
           "the canonical thrown-error id discriminates the failure")
       (is (= 'rf/reg-route (:where (ex-data ex)))
           ":where names the public surface fn")
@@ -2076,14 +2076,14 @@
     (let [ex (try (rf/reg-route :route/bad "/not-a-map" "/bad")
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/invalid-route-metadata (:rf.error/id (ex-data ex)))
+      (is (= :rf.error/route-bad-metadata (:rf.error/id (ex-data ex)))
           "non-map metadata surfaces the same canonical error id"))))
 
 (deftest reg-route-rejects-path-inside-metadata-map
   (testing "rf2-wvh95f F1 / rf2-2u6s4b: under the canonical 3-slot grammar the
             path pattern is the THIRD slot, so a `:path` LEFT INSIDE the
             metadata map is a mislocated key and MUST be rejected loudly with
-            the structured `:rf.error/invalid-route-metadata` — NOT silently
+            the structured `:rf.error/route-bad-metadata` — NOT silently
             accepted, downgraded to the generic unknown-bare-key path, or
             allowed to throw a raw exception. Pins registry.cljc's
             `(contains? metadata :path)` guard so a later refactor cannot
@@ -2097,7 +2097,7 @@
       (is (some? ex)
           "reg-route THROWS when :path is left inside the metadata map")
       (let [data (ex-data ex)]
-        (is (= :rf.error/invalid-route-metadata (:rf.error/id data))
+        (is (= :rf.error/route-bad-metadata (:rf.error/id data))
             "the canonical structured error id (not the generic unknown-key path)")
         (is (= 'rf/reg-route (:where data))
             ":where names the public surface fn")

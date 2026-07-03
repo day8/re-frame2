@@ -81,14 +81,14 @@
                                   valid-request))))
   (testing "reg-resource with no :params-schema throws"
     (is (thrown-with-msg?
-          js/Error #"invalid-resource-spec"
+          js/Error #"resource-bad-spec"
           (resources/reg-resource :test/no-params
                                   (dissoc (valid-spec) :params-schema)
                                   valid-request))))
   (testing "reg-resource with :request inside the metadata map throws (it is the
             THIRD slot, rf2-wvh95f F1)"
     (is (thrown-with-msg?
-          js/Error #"invalid-resource-spec"
+          js/Error #"resource-bad-spec"
           (resources/reg-resource :test/no-request
                                   (assoc (valid-spec) :request valid-request)
                                   valid-request)))))
@@ -96,7 +96,7 @@
 (deftest reg-resource-rejects-non-map-metadata
   ;; rf2-t65lqt — the metadata MIDDLE slot must be a map BEFORE reconstruction.
   ;; A non-map metadata (vector / string / nil) must surface the canonical
-  ;; :rf.error/invalid-resource-spec naming the resource, NOT a raw host
+  ;; :rf.error/resource-bad-spec naming the resource, NOT a raw host
   ;; IllegalArgumentException ("Key must be integer") from the `:request`
   ;; `assoc`. Mirrors reg-route's `reg-route-rejects-non-map-metadata`.
   (testing "a vector metadata is rejected with the canonical error id"
@@ -104,17 +104,17 @@
                   nil
                   (catch :default e e))]
       (is (some? ex) "a non-map metadata must throw, not silently mis-register")
-      (is (= :rf.error/invalid-resource-spec (:rf.error/id (ex-data ex)))
+      (is (= :rf.error/resource-bad-spec (:rf.error/id (ex-data ex)))
           "non-map metadata surfaces the canonical resource registration error")
       (is (= [] (:value (ex-data ex)))
           "the rejected non-map value rides the :value ex-data slot")))
   (testing "a string metadata is rejected with the canonical error id"
     (is (thrown-with-msg?
-          js/Error #"invalid-resource-spec"
+          js/Error #"resource-bad-spec"
           (resources/reg-resource :test/bad-str "nope" valid-request))))
   (testing "a nil metadata is rejected with the canonical error id"
     (is (thrown-with-msg?
-          js/Error #"invalid-resource-spec"
+          js/Error #"resource-bad-spec"
           (resources/reg-resource :test/bad-nil nil valid-request)))))
 
 (deftest reserved-scope-namespace-typo-rejected-fail-closed
@@ -240,7 +240,7 @@
   (testing "routing's accepted-key extension lets a route carry :resources"
     ;; routing.registry/reg-route validates bare metadata keys; with the
     ;; resources extension loaded, :resources is accepted (it would
-    ;; otherwise throw :rf.error/invalid-route-metadata).
+    ;; otherwise throw :rf.error/route-bad-metadata).
     (registrar/clear-kind! :route)
     (is (= :test/route
            (routing-registry/reg-route
