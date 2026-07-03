@@ -74,8 +74,10 @@ of the action epic.
   dispatch and reply envelope; the runtime rename swept envelope/reply
   construction, event-context assembly, and the resource / mutation /
   work-ledger / machine / epoch reads. `:rf.world/inputs` supplied in dispatch
-  opts is the hard error `:rf.error/world-inputs-renamed` naming `:rf.cofx` (no
-  alias, no coexistence window).
+  opts is retired (no alias, no coexistence window) — a draft-only name, so it
+  earns no dedicated error id and rides the generic
+  `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean naming
+  `:rf.cofx` (per Conventions §The tombstone rule).
 - **Value-returning graded `reg-cofx` — SHIPPED.** `reg-cofx` registers a
   coeffect id with standard Spec 001 metadata and a value-returning supplier
   (`(fn [] value)` / `(fn [arg] value)`), carrying its grade
@@ -438,8 +440,10 @@ fact-name → value, no grouping sub-maps:
 - The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`);
   supplied values are preserved verbatim and never overwritten (§5).
 - `:rf.world/inputs` is retired with **no alias and no coexistence window**
-  (the `:dispatched-at` pattern, EP-0007 rule 2): supplying it is a hard
-  error (`:rf.error/world-inputs-renamed`) naming `:rf.cofx`.
+  (the `:dispatched-at` pattern, EP-0007 rule 2): a draft-only name, so
+  supplying it earns no dedicated error id — it rides the generic
+  `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean naming
+  `:rf.cofx`.
 
 **Two sampling moments are normative.** `:rf.cofx` is one causal record, not
 one sampling instant: `:rf/time-ms` is sampled at *enqueue* (queue latency is
@@ -690,7 +694,7 @@ delivery).
 | `:rf.error/cofx-registration-invalid` | malformed `reg-cofx` metadata grade at registration — `:provided?` without `:recordable?`, a missing supplier on a non-provided fact, or a provided fact carrying a (silently ignored) supplier |
 | `:rf.error/cofx-value-invalid` | a supplied/replayed value fails the structural EDN check or the registration's `:schema` — **fires in production** |
 | `:rf.error/cofx-name-collision` | registration-time name collision (above) — the fold's argument keys (`:db` / `:event`), or the same id declared twice in one `:rf.cofx/requires` scope. A duplicate cofx id across namespaces is `:rf.error/image-duplicate-id` at EP-0023 image assembly, not here |
-| `:rf.error/world-inputs-renamed` | `:rf.world/inputs` supplied in dispatch opts — hard error naming `:rf.cofx` |
+| `:rf.warning/unknown-dispatch-opt` (generic, not a dedicated id) | `:rf.world/inputs` supplied in dispatch opts — a draft-only name earns no dedicated error id; it rides the generic unrecognised-opt warning with a did-you-mean naming `:rf.cofx` |
 | `:rf.error/inject-cofx-removed` | `inject-cofx` called — hard error naming `:rf.cofx/requires` |
 
 ### 9. Reflection, trace, and tooling

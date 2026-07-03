@@ -278,10 +278,12 @@
 ;; keyword surface is a small closed set:
 ;;   - `:rf.world/inputs` is RETIRED (renamed to `:rf.cofx`, no alias). Its
 ;;     only legitimate appearance is a retirement / rename / migration
-;;     mention — a line that ALSO names the `:rf.cofx` replacement, the
-;;     `:rf.error/world-inputs-renamed` hard error, or the words
-;;     retired/renamed/removed/superseded/migration. A `:rf.world/inputs`
-;;     mention WITHOUT such a marker is fresh stale vocabulary and is RED.
+;;     mention — a line that ALSO names the `:rf.cofx` replacement or the
+;;     words retired/renamed/removed/superseded/migration. (It is a draft-only
+;;     name, so it earns no dedicated retired-name error id — it rides the
+;;     generic `:rf.warning/unknown-dispatch-opt` surface.) A
+;;     `:rf.world/inputs` mention WITHOUT such a marker is fresh stale
+;;     vocabulary and is RED.
 ;;
 ;; The scan is per-line and prose-level (these surfaces are markdown), and
 ;; intentionally CONSERVATIVE: it only fires on the retired keyword absent a
@@ -294,12 +296,12 @@
   "Same-line tokens that mark a `:rf.world/inputs` mention as a legitimate
    retirement / rename / migration reference (rather than fresh stale
    vocabulary). A `:rf.world/inputs` line carrying ANY of these is approved;
-   one carrying NONE is flagged. The replacement keyword `:rf.cofx` and the
-   `:rf.error/world-inputs-renamed` error id are the strongest markers; the
-   prose words cover narrative migration mentions."
+   one carrying NONE is flagged. The replacement keyword `:rf.cofx` is the
+   strongest marker; the prose words cover narrative migration mentions.
+   (`:rf.world/inputs` was a draft-only name, so it earns no dedicated
+   retired-name error id — it rides the generic `:rf.warning/unknown-dispatch-opt`
+   surface.)"
   [":rf.cofx"
-   ":rf.error/world-inputs-renamed"
-   "world-inputs-renamed"
    "retired" "renamed" "removed" "superseded" "migrat"])
 
 (defn ep0017-keyword-drift-problems
@@ -320,8 +322,8 @@
                  :detail (str "stale EP-0017 keyword — :rf.world/inputs was "
                               "renamed to the flat :rf.cofx map (no alias); a "
                               "mention must be an explicit retirement/rename/"
-                              "migration reference (name :rf.cofx or the "
-                              ":rf.error/world-inputs-renamed error on the line)")}))))
+                              "migration reference (name :rf.cofx or a "
+                              "retired/renamed/migration marker on the line)")}))))
         lines))
 
 ;; ---------------------------------------------------------------------------

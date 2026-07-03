@@ -26,7 +26,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 
 | Surface | Shape |
 |---|---|
-| `rf/dispatch` | `(event)` / `(event opts)` — async queued; `opts` may carry `:rf.cofx` (EP-0017 recordable coeffects — a flat `fact-name → value` map; pin durable `:rf/time-ms` and other recordable facts; runtime stamps `:rf/time-ms` when omitted). There is no `:rf.world/inputs` opt — passing it is a hard error `:rf.error/world-inputs-renamed` |
+| `rf/dispatch` | `(event)` / `(event opts)` — async queued; `opts` may carry `:rf.cofx` (EP-0017 recordable coeffects — a flat `fact-name → value` map; pin durable `:rf/time-ms` and other recordable facts; runtime stamps `:rf/time-ms` when omitted). There is no `:rf.world/inputs` opt — a draft-only name, so passing it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx` |
 | `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point; same `:rf.cofx` opt |
 | `rf/subscribe` | `(query-v)` / `(frame-id query-v)` → reaction |
 | `rf/subscribe-once` | `(query-v)` — one-shot: materialise + deref + unsubscribe |

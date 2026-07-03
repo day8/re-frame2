@@ -105,7 +105,7 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:rf.cofx               {:optional true} #'Cofx]])                      ;; EP-0017 recordable coeffects — runtime-guaranteed to carry `:rf/time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.cofx` below + [002 §Recordable coeffects])
 ```
 
-> **`:rf.cofx` is the recordable-coeffect envelope field.** It is a flat map; there is no `:rf.world/inputs` (no alias, no coexistence window). Supplying `:rf.world/inputs` in dispatch opts is a hard error `:rf.error/world-inputs-renamed` naming `:rf.cofx`. See [002 §Recordable coeffects](002-Frames.md#recordable-coeffects).
+> **`:rf.cofx` is the recordable-coeffect envelope field.** It is a flat map; there is no `:rf.world/inputs` (no alias, no coexistence window). `:rf.world/inputs` was a draft-only name, so supplying it in dispatch opts earns no dedicated error id — it rides the generic `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean naming `:rf.cofx` (per [Conventions §The tombstone rule](Conventions.md#the-tombstone-rule--dedicated-retired-name-error-ids-only-for-shipped-names)). See [002 §Recordable coeffects](002-Frames.md#recordable-coeffects).
 
 > **`:dispatched-at` is retired.** There is no `:dispatched-at` envelope key. The durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`; the diagnostic dispatch-time need is the trace event's own `:time` stamp ([009](009-Instrumentation.md)). See [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).
 

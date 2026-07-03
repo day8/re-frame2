@@ -9,10 +9,14 @@ alias and no coexistence window (EP-0007 rule 2):
     suppliers are value-returning `reg-cofx`; calling `inject-cofx` is the hard
     error `:rf.error/inject-cofx-removed`; and
   * the `:rf.world/inputs` dispatch opt — renamed to the flat `:rf.cofx`
-    recordable-coeffect map; supplying `:rf.world/inputs` is the hard error
-    `:rf.error/world-inputs-renamed`.
+    recordable-coeffect map; a draft-only name, so supplying `:rf.world/inputs`
+    earns no dedicated error id — it rides the generic
+    `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean naming
+    `:rf.cofx`.
 
-The runtime throws on both, and `cofx_cljs_test.cljc` pins the throws. But the
+The runtime hard-errors on `inject-cofx` and warns on the retired
+`:rf.world/inputs` opt (the generic `:rf.warning/unknown-dispatch-opt`
+surface), and `cofx_cljs_test.cljc` pins both. But the
 EP landing wave left STALE current-surface teaching examples behind — a
 copy-pasteable `[(rf/inject-cofx :rf.server/request)]` interceptor entry in
 spec/Pattern-SSR-Loaders.md / spec/Pattern-FormAction.md, prose in
@@ -333,8 +337,10 @@ _FIX_HINTS = {
     ),
     ":rf.world/inputs": (
         "`:rf.world/inputs` was RENAMED to the flat `:rf.cofx` recordable-"
-        "coeffect map in EP-0017 (no alias; hard error "
-        "`:rf.error/world-inputs-renamed`). Use `:rf.cofx` as the dispatch opt "
+        "coeffect map in EP-0017 (no alias). It was a draft-only name, so "
+        "supplying it earns no dedicated error id — it rides the generic "
+        "`:rf.warning/unknown-dispatch-opt` surface with a did-you-mean "
+        "naming `:rf.cofx`. Use `:rf.cofx` as the dispatch opt "
         "/ envelope field. See spec/002-Frames.md §The `:rf.cofx` envelope "
         "field and spec/Spec-Schemas.md §`:rf.cofx`."
     ),

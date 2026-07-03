@@ -82,10 +82,10 @@
                   [[5 "The EP-0010 :rf.world/inputs field is renamed to :rf.cofx (EP-0017)."]])))))
 
 (deftest keyword-drift-allows-error-id-and-prose-markers
-  (testing "the :rf.error/world-inputs-renamed error id marks a legitimate mention"
+  (testing "a :rf.world/inputs line naming the generic unrecognised-opt surface + :rf.cofx is a legitimate mention"
     (is (empty? (proj/ep0017-keyword-drift-problems
                   "spec/002-Frames.md"
-                  [[1 "Supplying :rf.world/inputs is a hard error :rf.error/world-inputs-renamed."]]))))
+                  [[1 "Supplying :rf.world/inputs rides the generic :rf.warning/unknown-dispatch-opt warning naming :rf.cofx."]]))))
   (testing "the prose words retired/renamed/migrat each mark a legitimate mention"
     (is (empty? (proj/ep0017-keyword-drift-problems
                   "x.md"
