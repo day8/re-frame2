@@ -790,7 +790,7 @@ A throw inside any `:before` or `:after` classifies as `:rf.error/http-intercept
 2. Re-throws the wrapped ex-info. On the request side, the `re-frame.fx` outer catch converts the throw to `:rf.error/fx-handler-exception` (so `:rf.fx/handled` does NOT fire). On the response side, the throw propagates into the transport's reply-dispatch path; the request is not dispatched to `:on-success` / `:on-failure`.
 3. Request-side: does NOT dispatch the request — the transport never sees it.
 
-Pair tools and 10x panels see exactly two traces per request-side interceptor failure: the per-interceptor `:rf.error/http-interceptor-failed` (which carries `:interceptor-id`) and the cascade-level `:rf.error/fx-handler-exception` (which carries `:fx-id :rf.http/managed`). Apps that want to recover gracefully wrap the throwing logic inside the `:before` / `:after` itself — the chain has no recovery cofx.
+Pair tools and 10x panels see exactly two traces per request-side interceptor failure: the per-interceptor `:rf.error/http-interceptor-failed` (which carries `:interceptor-id`) and the run-level `:rf.error/fx-handler-exception` (which carries `:fx-id :rf.http/managed`). Apps that want to recover gracefully wrap the throwing logic inside the `:before` / `:after` itself — the chain has no recovery cofx.
 
 ### Clearing
 
@@ -1222,7 +1222,7 @@ Apps may mix both freely. The two registrations coexist under `:rf.http/managed`
 
 ## Privacy
 
-HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP cascade is the biggest leakage vector the framework ships.
+HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP trace stream is the biggest leakage vector the framework ships.
 
 Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the originating handler is sensitive, MUST redact known-sensitive request headers regardless of handler sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
 
@@ -1325,7 +1325,7 @@ Two OR-reduced sources contribute the request-side `:sensitive?` flag for a give
 
 2. **Per-call** — `:sensitive? true` at the top level of the `:rf.http/managed` args map. Pragmatic sugar for callers that prefer the flag alongside `:on-success` / `:on-failure` rather than nested under `:request`. Semantically identical to per-request.
 
-Either source set to `true` makes the request sensitive; both sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the cascade emits sees the same flag (no per-emit re-resolution).
+Either source set to `true` makes the request sensitive; both sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the run emits sees the same flag (no per-emit re-resolution).
 
 Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, schema-derived (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on)) is a third, automatic stamping signal independent of these opt-ins.
 
