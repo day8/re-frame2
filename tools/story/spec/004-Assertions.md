@@ -325,14 +325,52 @@ a variant with no `:play-script` still "passes"). The result map's
 `:assert-dom` step records (rf2-ee38b.3 closed the false-green gap where
 rich-DSL assert failures landed only in the runner's `run-state` atom).
 
-> **Per-assertion `is` granularity (deferred — rf2-ee38b.3).** A
-> higher-fidelity `run-variant-as-test` adapter that iterates the
-> `:assertions` list and calls `cljs.test/is` per record (one failing
-> assertion → one `is` failure, with `:source-coord`-driven file/line
-> reporting + a generic kaocha-reporter shape) is a planned enhancement.
-> It is NOT yet shipped — `assertions-passing?` is the canonical surface
-> today. The adapter needs async-cljs.test plumbing (`run-variant`
-> returns a Promise) and is tracked separately.
+### Per-assertion `cljs.test/is` granularity — shipped via `story/is` (rf2-2yrb91)
+
+The higher-fidelity per-assertion adapter this section once deferred is
+**shipped** as the `story/is` verb of the spec/017 execution trilogy
+([`017-Testing-Story.md` §Public execution API — the three verbs](017-Testing-Story.md#public-execution-api--the-three-verbs)).
+`(story/is target opts)` runs the target, then reports each assertion
+record to `clojure.test` / `cljs.test` at **per-assertion granularity** —
+one `do-report` (`:pass` / `:fail` / `:error`) per record — so a script
+with N assertions lands N separate results in the active test run's tally,
+NOT one lumped outcome per variant. The pure projection
+`re-frame.story.result/result->reports` (re-exported as
+`story/result->reports`) turns the unified run-result into that ordered
+vector of report maps; the impure `do-report` emission is the `story/is`
+side. Details:
+
+- **One report per record.** `result->reports` maps every unified
+  assertion record through `assertion->report`, then appends ONE run-level
+  report only when the run verdict is not carried by any single assertion
+  (a tape-floor `:fail`, a run-level `:cannot-run`, or a vacuous-green
+  `:pass` so a zero-assertion run still emits one positive signal). A
+  `:cannot-run` assertion reports `:fail` (the runner proved nothing —
+  never a silent pass).
+- **`:source-coord`-driven reporting.** Each report's `:message` names the
+  failing `:assertion` id + payload. The per-record source slot
+  (`:source-coord` on the raw record, normalized to `:source` on the
+  unified record — §Record slot name) rides the unified `:assertions`
+  vector `result->reports` projects, so IDE / reporter surfaces resolve
+  file/line off the record without a second lookup.
+- **Async plumbing done.** `run-variant` / `story/run` return a Promise
+  (CLJS) / `CompletableFuture` (JVM); `story/is` BLOCKS on the JVM (the
+  canonical headless gate, firing reports synchronously and returning the
+  unified result) and hands the promise back on CLJS — chain `then`, or use
+  the `cljs.test` `(async done …)` form and call `story/report-result!`
+  when it resolves. `report-result!` is the pure-report seam both runtimes
+  share.
+
+Coverage: the JVM bridge is exercised by
+`re-frame.story.story-is-test` (`story-is-reports-per-assertion-pass`
+proves two `:assert-db` steps in one `:script` fire **two** separate
+reports); the pure CLJS projection by
+`re-frame.story.result-test/result->reports-one-per-assertion`.
+
+`story/assertions-passing?` remains the one-line boolean predicate for the
+`(is (story/assertions-passing? result))` pattern above; `story/is` is the
+richer per-assertion surface. Both consume the same unified `:assertions`
+vector.
 
 ## Cross-references
 

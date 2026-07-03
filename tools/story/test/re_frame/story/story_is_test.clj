@@ -76,6 +76,29 @@
       (is (re-find #":rf.assert/path-equals" (:message (first reports)))
           "the report names the failing assertion id"))))
 
+(deftest story-is-two-is-in-one-script-report-as-two-results
+  (testing "per-assertion cljs.test/is granularity (rf2-2yrb91): TWO
+            assertions in ONE :script emit TWO independent reports — one
+            failing assertion does not collapse or suppress the other, and
+            the pass/fail verdict is tracked separately per :assert step"
+    (story/reg-variant :story.is/two-mixed
+      {:tags        #{:test}
+       :play-script {:script [[:dispatch-sync [:is/set-status :loaded]]
+                              ;; assertion 1 — passes
+                              [:assert-db [:status] :loaded]
+                              ;; assertion 2 — fails (status is :loaded, not :idle)
+                              [:assert-db [:status] :idle]]}})
+    (let [[result reports] (capture-reports #(story/is :story.is/two-mixed))]
+      (is (= :fail (:status result)) "the aggregate verdict is :fail")
+      (is (= 2 (count reports))
+          "two :assert steps → two separate reports, not one lumped result")
+      (is (= [:pass :fail] (mapv :type reports))
+          "each assertion is tracked separately: first passes, second fails")
+      (is (= :loaded (:actual (second reports)))
+          "the failing report carries its own per-assertion :actual")
+      (is (= :idle (:expected (second reports)))
+          "and its own per-assertion :expected — granularity, not aggregation"))))
+
 (deftest story-is-zero-assertion-emits-one-pass
   (testing "a variant with no assertions is vacuously green — story/is emits
             ONE run-level :pass so the test sees a positive signal"
