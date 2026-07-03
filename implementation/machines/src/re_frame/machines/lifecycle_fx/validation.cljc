@@ -21,6 +21,12 @@
     - `validate-no-spawn-timeout-ms!` — rejects the unsupported
       `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all`.
     - `validate-final-state!` — `:final?` shape.
+    - `validate-node-keys!` — reject unknown BARE state-node keys
+      (`:rf.error/machine-unknown-node-key`); namespaced keys pass.
+    - `validate-spawn-spec-keys!` — reject unknown BARE `:spawn` /
+      `:spawn-all`-child keys (`:rf.error/machine-unknown-spawn-key`).
+    - `validate-tags!` — reject a non-set `:tags` slot
+      (`:rf.error/machine-bad-tags`); the silent coercion is removed.
     - `validate-machine!` — top-level dispatch + guard/action ref
       resolution.
 
@@ -1145,6 +1151,207 @@
                         ".")
                    {:schemas-key k :accepted accepted-schemas-keys})))))))
 
+;; ---- no-silent-swallow: unknown state-node / spawn-spec keys + :tags shape --
+;;
+;; Per Conventions §No silent swallow + §Reserved state-node keys /
+;; §Spawn-spec keys, and the 2026-07-03 self-consistency design review
+;; (finding 2). Ordinary state nodes are the surface an app writes fifty of,
+;; yet — unlike the rare `:type :history` / `:type :choice` / `:schemas` nodes,
+;; which hard-reject unknown keys — an unknown BARE key on an ordinary node was
+;; silently ignored. An XState-trained author writes `:invoke` (XState's spelling
+;; of re-frame2's `:spawn`) or `:on-entry` (its `:entry`): registration succeeds,
+;; the machine runs, and the child silently never spawns / the action never runs.
+;; The `:tags` slot compounded the inconsistency by silently COERCING a vector /
+;; keyword to a set, while its sibling slot `:internal-events` HARD-REJECTS
+;; exactly that non-set shape.
+;;
+;; The fix walks every node + spawn-spec at registration and classifies each key
+;; three ways (the Conventions extension-key discriminator):
+;;   - key ∈ the known bare set → accepted (parsed by the rest of validation);
+;;   - key is NAMESPACED → open accretion, ignored (user metadata / extensions);
+;;   - key is BARE and unknown → HARD `:rf.error/machine-unknown-node-key` /
+;;     `:rf.error/machine-unknown-spawn-key` naming the key + the valid
+;;     vocabulary. A hard error (not a warning): `:meta` is the sanctioned bare
+;;     free slot and namespaced keys stay open, so a bare unknown key has ZERO
+;;     legitimate use — the cascade cannot continue with a misspelt lifecycle key
+;;     (the spawn never fires, the transition never runs), so it fails loud like
+;;     `:rf.error/machine-choice-extra-keys` and the `check-retired-keys!` family.
+;; And `:tags` non-set → HARD `:rf.error/machine-bad-tags`, mirroring
+;; `:rf.error/machine-bad-internal-events` (the schema pins `:tags` as strict
+;; `[:set :keyword]`).
+
+(def ^:private known-state-node-keys
+  "The closed BARE key vocabulary a machine state-node may declare, projected
+  from the Spec-Schemas `:rf/state-node` (`::state-node`) grammar. Any BARE key
+  outside this set is a typo / a retired-or-foreign spelling and is rejected at
+  registration with `:rf.error/machine-unknown-node-key`; NAMESPACED keys are the
+  open user-metadata / extension carve-out and pass untouched. `:meta` is the
+  sanctioned bare free slot for tooling metadata. This is the single home for the
+  bare-key vocabulary — a grammar addition adds ONE key here alongside its schema
+  row.
+
+  `:type :history` and `:type :choice` pseudo-states carry their OWN closed
+  key-sets (`validate-history!` / `choice/validate-node-choice!`), so the node-key
+  walk SKIPS them — their validators already reject foreign keys with the
+  node-kind-specific error id."
+  #{;; root-shape / pseudo-state
+    :type :deep? :default-target :regions
+    ;; compound / data / declaration blocks (root-only, but harmless on the set)
+    :initial :states :data :schemas :internal-events
+    :guards :actions :on-spawn-actions
+    ;; lifecycle actions
+    :entry :exit
+    ;; declarative actor lifecycle
+    :spawn :spawn-all
+    ;; transitions (eventful / eventless / delayed / named-intent)
+    :always :after :choice :timeout :on-timeout :on :on-done
+    ;; projection / terminal
+    :tags :final? :output-key :error?
+    ;; tooling (DEBUG-only, macro-stamped on any node — absent in production)
+    :meta :source-coords :source-code})
+
+(def ^:private known-machine-root-extra-keys
+  "Keys legal ONLY on the machine ROOT (the registration-metadata that folds
+  onto the machine body per `registration/reg-machine*`), beyond the universal
+  `known-state-node-keys`. `:doc` is the registration doc string; `:sensitive` /
+  `:large` are the EP-0025 machine-level data-classification declarations
+  (projection-relative `:data` classification); `:schema` is the event-vector
+  boundary schema for the dispatched OUTER vector; `:raise-depth-limit` /
+  `:always-depth-limit` are the per-machine cycle-detection depth overrides
+  (`transition/raise-depth-limit-default`). These are meaningless on a CHILD node
+  (the child-node walk uses the plain vocabulary, so a `:doc` on a nested state is
+  still a typo). The retired `:data-schema` key is deliberately ABSENT — it is a
+  clean pre-alpha break (superseded by `[:schemas :data]`), so a `:data-schema` on
+  the root is correctly rejected as unknown."
+  #{:doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
+
+(def ^:private retired-spawn-spec-keys
+  "Retired spawn-spec keys that carry their OWN dedicated retired-key rejection
+  (`validate-no-spawn-timeout-ms!` → `:rf.error/spawn-timeout-ms-removed`). They
+  are excluded from the generic unknown-key detection so the SPECIFIC removal
+  diagnostic wins (naming the replacement) instead of the generic
+  `:rf.error/machine-unknown-spawn-key`."
+  #{:timeout-ms})
+
+(def ^:private known-spawn-spec-keys
+  "The closed BARE key vocabulary a `:spawn` / `:spawn-all`-child spawn-spec may
+  declare, projected from the Spec-Schemas `InvokeSpec` + `InvokeAllChildSpec`
+  grammars (plus the `:spawn-all`-child-only `:id` join-address key). Any BARE
+  key outside this set is rejected at registration with
+  `:rf.error/machine-unknown-spawn-key`; NAMESPACED keys pass (the runtime stamps
+  `:rf/parent-id` / `:rf/invoke-id` on declarative spawns — namespaced, so they
+  are covered by the namespaced carve-out and need no explicit listing). A
+  misspelt bare spawn key (`:machine` for `:machine-id`, `:on-complete` for
+  `:on-done`) would otherwise leave the spawn under-specified and silently
+  mis-fire. `:source-coords` / `:source-code` are the DEBUG-only macro-stamped
+  reference-site slots the compiler co-locates on EVERY map node (a `:spawn` map
+  included, per Spec-Schemas §`MachineElementEntry` / the reference-site coord
+  note) — accepted (they are absent in production)."
+  #{:machine-id :definition :data :id-prefix :on-spawn :on-done :on-error
+    :start :fixed-actor-id :system-id :timeout :on-timeout
+    :id                              ;; :spawn-all child-only — the join-address key
+    :source-coords :source-code})    ;; DEBUG-only macro-stamped coord slots
+
+(defn- unknown-bare-keys
+  "The BARE (non-namespaced) keys of `m` that are NOT in `known` — the
+  no-silent-swallow discriminator. A namespaced key (`(namespace k)` non-nil) is
+  the open extension carve-out and is never flagged."
+  [m known]
+  (->> (keys m)
+       (remove #(namespace %))
+       (remove known)
+       vec))
+
+(defn- validate-node-keys!
+  "Reject any unknown BARE key on a state node at registration with
+  `:rf.error/machine-unknown-node-key`, naming the offending key(s) and the valid
+  vocabulary. `:type :history` / `:type :choice` pseudo-states are SKIPPED — they
+  carry their own closed key-sets validated elsewhere. Namespaced keys pass (the
+  open extension carve-out). The MACHINE ROOT (`at-root?`) additionally accepts
+  the root-only registration-metadata keys (`:doc` / `:sensitive` / `:large` /
+  `:schema`) that fold onto the machine body — those are typos on a child node.
+  Per Conventions §No silent swallow + §Reserved state-node keys."
+  [state-key state-node at-root?]
+  (when (and (map? state-node)
+             (not (history-node? state-node))
+             (not (choice/choice-node? state-node)))
+    (let [known     (cond-> known-state-node-keys
+                       at-root? (into known-machine-root-extra-keys))
+          offending (unknown-bare-keys state-node known)]
+      (when (seq offending)
+        (throw (validation-error
+                 :rf.error/machine-unknown-node-key
+                 (str "state " state-key " declares unknown bare key(s) "
+                      (pr-str offending)
+                      " — a bare key outside the reserved state-node vocabulary "
+                      "reads as a typo (e.g. XState's :invoke for re-frame2's "
+                      ":spawn, or :on-entry for :entry) and would be silently "
+                      "ignored. Use :meta for tooling metadata, or a NAMESPACED "
+                      "key (:my.app/note) for a user extension. Valid keys: "
+                      (pr-str (vec (sort known))) ".")
+                 {:state          state-key
+                  :offending-keys offending
+                  :valid-keys     known}))))))
+
+(defn- validate-spawn-spec-keys!
+  "Reject any unknown BARE key on a `:spawn` spec or a `:spawn-all` child spec at
+  registration with `:rf.error/machine-unknown-spawn-key`. Namespaced keys pass
+  (the runtime-stamped `:rf/parent-id` / `:rf/invoke-id` + user extensions). Per
+  Conventions §Spawn-spec keys + §No silent swallow."
+  [state-key state-node]
+  (let [check! (fn [spec where]
+                 (when (map? spec)
+                   ;; The retired `:timeout-ms` slot has its OWN dedicated
+                   ;; rejection (`:rf.error/spawn-timeout-ms-removed`, naming the
+                   ;; replacement); exclude it from the generic unknown-key scan
+                   ;; so that SPECIFIC diagnostic wins.
+                   (let [known     (into known-spawn-spec-keys retired-spawn-spec-keys)
+                         offending (unknown-bare-keys spec known)]
+                     (when (seq offending)
+                       (throw (validation-error
+                                :rf.error/machine-unknown-spawn-key
+                                (str where " on state " state-key
+                                     " declares unknown bare key(s) "
+                                     (pr-str offending)
+                                     " — a bare key outside the reserved "
+                                     "spawn-spec vocabulary reads as a typo (e.g. "
+                                     ":machine for :machine-id) and would leave "
+                                     "the spawn silently under-specified. Use a "
+                                     "NAMESPACED key for a user extension. Valid "
+                                     "keys: "
+                                     (pr-str (vec (sort known-spawn-spec-keys)))
+                                     ".")
+                                {:state          state-key
+                                 :where          where
+                                 :offending-keys offending
+                                 :valid-keys     known-spawn-spec-keys}))))))]
+    (check! (:spawn state-node) :spawn)
+    (doseq [child (get-in state-node [:spawn-all :children])]
+      (check! child :spawn-all-child))))
+
+(defn- validate-tags!
+  "Reject a NON-SET `:tags` slot on a state node at registration with
+  `:rf.error/machine-bad-tags` — mirroring `:rf.error/machine-bad-internal-events`
+  (its sibling set-valued slot). Per Spec-Schemas `:rf/state-node` (`:tags` is
+  strict `[:set :keyword]`) + the 2026-07-03 self-consistency review: the runtime
+  used to silently COERCE a vector / single keyword to a set, in violation of
+  naming rule 2 (\"never a silently-normalised alias\") and inconsistent with
+  `:internal-events`, which HARD-REJECTS exactly that non-set shape. A set with a
+  non-keyword member is likewise rejected. Absent `:tags` is fine (elided slot)."
+  [state-key state-node]
+  (when (contains? state-node :tags)
+    (let [tags (:tags state-node)]
+      (when-not (and (set? tags) (every? keyword? tags))
+        (throw (validation-error
+                 :rf.error/machine-bad-tags
+                 (str ":tags on state " state-key " must be a SET of keywords "
+                      "(#{:loading :busy}), got " (pr-str tags)
+                      ". A vector / single keyword is NO LONGER coerced — the "
+                      "slot is a strict set, mirroring :internal-events. Per "
+                      "Spec 005 §State tags + Spec-Schemas :rf/state-node.")
+                 {:state state-key
+                  :tags  tags}))))))
+
 (defn validate-machine!
   "Run every registration-time check the machine grammar requires.
   Composed at the top of `make-machine-handler` so the registered handler
@@ -1206,7 +1413,16 @@
   vector, or a function. Throws `:rf.error/machine-bad-after-delay` for a
   static key that is none of those (`-1`, `0`, `\"soon\"`, `nil`, `[]`) —
   gated at registration rather than degrading to an fx-time
-  `:rf.warning/no-clock-configured` no-op."
+  `:rf.warning/no-clock-configured` no-op.
+
+  Per Conventions §No silent swallow + §Reserved state-node keys /
+  §Spawn-spec keys: every state node (root + descendants + parallel-region
+  roots) rejects an unknown BARE key with `:rf.error/machine-unknown-node-key`,
+  and every `:spawn` / `:spawn-all`-child spawn-spec rejects an unknown BARE key
+  with `:rf.error/machine-unknown-spawn-key` (namespaced keys pass — the open
+  extension carve-out). A non-set `:tags` slot is rejected with
+  `:rf.error/machine-bad-tags` (the silent vector/keyword→set coercion is
+  removed), mirroring `:rf.error/machine-bad-internal-events`."
   [machine]
   ;; EP-0029 A4 — validate the `:timeout` / `:on-timeout` grammar on the RAW
   ;; spec FIRST, so diagnostics name the `:timeout` / `:on-timeout` keys the
@@ -1242,6 +1458,35 @@
   ;; private split). Neither named-intent desugar touches `:internal-events`,
   ;; so the raw spec is the right basis.
   (internal-events/validate-internal-events! machine)
+  ;; No-silent-swallow on state-node / spawn-spec keys + the `:tags` shape, on
+  ;; the RAW spec (before BOTH desugars) so diagnostics name the exact keys the
+  ;; author wrote — a `:choice` / `:timeout` / `:on-timeout` key is still present
+  ;; here and is a KNOWN member of the bare vocabulary, so it is not flagged; a
+  ;; typo (XState's `:invoke` / `:on-entry`) IS. `:type :history` / `:type
+  ;; :choice` pseudo-states are skipped (their own closed key-sets validate them).
+  ;; Per Conventions §No silent swallow + §Reserved state-node keys /
+  ;; §Spawn-spec keys.
+  ;; The machine ROOT is itself a state-node (it carries `:initial` / `:states`
+  ;; or `:regions`, plus root-only `:guards` / `:actions` / `:data` / `:schemas`
+  ;; — all KNOWN bare keys), and `walk-state-nodes` yields only the nodes UNDER
+  ;; `:states`, so validate the root explicitly (a typo'd top-level key —
+  ;; `:innitial`, `:gaurds` — must not slip through).
+  (validate-node-keys! :rf/root machine true)
+  (validate-tags! :rf/root machine)
+  (doseq [[s n] (walk-state-nodes machine)]
+    (validate-node-keys! s n false)
+    (validate-spawn-spec-keys! s n)
+    (validate-tags! s n))
+  ;; A parallel region ROOT (a region body) is a state-node the plain
+  ;; `walk-state-nodes` does NOT yield, so run the key / tags checks on each
+  ;; region body too (a typo'd bare key on a region root must not slip through).
+  ;; A region body is NOT the machine root — the root-only registration-metadata
+  ;; keys (`:doc` / `:sensitive` / …) live on the machine root, not per region.
+  (when (parallel/parallel? machine)
+    (doseq [[rn body] (:regions machine)]
+      (validate-node-keys! rn body false)
+      (validate-spawn-spec-keys! rn body)
+      (validate-tags! rn body)))
   ;; DESUGAR both named-intent grammars onto their underlying mechanisms
   ;; (`:timeout` → `:after`, `:choice` → `:always`) so every subsequent
   ;; structural validator (transition targets, self-loop, after delays) and
