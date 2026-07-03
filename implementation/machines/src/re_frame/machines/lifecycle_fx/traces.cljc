@@ -13,7 +13,8 @@
   because `teardown.cljc` is the unified pure app-db projection — it
   deliberately emits NO traces so the projection stays a value→value
   function. These helpers ARE side effects, so they live separately."
-  (:require [re-frame.machines.error-emit :as machine-error-emit]
+  (:require [re-frame.interop :as interop]
+            [re-frame.machines.error-emit :as machine-error-emit]
             [re-frame.machines.reply :as m-reply]
             [re-frame.trace :as trace]))
 
@@ -110,15 +111,37 @@
   ;; rides the same always-on-plus-dev-trace fan-out (rf2-cprm0q). `:failing-id`
   ;; is the throwing `:exit` action's keyword when named (else the actor
   ;; instance); `:state` is the active state path off the failure info.
-  (let [action-ref (:action-ref result-info)]
+  (let [action-ref (:action-ref result-info)
+        failing-id (if (keyword? action-ref) action-ref actor-id)
+        state-path (:state-path result-info)
+        exception  (:exception result-info)]
+    ;; Axis 1 — STRUCTURAL-ONLY always-on record (no prose; see error-emit).
     (machine-error-emit/emit-machine-action-exception!
       {:actor-id   actor-id
-       :machine-id actor-id
-       :failing-id (if (keyword? action-ref) action-ref actor-id)
-       :state      (:state-path result-info)
+       :failing-id failing-id
+       :state      state-path
        :frame      frame-id
        :phase      :rf.machine/destroy-exit
-       :exception  (:exception result-info)
-       :reason     "An :exit action threw during destroy-time cascade."
        :recovery   :skipped
-       :info       result-info})))
+       :exception  exception})
+    ;; Axis 2 — dev-only trace. Wrapped in an EXPLICIT `interop/debug-enabled?`
+    ;; call-site gate so Closure constant-folds the whole form — including the
+    ;; dev-only diagnostic PROSE `:reason` — away under :advanced +
+    ;; goog.DEBUG=false (009 elision probe: `emit-destroy-exit-failure!` prose
+    ;; sentinel). The internal gate inside `trace/emit-error!` is not enough on
+    ;; its own here: this fn ALSO makes the live always-on call above, so the
+    ;; leaf fold that dropped the pre-rf2-cprm0q sole-statement body no longer
+    ;; applies; the call-site gate is the documented belt-and-braces the
+    ;; framework's own indirect-emit sites use (Spec 009 §Production builds).
+    (when interop/debug-enabled?
+      (trace/emit-error! :rf.error/machine-action-exception
+                         {:actor-id   actor-id
+                          :machine-id actor-id
+                          :failing-id failing-id
+                          :state      state-path
+                          :frame      frame-id
+                          :phase      :rf.machine/destroy-exit
+                          :exception  exception
+                          :reason     "An :exit action threw during destroy-time cascade."
+                          :recovery   :skipped
+                          :info       result-info}))))

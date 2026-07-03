@@ -25,6 +25,7 @@
             [re-frame.error :as error]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.machines.classification :as classification]
             [re-frame.machines.cofx-attach :as cofx-attach]
             [re-frame.machines.error-emit :as machine-error-emit]
@@ -169,29 +170,43 @@
     ;; `:state`) AND the dev-only trace. Guard throws converge here too
     ;; (`transition/guard-threw->fail-info` projects the guard-ref onto
     ;; `:action-ref`), so this single site fixes BOTH action and guard throws.
+    ;; Axis 1 — STRUCTURAL-ONLY always-on record (no prose / no value-bearing
+    ;; slots; see error-emit). The throwing action ran in a LIVE actor's
+    ;; transition; `machine-id` here is the event-handler key (the running
+    ;; INSTANCE address), so it rides under `:actor-id` (reserved `:machine-id`
+    ;; names the registered TYPE only). `:failing-id` is the throwing action /
+    ;; guard keyword (else the actor instance); `:state` is the active state
+    ;; path (the attribution slot `:rf.machine/guard-evaluated` also uses).
     (machine-error-emit/emit-machine-action-exception!
-      ;; The throwing action ran in a LIVE actor's transition; `machine-id`
-      ;; here is the event-handler key (the running INSTANCE address — a
-      ;; singleton's registration id, or a spawned actor's `<type>#<n>` / fixed
-      ;; id), so it rides under `:actor-id`. Reserved `:machine-id` names the
-      ;; registered TYPE only. `:failing-id` / `:handler-id` are distinctly
-      ;; named. `:state` is the active state path (the always-on-record
-      ;; attribution, the slot `:rf.machine/guard-evaluated` also uses);
-      ;; `:state-path` is retained for the existing dev-trace shape.
       {:actor-id          machine-id
-       :action-id         action-ref
-       :state-path        state-path
-       :state             state-path
-       :transition        (:transition info)
-       :event             event
        :failing-id        failing-id
-       :handler-id        machine-id
+       :state             state-path
        :frame             frame-id
        :exception         ex
-       :exception-message ex-msg
-       :exception-data    ex-data
-       :reason            reason
        :recovery          :no-recovery})
+    ;; Axis 2 — dev-only trace. Wrapped in an EXPLICIT `interop/debug-enabled?`
+    ;; call-site gate so Closure constant-folds the whole form — the dev-only
+    ;; PROSE `:reason` / `:exception-message` and the value-bearing `:event` /
+    ;; `:exception-data` (redacted downstream at the marks chokepoint) all
+    ;; included — away under :advanced + goog.DEBUG=false. Leaving the direct
+    ;; call ungated beside the live always-on call above would leak the prose
+    ;; (rf2-cprm0q). `:state-path` is retained for the existing dev-trace shape.
+    (when interop/debug-enabled?
+      (trace/emit-error! :rf.error/machine-action-exception
+        {:actor-id          machine-id
+         :action-id         action-ref
+         :state-path        state-path
+         :state             state-path
+         :transition        (:transition info)
+         :event             event
+         :failing-id        failing-id
+         :handler-id        machine-id
+         :frame             frame-id
+         :exception         ex
+         :exception-message ex-msg
+         :exception-data    ex-data
+         :reason            reason
+         :recovery          :no-recovery}))
     ;; Additive control-flow routing. Read the spawning
     ;; parent / invoke-id off the child's stamped `:data`; if the parent
     ;; declares `:spawn :on-error`, dispatch the failure into it. The error
