@@ -515,34 +515,33 @@ the canonical call shape per
 [Spec 014 §`:rf.http/managed`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md).
 Uncomment and adapt when your app starts talking to a backend.
 
-**The `(:rf/reply msg)` / `{:kind :success|:failure …}` payload in the
-example is managed-HTTP public compatibility sugar — not the
-framework-wide managed-async model.** Every managed-HTTP completion
-lowers internally onto the framework's
+**The `(:rf/reply msg)` payload in the example IS the framework-wide
+managed-async model — the same envelope every managed-async surface
+uses.** Every managed-HTTP completion delivers the framework's
 [uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/Managed-Effects.md#the-uniform-reply-envelope)
-(Managed-Effects property 9; the rationale record is
+verbatim (Managed-Effects property 9; the rationale record is
 [EP-0011](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0011-uniform-async-reply-envelope.md)):
 one canonical reply map with a single **closed** `:status`, `:value` /
-`:error`, `:work/id`, and `:completed-at`. The HTTP outcomes map onto it
-as:
+`:error`, `:work/id`, and `:completed-at`. There is no separate
+`{:kind :success/:failure}` HTTP dialect (rf2-ibksxg — retired). The
+reply `:status` vocabulary:
 
-| HTTP compat `:kind` | Envelope `:status` | Carries |
+| Reply `:status` | Meaning | Carries |
 |---|---|---|
-| `:success` | `:ok` | `:value` (decoded body), `:work/id`, `:completed-at` |
-| `:failure` (any `:rf.http/*`) | `:error` | `:error` map with `:kind`, `:work/status` (`:failed` / `:timed-out`) |
-| abort | `:cancelled` | `:cancelled? true`, `:cancel/reason`, `:rf.http/aborted` under `:error` |
-| superseded / late | `:stale` | **never delivered to your app target** — stale replies are suppressed before dispatch |
+| `:ok` | success | `:value` (decoded body), `:work/id`, `:completed-at` |
+| `:error` | any `:rf.http/*` failure | `:error` map with `:kind`, `:work/status` (`:failed` / `:timed-out`) |
+| `:cancelled` | abort | `:cancelled? true`, `:cancel/reason`, `:rf.http/aborted` under `:error` |
+| `:stale` | superseded / late | **never delivered to your app target** — stale replies are suppressed before dispatch |
 
 `:rf.http/managed` accepts `:on-success` / `:on-failure` (and the
-co-located `(:rf/reply msg)` form) as sugar that lowers to the framework
-target `:rf/reply-to`; both reshape the canonical reply back into the
-public `{:kind …}` payload, so the event shape in the exemplar is exactly
-what your handler sees. Full lowering contract:
-[Spec 014 §Lowering onto the uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#lowering-onto-the-uniform-reply-envelope).
-**Do not read the `{:kind …}` payload as the general async model** — any
-non-HTTP managed-async surface you build (machines, resources, timers)
-reports completion through the same envelope's `:status` / `:value` /
-`:error` / `:completed-at` directly, with mandatory stale suppression.
+co-located `(:rf/reply msg)` form) as pure ROUTING sugar over the one
+direct reply target `:rf/reply-to`; **both receive this identical
+canonical map** — they only choose whether the reply lands on two named
+handlers or one branching handler. Full contract:
+[Spec 014 §Reply payload shape](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#reply-payload-shape--the-one-canonical-envelope).
+Any non-HTTP managed-async surface you build (machines, resources,
+timers) reports completion through this same envelope's `:status` /
+`:value` / `:error` / `:completed-at`, with mandatory stale suppression.
 
 **Response-body classification — `:decode :auto` is the simple,
 non-sensitive case.** The exemplar decodes with `:decode :auto`, which is
@@ -570,12 +569,12 @@ Two distinctive postures land in the example:
 
 2. **Single `:on-failure` branch, project on the kind.** Exactly one
    `:on-failure` dispatch fires per request (even with retry — per
-   Spec 014 §Retry × `:on-failure` semantics). Branch on
-   `(:kind (:failure reply))` to project each `:rf.http/*` category
-   onto the UI-facing message:
+   Spec 014 §Retry × `:on-failure` semantics). The classified failure
+   map rides under `:error`; branch on `(:kind (:error reply))` to
+   project each `:rf.http/*` category onto the UI-facing message:
 
    ```clojure
-   (case (:kind failure)
+   (case (:kind error)
      :rf.http/transport      "Network unavailable."
      :rf.http/http-5xx       "Server error — try again later."
      :rf.http/timeout        "Server took too long to respond."

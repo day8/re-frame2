@@ -648,10 +648,10 @@ Related: [app-db](concepts/app-db.md).
 
 ### **The uniform reply**
 
-Every managed async surface (HTTP, resources, mutations, route loaders, machine async) completes by [dispatching](#dispatch) an [event](#event) carrying a reply map, never by an awaited value. The HTTP envelope's discriminator is `:kind` (`:success`/`:failure`); the *reply map's* `:status` (`:ok`/`:error`/`:cancelled`/`:stale` — the resources corpus's four-status view-model) is a different field, with `:kind :success` ≡ `:status :ok`. (Different again from the resource *read sub's* `:status`, whose values are the five lifecycle states `:idle`/`:loading`/`:fetching`/`:loaded`/`:error`.)
+Every managed async surface (HTTP, resources, mutations, route loaders, machine async) completes by [dispatching](#dispatch) an [event](#event) carrying the one canonical reply map, never by an awaited value. Its discriminator is the closed `:status` field — `:ok` (value at `:value`), `:error` (failure at `:error`), `:cancelled`, or `:stale` — the *same* envelope on every surface, HTTP included. (Different from the resource *read sub's* `:status`, whose values are the five lifecycle states `:idle`/`:loading`/`:fetching`/`:loaded`/`:error`.)
 
 ```clojure
-[:auth/login-reply {:kind :success :value {:token "…"}}]
+[:auth/login-reply {:status :ok :value {:token "…"}}]
 ```
 
 Related: [Managed HTTP](../async/http.md).

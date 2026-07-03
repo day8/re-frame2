@@ -59,4 +59,4 @@ The `:rf.http/managed` [effect](../core/glossary.md#effect): you describe a requ
 
 ### **reply map**
 
-The map every managed async result arrives in — `{:kind :success :value …}` / `{:kind :failure :failure …}` for HTTP, the four-status view-model (`:ok`/`:error`/`:cancelled`/`:stale`) for resources. It rides as the last argument of the reply [event](../core/glossary.md#event); branch on `:kind`/`:status`, never on a stringified message. (The concrete shape of [the uniform reply](../core/glossary.md#the-uniform-reply).)
+The one map every managed async result arrives in — a closed `:status` (`:ok`/`:error`/`:cancelled`/`:stale`), with `:value` on `:ok` and the failure map under `:error` — the *same* envelope for HTTP and resources alike. It rides as the last argument of the reply [event](../core/glossary.md#event); branch on `:status`, never on a stringified message. (The concrete shape of [the uniform reply](../core/glossary.md#the-uniform-reply).)

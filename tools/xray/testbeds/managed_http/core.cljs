@@ -16,14 +16,15 @@
 
     1. Fire a request           — in-flight render (`:status :loading`,
                                   the in-flight registry gains a slot).
-    2. Success response         — 2xx decoded; reply `:kind :success`.
+    2. Success response         — 2xx decoded; reply `:status :ok`.
     3. Error response (4xx)     — status 404; decode skipped; reply
-                                  `:failure :kind :rf.http/http-4xx`.
+                                  `:status :error`, `:error :kind
+                                  :rf.http/http-4xx`.
     4. Error response (5xx)     — status 500; the `:rf.http/http-5xx`
                                   error trace.
     5. Abort in-flight          — abort the step-1 in-flight request
-                                  before any reply lands
-                                  (`:rf.http/aborted`).
+                                  before any reply lands (reply
+                                  `:status :cancelled`, `:rf.http/aborted`).
     6. Concurrent by same actor — TWO requests issued under the SAME
                                   actor-id; the actor-in-flight index
                                   carries both (Spec 014 §Abort on actor
@@ -126,18 +127,19 @@
 (rf/reg-event ::reply
   {:doc "Reply sink for the success / failure paths. Receives the reply
          payload DIRECTLY (explicit `:on-success` / `:on-failure`
-         addressing per Spec 014 §Reply addressing appends the
-         `{:kind …}` payload as the last arg — not wrapped in
+         addressing per Spec 014 §Reply addressing appends the canonical
+         `{:status …}` envelope as the last arg — not wrapped in
          `:rf/reply`). Files it and narrates the lifecycle outcome
-         (`:done` on success, `:error` + the failure :kind otherwise)."}
+         (`:done` on `:status :ok`, `:error` + the failure category
+         under `:error` otherwise)."}
   (fn [{:keys [db]} [_ reply]]
-    {:db (let [ok? (= :success (:kind reply))]
+    {:db (let [ok? (= :ok (:status reply))]
            (-> db
                (assoc :status (if ok? :done :error))
                (assoc :reply reply)
                (log-line (if ok?
                            (str "✓ success: " (pr-str (:value reply)))
-                           (str "✗ failure: " (pr-str (get-in reply [:failure :kind])))))))}))
+                           (str "✗ failure: " (pr-str (get-in reply [:error :kind])))))))}))
 
 ;; ============================================================================
 ;; REQUEST IDS / URLS
@@ -219,9 +221,13 @@
       {:url      pending-url
        :abort-fn (fn [reason]
                    (http-registry/clear-in-flight! request-id)
-                   (rf/dispatch [::reply {:kind    :failure
-                                          :failure {:kind   :rf.http/aborted
-                                                    :reason reason}}]))})
+                   ;; rf2-ibksxg — the canonical abort reply: :status :cancelled
+                   ;; with the :rf.http/aborted map under :error.
+                   (rf/dispatch [::reply {:status        :cancelled
+                                          :cancelled?    true
+                                          :cancel/reason reason
+                                          :error         {:kind   :rf.http/aborted
+                                                          :reason reason}}]))})
     nil))
 
 (rf/reg-event ::fire-in-flight
@@ -235,7 +241,7 @@
 ;; (2) Success — a real Fetch against the static asset api/ok.json.
 (rf/reg-event ::success
   {:doc "Live GET against the static api/ok.json. 2xx → decoded JSON →
-         reply :kind :success."}
+         reply :status :ok."}
   (fn [{:keys [db]} _ev]
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ GET api/ok.json"))
      :fx [(rf.http/get "api/ok.json"
@@ -381,16 +387,16 @@
     :watch "App-db diff: :status flips to :loading. In-flight registry strip: a pending request-id slot (::in-flight) appears. This slot persists through the next three steps (they carry their own request-ids) and is the request the abort step (5) targets. Epoch: the fire cascade with NO reply child yet."}
    {:label "Success response"
     :event [::success]
-    :watch "Epoch: a two-event cascade — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :kind :success, :value decoded from api/ok.json."}
+    :watch "Epoch: a two-event cascade — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :status :ok, :value decoded from api/ok.json."}
    {:label "Error response (4xx)"
     :event [::error-4xx]
-    :watch "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :failure :kind :rf.http/http-4xx, :status 404."}
+    :watch "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :error :kind :rf.http/http-4xx, :status 404."}
    {:label "Error response (5xx)"
     :event [::error-5xx]
-    :watch "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :failure :kind :rf.http/http-5xx, :status 500. The Epoch shows the failure cascade attribution."}
+    :watch "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :error :kind :rf.http/http-5xx, :status 500. The Epoch shows the failure cascade attribution."}
    {:label "Abort the in-flight request"
     :event [::abort]
-    :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the step-1 ::in-flight handle → its abort-fn dispatches the :rf.http/aborted reply + clears the slot. App-db: :status :error, reply :kind :failure (:rf.http/aborted). In-flight strip: the ::in-flight slot is gone."}
+    :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the step-1 ::in-flight handle → its abort-fn dispatches the :rf.http/aborted reply + clears the slot. App-db: :status :error, reply :status :cancelled (:error :kind :rf.http/aborted). In-flight strip: the ::in-flight slot is gone."}
    {:label "Concurrent requests by same actor"
     :event [::concurrent-by-actor]
     :watch "Actor-in-flight strip: actor-a now carries TWO pending entries, actor-b ONE (Spec 014 §Abort on actor destroy). Epoch: the fan-out cascade of three issue fxs."}
@@ -451,9 +457,9 @@
       "Lifecycle status"]
      [:div "status: " [:strong {:data-testid "managed-http-lifecycle-status"} (name status)]
       (when reply
-        [:span " · reply.kind: "
-         [:strong {:data-testid "managed-http-reply-kind"} (pr-str (:kind reply))]
-         (when-let [k (get-in reply [:failure :kind])]
+        [:span " · reply.status: "
+         [:strong {:data-testid "managed-http-reply-status"} (pr-str (:status reply))]
+         (when-let [k (get-in reply [:error :kind])]
            [:span " · failure.kind: "
             [:strong {:data-testid "managed-http-failure-kind"} (pr-str k)]])])]
      (when (seq log)

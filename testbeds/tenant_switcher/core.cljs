@@ -146,9 +146,12 @@
     (let [[reply-id payload] on-success
           tenant (tenant-id-of (:resource/key payload))
           motto  (get-in tenant-index [tenant :motto])]
-      (rf/dispatch [reply-id payload {:kind :success
-                                      :value {:tenant tenant
-                                              :motto  motto}}]))))
+      ;; Synthesise the canonical success reply the live transport would have
+      ;; appended (rf2-ibksxg — the reply is the uniform envelope; the resources
+      ;; runtime reads `:value` off it).
+      (rf/dispatch [reply-id payload {:status :ok
+                                      :value  {:tenant tenant
+                                               :motto  motto}}]))))
 
 ;; ----------------------------------------------------------------------------
 ;; Events
