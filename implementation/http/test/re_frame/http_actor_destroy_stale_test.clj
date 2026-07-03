@@ -154,7 +154,7 @@
           (is (= :suppressed (:rf.reply/work-status tags)))
           (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason tags)))
           (is (= :http (:work/kind tags)))
-          (is (= [:rf.work/http [:worker/proc :slow] 1 1] (:work/id tags))
+          (is (= [:rf.work/http [:worker/proc :slow] 1 1] (:rf.reply/work-id tags))
               "the canonical join key reads the carried (aborted) attempt's work-id")
           (is (= [:rf.work/http [:worker/proc :slow] 1 1]
                  (:work/id (:rf.reply/carried tags)))))

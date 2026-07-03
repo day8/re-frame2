@@ -374,7 +374,7 @@
                       (:work/id (:rf.reply/current tags)))
                 "carried (superseded) and current (superseding) work-ids are =-distinct")
             ;; The canonical join key reads the carried (superseded) work-id.
-            (is (= [:rf.work/http :shared 1 2] (:work/id tags)))))
+            (is (= [:rf.work/http :shared 1 2] (:rf.reply/work-id tags)))))
         ;; The OLD server must NEVER receive a third hit — its sleeping retry
         ;; was cancelled by the supersede (existing rf2-wj8vv behaviour kept).
         (Thread/sleep (long (+ backoff-ms 600)))
