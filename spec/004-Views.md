@@ -155,6 +155,24 @@ These costs are small; the wins above justify them.
 
 Pattern-RemoteData's `:status` field is the canonical home for loading state. Pattern-Boot makes the boot phase visible via `:rf/boot {:phase :authenticating}`. The Nine States example renders all loading states exhaustively. State machines naturally have `:loading` as a state with `:on` transitions to `:loaded` / `:error`. All of these compose cleanly because they share the explicit-state approach; a Suspense-based machinery would collide with all of them.
 
+## Where ephemeral view-state lives (this spec owns the placement rule)
+
+Loading state is one instance of a broader question every view raises: a text field's in-progress keystrokes, a checkbox's toggle, a modal's open flag, a hover highlight, an animation's interpolation — where does that value live? The answer is a single placement rule, and **this spec ([004](004-Views.md)) is its sole owner.** The [inside-out philosophy](../docs/core/explanation/inside-out.md) argues *why* app-db is the default; the [v1→v2 migration guide](../migration/from-re-frame-v1/README.md) mechanically rehomes v1 view-local state; both defer here for the *rule itself*. State the rule in one place, and the three surfaces agree.
+
+**Default — `app-db`.** Ephemeral view-state is state, and state lives in `app-db` with everything else. This is the recorded philosophy: a value in `app-db` is observable (tools see it), replayable (epoch restore reconstructs it), schema-checkable, and testable headlessly. A text input's current value, a selected tab, a "modal open?" flag, an accordion's expanded set, an in-progress form draft — all of these are ordinary `app-db` state, written by ordinary events, read by ordinary subs. The [Single Store invariant](000-Vision.md#frame-state-revertibility) requires this: a frame is fully revertible only when *all* its state is in the value. When in doubt, it goes in `app-db`.
+
+**The render-mechanical exception (tightly worded).** A small tier of values is *never* read by any handler, sub, schema, or tool — they exist only for the substrate to complete a render, and putting them in `app-db` would add allocation and trace noise for a value nothing observes. This tier is exactly:
+
+- **Uncommitted IME composition** — the transient pre-commit buffer while a CJK/accent input method is composing, before the committed keystrokes reach the change handler.
+- **Transient focus / hover / active state** the substrate already tracks — pointer-over highlight, `:active` press-down, focus ring — where no handler branches on it.
+- **Animation interpolation** — per-frame tween values a CSS transition or the substrate's animation engine owns (Regime A / C below); `app-db` holds the *target* state, not the interpolated frames.
+
+Such a value may live in substrate-local state (`use-state` / `use-ref` / a Form-2 local). The test is strict and single: **will any handler, sub, schema, or tool ever read it?** If yes, it is not in this tier — it belongs in `app-db`.
+
+**The forbidden tier (generalised).** Anything a handler, sub, schema, or tool reads MUST be in `app-db`. Loading flags are the classic example (see [§Loading state is explicit](#loading-state-is-explicit-not-implicit) above — hiding a loading flag in component-local state defeats Single Store, inspectability, SSR replay, and cross-component coordination), but the rule is general: form values that an event validates, a "selected id" a sub reads, a wizard step a schema constrains, any flag a tool must introspect — none of these may hide in substrate-local state. The moment a value crosses from "the substrate needs it to render" to "something in the loop reads it," it has left the exception tier.
+
+The boundary between the exception and the forbidden tier is the one question above — *does anything in the loop read it?* — and it is deliberately biased toward `app-db`: a value wrongly kept local is invisible to tools and unrecoverable on replay, whereas a value in `app-db` that turns out never to be read is merely slightly verbose. Prefer the recoverable failure.
+
 ## Two registration lanes: app-facing and tooling/host
 
 View registration sorts into two lanes that should be documented separately because they serve different callers:
