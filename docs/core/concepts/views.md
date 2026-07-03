@@ -213,6 +213,46 @@ That isn't an oversight — it's [frame identity is carried, not found](../gloss
 
     That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference's [Views section](../../api/re-frame.core.md#views).
 
+### Which style for which view: the authoring lane
+
+`reg-view` and plain `defn` both produce a valid view, so a real app quickly faces a choice at every component: which one? There's a single rule, and holding to it is what keeps a codebase readable — every view announces its kind by its form:
+
+> **A view that touches state — that `subscribe`s or `dispatch`es — is a `reg-view`. A plain `defn` is for a helper that takes *data + callbacks* only and reaches for no state of its own. Never thread `dispatch`/`subscribe` down as arguments.**
+
+The pull toward the anti-pattern is real, because it *works*. You register the root view, and then it feels natural to hand its injected `dispatch` and `subscribe` down to each child as ordinary function arguments — `[todo-item dispatch subscribe todo]` — so the children can stay plain `defn`s. The tree renders correctly. But now every child is an unregistered fn: it has no id, so it renders under the fallback trace key `[:rf.view/anonymous nil]` (see [When something renders wrong](#when-something-renders-wrong)), and a reader can't tell at a glance which components are the app's real, addressable views and which are throwaway helpers. The house rule disappears into the argument lists.
+
+Register the state-touching child instead, and it subscribes to exactly the slice it needs:
+
+```clojure
+;; Anti-pattern — dispatch/subscribe drilled down as args. The child is an
+;; unregistered fn: no trace name, and the "which style?" rule is invisible.
+(rf/reg-view todo-list []
+  [:ul
+   (for [todo @(subscribe [:todos/visible])]
+     ^{:key (:id todo)} [todo-item dispatch subscribe todo])])   ; drilled
+
+(defn todo-item [dispatch subscribe {:keys [id title]}]          ; plain fn, but touches state
+  [:li {:on-click #(dispatch [:todo/toggle id])} title])
+
+;; House rule — the state-touching child is a reg-view. It subscribes to what it
+;; needs by its own id; the parent hands it only data. Named in the trace.
+(rf/reg-view todo-list []
+  [:ul
+   (for [todo @(subscribe [:todos/visible])]
+     ^{:key (:id todo)} [todo-item todo])])                      ; data only
+
+(rf/reg-view todo-item [{:keys [id title]}]
+  (let [editing? @(subscribe [:todo/editing? id])]               ; asks for its own state
+    [:li {:class (when editing? "editing")
+          :on-click #(dispatch [:todo/toggle id])} title]))
+```
+
+The plain-`defn` lane is not a lesser option — it's the right lane for a *genuine helper*: a controlled input that takes its `:value` and `on-change` as props, a formatting fn that turns a data map into hiccup, a presentational wrapper. What marks a helper is that everything it depends on is in its signature and it touches no state. The moment a component reaches for `subscribe` or `dispatch`, it has state to touch, and that's the `reg-view` lane. The [TodoMVC example](../../../examples/core/todomvc) is written to this rule: its state-touching views (`task-entry`, `task-list`, `todo-item`, `footer-controls`) are each a `reg-view`; only `todo-input` (data + callbacks) and `filter-link` (pure data → hiccup) stay plain fns.
+
+!!! note "On the hooks substrates"
+
+    UIx and Helix don't have the `reg-view` macro; a component reaches for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) instead — see the *"`reg-view` is the Reagent surface"* note under [`reg-view`: registering a view for project code](#reg-view-registering-a-view-for-project-code) above. The *lane rule still holds*: a component that reads state reads it through those hooks itself, rather than receiving a `dispatch`/`subscribe` (or their hook results) drilled down as props. Reach for state where you need it; don't thread it.
+
 ## The one rule: views compute hiccup only
 
 Now the single discipline that keeps views fast, correct, and easy to debug. It pays for itself within a day of writing real screens:

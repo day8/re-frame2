@@ -182,6 +182,20 @@ View registration sorts into two lanes that should be documented separately beca
 
 Both lanes write into the same view registry; the split is about *who registers and how they address the view*, not about two registries. App-facing docs should teach the `reg-view` lane without the tooling internals (host panel components, by-id hosting) mixed in; tooling and adapter authors get the `reg-view*` / `view` lane documented on its own. The remainder of this section specifies both surfaces.
 
+### The authoring-lane rule (which lane an author picks per view)
+
+The two lanes above answer *who registers a view and how they address it*. A separate, more frequent question faces the application author at every component in a tree: `reg-view` or plain `defn`? This spec fixes a single rule, and **this spec ([004](004-Views.md)) is its owner** — the guide's [Views concept page](../docs/core/concepts/views.md) teaches it and the [TodoMVC example](../examples/core/todomvc/views.cljs) models it, both deferring here for the rule itself.
+
+> **A view that touches state — that `subscribe`s or `dispatch`es — MUST be authored as a `reg-view`. A plain `defn` view is reserved for a helper that takes *data + callbacks* only and reaches for no state of its own. `dispatch` / `subscribe` MUST NOT be threaded down to a sub-view as arguments.**
+
+The rationale is threefold, and each leg is a property the framework otherwise guarantees:
+
+- **Trace identity.** A `reg-view` renders under its registered id; an unregistered `defn` renders under the fallback key `[:rf.view/anonymous nil]` (see [009 §render trace](009-Instrumentation.md)). Threading `dispatch`/`subscribe` into a plain `defn` so it can touch state produces a component that *has* a name it could carry but doesn't — every such sub-view collapses into `:rf.view/anonymous`, and the trace can no longer distinguish them.
+- **Frame carriage.** The injected `dispatch`/`subscribe` a `reg-view` gets are already frame-bound at render time (see [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract)). A view that subscribes to its own state gets that carriage for free; drilling the ops down as arguments is a hand-rolled substitute for a binding the macro already provides correctly.
+- **Legibility.** When state-touching views are `reg-view`s and helpers are plain fns, a component's *form* announces its kind — a reader tells the app's addressable views from throwaway presentational helpers at a glance. Drilling erases that signal: a plain `defn` that receives `dispatch`/`subscribe` is a state-touching view wearing a helper's clothes.
+
+The plain-`defn` lane remains first-class for a *genuine* helper: a controlled input taking `:value` + `on-change` as props, a formatter mapping a data record to hiccup, a presentational wrapper. The discriminant is single: **does the component reach for `subscribe` or `dispatch`?** If yes, it is a state-touching view and belongs in the `reg-view` lane; if everything it depends on is in its signature, it is a helper and stays a plain `defn`. On the hooks substrates (UIx / Helix) the same rule holds with the substrate's own idiom: a state-touching component reads state through the adapter hooks (`use-subscribe`, `use-current-frame`) itself rather than receiving those results as drilled props (see the [Views concept page](../docs/core/concepts/views.md)).
+
 ## `reg-view` is the multi-frame contract
 
 `reg-view` is a **defn-shape macro**. It registers a render function under an auto-derived id, defs the symbol you supply to the wrapped (frame-aware) fn, and auto-injects two lexical bindings — `dispatch` and `subscribe` — at every call to the rendered fn. It is the **app-facing lane**.

@@ -1,13 +1,20 @@
 (ns todomvc.views
   "The TodoMVC markup, written as hiccup.
 
-  A few things on show. `reg-view` for the root view — inside its body
-  `subscribe` and `dispatch` are simply in scope, no ceremony. Plain helper fns
-  for the sub-views, which take `dispatch`/`subscribe` as explicit args, because
-  that's the honest shape for an ordinary function. And hiccup throughout, which
-  is really just markup-as-data. The job of a view is small and strict: read
-  derived state, dispatch events when the user does something. No business logic
-  sneaks in here. See docs/core/glossary.md (view)."
+  One authoring rule runs through this file, and it's the re-frame2 house rule:
+  a view that touches state — that `subscribe`s or `dispatch`es — is a
+  `reg-view`, so the frame-bound `dispatch`/`subscribe` arrive in scope and the
+  view gets a name in the trace. A plain `defn` is for a genuine helper that
+  takes *data + callbacks* only and never reaches for state itself. So the
+  sub-views here (`task-entry`, `task-list`, `todo-item`, `footer-controls`) are
+  each a `reg-view` that reads exactly the slice it needs; the two true helpers
+  (`todo-input`, `filter-link`) stay plain fns. No `dispatch`/`subscribe` is
+  threaded down as an argument — a view that needs state subscribes to it.
+
+  And hiccup throughout, which is really just markup-as-data. The job of a view
+  is small and strict: read derived state, dispatch events when the user does
+  something. No business logic sneaks in here.
+  See docs/core/concepts/views.md (the reg-view authoring lane)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]))
 
@@ -21,17 +28,20 @@
   {:all :todo/all, :active :todo/active, :completed :todo/completed})
 
 ;; A CONTROLLED text input — the workhorse behind both the header box and the
-;; edit-in-place box. `:value` comes from a draft sub, and every keystroke
-;; dispatches `on-change` to write that draft into app-db. The input itself
-;; never holds the text; app-db does. Enter commits (`on-commit`), Escape
-;; cancels (`on-cancel`), and losing focus commits too. There's a subtle bit
-;; here: cancelling unmounts the input, so the blur that follows finds nothing
-;; left to save. Tidy by accident, and on purpose.
+;; edit-in-place box. It's a plain `defn` on purpose: it touches no state of its
+;; own. Everything it needs arrives as data + callbacks in its props map, which
+;; is the honest shape for a reusable helper — what it depends on is right there
+;; in the signature. `:value` comes from a draft its caller subscribed to, and
+;; every keystroke calls `on-change` so the caller can write that draft into
+;; app-db. The input itself never holds the text; app-db does. Enter commits
+;; (`on-commit`), Escape cancels (`on-cancel`), and losing focus commits too.
+;; There's a subtle bit here: cancelling unmounts the input, so the blur that
+;; follows finds nothing left to save. Tidy by accident, and on purpose.
 ;;
 ;; `:autofocus?` drops the cursor into the input the moment it mounts — exactly
 ;; what the edit box wants, since the row just flipped into edit mode. A `:ref`
 ;; callback calls `.focus()` on the real DOM node. It touches focus and nothing
-;; else; `:value` stays bound to the sub.
+;; else; `:value` stays bound to the draft.
 (defn todo-input [{:keys [draft on-change on-commit on-cancel autofocus?] :as props}]
   (let [handle-keydown
         (fn [event]
@@ -51,9 +61,10 @@
          ;; Focus-only ref: nudge the cursor into the just-mounted input.
          {:ref (fn [node] (when node (.focus node)))}))]))
 
-(defn todo-item [dispatch subscribe {:keys [id title completed]}]
-  ;; A plain form-1 fn — nothing fancy. The per-row editing flag lives in app-db,
-  ;; so each row just asks a sub keyed by its own id: "am I the one being edited?"
+(rf/reg-view todo-item [{:keys [id title completed]}]
+  ;; A state-touching view, so a `reg-view`. It subscribes to what it needs by
+  ;; the row's own id — "am I the one being edited?" — rather than being handed
+  ;; the editing state from above. The per-row editing flag lives in app-db.
   (let [editing? @(subscribe [:todo.ui/editing? id])]
     [:li {:class (str/join " " (cond-> []
                                  completed (conj "completed")
@@ -74,6 +85,8 @@
       [:button.destroy
        {:on-click #(dispatch [:todo/delete id])}]]
      (when editing?
+       ;; `todo-input` is a plain helper, so this view subscribes to the draft
+       ;; and hands it down as data, with dispatching callbacks alongside.
        [todo-input
         {:class       "edit"
          :draft       @(subscribe [:todo.ui/draft :edit])
@@ -82,9 +95,11 @@
          :on-commit   #(dispatch [:todo.ui/commit-edit])
          :on-cancel   #(dispatch [:todo.ui/stop-edit])}])]))
 
-(defn task-entry [dispatch subscribe]
+(rf/reg-view task-entry []
   [:header.header
    [:h1 "todos"]
+   ;; Same pattern as the edit box: subscribe to the draft here, hand it to the
+   ;; plain `todo-input` helper as data with dispatching callbacks.
    [todo-input
     {:id          "new-todo"
      :class       "new-todo"
@@ -96,7 +111,7 @@
      ;; Escape just empties the draft.
      :on-cancel   #(dispatch [:todo.ui/edit-field :new ""])}]])
 
-(defn task-list [dispatch subscribe]
+(rf/reg-view task-list []
   [:section.main {:id "main"}
    [:input#toggle-all.toggle-all
     {:type "checkbox"
@@ -107,17 +122,21 @@
    [:ul.todo-list {:id "todo-list"}
     (for [{:keys [id] :as todo} @(subscribe [:todo/visible-todos])]
       ^{:key id}
-      [todo-item dispatch subscribe todo])]])
+      ;; `todo-item` is itself a `reg-view` — it subscribes to its own editing
+      ;; state — so all it needs from here is the todo map to render.
+      [todo-item todo])]])
 
 (defn- filter-link [showing filter-kw label]
-  ;; `route-link` renders the `<a>` and owns the click: the href is the route's
-  ;; URL (encoded to `#/active` by the frame's hash strategy), and a plain click
-  ;; navigates through `:rf/url-requested`. The `:class` marks the active filter.
+  ;; A plain `defn`: it touches no state, it's a pure function from data
+  ;; (`showing`, the filter it stands for) to hiccup. `route-link` renders the
+  ;; `<a>` and owns the click: the href is the route's URL (encoded to `#/active`
+  ;; by the frame's hash strategy), and a plain click navigates through
+  ;; `:rf/url-requested`. The `:class` marks the active filter.
   [rf/route-link {:to    (filter->route filter-kw)
                   :class (when (= showing filter-kw) "selected")}
    label])
 
-(defn footer-controls [dispatch subscribe]
+(rf/reg-view footer-controls []
   (let [[active completed] @(subscribe [:todo/footer-counts])
         showing @(subscribe [:todo/showing])]
     [:footer.footer {:id "footer"}
@@ -136,22 +155,21 @@
          :on-click #(dispatch [:todo/clear-completed])}
         "Clear completed"])]))
 
-;; The sub-views above (task-entry, task-list, todo-item, footer-controls) are
-;; plain Reagent helper fns. They take `dispatch` / `subscribe` as explicit args
-;; because that's the clearest shape for an internal helper — what it needs is
-;; right there in the signature. `reg-view` is reserved for the root: inside its
-;; body `dispatch` and `subscribe` arrive in scope for free, which is exactly why
-;; the root is the one threading them down to the helpers below.
+;; The root view. Like every state-touching view in this file it's a `reg-view`,
+;; and because its children subscribe to what they need, all it does is decide
+;; which sub-views to show — no `dispatch`/`subscribe` gets threaded down. That's
+;; the reg-view authoring lane at work: a view that needs state asks for it,
+;; rather than receiving it prop-drilled from above.
 ;; See docs/core/concepts/views.md.
 (rf/reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]
     [:<>
      [:section.todoapp
-      [task-entry dispatch subscribe]
+      [task-entry]
       (when (seq todos)
-        [task-list dispatch subscribe])
+        [task-list])
       (when (seq todos)
-        [footer-controls dispatch subscribe])]
+        [footer-controls])]
      [:footer.info
       [:p "Double-click to edit a todo"]
       [:p
