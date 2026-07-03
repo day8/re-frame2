@@ -56,7 +56,7 @@ Mount `leave-guard-dialog` once near your root view and it covers every guarded 
 
 ## 4. Add a "save, then leave" path
 
-A "Save & close" button should leave *without* the prompt — the changes aren't being discarded, they're being saved. Save first, then navigate with `:bypass-leave-guard?` so this one navigation skips the guard:
+A "Save & close" button should leave *without* the prompt — the changes aren't being discarded, they're being saved. Save first, then navigate with `:bypass-guards? #{:leave}` so this one navigation skips the leave guard:
 
 ```clojure
 (rf/reg-event :editor/save-and-close
@@ -64,10 +64,10 @@ A "Save & close" button should leave *without* the prompt — the changes aren't
     {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))   ;; now clean
      :fx [[:dispatch [:rf.route/navigate :app/article
                       {:id (get-in db [:editor :id])}
-                      {:bypass-leave-guard? true}]]]}))               ;; skip the prompt
+                      {:bypass-guards? #{:leave}}]]]}))                ;; skip the prompt
 ```
 
-Saving makes the draft and saved snapshots equal, so the guard would pass anyway — but `:bypass-leave-guard?` makes the intent explicit and is the right tool whenever you *know* it's safe to leave.
+Saving makes the draft and saved snapshots equal, so the guard would pass anyway — but `:bypass-guards? #{:leave}` makes the intent explicit and is the right tool whenever you *know* it's safe to leave. (The set form also lets you skip the target's `:can-enter` — `#{:enter}` — or both — `#{:leave :enter}`.)
 
 ## Test it with zero DOM
 

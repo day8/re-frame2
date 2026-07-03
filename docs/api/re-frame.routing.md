@@ -42,7 +42,8 @@ The third positional arg is the URL shape — colon-prefixed segments capture in
 | `:parent` | Another route id; builds a chain readable via `:rf.route/chain`. |
 | `:on-match` | Event vector(s) to dispatch when the route activates. |
 | `:on-error` | Event vector dispatched if any `:on-match` event errors. |
-| `:can-leave` | Guard sub-query run before leaving the route. **Closed boolean contract**: `true` allows the navigation, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-leave-non-boolean`. The sub name reads positively (`:can-leave`), so `false` means "can NOT leave". See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
+| `:can-leave` | Guard sub-query run before leaving the route. **Closed boolean contract**: `true` allows the navigation, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-leave-non-boolean`. The sub name reads positively (`:can-leave`), so `false` means "can NOT leave". The sub receives the pending target as an argument. See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
+| `:can-enter` | Guard sub-query run before entering the route — the first-class mirror of `:can-leave` (the auth-gate shape). **Closed boolean contract**: `true` allows entry, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-enter-non-boolean`. On a block the runtime dispatches `:rf.route/entry-blocked`. See [Routing → Guarding entry](../routing/concepts.md#guarding-entry--can-enter). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
 | `:sensitive` | Slice paths (projection-relative, e.g. `[:query :token]`) redacted at egress while the route is active. See [Routing → Keeping tokens off the wire](../routing/concepts.md#keeping-tokens-off-the-wire). |
 | `:large` | Slice paths kept off the wire at egress (a size marker ships instead of the value). |
@@ -362,8 +363,9 @@ These are the standard events the runtime dispatches (or you dispatch) around ro
 | `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned` — same slice-rewrite logic, not a delegate. Override for custom URL-change handling. |
 | `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
 | `:rf/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
-| `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending nav slot in `app-db` carries the rejected navigation. |
-| `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." |
+| `:rf.route/navigation-blocked` | A `:can-leave` (leave) guard rejected a navigation. The pending nav slot carries the rejected navigation (`:direction :leave`). |
+| `:rf.route/entry-blocked` | A `:can-enter` (enter) guard rejected a navigation — the mirror of `:rf.route/navigation-blocked`. The pending nav slot carries the rejected entry (`:direction :enter`). The natural place to redirect (e.g. to login). |
+| `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." Re-runs `:can-enter` on resume. |
 | `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation — "stay here, drop the pending nav." |
 
 ### Subscriptions

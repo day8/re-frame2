@@ -154,7 +154,7 @@ The opts map (third slot) is open; the runtime recognises these keys (the canoni
 | `:query-merge` | Fold these deltas into the **current** query instead of replacing it — the "stay here, change these params" move for search, pagination, and tabs. A `nil` value **removes** a key. Pairs with the `:rf.route/self` target (see [Navigate-in-place](#navigate-in-place) below). |
 | `:scroll` | Per-call override of the route's `:scroll` strategy (`:top` / `:restore` / `:preserve`; see [Fragments and scrolling](#fragments-and-scrolling)). |
 | `:fragment` | The target `#fragment` for the new URL. |
-| `:bypass-leave-guard?` | Skip the current route's `:can-leave` guard for this one navigation (see [Blocking a navigation](#blocking-a-navigation) below). |
+| `:bypass-guards?` | A **set** of `#{:leave :enter}` naming which navigation guards to skip for this one navigation — `#{:leave}` skips the current route's `:can-leave`, `#{:enter}` skips the target route's `:can-enter`, `#{:leave :enter}` skips both (see [Blocking a navigation](#blocking-a-navigation) below). |
 
 Hosts and apps may add their own opts under a namespace.
 
@@ -404,11 +404,37 @@ Navigation can be *blocked*, which is how you build an "are you sure? you have u
      [:button {:on-click #(dispatch [:rf.route/continue])} "Discard & leave"]]))
 ```
 
-When the guard blocks, the runtime also dispatches `:rf.route/navigation-blocked` and emits a matching trace, so you can react (toast, analytics) beyond just rendering the dialog. To leave *without* asking — a "save then navigate" button, say — pass `{:bypass-leave-guard? true}` in the navigate opts.
+When the guard blocks, the runtime also dispatches `:rf.route/navigation-blocked` and emits a matching trace, so you can react (toast, analytics) beyond just rendering the dialog. To leave *without* asking — a "save then navigate" button, say — pass `{:bypass-guards? #{:leave}}` in the navigate opts.
 
-> **For JavaScript developers.** This replaces React Router's `useBlocker` / `usePrompt` and the old `beforeunload` hack — but with two upgrades. The guard is a *subscription* (declarative, derives from state), and the pending navigation is *state you render from*, so your confirm dialog is an ordinary view, not an imperative `window.confirm`. No modal-automation flakiness, no native-dialog ugliness.
+### Guarding *entry* — `:can-enter`
 
-> **Gotcha — the guard sub is strict.** `:can-leave` is a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` — it fails closed (deny the leave) and fails loud (raise), never open. Keep the guard sub returning a real `true`/`false`.
+`:can-enter` is the first-class mirror of `:can-leave`: it guards navigation **into** a route, which is exactly the shape of an auth gate ("you must be signed in to reach this route"). It runs on the same one navigation gate, so it refuses a forbidden entry through *every* door — a programmatic nav, a link click, a URL-bar deep-link, or a Back/Forward — with no per-door wiring.
+
+```clojure
+(rf/reg-route :app/account
+  {:can-enter [:auth/signed-in?]}          ;; a sub: true ⇒ entering is fine
+  "/account")
+
+(rf/reg-sub :auth/signed-in?
+  :<- [:auth/user]
+  (fn [user _] (some? user)))
+
+;; On a block the runtime dispatches :rf.route/entry-blocked (the mirror of
+;; :rf.route/navigation-blocked) — the natural place to redirect to login and
+;; remember where the user was headed for a post-login bounce-back:
+(rf/reg-event :rf.route/entry-blocked
+  (fn [{:keys [db]} [_ {:keys [requested-url]}]]
+    {:db (assoc-in db [:auth :return-to] requested-url)
+     :fx [[:dispatch [:rf.route/navigate :app/login]]]}))
+```
+
+`:rf.route/continue` re-runs `:can-enter` on resume — so after the login flow completes and dispatches `[:rf.route/continue pn-id]`, the gate re-evaluates (now signed in, it passes) rather than sailing a still-signed-out user through. The [realworld_http example](../../examples/real-apps/realworld_http) shows the full shape: `:requires-auth` routes declare `:can-enter`, and one `:rf.route/entry-blocked` handler does the redirect.
+
+**Auth-on-a-route is `:can-enter`, not an interceptor.** Reach for an interceptor only for a policy that spans *many* routes uniformly (a whole gated section, a maintenance lockout) — and when you do, attach it to the frame's `:interceptors` so it covers all three doors (guarding only `:rf.route/navigate` is the classic fail-open bug).
+
+> **For JavaScript developers.** `:can-leave` replaces React Router's `useBlocker` / `usePrompt` and the old `beforeunload` hack; `:can-enter` replaces the `loader`-throws-`redirect` / `<ProtectedRoute>` wrapper pattern. Both are *subscriptions* (declarative, derive from state), and the pending navigation is *state you render from*, so your confirm dialog (or redirect) is ordinary re-frame2, not an imperative hook. No modal-automation flakiness, no native-dialog ugliness.
+
+> **Gotcha — the guard subs are strict.** `:can-leave` / `:can-enter` are a **boolean** contract: `true` allows, `false` blocks. Return anything else (a nil, a map, a truthy non-boolean) and the runtime **blocks the navigation** *and* emits `:rf.error/can-leave-non-boolean` / `:rf.error/can-enter-non-boolean` — it fails closed (deny) and fails loud (raise), never open. Keep the guard sub returning a real `true`/`false`.
 
 The payoff is that the entire flow is testable with zero DOM. Dispatch the navigate, assert the pending slot filled (`@(routing/sub-pending-navigation)`), dispatch `:rf.route/continue`, assert it went through — no browser, no `beforeunload`, no flaky modal automation. The editor routes in [examples/real-apps/realworld_resources](../../examples/real-apps/realworld_resources) show the shape, and [Guard against unsaved changes](how-to/guard-unsaved-changes.md) is the step-by-step recipe.
 
