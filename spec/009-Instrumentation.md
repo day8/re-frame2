@@ -671,7 +671,9 @@ The two listener APIs are independent: tools may register either, both, or neith
 
 ### Cascade projection (`group-cascades` / `domino-bucket`)
 
-The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the Xray Epoch panel, re-frame2-pair's `cascade-of`) all want the **six-domino slice** of the stream — one record per cascade with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. The framework ships that projection as a pure-data function in `re-frame.trace.projection`, re-exported from `re-frame.core`:
+> **Ruled rename (Mike, 2026-07-04).** The grouping fn `group-cascades` is ruled to rename to **`group-by-event`**, and its per-run output record — a **cascade bundle** — to an **event bundle** (the `event-*` noun family, per [Conventions §The `event-*` noun family](Conventions.md#the-event--noun-family-ruled-key-renames)). One record per **pipeline run** (one dequeued event; per [Conventions §Event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses)). **The fn name below still reads `group-cascades`** because the reference implementation still exports it and the spec-vs-impl conformance gate matches it; the atomic rename — this surface plus the impl — is a downstream bead.
+
+The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the Xray Epoch panel, re-frame2-pair's `cascade-of`) all want the **per-run slice** of the stream — one record per **pipeline run** (one dequeued event) with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. (First-contact mnemonic: the run's write-side stages are the "six dominoes".) The framework ships that projection as a pure-data function in `re-frame.trace.projection`, re-exported from `re-frame.core`:
 
 ```clojure
 (rf/group-cascades trace-events)
@@ -750,12 +752,14 @@ The fix is two compositional structural changes:
 
 #### Retention contract — the single knob `:rf.trace/cascades-retained`
 
+> **Ruled rename (Mike, 2026-07-04).** The retention knob is ruled to rename `:rf.trace/cascades-retained` → **`:rf.trace/events-retained`** and `:cascades-retained` → **`:events-retained`** (the `event-*` noun family, per [Conventions §The `event-*` noun family](Conventions.md#the-event--noun-family-ruled-key-renames)). **The key spellings below still read `cascades-retained`** because the reference implementation still emits that key and the spec-vs-impl conformance gate matches it; the atomic key rename — this catalogue row **and** the impl that emits it, in one PR — is a downstream bead. **Docstring guard:** the retained unit is **one slot per EVENT** (one dequeued event = one **pipeline run** = one **epoch**), regardless of how many **trace events** that run emitted — a run emitting 50,000 trace events still consumes exactly one slot. `events` (dequeued events / traversals) vs `trace-events` (individual instrumentation emissions) is the one known misread.
+
 | API | Default | Notes |
 |---|---|---|
-| `:rf.trace/cascades-retained` (frame metadata) | **50** | Per-frame override. Sets the number of cascade slots retained in this frame's ring. `0` disables the ring (synchronous delivery still works). |
-| `(rf/configure! {:trace-buffer {:cascades-retained N}})` | applies to `:rf/default` | Process-default tuner — applied to frames that did not set per-frame metadata. |
+| `:rf.trace/cascades-retained` (frame metadata) | **50** | Per-frame override. Sets the number of retained slots — one slot per **event** (per dequeued event / pipeline run) — in this frame's ring. `0` disables the ring (synchronous delivery still works). *(Ruled rename: `:rf.trace/events-retained`.)* |
+| `(rf/configure! {:trace-buffer {:cascades-retained N}})` | applies to `:rf/default` | Process-default tuner — applied to frames that did not set per-frame metadata. *(Ruled rename: `:events-retained`.)* |
 
-**This is the entire retention surface.** There is no per-cascade trace cap, no per-trace-type cap (no `:skip`-specific budget, no `:sub`-specific budget), no per-frame override beyond the cascade count, no other knobs. Operator-facing tuning is one number: how many cascades does this frame keep?
+**This is the entire retention surface.** There is no per-run trace cap, no per-trace-type cap (no `:skip`-specific budget, no `:sub`-specific budget), no per-frame override beyond the event count, no other knobs. Operator-facing tuning is one number: how many events (pipeline runs) does this frame keep?
 
 Rationale:
 
@@ -815,7 +819,9 @@ Together (B3 + B4): rings hold cascades exclusively; the live stream filters rel
 
 #### `trace-buffer` API — per-frame, cascade bundles by default
 
-The query surface is per-frame, with a frame-id required argument. The default return shape is **cascade bundles** (one map per cascade with the cascade's `:dispatch-id`, its trace events, and the structured projection slots); the `:flat` opt-in returns raw trace events for callers that want the pre-cascade shape.
+> **Ruled rename (Mike, 2026-07-04).** The default return shape — a **cascade bundle** — is ruled to rename to an **event bundle** (one bundle per **pipeline run** / dequeued event; the `event-*` noun family, per [Conventions §The `event-*` noun family](Conventions.md#the-event--noun-family-ruled-key-renames)). The prose below still reads "cascade bundles" pending the atomic spec-plus-impl rename (downstream bead).
+
+The query surface is per-frame, with a frame-id required argument. The default return shape is **cascade bundles** (one map per **pipeline run** / dequeued event with the run's `:dispatch-id`, its trace events, and the structured projection slots); the `:flat` opt-in returns raw trace events for callers that want the pre-grouping shape.
 
 | API | Signature | Notes |
 |---|---|---|

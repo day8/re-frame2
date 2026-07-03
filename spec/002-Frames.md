@@ -335,7 +335,7 @@ What a frame **is** carried for is its [resolved image generation](Conventions.m
 
 ### The two-partition frame contract
 
-A frame owns **two durable partitions**, committed coherently by one event cascade:
+A frame owns **two durable partitions**, committed coherently by one **pipeline run** (per [Conventions §Event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses) — both partitions cross the single **commit** seam together):
 
 | Partition | Owner | Event-context key | What it holds |
 |---|---|---|---|
@@ -549,12 +549,12 @@ This section is the **canonical grammar** for `reg-frame` metadata. Subsequent s
                   :my-app/validator]            ;;   (refs, never inline interceptor values — EP-0022)
    :drain-depth  100                            ;; depth limit for run-to-completion drain
    :platform     :server                        ;; active platform for this frame per [011-SSR.md](011-SSR.md); typically preset-supplied
-   :rf.trace/cascades-retained 200              ;; per-frame trace-ring cascade count (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only); 
+   :rf.trace/cascades-retained 200              ;; per-frame trace-ring retention: one slot per EVENT/pipeline run (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only); ruled rename to :rf.trace/events-retained (landed atomically with the impl downstream)
    :observability {:errors [{:sink :my-app.sinks/sentry}]} ;; frame-owned sink policy per [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)
    :ns :line :file})                            ;; auto-supplied
 ```
 
-The full set of metadata keys — `:doc`, `:initial-events`, `:on-destroy`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:drain-depth`, `:platform`, `:rf.trace/cascades-retained`, the frame-owned policy key `:observability`, plus the auto-supplied `:ns`/`:line`/`:file` — is the canonical surface; the `:rf/frame-meta` schema in [Spec-Schemas](Spec-Schemas.md#rfframe-meta) is the normative reference.
+The full set of metadata keys — `:doc`, `:initial-events`, `:on-destroy`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:drain-depth`, `:platform`, `:rf.trace/cascades-retained`, the frame-owned policy key `:observability`, plus the auto-supplied `:ns`/`:line`/`:file` — is the canonical surface; the `:rf/frame-meta` schema in [Spec-Schemas](Spec-Schemas.md#rfframe-meta) is the normative reference. (The retention knob `:rf.trace/cascades-retained` is **ruled to rename** to `:rf.trace/events-retained` per [Conventions §The `event-*` noun family](Conventions.md#the-event--noun-family-ruled-key-renames); the key spelling still reads `:rf.trace/cascades-retained` here because the reference implementation still emits it — the atomic key rename, spec plus impl in one PR, is a downstream bead.)
 
 **Frame-owned policy (`:observability`).** A frame owns its production observability sinks (EP-0015 §9; the full model is normative in [015 §Data Classification](015-Data-Classification.md)). The key, summarised here for the grammar:
 
@@ -1629,12 +1629,14 @@ This is the dispatch semantics, not a mode. There is no opt-out. The guarantee g
 
 ### Drain versus event — the epoch unit
 
+> **Vocabulary.** This section and the two below define the **drain / dispatch** half of the [event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses) (the authoritative home). One dequeued event is one **pipeline run** — a single traversal of the fixed stage sequence **assemble → transform → commit → perform** (write side, per event) then, at drain settle, **derive → render** (read side, once per drain). A **pipeline run** is the formal term for a single event's traversal (retiring "event cascade" in the event-traversal sense); a **drain** is the run-to-fixed-point family of such runs. The "six dominoes" framing survives as a **first-contact mnemonic** only, never as formal vocabulary.
+
 A **drain** and an **event** are distinct units, and the distinction is normative:
 
-- A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — the originating event plus every event its handlers `:fx`-dispatch, and so on, until the queue is empty. A drain is a *scheduling* unit: it bounds when the host event loop gets time back and when views re-render (once, at settle).
-- An **event** is one dequeued envelope. Each dequeued event runs its **own full six-domino cascade** (event → effects → dispatch → handler → effects → view) end-to-end before the next event is dequeued, and **yields its own epoch** — one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event.
+- A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — the originating event plus every event its handlers `:fx`-dispatch, and so on, until the queue is empty. A drain is a *scheduling* unit: it bounds when the host event loop gets time back and when the read side runs (**derive → render**, once, at settle).
+- An **event** is one dequeued envelope. Each dequeued event runs its **own full pipeline run** — its write side (**assemble → transform → commit → perform**) end-to-end before the next event is dequeued — and **yields its own epoch**: one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event. (First-contact mnemonic: the run's write side is the "six dominoes" — event → effects → dispatch → handler → effects → view.)
 
-**One epoch per dequeued event — every origin.** The epoch boundary is *per top-level dequeue*, irrespective of how the event arrived in the queue: a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or a frame-creation setup step (an `:initial-events` element, dispatch-synced at `reg-frame` — see [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)). Each of these is its own dequeued event, so each is its own epoch with its own six-domino cascade and its own trace. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one — even though both settled inside the same drain.
+**One epoch per dequeued event — every origin.** The epoch boundary is *per top-level dequeue*, irrespective of how the event arrived in the queue: a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or a frame-creation setup step (an `:initial-events` element, dispatch-synced at `reg-frame` — see [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)). Each of these is its own dequeued event, so each is its own epoch with its own **pipeline run** and its own trace. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one — even though both settled inside the same drain.
 
 **Microsteps ride the triggering event's epoch.** A machine's `:raise` sub-events and `:always` microsteps are **not** dequeued events — they are in-memory microsteps inside a single machine **macrostep**, drained pre-commit within the triggering event's handler invocation and never routed through the per-frame queue (per [005 §`:raise`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) / [§Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)). They stay **inside the triggering event's epoch**; they do not start a new one. Only a separately *dequeued* event — including an `:fx [[:dispatch …]]` child that round-trips through the queue — opens a fresh epoch. (`:dispatch` to self round-trips the queue as a separate dequeued event — at the back from a plain handler, at the front from a machine handler per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime); either way a fresh epoch; `:raise` is not dequeued and stays in the same epoch — see [§Edge cases worth pinning](#edge-cases-worth-pinning) #3.)
 
@@ -1643,7 +1645,7 @@ A **drain** and an **event** are distinct units, and the distinction is normativ
 - **Domain events** — dispatches whose source is the outside world (user input, timer fire, websocket message, REPL). These are the "external events" that drive re-frame.
 - **Actor messages** (or just "messages") — dispatches one machine emits to another within a single domain-event's processing. Same `(rf/dispatch [...])` API, distinguished only by the envelope's `:source` field (`:source :machine-action`, stamped by the `:dispatch` / `:dispatch-later` fx handler when the emitting handler is a machine) and by naming convention. There is no separate `message` primitive.
 
-The distinction is documentary and conceptual, not technical. One dispatch pipeline, one event shape; "message" is a role a dispatched event plays in a particular context.
+The distinction is documentary and conceptual, not technical. One **event pipeline** (per [Conventions §Event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses)), one event shape; "message" is a role a dispatched event plays in a particular context.
 
 ### Rules
 
