@@ -7,10 +7,10 @@
 
     :epoch-history  — Tool-Pair epoch ring depth (deferred to the
                        day8/re-frame2-epoch artefact via late-bind)
-    :trace-buffer   — per-frame cascade-keyed trace ring depth — sets
-                       the process-default `:cascades-retained` that
+    :trace-buffer   — per-frame per-event trace ring depth — sets
+                       the process-default `:events-retained` that
                        applies to `:rf/default` and any frame that did
-                       not set its own `:rf.trace/cascades-retained`
+                       not set its own `:rf.trace/events-retained`
                        metadata (Spec 009 §Per-frame trace rings;
                        rf2-g1b2m)
     :elision        — wire-elision runtime size threshold (Spec 009)
@@ -22,7 +22,7 @@
   This test pins the keys that ARE configurable and asserts that
   everything else is a silent no-op — `configure` returns `nil` and
   does not throw. Per-frame settings (e.g. SSR error projection,
-  `:rf.trace/cascades-retained`) live on the frame's metadata, not on
+  `:rf.trace/events-retained`) live on the frame's metadata, not on
   this surface."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -53,18 +53,18 @@
        (finally
          ;; Restore defaults so we do not leak tweaks into other suites —
          ;; one composite config map (rf2-dzxixe single-map entry point).
-         (rf/configure! {:trace-buffer {:cascades-retained 50}
+         (rf/configure! {:trace-buffer {:events-retained 50}
                          :elision      {:rf.size/threshold-bytes 16384}}))))
 
 (use-fixtures :each reset-runtime)
 
 (deftest configure-known-keys-take-effect
-  (testing ":trace-buffer cascades-retained is wired"
-    (rf/configure! {:trace-buffer {:cascades-retained 7}})
+  (testing ":trace-buffer events-retained is wired"
+    (rf/configure! {:trace-buffer {:events-retained 7}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 7)
-        ":trace-buffer {:cascades-retained 7} caps retained cascades at 7"))
+        ":trace-buffer {:events-retained 7} caps retained events at 7"))
   (testing ":elision is wired (rf2-le2qu)"
     (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
     (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
@@ -72,13 +72,13 @@
 
 (deftest trace-buffer-rejected-opts-warn-not-silent
   (testing "rf2-x3m8c finding 1 — the retired {:depth N} shape (and any
-            non-numeric / negative :cascades-retained) is a no-op that
+            non-numeric / negative :events-retained) is a no-op that
             emits :rf.warning/trace-buffer-unrecognised-opts and leaves
             retention unchanged, rather than silently doing nothing.
-            :cascades-retained is the SOLE canonical opt — impl, core
+            :events-retained is the SOLE canonical opt — impl, core
             docstring, API.md, and Spec 009 all agree."
     ;; Establish a known retention first.
-    (rf/configure! {:trace-buffer {:cascades-retained 9}})
+    (rf/configure! {:trace-buffer {:events-retained 9}})
     (let [warnings (atom [])]
       (rf/register-listener! :trace ::trace-buffer-opts
                              (fn [ev]
@@ -99,19 +99,19 @@
           (is (string? (-> ev :tags :reason))
               "the :reason names the fix"))
         ;; A negative value is likewise rejected.
-        (rf/configure! {:trace-buffer {:cascades-retained -1}})
+        (rf/configure! {:trace-buffer {:events-retained -1}})
         (is (= 2 (count @warnings))
-            "a negative :cascades-retained also warns")
+            "a negative :events-retained also warns")
         ;; Retention is still the last GOOD value — the bad calls were
         ;; pure no-ops.
         (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
         (dotimes [_ 20] (rf/dispatch-sync [:ping]))
         (is (<= (count (rf/trace-buffer :rf/default)) 9)
-            "retention stayed at the last valid {:cascades-retained 9}")
+            "retention stayed at the last valid {:events-retained 9}")
         ;; The canonical shape still applies cleanly (no warning).
-        (rf/configure! {:trace-buffer {:cascades-retained 3}})
+        (rf/configure! {:trace-buffer {:events-retained 3}})
         (is (= 2 (count @warnings))
-            "the canonical {:cascades-retained N} shape does NOT warn")
+            "the canonical {:events-retained N} shape does NOT warn")
         (finally
           (rf/unregister-listener! :trace ::trace-buffer-opts))))))
 
@@ -134,18 +134,18 @@
   (testing "an unknown key does not perturb the known-key state"
     ;; Set known keys to non-default values, then attempt unknown keys,
     ;; then assert known-key state is unchanged.
-    (rf/configure! {:trace-buffer {:cascades-retained 11}})
+    (rf/configure! {:trace-buffer {:events-retained 11}})
     (rf/configure! {:strict-subs true})
     (rf/configure! {:ssr {:public-error-id :nope}})
     (rf/configure! {:no-such-key {}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 11)
-        ":trace-buffer cascades-retained survived bracketing unknown-key calls"))
+        ":trace-buffer events-retained survived bracketing unknown-key calls"))
   (testing "rf2-dzxixe — a single map mixing known + unknown top-level
             keys applies the known subsystems and silently ignores the
             unknown ones (closed-and-additive)"
-    (rf/configure! {:trace-buffer {:cascades-retained 6}
+    (rf/configure! {:trace-buffer {:events-retained 6}
                     :elision      {:rf.size/threshold-bytes 2048}
                     :no-such-key  {:foo 1}
                     :strict-subs  true})
@@ -164,7 +164,7 @@
                  (rf/configure! :trace-buffer))
         "a bare keyword (the retired keyed-arity first arg) fails loud")
     (is (thrown? AssertionError
-                 (rf/configure! [:trace-buffer {:cascades-retained 3}]))
+                 (rf/configure! [:trace-buffer {:events-retained 3}]))
         "a vector fails loud")
     (is (thrown? AssertionError
                  (rf/configure! nil))

@@ -309,7 +309,7 @@
                   (dispatched-event 2 101 [:rf.xray.static/select-tab] :rf/default)
                   (dispatched-event 3 102 [:user/click]               :below)]]
       (is (= (into [] (remove self-noise/xray-internal-cascade?)
-                   (projection/group-cascades buffer))
+                   (projection/group-by-event buffer))
              (self-noise/filtered-cascades buffer))))))
 
 (deftest filtered-cascades-empty-buffer

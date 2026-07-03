@@ -4,7 +4,7 @@
 
   Mike's ruling: raw trace events carry frame identity ONLY at
   `[:tags :frame]`; there is no public top-level `:frame` on the raw
-  trace-event shape. Derived / projection records (cascade bundles,
+  trace-event shape. Derived / projection records (event bundles,
   `:rf/epoch-record`s, dispatch consequences, cursor / summary records)
   carry frame identity at top-level `:frame`. One canonical reader,
   owned by the Spec 009 / trace contract, reads the raw shape:
@@ -68,7 +68,7 @@
 ;; ---- derived / projection records: frame at TOP-LEVEL :frame --------------
 
 (deftest projection-records-carry-frame-top-level
-  (testing "group-cascades records expose frame at top-level :frame (NOT under :tags)"
+  (testing "group-by-event records expose frame at top-level :frame (NOT under :tags)"
     ;; The producer stamps :frame under [:tags :frame] on every raw event;
     ;; the projection hoists it to the cascade record's top-level :frame
     ;; slot (the bare record/projection vocabulary, Tool-Pair §Identity
@@ -80,7 +80,7 @@
                       {:op-type :rf.sub :operation :rf.sub/run
                        :id 2 :tags {:frame :counter/a
                                     :rf.trace/dispatch-id 100}}]
-          [record] (p/group-cascades raw-events)]
+          [record] (p/group-by-event raw-events)]
       (is (= :counter/a (:frame record))
           "the projected cascade record carries frame at top-level :frame")
       ;; And the canonical RAW reader still reads each underlying raw

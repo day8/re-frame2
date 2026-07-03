@@ -1714,7 +1714,7 @@
    — the caller is expected to have filtered them upstream (cascade-
    bundle topics) or routed them to the frameless channel."
   [events]
-  (->> (rf/group-cascades-with-events events)
+  (->> (rf/group-by-event-with-events events)
        (remove #(= :ungrouped (:dispatch-id %)))
        vec))
 

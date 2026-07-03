@@ -99,7 +99,7 @@
   (trace-tooling/unregister-listener! ::probe)
   ;; rf2-g1b2m / rf2-8uwce — per-frame cascade-keyed trace rings (Spec 009).
   ;; These public entry points must elide their bodies in production.
-  (trace-tooling/configure-trace-buffer! {:cascades-retained 50})
+  (trace-tooling/configure-trace-buffer! {:events-retained 50})
   (let [_buf (trace-tooling/trace-buffer :rf/default {:op-type :rf.event :flat true})]
     nil)
   (trace-tooling/clear-trace-buffer! :rf/default))

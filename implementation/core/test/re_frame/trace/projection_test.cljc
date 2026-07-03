@@ -1,5 +1,5 @@
 (ns re-frame.trace.projection-test
-  "Tests for `re-frame.trace.projection/group-cascades` +
+  "Tests for `re-frame.trace.projection/group-by-event` +
   `domino-bucket`. Pure-data — no fixture, no frame, no router; JVM and
   CLJS run the same suite.
 
@@ -60,7 +60,7 @@
     (is (= :other (p/domino-bucket {:op-type :totally-made-up :operation :nope})))
     (is (= :other (p/domino-bucket {})))))
 
-;; ---- group-cascades -------------------------------------------------------
+;; ---- group-by-event -------------------------------------------------------
 
 (defn- cascade-evs
   "Produce a representative one-cascade event stream."
@@ -84,11 +84,11 @@
     {:id 8 :op-type :rf.view     :operation :rf.view/render
      :tags {:rf.trace/dispatch-id dispatch-id :rf.view/render-key [:app/root nil] :frame frame-id}}]))
 
-(deftest group-cascades-one-cascade-six-buckets
+(deftest group-by-event-one-cascade-six-buckets
   (testing "a representative cascade reduces to one record with the six
             domino slots populated"
     (let [evs (cascade-evs 100 [:user/login {:id 42}])
-          [c & more] (p/group-cascades evs)]
+          [c & more] (p/group-by-event evs)]
       (is (empty? more) "single cascade yields one record")
       (is (= 100 (:dispatch-id c)))
       (is (= :rf/default (:frame c)))
@@ -100,40 +100,40 @@
       (is (= 1 (count (:renders c))))
       (is (= [] (:other c))    ":other is empty for a clean cascade"))))
 
-(deftest group-cascades-multiple-cascades-sorted-by-first-id
-  (testing "with two cascades interleaved, group-cascades emits them in
+(deftest group-by-event-multiple-cascades-sorted-by-first-id
+  (testing "with two cascades interleaved, group-by-event emits them in
             emission order (lowest :id first)"
     (let [a (cascade-evs 200 [:a])
           b (mapv #(update % :id + 100) (cascade-evs 300 [:b]))
           ;; interleave: ids in :a are 1-8; :b are 101-108
           evs (interleave a b)
-          cs  (p/group-cascades evs)]
+          cs  (p/group-by-event evs)]
       (is (= 2 (count cs)))
       (is (= 200 (:dispatch-id (first cs))))
       (is (= 300 (:dispatch-id (second cs)))))))
 
-(deftest group-cascades-keeps-same-dispatch-id-separate-by-frame
+(deftest group-by-event-keeps-same-dispatch-id-separate-by-frame
   (testing "dispatch-id is frame-scoped, so same id in two frames yields two records"
     (let [a  (cascade-evs 10 [:counter/a-inc] :counter/a)
           b  (mapv #(update % :id + 100)
                    (cascade-evs 10 [:counter/b-inc] :counter/b))
-          cs (p/group-cascades (concat a b))]
+          cs (p/group-by-event (concat a b))]
       (is (= 2 (count cs)))
       (is (= [[:counter/a 10] [:counter/b 10]]
              (mapv (juxt :frame :dispatch-id) cs)))
       (is (= [[:counter/a-inc] [:counter/b-inc]]
              (mapv :event cs))))))
 
-;; ---- group-cascades-with-events -------------------------------------------
+;; ---- group-by-event-with-events -------------------------------------------
 
-(deftest group-cascades-with-events-attaches-raw-events
+(deftest group-by-event-with-events-attaches-raw-events
   (testing "each record carries its raw composing events under :trace-events
-            (the slim group-cascades record plus the raw events)"
+            (the slim group-by-event record plus the raw events)"
     (let [evs        (cascade-evs 100 [:user/login {:id 42}])
-          [c & more] (p/group-cascades-with-events evs)]
+          [c & more] (p/group-by-event-with-events evs)]
       (is (empty? more) "single cascade yields one record")
-      ;; The slim record is identical to group-cascades' output…
-      (is (= (first (p/group-cascades evs))
+      ;; The slim record is identical to group-by-event's output…
+      (is (= (first (p/group-by-event evs))
              (dissoc c :trace-events))
           ":trace-events is purely ADDITIVE — the slim shape is unchanged")
       ;; …plus the :trace-events slot holds exactly the composing events.
@@ -142,7 +142,7 @@
       (is (= 100 (:dispatch-id c)))
       (is (= :rf/default (:frame c))))))
 
-(deftest group-cascades-with-events-isolates-trace-events-by-frame
+(deftest group-by-event-with-events-isolates-trace-events-by-frame
   ;; rf2-1we9fa defect 1 — the drain-time projection. Two frames sharing a
   ;; SINGLE dispatch-id (the portable trace contract guarantees dispatch-id
   ;; uniqueness only WITHIN a frame; per-frame/per-realm id allocation
@@ -150,7 +150,7 @@
   ;; bundle MUST carry ONLY its own frame's raw :trace-events — NOT the
   ;; union of both frames' events. The prior consumer keyed :trace-events
   ;; by :rf.trace/dispatch-id ALONE, which merged both frames' events into
-  ;; each bundle. group-cascades-with-events keys by [frame dispatch-id],
+  ;; each bundle. group-by-event-with-events keys by [frame dispatch-id],
   ;; so the events stay isolated.
   (testing "same dispatch-id across two frames ⇒ two bundles, each holding
             only its own frame's :trace-events"
@@ -159,7 +159,7 @@
                     (cascade-evs 10 [:counter/b-inc] :counter/b))
           ;; Interleave so a naive dispatch-id-only group-by could not rely
           ;; on input ordering to separate the frames.
-          cs  (p/group-cascades-with-events (interleave a b))
+          cs  (p/group-by-event-with-events (interleave a b))
           by-frame (into {} (map (juxt :frame identity)) cs)
           ca  (get by-frame :counter/a)
           cb  (get by-frame :counter/b)]
@@ -177,56 +177,56 @@
                   (:trace-events cb))
           "no frame :counter/a event leaks into frame :counter/b's bundle"))))
 
-(deftest group-cascades-with-events-drops-nothing
+(deftest group-by-event-with-events-drops-nothing
   (testing ":trace-events across all records accounts for every input event"
     (let [evs (concat (cascade-evs 1 [:a] :frame/x)
                       (cascade-evs 2 [:b] :frame/y))
-          cs  (p/group-cascades-with-events evs)]
+          cs  (p/group-by-event-with-events evs)]
       (is (= (count evs)
              (reduce + 0 (map (comp count :trace-events) cs)))
           "every input event lands in exactly one bundle's :trace-events"))))
 
-(deftest group-cascades-events-without-dispatch-id-land-in-ungrouped
+(deftest group-by-event-events-without-dispatch-id-land-in-ungrouped
   (testing "events emitted outside any drain (registry-time, frame
             lifecycle) carry no :rf.trace/dispatch-id and group under :ungrouped"
     (let [evs [{:id 1 :op-type :rf.frame :operation :rf.frame/created :tags {:frame :app}}
                {:id 2 :op-type :rf.registry :operation :rf.registry/handler-registered
                 :tags {:kind :event :id :user/login}}]
-          cs (p/group-cascades evs)]
+          cs (p/group-by-event evs)]
       (is (= 1 (count cs)))
       (is (= :ungrouped (:dispatch-id (first cs))))
       (is (= 2 (count (:other (first cs))))
           "frame and registry events both flow through :other"))))
 
-(deftest group-cascades-error-and-warning-events-ride-along-in-other
+(deftest group-by-event-error-and-warning-events-ride-along-in-other
   (testing "an error fired inside a cascade lands in that cascade's
             :other slot, not as its own cascade (per rf2-g6ih4
             :rf.trace/dispatch-id rides every event)"
     (let [evs (conj (cascade-evs 400 [:foo])
                     {:id 100 :op-type :error :operation :rf.error/handler-exception
                      :tags {:rf.trace/dispatch-id 400 :event-id :foo}})
-          [c] (p/group-cascades evs)]
+          [c] (p/group-by-event evs)]
       (is (= 400 (:dispatch-id c)))
       (is (= 1 (count (:other c)))
           "the error event lands in :other, not a sibling :ungrouped cascade"))))
 
-(deftest group-cascades-handler-slot-takes-last-event-emit
+(deftest group-by-event-handler-slot-takes-last-event-emit
   (testing "when the chain emits :rf.event/run-start + :rf.event/run-end
             the :handler slot ends up as the :run-end event (reduce
             overwrites)"
     (let [evs (cascade-evs 500 [:foo])
-          [c] (p/group-cascades evs)]
+          [c] (p/group-by-event evs)]
       (is (= :rf.event/run-end (get-in c [:handler :operation])))
       (is (= :run-end (get-in c [:handler :tags :rf.trace/phase]))))))
 
-(deftest group-cascades-empty-input-yields-empty-output
-  (is (= [] (p/group-cascades [])))
-  (is (= [] (p/group-cascades nil))))
+(deftest group-by-event-empty-input-yields-empty-output
+  (is (= [] (p/group-by-event [])))
+  (is (= [] (p/group-by-event nil))))
 
-(deftest group-cascades-shape-is-stable
+(deftest group-by-event-shape-is-stable
   (testing "every cascade record carries the documented keys with
             collection-shaped defaults"
-    (let [[c] (p/group-cascades [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+    (let [[c] (p/group-by-event [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                   :tags {:rf.trace/dispatch-id 1 :rf.event/v [:e]}}])]
       (is (= #{:dispatch-id :parent-dispatch-id :frame :event :dispatched
                :handler :fx :effects :subs :renders :other}
@@ -236,7 +236,7 @@
       (is (vector? (:renders c)))
       (is (vector? (:other c))))))
 
-(deftest group-cascades-surfaces-parent-dispatch-id
+(deftest group-by-event-surfaces-parent-dispatch-id
   (testing "the :parent-dispatch-id slot is read off the dispatched
             event's :rf.trace/parent-dispatch-id tag — the causal-parent
             link an :fx :dispatch / machine-internal child carries under
@@ -245,21 +245,21 @@
                 :tags {:rf.trace/dispatch-id        20
                        :rf.trace/parent-dispatch-id 10
                        :rf.event/v                  [:form/validate]}}]
-          [c] (p/group-cascades evs)]
+          [c] (p/group-by-event evs)]
       (is (= 20 (:dispatch-id c)))
       (is (= 10 (:parent-dispatch-id c))
           "the spawning cascade's id is surfaced on the child cascade"))))
 
-(deftest group-cascades-root-cascade-has-nil-parent
+(deftest group-by-event-root-cascade-has-nil-parent
   (testing "a root (user / external) dispatch carries no
             :rf.trace/parent-dispatch-id tag, so :parent-dispatch-id is nil"
     (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
                 :tags {:rf.trace/dispatch-id 10 :rf.event/v [:user/click]}}]
-          [c] (p/group-cascades evs)]
+          [c] (p/group-by-event evs)]
       (is (= 10 (:dispatch-id c)))
       (is (nil? (:parent-dispatch-id c))))))
 
-(deftest group-cascades-dispatched-slot-carries-full-trace-event
+(deftest group-by-event-dispatched-slot-carries-full-trace-event
   (testing "the :dispatched slot preserves the full :rf.event/dispatched
             trace so consumers (Xray Event lens) can read top-level
             hoisted slots like :rf.trace/call-site (rf2-twt7m Change 1)
@@ -268,7 +268,7 @@
                 :tags {:rf.trace/dispatch-id 42 :rf.event/v [:cart/add-item]}
                 :rf.trace/call-site {:file "src/views.cljs" :line 127}
                 :source :ui :origin :app}]
-          [c] (p/group-cascades evs)]
+          [c] (p/group-by-event evs)]
       (is (some? (:dispatched c))
           ":dispatched slot is populated with the trace event")
       (is (= {:file "src/views.cljs" :line 127}

@@ -1138,7 +1138,7 @@
                       :id 5 :tags {:rf.trace/dispatch-id 100 :rf.sub/id :sub/foo}}
                      {:op-type :rf.view :operation :rf.view/render
                       :id 6 :tags {:rf.trace/dispatch-id 100 :rf.view/render-key [:app/root nil]}}]
-          cascades  (projection/group-cascades evs)]
+          cascades  (projection/group-by-event evs)]
       (is (= 1 (count cascades)))
       (let [c (first cascades)]
         (is (= [:foo] (:event c)))
