@@ -1,0 +1,76 @@
+;; Conformance fixture: sub-cache/dedupes-equal-query-v
+;;
+;; Host value model — the value-keyed cache-key contract
+;; ([Spec 006 §Host value model](../../006-ReactiveSubstrate.md#host-value-model--rf-equality-and-value-keyed-caching)).
+;;
+;; THE CONTRACT. A frame's sub-cache is keyed by `rf=` on the whole query
+;; vector: two subscriptions whose query vectors are `rf=` — regardless of
+;; allocation identity — resolve to ONE cache entry (one derived container,
+;; one shared computation, one ref-count). On the CLJS reference two equal
+;; EDN query vectors are the same persistent-map key by construction, so this
+;; holds for free. On a non-CLJS host whose native `Map` keys arrays by
+;; reference, a literal port allocates a fresh array per subscribe and every
+;; lookup is a MISS: no de-duplication, ref-counts never converge, disposal
+;; never fires. That divergence stays corpus-green under the ordinary sub
+;; fixtures (they subscribe once). This fixture pins the observable a
+;; value-keyed cache MUST produce: two query vectors that differ only in
+;; allocation identity (and in map-arg insertion order) share ONE cache key.
+;;
+;; WHY MODE B. The cache-key identity is the mechanism the value-keyed cache
+;; relies on; it is a pure function of the query vector. The corpus asserts it
+;; at that identity boundary (`:canonical-identical` / `:canonical-distinct`),
+;; the JVM-runnable, host-portable surface. A deeper live-runtime assertion
+;; ("two DISTINCT array instances subscribed through the SAME frame produce ONE
+;; `:rf.sub/first-run? true`") would need a new harness primitive that
+;; subscribes the same query through two distinct host allocations and counts
+;; cache-slot creations; the Mode-A DSL has no such op today (its `:sub-values`
+;; map keys are unique, and CLJS EDN vectors are value-equal so two literals
+;; ARE one key). That live-observability extension is flagged as follow-up.
+;;
+;; Capabilities exercised:
+;;   :identity/cedn1 — the canonical-identity comparison the value-keyed
+;;                     cache-key contract rests on (mechanism (b) directly;
+;;                     mechanism (a)'s `rf=`-keyed map yields the SAME
+;;                     equivalence over portable query vectors).
+
+{:fixture/id           :sub-cache/dedupes-equal-query-v
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:identity/cedn1}
+ :fixture/doc          "Value-keyed cache-key contract: two query vectors that are rf=-equal but not identical (distinct allocations, and a map argument in differing insertion order) share ONE cache key. Asserted at the canonical-identity boundary the value-keyed cache relies on."
+
+ :fixture/calls
+ [;; A parametric query with a keyword argument: two distinct vector
+  ;; allocations carrying the same value are ONE cache key.
+  {:call :canonical-identical
+   :a    [:editor/field-error :title]
+   :b    [:editor/field-error :title]}
+
+  ;; A query with a scalar (number) argument — same value, one key.
+  {:call :canonical-identical
+   :a    [:article/page 42]
+   :b    [:article/page 42]}
+
+  ;; A query with a MAP argument in two different insertion orders is ONE key
+  ;; (map insertion order is not part of the value — the value-keyed cache
+  ;; must not split one logical subscription into two live entries).
+  {:call :canonical-identical
+   :a    [:grid/cell {:row 1 :col 2}]
+   :b    [:grid/cell {:col 2 :row 1}]}
+
+  ;; A NESTED map argument, likewise order-independent all the way down.
+  {:call :canonical-identical
+   :a    [:report/for {:filter {:status :open :owner :me}}]
+   :b    [:report/for {:filter {:owner :me :status :open}}]}
+
+  ;; NEGATIVE controls: query vectors that are NOT rf=-equal are DISTINCT
+  ;; cache keys — a different argument value, and a present-nil-vs-absent
+  ;; distinction (a value-keyed cache must NOT collapse these).
+  {:call :canonical-distinct
+   :a    [:editor/field-error :title]
+   :b    [:editor/field-error :body]}
+  {:call :canonical-distinct
+   :a    [:grid/cell {:row 1 :col 2}]
+   :b    [:grid/cell {:row 1 :col 3}]}
+  {:call :canonical-distinct
+   :a    [:report/for {:filter {:status :open :owner nil}}]  ;; present-nil owner
+   :b    [:report/for {:filter {:status :open}}]}]}          ;; absent owner
