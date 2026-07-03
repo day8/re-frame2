@@ -259,7 +259,7 @@ In XState the parallel node's children sit under `states`; in re-frame2 they sit
 ;; => {:state {:data :nothing :form :neutral} :data {:items [] :error nil} :tags #{:data/idle :form/neutral}}
 ```
 
-Cross-region coordination — one region guarding on another region's active state (XState v5's `stateIn` / SCXML `In()`) — is expressed by predicating on a sibling region's [tag](#tags), not a combinator. (**Deferred:** a region whose own tree is itself `:type :parallel` is rejected in v1.) Worked example: [`examples/patterns/nine_states/`](../../examples/patterns/nine_states/).
+Cross-region coordination — one region guarding on another region's active state (XState v5's `stateIn` / SCXML `In()`) — is expressed by predicating on a sibling region's [tag](#tags), not a combinator. (A region whose own tree is itself `:type :parallel` is rejected in v1 — nested parallel is a **deferred** divergence with a recorded reconsideration trigger; see [Spec 005 §Three non-substrate divergences, item 2](../../spec/005-StateMachines.md#three-non-substrate-divergences--ruled-and-recorded).) Worked example: [`examples/patterns/nine_states/`](../../examples/patterns/nine_states/).
 
 ### History states
 
