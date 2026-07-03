@@ -75,6 +75,7 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 ### Frame-level configuration
 
 - `:url-bound?` on `reg-frame` metadata. URL ownership is an explicit declaration — a frame owns the URL only with `:url-bound? true`; there is no `:rf/default`-owns-by-default floor. Only one frame may own the URL. See [§Multi-frame routing](#multi-frame-routing).
+- `:url-strategy` on `reg-frame` metadata. A map `{:encode :decode :push! :replace! :install-listener!}` that skins the router's path-form model onto the browser's chosen address-bar form. Default `history-url-strategy` (path-form); the framework also ships `hash-url-strategy` (`#`-prefixed). Consulted at exactly four egress/ingress points; `route-url` / `match-url` stay pure and path-form; SSR ignores strategies. See [§URL strategies](#url-strategies).
 
 ### Schemas registered with the framework
 
@@ -1316,6 +1317,58 @@ The story / devcard / SSR cases all benefit:
 - **Stories / devcards**: frame-per-variant; route within the variant is independent of the page URL.
 - **Per-test fixtures**: each test frame has its own route; tests don't accidentally hit `pushState`.
 - **SSR per-request frames**: the request URL is fed in via `:rf.route/handle-url-change`; no client-side `pushState` (which doesn't exist server-side anyway).
+
+## URL strategies
+
+The router is **path-form** on the write side: `route-url` builds `/active`, `match-url` reads `/active`, and the whole navigation cascade threads path-form URLs. But the browser's address bar can carry a **different shape** — `#/active` for a hash-URL app (no-server-rewrite static hosting; the shape most secretary-era re-frame v1 apps actually are). A **`:url-strategy`** is the thin skin between the two: a frame-level config map consulted at exactly **four** egress/ingress points, so the router's path-form model is unchanged and only the browser-facing shape differs.
+
+A frame declares its strategy alongside `:url-bound?`:
+
+```clojure
+(rf/reg-frame :app {:url-bound?   true
+                    :url-strategy rf/hash-url-strategy})   ;; default: rf/history-url-strategy
+```
+
+### The strategy contract
+
+A strategy is a map with five keys:
+
+```clojure
+{:encode            (fn [path] href)     ;; PURE: path-form URL → browser href
+ :decode            (fn [] path)         ;; read the current browser URL → path-form
+ :push!             (fn [href])          ;; drive window.history (add an entry)
+ :replace!          (fn [href])          ;; drive window.history (overwrite the current entry)
+ :install-listener! (fn [on-change] teardown)}  ;; wire the browser URL-change event
+```
+
+- **`:encode`** maps a path-form app URL (`/active?q=milk`) to the browser href form (`#/active?q=milk` for hash; unchanged for history). **Pure**, host-agnostic.
+- **`:decode`** reads the *current* browser URL and returns its path-form (`#/active` → `/active`; `pathname+search+hash` → itself for history). Side-reading (`window.location`), CLJS-only.
+- **`:push!` / `:replace!`** drive `window.history` with the **encoded** href — `:push!` adds an entry, `:replace!` overwrites the current one. Side-effecting, CLJS-only.
+- **`:install-listener!`** installs the browser URL-change listener (`popstate` for history, `hashchange` for hash) and returns a 0-arg **teardown** thunk. `on-change` is a 1-arg fn the listener calls with the **decoded** path-form URL on every browser-driven change.
+
+**Round-trip law.** `:encode` / `:decode` are inverses over the app-relative URL: for every path `p`, `(decode)` at a URL the browser reached via `(push! (encode p))` yields `p` back. This is the property the conformance fixtures pin for both shipped strategies (encode/decode round-trip per strategy, plus a malformed-URL negative that fails closed to a route-miss).
+
+### The four consult points
+
+The strategy is consulted **only** here; everything else — `route-url`, `match-url`, the navigation cascade, the route slice — is path-form throughout:
+
+1. **`:rf.nav/push-url`** — encodes the path-form URL and drives `window.history` via the owner's `:push!`.
+2. **`:rf.nav/replace-url`** — same, via the owner's `:replace!`.
+3. **`route-link` href render** — the rendered `:href` is `(encode path-url)` (so copy-link / open-in-new-tab land on the right address); the click still dispatches the path-form `:rf/url-requested`.
+4. **`install-url-listener!`** — installs the owner strategy's browser listener and decodes each change to path-form before dispatching `:rf.route/handle-url-change`.
+
+The strategy is resolved from the **URL-owning frame's** `:url-strategy` (default `history-url-strategy`), so a non-owner frame never consults it. `install-url-listener!` resolves the strategy once at install (which browser event to wire); it has a 1-arity that takes an explicit strategy map for apps whose URL-owning frame is created asynchronously (e.g. a `frame-provider` React effect), so the listener kind does not depend on registration timing. Its established alias `install-history-listener!` is retained (history is the default).
+
+### Two strategies ship — the line holds at two
+
+- **`history-url-strategy`** (the **default**) — HTML5 History, path-form. `:encode` / `:decode` are identity over the app-relative URL.
+- **`hash-url-strategy`** — `#`-prefixed (`#/active`), for no-server-rewrite static hosting and secretary-era v1 migrations.
+
+**Memory URLs need no third strategy.** A frame that does not declare `:url-bound? true` is already URL-free ([§Multi-frame routing](#multi-frame-routing)) — the non-url-bound frame *is* the "memory" case, spec-free. Stories, devcards, and per-test fixtures already ride that path; adding a memory strategy would duplicate it.
+
+### SSR ignores strategies
+
+On the server there is no `window` and no address bar: the request URL is fed in **path-form** via `:rf.route/handle-url-change`, the view renders against the slice, and `route-link` emits its **path-form** `<a href>` shell (`:encode` = `identity` server-side). A hash never reaches the server. So every side-effecting strategy key (`:push!` / `:replace!` / `:install-listener!`) is CLJS-only — the JVM half of each map carries only `:encode` / `:decode` — and the four consult points fall back to path-form when no `window` is present. On hydration the CLJS `route-link` render re-encodes the href through the frame's strategy, so a hash app's server shell carries `/active` and the hydrated anchor carries `#/active`, both pointing at the same route (no hydration mismatch — the route is the same, only the address-bar shape changes, and the shape is a client-only concern).
 
 ## Open questions
 
