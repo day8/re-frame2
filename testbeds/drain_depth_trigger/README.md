@@ -2,11 +2,15 @@
 
 A single Reagent-mounted handler whose `:fx` recursively dispatches
 itself. The runtime's run-to-completion drain halts the cascade when
-the frame's `:drain-depth` ceiling is reached and rolls the frame's
-`app-db` back atomically (per [spec/002 §Run-to-completion rule 3]).
-A consumer (Xray, Story, re-frame2-pair-mcp) observes the
-`:rf.error/drain-depth-exceeded` shape, the rollback, and the
-`:halted-depth` epoch outcome (rf2-v0jwt).
+the frame's `:drain-depth` ceiling is reached. The atomicity unit is
+the **event, not the drain** (per [spec/002 §Run-to-completion rule 3]
+/ [spec/002 §Drain versus event — the epoch unit]): every settled
+`::recurse` event kept its own durable `:db` write and `:ok` epoch —
+there is **no whole-drain rollback** and no pre-drain snapshot. A
+consumer (Xray, Story, re-frame2-pair-mcp) observes the
+`:rf.error/drain-depth-exceeded` shape (carrying `:rollback? false`),
+the durable per-event writes, and the `:halted-depth` epoch outcome
+(rf2-v0jwt).
 
 ## The cascade
 
@@ -21,10 +25,14 @@ click Start
 `::recurse` has no termination branch on purpose. The cascade only
 halts via the runtime's ceiling. After the halt:
 
-- `:depth-reached` reads back to `0` — rule 3 rollback evidence.
-- The frame's epoch record for the failed cascade carries outcome
+- `:depth-reached` reads back to the **ceiling** (the count of settled
+  `::recurse` events), NOT `0` — per-event durability evidence. Each
+  event kept its own `:db` write; there is no whole-drain rollback.
+- The frame's epoch record for the **halting** event carries outcome
   `:halted-depth` (per [Spec-Schemas §`:rf/epoch-record` Outcomes],
-  rf2-v0jwt). Consumers read this record off `rf/epoch-history`.
+  rf2-v0jwt). Because that event never ran, its `:db-before` and
+  `:db-after` both equal the durable last-settled `app-db`. Consumers
+  read this record off `rf/epoch-history`.
 
 ## Controls
 
@@ -38,21 +46,22 @@ halts via the runtime's ceiling. After the halt:
 
 | Element | What it tells a spec |
 |---|---|
-| `depth-reached` | `0` after a halt — the atomic rollback restored the pre-drain snapshot. |
+| `depth-reached` | Reads back to the **ceiling** after a halt (the count of settled events) — the durable per-event writes are kept; there is no whole-drain rollback. |
 | `drain-depth-mirror` | The current ceiling — useful for confirming the input edit propagated to the frame's meta. |
 
 The halt itself is observable on the framework side via `rf/epoch-history`
-(the `:halted-depth` epoch record, see [Spec-Schemas §`:rf/epoch-record`
-Outcomes]) — no DOM mirror is required for the halt observable.
+(the trailing `:halted-depth` epoch record for the halting event, see
+[Spec-Schemas §`:rf/epoch-record` Outcomes]) — no DOM mirror is required
+for the halt observable.
 
 ## Why a configurable ceiling
 
 The framework default is 100. A spec asserting on the halt observability
-shape (single error event, rollback, second drain runs cleanly) only
-needs enough depth to prove the runtime ran the cascade more than once
-before halting. Default 25 keeps the trace stream legible while still
-producing 25 `:event/dispatched` traces before the halt fires; dialling
-to 5 keeps specs sub-second.
+shape (single error event with `:rollback? false`, durable per-event
+writes kept, second drain runs cleanly) only needs enough depth to prove
+the runtime ran the cascade more than once before halting. Default 25
+keeps the trace stream legible while still producing 25 `:event/dispatched`
+traces before the halt fires; dialling to 5 keeps specs sub-second.
 
 ## What's deliberately *missing*
 
@@ -80,10 +89,11 @@ to 5 keeps specs sub-second.
   `:event/dispatched` traces (N = ceiling) before halting.
 
 **Cross-cutting (6)**:
-- **Drain-depth-exceeded produces app-db rollback + `:halted-depth`
-  epoch record (rf2-v0jwt)** — the load-bearing scenario. The DOM
-  mirror at `depth-reached=0` after Start is positive rollback
-  evidence; the `:halted-depth` epoch outcome is the contract on the
+- **Drain-depth-exceeded keeps durable per-event writes + emits a
+  `:halted-depth` epoch record (rf2-v0jwt)** — the load-bearing
+  scenario. The DOM mirror at `depth-reached=<ceiling>` after Start is
+  positive per-event-durability evidence (there is no whole-drain
+  rollback); the `:halted-depth` epoch outcome is the contract on the
   ring-buffer side.
 
 **Story (18)**:

@@ -1,19 +1,27 @@
 (ns schema-violation.core
   "Shared framework-behavior testbed — four trigger sites that each fail
-  schema validation at a distinct check-point in the per-event order
-  (per [spec/010 §Per-step recovery]). One button per :where surface so
-  a consumer (Xray, Story, re-frame2-pair-mcp) observes the corresponding
-  :rf.error/schema-validation-failure shape emerge once per click.
+  a distinct schema check-point in the per-event order (per [spec/010
+  §Per-step recovery]). Three are `:where` surfaces of the dev-only
+  `:rf.error/schema-validation-failure`; the fourth (Button C) is the
+  separate, halting `:rf.error/cofx-value-invalid` hard error. One button
+  per surface so a consumer (Xray, Story, re-frame2-pair-mcp) observes the
+  corresponding failure shape emerge once per click.
 
-  Triggered :where surfaces:
+  Triggered surfaces:
 
-    Button A → :where :app-db     (post-handler :db fails its registered :rf/app-schema)
-    Button B → :where :event      (dispatched vector fails the handler's :spec)
-    Button C → :where :cofx       (cofx :spec rejects the injected value)
-    Button D → :where :fx-args    (fx :spec rejects the offending fx's args)
+    Button A → :rf.error/schema-validation-failure :where :app-db
+               (post-handler :db fails its registered :rf/app-schema)
+    Button B → :rf.error/schema-validation-failure :where :event
+               (dispatched vector fails the handler's :schema)
+    Button C → :rf.error/cofx-value-invalid
+               (a recordable cofx's value fails its reg-cofx :schema — a
+               PRODUCTION HARD ERROR that THROWS and halts the run, NOT a
+               :where :cofx trace; that surface was retired in EP-0017)
+    Button D → :rf.error/schema-validation-failure :where :fx-args
+               (fx :schema rejects the offending fx's args)
 
-  Each recovery differs (rollback, skip-handler, skip-fx, ...) — see
-  README.md for the per-button matrix."
+  The recoveries differ (rollback, skip-handler, hard-error/throw,
+  skip-fx) — see README.md for the per-button matrix."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Loads the schemas artefact's late-bind hooks (rf2-p7va).
@@ -85,26 +93,36 @@
     {:db (update-in db [:click-count :event] inc)}))
 
 ;; ----------------------------------------------------------------------------
-;; Button C — :where :cofx (cofx :schema rejects the supplied value)
+;; Button C — :rf.error/cofx-value-invalid (a recordable cofx's value
+;;            fails its reg-cofx :schema — a HALTING production hard error)
 ;; ----------------------------------------------------------------------------
 ;;
 ;; EP-0017: `reg-cofx` is a value-returning supplier — the v1 ctx->ctx
-;; idiom and `inject-cofx` are removed. The cofx :schema demands a
-;; positive int; the supplier deliberately returns -1. The consumer
-;; declares the cofx via `:rf.cofx/requires` (the one declaration
-;; surface). Per [spec/010 §Validation order] step 2 the supplied value
-;; is validated after delivery, before the handler sees the merged
-;; context: the handler is NOT invoked; the failure trace fires with
-;; :where :cofx and :failing-id naming the cofx. The downstream queue
-;; continues to drain.
+;; idiom and `inject-cofx` are removed. A recordable coeffect
+;; (`:rf.cofx/requires`) rides the durable causal record (epoch ledger,
+;; replay, SSR payload, Xray), so a bad value is NOT a recoverable
+;; dev-only trace: it is `:rf.error/cofx-value-invalid`, a PRODUCTION
+;; HARD ERROR that THROWS and halts the run. The old `:where :cofx`
+;; schema-validation surface (skip-handler, queue-continues) was RETIRED
+;; in EP-0017 (rf2-nkf4l3) — a recordable-coeffect schema miss does NOT
+;; emit `:rf.error/schema-validation-failure` at all.
+;;
+;; The cofx :schema demands a positive int; the supplier deliberately
+;; returns -1. Per [spec/010 §Validation order] step 2 the supplied
+;; value is validated as it is satisfied, before it folds into the
+;; handler context: the mismatch emits `:rf.error/cofx-value-invalid`
+;; (`:recovery :no-recovery`) and THROWS. The handler NEVER runs, and
+;; because the throw halts the run the dispatch does not settle — this is
+;; a hard error, not the "handler skipped, queue continues" recovery of
+;; the schema-validation `:where` surfaces.
 
 (rf/reg-cofx ::bad-counter
   {:doc    "Deliberately returns a value its own :schema rejects, to
-            light up the :where :cofx schema-validation surface."
+            light up the :rf.error/cofx-value-invalid hard-error surface."
    :schema pos-int?}
   (fn []
-    ;; HOT PATH — the supply site for :where :cofx.
-    ;; Returns a value that the registered :schema will reject.
+    ;; HOT PATH — the supply site for :rf.error/cofx-value-invalid.
+    ;; Returns a value the registered :schema rejects → throws.
     -1))
 
 (rf/reg-event ::violate-cofx
@@ -152,13 +170,15 @@
 (reg-view buttons []
   [:div {:data-testid "schema-violation" :style {:font-family "sans-serif" :padding "1em"}}
    [:h1 "schema-violation testbed"]
-   [:p "Each button triggers exactly one :where surface of "
-    [:code ":rf.error/schema-validation-failure"] "."]
+   [:p "Buttons A, B, D each trigger one :where surface of "
+    [:code ":rf.error/schema-validation-failure"]
+    "; Button C triggers the separate, halting "
+    [:code ":rf.error/cofx-value-invalid"] " hard error."]
    [:p {:data-testid "schema-recovery-browser-semantics"
         :style       {:color "#666"}}
     "Malli validation is loaded for this browser build; the feature gate
-     asserts rollback, skipped handlers, skipped fx, and the matching
-     Xray timeline traces."]
+     asserts rollback, skipped handlers, the cofx-value-invalid throw,
+     skipped fx, and the matching Xray timeline traces."]
    [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap}}
     [:button {:data-testid "violate-app-db"
               :on-click #(dispatch [::violate-app-db])}
@@ -167,8 +187,20 @@
               :on-click #(dispatch [::violate-event "not-a-number"])}
      "B · :where :event (handler skipped)"]
     [:button {:data-testid "violate-cofx"
-              :on-click #(dispatch [::violate-cofx])}
-     "C · :where :cofx (handler skipped)"]
+              ;; :rf.error/cofx-value-invalid THROWS (halting hard error).
+              ;; Use the sync fn-form (frame-first) so the throw is
+              ;; synchronous at the click boundary and can be caught here —
+              ;; the demo then surfaces the error via the trace / error-emit
+              ;; stream (which fires BEFORE the throw) without an uncaught
+              ;; exception escaping to window.onerror. The handler never ran,
+              ;; so :cofx-count stays at 0. (The other buttons use async
+              ;; dispatch; this one must be sync to catch the throw at its
+              ;; call site.)
+              :on-click (fn []
+                          (try
+                            (rf/dispatch-sync* :rf/default [::violate-cofx])
+                            (catch :default _ nil)))}
+     "C · :rf.error/cofx-value-invalid (throws — run halts)"]
     [:button {:data-testid "violate-fx-args"
               :on-click #(dispatch [::violate-fx-args])}
      "D · :where :fx-args (fx skipped)"]]
