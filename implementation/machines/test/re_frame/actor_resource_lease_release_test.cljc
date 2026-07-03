@@ -2,6 +2,13 @@
   "Machine-SIDE contract for releasing an actor's resource leases on destroy
   (Spec 016 §Release authority is per owner kind, 016:290).
 
+  COUNT PIN (Spec 005 §What auto-cancels on destroy). Auto-cancel-on-destroy
+  covers exactly THREE framework-managed resource kinds — (1) `:rf.http/managed`
+  requests, (2) armed `:after` timers, and (3) the `:rf.resource/*` owner lease
+  this suite pins. The count is three, not two; the machine × resource seam is
+  the one place the summary historically drifted to \"two built-in kinds ...
+  only\" (a pre-resource-lease line, since corrected).
+
   The cross-artefact integration (a real resource entry → released → no
   continued polling) is pinned in the resources artefact
   (`resources_machine_owner_release_cljs_test`, which has both machines +
