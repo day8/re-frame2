@@ -1073,7 +1073,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category        [:= :rf.error/schema-validation-failure]]
    [:failing-id      :keyword]
    [:reason          {:optional true} :string]
-   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :flow-output :machine-data :machine-output :sub-override]] ;; :machine-data is the `reg-machine` [:schemas :data] boundary; :machine-output is the [:schemas :output] completion-payload boundary (EP-0029 A8 — Spec 005 §Completion-output validation); both per Spec 010 §Per-step recovery row 7; :sub-override is the `:sub-overrides` HIT boundary (Spec 006 §Sub-overrides)
+   [:where           [:enum :event :sub-return :app-db :fx-args :flow-output :machine-data :machine-output :sub-override]] ;; :machine-data is the `reg-machine` [:schemas :data] boundary; :machine-output is the [:schemas :output] completion-payload boundary (EP-0029 A8 — Spec 005 §Completion-output validation); both per Spec 010 §Per-step recovery row 7; :sub-override is the `:sub-overrides` HIT boundary (Spec 006 §Sub-overrides). :cofx is RETIRED — a bad recordable coeffect is the separate hard error :rf.error/cofx-value-invalid (EP-0017; Spec 010 §Per-step recovery row 2), NOT a :where of this category
    [:path            {:optional true} [:vector :any]]
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
@@ -1082,7 +1082,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:registered-path {:optional true} [:vector :any]]  ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
    [:machine-id      {:optional true} :keyword]        ;; (:where :machine-data / :machine-output only) the failing machine's id; mirrors :failing-id for domain clarity.
    [:phase           {:optional true} [:enum :macrostep :bootstrap :spawn :update-snapshot :completion]] ;; (:where :machine-data / :machine-output only) lifecycle position of the violation: :macrostep (post-transition commit), :bootstrap (initial :data install on the first dispatch), :spawn (pre-install spawn rejection), :update-snapshot (pre-write rejection of an :rf.machine/update-snapshot escape-hatch :data patch), :completion (the :where :machine-output finalize-time completion-output check).
-   [:received        {:optional true} :any]            ;; (:where :machine-data / :machine-output / :app-db / :event / :cofx / :sub-return / :fx-args) parallel to :value; the value the validator received.
+   [:received        {:optional true} :any]            ;; (:where :machine-data / :machine-output / :app-db / :event / :sub-return / :fx-args) parallel to :value; the value the validator received.
    [:schema          {:optional true} :any]])          ;; (:where :machine-data / :machine-output only) the registered schema verbatim, so consumers can render it inline next to the failing :data / output payload.
 
 (def MalformedSchemaTags
