@@ -253,8 +253,7 @@
       ;; Register a machine where the destination state of the first
       ;; transition declares an :after — entering that state schedules
       ;; the timer, which is what we want to trace.
-      (let [m {:id      :tl
-               :initial :red
+      (let [m {:initial :red
                :data    {}
                :states
                {:red    {:on    {:tick {:target :green}}}
