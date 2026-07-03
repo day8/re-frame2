@@ -1,14 +1,16 @@
 # Spec 002 — Frames
 
-> **What this Spec is about.** A *frame* is an isolated runtime boundary — multi-instance widget, per-test fixture, per-request server-side render, per-session — all the same shape. The pattern's contract is **explicit-frame addressing**: every dispatch and subscribe targets a specific frame at the call site. The CLJS reference's React-context-driven view injection (in §View ergonomics) is an *ergonomic optimisation* atop that contract, not a pattern-level commitment.
+> **What this Spec is about.** A *frame* is an isolated runtime boundary — multi-instance widget, per-test fixture, per-request server-side render — all the same shape. The pattern's contract is **explicit-frame addressing**: every dispatch and subscribe targets a specific frame at the call site. The CLJS reference's React-context-driven view injection (in §View ergonomics) is an *ergonomic optimisation* atop that contract, not a pattern-level commitment.
 >
 > For the bird's-eye view of where the frame container, router, drain loop, and `do-fx` sit in relation to the registrar, sub-cache, substrate adapter, and trace bus, see [Runtime-Architecture](Runtime-Architecture.md).
 
 ## Abstract
 
-A **frame** is an **isolated runtime boundary**, identified by keyword, that owns the runtime state of a re-frame application: its `app-db`, its event router/queue, and its subscription cache. Multiple frames can coexist — multi-instance on a page (devcards, isolated widgets, serial test instances), per server-side request, per session — and live independently.
+A **frame** is an **isolated runtime boundary**, identified by keyword, that owns the runtime state of a re-frame application: its `app-db`, its event router/queue, and its subscription cache. Multiple frames can coexist — multi-instance on a page (devcards, isolated widgets, serial test instances), per server-side request — and live independently.
 
 > **Terminology:** "isolated runtime boundary" is the canonical definition. Other Specs sometimes describe a frame in terms of a particular role it plays — *actor-system boundary* (Spec 005, when describing message-passing semantics), *frame contract* (Spec 006, when describing what the substrate-agnostic core requires from an adapter), *per-request runtime* (Spec 011, when describing SSR). All refer to the same thing under different aspects.
+
+> **Not designed: long-lived server-side *session* frames.** The backed frame use cases are all short-lived or client-local: multi-instance widgets on a page, per-test fixtures, and per-request SSR frames (created, rendered, and destroyed within one request — see [Spec 011](011-SSR.md)). A frame held open across many requests to back a *server-side user session* is **out of scope and undesigned**: its lifetime (when does it end?), eviction (what bounds memory across N concurrent sessions?), and JVM concurrency (frames are single-threaded drain loops — a session frame touched by concurrent request threads has no defined contract) are all open questions with no ruling here. Do **not** build a port or a consumer on a session-scoped frame as though it were an advertised capability; it has no contract. Server-side session *state* belongs in the request/response cycle (per-request frame seeded from session storage), not in a resident frame.
 
 All frames share **one global handler registrar**. Multi-frame means "multiple instances of the same app's handlers" — devcards, isolated widgets, story variants, test fixtures — not "multiple different apps with different handler sets on one page." The latter use case (micro-frontends, embedded white-label widgets) is out of scope; iframes already serve it.
 
