@@ -719,6 +719,12 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
     (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
 
+    ;; `/settings` is `:requires-auth` (a `:can-enter` guard, rf2-p69yaz); this
+    ;; route-resolution check is about the route TABLE, not the auth gate, so
+    ;; sign in first — otherwise the gate correctly refuses the logged-out entry
+    ;; and redirects to login (that fail-closed behaviour is covered by
+    ;; `auth-guard-all-access-paths-test`).
+    (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
 
