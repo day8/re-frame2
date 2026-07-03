@@ -1435,7 +1435,7 @@ On the server there is no `window` and no address bar: the request URL is fed in
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all five items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all six items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
 
 ### Native nested layouts (post-v1)
 
@@ -1456,6 +1456,12 @@ Per [§State-first, URL-second update order is locked](#state-first-url-second-u
 ### Declarative redirect rules in route metadata (post-v1)
 
 Per [§Redirects and guards](#redirects-and-guards) v1 redirects compose as interceptors — guards are ordinary middleware over `:rf.route/navigate`, with full access to `app-db` and the event vector. A declarative metadata key (e.g. `:redirect-to :route/login`, optionally a fn of the route map) would let the simple "always redirect this route" cases skip interceptor boilerplate. Deferred — the interceptor form is the universal carry; the declarative key is sugar over it once the common shapes have settled in real apps.
+
+### Route-plan prefetch — warm-mode `:on`-hover preload (post-v1)
+
+Per [§Per-route data loading](#per-route-data-loading) a route's `:resources` plan runs on **activation** — the click pays the load. There is no *pre-navigation* prefetch surface: hovering a link cannot warm the destination route's data before the user commits, so the click then pays a blocking round-trip. React Router (`<Link prefetch>`) and TanStack Router (`preload` / intent) both ship this. The engine is ~95% built — [016 §Active owners and causes](016-Resources.md#active-owners-and-causes) already supports ownerless, cause-only `ensure` entries (the focus/reconnect scans use exactly this shape), and unowned entries are GC-eligible — so the missing piece is a **route-plan-level** prefetch verb, not new cache machinery. App-space hover-`ensure` already works *per resource*, but route-plan prefetch in app space forces every link site to re-derive the destination's params / `:when` / scope precedence — the exact duplication the plan machinery exists to prevent.
+
+**Design to flip post-v1 (attached verbatim so the flip is cheap).** A public `[:rf.route/prefetch target]` event that runs the route's `:resources` plan in **WARM mode**: entries `ensure` **ownerless** (cause-only, so the warmed data is GC-eligible if the navigation never happens), `:blocking?` is **ignored** (a prefetch never blocks anything), and `:on-match` is **deliberately NOT run** (prefetch warms *data*, it does not activate the route — no side effects, no navigation). Paired surfaces: a `route-link` `:prefetch :intent` opt (warm on hover/focus intent), one trace op (`:rf.route/prefetched`, warm-mode marker), and a scorecard row. Deferred — not shipped in v1; hover-prefetch stays unavailable until post-v1, and the competitive gap vs TanStack/React Router stays open but is now on the record. The warm-mode design above makes the post-v1 flip a small, additive surface (one event + one link opt + one trace op) that does not disturb the activation-time `:resources` contract.
 
 ## Resolved decisions
 
