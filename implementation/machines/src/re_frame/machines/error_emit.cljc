@@ -14,21 +14,36 @@
   home the three sites route through so the always-on channel can never be
   forgotten again.
 
-  Two channels fire in lock-step (mirroring core's
-  `re-frame.error-emit/emit-error-both!`, adapted to the machine NON-EVENT
-  union record):
+  This ns owns AXIS 1 ONLY — the always-on corpus-wide error-emit substrate
+  (surface #4, production-survivable, NOT gated by
+  `re-frame.interop/debug-enabled?`): a tight, STRUCTURAL-ONLY union record,
+  fanned out through the `:error-emit/dispatch-error-record` late-bind hook —
+  the SAME axis + hook the machine fail-closed spawn reject
+  (`:rf.error/machine-spawn-unregistered-type`) uses (`machines` ships above
+  core's require graph, so it cannot static-require `re-frame.error-emit`).
 
-    Axis 1 — the always-on corpus-wide error-emit substrate (surface #4,
-    production-survivable, NOT gated by `re-frame.interop/debug-enabled?`):
-    a tight, STRUCTURAL-ONLY union record, fanned out through the
-    `:error-emit/dispatch-error-record` late-bind hook — the SAME axis + hook
-    the machine fail-closed spawn reject
-    (`:rf.error/machine-spawn-unregistered-type`) uses (`machines` ships above
-    core's require graph, so it cannot static-require `re-frame.error-emit`).
+  ## Why axis 2 (the dev trace) is NOT routed through this ns (rf2-cprm0q elision)
 
-    Axis 2 — the dev-only `re-frame.trace/emit-error!` surface (DCE'd under
-    CLJS `:advanced` + `goog.DEBUG=false`): the FULL, rich `tags` for the
-    in-process tooling surface (Xray / Story), UNCHANGED.
+  The dev-only `re-frame.trace/emit-error!` surface (DCE'd under CLJS
+  `:advanced` + `goog.DEBUG=false`) carries the FULL, rich `tags` — INCLUDING
+  the dev-only diagnostic PROSE (`:reason` / `:exception-message`) the 009
+  elision probe pins as an eliminated sentinel (e.g. the destroy-`:exit`
+  `\"An :exit action threw …\"` string). That prose MUST DCE in production.
+
+  `trace/emit-error!` is a DIRECT call whose body folds to `nil` under
+  `goog.DEBUG=false`, so Closure drops the map literal it is handed — prose and
+  all — AS DEAD, but ONLY when that map is a DIRECT argument to the folded
+  call. If the dev `tags` map were instead handed to THIS ns's fn (an INDIRECT,
+  non-folding call — it fans out on the always-on late-bind hook), Closure
+  would have to retain the whole opaque map, and every prose string literal
+  inside it would survive into the production bundle (the exact rf2-cprm0q
+  regression: rerouting a fold-elided direct emit through an always-on helper
+  resurrects its prose).
+
+  So each emit site (`registration.cljc`, `finalize.cljc`, `traces.cljc`) keeps
+  its dev trace as its OWN DIRECT `trace/emit-error!` call — the fold-elidable
+  form — and calls THIS ns only with the structural always-on record. The two
+  channels never share a map, and the prose has no non-folding referent.
 
   ## Attribution (rf2-cprm0q defect 2)
 
@@ -38,52 +53,48 @@
   class as `:event-id`, so an off-box shipper learns WHICH action / guard in
   WHICH state threw — not just the bare category (\"machine :auth/flow threw\").
 
-  ## Payload hygiene (production-surviving — enforced by the whitelist)
+  ## Payload hygiene (production-surviving — STRUCTURAL-ONLY)
 
   The always-on record is NOT privacy-gated like the dev trace (which redacts
-  value-bearing slots at the marks-projection egress chokepoint). So the
-  always-on record is projected from `tags` through the
-  `always-on-record-keys` WHITELIST: only structural machine-local
-  identifiers (keyword ids / state paths) plus the raw `:exception` cross.
-  The value-bearing slots — `:event`, `:input`, and crucially
-  `:exception-data` (the developer's arbitrary ex-data, which may embed the
-  same app secrets a `:sensitive` machine `:data` mark gates) — are
-  DELIBERATELY EXCLUDED. The raw `:exception` IS carried: off-box shippers
-  need the host exception + stack, exactly as every other always-on error
-  record carries it."
+  value-bearing slots at the marks-projection egress chokepoint). Per the
+  `:rf.error/machine-action-exception` catalogue row
+  ([009 §Error event catalogue](../../../../spec/009-Instrumentation.md):
+  \"the always-on record is STRUCTURAL-ONLY\"), the caller builds it from
+  structural VALUES only — the machine-local identifiers `:actor-id` /
+  `:failing-id` / `:state`, the discriminator enums `:phase` / `:recovery`,
+  `:frame`, and the raw `:exception` cross. The value-bearing slots — `:event`,
+  `:input`, the developer's arbitrary `:exception-data` (which may embed the
+  same app secrets a `:sensitive` machine `:data` mark gates), the free-text
+  `:reason` / `:exception-message` PROSE — are DELIBERATELY EXCLUDED: they ride
+  the dev trace only. The raw `:exception` IS carried: off-box shippers need the
+  host exception + stack, exactly as every other always-on error record does."
   (:require [re-frame.interop   :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace     :as trace]))
+            [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private always-on-record-keys
-  "Whitelist of STRUCTURAL `tags` keys promoted onto the production-surviving
-  always-on record. See the ns docstring §Payload hygiene: value-bearing
-  slots (`:event` / `:input` / `:exception-data`) are excluded; `:exception`
-  (the raw Throwable) is carried for off-box shippers."
-  [:frame :actor-id :failing-id :state :transition
-   :exception :exception-message :reason :recovery :phase])
-
 (defn emit-machine-action-exception!
-  "Fan `:rf.error/machine-action-exception` out through BOTH error channels
-  from ONE `tags` map (see the ns docstring). `tags` is the full dev-trace tag
-  map the emit site already built; the always-on record is projected from it
-  via `always-on-record-keys` and stamped with `:error` + `:time`. Returns nil.
+  "Fan the STRUCTURAL-ONLY `:rf.error/machine-action-exception` record out on
+  the ALWAYS-ON axis (surface #4) ONLY. Returns nil.
 
-  Callers stamp `:failing-id` (the action / guard keyword) and `:state` (the
-  active state path) into `tags` so the always-on record carries the
-  rf2-cprm0q attribution."
-  [tags]
-  ;; Axis 1 — always-on (surface #4). Structural-only whitelist projection.
-  ;; Late-bound: `machines` ships above core's require graph, so the hook is
-  ;; nil (no-op) until `re-frame.error-emit` loads — bound once at that
-  ;; ns-load, so the lookup never misses in a live runtime.
+  `always-on` is the caller-built structural record (see the ns docstring
+  §Payload hygiene): `:actor-id` / `:failing-id` / `:state` (the rf2-cprm0q
+  attribution — machine-local code identifiers), the discriminator enums
+  `:phase` / `:recovery`, `:frame`, and the raw `:exception`. This fn stamps
+  `:error` + `:time` and fans it out UNCHANGED. It carries NO free-text prose
+  and NO value-bearing slots.
+
+  Axis 2 (the dev `trace/emit-error!`) is NOT routed through here — each emit
+  site keeps its own DIRECT `trace/emit-error!` call so the dev-only prose
+  folds away under `:advanced` + `goog.DEBUG=false` (see the ns docstring §Why
+  axis 2 is NOT routed through this ns). This fn is the single always-on home,
+  so the production-survivable channel can never be forgotten."
+  [always-on]
+  ;; Always-on (surface #4). Late-bound: `machines` ships above core's require
+  ;; graph, so the hook is nil (no-op) until `re-frame.error-emit` loads — bound
+  ;; once at that ns-load, so the lookup never misses in a live runtime.
   (when-let [dispatch-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
-    (dispatch-record!
-      (assoc (select-keys tags always-on-record-keys)
-             :error :rf.error/machine-action-exception
-             :time  (interop/now-ms))))
-  ;; Axis 2 — dev-only trace (DCE'd under :advanced + goog.DEBUG=false).
-  (trace/emit-error! :rf.error/machine-action-exception tags)
+    (dispatch-record! (assoc always-on
+                             :error :rf.error/machine-action-exception
+                             :time  (interop/now-ms))))
   nil)
