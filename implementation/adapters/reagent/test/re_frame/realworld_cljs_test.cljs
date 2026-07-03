@@ -31,9 +31,11 @@
             [re-frame.views]
             [re-frame.http.test-support]
             [realworld-http.core]
-            ;; Loaded for its ns-load side effects: registers the routes +
-            ;; the `:realworld.routing/auth-guard` interceptor (EP-0022) the
-            ;; auth-guard tests reference by id.
+            ;; Loaded for its ns-load side effects: registers the routes (with
+            ;; the `:can-enter [:realworld.routing/authed?]` auth gate on the
+            ;; `:requires-auth` routes), the `:realworld.routing/authed?` guard
+            ;; sub, and the `:rf.route/entry-blocked` redirect handler the
+            ;; auth-gate tests exercise (rf2-p69yaz).
             [realworld-http.routing]
             [realworld-http.ssr :as ssr])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
@@ -730,33 +732,35 @@
     (is (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))))
 
 (defn- auth-guard-test []
-  ;; The auth-guard is a registered interceptor (Spec 012 §Redirects and
-  ;; guards) wired into the demo frame via `reg-frame :interceptors`
-  ;; (core.cljs) BY ID (EP-0022). Configure the test frame with the same
-  ;; id-reference so the guard is exercised end-to-end. Its descriptor is
-  ;; registered at `realworld.routing` ns-load (required below).
+  ;; The auth gate is the framework's `:can-enter` guard (rf2-p69yaz) — each
+  ;; `:requires-auth` route declares `:can-enter [:realworld.routing/authed?]`
+  ;; and an `:rf.route/entry-blocked` handler redirects to login + stashes the
+  ;; bounce-back (routing.cljs). No frame `:interceptors` — the one navigation
+  ;; gate runs the guard on every door. The route + handler + guard sub are all
+  ;; registered at `realworld.routing` / `realworld.auth` ns-load (required
+  ;; below).
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [:realworld.routing/auth-guard]})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; Unauthenticated: navigating to a :requires-auth route
-    ;; (:realworld.user/settings) is redirected to :realworld.auth/login.
+    ;; (:realworld.user/settings) is refused by :can-enter → :rf.route/entry-blocked
+    ;; redirects to :realworld.auth/login.
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "unauthenticated nav to a :requires-auth route redirects to login")
 
-    ;; A non-guarded route is unaffected by the guard.
+    ;; A non-guarded route is unaffected.
     (rf/dispatch-sync [:rf.route/navigate :realworld/home {}] {:frame f})
     (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-        "unguarded route navigates normally with the guard installed")
+        "unguarded route navigates normally with the gate active")
 
-    ;; Bounce-back stash (rf2-ygh4m ITEM 1): the redirect to login also
-    ;; records the original target at [:auth :return-to].
+    ;; Bounce-back stash: the entry-blocked redirect records the original target
+    ;; at [:auth :return-to].
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
     (is (= {:id :realworld.user/settings :params {}}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         "the redirect stashes the original target for post-login bounce-back")
 
-    ;; Authenticated: the same guarded nav now proceeds.
+    ;; Authenticated: the same guarded nav now proceeds (:can-enter passes).
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
@@ -769,19 +773,17 @@
         ":auth/post-login-redirect clears the :return-to slot")))
 
 (defn- auth-guard-all-access-paths-test []
-  ;; rf2-mzqd4.3 — the guard must FAIL CLOSED on EVERY navigation entry
-  ;; point, not just the programmatic `:rf.route/navigate` the navbar
-  ;; uses. Pre-fix the guard gated only `:rf.route/navigate`, so a
-  ;; logged-out user reaching a `:requires-auth` route via the MOST
-  ;; common access path — a direct URL / reload (`:rf.route/handle-url-
-  ;; change`) or an anchor click (`:rf/url-requested`) — bypassed the
-  ;; guard and landed on the protected page (fail OPEN). These cases
-  ;; assert all three paths now redirect to login.
+  ;; rf2-mzqd4.3 / rf2-p69yaz — the auth gate must FAIL CLOSED on EVERY
+  ;; navigation entry point, not just the programmatic `:rf.route/navigate` the
+  ;; navbar uses. The `:can-enter` guard runs on the ONE gate every door shares,
+  ;; so a logged-out user reaching a `:requires-auth` route via the MOST common
+  ;; access path — a direct URL / reload (`:rf.route/handle-url-change`) or an
+  ;; anchor click (`:rf/url-requested`) — is refused too. These cases assert all
+  ;; three doors redirect to login (no frame interceptor needed).
 
   ;; --- direct-URL / reload / popstate (`:rf.route/handle-url-change`) ---
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [:realworld.routing/auth-guard]})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; Logged-out direct URL (or reload) to a :requires-auth route.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
@@ -791,7 +793,7 @@
         "the direct-URL redirect stashes the original target for bounce-back")
 
     ;; Editor route via direct URL with path params is also gated, and
-    ;; the stash carries the params.
+    ;; the stash carries the params (resolved off the requested URL).
     (rf/dispatch-sync [:rf.route/handle-url-change "/editor/my-slug"] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL to a :requires-auth editor route redirects to login")
@@ -806,11 +808,10 @@
 
   ;; --- anchor click (`:rf/url-requested`) ---
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [:realworld.routing/auth-guard]})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; An anchor whose href targets a :requires-auth route. The
     ;; framework `rf/route-link` dispatches `:rf/url-requested` with the
-    ;; resolved url + :to route-id.
+    ;; resolved url; the :can-enter gate refuses the logged-out entry.
     (rf/dispatch-sync [:rf/url-requested {:url "/settings"
                                           :to  :realworld.user/settings}]
                       {:frame f})
@@ -820,7 +821,7 @@
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         "the anchor redirect stashes the original target for bounce-back")
 
-    ;; A url-only request (no :to) still gates via match-url resolution.
+    ;; A url-only request still gates via the URL-resolved target.
     (rf/dispatch-sync [:rf/url-requested {:url "/editor"}] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out url-only anchor to a :requires-auth route redirects to login")
@@ -835,8 +836,7 @@
 
   ;; --- authenticated: every entry point now PASSES through ---
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [:realworld.routing/auth-guard]})]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     ;; direct-URL / reload to a guarded route proceeds when logged in.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
