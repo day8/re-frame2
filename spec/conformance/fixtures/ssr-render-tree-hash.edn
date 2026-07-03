@@ -1,0 +1,122 @@
+;; Conformance fixture: ssr/render-tree-hash
+;; Pure render-tree → structural-hash. JVM-runnable; no React or DOM.
+;;
+;; Pins the CANONICAL-TRAVERSAL contract Spec 011 §Hydration-mismatch
+;; detection promises (011:386): "Conformance fixtures pin the
+;; canonical-traversal output for a small render-tree corpus so a port
+;; can verify its serialiser." The traversal IS pattern-level — the hash
+;; VALUE is a per-host commitment (a port may pick a different hash), so
+;; the fixture pins BOTH:
+;;
+;;   1. the byte-exact hash VALUE the CLJS reference produces (FNV-1a
+;;      32-bit over the canonical EDN, lowercase 8-hex) — the concrete
+;;      target a port mirroring the reference hash aims at; and
+;;   2. the TRAVERSAL LAWS via same-hash-invariant pairs — a port that
+;;      picks a DIFFERENT hash still MUST make the paired inputs hash
+;;      IDENTICALLY (sorted attribute keys; nil pruning). A port verifies
+;;      its serialiser against (2) even when it diverges on (1).
+;;
+;; The three traversal rules the claim enumerates — render-tree shape
+;; (depth-first), sorted attribute keys, nil pruning — each get a call
+;; below, plus the two cross-host traps a naive serialiser trips:
+;; vector-vs-list distinction and the UTF-8 (not UTF-16) byte stream.
+;;
+;; The pinned literals are the SAME literals the CLJS reference's live
+;; JVM↔CLJS byte-identity parity suite pins
+;; (`re-frame.ssr.hash-parity-fixtures`), so this static corpus and the
+;; reference's property suite cannot drift.
+;;
+;; Call op (see the ssr conformance runner's run-call):
+;;   :render-tree-hash {:input TREE :expect "<8-hex>"}
+
+{:fixture/id           :ssr/render-tree-hash
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:ssr/render-tree-hash}
+ :fixture/doc          "render-tree-hash produces a stable structural hash of a render tree via the canonical-EDN traversal Spec 011 pins: depth-first render-tree shape, attribute maps in sorted-key order, nil pruned. Value literals pin the FNV-1a 32-bit reference hash; same-hash pairs pin the traversal laws independent of the hash choice."
+
+ :fixture/calls
+ [;; ---- render-tree shape: depth-first traversal ----------------------
+  ;; Smallest realistic tree — keyword head + string child, no attr map.
+  {:call   :render-tree-hash
+   :input  [:p "hi"]
+   :expect "3d16d3e4"}
+
+  ;; A five-level nested tree with attribute maps at three depths. The
+  ;; depth-first walk descends each child before its siblings; a drift in
+  ;; the traversal ORDER at any level changes the hash. The one
+  ;; out-of-order attr map `{:href "/" :class "active"}` MUST also be
+  ;; reordered to `{:class "active" :href "/"}` (see sorted-key law
+  ;; below), so this fixture exercises shape AND sort together.
+  {:call   :render-tree-hash
+   :input  [:section {:class "wrap"}
+            [:header {:role "banner"}
+             [:h1 "Title"]
+             [:nav
+              [:a {:href "/" :class "active"} "Home"]
+              [:a {:href "/about"} "About"]]]
+            [:main
+             [:article {:class "post"}
+              [:h2 "Subtitle"]
+              [:p "Body 1"]
+              [:p "Body 2"]]]
+            [:footer [:p "(C) 2026"]]]
+   :expect "02eed3c5"}
+
+  ;; ---- sorted attribute keys ----------------------------------------
+  ;; A LAW pair: two attribute maps that differ ONLY in literal key order
+  ;; MUST hash identically. A port that emits attribute keys in insertion
+  ;; order (rather than sorted) fails this even if it picks its own hash.
+  ;; The shared literal is the reference FNV-1a value.
+  {:call   :render-tree-hash
+   :input  [:a {:href "/" :class "active" :id "home"} "Home"]
+   :expect "dd9240e9"}
+  {:call   :render-tree-hash
+   :input  [:a {:class "active" :id "home" :href "/"} "Home"]
+   :expect "dd9240e9"}
+
+  ;; ---- nil pruning ---------------------------------------------------
+  ;; A LAW pair for attribute-map nil pruning: `{:class nil :id "x"}` MUST
+  ;; hash the same as `{:id "x"}`. This is the common
+  ;; `{:class (when cond? :selected)}` shape — the server emits `:class nil`
+  ;; and the client (with cond? false) emits an absent key; pruning makes
+  ;; them structurally equivalent so no spurious hydration-mismatch fires.
+  {:call   :render-tree-hash
+   :input  [:div {:class nil :id "x"} [:p "hi"]]
+   :expect "11d3589e"}
+  {:call   :render-tree-hash
+   :input  [:div {:id "x"} [:p "hi"]]
+   :expect "11d3589e"}
+
+  ;; A LAW pair for nil-CHILD pruning: a `nil` positional child (the
+  ;; `(when cond? [:p ...])` => nil shape) is pruned so the with-nil and
+  ;; without-nil trees are positionally equivalent.
+  {:call   :render-tree-hash
+   :input  [:div [:p "a"] nil [:p "b"]]
+   :expect "e4cf2667"}
+  {:call   :render-tree-hash
+   :input  [:div [:p "a"] [:p "b"]]
+   :expect "e4cf2667"}
+
+  ;; ---- vector-vs-list distinction (cross-host trap) ------------------
+  ;; List children (the `for` / `map` shape a render fn commonly produces)
+  ;; emit `(...)` not `[...]`. A serialiser that collapses the two
+  ;; sequential kinds hashes these identically and diverges from the
+  ;; reference. Pins the list branch as DISTINCT from the vector branch.
+  {:call   :render-tree-hash
+   :input  [:ul (:li1 :li2 :li3)]
+   :expect "81d3674a"}
+
+  ;; ---- UTF-8 byte stream (the strongest cross-host trap) -------------
+  ;; The hash runs over the UTF-8 byte sequence of the canonical EDN, not
+  ;; the UTF-16 code-unit sequence. Two-byte (`é` -> c3 a9) content:
+  {:call   :render-tree-hash
+   :input  [:p "café"]
+   :expect "2379e33d"}
+
+  ;; Four-byte (`👋` -> f0 9f 91 8b), which on a JS host is a UTF-16
+  ;; SURROGATE PAIR. A port that walks `.charCodeAt` per UTF-16 code unit
+  ;; produces a byte stream offset relative to the JVM's UTF-8 bytes and
+  ;; fails here — the single most important cross-runtime pin.
+  {:call   :render-tree-hash
+   :input  [:span "👋 world"]
+   :expect "b0c50846"}]}
