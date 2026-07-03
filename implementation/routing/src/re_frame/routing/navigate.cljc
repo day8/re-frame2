@@ -157,9 +157,35 @@
                   {:where 'rf.route/navigate-handler})
           opts (or opts {})
           rdb  (or rdb-raw {})
+          ;; The current route slice (durable framework runtime-db fact).
+          ;; Read once here so the `:rf.route/self` identity-on-route target
+          ;; and the `:query-merge` opt both resolve against it (rf2-ue2d4t).
+          current (get-in rdb [:rf.runtime/routing :current])
           {:keys [route-id path-params query-params matched-fragment unmatched-url
                   throw-reason requested-url external-url-target?]}
           (cond
+            ;; rf2-ue2d4t — Spec 012 §Navigation is an event §Reserved
+            ;; targets §:rf.route/self. `:rf.route/self` is a reserved
+            ;; navigate target that means "stay on the CURRENT route,
+            ;; change only these query params" — the single most common URL
+            ;; operation (search, pagination, tabs). It is a documented,
+            ;; semantically-honest exception to enumerable route-id targets:
+            ;; identity-on-route. It resolves `:route-id` + `:path-params`
+            ;; from the current slice (the path is held fixed — self-nav
+            ;; never re-threads path params; the 2nd `params` arg is ignored
+            ;; for a self target, so the classic `{}` placeholder is
+            ;; correct). Query starts from `(:query opts)` exactly like a
+            ;; route-id target — the `:query-merge` opt below then folds the
+            ;; caller's deltas into the CURRENT query. Before the first
+            ;; navigation there is no current route; `:route-id` is nil and
+            ;; the `route-url` build fails closed to a rejected navigation
+            ;; (`:rf.error/no-such-route`), the same as any unresolvable
+            ;; target.
+            (= :rf.route/self target)
+            {:route-id     (:route-id current)
+             :path-params  (or (:params current) {})
+             :query-params (:query opts {})}
+
             (keyword? target)
             {:route-id     target
              :path-params  (or params {})
@@ -289,6 +315,31 @@
                                       retain-keys))
           query-params (if (seq retained)
                          (merge retained query-params)
+                         query-params)
+          ;; rf2-ue2d4t — Spec 012 §Navigation is an event §The :query-merge
+          ;; opt. `:query-merge` folds the caller's deltas into the CURRENT
+          ;; route's `:query` slice — the "stay here, change these query
+          ;; params" primitive (search, pagination, tabs). It REUSES the
+          ;; same read-and-merge machinery `:query-retain` uses above:
+          ;; the current query is read from the durable slice
+          ;; (`[:rf.runtime/routing :current :query]`, i.e. `current`),
+          ;; not built afresh. Precedence, low→high: current query → any
+          ;; already-resolved `query-params` (`:query` opt + retained
+          ;; keys) → the `:query-merge` deltas — so an explicit delta wins.
+          ;; A `nil` value REMOVES a key from the result (both the pushed
+          ;; URL and the written slice), matching `route-url`'s query
+          ;; nil-elision policy (rf2-w3qgc): eliding here keeps the slice
+          ;; clean rather than carrying a `{:page nil}` the URL omits. A
+          ;; present-but-FALSY value (`false`, `0`, `""`) is a legitimate
+          ;; value and survives, same as `route-url`. `:query-merge` is
+          ;; target-agnostic — it works with any target — but its natural
+          ;; pairing is `:rf.route/self`, where the current route IS the
+          ;; target. When `:query-merge` is absent the query resolves
+          ;; exactly as before (no current-query base is folded in).
+          query-params (if-let [merge-in (:query-merge opts)]
+                         (into {}
+                               (remove (comp nil? val))
+                               (merge (:query current) query-params merge-in))
                          query-params)
           ;; Per Spec 012 §Param validation at the call site: the
           ;; event-boundary path `[:rf.route/navigate ...]` runs the

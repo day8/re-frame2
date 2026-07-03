@@ -145,16 +145,33 @@ You navigate with the same verb you use for everything else, which is the whole 
 (rf/dispatch [:rf.route/navigate :app/article {:id "intro"} {:fragment "section-2"}])
 ```
 
-The opts map (third slot) is open; the runtime recognises four keys:
+The opts map (third slot) is open; the runtime recognises these keys (the canonical enumeration lives in [Spec 012 §The `navigate` opts](../../spec/012-Routing.md), which this table mirrors):
 
 | Opt | Effect |
 |---|---|
 | `:replace?` | Use `replaceState` instead of `pushState` — for redirects, login-flow returns, and search-as-you-type, where the back button should *not* land on the intermediate URL. |
-| `:query` | The query-string params for the new URL — coerced and emitted as `?key=value`. |
+| `:query` | The query-string params for the new URL — coerced and emitted as `?key=value`. Replaces the query wholesale. |
+| `:query-merge` | Fold these deltas into the **current** query instead of replacing it — the "stay here, change these params" move for search, pagination, and tabs. A `nil` value **removes** a key. Pairs with the `:rf.route/self` target (see [Navigate-in-place](#navigate-in-place) below). |
+| `:scroll` | Per-call override of the route's `:scroll` strategy (`:top` / `:restore` / `:preserve`; see [Fragments and scrolling](#fragments-and-scrolling)). |
 | `:fragment` | The target `#fragment` for the new URL. |
 | `:bypass-leave-guard?` | Skip the current route's `:can-leave` guard for this one navigation (see [Blocking a navigation](#blocking-a-navigation) below). |
 
 Hosts and apps may add their own opts under a namespace.
+
+<a id="navigate-in-place"></a>
+#### Navigate-in-place: change the query, stay on the route
+
+Changing `?page=`, a search term, or a tab means *stay on this route, change these query params* — the most common URL operation there is. Reach for the reserved `:rf.route/self` target and `:query-merge`:
+
+```clojure
+;; On /search?q=clojure&page=1  →  /search?q=clojure&page=2
+(rf/dispatch [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])
+
+;; Clear a filter: a nil value removes the key  →  /search?q=clojure
+(rf/dispatch [:rf.route/navigate :rf.route/self {} {:query-merge {:page nil}}])
+```
+
+`:rf.route/self` resolves to the route you're already on (id + path params, read from the current slice), so you never hand-roll a "read the route, branch on the id, rebuild the query" helper. `:query-merge` folds your deltas onto the current query — caller values win, a `nil` drops a key. It works with any target, but `:rf.route/self` is its natural partner. (`:query` *replaces* the whole query; `:query-merge` *edits* it — pick by whether you're building a fresh query or nudging the current one.)
 
 > **From re-frame v1.** `useNavigate`-style imperative calls and `secretary`'s `(set! js/window.location ...)` both become an ordinary `dispatch`. That means navigation is now *interceptable* and *replayable* like any other event — a navigate shows up in [Xray](../core/glossary.md#xray) on the same wire as your business events, and time-travel rewinds it for free, because it was never a side-channel. And this holds for **hash-URL apps too** — the shape most secretary-era apps have. Declare `:url-strategy rf/hash-url-strategy` on your URL-owning frame and the router speaks `#/…` at the edges (link hrefs, history, the URL-change listener) while `route-url` / `match-url` stay path-form; you use `:rf.route/navigate` and `route-link` exactly as a path-URL app does. There is no `(set! js/window.location.hash …)` side-channel left to write. See [URL strategies](#url-strategies) below.
 

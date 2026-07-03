@@ -1320,3 +1320,191 @@
           "control: :rf.route/activated DOES fire from an emitting frame")
       (is (some #(= :rf.route/deactivated (:operation %)) @app-traces)
           "control: :rf.route/deactivated DOES fire from an emitting frame"))))
+
+;; ---- rf2-ue2d4t — Spec 012 §:rf.route/self + §The :query-merge opt --------
+
+(defn- nav-slice
+  "The current route slice for the default frame."
+  []
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
+
+(deftest routing-self-target-stays-on-current-route
+  (testing ":rf.route/self resolves to the CURRENT route's id + path-params"
+    ;; Per Spec 012 §:rf.route/self — navigate-in-place. A self-nav holds the
+    ;; route (path) fixed and changes only the query; the 2nd params slot is
+    ;; ignored.
+    (rf/reg-route :route/article
+                  {:params [:map [:id :string]]
+                   :query  [:map [:tab {:optional true} :string]]}
+                  "/articles/:id")
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      ;; Land on /articles/intro?tab=notes.
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/intro?tab=notes"])
+      (is (= :route/article (:route-id (nav-slice))))
+      (is (= {:id "intro"} (:params (nav-slice))))
+      ;; Self-nav changing only the query; params slot is {}.
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query {:tab "history"}}])
+      (is (= :route/article (:route-id (nav-slice)))
+          ":rf.route/self keeps the current route-id")
+      (is (= {:id "intro"} (:params (nav-slice)))
+          ":rf.route/self keeps the current path-params (path held fixed)")
+      (is (= {:tab "history"} (:query (nav-slice)))
+          "the query changed to the supplied :query")
+      (is (= ["/articles/intro?tab=history"] @pushed)
+          "the pushed URL keeps the path and carries the new query"))))
+
+(deftest routing-query-merge-folds-into-current-query
+  (testing ":query-merge folds deltas into the CURRENT query, keeping the rest"
+    (rf/reg-route :route/search
+                  {:query [:map [:q {:optional true} :string]
+                                [:page {:optional true} :int]
+                                [:sort {:optional true} :string]]}
+                  "/search")
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      ;; Land on /search?q=clojure&page=1&sort=recent.
+      (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure&page=1&sort=recent"])
+      (is (= {:q "clojure" :page 1 :sort "recent"} (:query (nav-slice))))
+      ;; Merge :page 2 — q + sort ride along.
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])
+      (is (= {:q "clojure" :page 2 :sort "recent"} (:query (nav-slice)))
+          ":query-merge changes :page, keeps :q + :sort from the current query")
+      (let [url (last @pushed)]
+        (is (re-find #"page=2" url) "the new :page is in the URL")
+        (is (re-find #"q=clojure" url) "the untouched :q rides along")
+        (is (re-find #"sort=recent" url) "the untouched :sort rides along")))))
+
+(deftest routing-query-merge-nil-removes-a-key
+  (testing "a nil :query-merge value REMOVES a key from the slice AND the URL"
+    ;; Per Spec 012 §The :query-merge opt: a nil value drops a key, matching
+    ;; route-url's query nil-elision. The slice must be clean too (no {:sort
+    ;; nil}) so a self-nav to the same query is a genuine no-op.
+    (rf/reg-route :route/search
+                  {:query [:map [:q {:optional true} :string]
+                                [:sort {:optional true} :string]]}
+                  "/search")
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure&sort=recent"])
+      (reset! pushed [])
+      ;; Remove :sort via a nil value.
+      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:sort nil}}])
+      (is (= {:q "clojure"} (:query (nav-slice)))
+          ":sort is removed from the slice (no {:sort nil} residue)")
+      (is (not (contains? (:query (nav-slice)) :sort))
+          ":sort key is absent, not nil-valued")
+      (let [url (last @pushed)]
+        (is (re-find #"q=clojure" url) ":q survives")
+        (is (not (re-find #"sort" url)) ":sort is gone from the URL")))))
+
+(deftest routing-query-merge-preserves-falsy-values
+  (testing "a present-but-falsy :query-merge value survives (only nil removes)"
+    ;; false / 0 / "" are legitimate values, same as route-url.
+    (rf/reg-route :route/search
+                  {:query [:map [:page {:optional true} :int]
+                                [:flag {:optional true} :string]]}
+                  "/search")
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/search?page=1"])
+      (reset! pushed [])
+      ;; page 0 is falsy-but-legitimate; flag "" is an explicit empty value.
+      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 0 :flag ""}}])
+      (is (= 0 (:page (:query (nav-slice))))
+          "page=0 (falsy) survives the merge")
+      (is (= "" (:flag (:query (nav-slice))))
+          "flag=\"\" (empty string) survives the merge")
+      (is (re-find #"page=0" (last @pushed))
+          "page=0 is emitted in the URL"))))
+
+(deftest routing-query-merge-caller-delta-wins
+  (testing "an explicit :query-merge delta overrides the current query value"
+    (rf/reg-route :route/search
+                  {:query [:map [:page {:optional true} :int]]}
+                  "/search")
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/search?page=5"])
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 6}}])
+      (is (= 6 (:page (:query (nav-slice))))
+          "the :query-merge delta wins over the current :page=5"))))
+
+(deftest routing-query-merge-works-with-route-id-target
+  (testing ":query-merge is target-agnostic — folds current query into another route"
+    ;; Per Spec 012 §The :query-merge opt: :query-merge works with any target.
+    ;; Navigating to a DIFFERENT route folds the current query into that
+    ;; route's outgoing query (subject to the target's :query schema).
+    (rf/reg-route :route/a
+                  {:query [:map [:theme {:optional true} :string]]} "/a")
+    (rf/reg-route :route/b
+                  {:query [:map [:theme {:optional true} :string]
+                                [:page {:optional true} :int]]} "/b")
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/a?theme=dark"])
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate :route/b {} {:query-merge {:page 3}}])
+      (is (= :route/b (:route-id (nav-slice))) "navigated to the other route")
+      (is (= {:theme "dark" :page 3} (:query (nav-slice)))
+          "current query (:theme) folded in, plus the :page delta"))))
+
+(deftest routing-self-before-first-nav-rejects
+  (testing ":rf.route/self before any navigation fails closed (no current route)"
+    ;; Per Spec 012 §:rf.route/self: before the first navigation there is no
+    ;; current route; route-id resolves to nil and the navigation is rejected
+    ;; (slice unchanged, no push), the same fail-closed reject as any
+    ;; unresolvable target.
+    (let [pushed  (atom [])
+          errors  (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/register-listener! :trace ::self-reject
+                             (fn [ev] (when (= :error (:op-type ev))
+                                        (swap! errors conj ev))))
+      (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 1}}])
+      (rf/unregister-listener! :trace ::self-reject)
+      (is (empty? @pushed)
+          "no URL is pushed for a self-nav with no current route")
+      (is (nil? (:route-id (nav-slice)))
+          "the route slice stays empty (unchanged)")
+      (is (some #(= :rf.error/schema-validation-failure (:operation %)) @errors)
+          "a rejection error is emitted (route-url could not resolve nil route-id)"))))
+
+(deftest routing-self-query-merge-no-op-when-unchanged
+  (testing "self + :query-merge to the SAME query is a rule-3 no-op"
+    ;; Per Spec 012 §Per-route data loading rule 3: a navigation whose
+    ;; resolved id/params/query/fragment match the current slice exactly is a
+    ;; no-op — no fresh nav-token, no push. Eliding nil-valued merge keys from
+    ;; the SLICE (not just the URL) is what makes this hold.
+    (rf/reg-route :route/search
+                  {:query [:map [:page {:optional true} :int]]} "/search")
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/search?page=2"])
+      (let [token-before (:nav-token (nav-slice))]
+        (reset! pushed [])
+        ;; Merge :page 2 while already on page 2 → no-op.
+        (rf/dispatch-sync [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])
+        (is (empty? @pushed)
+            "a self-nav to the identical query pushes no URL (rule-3 no-op)")
+        (is (= token-before (:nav-token (nav-slice)))
+            "the nav-token is unchanged (no fresh epoch)")))))
