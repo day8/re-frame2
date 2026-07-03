@@ -42,7 +42,7 @@ main read**.
   cancellation-cascade visualiser, per-instance "why am I stuck" trace.
   UC1 Sim + UC2 Mode A/B/C dynamic-instance UI preserved as Static
   re-host reference below the §STATIC RE-HOST REFERENCE divider
-  (rf2-r4nao — deferred). ELK+SVG primitive Xray-internal. **The bug
+  (rf2-r4nao — landed). ELK+SVG primitive Xray-internal. **The bug
   catalogue at the bottom (M.1–M.10) is the per-feature motivation.**
 - **[004-App-DB-Diff.md](004-App-DB-Diff.md)** — Slice-centric (not
   tree-centric) app-db panel. Future: branch-aware diff (for Story
