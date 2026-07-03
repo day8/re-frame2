@@ -297,7 +297,6 @@ in runtime-db carries the structured state but you don't read it directly.
 │  ⧖ :dash    :load-dashboards#4     running 2.4s                   │
 │  :on-all-complete  → [:assets-loaded]                             │
 │  :on-any-failed    → [:asset-load-failed]                         │
-│  :cancel-on-decision?  true                                        │
 └────────────────────────────────────────────────────────────────────┘
 ```
 

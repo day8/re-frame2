@@ -312,7 +312,7 @@
 ;;
 ;; Per Spec 014 §Abort on actor destroy: when a spawned state-machine
 ;; actor is destroyed (parent state exit, parent's :after firing,
-;; :spawn-all cancel-on-decision, frame destroy, imperative destroy),
+;; :spawn-all join resolution, frame destroy, imperative destroy),
 ;; the runtime invokes this fn with the destroyed actor's address. We
 ;; walk the actor-in-flight index, abort each in-flight request (which
 ;; cascades into the natural-failure-dispatch path with :reason

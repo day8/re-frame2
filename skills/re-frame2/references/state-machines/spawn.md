@@ -162,21 +162,21 @@ When the parent needs to fan out N children and resume on a join condition (boot
   {:children         [{:id :cfg  :machine-id :load-config       :on-spawn :record-cfg}
                       {:id :user :machine-id :load-user-profile  :on-spawn :record-user}
                       {:id :dash :machine-id :load-dashboards    :on-spawn :record-dash}]
-   :join             :all                            ;; :all / :any / {:n N} / {:fn pred}
+   :join             :all                            ;; :all (default) or :any
    :on-child-done    :child/done                     ;; child-keyword the children dispatch on success
    :on-child-error   :child/error                    ;; child-keyword the children dispatch on failure
    :on-all-complete  [:assets-loaded]                ;; parent event when :all fires
    :on-any-failed    [:asset-load-failed]            ;; parent event when any child fails
-   :on-some-complete [:partial-load]}                ;; parent event when :n or :any fires
+   :on-some-complete [:partial-load]}                ;; parent event when :any fires
 
   :on    {:assets-loaded     :ready
           :asset-load-failed :error
           :partial-load      :degraded}}}
 ```
 
-Child id is the `:id` field inside each `:children` entry (NOT the `:machine-id`); each child dispatches `[:child/done :cfg & extra]` (or `:child/error`) back to the parent. The runtime intercepts these at the parent's machine boundary, updates join-state at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, evaluates the join condition, and fires the resolved parent event — automatically cancelling surviving siblings (`:cancel-on-decision?` defaults to `true`).
+Child id is the `:id` field inside each `:children` entry (NOT the `:machine-id`); each child dispatches `[:child/done :cfg & extra]` (or `:child/error`) back to the parent. The runtime intercepts these at the parent's machine boundary, updates join-state at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, evaluates the join condition, and fires the resolved parent event — unconditionally cancelling surviving siblings on join resolution.
 
-Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`): `:on-child-done` / `:on-child-error` are required keywords, `:on-all-complete` is required when `:join :all` (the default), `:on-some-complete` is required for `:any` / `{:n N}` / `{:fn pred}`.
+Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`): `:on-child-done` / `:on-child-error` are required keywords, `:on-all-complete` is required when `:join :all` (the default), `:on-some-complete` is required for `:any`.
 
 ## Common gotchas
 

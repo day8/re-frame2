@@ -234,7 +234,7 @@
       ;; ordering `destroy-single!` and `finalize-machine` use.
       ;;
       ;; Silent-idempotent destroy contract:
-      ;; `:cancel-on-decision?` join resolution (join.cljc/build-resolution-fx)
+      ;; join resolution (join.cljc/build-resolution-fx)
       ;; already tore down surviving children via the guarded
       ;; `destroy-single!` keyword form (one `:destroyed` each) BEFORE the
       ;; parent's exit cascade re-reads the still-uncleared join-state here.

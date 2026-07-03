@@ -99,7 +99,7 @@ The wrapper handles its own internal events and dispatches `[parent-id [:succeed
    :on-any-failed   [:hydrate/aborted]}}}
 ```
 
-Each child wrapper aborts on cancel-on-decision; per-sibling cascade fires independently.
+Each child wrapper aborts when the join resolves and surviving siblings are torn down; per-sibling cascade fires independently.
 
 ## The retry-ownership boundary
 

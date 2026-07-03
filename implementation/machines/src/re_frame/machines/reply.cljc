@@ -271,7 +271,7 @@
 ;; carries the SAME uniform reply vocabulary the single-`:spawn` path
 ;; carries — a canonical reply map, `:work/id`, and `:rf.reply/*` facts.
 ;; The PUBLIC join protocol (the parent dispatch, the resolution events,
-;; the cancel-on-decision cascade) is independent of these helpers; this is
+;; the join-resolution sibling-cancellation cascade) is independent of these helpers; this is
 ;; INTERNAL trace-stream lowering only, so a join child's done / failed /
 ;; late completion classifies the same way HTTP / resources /
 ;; single-`:spawn` do.

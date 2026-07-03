@@ -257,7 +257,7 @@ This is why `:spawn` is worth using instead of firing an HTTP request from a pla
 
 1. **Parent state exit** — any transition out of the `:spawn`-bearing state.
 2. **The parent's `:after` firing** — a wall-clock timeout (next section) is just a state exit.
-3. **`:spawn-all` cancel-on-decision** — surviving siblings are torn down when the join resolves.
+3. **`:spawn-all` join resolution** — surviving siblings are unconditionally torn down when the join resolves.
 4. **Imperative `[:rf.machine/destroy <id>]`**.
 5. **Frame destroy** — when the [frame is torn down](glossary.md#snapshot) by an explicit `destroy-frame!`, every surviving machine in it is destroyed. Note that **a frame is not destroyed by a view unmounting or by navigating away** — frames [survive unmount by design](../core/concepts/frames.md) (tearing one down is a deliberate `destroy-frame!`, not a cleanup effect). So this trigger fires when a component that *owns* a frame's whole lifetime destroys it (a modal with a throwaway world torn down on close), or when a per-request SSR frame is disposed at end-of-request — not on every route change. Cross-route teardown of a machine's resources rides its `:exit` cascade (triggers 1–4 above), which is why you don't wire abort calls into route-leave handlers even though the frame itself lives on.
 
@@ -322,7 +322,7 @@ When a state needs to spawn **N children in parallel** and resume on a join cond
      {:children        [{:id :s1 :machine-id :work/processor :data {:shard :s1 :total 100}}
                         {:id :s2 :machine-id :work/processor :data {:shard :s2 :total 100}}
                         {:id :s3 :machine-id :work/processor :data {:shard :s3 :total 100}}]
-      :join            :all                   ;; or :any, {:n N}, {:fn pred}
+      :join            :all                   ;; :all (default) or :any
       :on-child-done   :work/child-done       ;; keyword each child dispatches on success
       :on-child-error  :work/child-error      ;; ...and on failure
       :on-all-complete [:work/all-done]        ;; parent event when :all resolves
@@ -349,13 +349,13 @@ When a state needs to spawn **N children in parallel** and resume on a join cond
                 {:fx [[:dispatch [:work/flow [:work/child-done (:shard data)]]]]})}
 ```
 
-The runtime intercepts these at the parent's boundary, updates join state, and once the condition resolves, fires the parent event (`:on-all-complete` here) **and** cancels any siblings still in flight (`:cancel-on-decision?` defaults to `true`). The bookkeeping — who's done, who failed, the resolution latch — is **runtime-owned** at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`; the parent keeps none of it in `:data`.
+The runtime intercepts these at the parent's boundary, updates join state, and once the condition resolves, fires the parent event (`:on-all-complete` here) **and** unconditionally cancels any siblings still in flight. The bookkeeping — who's done, who failed, the resolution latch — is **runtime-owned** at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`; the parent keeps none of it in `:data`.
 
 A few rules worth knowing:
 
 - **Each child needs a unique `:id`** (the join key) on top of the usual spawn keys. Duplicate ids are a registration error.
-- **Join discriminators:** `:all` (default), `:any`, `{:n N}`, or `{:fn (fn [{:keys [done failed]}] …)}`. `:on-all-complete` is required for `:all`; `:on-some-complete` is required for the partial-success kinds.
-- **Cancel-on-decision defaults to `true`** — when the join resolves, surviving siblings are torn down. Set `:cancel-on-decision? false` for a non-cancelling join (e.g. an analytics fan-out where each child is independently valuable): siblings run to completion and their late results still fold into the join-state, firing no further parent event.
+- **Join discriminators:** `:all` (default) or `:any`. `:on-all-complete` is required for `:all`; `:on-some-complete` is required for `:any`. A quorum ("N of M") join uses the data-only `:after` + `:done-guard` idiom, not a `:join` mode ([Spec 005 §Join semantics](../../spec/005-StateMachines.md#join-semantics)).
+- **Sibling cancellation on join resolution is unconditional** — when the join resolves, surviving siblings are torn down. A late result from an already-decided join fires no further parent event. A fan-out where each child is independently valuable is modelled as N independent single-`:spawn`s (fire-and-forget), not a non-cancelling join.
 - **An unregistered child type fails the whole join closed** before any join-state is seeded — a child that can never run can never deadlock an `:all` join.
 - **Wall-clock timeout:** same as single `:spawn` — an `:after` on the `:spawn-all`-bearing state. When it fires, the exit cascade cancels every surviving child.
 
