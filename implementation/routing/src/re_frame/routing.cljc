@@ -59,6 +59,7 @@
             [re-frame.routing.on-match-error :as on-match-error]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
+            [re-frame.routing.strategy :as strategy]
             [re-frame.routing.sub-egress :as sub-egress]
             [re-frame.routing.subs :as routing-subs]
             [re-frame.routing.url-bound :as url-bound]
@@ -196,8 +197,23 @@
 ;; resolution in `url-owner-frame-id` reads it.
 (def reset-url-claims!          nav-fx/reset-url-claims!)
 
-;; Browser history (CLJS-only; `:require`-able from .cljc boot)
+;; URL strategies (rf2-aerrz5). The two shipped frame-level `:url-strategy`
+;; maps — `history-url-strategy` (default, path-form) + `hash-url-strategy`
+;; (`#`-prefixed). Declared on the URL-owning frame:
+;;   (rf/reg-frame :app {:url-bound? true :url-strategy rf/hash-url-strategy})
+;; Routing-façade home (NOT re-frame.core) so a non-routing app's production
+;; bundle carries no strategy code — the routing bundle-isolation invariant.
+;; Per Spec 012 §URL strategies.
+(def history-url-strategy       strategy/history-url-strategy)
+(def hash-url-strategy          strategy/hash-url-strategy)
+
+;; Browser URL-change listener (CLJS-only; `:require`-able from .cljc boot).
+;; rf2-aerrz5: `install-url-listener!` is the strategy-aware boot seam (wires
+;; `popstate` or `hashchange` per the owner's `:url-strategy`);
+;; `install-history-listener!` is retained as its alias (history default).
 (def current-url                history/current-url)
+#?(:cljs (def install-url-listener!     history/install-url-listener!))
+#?(:cljs (def remove-url-listener!      history/remove-url-listener!))
 #?(:cljs (def install-history-listener! history/install-history-listener!))
 #?(:cljs (def remove-history-listener!  history/remove-history-listener!))
 
@@ -553,9 +569,14 @@
 
 (late-bind/set-fn! :routing/on-frame-destroyed! release-routing-host-caches!)
 
-;; Browser-history wiring (popstate → url-owner frame). CLJS-only; the
-;; JVM build has no `window` so the install/remove fns are not defined
-;; there (SSR feeds the request URL via `:rf.route/handle-url-change`).
+;; Browser URL-change wiring (popstate / hashchange → url-owner frame),
+;; strategy-aware (rf2-aerrz5). CLJS-only; the JVM build has no `window` so
+;; the install/remove fns are not defined there (SSR feeds the request URL
+;; via `:rf.route/handle-url-change`). Both the strategy-aware name and the
+;; retained history-alias name are published so a late-bind consumer can reach
+;; either.
+#?(:cljs (late-bind/set-fn! :routing/install-url-listener!     install-url-listener!))
+#?(:cljs (late-bind/set-fn! :routing/remove-url-listener!      remove-url-listener!))
 #?(:cljs (late-bind/set-fn! :routing/install-history-listener! install-history-listener!))
 #?(:cljs (late-bind/set-fn! :routing/remove-history-listener!  remove-history-listener!))
 
