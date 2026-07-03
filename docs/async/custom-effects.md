@@ -1,6 +1,6 @@
 # Your own async effect
 
-Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. For those, write a small `fx`: start the host work, then dispatch a named reply [event](../core/concepts/events-and-the-cascade.md) when it finishes. That gives you the same continuation style as HTTP. It does not give you HTTP's managed extras — retry, abort, stale-result suppression, and the HTTP failure categories — unless you build those too.
+Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. For those, write a small `fx`: start the host work, then dispatch a named reply [event](../core/concepts/events-and-the-pipeline.md) when it finishes. That gives you the same continuation style as HTTP. It does not give you HTTP's managed extras — retry, abort, stale-result suppression, and the HTTP failure categories — unless you build those too.
 
 !!! note "The one rule"
 

@@ -60,7 +60,7 @@ This declares "I depend on this derived value. Re-run me when it changes." That'
 [:button {:on-click #(rf/dispatch [:cart/add id])} "Add"]
 ```
 
-A dispatch *announces that something happened* by handing the framework an [event](../glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event cascade](../glossary.md#event-cascade) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole turn of the loop is [Events & the cascade](events-and-the-cascade.md).)
+A dispatch *announces that something happened* by handing the framework an [event](../glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event cascade](../glossary.md#event-cascade) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole turn of the loop is [Events & the cascade](events-and-the-pipeline.md).)
 
 Notice the shape of the round trip, because it's the whole idea. A click never mutates the number it sits next to. It dispatches an event that produces a *new* `app-db`, which flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with.
 
@@ -359,7 +359,7 @@ Step back and notice what all this buys you at debugging time. A view holds no s
 
 > **When something renders wrong, the bug is almost never in the view — it's in the data the view was handed.**
 
-So don't debug views. Inspect data. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](events-and-the-cascade.md) that wrote it. Both are pure functions you can test without a browser. With [Xray](../glossary.md#xray) open, find the [event](../glossary.md#event) row that preceded the bad render and look at the data it produced. The wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../how-to/debug-with-xray.md)).
+So don't debug views. Inspect data. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](events-and-the-pipeline.md) that wrote it. Both are pure functions you can test without a browser. With [Xray](../glossary.md#xray) open, find the [event](../glossary.md#event) row that preceded the bad render and look at the data it produced. The wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../how-to/debug-with-xray.md)).
 
 The render itself is observable too, which helps with the *other* failure mode — not "wrong value" but "why did this re-render at all?" Each render emits a [trace event](../glossary.md#trace-event) keyed by a `:render-key` — the tuple `[view-id instance-token]`, where the token disambiguates two mounted instances of the same view (`[:cart/row 1473]` vs `[:cart/row 1474]`). The entry also carries what *triggered* the render (the sub or props that changed) and the view's render args, so an over-rendering view shows its cause rather than leaving you to guess.
 
