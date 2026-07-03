@@ -42,7 +42,7 @@ And a singleton machine (based on this specification value) can be defined as an
 (rf/reg-machine :auth-login auth-login-machine)
 ```
 
-The state for all machines lives in a [frame](../core/concepts/frames.md) alongside your `app-db`. It moves on the same cascade, can be "undone" the same way, debugged with the same tools (like Xray), and tested the same way — **there's no second runtime to learn**.
+The state for all machines lives in a [frame](../core/concepts/frames.md) alongside your `app-db`. It moves on the same pipeline, can be "undone" the same way, debugged with the same tools (like Xray), and tested the same way — **there's no second runtime to learn**.
 
 Triggers are sent to machines by normal events, dispatched the normal way, so you drive a machine straight from an ordinary handler. Dispatching `[:auth-login [:submit …]]` fires the machine's `:submit` arrow:
 

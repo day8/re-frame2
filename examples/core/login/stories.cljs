@@ -76,7 +76,7 @@
             [login.core]))
 
 ;; ---------------------------------------------------------------------------
-;; The story-side submit — our way of triggering the full, Xray-rich cascade.
+;; The story-side submit — our way of triggering the full, Xray-rich pipeline run.
 ;;
 ;; Recall what the machine does on submit: its `:issue-request` action fires
 ;; a real `:rf.http/managed` request and pipes the reply back through
@@ -266,7 +266,7 @@
      :substrates #{:reagent}})
 
   ;; Success — the hero shot, and the most satisfying one to inspect. The
-  ;; whole real cascade runs through `:login.story/submit`: submit →
+  ;; whole real pipeline run flows through `:login.story/submit`: submit →
   ;; `:issue-request` → real `:rf.http/managed` fx → canned reply →
   ;; `:auth.login/success` → `:authed`. Open this one, hit Ctrl+Shift+C, and
   ;; watch the full chain march across Xray's Epoch / Trace / Side Effects

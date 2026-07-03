@@ -6,7 +6,7 @@ There's one sentence to carry out of this whole page:
 
 **Supply data, don't swap mechanisms.**
 
-You never patch `js/Date`. You never intercept `fetch`. You never replace a module. You hand the runtime the exact facts a [handler](../../core/glossary.md#event-handler) declared it needs, then read the data it produced. Everything below is that one sentence applied across the slice — to a handler, a subscription, a view, a whole [cascade](../../core/glossary.md#event-cascade), and finally the release build.
+You never patch `js/Date`. You never intercept `fetch`. You never replace a module. You hand the runtime the exact facts a [handler](../../core/glossary.md#event-handler) declared it needs, then read the data it produced. Everything below is that one sentence applied across the slice — to a handler, a subscription, a view, a whole [pipeline run](../../core/glossary.md#run), and finally the release build.
 
 ??? info "Coming from React Testing Library + MSW?"
 
@@ -115,7 +115,7 @@ Whatever appears there is what your literal map (or your dispatch, below) suppli
 
     The input map (coeffects) and the output map (effects) are both *plain data*, and the handler is a pure function between them. That makes a handler a morphism in the most boring, most useful sense: testing it is exactly testing `f(input) = output`, with no observation of effects on the side. The runtime's job is to *interpret* the returned effect data — your test skips the interpreter and inspects the description. It's the same separation a free monad buys you — build a program as a value, run it later — arrived at without a gram of type machinery: the effect map *is* the program, and `dispatch` *is* the interpreter.
 
-## 3. Test the cascade: one dispatch, end to end
+## 3. Test the pipeline run: one dispatch, end to end
 
 Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hits the [machine](../../machines/glossary.md#machine), the machine fires a [managed HTTP](../glossary.md#managed-http) request, the reply re-enters as another event, the session lands in [app-db](../../core/glossary.md#app-db). You want to test that as one piece, the way it actually runs.
 
@@ -143,7 +143,7 @@ Four things do the work — those four edges. Each redirects a *value at a bound
 - **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` declares intent and bundles two deterministic defaults: it redirects the `:rf.http/managed` fx to its canned-success stub, so a request you forgot to stub can never escape to the wire; and it sets a **strict mint policy**, so a handler that declares a generated [coeffect](../../core/glossary.md#coeffect) (a fresh id, say) but isn't *supplied* one fails loud with `:rf.error/missing-required-cofx` rather than quietly minting a value that won't match production. (`:rf/time-ms` is always stamped, so it never trips this — the strict failure is reserved for *declared-but-absent, generator-backed* facts. A test that genuinely wants a fresh value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}`.)
 - **`{:rf.cofx {…}}` on the dispatch** supplies the declared fact. This is the *same* surface the boot site uses in production — the test isn't faking the coeffect machinery, it's *being* the boundary that stamps the value.
 - **`with-managed-request-stubs`** routes `:rf.http/managed` by method + URL for the body's extent and synthesizes a real reply envelope. The exact request data your machine's action produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
-- **`dispatch-sync` drains to fixed point.** The whole cascade settles before the call returns — the machine transition, the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
+- **`dispatch-sync` drains to fixed point.** The whole pipeline run settles before the call returns — the machine transition, the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
 
 The unhappy path — the one your users will actually hit — is the same shape with a failure reply:
 
@@ -188,7 +188,7 @@ Your views read app-db through [subscriptions](../../core/glossary.md#subscripti
 
     For a trivial reader where the dispatch adds nothing, you *can* pass a literal map — `(compute-sub [:auth.login-form/can-submit?] {:auth {:login-form {:errors {} :status :idle}}})`. Reach for that escape hatch sparingly: a hand-rolled db shape silently rots when the real schema moves underneath it, whereas the dispatch-the-real-events form tracks the schema for free.
 
-There's a [partition](../../core/glossary.md#the-two-partitions) wrinkle the cascade tests above already leaned on. They read `:auth/state` with `(rf/frame-state-value f)`, not `(rf/app-db-value f)`:
+There's a [partition](../../core/glossary.md#the-two-partitions) wrinkle the pipeline-run tests above already leaned on. They read `:auth/state` with `(rf/frame-state-value f)`, not `(rf/app-db-value f)`:
 
 !!! warning "Gotcha — app-db subs vs machine-backed subs"
 
@@ -262,7 +262,7 @@ One detail underwrites every test above: each runs against a clean runtime, with
 
 ??? note "Going deeper — two scopes of isolation, stacked"
 
-    The fixture resets the *process*; `with-new-frame` scopes one *frame's* lifetime to one test (created for the body, destroyed on exit — success or exception). Every cascade test above wraps both, belt-and-braces, so no frame, no registration, and no in-flight request can survive into the next test. If a test only registers a handful of handlers and never mounts an adapter or drives a long-lived frame, you can reach below the fixture to `with-fresh-registrar`, which brackets just the registrar around a single body.
+    The fixture resets the *process*; `with-new-frame` scopes one *frame's* lifetime to one test (created for the body, destroyed on exit — success or exception). Every pipeline-run test above wraps both, belt-and-braces, so no frame, no registration, and no in-flight request can survive into the next test. If a test only registers a handful of handlers and never mounts an adapter or drives a long-lived frame, you can reach below the fixture to `with-fresh-registrar`, which brackets just the registrar around a single body.
 
 Run the suite:
 

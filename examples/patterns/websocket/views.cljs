@@ -59,7 +59,7 @@
        [:span.error {:data-testid "ws-error"} (str " — " (pr-str err))])
      ;; This counter is always on screen, no matter what the pill is doing.
      ;; A test leans on it: it advances after a Drop, proving the reconnect
-     ;; machinery ran even when the cascade resolves too fast for the pill
+     ;; machinery ran even when the pipeline run resolves too fast for the pill
      ;; to ever show RECONNECTING.
      [:span.reconnect-attempts {:data-testid "ws-reconnect-attempts"}
       (str retries)]]))

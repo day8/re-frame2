@@ -84,7 +84,7 @@
 ;; quietly poison that — every replay would mint a different id. The
 ;; seeded docs (`:welcome`, `:six-dominoes`, …) have no `doc-` prefix, so
 ;; they're invisible to the scan and the first new id is `:doc-1`. See
-;; docs/core/concepts/events-and-the-cascade.md on replayable events.
+;; docs/core/concepts/events-and-the-pipeline.md on replayable events.
 (defn- allocate-next-doc-id
   "Next `:doc-N` id: highest existing N plus one (or 1 when there are
    none). A pure function of the current documents, so it replays

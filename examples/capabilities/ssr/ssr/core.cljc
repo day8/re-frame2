@@ -266,7 +266,7 @@
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (ssr/set-request! fid request)
            ;; Schema first, frame second — order matters. `reg-frame` runs its
-           ;; `:initial-events` cascade synchronously, and that cascade includes
+           ;; `:initial-events` pipeline run synchronously, and that run includes
            ;; the `:articles` commit `:rf/server-init` sets in motion. If the
            ;; schema weren't already registered against this per-request frame
            ;; (the gensym `fid`), there'd be nothing to validate that commit

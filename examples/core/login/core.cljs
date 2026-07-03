@@ -65,7 +65,7 @@
             ;; doing nothing — which is exactly what you want.
             [re-frame.http.managed]
             ;; Turns on the canned-success / canned-failure stub fxs our
-            ;; demo stub leans on (docs/core/how-to/test-a-cascade.md).
+            ;; demo stub leans on (docs/core/testing/pipeline-runs.md).
             [re-frame.http.test-support]
             [re-frame.adapter.reagent :as reagent-adapter]))
 

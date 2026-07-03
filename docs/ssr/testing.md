@@ -63,7 +63,7 @@ Two SSR surfaces are deliberately test-shaped:
 
 ## 4. Platform gating comes for free
 
-A JVM drain **is** a server-side drain. So when a handler under test returns a `#{:client}` effect — a `localStorage` write, a focus call — the resolver skips it in your test exactly as it will in production SSR, emitting the `:rf.fx/skipped-on-platform` trace instead of exploding on a missing `js/localStorage`. That means your existing cascade tests already prove your handlers are server-safe; a handler that *would* crash a server render crashes the JVM test first, which is precisely where you want to hear about it.
+A JVM drain **is** a server-side drain. So when a handler under test returns a `#{:client}` effect — a `localStorage` write, a focus call — the resolver skips it in your test exactly as it will in production SSR, emitting the `:rf.fx/skipped-on-platform` trace instead of exploding on a missing `js/localStorage`. That means your existing pipeline-run tests already prove your handlers are server-safe; a handler that *would* crash a server render crashes the JVM test first, which is precisely where you want to hear about it.
 
 ## What stays in the browser
 

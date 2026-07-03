@@ -48,7 +48,7 @@ Skim this, then read the worked build-up in [The grammar, concept by concept](#t
 | `sendTo` / `sender` (reply to a request) | the reply event carried in the request vector | No new API; the request names its own reply target. |
 | TypeScript `types` / v6 `schemas` | [`:schemas {:data … :output …}`](#schemas-types-that-actually-run) | A [Malli schema](../core/glossary.md#schema) — but one that **actually runs in dev** and rolls a bad transition back, not erased-at-compile types. |
 | three creation modes (`createActor` / `invoke` / `spawn`) | one mechanism: singleton via `reg-machine`, dynamic via `:spawn` / `[:rf.machine/spawn …]` | Lifetime is the snapshot's presence in [runtime-db](../core/glossary.md#runtime-db), not which constructor you called. |
-| **`createActor(m).start()` → `actor.send(ev)`** | **the machine is an event handler → `(rf/dispatch [machine-id [event]])`** | **The big one.** No actor object; one [`dispatch`](../core/glossary.md#dispatch), one [cascade](../core/glossary.md#event-cascade). |
+| **`createActor(m).start()` → `actor.send(ev)`** | **the machine is an event handler → `(rf/dispatch [machine-id [event]])`** | **The big one.** No actor object; one [`dispatch`](../core/glossary.md#dispatch), one [pipeline run](../core/glossary.md#run). |
 | `actor.getSnapshot()` | [`@(rf/sub-machine id)`](#reading-the-snapshot) | The [snapshot](glossary.md#snapshot) is a value in [runtime-db](../core/glossary.md#runtime-db), read like any other derived state. |
 
 This table is the long form; the worked build-up and the *why* essays below are the part worth your attention.
@@ -385,7 +385,7 @@ The renames are noise. These four are the real differences, each made on purpose
 
 In XState the unit of life is the actor. You instantiate a machine, start it, hold the reference, and `send` it messages; it owns its state and you ask it for a snapshot. That's a clean model, and it's a *second* messaging system living alongside whatever else your app uses to move data around.
 
-re-frame2 already has exactly one of those — the [event cascade](../core/glossary.md#event-cascade). Every state change in the entire app is a [`dispatch`](../core/glossary.md#dispatch) flowing through one router queue. So a machine doesn't get to be special:
+re-frame2 already has exactly one of those — the [event pipeline](../core/glossary.md#event-pipeline). Every state change in the entire app is a [`dispatch`](../core/glossary.md#dispatch) flowing through one router queue. So a machine doesn't get to be special:
 
 ```clojure
 (rf/reg-machine :auth.login/flow login-flow)            ;; register, like any handler

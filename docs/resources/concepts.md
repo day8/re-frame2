@@ -72,7 +72,7 @@ The cleanest cause is the page itself, because a page already knows what data it
 
 On entry, the runtime ensures the resource with the route as its **owner** — the thing keeping the cache entry alive. On leave, or on a superseding navigation, it releases it. `:blocking? true` holds the route transition until that read settles (which also hands server-side rendering a natural wait point); a non-blocking resource fetches in the background instead.
 
-Navigate to an article page with [Xray](../core/glossary.md#xray) (the dev inspector) open and you can watch the whole [event cascade](../core/glossary.md#event-cascade): the route-entry event row shows the ensure it caused, and the Resources panel shows the entry move from `:idle` through `:loading` to `:loaded`. Visit the same article a second time and you get a cache hit — no network row at all.
+Navigate to an article page with [Xray](../core/glossary.md#xray) (the dev inspector) open and you can watch the whole [pipeline run](../core/glossary.md#run): the route-entry event row shows the ensure it caused, and the Resources panel shows the entry move from `:idle` through `:loading` to `:loaded`. Visit the same article a second time and you get a cache hit — no network row at all.
 
 ??? info "Coming from TanStack Query?"
 

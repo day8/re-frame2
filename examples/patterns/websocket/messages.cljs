@@ -257,7 +257,7 @@
           (store-socket! self-id socket)
           ;; Notice we report `:opened` as a `:dispatch` *fx*, not a bare
           ;; `(rf/dispatch ...)` in the action body. The fx inherits the
-          ;; cascade's frame; a raw dispatch from in here would run with no
+          ;; pipeline run's frame; a raw dispatch from in here would run with no
           ;; frame at all and raise `:rf.error/no-frame-context`. Effects,
           ;; not side effects.
           {:fx [[:dispatch [parent-id [:ws/opened {:source-socket-id self-id}]]]]}))
