@@ -105,8 +105,10 @@ and recognises the shape. That continuity is deliberate.
   - `:css :tailwind` (rf2-gthro, deferred until gating bead
     flips) — Tailwind v4 in place of the default plain-CSS
     `app.css`.
-  - `:include-ssr?` (rf2-0m5ea, deferred until gating bead
-    flips) — SSR scaffolding per Spec 011.
+  - `:include-ssr?` (rf2-675qdb, shipped) — SSR scaffolding per
+    Spec 011: a shared `core.cljc` (JVM render + CLJS hydration),
+    a `server.clj` Ring host, and a headless `ssr_test.clj`.
+    Reagent-only in v1; mutually exclusive with `:include-story?`.
 
   Resist further proliferation — every additional flag requires
   explicit DESIGN-RATIONALE justification.
@@ -120,9 +122,12 @@ and recognises the shape. That continuity is deliberate.
 - **Multi-frame scaffolds.** Frames (Spec 002) are a runtime
   concern. The template emits a single-frame app; the user reads
   Guide chapter 06 to add more.
-- **Server-side hosting.** No backend; the template is a pure CLJS
-  SPA. SSR scaffolding (Spec 011) lands behind the `:include-ssr?`
-  flag once rf2-0m5ea validates.
+- **Server-side hosting on the default path.** The default scaffold is a
+  pure CLJS SPA — no backend. SSR scaffolding (Spec 011) is the opt-in
+  exception: `:include-ssr? true` (rf2-675qdb, shipped) emits a shared
+  `core.cljc` + a Ring/Jetty `server.clj` host + a headless `ssr_test.clj`
+  (Reagent-only in v1). See 004-SSR-Validation-Report and
+  001-Substrate-Variants §Variants.
 
 ## Distribution
 

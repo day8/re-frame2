@@ -1065,6 +1065,193 @@
         (finally
           (delete-recursively tmp))))))
 
+;; --- :include-ssr? flag (004-SSR-Validation-Report §3) -------------------
+;;
+;; Both gating conditions cleared (implementation/ssr + ssr-ring carry the
+;; full Spec 011 reference impl; rf2-0m5ea closed), so `:include-ssr?` is a
+;; LIVE Reagent-only flag mirroring `:include-story?`'s shape. The report's
+;; §3.3 test plan: a positive Reagent shape check + the three negative
+;; guards (UIx / Helix / story-mutual-exclusion).
+
+(deftest default-path-emits-no-ssr-files-test
+  (testing "default path (no :include-ssr?) does not emit the SSR sources
+            and does not pull in the ssr / ssr-ring / jetty coords"
+    (let [tmp (tmp-dir "rf2-template-no-ssr-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent)]
+          (is (not (file-exists? root "src/acme/my_app/core.cljc"))
+              "core.cljc is NOT emitted on the default path (core.cljs is)")
+          (is (file-exists? root "src/acme/my_app/core.cljs")
+              "the default path emits the pure-CLJS core.cljs")
+          (is (not (file-exists? root "src/acme/my_app/server.clj"))
+              "server.clj is NOT emitted on the default path")
+          (is (not (file-exists? root "test/acme/my_app/ssr_test.clj"))
+              "ssr_test.clj is NOT emitted on the default path")
+          (let [deps (read-edn (io/file root "deps.edn"))]
+            (is (not (contains? (:deps deps) 'day8/re-frame2-ssr))
+                "deps.edn does NOT reference day8/re-frame2-ssr on default path")
+            (is (not (contains? (:deps deps) 'day8/re-frame2-ssr-ring))
+                "deps.edn does NOT reference day8/re-frame2-ssr-ring on default path")
+            (is (not (contains? (:aliases deps) :server))
+                "deps.edn has no :server alias on the default path")))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest include-ssr-true-reagent-test
+  (testing ":include-ssr? true on Reagent emits core.cljc + server.clj +
+            ssr_test.clj, wires the ssr / ssr-ring / jetty coords + the
+            :server alias, and omits the per-slice CLJS sources"
+    (let [tmp (tmp-dir "rf2-template-with-ssr-")]
+      (try
+        (let [root (run-template-opts! tmp "acme/my-app"
+                                       {:substrate :reagent :include-ssr? true})]
+          ;; -- SSR sources land; the .cljs core does NOT --
+          (is (file-exists? root "src/acme/my_app/core.cljc")
+              "core.cljc (shared JVM + CLJS) is emitted under :include-ssr? true")
+          (is (not (file-exists? root "src/acme/my_app/core.cljs"))
+              "the pure-CLJS core.cljs is NOT emitted on the SSR path
+               (core.cljc replaces it)")
+          (is (file-exists? root "src/acme/my_app/server.clj")
+              "server.clj (the Ring host) is emitted under :include-ssr? true")
+          (is (file-exists? root "test/acme/my_app/ssr_test.clj")
+              "the headless JVM ssr_test.clj is emitted under :include-ssr? true")
+
+          ;; -- the per-slice CLJS sources are folded into core.cljc, so
+          ;;    they are NOT emitted separately --
+          (doseq [omitted ["src/acme/my_app/events.cljs"
+                           "src/acme/my_app/subs.cljs"
+                           "src/acme/my_app/schema.cljs"
+                           "src/acme/my_app/views.cljs"
+                           "test/acme/my_app/events_test.cljs"]]
+            (is (not (file-exists? root omitted))
+                (str omitted " is NOT emitted on the SSR path — the SSR "
+                     "core.cljc folds in its own events / subs / schema / view")))
+
+          ;; -- deps.edn structure: SSR coords + :server alias --
+          (let [deps (read-edn (io/file root "deps.edn"))]
+            (is (map? deps) "SSR deps.edn parses as a map")
+            (is (contains? (:deps deps) 'day8/re-frame2)
+                "SSR deps.edn references day8/re-frame2 core")
+            (is (contains? (:deps deps) 'day8/re-frame2-reagent)
+                "SSR deps.edn references the Reagent adapter")
+            (is (contains? (:deps deps) 'day8/re-frame2-ssr)
+                "SSR deps.edn references day8/re-frame2-ssr")
+            (is (contains? (:deps deps) 'day8/re-frame2-ssr-ring)
+                "SSR deps.edn references day8/re-frame2-ssr-ring")
+            (is (contains? (:deps deps) 'ring/ring-jetty-adapter)
+                "SSR deps.edn references ring/ring-jetty-adapter (the dev/test host)")
+            ;; The three re-frame2 SSR coords ride {{rf2-version}} — same
+            ;; pin as core. Present-check only (the literal is owned by
+            ;; version_lockstep_test.clj).
+            (is (some? (get-in deps [:deps 'day8/re-frame2-ssr :mvn/version]))
+                "ssr coord carries an :mvn/version pin")
+            (is (some? (get-in deps [:deps 'day8/re-frame2-ssr-ring :mvn/version]))
+                "ssr-ring coord carries an :mvn/version pin")
+            ;; -- :server alias wiring --
+            (let [server-alias (get-in deps [:aliases :server])]
+              (is (some? server-alias)
+                  "SSR deps.edn declares a :server alias")
+              (is (= 'acme.my-app.server/-main (:exec-fn server-alias))
+                  ":server alias :exec-fn targets the emitted server ns")
+              (is (map? (:exec-args server-alias))
+                  ":server alias carries :exec-args (port + static-root)")
+              (is (contains? (:exec-args server-alias) :static-root)
+                  ":server :exec-args carries a :static-root the server serves main.js from")))
+
+          ;; -- core.cljc carries the SSR wiring --
+          (let [core-text (slurp (io/file root "src/acme/my_app/core.cljc"))]
+            (is (.contains core-text "(ns acme.my-app.core")
+                "core.cljc's ns form uses the derived namespace")
+            (is (.contains core-text "re-frame.ssr")
+                "core.cljc requires re-frame.ssr")
+            (is (.contains core-text "ssr/hydrate!")
+                "core.cljc boots the client through ssr/hydrate! (READ/HYDRATE/VERIFY)")
+            (is (.contains core-text ":rf/server-init")
+                "core.cljc carries the :rf/server-init per-request boot event")
+            (is (.contains core-text ":app/root")
+                "core.cljc pins the root view id :app/root the server + client both name")
+            (is (.contains core-text "server-init-events")
+                "core.cljc exposes server-init-events for the Ring host")
+            (is (.contains core-text "register-schema!")
+                "core.cljc exposes register-schema! for per-frame schema attach"))
+
+          ;; -- server.clj carries the Ring host wiring --
+          (let [server-text (slurp (io/file root "src/acme/my_app/server.clj"))]
+            (is (.contains server-text "(ns acme.my-app.server")
+                "server.clj's ns form uses the derived namespace")
+            (is (.contains server-text "re-frame.ssr.ring")
+                "server.clj requires the re-frame.ssr.ring host adapter")
+            (is (.contains server-text "ssr-handler")
+                "server.clj builds an ssr-handler")
+            (is (.contains server-text "run-jetty")
+                "server.clj boots Jetty")
+            (is (.contains server-text "defn -main")
+                "server.clj exposes -main (the :server alias entry point)")
+            (is (.contains server-text "[acme.my-app.core :as app]")
+                "server.clj requires the app's core ns by derived namespace"))
+
+          ;; -- ssr_test.clj is the headless JVM gate --
+          (let [ssr-test-text (slurp (io/file root "test/acme/my_app/ssr_test.clj"))]
+            (is (.contains ssr-test-text "(ns acme.my-app.ssr-test")
+                "ssr_test.clj's ns form uses the derived namespace")
+            (is (.contains ssr-test-text "render-to-string")
+                "ssr_test.clj renders the root view via render-to-string")
+            (is (.contains ssr-test-text "render-tree-hash")
+                "ssr_test.clj asserts the structural render hash")
+            (is (.contains ssr-test-text "data-rf-render-hash")
+                "ssr_test.clj asserts the render-hash marker on the emitted HTML")
+            (is (.contains ssr-test-text "[acme.my-app.core :as app]")
+                "ssr_test.clj requires the app core ns by derived namespace")))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest include-ssr-non-reagent-rejected-test
+  (testing ":include-ssr? true is rejected for non-Reagent substrates in
+            v1 — UIx + Helix SSR follow once the per-substrate adapters
+            demonstrate parity"
+    (let [tmp (tmp-dir "rf2-template-ssr-uix-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-include-ssr-reagent-only"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:substrate :uix :include-ssr? true}))
+            ":include-ssr? + :uix is rejected at the entry-fn")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-include-ssr-reagent-only"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:substrate :helix :include-ssr? true}))
+            ":include-ssr? + :helix is rejected at the entry-fn")
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest include-ssr-and-story-mutually-exclusive-test
+  (testing ":include-story? true + :include-ssr? true is rejected — the two
+            feature flags are mutually exclusive in v1
+            (004-SSR-Validation-Report §2.1)"
+    (let [tmp (tmp-dir "rf2-template-ssr-story-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/ssr-and-story-mutually-exclusive"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:substrate     :reagent
+                                                   :include-story? true
+                                                   :include-ssr?   true}))
+            "story + ssr together is rejected at the entry-fn")
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest invalid-include-ssr-rejected-test
+  (testing "non-boolean :include-ssr? value throws with a clear message"
+    (let [tmp (tmp-dir "rf2-template-ssr-bad-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-bad-include-ssr-flag"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:substrate :reagent :include-ssr? "yes"}))
+            "non-boolean :include-ssr? is rejected")
+        (finally
+          (delete-recursively tmp))))))
+
 ;; --- argument-key gate ----------------------------------------------------
 ;;
 ;; The substrate posture fails closed on bad VALUES; these tests pin the
@@ -1088,20 +1275,6 @@
                               (run-template-opts! tmp "acme/my-app"
                                                   {:css :tailwind}))
             ":css :tailwind is rejected as an unsupported reserved flag")
-        (assert-no-scaffold-emitted! tmp)
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest reserved-include-ssr-flag-rejected-test
-  (testing ":include-ssr? true is reserved (gated on rf2-0m5ea) and fails
-            closed — it does NOT silently emit the default scaffold"
-    (let [tmp (tmp-dir "rf2-template-ssr-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-unsupported-flag"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:include-ssr? true}))
-            ":include-ssr? true is rejected as an unsupported reserved flag")
         (assert-no-scaffold-emitted! tmp)
         (finally
           (delete-recursively tmp))))))

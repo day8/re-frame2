@@ -14,12 +14,16 @@
    Current scope (003-DepsNew-Rebuild-Plan.md §2.2-2.4):
 
      - Substrates: Reagent / UIx / Helix (full matrix).
-     - Flags: `:include-story?` (Reagent-only in v1; UIx + Helix variants
-       follow once Story's adapter coverage matches Reagent's).
-     - Pending flags (reserved, gated to later stages): `:css`,
-       `:include-ssr?`. Passing one today fails closed with
-       `:rf.error/template-unsupported-flag` (it is NOT silently dropped)
-       — see `gate-arg-keys!`.
+     - Flags: `:include-story?` + `:include-ssr?` (both Reagent-only in
+       v1; UIx + Helix variants follow once each feature's adapter
+       coverage matches Reagent's). `:include-story?` and `:include-ssr?`
+       are **mutually exclusive** in v1 — passing both throws
+       `:rf.error/ssr-and-story-mutually-exclusive` (the file-naming
+       convention would blow up combinatorially on `_with_X_and_Y`
+       sources; see 004-SSR-Validation-Report §2.1).
+     - Pending flags (reserved, gated to later stages): `:css`. Passing it
+       today fails closed with `:rf.error/template-unsupported-flag` (it is
+       NOT silently dropped) — see `gate-arg-keys!`.
 
    ## Substitution engine note
 
@@ -111,9 +115,10 @@
 ;;
 ;; deps-new hands `data-fn` a single map that merges its own harness keys
 ;; (the project-name derivations + run metadata) with whatever top-level
-;; k/v args the caller passed. We accept exactly two template-specific
-;; flags today (`:substrate`, `:include-story?`); the `:css` / `:include-ssr?`
-;; flags are reserved-but-unimplemented (gated on their upstream verification).
+;; k/v args the caller passed. We accept exactly three template-specific
+;; flags today (`:substrate`, `:include-story?`, `:include-ssr?`); the
+;; `:css` flag is reserved-but-unimplemented (gated on its upstream
+;; verification).
 ;;
 ;; The substrate posture already fails closed on bad values; this gate
 ;; extends that strictness to the *key set* so a flag typo
@@ -144,19 +149,18 @@
 
 (def ^:private template-flag-keys
   "The template-specific flags we accept today."
-  #{:substrate :include-story?})
+  #{:substrate :include-story? :include-ssr?})
 
 (def ^:private reserved-flag-gates
   "Reserved-but-unimplemented flags → the gating bead that must clear
    before they go live. Passing one today fails closed rather than
    scaffolding a vanilla app that silently lacks the feature."
-  {:css          "rf2-gthro (Tailwind v4 verification)"
-   :include-ssr? "rf2-0m5ea (SSR validation)"})
+  {:css "rf2-gthro (Tailwind v4 verification)"})
 
 (defn- gate-arg-keys!
   "Fail closed on reserved or unknown template arguments.
 
-   - A reserved flag (`:css`, `:include-ssr?`) throws
+   - A reserved flag (`:css`) throws
      `:rf.error/template-unsupported-flag`, naming the flag and its
      gating bead — it is not silently dropped.
    - Any key that is neither a deps-new harness key nor a live
@@ -208,6 +212,25 @@
                      :reason    (str ":include-story? must be true or false (got "
                                      (pr-str raw) ")")
                      :include-story? raw}))))
+
+;; -- :include-ssr? coercion ------------------------------------------------
+
+(defn- coerce-include-ssr?
+  "Coerce the `:include-ssr?` arg to a boolean. The only accepted values
+   are literal `true` / `false` / `nil` (nil ⇒ false); anything else
+   throws with a clear message. The flag is Reagent-only in v1 and
+   mutually exclusive with `:include-story?` — caller-level guards check
+   both (see data-fn)."
+  [raw]
+  (if (contains? #{nil true false} raw)
+    (boolean raw)
+    (throw (ex-info ":rf.error/template-bad-include-ssr-flag"
+                    {:rf.error/id :rf.error/template-bad-include-ssr-flag
+                     :where     'template/coerce-include-ssr?
+                     :recovery  :fix-registration
+                     :reason    (str ":include-ssr? must be true or false (got "
+                                     (pr-str raw) ")")
+                     :include-ssr? raw}))))
 
 ;; -- name derivations ------------------------------------------------------
 ;;
@@ -288,9 +311,30 @@
   ;; vanilla scaffold.
   (gate-arg-keys! data)
   (let [substrate       (coerce-substrate (:substrate data))
-        include-story?  (coerce-include-story? (:include-story? data))]
-    ;; Reagent-only guard — hoisted above the name-derivation `let` so the
-    ;; data map build below has no side-effecting binding.
+        include-story?  (coerce-include-story? (:include-story? data))
+        include-ssr?    (coerce-include-ssr? (:include-ssr? data))]
+    ;; Guards — all hoisted above the name-derivation `let` so the data
+    ;; map build below has no side-effecting binding.
+
+    ;; Mutual exclusion (004-SSR-Validation-Report §2.1): the file-naming
+    ;; convention would blow up combinatorially on `_with_story_and_ssr`
+    ;; sources, and every additive combination needs its own template test.
+    ;; v1 locks the two feature flags mutually exclusive.
+    (when (and include-story? include-ssr?)
+      (throw (ex-info
+               ":rf.error/ssr-and-story-mutually-exclusive"
+               {:rf.error/id :rf.error/ssr-and-story-mutually-exclusive
+                :where     'template/data-fn
+                :recovery  :fix-registration
+                :reason    (str ":include-story? and :include-ssr? are "
+                                "mutually exclusive in v1 — pass at most "
+                                "one. Combining them requires a per-cell "
+                                "template test the v1 surface does not "
+                                "carry (004-SSR-Validation-Report §2.1).")
+                :include-story? include-story?
+                :include-ssr?   include-ssr?})))
+
+    ;; :include-story? is Reagent-only in v1.
     (when (and include-story? (not= substrate :reagent))
       (throw (ex-info
                ":rf.error/template-include-story-reagent-only"
@@ -304,6 +348,23 @@
                                 "Reagent's.")
                 :substrate substrate
                 :include-story? include-story?})))
+
+    ;; :include-ssr? is Reagent-only in v1 — the SSR worked example, the
+    ;; ssr-ring test corpus, and the emitted scaffold are all Reagent-
+    ;; driven (004-SSR-Validation-Report §Recommended decision / §7).
+    (when (and include-ssr? (not= substrate :reagent))
+      (throw (ex-info
+               ":rf.error/template-include-ssr-reagent-only"
+               {:rf.error/id :rf.error/template-include-ssr-reagent-only
+                :where     'template/data-fn
+                :recovery  :fix-registration
+                :reason    (str ":include-ssr? is Reagent-only in v1 "
+                                "(got :substrate " substrate
+                                "). UIx + Helix SSR variants follow once "
+                                "the per-substrate adapters demonstrate "
+                                "parity.")
+                :substrate substrate
+                :include-ssr? include-ssr?})))
     (let [{:keys [label badge-url]} (substrate-registry substrate)
           top             (:top data)
           main            (:main data)
@@ -315,6 +376,7 @@
        :substrate-kw        substrate
        :substrate-label     label
        :include-story?      include-story?
+       :include-ssr?        include-ssr?
        ;; package.json `description` suffix — the single per-flag delta
        ;; between the default and with-Story descriptions. Emitting it as
        ;; a subst var lets one `_shared/package.json` source serve both
@@ -404,6 +466,16 @@
        `stories.cljs` from `_shared/`. (The shared `package.json` source
        is unchanged — its with-Story `description` delta rides the
        `{{story-tag}}` subst var, not a second file.)
+     - SSR scaffolding (Reagent-only, under `:include-ssr? true`, mutually
+       exclusive with `:include-story?`): the app's registration root is a
+       single shared `core.cljc` (JVM render + CLJS hydration), so the
+       per-substrate branch picks `core_with_ssr.cljc` → `core.cljc`,
+       `deps_with_ssr.edn` → `deps.edn`, and adds a `server.clj` (the Ring
+       host). Because the SSR `core.cljc` folds in its own events / subs /
+       schema / view, the shared per-slice CLJS sources
+       (`events.cljs` / `subs.cljs` / `schema.cljs` / `events_test.cljs` /
+       `views.cljs`) are NOT emitted; the shared file-map instead emits a
+       headless JVM `ssr_test.clj`. See 004-SSR-Validation-Report §3.
 
    All groups use `:only` so only files explicitly listed in the
    file-map emit (the implicit bulk-copy of `<src-dir>/*` is skipped).
@@ -418,6 +490,7 @@
   (let [nested         (:nested-dirs data)
         substrate      (:substrate data)
         include-story? (:include-story? data)
+        include-ssr?   (:include-ssr? data)
         ;; The build configs are substrate-invariant — the React
         ;; substrate is chosen in deps.edn + core.cljs, never here — so
         ;; they live in `_shared/` and emit once. package.json's only
@@ -429,19 +502,27 @@
         ;; copy of `_shared/*`, so source files that don't appear in
         ;; the file-map below DO NOT emit. Add explicit entries if
         ;; you need them.
-        shared-files   (cond-> {"gitignore"            ".gitignore"
-                                "editorconfig"         ".editorconfig"
-                                "cljfmt.edn"           ".cljfmt.edn"
-                                "clj-kondo/config.edn" ".clj-kondo/config.edn"
-                                ;; Substrate-invariant build configs.
-                                "shadow-cljs.edn"      "shadow-cljs.edn"
-                                "package.json"         "package.json"
-                                ;; src/test renames — re-home into the user's namespace
-                                ;; path.
-                                "events.cljs"          (str "src/" nested "/events.cljs")
-                                "subs.cljs"            (str "src/" nested "/subs.cljs")
-                                "schema.cljs"          (str "src/" nested "/schema.cljs")
-                                "events_test.cljs"     (str "test/" nested "/events_test.cljs")}
+        ;; The dotfiles + substrate-invariant build configs emit on every
+        ;; path. The per-slice CLJS sources (events / subs / schema /
+        ;; events_test / — and, per-substrate, views) are the DEFAULT and
+        ;; STORY shape; the SSR path folds those into `core.cljc` instead,
+        ;; so they are omitted there in favour of a headless `ssr_test.clj`.
+        shared-common  {"gitignore"            ".gitignore"
+                        "editorconfig"         ".editorconfig"
+                        "cljfmt.edn"           ".cljfmt.edn"
+                        "clj-kondo/config.edn" ".clj-kondo/config.edn"
+                        ;; Substrate-invariant build configs.
+                        "shadow-cljs.edn"      "shadow-cljs.edn"
+                        "package.json"         "package.json"}
+        shared-files   (cond-> shared-common
+                         ;; Default + Story shape: the per-slice CLJS
+                         ;; sources, re-homed under the user's namespace
+                         ;; path.
+                         (not include-ssr?)
+                         (assoc "events.cljs"      (str "src/" nested "/events.cljs")
+                                "subs.cljs"        (str "src/" nested "/subs.cljs")
+                                "schema.cljs"      (str "src/" nested "/schema.cljs")
+                                "events_test.cljs" (str "test/" nested "/events_test.cljs"))
                          ;; Story scaffolding lands under
                          ;; `src/<nested>/stories.cljs` when the flag
                          ;; is on. Same file-map entry; the source
@@ -449,7 +530,14 @@
                          ;; substrate-agnostic files.
                          include-story?
                          (assoc "stories.cljs"
-                                (str "src/" nested "/stories.cljs")))
+                                (str "src/" nested "/stories.cljs"))
+                         ;; SSR shape: the events / subs / schema / view all
+                         ;; live in `core.cljc` (see the per-substrate
+                         ;; branch), so the only shared source is the
+                         ;; headless JVM SSR gate.
+                         include-ssr?
+                         (assoc "ssr_test.clj"
+                                (str "test/" nested "/ssr_test.clj")))
         shared         [["_shared" "." shared-files :only]]
 
         ;; Per-substrate transforms. `:only` keeps each substrate
@@ -458,17 +546,32 @@
         per-substrate
         (case substrate
           "reagent"
-          (let [core-src    (if include-story?
-                              "core_with_stories.cljs"
-                              "core.cljs")
-                deps-src    (if include-story?
-                              "deps_with_story.edn"
-                              "deps.edn")]
+          (cond
+            ;; SSR path: the registration root is a single `core.cljc`
+            ;; (JVM render + CLJS hydration) that folds in the events /
+            ;; subs / schema / view, so `views.cljs` is NOT emitted; a
+            ;; `server.clj` (the Ring host) is. `:include-ssr?` is mutually
+            ;; exclusive with `:include-story?` (data-fn guard), so the two
+            ;; `_with_*` shapes never combine.
+            include-ssr?
             [["_reagent" "."
-              {deps-src          "deps.edn"
-               core-src          (str "src/" nested "/core.cljs")
-               "views.cljs"      (str "src/" nested "/views.cljs")}
-              :only]])
+              {"deps_with_ssr.edn"    "deps.edn"
+               "core_with_ssr.cljc"   (str "src/" nested "/core.cljc")
+               "server.clj"           (str "src/" nested "/server.clj")}
+              :only]]
+
+            :else
+            (let [core-src (if include-story?
+                             "core_with_stories.cljs"
+                             "core.cljs")
+                  deps-src (if include-story?
+                             "deps_with_story.edn"
+                             "deps.edn")]
+              [["_reagent" "."
+                {deps-src     "deps.edn"
+                 core-src     (str "src/" nested "/core.cljs")
+                 "views.cljs" (str "src/" nested "/views.cljs")}
+                :only]]))
 
           "uix"
           [["_uix" "."
@@ -493,14 +596,25 @@
   [_edn data]
   (let [substrate      (:substrate data)
         include-story? (:include-story? data)
-        story-tag      (if include-story? " (with Story playground)" "")]
+        include-ssr?   (:include-ssr? data)
+        feature-tag    (cond
+                         include-story? " (with Story playground)"
+                         include-ssr?   " (with SSR)"
+                         :else          "")]
     (println (str "Generated a re-frame2 application " (:name data)
-                  " (" substrate " substrate" story-tag ").")))
-  (println "Next steps:")
-  ;; `:target-dir` is preprocess-options' computed output dir
-  ;; (defaults to `(:main data)` when no `:target-dir` arg is given).
-  (println (str "  cd " (:target-dir data)))
-  (println "  npm install")
-  (println "  npx shadow-cljs watch app")
-  (println "Then open http://localhost:8280")
-  nil)
+                  " (" substrate " substrate" feature-tag ")."))
+    (println "Next steps:")
+    ;; `:target-dir` is preprocess-options' computed output dir
+    ;; (defaults to `(:main data)` when no `:target-dir` arg is given).
+    (println (str "  cd " (:target-dir data)))
+    (println "  npm install")
+    (println "  npx shadow-cljs watch app")
+    (if include-ssr?
+      (do
+        ;; The SSR scaffold runs a JVM render server in front of the client
+        ;; bundle. Build the bundle with `watch app` (above), then boot the
+        ;; server in a second terminal.
+        (println "  clojure -X:server   # in a second terminal — the SSR/Jetty host")
+        (println "Then open http://127.0.0.1:8030"))
+      (println "Then open http://localhost:8280"))
+    nil))

@@ -232,13 +232,20 @@ Suggested commit decomposition (each ≤ 60 min worker scope):
   implicit bulk-copy (otherwise `_reagent/` content lands at `./`
   with its underscore-prefixed parent directory).
 
-**Gate:** Manual smoke gate met. `npm install && npx shadow-cljs
-watch app` against the emitted app is deferred to §2.2 once the
-re-frame2-xray Clojars artefact lands (rf2-y9zqc) — today the
-emitted `deps.edn` pins `0.0.1.alpha` which isn't published yet, so
-the deps resolution would fail at run time regardless of the
-template's correctness. Static-shape check + content-substitution
-check on the emitted tree is the spike's effective signal.
+**Gate:** Manual smoke gate met. The `npm install && npx shadow-cljs
+watch app` watch-smoke against the emitted app — deferred here pending the
+re-frame2-xray Clojars artefact (rf2-y9zqc), since the emitted `deps.edn`
+pins the unpublished `0.0.1.alpha` — is now **superseded by the
+sibling-checkout emitted-tests tier**
+(`test/day8/re_frame2_template/emitted_test_run_test.clj`, gated on
+`RF2_TEMPLATE_RUN_EMITTED_TESTS=1`). That tier rewrites the emitted
+`deps.edn`'s `day8/re-frame2*` coords to `:local/root` paths into the
+in-repo source tree and runs a real `shadow-cljs compile app test` +
+`node out/node-test.js` (plus an `:advanced` release compile on the
+Reagent variants), so it exercises the emitted app end-to-end against the
+working checkout without a Clojars round-trip — the effective real-compile
+signal the watch-smoke was a proxy for. Static-shape + content-
+substitution checks on the emitted tree remain the cheap always-on signal.
 
 ### §2.2 — Port the full resource tree (rf2-c2770 — DONE 2026-05-20)
 
@@ -506,7 +513,7 @@ The locks below are inherited from the template walkthrough (Mike,
 | CSS default: plain CSS | Q6 lock | `_shared/resources/public/css/app.css` |
 | CSS opt-in: `:css :tailwind` (Tailwind v4) | Q6 lock; depends on rf2-gthro | `template-fn` branch on `:css` |
 | Build targets: browser + `:test` | Q7 lock | shadow-cljs.edn |
-| SSR opt-in: `:include-ssr?` | Q7 lock; gated on rf2-0m5ea | `template-fn` branch on `:include-ssr?` |
+| SSR opt-in: `:include-ssr?` | Q7 lock; shipped (rf2-675qdb; gate rf2-0m5ea cleared) | `template-fn` branch on `:include-ssr?` — Reagent-only, mutually exclusive with `:include-story?`; emits `core.cljc` + `server.clj` + `ssr_test.clj` |
 | Story opt-in: `:include-story?` | Q3/Q4 era | `template-fn` branch on `:include-story?` |
 | Xray preload (always-on) | Q9 lock | `_shared/shadow-cljs.edn` :preloads |
 | Skill install stub: `install-skills.sh` | Q9 lean A | Deferred — README mention only today (`_shared/README.md` §Future: skill install); placeholder script lands when the Claude Code skill marketplace publishes. |
@@ -532,6 +539,10 @@ DESIGN-RATIONALE justification.
 - rf2-dolpf — the EPIC umbrella bead. Stays open until §4.2 lands.
 - rf2-gthro — Tailwind major-version verification (gates `:css :tailwind`
   flag work).
-- rf2-0m5ea — SSR validation (gates `:include-ssr?` flag work).
+- rf2-0m5ea — SSR validation (gated `:include-ssr?` flag work; CLEARED —
+  the reference impl shipped and the bead closed).
+- rf2-675qdb — `:include-ssr?` flag work bead (the 004-SSR-Validation-Report
+  §6 close-out: flag wiring + `core.cljc` / `server.clj` / `ssr_test.clj`
+  file bodies + template tests + these doc flips). Shipped.
 - rf2-y9zqc — Xray preload Clojars artefact (gates the
   always-on preload).
