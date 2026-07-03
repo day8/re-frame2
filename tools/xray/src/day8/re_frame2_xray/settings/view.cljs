@@ -745,43 +745,24 @@
 
 (def ^:private keybinding-rows
   "Static catalogue. Group key carries a section label; rows are
-  `[chord action]` pairs. Mirrors the tables in spec/007-UX-IA.md
-  §Keyboard."
-  [{:group "Global shortcuts"
-    :rows  [["Ctrl+Shift+C" "Toggle Xray visibility"]
-            ["?"            "Keyboard cheat-sheet"]
-            [", or s"       "Settings popup"]
-            ["Esc"          "Close modal / collapse popover / focus event list"]
-            ["Ctrl+K / ⌘K"  "Command palette"]
-            ["Ctrl+F"       "Find within active tab"]
-            ["o"            "Popout (window.open whole shell)"]]}
-   {:group "Ribbon nav cluster"
-    :rows  [["j"     "Back one event (◀)"]
-            ["k"     "Forward one event (▶)"]
-            ["G"     "Fast-forward to latest (⏭, snap LIVE)"]
-            ["Space" "Pause/resume LIVE feed"]
-            ["L"     "Snap to LIVE (jump to head)"]]}
-   {:group "Event list (L2)"
-    :rows  [["j / k"      "Next / previous"]
-            ["J / K"      "Cascade-root skip"]
-            ["g g / G"    "Top / bottom"]
-            ["Enter"      "Activate (= click row)"]
-            ["[ / ]"      "Previous / next (10x parity)"]
-            ["*"          "Pin a cascade (session-scoped)"]
-            ["r"          "Rewind to before this event"]
-            ["R"          "Re-dispatch this event"]
-            ["o"          "Open source in editor"]
-            ["/"          "Focus filter add-pill"]
-            ["Ctrl+click" "Copy cascade-id"]]}
-   {:group "Tab bar (L3)"
-    :rows  [["1-6"             "Switch tab by index"]
-            ["e"               "Epoch tab"]
-            ["a"               "App-db tab"]
-            ["v"               "Views tab"]
-            ["t"               "Trace tab"]
-            ["m"               "Machines tab"]
-            ["r"               "Routes tab"]
-            ["Ctrl+→ / Ctrl+←" "Next / previous tab"]]}
+  `[chord action]` pairs. Mirrors the SHIPPED set in
+  `keybinding.cljs` + the tables in spec/007-UX-IA.md §Keyboard —
+  trimmed to exactly what the global listener captures (rf2-f7748x,
+  Mike ruled Option B). Any trimmed key returns as a small feature
+  bead + a new row here; do NOT list keys the listener does not
+  actually bind."
+  [{:group "Global chords"
+    :rows  [["Ctrl+Shift+C"      "Toggle Xray shell visibility"]
+            ["Ctrl+Shift+M / ⌘⇧M" "Toggle Dynamic ↔ Static mode"]
+            ["Ctrl+K / ⌘K"       "Command palette"]
+            ["Esc"               "Dismiss the open-in-editor hint (modals close on their own Esc)"]]}
+   {:group "Shell spine keys (inside the shell, non-editable)"
+    :rows  [["Space"   "Pause / resume LIVE feed"]
+            ["l"       "Snap to LIVE (follow the head)"]
+            ["Shift+G" "Fast-forward to head"]
+            ["j"       "Step back one event"]
+            ["k"       "Step forward one event"]
+            [", or s"  "Settings popup"]]}
    {:group "Settings popup (modal-only)"
     :rows  [["g" "General tab"]
             ["k" "Keybindings tab"]

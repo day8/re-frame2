@@ -27,10 +27,12 @@ main read**.
 ### Per-tab content specs
 
 - **[002-Time-Travel.md](002-Time-Travel.md)** — Time-travel scrubber:
-  passive scrubbing rebases panels; explicit `r` rewinds the runtime; six
-  named restore failures surface as a modal. Pins survive ring-buffer
-  age-out. Future: branch-and-explore; "find me when path P last changed"
-  walker.
+  passive scrubbing rebases panels; explicit rewind (the Epoch-panel
+  button → `:rf.xray/reset-to-epoch`) rewinds the runtime; six named
+  restore failures surface as a modal. (The `r` rewind *key* was trimmed
+  under rf2-f7748x — see [007-UX-IA.md §Trimmed pending demand](007-UX-IA.md);
+  the rewind feature itself ships.) Future: branch-and-explore; "find me
+  when path P last changed" walker.
 - **[003-Machine-Inspector.md](003-Machine-Inspector.md)** — The Machines
   tab. **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused
   event has no machine activity; per-machine section when it did

@@ -460,7 +460,7 @@ The single-line row drops detail the round-1 two-line row used to carry. Every r
 │ src/cart/events.cljs:213                                            │
 │ args  {:order-id 92 :attempt 2}                                     │
 │ ────                                                                │
-│ click row to focus · `o` open source · ctrl+click copy id           │
+│ click row to focus · click the source coord to open in editor       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1665,17 +1665,19 @@ Every Settings popup field maps to a `(xray-config/configure! {…})` key. See [
 
 ## §11 Keyboard map
 
-Complete map for the spine + chrome:
+Complete map for the spine + chrome. This mirrors the SHIPPED set in
+`tools/xray/src/day8/re_frame2_xray/keybinding.cljs`; the canonical
+narrative is [`007-UX-IA.md` §Keyboard](./007-UX-IA.md#keyboard)
+(including its §Trimmed pending demand log of the keys removed under
+rf2-f7748x — tab mnemonics, tab numbers, `Ctrl`+arrows, `r`/`R`, `*`,
+`/`, `?`, `o`, `Ctrl+F`, `J`/`K`/`g g`/`[`/`]`).
 
 | Region | Keys |
 |---|---|
-| **Ribbon nav cluster** | `j` back-one-event · `k` forward-one-event · `G` fast-forward-to-latest (= `⏭`, snap LIVE) |
-| **Event list (L2)** | `j` / `k` next/prev (alias of ribbon nav) · `J` / `K` cascade-root skip · `g g` / `G` top/bottom · `Enter` activate · `Space` pause auto-scroll · `[` / `]` (10x parity = `j`/`k`) · `*` pin · `r` rewind · `R` re-dispatch · `o` open source · `/` focus filter add-pill |
-| **Tab bar (L3)** | `1`–`6` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing. (`i` Issues was removed per rf2-gbz39 Option (c); `i` is released to the global namespace.) |
-| **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables · `Esc` returns focus to event list |
-| **Mode + scrubbing** | `Space` pause/resume LIVE · `L` snap to LIVE (jump to head) · `←` / `→` step one cascade (= `j`/`k`) · `Shift+←` / `Shift+→` step cascade root · `Home` / `End` oldest/newest. (The dedicated Mode pill widget was dropped — the L2 spine itself indicates LIVE / LIVE-paused / RETRO; only the widget is gone.) |
+| **Spine keys (inside the shell, non-editable, non-modal)** | `Space` pause/resume LIVE · `l` snap to LIVE (follow head) · `Shift+G` fast-forward to head · `j` step back one event · `k` step forward one event · `,` or `s` settings popup |
+| **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables (ordinary browser focus order) |
 | **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Dynamic** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Dispatches `:rf.xray/toggle-mode` against the `:rf/xray` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
-| **Global** | `Ctrl+Shift+C` toggle Xray visibility · `Cmd-K` / `Ctrl+K` palette · `?` cheat-sheet · `,` or `s` settings popup (= `⚙`) · `o` popout (= `⛶`) · `Esc` close modal / return to canvas |
+| **Global** | `Ctrl+Shift+C` toggle Xray shell visibility · `Cmd-K` / `Ctrl+K` command palette · `Esc` dismiss the open-in-editor hint (modals close on their own Esc) |
 
 ### Retired keys (from pre-rewrite spec)
 
@@ -1684,7 +1686,7 @@ Complete map for the spine + chrome:
 - `c` (Causality tab) — Causality surface dropped entirely (rf2-y0z5b); `c` is unused.
 - `p` (Performance) — Performance panel dropped; `p` unused (available for future tab if added).
 - `w` (Flows) — Flows folded into Views; `w` unused.
-- ~~`r` (Routes panel) — Routes folded into App-db~~. **Restored** (rf2-nrbs9): Routing got promoted back to its own L3 tab (cohesive sub-domains earn their own lens tab). `r` is now the **Routing tab** mnemonic; the event-list `r` rewind binding stays on the L2 event list scope (the L2 list's key handler wins when focus is in the list; the tab-bar's letter mnemonic wins when focus is elsewhere).
+- `r` — neither the **Routing tab** mnemonic nor the event-list rewind binding is wired as a key (both were trimmed under rf2-f7748x — see §Complete map above + [`007-UX-IA.md` §Trimmed pending demand](./007-UX-IA.md#trimmed-pending-demand-rf2-f7748x--the-post-freeze-upgrade-path)). Routing is still its own L3 tab (rf2-nrbs9, reached by click or command palette); the rewind *feature* still ships as the Epoch-panel button + `:rf.xray/reset-to-epoch` — only the `r` key is gone.
 - `S` (Schemas) — schema violations surface inline in the Epoch panel's EFFECT HANDLERS step (rf2-kt6js); `S` unused.
 - `h` (Hydration) — hydration mismatches surface via the L2 event-row signal + the issues ribbon; `h` unused.
 - `i` (Issues) — the Issues tab was removed per rf2-gbz39 (Option (c)); issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal; `i` unused.
