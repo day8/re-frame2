@@ -64,9 +64,9 @@
     (rf/reg-event :article/load
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
-          (case (:kind reply)
-            :success {:db {:article (:value reply)}}
-            :failure {:db {:error (:failure reply)}})
+          (case (:status reply)
+            :ok    {:db {:article (:value reply)}}
+            :error {:db {:error (:error reply)}})
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
@@ -91,9 +91,9 @@
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :failure (get-in db [:auth-error :kind])))
-      (is (= :rf.http/transport (get-in db [:auth-error :failure :kind]))
-          "default canned-failure :kind classifies as :rf.http/transport"))))
+      (is (= :error (get-in db [:auth-error :status])))
+      (is (= :rf.http/transport (get-in db [:auth-error :error :kind]))
+          "default canned-failure classifies as :rf.http/transport under :error"))))
 
 ;; ---- 3. canned-success: explicit on-success -------------------------------
 
@@ -110,7 +110,7 @@
     (rf/dispatch-sync [:article/load]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :success (get-in db [:article :kind])))
+      (is (= :ok (get-in db [:article :status])))
       (is (= {:stubbed true} (get-in db [:article :value]))))))
 
 ;; ---- 4. silenced reply ----------------------------------------------------
@@ -161,7 +161,7 @@
         ;; NO manual :fx-overrides — the documented auto-routing form.
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
-          (is (= :success (get-in db [:result :kind])))
+          (is (= :ok (get-in db [:result :status])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
 ;; ---- 6a. rf2-rzqan — bare thunk INTERCEPTS, never reaching the real fx ----
@@ -191,7 +191,7 @@
         (fn []
           (rf/dispatch-sync [:rzqan/load])
           (let [db (rf/app-db-value :rf/default)]
-            (is (= :success (get-in db [:result :kind]))
+            (is (= :ok (get-in db [:result :status]))
                 "the stubbed reply landed via the route-map stub")
             (is (= {:stubbed true} (get-in db [:result :value])))
             (is (false? @real-fx-invoked?)
@@ -216,9 +216,9 @@
         ;; Auto-routing — no manual :fx-overrides (rf2-rzqan).
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
-          (is (= :failure (get-in db [:result :kind])))
-          (is (= :rf.http/http-4xx (get-in db [:result :failure :kind])))
-          (is (= 404 (get-in db [:result :failure :status]))))))))
+          (is (= :error (get-in db [:result :status])))
+          (is (= :rf.http/http-4xx (get-in db [:result :error :kind])))
+          (is (= 404 (get-in db [:result :error :status]))))))))
 
 ;; ---- 8. unmatched-stub falls through to a transport failure --------------
 
@@ -240,8 +240,8 @@
         ;; no-match transport failure), never reaching the real client.
         (rf/dispatch-sync [:unmatched/load])
         (let [db (rf/app-db-value :rf/default)]
-          (is (= :failure (get-in db [:result :kind])))
-          (is (= :rf.http/transport (get-in db [:result :failure :kind]))))))))
+          (is (= :error (get-in db [:result :status])))
+          (is (= :rf.http/transport (get-in db [:result :error :kind]))))))))
 
 ;; ---- 9. canned-failure: explicit :kind / :tags shape ---------------------
 
@@ -261,9 +261,9 @@
         {:db (assoc db :error payload)}))
     (rf/dispatch-sync [:flaky/load])
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :failure (get-in db [:error :kind])))
-      (is (= :rf.http/http-5xx (get-in db [:error :failure :kind])))
-      (is (= 503 (get-in db [:error :failure :status]))))))
+      (is (= :error (get-in db [:error :status])))
+      (is (= :rf.http/http-5xx (get-in db [:error :error :kind])))
+      (is (= 503 (get-in db [:error :error :status]))))))
 
 ;; ---- 10. multi-frame reply isolation -------------------------------------
 

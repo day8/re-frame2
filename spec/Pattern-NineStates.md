@@ -280,8 +280,8 @@ The transitions the page-level event handler drives, for a `:counter/load`-shape
 |---|---|---|---|
 | First load | `[:counter/load]` | `:nothing → :loading` | The handler broadcasts `:fetch-started` and issues `:rf.http/managed`. |
 | Retry from a bucket | `[:counter/load]` | `:empty | :one | :some | :too-many | :error → :loading` | Same handler; the `:on {:fetch-started :loading}` map on each bucket makes the reload uniform. |
-| Reply success | `[:counter/loaded {:rf/reply {:kind :success :value items}}]` | `:loading → :resolving → :empty | :one | :some | :too-many` | The `:resolving` `:always`-cascade decides the bucket. |
-| Reply failure | `[:counter/loaded {:rf/reply {:kind :failure :failure failure-map}}]` | `:loading → :error` | The `:set-error` action stamps the failure map at `[:data :error]`. |
+| Reply success | `[:counter/loaded {:rf/reply {:status :ok :value items …}}]` | `:loading → :resolving → :empty | :one | :some | :too-many` | The `:resolving` `:always`-cascade decides the bucket. |
+| Reply failure | `[:counter/loaded {:rf/reply {:status :error :error failure-map …}}]` | `:loading → :error` | The `:set-error` action stamps the failure map (read from `:error`) at `[:data :error]`. |
 | User-driven reset | `[:counter/reset]` | `* → :nothing` | Optional, per [Pattern-RemoteData](Pattern-RemoteData.md). |
 
 A minimal co-located handler:
@@ -290,15 +290,15 @@ A minimal co-located handler:
 (rf/reg-event :counter/load
   (fn [_ [_ {:keys [page] :as msg}]]
     (if-let [reply (:rf/reply msg)]
-      ;; Reply path — fold the reply into the machine.
-      (case (:kind reply)
-        :success
+      ;; Reply path — fold the canonical reply into the machine (branch on :status).
+      (case (:status reply)
+        :ok
         {:fx [[:dispatch [:ui/nine-states
                           [:fetch-succeeded {:items (:value reply)}]]]]}
 
-        :failure
+        :error
         {:fx [[:dispatch [:ui/nine-states
-                          [:fetch-failed {:failure (:failure reply)}]]]]})
+                          [:fetch-failed {:failure (:error reply)}]]]]})
 
       ;; Initial dispatch — kick the region into :loading and issue the request.
       {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
@@ -347,12 +347,11 @@ Even with cancellation in place, the network may have already returned by the ti
 
 When the page issues a fresh `:counter/load` while a previous one is still in flight, the previous request's reply must not land — its `:items` would clobber the freshly-`:loading` region's eventual real reply. Two mechanisms compose here:
 
-1. **`:request-id` supersession.** Using a stable `:request-id` (e.g. `:counter/load` above), the second `:rf.http/managed` with the same id supersedes the first — the older request is aborted with `:reason :request-id-superseded` (per [014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)). The first request's `:on-failure` fires with `:kind :rf.http/aborted`, and the reply branch can ignore aborted replies before broadcasting `:fetch-failed`:
+1. **`:request-id` supersession.** Using a stable `:request-id` (e.g. `:counter/load` above), the second `:rf.http/managed` with the same id supersedes the first — the older request is superseded with `:reason :request-id-superseded` (per [014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)). A superseded request's app reply is **suppressed** (trace-only) — it never reaches the handler. A *manual* abort or an actor-destroy cancel, by contrast, delivers a live `:status :cancelled` reply carrying the `:rf.http/aborted` map under `:error`; branch on the `:cancelled` status (a separate branch from `:error`) so a cancellation never lands as a user-visible failure:
 
    ```clojure
-   :failure
-   (when-not (= :rf.http/aborted (-> reply :failure :kind))
-     {:fx [[:dispatch [:ui/nine-states [:fetch-failed {:failure (:failure reply)}]]]]})
+   :cancelled
+   {:db db}                       ;; a cancel is expected; don't broadcast :fetch-failed
    ```
 
 2. **Connection-epoch on the dispatched reply.** For request shapes where `:request-id` isn't enough (e.g. the same id is reused after the user has navigated away and back, and an outstanding earlier reply may still be in flight), the page-level container carries an epoch and the reply suppresses on mismatch. The epoch advances on every life event of the container (a reset, a route re-enter); the dispatched success/failure event carries the epoch it was issued under; the handler compares on receipt. This is the canonical staleness idiom; see [Pattern-StaleDetection](Pattern-StaleDetection.md).
