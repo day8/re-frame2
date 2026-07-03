@@ -406,9 +406,9 @@ The trailing `opts` map (the **third** positional slot; see [§Arities](#arities
 | `:query-merge` | Fold the given deltas into the **current** route's `:query` slice, rather than replacing it — the "stay here, change these query params" primitive (search, pagination, tabs). A `nil` value **removes** a key (matching `route-url`'s query nil-elision; see [§Bidirectional URL ↔ params](#bidirectional-url--params)). Its natural pairing is the [`:rf.route/self`](#rfrouteself--navigate-in-place) target. See [§The `:query-merge` opt](#the-query-merge-opt--navigate-in-place). |
 | `:scroll` | Per-call override of the route's `:scroll` metadata; same enum/map shape (see [§Scroll restoration](#scroll-restoration)). |
 | `:fragment` | Target `#fragment` for the new URL (see [§Fragments](#fragments)). May also be supplied as `:fragment` on the target map. |
-| `:bypass-leave-guard?` | Skip the active route's `:can-leave` gate for this navigation (see [§Navigation blocking](#navigation-blocking--pending-nav-protocol)). |
+| `:bypass-guards?` | A **set** of `#{:leave :enter}` naming which navigation guards to skip for this navigation — `#{:leave}` skips the active route's `:can-leave` gate, `#{:enter}` skips the target route's `:can-enter` gate, `#{:leave :enter}` skips both (see [§Navigation blocking](#navigation-blocking--pending-nav-protocol)). |
 
-Hosts and apps may add their own keys under a chosen namespace. Only `:replace?`, `:scroll`, `:fragment`, and `:bypass-leave-guard?` are treated as **opts-only** for the params/opts swap check (see [§Arities](#arities--params-is-2nd-opts-is-3rd)); `:query` and `:query-merge` are not, because a route may legitimately capture a path segment of that name.
+Hosts and apps may add their own keys under a chosen namespace. Only `:replace?`, `:scroll`, `:fragment`, and `:bypass-guards?` are treated as **opts-only** for the params/opts swap check (see [§Arities](#arities--params-is-2nd-opts-is-3rd)); `:query` and `:query-merge` are not, because a route may legitimately capture a path segment of that name.
 
 ##### Arities — params is 2nd, opts is 3rd
 
@@ -420,7 +420,7 @@ The event vector has two trailing **maps** in fixed positions — `params` secon
 [:rf.route/navigate target params opts]  ;; path-params 2nd, OPTS THIRD
 ```
 
-At a call site `[:rf.route/navigate :route/x {...}]` the `{...}` is **path-params**, not opts. The classic mistake is dropping an opts-shaped map into the params slot — `[:rf.route/navigate :route/cart {:replace? true}]` *reads* like "navigate with these opts" but is parsed as "navigate with path-param `:replace?`". The runtime **rejects this swap**: when an opts-only key (`:replace?`, `:scroll`, `:fragment`, `:bypass-leave-guard?`) appears in the params slot and is **not** a declared path-param of the target route, navigation is rejected (slice unchanged, no URL push) and `:rf.error/navigate-arity-misuse` (`:where :event`) is emitted naming the misplaced key. A route that *legitimately* captures a path segment named `:fragment` (`"/anchor/:fragment"`) is not false-flagged — the key is a declared path-param, not a misplaced opt. To pass opts, use the explicit three-arity form with an empty (or real) params map: `[:rf.route/navigate :route/cart {} {:replace? true}]`.
+At a call site `[:rf.route/navigate :route/x {...}]` the `{...}` is **path-params**, not opts. The classic mistake is dropping an opts-shaped map into the params slot — `[:rf.route/navigate :route/cart {:replace? true}]` *reads* like "navigate with these opts" but is parsed as "navigate with path-param `:replace?`". The runtime **rejects this swap**: when an opts-only key (`:replace?`, `:scroll`, `:fragment`, `:bypass-guards?`) appears in the params slot and is **not** a declared path-param of the target route, navigation is rejected (slice unchanged, no URL push) and `:rf.error/navigate-arity-misuse` (`:where :event`) is emitted naming the misplaced key. A route that *legitimately* captures a path segment named `:fragment` (`"/anchor/:fragment"`) is not false-flagged — the key is a declared path-param, not a misplaced opt. To pass opts, use the explicit three-arity form with an empty (or real) params map: `[:rf.route/navigate :route/cart {} {:replace? true}]`.
 
 The [`:rf.route/self`](#rfrouteself--navigate-in-place) reserved target uses the same three-arity form — `[:rf.route/navigate :rf.route/self {} {:query-merge {…}}]` — where the 2nd slot is an ignored `{}` placeholder (self-nav never re-threads path params) and the opts carry the query change.
 
@@ -1185,11 +1185,13 @@ The `:parent` + chain-sub convention is sufficient for the common case and doesn
 
 ## Navigation blocking — pending-nav protocol
 
-Real product needs — unsaved forms, interrupted checkouts, destructive multi-step workflows — require navigation to be *blockable*. Angular, Vue Router, and TanStack Router all support this. Re-frame2 makes navigation blocking a **first-class named-event/state protocol** instead of a magic component hook: pending-nav state lives in `runtime-db`; UI renders confirm dialogs from ordinary subscriptions (the framework `:rf/pending-navigation` sub reads the runtime-db projection); user choices are dispatched as standard events. All testable.
+Real product needs — unsaved forms, interrupted checkouts, destructive multi-step workflows, **auth gates** — require navigation to be *blockable*, at both ends of a transition: the route you are **leaving** (`:can-leave` — "you have unsaved changes") and the route you are **entering** (`:can-enter` — "you must be signed in"). Angular, Vue Router, and TanStack Router all support both. Re-frame2 makes navigation blocking a **first-class named-event/state protocol** instead of a magic component hook: pending-nav state lives in `runtime-db`; UI renders confirm dialogs (or redirects) from ordinary subscriptions (the framework `:rf/pending-navigation` sub reads the runtime-db projection); user choices are dispatched as standard events. All testable.
+
+`:can-enter` is the **first-class mirror of `:can-leave`** — same closed boolean contract, same pending-nav slot, same continue/cancel protocol — consulted on the **one navigation gate** every entry door shares. This closes the asymmetry that made the most common routing policy (the auth gate) a hand-rolled interceptor: interceptors remain the tool for genuinely cross-cutting policy (§Redirects and guards), but the auth-on-a-route case is now a declarative `:can-enter` route-metadata key, exactly like the unsaved-form case is a declarative `:can-leave`.
 
 ### Mechanism
 
-A standard pending-navigation slot in `runtime-db`, three named events, and an optional `:can-leave` route-metadata key.
+A standard pending-navigation slot in `runtime-db`, four named events, and two optional route-metadata guard keys — `:can-leave` (on the route being left) and `:can-enter` (on the route being entered).
 
 **Pending-nav slot** at `[:rf.runtime/routing :pending-navigation]` (schema in [Spec-Schemas.md §`:rf/pending-navigation`](Spec-Schemas.md#rfpending-navigation)):
 
@@ -1198,66 +1200,110 @@ A standard pending-navigation slot in `runtime-db`, three named events, and an o
 {:id                  "pn-7"
  :requested-by-event  [:rf/url-requested {:url "/editor/articles/42"}]
  :requested-url       "/editor/articles/42"
- :reason              "Form has unsaved changes"
+ :reason              :can-leave       ;; or :can-enter — which GUARD KIND rejected
+ :direction           :leave           ;; or :enter — which END of the transition
  :rejecting-route     :editor/article
  :rejecting-guard     :editor/can-leave?}
 ```
 
-`nil`/absent when no navigation is pending.
+`nil`/absent when no navigation is pending. `:direction` is `:leave` when the **current** route's `:can-leave` rejected and `:enter` when the **target** route's `:can-enter` rejected; `:reason` names the same distinction as the guard kind (`:can-leave` / `:can-enter`), so UI code branches on either. On an enter block the slot also carries `:enter-attempts` (the loop-guard counter — see [§The loop guard](#the-loop-guard)); on a blocked popstate it carries `:url-restored? true`.
 
-**Three named events:**
+**Four named events:**
 
 | Event | Dispatched by | Behaviour |
 |---|---|---|
-| `:rf.route/navigation-blocked` | The runtime, when a `:can-leave` guard rejects | Sets `:rf/pending-navigation` (the runtime does this before dispatching the event); user code subscribes and renders the dialog. Event vector: `[:rf.route/navigation-blocked pending-nav]`. |
-| `:rf.route/continue` | User code (typically a "Yes, leave" button) | Clears `:rf/pending-navigation` and re-dispatches the original navigation request *without* re-running the leave guard. Event vector: `[:rf.route/continue pending-nav-id]`. |
+| `:rf.route/navigation-blocked` | The runtime, when a `:can-leave` guard rejects | Sets `:rf/pending-navigation` with `:direction :leave` (the runtime does this before dispatching the event); user code subscribes and renders the dialog. Event vector: `[:rf.route/navigation-blocked pending-nav]`. |
+| `:rf.route/entry-blocked` | The runtime, when a `:can-enter` guard rejects | The enter-block **mirror** of `:rf.route/navigation-blocked`. Sets `:rf/pending-navigation` with `:direction :enter`; user code subscribes and renders the dialog (or, in the canonical auth case, its handler redirects to login). Event vector: `[:rf.route/entry-blocked pending-nav]`. |
+| `:rf.route/continue` | User code (typically a "Yes, leave" button, or a login-completed action) | Clears `:rf/pending-navigation` and re-dispatches the original navigation request, **bypassing the `:can-leave` guard for this one shot but RE-RUNNING `:can-enter`** (see [§Continue re-runs `:can-enter`](#continue-re-runs-can-enter)). Event vector: `[:rf.route/continue pending-nav-id]`. |
 | `:rf.route/cancel` | User code (typically a "Stay" button) | Clears `:rf/pending-navigation`; the URL stays unchanged. Event vector: `[:rf.route/cancel pending-nav-id]`. |
 
-**Route-metadata extension** — declare the leave-guard sub on a route:
+**Route-metadata extensions** — declare the leave-guard and/or enter-guard sub on a route:
 
 ```clojure
 (rf/reg-route :editor/article
   {:doc       "Editing an article."
    :path      "/editor/articles/:id"
    :params    [:map [:id :string]]
-   :can-leave [:editor/can-leave?]})              ;; sub-id; (subscribe [<sub-id>]) returns boolean
+   :can-leave [:editor/can-leave?]}             ;; sub-id; (subscribe [<sub-id> <target>]) → boolean
+  )
+
+(rf/reg-route :account/settings
+  {:doc       "Account settings — signed-in only."
+   :path      "/account/settings"
+   :can-enter [:auth/signed-in?]})              ;; sub-id; (subscribe [<sub-id> <target>]) → boolean
 
 (rf/reg-sub :editor/can-leave?
   :<- [:editor/dirty?]
-  (fn [dirty? _] (not dirty?)))                   ;; true means "OK to leave"
+  (fn [dirty? _] (not dirty?)))                 ;; true means "OK to leave"
+
+(rf/reg-sub :auth/signed-in?
+  :<- [:auth/user]
+  (fn [user _] (some? user)))                   ;; true means "OK to enter"
 ```
 
-The sub returns `true` when the route is OK to leave; `false` to block. The convention: the *sub's name* describes the positive case (`:can-leave`), so `false` means "can NOT leave" — block.
+Each sub returns `true` when the route is OK to leave / enter; `false` to block. The convention: the *sub's name* describes the positive case (`:can-leave` / `:can-enter`), so `false` means "can NOT" — block. `:can-enter` is evaluated on the **target** route (the one being entered); `:can-leave` on the **current** route (the one being left).
 
-**Closed contract.** The runtime accepts only the literals `true` and `false` from the guard sub. Any other value (`42`, a non-empty string, `nil`, a map) BLOCKS the navigation and emits the structured trace `:rf.error/can-leave-non-boolean` with `:tags {:route-id :query :value :reason :recovery :blocked-navigation :frame <navigating-frame>}` (the `:frame` tag). The closed contract forces the route author to write `(boolean ...)` / `(not ...)` rather than warn-and-let-through. Pre-alpha posture: no shim, no soft transition; the warning slot is removed entirely.
+**The guard sub receives the pending target as an argument.** The runtime subscribes the guard sub with the pending **target** appended to its query vector — `(subscribe [<guard-id> <target>])` — so the guard receives it as the second destructure position, `(fn [inputs [_ target] ...])`. `target` is `{:route-id :params :query :fragment :url}` (the resolved target of the navigation). This is what makes the [fragment-check contract](#fragments) *implementable* for `:can-leave` (compare the current `:rf.route/fragment` against `(:fragment target)` — allow when only the fragment differs) and what gives `:can-enter` the destination to branch on (read `(:route-id target)`, `(:params target)`, or the target route's `:tags` via `handler-meta`). A guard that ignores the extra arg (the common `:<- [:editor/dirty?]` shape above) is unaffected — the target rides in the query vector's tail, unread.
+
+**Closed contract.** The runtime accepts only the literals `true` and `false` from a guard sub. Any other value (`42`, a non-empty string, `nil`, a map) BLOCKS the navigation and emits a structured trace — `:rf.error/can-leave-non-boolean` for a leave guard, `:rf.error/can-enter-non-boolean` for an enter guard — with `:tags {:route-id :query :value :reason :recovery :blocked-navigation :frame <navigating-frame>}` (the `:frame` tag). The closed contract forces the route author to write `(boolean ...)` / `(not ...)` rather than warn-and-let-through. Pre-alpha posture: no shim, no soft transition; the warning slot is removed entirely.
 
 ### Default flow
 
-1. A navigation is requested. The entry event differs by source: a link click fires `:rf/url-requested`; a programmatic call fires `:rf.route/navigate`; a popstate (Back/Forward) or the initial-sync fires `:rf.route/handle-url-change`. The runtime runs the current route's `:can-leave` guard on **every** one of these entry points — they share a single `maybe-block-navigation` gate, so guard coverage does not depend on which event drove the navigation.
-2. The runtime evaluates the **current** route's `:can-leave` sub (if any).
-3. **No guard or guard returns `true`** → proceed normally. The new URL becomes active; nav-token allocates; `:on-match` runs.
-4. **Guard returns `false`** → BLOCK:
-   a. Generate a `pending-nav-id` (gensym).
-   b. Write `:rf/pending-navigation` with `{:id <id> :requested-by-event <ev> :requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id>}`.
-   c. **The URL does not change.** No `pushState`, no `:rf/route` slice update, no `:on-match`. For a **forward** nav (`:rf/url-requested` / `:rf.route/navigate` / `:rf.route/transitioned`) the browser URL has not moved yet, so declining to push is sufficient. A **popstate** block (the triggering event is `:rf.route/handle-url-change` — Back / Forward) is different: the browser has *already* moved the address bar to the rejected URL. To keep "the URL does not change" true, the runtime emits a `:rf.nav/replace-url` that **restores the address bar to the current route slice's URL** (rebuilt via `route-url` from the slice's `:route-id`/`:params`/`:query`/`:fragment`) — a history *replace*, not a push, so no entry is added. URL and slice agree again; `:rf.route/cancel` then leaves nothing else to do.
-   d. Dispatch `[:rf.route/navigation-blocked pending-nav]`. Apps may register their own handler (default is a no-op trace; the value is in the slot, which a sub reads).
-   e. Emit `:rf.route/navigation-blocked` trace event with `:tags {:requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id> :frame <navigating-frame>}` (the `:frame` lets a multi-frame app filter the block to the frame that caused it).
-5. UI renders the confirmation dialog by subscribing to `:rf/pending-navigation`.
-6. User chooses:
-   - **Continue** → dispatch `[:rf.route/continue pending-nav-id]`. Runtime clears the slot and re-issues the original navigation, **bypassing** the leave-guard for this one shot.
+The gate consults `:can-leave` (on the **current** route) then `:can-enter` (on the **target** route). Both run on the SAME `maybe-block-navigation` gate, so coverage does not depend on which event drove the navigation.
+
+1. A navigation is requested. The entry event differs by source: a link click fires `:rf/url-requested`; a programmatic call fires `:rf.route/navigate`; a popstate (Back/Forward) or the initial-sync fires `:rf.route/handle-url-change`. The runtime runs the gate on **every** one of these entry points — they share a single `maybe-block-navigation` gate, so guard coverage does not depend on which event drove the navigation. **This is what makes `:can-enter` fail *closed* through every door:** a hand-rolled interceptor that attaches only to `:rf.route/navigate` (the historical shape — see [§Redirects and guards](#redirects-and-guards)) fails *open* through link clicks (`:rf/url-requested`) and deep-links / Back-Forward (`:rf.route/handle-url-change`), which never dispatch `:rf.route/navigate`. The one gate covers all three.
+2. The runtime resolves the pending **target** (`{:route-id :params :query :fragment :url}`) from the requested URL, then evaluates:
+   a. the **current** route's `:can-leave` sub (if any), passing the target as an argument;
+   b. if leave passed, the **target** route's `:can-enter` sub (if any), passing the same target.
+3. **No guard, or both guards return `true`** → proceed normally. The new URL becomes active; nav-token allocates; `:on-match` runs.
+4. **Either guard returns `false`** → BLOCK. `:can-leave` blocks with `:direction :leave` and dispatches `:rf.route/navigation-blocked`; `:can-enter` blocks with `:direction :enter` and dispatches `:rf.route/entry-blocked`. In both cases:
+   a. Generate a `pending-nav-id`.
+   b. Write `:rf/pending-navigation` with `{:id <id> :requested-by-event <ev> :requested-url <url> :reason <:can-leave|:can-enter> :direction <:leave|:enter> :rejecting-route <id> :rejecting-guard <sub-id>}` (the rejecting route is the **current** route for a leave block, the **target** route for an enter block).
+   c. **The URL does not change.** No `pushState`, no `:rf/route` slice update, no `:on-match`. For a **forward** nav (`:rf/url-requested` / `:rf.route/navigate` / `:rf.route/transitioned`) the browser URL has not moved yet, so declining to push is sufficient. A **popstate** block (the triggering event is `:rf.route/handle-url-change` — Back / Forward) is different: the browser has *already* moved the address bar to the rejected URL. To keep "the URL does not change" true, the runtime emits a `:rf.nav/replace-url` that **restores the address bar to the current route slice's URL** (rebuilt via `route-url` from the slice's `:route-id`/`:params`/`:query`/`:fragment`) — a history *replace*, not a push, so no entry is added. This applies to a leave *and* an enter block reached through popstate (the browser moved to the target either way). URL and slice agree again; `:rf.route/cancel` then leaves nothing else to do.
+   d. Dispatch `[:rf.route/navigation-blocked pending-nav]` (leave) or `[:rf.route/entry-blocked pending-nav]` (enter). Apps may register their own handler (default is a no-op; the value is in the slot, which a sub reads). The canonical enter handler is an **auth redirect**: read the slot's `:requested-url`, dispatch `:rf.route/navigate` to login, stash the target for a post-login bounce-back.
+   e. Emit the block trace event (`:rf.route/navigation-blocked` / `:rf.route/entry-blocked`) with `:tags {:requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id> :direction <:leave|:enter> :frame <navigating-frame>}` (the `:frame` lets a multi-frame app filter the block to the frame that caused it; `:requested-url` is redacted per [009 §EP-0015 egress](009-Instrumentation.md) before the trace crosses the egress boundary).
+5. UI renders the confirmation dialog (or the redirect handler acts) by subscribing to `:rf/pending-navigation`.
+6. User (or the login flow) chooses:
+   - **Continue** → dispatch `[:rf.route/continue pending-nav-id]`. Runtime clears the slot and re-issues the original navigation, **bypassing the `:can-leave` guard** for this one shot but **re-running `:can-enter`** (see [§Continue re-runs `:can-enter`](#continue-re-runs-can-enter)).
    - **Cancel** → dispatch `[:rf.route/cancel pending-nav-id]`. Runtime clears the slot. Nothing else changes.
+
+<a id="continue-re-runs-can-enter"></a>
+### Continue re-runs `:can-enter`
+
+`:rf.route/continue` bypasses the **leave** guard (the user confirmed leaving) but **re-runs** the **enter** guard. This is not an optimisation detail — it is the enter-gate's whole correctness story:
+
+- An **enter-pending survives a committed navigation.** A `:can-enter` block on `/account` does not commit anything — the user is still on `/home`. If they then navigate elsewhere and come back, or the login flow completes and dispatches `:rf.route/continue`, the enter gate must re-evaluate: has the condition that blocked entry actually changed? Bypassing it on resume would let a still-signed-out user into `/account` merely because they clicked "continue".
+- The canonical shape: a login flow blocks entry, redirects to login, and on successful login dispatches `[:rf.route/continue pn-id]`. The resume re-runs `:can-enter` — now the user IS signed in, so it passes and the navigation completes. Had the user *not* actually signed in, the resume re-blocks (a fresh `:rf.route/entry-blocked` pending slot), and the [loop guard](#the-loop-guard) below stops an infinite `continue → block → continue`.
+
+The bypass is expressed as `:bypass-guards? #{:leave}` on the re-issued event (see [§The `:bypass-guards?` opt](#the-bypass-guards-opt)); the enter guard is deliberately *not* in the set.
+
+<a id="the-loop-guard"></a>
+### The loop guard
+
+A `:can-enter` that re-blocks the SAME target across successive `:rf.route/continue` resumes is a `continue → block → continue` spin — a runaway loop. The runtime tracks an `:enter-attempts` counter on the pending-nav slot: each enter block through the same target URL increments it, and once it crosses the loop ceiling the gate **fails closed** — it emits `:rf.error/route-guard-loop` (with `:requested-url`, `:rejecting-route`, `:rejecting-guard`, `:attempts`, `:frame`), clears the pending slot rather than stranding a resumable one, and dispatches **no** further block user-event (which would only invite the same spin). A leave block resets the counter (a leave block starts a fresh chain). This bounds a misbehaving `:can-enter` sub (or resume policy) to a finite number of retries instead of an infinite loop.
+
+<a id="the-bypass-guards-opt"></a>
+### The `:bypass-guards?` opt
+
+`:bypass-guards?` is a navigate **opt** (third slot) carrying a **set** of `#{:leave :enter}` — the guards to skip for this one navigation:
+
+- `#{:leave}` skips the active route's `:can-leave` gate (the `:rf.route/continue` resume shape).
+- `#{:enter}` skips the target route's `:can-enter` gate.
+- `#{:leave :enter}` skips both (the runtime's own synthesised `:rf.route/transitioned` re-dispatch out of `:rf/url-requested`, where the gate already ran and passed).
+
+It replaces the former single-boolean `:bypass-leave-guard?` opt (pre-alpha rename — no back-compat alias). A missing or `nil`/`false` value bypasses nothing.
 
 ### Why this shape (not a hook-based router)
 
 The hook-based version (e.g., React Router's `useBlocker`) is convenient but tied to component lifecycle. Re-frame2's strengths are explicit state and dispatched events; this design preserves them. Slightly more verbose at the call site; far more testable.
 
-A test fires `[:rf/url-requested {:url "/cart"}]` against a frame whose `:editor/can-leave?` sub returns `false`, asserts `:rf/pending-navigation` is set, asserts `:rf.nav/push-url` did NOT fire, dispatches `[:rf.route/continue pending-nav-id]`, asserts the navigation completes. No DOM, no event simulation, no hook-mock.
+A test fires `[:rf/url-requested {:url "/cart"}]` against a frame whose `:editor/can-leave?` sub returns `false`, asserts `:rf/pending-navigation` is set, asserts `:rf.nav/push-url` did NOT fire, dispatches `[:rf.route/continue pending-nav-id]`, asserts the navigation completes. The enter mirror: fires `[:rf/url-requested {:url "/account"}]` against a frame whose `:auth/signed-in?` sub returns `false`, asserts `:rf/pending-navigation` is set with `:direction :enter`, asserts `:rf.nav/push-url` did NOT fire, asserts `:rf.route/entry-blocked` fired. No DOM, no event simulation, no hook-mock.
 
 ### Interaction with other navigation features
 
 - **Nav-tokens.** Navigation blocking happens *before* the new nav-token would be allocated; tokens are for committed navigations. The `:rf.route/continue` re-issue allocates a fresh nav-token like any other navigation. The original (blocked) attempt never received one.
-- **Fragments.** `:can-leave` runs for any URL change, including fragment-only changes. The runtime DOES check `:can-leave` for fragment-only changes — apps that want fragment changes to bypass the guard return `true` from the sub when the only difference is the fragment (the sub reads the current `:rf.route/fragment` and the requested fragment from the pending event).
-- **Multiple guards.** A route has at most one `:can-leave` sub (it's a metadata key, single-valued). For frame-level cross-cutting policy (e.g., "always block when `:auth/logging-out?`"), register the policy with `reg-interceptor` and reference it from the frame's `:interceptors` chain (the [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) "global within this frame" mechanism) so it runs on every navigation entry event (`:rf/url-requested`, `:rf.route/navigate`, `:rf.route/handle-url-change`). Such an interceptor runs *before* the leave-guard check — it can short-circuit by setting `:rf/pending-navigation` directly.
+- **Fragments.** Both guards run for any URL change, including fragment-only changes. The guard sub receives the pending target as an argument, so a `:can-leave` that wants fragment changes to bypass the guard returns `true` when the only difference is the fragment — it compares the current `:rf.route/fragment` against `(:fragment target)` (the argument), which is what makes the fragment-check contract *implementable* (before the target argument, the guard sub had no way to read where the navigation was heading — see [§The guard sub receives the pending target as an argument](#the-guard-sub-receives-the-pending-target-as-an-argument)).
+- **Multiple guards.** A route has at most one `:can-leave` and one `:can-enter` sub (each is a single-valued metadata key). For frame-level cross-cutting policy (e.g., "always block when `:auth/logging-out?`"), register the policy with `reg-interceptor` and reference it from the frame's `:interceptors` chain (the [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) "global within this frame" mechanism) so it runs on every navigation entry event (`:rf/url-requested`, `:rf.route/navigate`, `:rf.route/handle-url-change`). Such an interceptor runs *before* the guard check — it can short-circuit by setting `:rf/pending-navigation` directly. **`:can-enter` vs interceptor:** reach for `:can-enter` for a policy that belongs to *one route* (this route needs auth); reach for a frame-`:interceptors` policy for a rule that spans *many* routes uniformly (§Redirects and guards).
 
 ### Conformance
 
@@ -1265,44 +1311,89 @@ Fixture `route-navigation-blocked.edn` exercises:
 1. Register a route with `:can-leave [:editor/can-leave?]`.
 2. Set `:editor/dirty?` to `true` (sub returns `false`).
 3. Dispatch `[:rf/url-requested {:url "/cart"}]`.
-4. Assert `:rf/pending-navigation` is set; `:rf.nav/push-url` did NOT fire; `:rf.route/navigation-blocked` trace event fired; `:rf/route` slice unchanged.
+4. Assert `:rf/pending-navigation` is set with `:direction :leave`; `:rf.nav/push-url` did NOT fire; `:rf.route/navigation-blocked` trace event fired; `:rf/route` slice unchanged.
 5. Dispatch `[:rf.route/continue pending-nav-id]`.
 6. Assert `:rf/pending-navigation` is `nil`; the URL is `/cart`; `:route/cart` is the active route.
 
+Fixture `route-entry-blocked.edn` exercises the enter mirror, through EACH of the three doors:
+1. Register a target route with `:can-enter [:auth/signed-in?]`; the sub returns `false`.
+2. Dispatch `[:rf/url-requested {:url "/account"}]` (link click) — assert `:rf/pending-navigation` set with `:direction :enter`, `:reason :can-enter`; `:rf.nav/push-url` did NOT fire; `:rf.route/entry-blocked` trace fired; slice unchanged.
+3. Repeat with `[:rf.route/navigate :account/settings]` (programmatic) and `[:rf.route/handle-url-change "/account"]` (deep-link / popstate) — assert the SAME block outcome (fail-closed through every door).
+4. Flip `:auth/signed-in?` to `true`, dispatch `[:rf.route/continue pending-nav-id]`, assert `:can-enter` re-ran and now passes: `:rf/pending-navigation` is `nil` and `:account/settings` is active.
+5. Negative: a `:can-enter` sub returning a non-boolean BLOCKS and emits `:rf.error/can-enter-non-boolean`; a `:can-enter` that keeps blocking across repeated `:rf.route/continue` resumes eventually emits `:rf.error/route-guard-loop` and stops re-issuing.
+6. Bypass: `[:rf.route/navigate :account/settings {} {:bypass-guards? #{:enter}}]` skips the enter gate (enters while signed out); `#{:leave}` skips only the leave gate.
+
 ## Redirects and guards
 
-A `:rf.route/navigate` event can be intercepted by an interceptor that decides whether the navigation proceeds, redirects elsewhere, or aborts. Per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) an interceptor is a **registered program member**: author its behaviour once with `reg-interceptor` (an app-owned id), then attach it to the navigation event by **reference** in the event's `:interceptors` chain. Inline interceptor maps/Vars in a chain are rejected at registration with `:rf.error/inline-interceptor-removed`.
+**Auth-on-a-route is `:can-enter`, not an interceptor.** The most common routing policy — "you must be signed in to reach this route" — is a declarative [`:can-enter`](#navigation-blocking--pending-nav-protocol) route-metadata key. It runs on the ONE navigation gate, so it fails *closed* through all three entry doors (link click, programmatic nav, deep-link / Back-Forward) with no per-door plumbing:
 
 ```clojure
-;; 1. Register the guard behaviour under an app-owned id.
-(rf/reg-interceptor :app/auth-guard
-  {:doc "Redirect to /login when an in-flight navigation targets a :requires-auth route and no user is signed in."}
-  {:before
-   (fn before [ctx]
-     (let [event       (get-in ctx [:coeffects :event])
-           target      (second event)
-           route-meta  (rf/handler-meta :route target)
-           needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
-           logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-       (if (and needs-auth? (not logged-in?))
-         ;; redirect to login
-         (assoc-in ctx [:coeffects :event] [:rf.route/navigate :route/login {:return-to target}])
-         ctx)))})
-
-;; 2. Attach it to :rf.route/navigate by reference. Because the standard
-;; framework navigate handler is re-registered here only to add the chain,
-;; this is the app's own override of the standard event (per "Standard
-;; runtime events" — users override by re-registering).
-(rf/reg-event :rf.route/navigate
-  {:interceptors [:app/auth-guard]}
-  handler-route-navigate)            ;; the standard handler from "Navigation is an event"
-
 (rf/reg-route :route/account
-  {:path "/account"
-   :tags #{:requires-auth}})
+  {:path      "/account"
+   :can-enter [:auth/signed-in?]})
+
+(rf/reg-sub :auth/signed-in?
+  :<- [:auth/user]
+  (fn [user _] (some? user)))     ;; true → OK to enter
+
+;; The app's :rf.route/entry-blocked handler turns the block into a login
+;; redirect (the enter-block mirror of a confirm dialog). The pending-nav
+;; slot carries the target the user aimed at, so the login flow can bounce
+;; them back with :rf.route/continue after they sign in (which RE-RUNS
+;; :can-enter — now signed in, it passes).
+(rf/reg-event :rf.route/entry-blocked
+  (fn [{:keys [db]} [_ {:keys [requested-url]}]]
+    {:db (assoc-in db [:auth :return-to] requested-url)
+     :fx [[:dispatch [:rf.route/navigate :route/login]]]}))
 ```
 
-Guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Cross-cutting frame-wide policy (e.g. "always block when `:auth/logging-out?`") goes on the frame's `:interceptors` chain instead (per [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol)).
+**Interceptors remain the tool for cross-cutting policy** — a rule that spans *many* routes uniformly (a feature flag gating a whole section, a maintenance-mode lockout, an analytics-driven redirect). Per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) an interceptor is a **registered program member**: author its behaviour once with `reg-interceptor` (an app-owned id), then attach it to the frame's `:interceptors` chain (so it runs on *every* navigation entry event) by **reference**. Inline interceptor maps/Vars in a chain are rejected at registration with `:rf.error/inline-interceptor-removed`.
+
+A cross-cutting guard interceptor **must cover all three entry doors**, or it fails *open*: a policy that inspects only `:rf.route/navigate` lets a logged-out user in through a link click (`:rf/url-requested`) or a deep-link / Back-Forward (`:rf.route/handle-url-change`), neither of which dispatches `:rf.route/navigate`. So the interceptor resolves the target from *whichever* nav event drove it, then decides:
+
+```clojure
+;; Resolve the target route + params from ANY of the three navigation
+;; events (fail-closed coverage — do not guard only :rf.route/navigate).
+(defn- nav-target [event]
+  (let [[ev-id a b] event]
+    (case ev-id
+      :rf.route/navigate          {:id a :params (or b {})}     ;; a = route-id
+      :rf/url-requested           (let [{:keys [to params url]} a]
+                                    (cond
+                                      to  {:id to :params (or params {})}
+                                      url (when-let [{:keys [route-id params]} (rf/match-url url)]
+                                            {:id route-id :params (or params {})})))
+      :rf.route/handle-url-change (when-let [{:keys [route-id params]} (rf/match-url a)]
+                                    {:id route-id :params (or params {})})
+      nil)))
+
+(rf/reg-interceptor :app/section-lockout
+  {:doc "Redirect away from a whole gated section when the feature flag is off — a
+         cross-cutting rule spanning many routes, so an interceptor not :can-enter."}
+  {:before
+   (fn before [ctx]
+     (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event]))]
+       (let [route-meta (rf/handler-meta :route id)
+             gated?     (boolean (some #{:beta-section} (:tags route-meta)))
+             enabled?   (get-in ctx [:coeffects :db :flags :beta])]
+         (if (and gated? (not enabled?))
+           ;; skip the original handler (so the gated slice never commits) and
+           ;; redirect. Skipping — not rewriting :coeffects :event — because the
+           ;; handler is picked from the ORIGINAL event id before interceptors run.
+           (-> ctx
+               (assoc :rf/skip-handler? true)
+               (assoc-in [:effects :fx] [[:dispatch [:rf.route/navigate :route/home]]]))
+           ctx))
+       ctx))})
+
+;; Attach to the FRAME's :interceptors so it runs on every navigation entry
+;; event — the "global within this frame" mechanism (EP-0022). Attaching only
+;; to :rf.route/navigate is the classic fail-open bug.
+(rf/reg-frame :app
+  {:interceptors [:app/section-lockout]})
+```
+
+Guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Prefer `:can-enter` when the policy belongs to one route; reach for a frame-`:interceptors` guard when it spans many routes uniformly, and cover all three doors when you do.
 
 ## Server-side rendering integration (per [011](011-SSR.md))
 
@@ -1435,7 +1526,16 @@ On the server there is no `window` and no address bar: the request URL is fed in
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all six items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all seven items classify as **`:post-v1 tracked`** — additive design candidates that do not block v1.
+
+### Declarative `:on-leave` route hook (post-v1)
+
+`:can-enter` shipped as the first-class mirror of `:can-leave` (rf2-p69yaz Option A). A route-owned **`:on-leave`** hook — a declarative "run these events when this route is left" slot, the imperative sibling of `:on-match` (which runs on *entry*) — was considered as the leave-side companion (rf2-uu19xv) and **deliberately deferred, not shipped**. The shipped-surface `:on-leave` remedy was **rejected** in the same 012 design pass: the leave-side teardown story is already covered by two existing, sufficient surfaces —
+
+- **Machine `:exit` actions and frame teardown.** A route that owns machine-shaped resources tears them down through the machine's `:exit` cascade, which fires on every exit path including the frame's destruction (per [005 §Cooperative cancellation](005-StateMachines.md) and [Cross-Spec-Interactions §Routing × Machines](Cross-Spec-Interactions.md#routing--machines)). 10+ machine examples already teach this shape; a route `:on-leave` would duplicate it for the machine case.
+- **Route-owned resources release declaratively.** A route's `:resources` plan releases its owner leases on route change (per [016 §Route integration](016-Resources.md)) — the leaving route's `[:route prev-id prev-nav-token]` owner is dropped automatically, no `:on-leave` needed.
+
+What `:on-leave` would add over these is a *route-declared, non-machine, non-resource* leave hook (e.g. "clear this app-db slice when leaving this route", "fire an analytics `left-page` event"). Today that rides an ordinary event dispatched from the `:can-leave` path or from a machine `:exit`; the declarative slot is sugar over it. Deferred until real apps surface a leave-side teardown that neither the machine `:exit` nor the resource-lease release covers cleanly — the two surfaces above carry the common cases, and adding a third leave-side mechanism before the gap is demonstrated would be redundant surface.
 
 ### Native nested layouts (post-v1)
 

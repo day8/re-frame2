@@ -2512,7 +2512,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 (def Routing
   ;; The routing runtime's per-frame runtime-db state. :current is the live
-  ;; route slice; :pending-navigation is the can-leave pending-nav slot. Both
+  ;; route slice; :pending-navigation is the can-leave / can-enter pending-nav slot. Both
   ;; sub-keys are allocated lazily. The nav-token / pending-nav monotonic
   ;; COUNTERS and the saved scroll positions are NOT runtime-db state — they
   ;; live in host-side transient caches (012
@@ -3294,20 +3294,23 @@ Per-host extension keys (`:myapp/...`, `:rf.tooling/...`) are tolerated — Rout
 > **Owner:** [012-Routing §Navigation blocking — pending-nav protocol](012-Routing.md#navigation-blocking--pending-nav-protocol)
 > **Status:** v1-required
 
-The shape of the pending-navigation slot, set by the runtime when a navigation is blocked by a `:can-leave` guard. Lives in **runtime-db** at `[:rf.runtime/routing :pending-navigation]` per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [§`:rf/runtime-db`](#rfruntime-db). Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
+The shape of the pending-navigation slot, set by the runtime when a navigation is blocked by a `:can-leave` (leave) OR `:can-enter` (enter) guard. `:can-enter` is the first-class mirror of `:can-leave` (rf2-p69yaz Option A), so ONE slot shape covers both — `:reason` / `:direction` discriminate which end blocked. Lives in **runtime-db** at `[:rf.runtime/routing :pending-navigation]` per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [§`:rf/runtime-db`](#rfruntime-db). Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
 
 ```clojure
 (def PendingNavigation
   [:map
-   [:id                  :string]                                         ;; opaque pending-nav id (gensym); used by :rf.route/continue / :rf.route/cancel
-   [:requested-by-event  [:vector :any]]                                  ;; the original :rf/url-requested or :rf.route/navigate event vector
+   [:id                  :string]                                         ;; opaque pending-nav id; used by :rf.route/continue / :rf.route/cancel
+   [:requested-by-event  [:vector :any]]                                  ;; the original :rf/url-requested / :rf.route/navigate / :rf.route/handle-url-change event vector
    [:requested-url       :string]                                         ;; the URL the user was trying to reach
-   [:reason              {:optional true} :string]                        ;; human-readable explanation for the dialog
-   [:rejecting-route     :keyword]                                        ;; the route id whose :can-leave guard rejected
-   [:rejecting-guard     {:optional true} :keyword]])                     ;; the sub-id of the rejecting guard (for tooling)
+   [:reason              [:enum :can-leave :can-enter]]                   ;; which GUARD KIND rejected (rf2-p69yaz)
+   [:direction           [:enum :leave :enter]]                           ;; which END of the transition blocked (:leave = current route's :can-leave; :enter = target route's :can-enter)
+   [:rejecting-route     :keyword]                                        ;; the rejecting route id (CURRENT route on a leave block; TARGET route on an enter block)
+   [:rejecting-guard     {:optional true} :keyword]                       ;; the sub-id of the rejecting guard (for tooling)
+   [:enter-attempts      {:optional true} :int]                           ;; loop-guard counter — present on an enter block; increments per resume (rf2-p69yaz point 7)
+   [:url-restored?       {:optional true} :boolean]])                     ;; true when a blocked popstate restored the address bar (the resume must re-move it)
 ```
 
-The slot is `nil` (or absent) when no navigation is pending. Cleared by `:rf.route/continue` (the navigation completes) or `:rf.route/cancel` (the navigation is abandoned). Open map — implementations may attach `:rf.route/...`-namespaced metadata; user code reads via `(subscribe [:rf/pending-navigation])`.
+The slot is `nil` (or absent) when no navigation is pending. Cleared by `:rf.route/continue` (the navigation completes, re-running `:can-enter`) or `:rf.route/cancel` (the navigation is abandoned). Open map — implementations may attach `:rf.route/...`-namespaced metadata; user code reads via `(subscribe [:rf/pending-navigation])`.
 
 ### `:rf.fx/with-nav-token-args`
 
