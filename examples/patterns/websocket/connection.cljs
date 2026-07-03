@@ -14,17 +14,17 @@
    Why nest the three happy-path leaves inside `:active` instead of laying
    everything out flat? Because they share one thing they can't live
    without: the live socket. The subscription set, the in-flight requests,
-   the offline queue, the socket id — all of it belongs to *one*
-   connection and rides a single `:data` map. A compound state is how you
-   say 'these share a lifecycle'. (Parallel regions are the opposite tool,
-   for axes that don't share data.)
+   the offline queue — all of it belongs to *one* connection and rides a
+   single `:data` map. A compound state is how you say 'these share a
+   lifecycle'. (Parallel regions are the opposite tool, for axes that don't
+   share data.)
    See docs/machines/concepts.md#when-the-machine-grows.
 
    The view never matches on state names. Each state carries tags, and the
    view asks tag-shaped questions — `:ws/connected?`, `:ws/reconnecting?`
-   (the per-tag subs below, each a `contains?` over the snapshot's `:tags`
-   union). It doesn't care which leaf carries the `:connected` intent, only
-   that the tag is present. Ask, don't tell.
+   (the per-tag subs below, each chaining off the framework
+   `rf/machine-has-tag?` sub). It doesn't care which leaf carries the
+   `:connected` intent, only that the tag is present. Ask, don't tell.
    See docs/machines/glossary.md#state-tag.
 
    Reconnects bring two ways to be fooled by something stale, and we guard
@@ -35,15 +35,31 @@
         fire after we've moved on.
         See docs/machines/concepts.md#guards-actions-tags-and-after--the-recognition-kit.
 
-     2. A late message. The live `:socket-id` *is* the connection's clock:
-        every inbound event names the socket it came from, and the
+     2. A late message. The live socket-actor id *is* the connection's
+        clock: every inbound event names the socket it came from, and the
         `:current-socket?` guard drops anything from a socket we've since
         replaced — the slow message that lands just after a reconnect.
 
    The thing that actually owns the JS WebSocket is the `:websocket/socket`
    actor, over in `websocket.messages`. We spawn it on the `:active`
    *parent*, so one socket spans `:connecting` -> `:authenticating` ->
-   `:connected` without re-spawning on every leaf transition."
+   `:connected` without re-spawning on every leaf transition.
+
+   Where does the parent learn the spawned actor's id? It doesn't have to
+   ask. Every declarative `:spawn` binds the newborn's id into the SPAWNING
+   machine's own `:data` under the reserved `:rf/spawned` map, keyed by the
+   `:spawn`-bearing state's path — here `[:active]`. So the id is simply
+   `(get-in data [:rf/spawned [:active]])`, and `socket-id` (below) reads it.
+   This is re-frame2's spelling of XState v5's `spawn(...)`-into-`context`
+   capture — no `:on-spawn` self-dispatch, no side-channel atom.
+   See docs/machines/actors.md#recording-the-spawned-id and
+   docs/machines/glossary.md#spawn.
+
+   And because the runtime CLEARS that slot the instant the actor is torn
+   down (leaving `:active` by any door), a stale read is impossible: the
+   moment the socket dies, `(socket-id data)` goes `nil` on its own. That is
+   what makes it a safe connection clock — no `:exit` action nulling
+   anything, nothing to remember to clean up."
   (:require [re-frame.core :as rf]
             ;; `re-frame.machines` ships in day8/re-frame2-machines.
             ;; Requiring it is what wires up the machine vocabulary: the
@@ -51,7 +67,6 @@
             ;; `:rf.machine/spawn` / `:rf.machine/destroy` fx, and the
             ;; `:rf/machine` / `:rf/machine-has-tag?` subs you'll see used
             ;; below. Skip the require and they simply aren't there.
-            [re-frame.late-bind]
             [re-frame.machines]
             [re-frame.fx]
             [websocket.schema :as schema]))
@@ -59,6 +74,20 @@
 ;; ============================================================================
 ;; CONNECTION MACHINE — :ws/connection
 ;; ============================================================================
+
+;; The socket actor is spawned on the `:active` parent state, so the id the
+;; runtime binds into our `:data :rf/spawned` map is keyed by that state's
+;; path. Naming the key once keeps the reads below honest.
+(def ^:private socket-invoke-id [:active])
+
+(defn- socket-id
+  "The live socket-actor id, read straight from the parent's own `:data`
+   under the framework-maintained `:rf/spawned` slot. Returns nil whenever
+   no socket is spawned — before the first `:active` entry, and (crucially)
+   the moment the actor is torn down, because the runtime clears the slot on
+   teardown. That auto-clear is why this doubles as the connection's clock."
+  [data]
+  (get-in data [:rf/spawned socket-invoke-id]))
 
 (def connection-machine
   "The `:ws/connection` machine spec, kept in its own `def` so we can hand
@@ -72,14 +101,16 @@
      :schemas {:data schema/ConnectionData}
 
      ;; `:data` is the connection's memory — everything that has to survive
-     ;; a reconnect, from the URL down to the in-flight requests.
+     ;; a reconnect, from the URL down to the in-flight requests. Note
+     ;; there's no `:socket-id` here: the live socket's id lives in the
+     ;; framework's `:rf/spawned` slot (read via `socket-id`), which the
+     ;; runtime keeps current for us.
      :data    {:url            nil
                :auth-token     nil
                :retries        0
                :max-retries    8
                :base-ms        100
                :max-backoff-ms 5000
-               :socket-id      nil
                :subscriptions  #{}
                :queue          []
                :in-flight      {}
@@ -100,10 +131,13 @@
       ;; the socket it came from (`:source-socket-id`, the actor's
       ;; `:rf/self-id`). We let it through only if that matches the live
       ;; socket — otherwise it's a straggler from a connection we've
-      ;; already replaced, and we drop it.
+      ;; already replaced, and we drop it. `socket-id` reads the live id
+      ;; from `:rf/spawned`, so a torn-down socket compares as nil and every
+      ;; straggler is dropped for free.
       (fn guard-current-socket? [{data :data [_ {:keys [source-socket-id]}] :event}]
-        (and (some? (:socket-id data))
-             (= source-socket-id (:socket-id data))))}
+        (let [live (socket-id data)]
+          (and (some? live)
+               (= source-socket-id live))))}
 
      :actions
      {:record-connection-opts
@@ -141,22 +175,12 @@
       (fn action-record-error [{data :data [_ {:keys [error]}] :event}]
         {:data (assoc data :error error)})
 
-      :record-socket-id
-      ;; Stash the spawned actor's id in `:data`. Why a whole action for an
-      ;; assoc? Because `:on-spawn` is advisory — its return value is
-      ;; thrown away, so it can't write `:data` directly. So it does the
-      ;; next best thing: it fires a `[:ws/-socket-spawned <id>]` event
-      ;; back at us, and that transition runs this action, which records
-      ;; the id the ordinary way.
-      (fn action-record-socket-id [{data :data [_ id] :event}]
-        {:data (assoc data :socket-id id)})
-
       :send-auth
       ;; We've just entered `:authenticating`, so send the credentials:
       ;; route an `:auth` message into the live socket actor and wait for
       ;; the server to bless us.
       (fn action-send-auth [{data :data}]
-        {:fx [[:dispatch [(:socket-id data)
+        {:fx [[:dispatch [(socket-id data)
                           [:send {:type  :auth
                                   :token (:auth-token data)}]]]]})
 
@@ -170,7 +194,7 @@
       (fn action-on-connected [{data :data}]
         {:data (assoc data :retries 0)
          :fx   (mapv (fn [topic]
-                       [:dispatch [(:socket-id data)
+                       [:dispatch [(socket-id data)
                                    [:send {:type :subscribe :topic topic}]]])
                      (:subscriptions data))})
 
@@ -182,7 +206,7 @@
         (let [q (:queue data)]
           {:data (assoc data :queue [])
            :fx   (mapv (fn [msg]
-                         [:dispatch [(:socket-id data) [:send msg]]])
+                         [:dispatch [(socket-id data) [:send msg]]])
                        q)}))
 
       :enqueue-message
@@ -194,12 +218,12 @@
       ;; queue. This is the leaf overriding the parent's `:ws/send` (which
       ;; enqueues) — same event, different answer depending on where we are.
       (fn action-send-now [{data :data [_ msg] :event}]
-        {:fx [[:dispatch [(:socket-id data) [:send msg]]]]})
+        {:fx [[:dispatch [(socket-id data) [:send msg]]]]})
 
       :register-subscription
       (fn action-register-subscription [{data :data [_ topic] :event}]
         {:data (update data :subscriptions conj topic)
-         :fx   [[:dispatch [(:socket-id data)
+         :fx   [[:dispatch [(socket-id data)
                             [:send {:type :subscribe :topic topic}]]]]})
 
       :register-request
@@ -214,7 +238,7 @@
                                             :or   {timeout-ms 30000}}] :event}]
         {:data (assoc-in data [:in-flight request-id]
                          {:reply-event reply :timeout-ms timeout-ms})
-         :fx   [[:dispatch [(:socket-id data)
+         :fx   [[:dispatch [(socket-id data)
                             [:send (assoc body :request-id request-id)]]]
                 ;; The timeout event carries the live socket-id too, so the
                 ;; same `:current-socket?` guard quietly discards a timeout
@@ -224,7 +248,7 @@
                   :event [:ws/connection
                           [:ws/request-timeout
                            {:request-id       request-id
-                            :source-socket-id (:socket-id data)}]]}]]})
+                            :source-socket-id (socket-id data)}]]}]]})
 
       :clear-request
       (fn action-clear-request [{data :data [_ {:keys [request-id]}] :event}]
@@ -255,7 +279,8 @@
       :active
       {;; Spawn the socket actor here, on the parent, so one socket lives
        ;; across :connecting -> :authenticating -> :connected. The instant
-       ;; we leave :active — by any door — the runtime tears it down.
+       ;; we leave :active — by any door — the runtime tears it down (and
+       ;; clears its id from our :rf/spawned slot, so `socket-id` reads nil).
        ;; See docs/machines/concepts.md#when-the-machine-grows.
        :spawn {:machine-id :websocket/socket
                 ;; Hand the child the URL and token from our `:data` as it's
@@ -264,29 +289,7 @@
                 ;; into the next socket, no extra plumbing.
                 :data       (fn [{snap :snapshot}]
                               {:url        (-> snap :data :url)
-                               :auth-token (-> snap :data :auth-token)})
-                ;; `:on-spawn` is advisory — its return value goes nowhere,
-                ;; so it can't write the parent's `:data` itself. It knows
-                ;; the new actor's id, though, and we need that recorded.
-                ;; The trick: fire a `:ws/-socket-spawned` event at
-                ;; ourselves, whose transition runs `:record-socket-id` and
-                ;; writes `:socket-id` the ordinary way.
-                :on-spawn (fn [{id :id}]
-                            (when-let [dispatch! (re-frame.late-bind/get-fn :router/dispatch!)]
-                              (dispatch!
-                                [:ws/connection [:ws/-socket-spawned id]]
-                                ;; Tag where this dispatch came from:
-                                ;; `:source :websocket` is the reserved
-                                ;; functional-origin slot for events that
-                                ;; originate at the socket.
-                                {:source :websocket})))}
-
-       ;; On the way out, null the :socket-id. The runtime already destroys
-       ;; the actor for us; this just clears the stale id behind it, so
-       ;; :current-socket? has a clean nil to compare against rather than
-       ;; the id of a socket that no longer exists.
-       :exit (fn action-clear-socket-id [{data :data}]
-               {:data (assoc data :socket-id nil)})
+                               :auth-token (-> snap :data :auth-token)})}
 
        ;; Transitions every leaf inherits. A leaf can override any of these
        ;; (deepest state wins); anything it doesn't handle falls through to
@@ -303,11 +306,7 @@
                ;; topic down; the next :connected entry will actually send
                ;; the subscribe.
                :ws/subscribe {:action (fn [{data :data [_ topic] :event}]
-                                        {:data (update data :subscriptions conj topic)})}
-               ;; Internal plumbing: the spawn's `:on-spawn` callback fires
-               ;; this so we can record the new socket id through a normal
-               ;; action (see `:record-socket-id`).
-               :ws/-socket-spawned {:action :record-socket-id}}
+                                        {:data (update data :subscriptions conj topic)})}}
 
        :initial :connecting
 
@@ -394,29 +393,31 @@
   :<- [:ws/snapshot]
   (fn [snap _] (:state snap)))
 
-;; One little yes/no sub per tag. Each is a `contains?` over the
-;; snapshot's `:tags` union, so a view can ask "connected?" and get a
-;; boolean — no unpacking the hierarchical `:state` vector to find out.
+;; One little yes/no sub per tag. Each chains off the FRAMEWORK sub
+;; `:rf/machine-has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
+;; tag)`), which returns the snapshot's tag-containment bit directly — so a
+;; view can ask "connected?" and get a boolean without unpacking the
+;; hierarchical `:state` vector or re-reading the snapshot itself.
 ;; See docs/machines/glossary.md#state-tag.
 (rf/reg-sub :ws/connecting?
-  :<- [:ws/snapshot]
-  (fn [snap _] (contains? (:tags snap) :websocket/connecting)))
+  :<- [:rf/machine-has-tag? :ws/connection :websocket/connecting]
+  (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/authenticating?
-  :<- [:ws/snapshot]
-  (fn [snap _] (contains? (:tags snap) :websocket/authenticating)))
+  :<- [:rf/machine-has-tag? :ws/connection :websocket/authenticating]
+  (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/connected?
-  :<- [:ws/snapshot]
-  (fn [snap _] (contains? (:tags snap) :websocket/connected)))
+  :<- [:rf/machine-has-tag? :ws/connection :websocket/connected]
+  (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/reconnecting?
-  :<- [:ws/snapshot]
-  (fn [snap _] (contains? (:tags snap) :websocket/reconnecting)))
+  :<- [:rf/machine-has-tag? :ws/connection :websocket/reconnecting]
+  (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/failed?
-  :<- [:ws/snapshot]
-  (fn [snap _] (contains? (:tags snap) :websocket/failed)))
+  :<- [:rf/machine-has-tag? :ws/connection :websocket/failed]
+  (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/queue-depth
   :<- [:ws/snapshot]
@@ -434,10 +435,10 @@
 (rf/reg-event :ws.connection/initialise
   {:doc "Wake the connection machine up in its `:disconnected` start
          state. A machine's first snapshot only materialises when it first
-         receives an event, so this gives it a harmless nudge."}
+         receives an event, so this gives it the canonical eager kick."}
   (fn handler-ws-connection-initialise [_ _]
-    ;; `:ws/noop` is a do-nothing event with no transition. Dispatching it
-    ;; is just enough to make the machine materialise its `:disconnected`
-    ;; snapshot, so tests (and the UI) can read the state before anyone
-    ;; clicks Connect.
-    {:fx [[:dispatch [:ws/connection [:ws/noop]]]]}))
+    ;; `[:rf.machine/start]` is re-frame2's spelling of XState v5's
+    ;; `createActor(machine).start()`: it runs the initial-entry cascade
+    ;; and then stops, materialising the `:disconnected` snapshot so tests
+    ;; (and the UI) can read the state before anyone clicks Connect.
+    {:fx [[:dispatch [:ws/connection [:rf.machine/start]]]]}))

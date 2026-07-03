@@ -19,7 +19,7 @@ Here's the heart of the [websocket example](../../examples/patterns/websocket/):
 ```clojure
 (rf/reg-machine :ws/connection
   {:initial :disconnected
-   :data    {:url nil :auth-token nil :socket-id nil}
+   :data    {:url nil :auth-token nil}
    :states
    {:disconnected
     {:on {:ws/connect {:target :active :action :record-opts}}}
@@ -120,30 +120,38 @@ A freshly-spawned actor needs a first nudge. Two ways:
 
 ## Recording the spawned id
 
-You will reach for `:on-spawn` to "capture the child's id into `:data`" — and it won't work. `:on-spawn` is an **advisory observation hook**: the runtime calls it with `{:data <parent-data> :id <new-id>}` and **drops its return value**. Writing `(assoc data :pending id)` records nothing (and emits a `:rf.warning/on-spawn-return-ignored` in dev). The runtime already tracks the id for you; you don't need `:on-spawn` for destroy to work.
+You will reach for `:on-spawn` to "capture the child's id into `:data`" — and it won't work. `:on-spawn` is an **advisory observation hook**: the runtime calls it with `{:data <parent-data> :id <new-id>}` and **drops its return value**. Writing `(assoc data :pending id)` records nothing (and emits a `:rf.warning/on-spawn-return-ignored` in dev). The runtime already tracks the id for you — so there's no self-dispatch dance to write, and no side-channel atom either.
 
-When you *do* need the id addressable by name, the first-class mechanisms (in order of preference):
+There are **two** first-class mechanisms; reach for whichever fits.
 
-1. **`:system-id`** — give the spawn a stable name; resolve and message it by that name (see [below](#cross-machine-messaging)). Best when you want a *role* rather than a gensym.
-2. **The `:rf/spawned` `:data` slot** — on every declarative `:spawn`, the runtime binds the new id into the *spawning* machine's own `:data` under `{:rf/spawned {<invoke-id> <actor-id>}}`. A later action reads it: `(get-in data [:rf/spawned [:active]])`. The id rides the revertible snapshot, not a live object reference.
-3. **Self-dispatch from `:on-spawn`** — since `:on-spawn` *can* fire a side-effecting dispatch (just not return data), have it dispatch a self-event whose ordinary `:action` writes the id. This is the verified [websocket](../../examples/patterns/websocket/) pattern:
+### 1. The `:rf/spawned` `:data` slot (read the id in-snapshot)
+
+On every declarative `:spawn` / `:spawn-all`, the pure transition reducer binds the new actor's id into the *spawning* machine's own `:data` under the reserved per-invoke map `:rf/spawned` — `{:rf/spawned {<invoke-id> <actor-id>}}`, keyed by the absolute path of the `:spawn`-bearing state. A later action reads it straight off its own `:data`:
 
 ```clojure
 :active
 {:spawn {:machine-id :websocket/socket
-         :data       (fn [{snap :snapshot}] {:url (-> snap :data :url)})
-         ;; :on-spawn can't write :data (return dropped), but it CAN
-         ;; fire an event whose transition records the id the normal way.
-         :on-spawn   (fn [{id :id}]
-                       (when-let [dispatch! (re-frame.late-bind/get-fn :router/dispatch!)]
-                         (dispatch! [:ws/connection [:ws/-socket-spawned id]]
-                                    {:source :websocket})))}
- :on {:ws/-socket-spawned {:action :record-socket-id}}}
-
-;; ... and the ordinary action that does the assoc:
-:record-socket-id (fn [{data :data [_ id] :event}]
-                    {:data (assoc data :socket-id id)})
+         :data       (fn [{snap :snapshot}] {:url (-> snap :data :url)})}
+ ;; ... nested leaves; a leaf action reads the spawned socket's id:
+ :states
+ {:authenticating
+  {:entry (fn [{data :data}]
+            ;; the socket actor's id — no :on-spawn, no atom
+            (let [socket (get-in data [:rf/spawned [:active]])]
+              {:fx [[:dispatch [socket [:send {:type :auth}]]]]}))}}}
 ```
+
+This is re-frame2's spelling of XState v5's `spawn(...)`-into-`context` capture, except the id rides the **revertible, SSR-survivable snapshot** rather than a live object reference. It's keyed by `<invoke-id>` (the same path the child records under `:rf/invoke-id`), so multiple `:spawn`-bearing states don't collide.
+
+**The slot clears itself on teardown.** When the actor is destroyed — leaving the state by any door, a completing `:final?`, a frame teardown — the runtime dissocs `[:rf/spawned <invoke-id>]` from the parent's `:data`, so it mirrors the runtime registry exactly. A read after the child is gone returns `nil`, never a dead id. That's what makes the [websocket example](../../examples/patterns/websocket/) treat the slot as its *connection clock*: the live socket's id **is** the epoch, and it goes `nil` the instant the socket dies — no `:exit` action nulling anything.
+
+### 2. `:system-id` (address the actor by a stable name)
+
+Give the spawn a `:system-id` and message it by that *role name* instead of the gensym'd id — best when you want a stable correspondent rather than to hold the id yourself. See [Addressing by name with `:system-id`](#addressing-by-name-with-system-id) below.
+
+!!! note "The runtime registry, for outside-the-machine reads"
+
+    The id is *also* always at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` in the frame's runtime-db — the same value the `:rf/spawned` `:data` slot mirrors. Read it there when you're *outside* the machine's own action context (mechanism 1 needs the action's `:data`); inside an action, prefer the `:rf/spawned` slot.
 
 ---
 

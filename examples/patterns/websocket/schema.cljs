@@ -4,10 +4,11 @@
    Two slices get described here:
 
    - The `:ws/connection` machine's `:data` map: the URL and token, the
-     retry counters, `:socket-id` (who the live socket actor is),
-     `:subscriptions`, the offline `:queue`, and the `:in-flight` map of
-     awaited replies. It hangs off the machine as `[:schemas :data]` (see
-     `connection.cljs`), because a machine validates its own `:data` —
+     retry counters, `:subscriptions`, the offline `:queue`, and the
+     `:in-flight` map of awaited replies. The live socket actor's id isn't a
+     field here — it lives in the framework-maintained `:rf/spawned` slot
+     (see `connection.cljs`'s `socket-id`). This map hangs off the machine
+     as `[:schemas :data]`, because a machine validates its own `:data` —
      there's no app-schema involved.
      See docs/machines/concepts.md#validating-a-machines-data.
 
@@ -41,14 +42,17 @@
    [:max-retries    :int]
    [:base-ms        :int]
    [:max-backoff-ms :int]
-   ;; Who the live socket actor is right now. The runtime hands us this id
-   ;; at :spawn time and we null it on exit from :active. It doubles as the
-   ;; connection's clock — the live socket-id *is* the epoch.
-   [:socket-id      [:maybe :any]]
    [:subscriptions  [:set :any]]
    [:queue          [:vector :any]]
    [:in-flight      [:map-of :any InFlightEntry]]
    [:error          [:maybe :any]]
+   ;; The runtime binds a declaratively-spawned actor's id into the SPAWNING
+   ;; machine's own :data here, keyed by the :spawn-bearing state's path
+   ;; (`{[:active] <socket-actor-id>}`). It doubles as the connection's
+   ;; clock — the live socket id *is* the epoch — and the runtime clears the
+   ;; entry on teardown, so it's never stale. Optional, because it's absent
+   ;; until the first :active entry. See connection.cljs's `socket-id`.
+   [:rf/spawned     {:optional true} [:map-of :any :any]]
    ;; Framework keys the runtime stamps into a *spawned* actor's :data.
    ;; Optional, because the parent machine never gets them — only the
    ;; children the runtime spawns do.
