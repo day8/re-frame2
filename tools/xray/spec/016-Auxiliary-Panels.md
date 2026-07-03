@@ -592,10 +592,10 @@ The Filters tab was retired per rf2-wknb3 — full pill management lives in the 
 
 The Theme tab was retired per rf2-ou3pn — the top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is now the canonical light/dark affordance. Both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event; the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to **General → Power user** — the setting slot has always been `:general :use-system-colors?`; only its cosmetic home in the Theme section is gone with the tab.
 
-**v1 ships:** the General tab visible above, plus Keybindings, Buffer, and Diff (catalogued in [`018-Event-Spine.md`](./018-Event-Spine.md) §9). The Theme tab was retired per rf2-ou3pn and the Filters tab per rf2-wknb3 — see the notes immediately under the table. The fuller
-[`018-Event-Spine.md`](./018-Event-Spine.md) §9 catalogue
-(Keybindings, Buffer, Popout, Actions) is deferred to follow-on
-beads. A Telemetry tab shipped briefly in the initial popup landing
+**v1 ships:** the General tab visible above, plus Keybindings, Buffer, and Diff (catalogued in [`018-Event-Spine.md`](./018-Event-Spine.md) §9). The Theme tab was retired per rf2-ou3pn and the Filters tab per rf2-wknb3 — see the notes immediately under the table. Nothing further is deferred: per
+[`018-Event-Spine.md`](./018-Event-Spine.md) §9, **Popout** folded
+into General's Panel-position radio (no own tab) and **Actions** was
+dropped (factory-reset stays code-only). A Telemetry tab shipped briefly in the initial popup landing
 (rf2-9poxq) but was removed (rf2-jh9ws) — Xray transmits no
 telemetry, and a toggle pretending to control a non-existent
 endpoint was a broken affordance per the text audit (rf2-yn86j).
@@ -679,8 +679,10 @@ a corporate fork that wants light theme as the factory default).
 
 `config/reset-settings-to-defaults!` clears the localStorage payload
 and resets the in-memory atom to `default-settings`. No popup
-affordance ships in v1 (deferred to the §018 §9 "Actions" tab
-follow-on).
+affordance ships in v1 — factory-reset stays **code-only**. The
+"Actions" tab that would have hosted a reset button was dropped per
+[`018-Event-Spine.md`](./018-Event-Spine.md) §9; the only destructive
+op with a UI affordance is "Clear buffer now" under the Buffer tab.
 
 ### Cross-references
 

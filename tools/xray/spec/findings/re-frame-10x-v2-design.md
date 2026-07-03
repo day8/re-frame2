@@ -526,7 +526,13 @@ Each as a §X.Y with my recommendation + the alternative.
 
 ### §10.7 MCP shipping at v1.0 vs v1.1
 
-**Deferred 2026-05-11.** Decision punted to a later read.
+**Deferred 2026-05-11; resolved by the two-doors architecture.** The
+punt (whether to ship an Xray-MCP server at v1.0 or v1.1) is now moot:
+there is **no Xray-MCP server** at all. The AI/MCP surface lives in the
+sibling `tools/re-frame2-pair-mcp/` tool (raw nREPL over MCP); Xray is
+the human GUI door. See [`000-Vision.md`](../000-Vision.md) §"two doors"
+and [`DESIGN-RATIONALE.md`](../DESIGN-RATIONALE.md). The false middle —
+a curated Xray-MCP — was killed.
 
 ### §10.8 re-frame2-pair delegation in co-pilot
 

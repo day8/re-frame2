@@ -3917,9 +3917,15 @@ the renderer, not separate chrome wrappers:
 
 - `:rf/redacted` (bare keyword) — magenta chip with `●` indicator;
   never expandable.
-- `{:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint s :handle [:rf.elision/at <path>]}}` — yellow chip showing bytes;
-  click-to-reveal is deferred (was in the now-deleted
-  `theme.data-inspector` ns; the popup phase D6=a returns it).
+- `{:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint s :handle [:rf.elision/at <path>]}}` — yellow chip showing bytes.
+  The chip is a **static, non-interactive** display in v1 (the `:handle`
+  is carried for a future drill-in affordance). The popup overlay infra
+  the reveal would ride on has since landed (rf2-s0x6x, D6=a — the
+  `edn-inspector-popup` stack + the opt-in "open in popup" affordance,
+  rf2-l4625), but the large-elided chip is **not yet wired** to open it;
+  the click-to-reveal path (originally in the now-deleted
+  `theme.data-inspector` ns) awaits a follow-on that wires the chip's
+  `:handle` through to the popup.
 - `{:rf/redacted {:bytes N}}` — combined sensitive+size; magenta
   chip with size annotation.
 
