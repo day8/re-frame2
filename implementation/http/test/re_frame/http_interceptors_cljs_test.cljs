@@ -108,6 +108,39 @@
     (is (zero? (count (http-managed/interceptors-snapshot :rf/default))))
     (is (= [:on-other] (mapv :id (http-managed/interceptors-snapshot :other))))))
 
+;; ---- 4a. rf2-f28bno — frame-arg spelling: the public {:frame} opts form ----
+;;
+;; `clear-http-interceptor`'s public 2-arity is now the trailing `{:frame …}`
+;; opts map (mirroring `reg-http-interceptor`'s `:frame`), shape-discriminated
+;; against the retained internal frame-first plumbing. This closes the
+;; silent-no-op misbind the old public frame-first arity carried.
+
+(deftest clear-http-interceptor-frame-arg-spelling-rf2-f28bno
+  (testing "rf2-f28bno — `(clear-http-interceptor id {:frame f})` targets frame
+            `f` from an ambient `:rf/default` scope; the internal frame-first
+            `(clear-http-interceptor f id)` plumbing is retained; and the old
+            misbind guess now binds the frame correctly instead of no-op'ing."
+    ;; The ambient scope is :rf/default (fixture). Register on the OTHER frame.
+    (rf/reg-http-interceptor :fa/on-other {:frame :fa/other :before (fn [c] c)})
+    (rf/reg-http-interceptor :fa/on-default {:before (fn [c] c)})
+    (is (= [:fa/on-other]   (mapv :id (http-managed/interceptors-snapshot :fa/other))))
+    (is (= [:fa/on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+    ;; (1) PUBLIC opts form clears the NAMED frame from the :rf/default scope —
+    ;; this is exactly the natural guess `(clear id {:frame f})` from the reg
+    ;; shape that used to SILENTLY NO-OP under the old frame-first arity. It now
+    ;; binds :fa/other correctly.
+    (rf/clear-http-interceptor :fa/on-other {:frame :fa/other})
+    (is (zero? (count (http-managed/interceptors-snapshot :fa/other)))
+        "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
+    (is (= [:fa/on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+        "the :rf/default chain is untouched by the explicit-frame clear")
+    ;; (2) INTERNAL frame-first plumbing still clears a named frame's slot.
+    (rf/reg-http-interceptor :fa/again {:frame :fa/other :before (fn [c] c)})
+    (is (= [:fa/again] (mapv :id (http-managed/interceptors-snapshot :fa/other))))
+    (rf/clear-http-interceptor :fa/other :fa/again)   ;; frame-first: (frame id)
+    (is (zero? (count (http-managed/interceptors-snapshot :fa/other)))
+        "internal frame-first (frame id) plumbing cleared the slot")))
+
 ;; ---- 5. invalid shape raises ----------------------------------------------
 
 (deftest invalid-shape-raises

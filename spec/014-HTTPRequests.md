@@ -794,7 +794,7 @@ Pair tools and 10x panels see exactly two traces per request-side interceptor fa
 
 ### Clearing
 
-`(rf/clear-http-interceptor id)` removes the slot on `:rf/default`; `(rf/clear-http-interceptor frame-id id)` targets a specific frame. The single-arity is the common case (single-frame apps); the two-arity is unambiguous for multi-frame.
+`(rf/clear-http-interceptor id)` resolves the frame through the ambient scope chain; `(rf/clear-http-interceptor id {:frame frame-id})` names a specific frame — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface — rf2-bfadc6 / EP-0024 / rf2-f28bno). The single-arity is the common case (single-frame apps); the opts form is unambiguous for multi-frame. The 2-arity is **shape-discriminated on the second arg**: an opts map (a non-frame-value map) is the public `(id {:frame …})` form; anything else is the *internal* frame-first `(frame id)` plumbing (retained for implementation / test / tooling reach, e.g. the `:rf.fx/clear-http-interceptor` fx). This closes the silent-no-op misbind the old public frame-first arity carried — `(clear-http-interceptor id {:frame f})`, the natural guess from the `reg` shape, used to bind `id` as the frame and `{:frame f}` as the interceptor-id (a clear of an interceptor that never existed, no-op with nothing to name the mistake).
 
 Hot-reload tools that re-evaluate registration call sites get the right behaviour automatically: re-`reg-http-interceptor` of an existing id replaces the slot in place.
 
@@ -834,7 +834,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 | API | Kind | Signature |
 |---|---|---|
 | `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor id interceptor-map)` — positional `id`, single `interceptor-map`. `interceptor-map` carries at least one of `:before` / `:after`, optional `:frame`, optional `:rf/registration-metadata`. |
-| `clear-http-interceptor` | Fn | `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)` |
+| `clear-http-interceptor` | Fn | `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor id {:frame frame-id})` — public opts form; the frame-first `(clear-http-interceptor frame id)` is retained as internal plumbing (rf2-f28bno). |
 
 Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
 

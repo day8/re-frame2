@@ -224,9 +224,9 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
 - **Signature**:
   ```clojure
   (clear-http-interceptor id)
-  (clear-http-interceptor frame id)
+  (clear-http-interceptor id {:frame target})
   ```
-- **Description**: Unregister an interceptor by id. The single-arity `(clear-http-interceptor id)` resolves the frame from the carried scope it runs under; the two-arity `(clear-http-interceptor frame id)` names the frame explicitly. Either form raises `:rf.error/no-frame-context` when the frame is absent (single-arity under no scope, or two-arity passed `nil`) — it never clears against a synthesised `:rf/default`.
+- **Description**: Unregister an interceptor by id. The single-arity `(clear-http-interceptor id)` resolves the frame from the carried scope it runs under; the opts form `(clear-http-interceptor id {:frame target})` names the frame explicitly — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface). Either form raises `:rf.error/no-frame-context` when the frame is absent (single-arity under no scope, or opts `{:frame nil}`) — it never clears against a synthesised `:rf/default`. The 2-arity is shape-discriminated on the second arg: an opts map is the public form; a bare frame target first is the *internal* frame-first `(frame id)` plumbing.
 - **Example**:
   ```clojure
   (rf/clear-http-interceptor :auth-header)

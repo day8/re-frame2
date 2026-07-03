@@ -53,18 +53,22 @@
   "Look up the spawned-machine id currently bound to `system-id` in the
   active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil.
 
-  EP-0002 carried invariant: the optional `frame-id` arg is an explicit
-  override targeting a named frame; without it the 1-arity ambient form
-  resolves the frame through the scope/hold chain (`with-frame` /
-  frame-provider / a carried stamp) via `frame/require-current-frame!` —
-  a lookup under no established scope raises `:rf.error/no-frame-context`,
-  with NO `:rf/default` floor.
+  EP-0002 carried invariant: the 1-arity ambient form resolves the frame
+  through the scope/hold chain (`with-frame` / frame-provider / a carried
+  stamp) via `frame/require-current-frame!` — a lookup under no established
+  scope raises `:rf.error/no-frame-context`, with NO `:rf/default` floor.
+  Pass the public opts form `(machine-by-system-id system-id {:frame
+  target})` to name a frame explicitly (async callbacks / tools /
+  cross-frame lookups); `target` is a frame-id keyword or a live frame
+  value. Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on the second
+  arg (mirroring `sub-machine`): an opts map ⇒ the public form; a bare
+  frame target ⇒ the internal frame-last plumbing.
 
   Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
   surface. Returns nil when the machines artefact is not on the classpath."
   {:hook :machines/machine-by-system-id :artefact machines-artefact :on-absent :nil}
-  ([system-id]          :delegate)
-  ([system-id frame-id] :delegate))
+  ([system-id]            :delegate)
+  ([system-id frame-or-opts] :delegate))
 
 ;; ---- machine guard/action handler-meta — DERIVED, not registered --------
 ;;
