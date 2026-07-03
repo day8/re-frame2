@@ -224,15 +224,13 @@
                       :completed-at completed-at}
                      kind child-extra)
         summary    (m-reply/trace-reply reply {:frame frame-id})]
-    (cond-> {:work/id              (:work/id summary)
-             :work/kind            (:work/kind summary)
+    (cond-> {:work/kind            (:work/kind summary)
              :rf.reply/status      (:status summary)
              :rf.reply/work-id     (:work/id summary)
              :rf.reply/work-status (:work/status summary)
              :rf.reply/correlation (:correlation summary)}
       (some? (:completed-at summary))
-      (assoc :completed-at          (:completed-at summary)
-             :rf.reply/completed-at (:completed-at summary)))))
+      (assoc :rf.reply/completed-at (:completed-at summary)))))
 
 (defn- emit-resolution-traces!
   "Fire the post-resolution observability traces in order: any-failed,
@@ -341,7 +339,6 @@
                               :join-event join-event-kw
                               :frame      frame-id
                               ;; reply-envelope vocabulary (Managed-Effects §9)
-                              :work/id              (:work/id survivor-summary)
                               :work/kind            (:work/kind survivor-summary)
                               :rf.reply/status      (:status survivor-summary)
                               :rf.reply/work-id     (:work/id survivor-summary)
@@ -457,7 +454,6 @@
                                   :kind       kind
                                   :frame      frame-id
                                   ;; reply-envelope vocabulary (Managed-Effects §9)
-                                  :work/id               (:work/id summary)
                                   :work/kind             (:work/kind summary)
                                   :rf.reply/status       (:status summary)
                                   :rf.reply/work-id      (:work/id summary)
@@ -465,8 +461,7 @@
                                   :rf.reply/stale-reason (:stale/reason summary)
                                   :rf.reply/correlation  (:correlation summary)}
                            (some? (:completed-at summary))
-                           (assoc :completed-at          (:completed-at summary)
-                                  :rf.reply/completed-at (:completed-at summary))))
+                           (assoc :rf.reply/completed-at (:completed-at summary))))
             ;; NO record mutation and NO resolution fx — the join stays
             ;; latched `:resolved?` and fires no further event (the stale
             ;; reply records the suppression).

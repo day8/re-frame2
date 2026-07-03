@@ -14,8 +14,10 @@
 
   These tests drive the REAL `interop/schedule-after!` fire boundary so the
   timer-fire dispatch is router-stamped with a known fire-time clock value,
-  then assert `:completed-at` / `:rf.reply/completed-at` ride the
-  `:rf.machine.timer/fired` and `:rf.machine.timer/stale-after` traces."
+  then assert `:rf.reply/completed-at` rides the `:rf.machine.timer/fired`
+  and `:rf.machine.timer/stale-after` traces. rf2-o6c2jr — the reply MAP still
+  carries the canonical `:completed-at`; the trace-tag rows carry ONLY the
+  reply-envelope `:rf.reply/completed-at` (the bare duplicate was dropped)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -104,11 +106,14 @@
                                        (true? (:fired? (:tags %)))))
                          first)]
           (is (some? fired) "a :rf.machine.timer/fired trace was emitted")
-          (is (= FIRE-TIME-MS (:completed-at (:tags fired)))
-              "the fired trace carries the FRESH fire-time causal :completed-at")
+          ;; rf2-o6c2jr — the causal completion time rides ONLY as the
+          ;; reply-envelope :rf.reply/completed-at (the bare :completed-at
+          ;; trace-tag duplicate was dropped).
           (is (= FIRE-TIME-MS (:rf.reply/completed-at (:tags fired)))
-              "and the reply-envelope :rf.reply/completed-at spelling")
-          (is (not= PARENT-TIME-MS (:completed-at (:tags fired)))
+              "the fired trace carries the FRESH fire-time causal :rf.reply/completed-at")
+          (is (not (contains? (:tags fired) :completed-at))
+              "no bare :completed-at duplicate on the reply-envelope fired trace")
+          (is (not= PARENT-TIME-MS (:rf.reply/completed-at (:tags fired)))
               "NOT the parent scheduling-time token"))))))
 
 (deftest after-stale-trace-carries-causal-completed-at
@@ -138,7 +143,9 @@
                            (filter #(= :rf.machine.timer/stale-after (:operation %)))
                            first)]
             (is (some? stale) "a :rf.machine.timer/stale-after trace was emitted")
-            (is (= FIRE-TIME-MS (:completed-at (:tags stale)))
-                "the stale-after trace carries the causal :completed-at")
+            ;; rf2-o6c2jr — carries the causal time ONLY as the reply-envelope
+            ;; :rf.reply/completed-at (bare :completed-at duplicate dropped).
             (is (= FIRE-TIME-MS (:rf.reply/completed-at (:tags stale)))
-                "and the reply-envelope spelling")))))))
+                "the stale-after trace carries the causal :rf.reply/completed-at")
+            (is (not (contains? (:tags stale) :completed-at))
+                "no bare :completed-at duplicate on the reply-envelope stale trace")))))))

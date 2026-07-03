@@ -333,9 +333,6 @@
                             :rf.reply/work-status   (:work/status summary)
                             :rf.reply/stale-reason  (:stale/reason summary)
                             :rf.reply/work-id       (:work/id summary)
-                            ;; canonical join key for Xray's uniform
-                            ;; work/reply grouping (reads bare `:work/id`).
-                            :work/id                (:work/id summary)
                             :work/kind              :http
                             ;; the shared carried/current correlation facts
                             ;; the `re-frame.reply/suppress` trace computes —
@@ -416,9 +413,6 @@
                             :rf.reply/work-status   (:work/status summary)
                             :rf.reply/stale-reason  (:stale/reason summary)
                             :rf.reply/work-id       (:work/id summary)
-                            ;; canonical join key for Xray's uniform
-                            ;; work/reply grouping (reads bare `:work/id`).
-                            :work/id                (:work/id summary)
                             :work/kind              :http
                             :rf.reply/carried       (:rf.reply/carried trace)
                             :rf.reply/current       (:rf.reply/current trace)

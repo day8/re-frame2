@@ -3633,11 +3633,9 @@
                       :frame              frame-id
                       :recovery           :replaced-with-default
                       ;; reply-envelope vocabulary (Managed-Effects §9)
-                      ;; `:work/id` (canonical) joins this stale
+                      ;; `:rf.reply/work-id` (canonical) joins this stale
                       ;; `:after` completion into the uniform work/reply rows
-                      ;; the same way every other managed async family does;
-                      ;; `:rf.reply/work-id` is the alias readers may also key on.
-                      :work/id              (:work/id summary)
+                      ;; the same way every other managed async family does.
                       :work/kind            (:work/kind summary)
                       :rf.reply/status      (:status summary)
                       :rf.reply/work-id     (:work/id summary)
@@ -3646,13 +3644,11 @@
                       :rf.reply/correlation (:correlation summary)}
                        ;; The CAUSAL completion timestamp of the
                        ;; firing dispatch (router-stamped `:rf/time-ms`), under
-                       ;; both the canonical `:completed-at` and the reply-
-                       ;; envelope `:rf.reply/completed-at` (mirroring the
-                       ;; spawned-machine `:rf.machine/done` trace). Omitted when
-                       ;; the firing dispatch carried no causal token.
+                       ;; the reply-envelope `:rf.reply/completed-at` (mirroring
+                       ;; the spawned-machine `:rf.machine/done` trace). Omitted
+                       ;; when the firing dispatch carried no causal token.
                        (some? (:completed-at summary))
-                       (assoc :completed-at          (:completed-at summary)
-                              :rf.reply/completed-at (:completed-at summary))))))
+                       (assoc :rf.reply/completed-at (:completed-at summary))))))
     ;; A FIRED (live) `:after` timer is a CLOSED `:after`
     ;; completion (`:status :ok` / `:work/status :completed`). Build the
     ;; canonical fired reply and stamp the reply-envelope facts (`:work/id`,
@@ -3680,7 +3676,6 @@
                       :fired? false
                       :frame  frame-id
                       ;; reply-envelope vocabulary (Managed-Effects §9)
-                      :work/id              (:work/id summary)
                       :work/kind            (:work/kind summary)
                       :rf.reply/status      (:status summary)
                       :rf.reply/work-id     (:work/id summary)
@@ -3688,8 +3683,7 @@
                       :rf.reply/correlation (:correlation summary)}
                        ;; Causal completion time (see stale branch).
                        (some? (:completed-at summary))
-                       (assoc :completed-at          (:completed-at summary)
-                              :rf.reply/completed-at (:completed-at summary))))))
+                       (assoc :rf.reply/completed-at (:completed-at summary))))))
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (:delay match))
@@ -3718,7 +3712,6 @@
                       :fired? true
                       :frame  frame-id
                       ;; reply-envelope vocabulary (Managed-Effects §9)
-                      :work/id              (:work/id summary)
                       :work/kind            (:work/kind summary)
                       :rf.reply/status      (:status summary)
                       :rf.reply/work-id     (:work/id summary)
@@ -3726,8 +3719,7 @@
                       :rf.reply/correlation (:correlation summary)}
                        ;; Causal completion time (see stale branch).
                        (some? (:completed-at summary))
-                       (assoc :completed-at          (:completed-at summary)
-                              :rf.reply/completed-at (:completed-at summary)))))))))
+                       (assoc :rf.reply/completed-at (:completed-at summary)))))))))
 
 (defn ensure-raised-cofx
   "Re-run the consumer-attachment ensure step for a

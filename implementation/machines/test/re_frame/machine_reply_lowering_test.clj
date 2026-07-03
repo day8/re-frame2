@@ -89,16 +89,19 @@
               (is (= :stale (:rf.reply/status tags)))
               (is (= :suppressed (:rf.reply/work-status tags)))
               (is (= :rf.machine.timer/after-epoch-mismatch (:rf.reply/stale-reason tags)))
-              ;; the canonical :work/id joins the uniform work/reply rows (the
-              ;; timer work-id keyed on the SCHEDULED epoch — the timer's
-              ;; attempt identity). The pick-transition stale `match` carries
-              ;; the owning actor INSTANCE under `:actor-id`, so the logical-id
-              ;; is `[<actor-id> & <decl-path>]` — the timer's full
+              ;; the canonical :rf.reply/work-id joins the uniform work/reply
+              ;; rows (the timer work-id keyed on the SCHEDULED epoch — the
+              ;; timer's attempt identity). The pick-transition stale `match`
+              ;; carries the owning actor INSTANCE under `:actor-id`, so the
+              ;; logical-id is `[<actor-id> & <decl-path>]` — the timer's full
               ;; actor-scoped identity, not the bare declaring path.
+              ;; rf2-o6c2jr — the bare :work/id duplicate was dropped; the
+              ;; reply-envelope work identity rides ONLY as :rf.reply/work-id.
               (is (= [:rf.work/timer [:rl/after :loading] scheduled-epoch]
-                     (:work/id tags))
-                  "canonical timer :work/id on the stale-after trace (actor-scoped)")
-              (is (= (:work/id tags) (:rf.reply/work-id tags)))
+                     (:rf.reply/work-id tags))
+                  "canonical timer :rf.reply/work-id on the stale-after trace (actor-scoped)")
+              (is (not (contains? tags :work/id))
+                  "no bare :work/id duplicate on the reply-envelope row")
               (is (= :timer (:work/kind tags)))
               ;; the declaring path + epoch ARE the data-only suppression gate
               (let [corr (:rf.reply/correlation tags)]
@@ -167,15 +170,14 @@
             ;; reply-envelope vocabulary
             (is (= :ok (:rf.reply/status tags)))
             (is (= :completed (:rf.reply/work-status tags)))
+            ;; the CANONICAL :rf.reply/work-id is stamped so Xray's uniform
+            ;; work/reply grouping joins this spawned-actor completion.
+            ;; rf2-o6c2jr — the bare :work/id duplicate was dropped.
             (is (= [:rf.work/machine :rl/child#1 [:working] 1]
                    (:rf.reply/work-id tags))
-                "canonical machine work-id (additive spelling)")
-            ;; the CANONICAL :work/id is stamped so Xray's uniform work/reply
-            ;; grouping (keys on bare :work/id) joins this spawned-actor
-            ;; completion.
-            (is (= [:rf.work/machine :rl/child#1 [:working] 1]
-                   (:work/id tags))
-                "canonical :work/id join key on the done trace")
+                "canonical machine :rf.reply/work-id join key on the done trace")
+            (is (not (contains? tags :work/id))
+                "no bare :work/id duplicate on the reply-envelope done trace")
             (is (= :machine (:work/kind tags)))))
         (finally (trace/unregister-listener! ::done-ok))))))
 
@@ -395,12 +397,13 @@
           (let [tags (:tags done)]
             ;; THE coverage gap: the causal completion timestamp rides the
             ;; done trace — the supplied :rf.cofx :time-ms VERBATIM,
-            ;; not an ambient clock read. Both the additive reply-envelope
-            ;; spelling and the bare :completed-at carry it.
+            ;; not an ambient clock read. rf2-o6c2jr — it rides ONLY as the
+            ;; reply-envelope :rf.reply/completed-at (the bare :completed-at
+            ;; duplicate was dropped).
             (is (= completed-at (:rf.reply/completed-at tags))
                 "the causal :rf.cofx :time-ms rides the done reply trace")
-            (is (= completed-at (:completed-at tags))
-                "the bare :completed-at fact carries the same causal time")
+            (is (not (contains? tags :completed-at))
+                "no bare :completed-at duplicate on the reply-envelope done trace")
             ;; sanity: the rest of the canonical envelope is intact.
             (is (= :ok (:rf.reply/status tags)))
             (is (= :completed (:rf.reply/work-status tags)))))
@@ -443,9 +446,11 @@
           ;; The invariant: NO nil sentinel. Either the key is absent, or it
           ;; carries a genuine number (if the router seeded a causal time);
           ;; an explicit nil would be the silent-loss bug the bead guards.
-          (is (not (and (contains? tags :completed-at)
-                        (nil? (:completed-at tags))))
-              ":completed-at is never an explicit nil sentinel (omitted when no causal time)")
+          ;; rf2-o6c2jr — the bare :completed-at duplicate was dropped, so it
+          ;; NEVER rides the reply-envelope row; the fact lives only under
+          ;; :rf.reply/completed-at (omitted when no causal time, never nil).
+          (is (not (contains? tags :completed-at))
+              "no bare :completed-at duplicate on the reply-envelope done trace")
           (is (not (and (contains? tags :rf.reply/completed-at)
                         (nil? (:rf.reply/completed-at tags))))
               ":rf.reply/completed-at is never an explicit nil sentinel"))

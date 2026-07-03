@@ -151,20 +151,18 @@
   (and (map? m) (reply-status? (:status m))))
 
 (defn work-id-of
-  "Read the canonical `:work/id` work-correlation off a reply map or trace
-  tags (EP-0011 one-name-per-fact — every family emits the qualified
-  `:work/id`; the bare `:work-id` trace-tag spelling was retired). The single
+  "Read the work-correlation off a reply map or trace tags. The single
   attempt identity (Managed-Effects §Work-id correlation — `=`-comparable,
   EDN-serializable); the key the stale-races view groups on.
 
-  rf2-waawic — falls back to the additive production trace key
-  `:rf.reply/work-id` some family completion rows stamp ALONGSIDE their
-  bespoke facts (machine `:rf.machine/done`, resource / mutation
-  stale-suppression). The canonical `:work/id` is preferred; the
-  `:rf.reply/work-id` fallback keeps a row that carries only the additive
-  spelling joinable. nil when absent (a non-ledger-backed managed async)."
+  rf2-o6c2jr — the CANONICAL trace-tag spelling is `:rf.reply/work-id`; the
+  bare `:work/id` trace-tag duplicate was dropped (one name per fact —
+  Conventions rule 1). Prefer `:rf.reply/work-id`; fall back to `:work/id`,
+  which is still the canonical key ON THE REPLY MAP itself (the durable
+  work-ledger identity — untouched by the tag-duplicate cull). nil when
+  absent (a non-ledger-backed managed async)."
   [m]
-  (or (:work/id m) (:rf.reply/work-id m)))
+  (or (:rf.reply/work-id m) (:work/id m)))
 
 (defn work-kind-of
   "Read the `:work/kind` family tag off a reply map or trace tags (one of

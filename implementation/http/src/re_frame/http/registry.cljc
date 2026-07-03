@@ -418,7 +418,6 @@
                             :rf.reply/work-status  (:work/status summary)
                             :rf.reply/stale-reason (:stale/reason summary)
                             :rf.reply/work-id      (:work/id summary)
-                            :work/id               (:work/id summary)
                             :work/kind             :http
                             :rf.reply/carried      (:rf.reply/carried trace)
                             :rf.reply/current      (:rf.reply/current trace)

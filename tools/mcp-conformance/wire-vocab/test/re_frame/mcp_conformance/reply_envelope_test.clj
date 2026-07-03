@@ -33,18 +33,21 @@
 
     - `:rf.reply/status`      — the closed reply `:status` (the row's
                                 outcome; `:stale` on a suppression).
-    - `:rf.reply/work-id`     — the `[:rf.work/* …]` attempt-identity tuple.
+    - `:rf.reply/work-id`     — the CANONICAL `[:rf.work/* …]` attempt-identity
+                                tuple; the join key the uniform work/reply
+                                view groups on (rf2-o6c2jr).
     - `:rf.reply/work-status` — the operational `:work/status`
                                 (`:suppressed` on a stale row).
     - `:rf.reply/carried` / `:rf.reply/current` — the carried-vs-current
                                 stale-suppression correlation gate.
-    - `:work/id`              — the canonical BARE join key (the same tuple)
-                                Xray's uniform work/reply grouping reads.
 
-  An MCP consumer normalizes BOTH the canonical bare keys (`:work/id` /
-  `:status` / `:work/status`) AND the additive `:rf.reply/*` spelling
-  (preferring the canonical, falling back to `:rf.reply/*`), so a row
-  carrying only the additive vocabulary is still joined by `:work/id`.
+  rf2-o6c2jr — ONE NAME PER FACT. The bare `:work/id` duplicate that used to
+  ride alongside `:rf.reply/work-id` on these reply-envelope rows was DROPPED;
+  the namespaced `:rf.reply/work-id` is the canonical (and only) work-identity
+  spelling on a reply-envelope trace row. (The bare `:work/id` still lives on
+  the REPLY MAP itself and on non-reply resource-lifecycle rows — the durable
+  work-ledger identity — but NOT as a duplicate on a reply-envelope row.) An
+  MCP consumer joins on `:rf.reply/work-id`.
 
   ## The gate shape (mirrors the per-marker pattern)
 
@@ -103,8 +106,9 @@
 ;; The canonical reply-envelope trace-row schema. OPEN map — every emission
 ;; rides its bespoke family facts ALONGSIDE the additive `:rf.reply/*`
 ;; vocabulary (the row is NOT a single-key wrapper; it is a trace event's tag
-;; map). The load-bearing contract is the additive `:rf.reply/*` keys + the
-;; canonical bare `:work/id` join key + their shapes.
+;; map). The load-bearing contract is the additive `:rf.reply/*` keys + their
+;; shapes. rf2-o6c2jr — the work identity rides ONLY as `:rf.reply/work-id`;
+;; the bare `:work/id` duplicate was dropped (one name per fact).
 ;; ---------------------------------------------------------------------------
 
 (def ReplyEnvelopeTraceRow
@@ -115,19 +119,23 @@
 
   Required additive reply-envelope slots (the MCP-visible contract):
     :rf.reply/status      — closed reply `:status`.
-    :rf.reply/work-id     — `[:rf.work/* …]` attempt-identity tuple.
+    :rf.reply/work-id     — the CANONICAL `[:rf.work/* …]` attempt-identity
+                            tuple; the join key (rf2-o6c2jr — one name per
+                            fact; the bare `:work/id` duplicate was dropped).
     :rf.reply/work-status — closed `:work/status`.
-    :work/id              — the canonical BARE join key (== :rf.reply/work-id).
 
   Optional (present on a stale-suppression row):
     :rf.reply/carried / :rf.reply/current — the carried-vs-current gate.
-    :rf.reply/stale-reason — why the completion was suppressed."
+    :rf.reply/stale-reason — why the completion was suppressed.
+
+  A bare `:work/id` MUST NOT appear on a reply-envelope row as a duplicate of
+  `:rf.reply/work-id` (the trace-catalogue one-name-per-fact lint enforces
+  this repo-wide)."
   [:map
    {:closed false}
    [:rf.reply/status      [:enum :ok :partial :error :cancelled :stale]]
    [:rf.reply/work-id     [:and :any [:fn work-id-tuple?]]]
    [:rf.reply/work-status [:enum :completed :failed :timed-out :suppressed :cancelled]]
-   [:work/id              [:and :any [:fn work-id-tuple?]]]
    [:rf.reply/carried     {:optional true} [:maybe :any]]
    [:rf.reply/current     {:optional true} [:maybe :any]]
    [:rf.reply/stale-reason {:optional true} [:maybe :any]]])
@@ -146,7 +154,6 @@
    :rf.reply/work-status  :suppressed
    :rf.reply/stale-reason :rf.reply/correlation-mismatch
    :rf.reply/work-id      [:rf.work/http :article/by-id 1 1]
-   :work/id               [:rf.work/http :article/by-id 1 1]
    :work/kind             :http
    :rf.reply/carried      [:rf.work/http :article/by-id 1 1]
    :rf.reply/current      [:rf.work/http :article/by-id 2 1]
@@ -158,7 +165,6 @@
   emit — the bespoke resource facts PLUS the additive reply vocabulary."
   {:rf.frame/id           :app/main
    :resource/key          [:rf.scope/global :article/by-slug {:slug "w"}]
-   :work/id               [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4]
    :generation            4
    :outcome               :superseded
    :rf.reply/status       :stale
@@ -175,7 +181,6 @@
   {:rf.reply/status      :stale
    :rf.reply/work-id     [:rf.work/machine :auth/flow#1]
    :rf.reply/work-status :suppressed
-   :work/id              [:rf.work/machine :auth/flow#1]
    :work/kind            :machine
    :rf.machine/done      false})
 
@@ -235,18 +240,17 @@
           (str family " :rf.reply/work-status " (:rf.reply/work-status fixture)
                " is not in the closed work-status vocabulary " work-statuses)))))
 
-(deftest reply-envelope-work-id-is-a-canonical-tuple-and-the-bare-join-key-agrees
-  (testing "the :rf.reply/work-id is a canonical [:rf.work/* …] tuple and the
-            bare :work/id join key carries the SAME tuple (one-attempt-one-id —
-            an MCP consumer joins on the bare :work/id)"
+(deftest reply-envelope-work-id-is-the-canonical-tuple-and-no-bare-duplicate
+  (testing "the :rf.reply/work-id is the canonical [:rf.work/* …] tuple an MCP
+            consumer joins on, and the row carries NO bare :work/id duplicate
+            (rf2-o6c2jr — one name per fact on a reply-envelope row)"
     (doseq [[family fixture] all-fixtures]
       (is (work-id-tuple? (:rf.reply/work-id fixture))
           (str family " :rf.reply/work-id is not a canonical [:rf.work/* …] tuple"))
-      (is (work-id-tuple? (:work/id fixture))
-          (str family " bare :work/id join key is not a canonical tuple"))
-      (is (= (:rf.reply/work-id fixture) (:work/id fixture))
-          (str family " :rf.reply/work-id and the bare :work/id join key DISAGREE "
-               "— an MCP consumer that joins on :work/id would lose this row")))))
+      (is (not (contains? fixture :work/id))
+          (str family " reply-envelope row carries a bare :work/id duplicate of "
+               ":rf.reply/work-id — the one-name-per-fact cull (rf2-o6c2jr) "
+               "dropped it")))))
 
 (deftest stale-rows-carry-the-suppression-correlation-and-reason
   (testing "a stale-suppression row pins :work/status :suppressed + the
@@ -270,11 +274,10 @@
 
 (deftest schema-rejects-a-scalar-work-id
   (testing "a scalar (non-tuple) :rf.reply/work-id is rejected — EP-0011
-            one-attempt-one-:work/id requires the family-headed tuple"
+            one-attempt-one-work-id requires the family-headed tuple"
     (is (not (m/validate ReplyEnvelopeTraceRow
                          (assoc http-stale-suppressed-fixture
-                                :rf.reply/work-id 3
-                                :work/id 3)))
+                                :rf.reply/work-id 3)))
         "a scalar work-id MUST fail the schema")))
 
 (deftest schema-rejects-an-out-of-vocabulary-status
@@ -291,7 +294,7 @@
   (testing "a row missing a required additive reply key (a near-miss rename
             that drops the canonical spelling) fails — an MCP consumer would
             lose the status / work-id / grouping"
-    (doseq [k [:rf.reply/status :rf.reply/work-id :rf.reply/work-status :work/id]]
+    (doseq [k [:rf.reply/status :rf.reply/work-id :rf.reply/work-status]]
       (is (not (m/validate ReplyEnvelopeTraceRow (dissoc http-stale-suppressed-fixture k)))
           (str "a row missing " k " MUST fail the schema")))))
 
@@ -312,12 +315,13 @@
                  "production site " (vec emit-source-files) " — a rename of the "
                  "MCP-visible reply-envelope vocabulary slipped past the gate"))))))
 
-(deftest the-bare-work-id-join-key-is-emitted-alongside-the-reply-vocabulary
-  (testing "the canonical bare :work/id join key is emitted in the production
-            reply-envelope emit sites — an MCP consumer joins reply rows by it"
+(deftest the-canonical-reply-work-id-is-emitted-as-the-namespaced-spelling
+  (testing "the canonical reply work-identity is emitted as :rf.reply/work-id
+            (rf2-o6c2jr — an MCP consumer joins reply rows by it; the bare
+            :work/id duplicate was dropped from reply-envelope rows)"
     (let [stripped (map (comp fx/strip-comments-and-strings fx/read-source) emit-source-files)]
-      (is (some #(str/includes? % (pr-str :work/id)) stripped)
-          ":work/id (the bare canonical join key) must be emitted as DATA"))))
+      (is (some #(str/includes? % (pr-str :rf.reply/work-id)) stripped)
+          ":rf.reply/work-id (the canonical reply join key) must be emitted as DATA"))))
 
 ;; ===========================================================================
 ;; (4) Near-miss anti-pin — a snake_case / pluralised / predicate / dotted-ns

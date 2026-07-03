@@ -658,15 +658,19 @@
             sup    (first (filterv #(= :rf.mutation/stale-suppressed (:operation %)) traces))]
         (is (some? sup) ":rf.mutation/stale-suppressed fired for the stale reply")
         (let [tags (:tags sup)]
-          ;; bespoke facts preserved (additive, not replaced)
+          ;; bespoke facts preserved (additive, not replaced). rf2-o6c2jr —
+          ;; no bare :work/id duplicate; the work identity rides ONLY as
+          ;; :rf.reply/work-id (asserted below).
           (is (= :rv      (:instance tags)))
           (is (= :success (:outcome tags)))
+          (is (not (contains? tags :work/id))
+              "no bare :work/id duplicate on the stale-suppressed reply row")
           ;; CANONICAL reply-envelope vocabulary via the shared substrate
           (is (= :stale (:rf.reply/status tags))
               "the canonical :status :stale reply IS produced via re-frame.reply")
           (is (= :suppressed (:rf.reply/work-status tags)))
           (is (= :rf.mutation/superseded (:rf.reply/stale-reason tags)))
-          (is (= wid1 (:rf.reply/work-id tags)) "joined to :work/id")
+          (is (= wid1 (:rf.reply/work-id tags)) "the canonical work identity")
           (let [corr (:rf.reply/correlation tags)]
             (is (= 1 (-> corr :generation :carried)) "carried gen off the stale token")
             (is (= 2 (-> corr :generation :current)) "current = the LIVE instance gen")

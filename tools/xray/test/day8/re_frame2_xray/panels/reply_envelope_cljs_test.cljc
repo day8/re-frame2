@@ -256,8 +256,10 @@
     :time 110 :tags {:work/id [:rf.work/http :req 1] :rf.frame/id :f}}
    {:id 4 :operation :rf.resource/work-abort-requested
     :time 120 :tags {:work/id [:rf.work/resource :k 1] :reason :superseded}}
+   ;; rf2-o6c2jr — the stale-suppressed reply row carries the work identity
+   ;; ONLY as :rf.reply/work-id (the bare :work/id duplicate was dropped).
    {:id 5 :operation :rf.resource/stale-suppressed
-    :time 130 :tags {:work/id [:rf.work/resource :k 1]
+    :time 130 :tags {:rf.reply/work-id [:rf.work/resource :k 1]
                      :rf.reply/carried {:work/id [:rf.work/resource :k 1] :generation 1}
                      :rf.reply/current {:work/id [:rf.work/resource :k 2] :generation 2}
                      :outcome :success}}
@@ -302,29 +304,28 @@
       (is (= [2 3 4 5 6] (mapv :id rows))))))
 
 (deftest production-reply-trace-vocabulary
-  (testing "rf2-waawic — a machine :rf.machine/done completion row stamped with
-            the canonical :work/id (rf2-niarhz) + additive :rf.reply/* facts
-            joins the uniform work/reply rows"
-    ;; the SHAPE finalize.cljc actually emits: canonical :work/id + :work/kind
-    ;; PLUS the additive :rf.reply/* facts.
+  (testing "rf2-o6c2jr — a machine :rf.machine/done completion row stamped with
+            the canonical :rf.reply/work-id + additive :rf.reply/* facts joins
+            the uniform work/reply rows"
+    ;; the SHAPE finalize.cljc actually emits: :work/kind PLUS the additive
+    ;; :rf.reply/* facts. rf2-o6c2jr — the bare :work/id duplicate was dropped;
+    ;; the work identity rides ONLY as :rf.reply/work-id.
     (let [row (re/work-event-row
                 {:id 10 :operation :rf.machine/done
                  :time 200 :tags {:machine-id :auth :parent-id :root :error? false
-                                  :work/id   [:rf.work/machine :auth#1 [:fetch] 1]
                                   :work/kind :machine
                                   :rf.reply/status      :ok
                                   :rf.reply/work-id     [:rf.work/machine :auth#1 [:fetch] 1]
                                   :rf.reply/work-status :completed}})]
       (is (= :completed (:phase row)))
       (is (= :machine (:work-kind row)))
-      ;; the canonical :work/id is the join key (Xray groups on bare :work/id)
+      ;; the canonical :rf.reply/work-id is the join key
       (is (= [:rf.work/machine :auth#1 [:fetch] 1] (:work-id row)))
       ;; status read from :rf.reply/status; work-status from :rf.reply/work-status
       (is (= :ok (:status row)))
       (is (= :completed (:work-status row)))))
-  (testing "rf2-niarhz — a machine done row that carries ONLY the additive
-            :rf.reply/work-id (no canonical :work/id) still joins via the
-            work-id-of fallback, so an older-shaped row is not lost"
+  (testing "rf2-o6c2jr — work-id-of reads the canonical :rf.reply/work-id; a
+            row carrying it (and no bare :work/id) joins the uniform rows"
     (let [row (re/work-event-row
                 {:id 11 :operation :rf.machine/done
                  :time 210 :tags {:machine-id :auth
@@ -339,8 +340,8 @@
     (let [row (re/work-event-row
                 {:id 12 :operation :rf.machine.timer/stale-after
                  :time 220 :tags {:state :loading :delay 500
-                                  :work/id [:rf.work/timer [:auth :loading] 3]
                                   :work/kind :timer
+                                  :rf.reply/work-id [:rf.work/timer [:auth :loading] 3]
                                   :rf.reply/status       :stale
                                   :rf.reply/work-status  :suppressed
                                   :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch
@@ -355,7 +356,8 @@
             work-id correlation + the canonical join key"
     (let [row (re/work-event-row
                 {:id 13 :operation :rf.http/stale-suppressed
-                 :time 230 :tags {:work/id [:rf.work/http :search 1 1] :work/kind :http
+                 :time 230 :tags {:work/kind :http
+                                  :rf.reply/work-id [:rf.work/http :search 1 1]
                                   :rf.reply/status      :stale
                                   :rf.reply/work-status :suppressed
                                   :rf.reply/stale-reason :rf.http/request-id-superseded
@@ -381,9 +383,10 @@
                 {:id 14 :operation :rf.resource/stale-suppressed
                  :time 240
                  :tags {;; the bespoke facts the resource family stamps
+                        ;; rf2-o6c2jr — no bare :work/id; the work identity
+                        ;; rides ONLY as the additive :rf.reply/work-id below.
                         :rf.frame/id  :rf/default
                         :resource/key [:s :article/by-id {:id 1}]
-                        :work/id      work-id
                         :generation   1
                         :outcome      {:reason :stale-reply}
                         ;; the additive canonical EP-0011 reply-envelope
@@ -401,7 +404,7 @@
       (is (= :stale-suppressed (:phase row)) "production resource stale row → :stale-suppressed phase")
       (is (true? (:stale? row)))
       (is (= :resource (:work-kind row)) "work-kind inferred from the :rf.work/resource head")
-      (is (= work-id (:work-id row)) "the canonical :work/id join key")
+      (is (= work-id (:work-id row)) "the canonical :rf.reply/work-id join key")
       (is (= :rf/default (:frame row)) "frame attribution preserved")
       ;; THE coverage gap: the canonical status / work-status / stale-reason
       ;; survive the projection (read off the additive :rf.reply/* facts).
@@ -434,10 +437,10 @@
                  :time 300
                  :tags {:rf.frame/id  :rf/default
                         :resource/key [:s :article/by-id {:id 1}]
-                        :work/id      work-id
                         :generation   1
                         :outcome      {:reason :stale-reply}
                         :rf.reply/status       :stale
+                        :rf.reply/work-id      work-id
                         :rf.reply/work-status  :suppressed
                         :rf.reply/stale-reason :rf.resource/superseded
                         :rf.reply/carried {:work/id work-id :generation 1}
@@ -452,8 +455,8 @@
           row (re/work-event-row
                 {:id 51 :operation :rf.resource/stale-suppressed
                  :time 310
-                 :tags {:work/id      work-id
-                        :work/kind    :mutation
+                 :tags {:work/kind    :mutation
+                        :rf.reply/work-id      work-id
                         :rf.reply/status       :stale
                         :rf.reply/work-status  :suppressed
                         :rf.reply/stale-reason :rf.resource/superseded}})]
@@ -464,10 +467,13 @@
   (testing "a PRODUCTION-shaped ROUTE stale-suppressed row preserves the status"
     (let [work-id [:rf.work/route :nav 3]
           row (re/work-event-row
-                {:id 52 :operation :rf.route/stale-suppressed
+                ;; Routing uses the bare-key convention (rf2-o6c2jr left routing
+                ;; unchanged — its stale row carries a LONE bare :work/id, no
+                ;; :rf.reply/work-id twin).
+                {:id 52 :operation :rf.route.nav-token/stale-suppressed
                  :time 320
-                 :tags {:work/id      work-id
-                        :work/kind    :route
+                 :tags {:work/id       work-id
+                        :work/kind     :route
                         :rf.reply/status       :stale
                         :rf.reply/work-status  :suppressed
                         :rf.reply/stale-reason :rf.route/nav-superseded}})]
@@ -478,7 +484,8 @@
   (testing "a PRODUCTION-shaped HTTP supersession stale row preserves the status"
     (let [row (re/work-event-row
                 {:id 53 :operation :rf.http/stale-suppressed
-                 :time 330 :tags {:work/id [:rf.work/http :search 1 1] :work/kind :http
+                 :time 330 :tags {:work/kind :http
+                                  :rf.reply/work-id [:rf.work/http :search 1 1]
                                   :rf.reply/status      :stale
                                   :rf.reply/work-status :suppressed
                                   :rf.reply/stale-reason :rf.http/request-id-superseded
@@ -491,8 +498,8 @@
   (testing "a PRODUCTION-shaped MACHINE :after-timer stale row preserves the status"
     (let [row (re/work-event-row
                 {:id 54 :operation :rf.machine.timer/stale-after
-                 :time 340 :tags {:work/id [:rf.work/timer [:auth :loading] 3]
-                                  :work/kind :timer
+                 :time 340 :tags {:work/kind :timer
+                                  :rf.reply/work-id [:rf.work/timer [:auth :loading] 3]
                                   :rf.reply/status       :stale
                                   :rf.reply/work-status  :suppressed
                                   :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch}})]
@@ -506,7 +513,7 @@
             no reply status (the row is a suppression, not an :ok completion)"
     (let [row (re/work-event-row
                 {:id 55 :operation :rf.resource/stale-suppressed
-                 :time 350 :tags {:work/id [:rf.work/resource :k 1]
+                 :time 350 :tags {:rf.reply/work-id [:rf.work/resource :k 1]
                                   :work/kind :resource
                                   ;; bare ledger status, NOT a reply status fact
                                   :status :completed}})]
