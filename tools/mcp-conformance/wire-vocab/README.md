@@ -87,9 +87,9 @@ This test is the conformance gate. It asserts:
 - Focused per-family test namespaces (the NON-wrapper markers, split out
   by rf2-7ckmwx): `cursor_stale_test.clj`, `result_envelope_test.clj`,
   `redacted_sentinel_test.clj`, `progress_notification_test.clj`,
-  `cascade_bundle_test.clj`. Each requires the shared `schemas` +
+  `event_bundle_test.clj`. Each requires the shared `schemas` +
   `source-pins` support nses; a marker-family-LOCAL schema
-  (`ResultEnvelope`, `CascadeBundle`) stays co-located with its tests.
+  (`ResultEnvelope`, `EventBundle`) stays co-located with its tests.
 - `indicator_field_test.clj`, `slot_name_test.clj`, `verb_vocab_test.clj`
   — independent cross-MCP vocabulary surfaces (pre-existing).
 - `reply_envelope_test.clj` — the EP-0011 reply-envelope TRACE-egress
@@ -98,13 +98,13 @@ This test is the conformance gate. It asserts:
 ## EP-0011 reply-envelope coverage boundary (rf2-mrfvg2)
 
 `reply_envelope_test.clj` pins the additive `:rf.reply/*` trace vocabulary
-an MCP consumer reads off a `trace-window` / cascade-bundle `:trace-events`
+an MCP consumer reads off a `trace-window` / event-bundle `:trace-events`
 reply-envelope row — the EP-0011 uniform reply envelope is named among
 Tool-Pair's record-shaped off-box egress
 ([`spec/Tool-Pair.md`](../../re-frame2-pair-mcp/spec) §`project-egress`),
 and Managed-Effects property 9 requires managed-async families to emit trace
 rows FROM reply-envelope facts. Before this gate, `tools/mcp-conformance`
-validated only the MCP wrapper / cascade envelope + a counter dispatch — no
+validated only the MCP wrapper / event-bundle envelope + a counter dispatch — no
 managed-async reply-envelope trace CONTENT.
 
 It pins, in the same schema + fixture + source-pin + near-miss shape as the
@@ -161,7 +161,7 @@ or a streaming-notification shape):
 1. Create a focused `<marker>_test.clj` namespace (use the existing
    `cursor_stale_test.clj` / `result_envelope_test.clj` /
    `redacted_sentinel_test.clj` / `progress_notification_test.clj` /
-   `cascade_bundle_test.clj` as templates), requiring the shared
+   `event_bundle_test.clj` as templates), requiring the shared
    `wire_vocab.schemas` + `wire_vocab.source-pins` support nses.
 2. Keep the schema co-located in that test namespace when it is
    referenced only by that family; promote it to `schemas.clj` only if a

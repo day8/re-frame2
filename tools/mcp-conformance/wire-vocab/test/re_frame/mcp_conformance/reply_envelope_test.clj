@@ -11,16 +11,16 @@
   `tools/mcp-conformance` is the client-side MCP gate for re-frame2-pair-mcp's
   `trace-window` / `subscribe` surfaces — the off-box delivery path over the
   authoritative per-frame trace rings (Tool-Pair §Reading the per-frame
-  trace ring). But the surface validated only the MCP wrapper / cascade
+  trace ring). But the surface validated only the MCP wrapper / event-bundle
   envelope and a simple counter dispatch — it pinned NO managed-async
   reply-envelope trace content. `rg \"EP-0011|reply-envelope|rf\\.reply\"
   tools/mcp-conformance` returned no matches before this gate.
 
   This is the wire-vocab counterpart to the live-`subscribe` end-to-end
   path: a pure-JVM schema + fixture + source-pin gate (the same shape as
-  `cascade_bundle_test` / the `canonical-markers` table) that pins the
+  `event_bundle_test` / the `canonical-markers` table) that pins the
   ADDITIVE `:rf.reply/*` trace vocabulary an MCP consumer reads off a
-  `trace-window` / cascade-bundle `:trace-events` row, so a rename / drop /
+  `trace-window` / event-bundle `:trace-events` row, so a rename / drop /
   near-miss of the MCP-visible reply-envelope keys FAILS in
   `tools/mcp-conformance`.
 

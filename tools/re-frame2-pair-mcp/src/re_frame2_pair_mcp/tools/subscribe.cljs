@@ -192,11 +192,11 @@
 
   The `:message`-slot EDN map carries the delivered payload
   under one of two slots per the sub's topic:
-    - `:cascades` (vector of cascade bundles) on cascade-bundle topics
+    - `:cascades` (vector of event bundles) on event-bundle topics
       (`:trace`/`:fx`/`:error`);
     - `:events` (flat vector) on `:epoch` and `:frameless`.
   The split keeps the wire shape congruent with `(rf/trace-buffer
-  frame-id)` for cascade-bundle topics — one tick = one cascade's
+  frame-id)` for event-bundle topics — one tick = one dispatched event's
   traces as a unit. The `:cascade?` flag on `tick-state` carries the
   topic-shape signal.
 
@@ -244,7 +244,7 @@
 ;;
 ;; `drain-subscription!` returns one of two envelopes per the sub's topic:
 ;;
-;;   - Cascade-bundle topics (`:trace`/`:fx`/`:error`) →
+;;   - Event-bundle topics (`:trace`/`:fx`/`:error`) →
 ;;     `{:ok? :sub-id :cascades [<bundle> ...] :dropped-events ... :gone? ...}`
 ;;     where each bundle has `:dispatch-id :frame :event :dispatched
 ;;     :handler :fx :effects :subs :renders :other :trace-events
@@ -256,7 +256,7 @@
 ;; The delivered slots take DIFFERENT off-box-egress primitives, selected
 ;; by topic:
 ;;
-;;   - TRACE-event slots — `:cascades` (cascade-bundle topics) + the
+;;   - TRACE-event slots — `:cascades` (event-bundle topics) + the
 ;;     `:frameless` topic's `:events` — are tree-shaped values rooted at
 ;;     the frame's app-db, so each flows through
 ;;     `re-frame.core/elide-wire-value` (the size-elision walker reading
@@ -294,7 +294,7 @@
   gate-OFF callers see redacted sensitive slots regardless of any
   per-call opt-in.
 
-  The wrapper handles both delivery shapes (cascade-bundle topics →
+  The wrapper handles both delivery shapes (event-bundle topics →
   `:cascades`; flat topics → `:events`).
 
   ## Per-slot egress primitive — `topic` selects (EP-0015 §13)
@@ -302,7 +302,7 @@
   The two delivered slots are NOT the same shape, so they take DIFFERENT
   egress primitives — selected by `topic`, not by slot presence:
 
-  - **Trace-event slots** — `:cascades` (cascade-bundle topics
+  - **Trace-event slots** — `:cascades` (event-bundle topics
     `:trace`/`:fx`/`:error`) and the `:frameless` topic's `:events`
     (raw trace events) — are tree-shaped values rooted at the frame's
     app-db, so the size-elision walker
@@ -340,15 +340,15 @@
   axis, not the large-slot toggle.
 
   The trace-walk arm resolves the elision
-  `:frame` PER ELEMENT inside the walk by LAYER: a cascade record's own
+  `:frame` PER ELEMENT inside the walk by LAYER: an event-bundle record's own
   top-level `:frame` slot (DERIVED records key frame at top level —
-  cascade bundles are keyed by `[frame dispatch-id]`), else a frameless
+  event bundles are keyed by `[frame dispatch-id]`), else a frameless
   RAW event's frame via the canonical reader
   `re-frame.trace/trace-event-frame` (its `[:tags :frame]` slot). An
   all-frame stream — or a filter frame that differs from the operating
-  frame — carries cascades from several
+  frame — carries event bundles from several
   frames in one tick, and per EP-0015 sensitive/large declarations are
-  per-frame; eliding a foreign-frame cascade against the operating
+  per-frame; eliding a foreign-frame event bundle against the operating
   frame's registry mis-redacts (under-redaction leaks across the off-box
   boundary). The operating frame is the genuinely-frameless FALLBACK
   only.
@@ -392,7 +392,7 @@
         ;; AND `:include-sensitive true` ⇒ `incl?`). Gating on `elision?`
         ;; alone would let a gate-ON `:elision false` caller who left
         ;; `:include-sensitive` at its default ship raw trace-event slots
-        ;; — a declared-sensitive frame slot inside a cascade leaking
+        ;; — a declared-sensitive frame slot inside an event bundle leaking
         ;; off-box. A bare `:elision false` still walks (large passes via
         ;; `elision-opts-edn`, sensitive redacts to `:rf/redacted`).
         walk-trace?    (and (not epoch?)
@@ -432,7 +432,7 @@
                    " (contains? drain :events)"
                    " (update :events (fn [es] (mapv (fn [e#] (re-frame.core/projected-record e# " opts-edn ")) es))))")))))
 
-      ;; Trace-event walk (cascade-bundle topics `:trace`/`:fx`/`:error`
+      ;; Trace-event walk (event-bundle topics `:trace`/`:fx`/`:error`
       ;; ship `:cascades`; the `:frameless` topic ships `:events`). These
       ;; are tree-shaped trace events rooted at the frame's app-db, so the
       ;; size-elision walker is the correct primitive.
@@ -441,16 +441,16 @@
       ;; (subscribe always elides, so emit markers ⇒ pass `false`).
       ;;
       ;; The elision `:frame` is resolved PER ELEMENT inside
-      ;; the walk, NOT once for the whole drain. Cascade bundles are keyed
-      ;; by `[frame dispatch-id]` (group-cascades-with-events), so an
+      ;; the walk, NOT once for the whole drain. Event bundles are keyed
+      ;; by `[frame dispatch-id]` (group-by-event-with-events), so an
       ;; all-frame stream — or a filter frame that differs from the
-      ;; operating frame — carries cascades from several frames in one
+      ;; operating frame — carries event bundles from several frames in one
       ;; tick. Per EP-0015 sensitive/large declarations are PER FRAME, so
-      ;; eliding a frame-B cascade against frame-A's (the operating
+      ;; eliding a frame-B event bundle against frame-A's (the operating
       ;; frame's) registry mis-redacts — the sharp edge is UNDER-redaction
       ;; (frame-A values A marks sensitive but B does not would leak across
       ;; the off-box MCP→LLM boundary). Each element supplies its own
-      ;; frame BY LAYER: a DERIVED cascade record's top-level
+      ;; frame BY LAYER: a DERIVED event-bundle record's top-level
       ;; `:frame` slot, else a frameless RAW event's frame via the
       ;; canonical `re-frame.trace/trace-event-frame` reader ([:tags
       ;; :frame]).
@@ -578,7 +578,7 @@
                       (terminate :sub-gone)
                       (let [;; The drain envelope carries the
                             ;; delivered slot per the sub's topic:
-                            ;; `:cascades` for cascade-bundle topics
+                            ;; `:cascades` for event-bundle topics
                             ;; (`:trace`/`:fx`/`:error`), `:events` for
                             ;; flat topics (`:epoch`/`:frameless`).
                             ;; Exactly one is present; `cascade?` keeps

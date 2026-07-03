@@ -32,7 +32,7 @@
   `wire_vocab/schemas.clj`; the shared source-text pin inventories +
   near-miss helpers live in `wire_vocab/source_pins.clj`.
   Marker-family-LOCAL schemas +
-  fixtures (`ResultEnvelope`, `CascadeBundle`, and the per-family fixture
+  fixtures (`ResultEnvelope`, `EventBundle`, and the per-family fixture
   maps) stay co-located with their tests in the focused `*_test.clj`
   namespaces — they ARE the contract for that family, not boilerplate.
   Same posture for `canonical-slots` (`slot_name_test.clj`) and
