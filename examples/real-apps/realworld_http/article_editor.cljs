@@ -92,8 +92,12 @@
 ;; ../../../docs/core/concepts/flows.md#when-a-derivation-earns-app-db
 ;;
 ;; The flow registers per-frame via `:rf.fx/reg-flow` from `:editor/initialise`
-;; (below), so it binds to whichever frame the app booted on — the default one
-;; in the browser, or each throwaway frame a headless fixture spins up.
+;; (below) — dispatched ONCE at boot from `:app/initialise`, not on every
+;; editor entry — so it binds as a singleton to whichever frame the app booted
+;; on (the default one in the browser, or each throwaway frame a headless
+;; fixture spins up) and lives as long as that frame. Per-route entry runs the
+;; lighter `:editor/reset` (slice wipe only), so no fresh flow registration
+;; leaks on each visit.
 
 (def can-submit-flow
   {:id     :editor/can-submit?
@@ -206,15 +210,35 @@
 ;; ============================================================================
 
 (rf/reg-event :editor/initialise
-  {:doc "Wipe the editor slice and machine back to a clean start, and register
-         the `:editor/can-submit?` flow against the dispatching frame. The
-         flow's first computation doesn't run until the next drain — but a
-         fresh editor is invalid and clean anyway, so the one-event lag never
-         shows a stale value. The timing works out for free."}
+  {:doc "Boot-time one-shot: register the `:editor/can-submit?` flow ONCE
+         against the frame (a singleton keyed to the fixed `[:editor …]`
+         slice), and wipe the slice + machine to a clean start. Dispatched
+         once from `:app/initialise` at boot — NOT per route entry.
+
+         Why register the flow here and not on the route's `:on-match`?
+         `:rf.fx/reg-flow` replaces by id, so re-registering on every
+         `/editor` entry doesn't stack copies — but it DOES leave the flow
+         registered after you leave the editor, quietly recomputing against
+         the editor slice for the rest of the session. Registering it once at
+         boot (the flow lives as long as the frame, like the slice it derives
+         over) is the honest singleton shape; each route entry then just
+         RESETS the slice via `:editor/reset` (below), which does not touch
+         the flow registry."}
   (fn [{:keys [db]} _]
     {:db (assoc db :editor (editor-slice))
      :fx [[:dispatch [:ui/article-editor [:reset]]]
           [:rf.fx/reg-flow can-submit-flow]]}))
+
+(rf/reg-event :editor/reset
+  {:doc "Per-entry slice reset — the route `:on-match` handler for `/editor`.
+         Wipes the editor slice and machine back to a clean start WITHOUT
+         re-registering the `:editor/can-submit?` flow (that singleton was
+         registered once at boot by `:editor/initialise`). Splitting the
+         per-entry reset from the one-time flow registration is what stops
+         the flow leaking a fresh registration on every editor visit."}
+  (fn [{:keys [db]} _]
+    {:db (assoc db :editor (editor-slice))
+     :fx [[:dispatch [:ui/article-editor [:reset]]]]}))
 
 (rf/reg-event :editor/load-article
   {:doc "Pull an existing article into the editor for editing. The house
