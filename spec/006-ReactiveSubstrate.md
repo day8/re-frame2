@@ -476,9 +476,49 @@ The framework does not emit JSX source-coord props (`_jsxFileName` / `_jsxLineNu
 
 ## Subscription cache — contract and operational semantics
 
-A subscription's value lives in the per-frame **sub-cache**. This section defines the contract: the cache shape, the lookup algorithm, the invalidation algorithm, the ref-counting and disposal rules, the layer-1/2/3 sub semantics, and the lifetime contract that ties them together. The contract is host-agnostic; the [Reagent reference adapter §Sub-cache wiring](#sub-cache-wiring-reagent-realisation) shows the CLJS realisation.
+A subscription's value lives in the per-frame **sub-cache**. This section defines the contract: the [host value model](#host-value-model--rf-equality-and-value-keyed-caching) (the `rf=` equality primitive and the value-keyed cache-key contract the rest of the section rests on), the cache shape, the lookup algorithm, the invalidation algorithm, the ref-counting and disposal rules, the layer-1/2/3 sub semantics, and the lifetime contract that ties them together. The contract is host-agnostic; the [Reagent reference adapter §Sub-cache wiring](#sub-cache-wiring-reagent-realisation) shows the CLJS realisation.
 
 > **v1 reference.** v1's `re-frame.subs` namespace already implements most of this — the invalidation algorithm, the cache de-duplication, the disposal-on-no-readers behaviour. What is *new* in re-frame2: the cache is **per-frame** (v1 has one global cache); disposal-on-frame-destroy is a contract, not an implementation detail; the layer-1/2/3 framing is named explicitly so non-CLJS implementors can satisfy the contract without leaning on Reagent's reaction machinery.
+
+### Host value model — `rf=` equality and value-keyed caching
+
+Everything below — cache-key identity, lookup de-duplication, invalidation, derived-value propagation collapse, and the commit-plane change-detection in [002 §The `:db` commit family](002-Frames.md#the-db-commit--no-op-return-family) — is expressed in terms of value equality (`=`) over value-hashed persistent collections. On the CLJS reference this is ClojureScript `=` and persistent vectors/maps, and the sentences read as implementations. **The seven non-CLJS in-scope hosts** (TS-React / Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint) get no such primitive for free: the host's native `===`/`Object.is`/reference-keyed `Map` compares arrays and objects by identity, so a literal port silently ships a runtime where equal subscriptions never de-duplicate, ref-counts never converge, and disposal never fires — a leak the conformance corpus cannot see, because its fixtures subscribe each query once. This subsection pins the two primitives that layer needs so two implementors cannot diverge silently: the **`rf=` value-equality relation** and the **value-keyed cache-key contract**.
+
+#### `rf=` — the runtime value-equality relation
+
+`rf=` is the equality every reactive comparison in this spec means when it writes `=`: cache-hit detection, invalidation ("changed value"), derived-value propagation collapse, and commit no-op detection. It is **structural value equality** over the host's frame-state value domain, pinned leaf-by-leaf to the CLJS reference so a port cannot pick a subtly different off-the-shelf relation:
+
+1. **Reference-identity short-circuit (MANDATORY).** `rf= a a` MUST return `true` without descending, at **every** level of the structure — not only at the root. This is not merely an optimisation: the fallback [invalidation algorithm](#invalidation-algorithm) re-runs every layer-1 sub body on **every** commit and `rf=`-compares its prior value, so without a per-level identity short-circuit a host on the identical algorithm is asymptotically worse than the reference (`O(Σ|sub values|)` deep-compare per event). Structural sharing (the persistent-data-structure requirement in [000 §Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures)) only pays because `rf=` bails on identical subtrees — the equality cost, not just the revert cost, is the reason a port MUST supply value-hashed persistent collections.
+2. **Number equality is the host's numeric equality**, matching the CLJS reference: `NaN` is **not** `rf=` to `NaN`; `-0` **is** `rf=` to `0`. (This is CLJS `=`'s behaviour and JS `SameValueZero` for `-0`, but **not** JS `SameValueZero` for `NaN` — `SameValueZero(NaN, NaN)` is `true`. See the divergence note below.)
+3. **Strings, booleans, keywords/idents, and the nil/absent marker compare by value.** The host's identity primitive (per [000 §The identity primitive](000-Vision.md#the-identity-primitive--required-properties)) compares by its value contract; `nil` (or the host's canonical nil/none marker) is `rf=` only to itself.
+4. **Collections compare element-wise, recursively via `rf=`.** Sequential collections compare by length then position; associative collections compare by key set then per-key value (**order-independent** — insertion order is not part of the value; see [§Value-keyed cache-key contract](#value-keyed-cache-key-contract)); sets compare by membership. A collection is never `rf=` to a collection of a different kind.
+5. **An entry whose value is the host's *absent* marker is distinct from a missing entry.** `{:x nil}` (present key, nil value) is **not** `rf=` to `{}` (absent key) — the present-nil-vs-missing distinction the path algebra and CEDN-1 already pin ([Conventions §Canonical EDN identity](Conventions.md#canonical-edn-identity)).
+
+> **Divergence note (load-bearing).** A deep-equal library whose leaf semantics treat `NaN` as self-equal — notably lodash `isEqual` and any relation built on JS `SameValueZero` — **diverges from `rf=` and MUST NOT be used unmodified.** On `NaN`- or `-0`-bearing app state (real state is float-bearing: `examples/core/seven_guis/temperature`, `examples/core/seven_guis/circle_drawer`) such a relation invalidates differently from the reference, and both answers pass every existing fixture. A port either writes an `===`-leaf recursive compare (whose `NaN !== NaN` matches the reference) or audits its chosen library's `NaN`/`-0` semantics against rules 2 and 4 above.
+
+`rf=` is a **total, pure, non-throwing** relation over the frame-state value domain. Values outside that domain (host objects, functions, promises, DOM nodes) are not frame-state and are out of scope for `rf=`; a durable write that folds one in is already rejected upstream (per [002 §The `:db` commit family](002-Frames.md#the-db-commit--no-op-return-family) and the recordable-coeffect portability contract).
+
+#### Value-keyed cache-key contract
+
+The [cache shape](#cache-shape) and [lookup algorithm](#lookup-algorithm) say "the cache key is the query-vector itself." That sentence is an *implementation* only on a host where two equal query vectors are one map key. The normative contract, host-agnostic:
+
+> A frame's sub-cache is keyed by **`rf=` on the whole query vector**. Two subscriptions whose query vectors are `rf=` — regardless of allocation identity, and regardless of the insertion order of any map-valued argument — resolve to **one** cache entry: one derived container, one shared computation, one ref-count. Two query vectors that are not `rf=` resolve to distinct entries.
+
+This is what makes the two lookup guarantees ([§Lookup algorithm](#lookup-algorithm) properties) hold: **de-duplication** (concurrent equal subscriptions share one computation) and **correct ref-counting/disposal** (the ref-count converges to zero and the slot disposes only when the *last* `rf=`-equal reader drops). A reference-keyed cache breaks both — the canonical failure is a view that resubscribes `[:editor/field-error :title]` (a freshly-allocated argument vector) each render: under reference keying every render is a miss, a new derived container is allocated, ref-counts never converge, and disposal never fires (`examples/real-apps/realworld_http/article_editor.cljs`). The corpus cannot observe this — fixtures subscribe once — so the contract is stated here rather than left to a fixture to enforce.
+
+**Conformant mechanisms.** Two are blessed; a host picks one:
+
+- **(a) A value-keyed persistent-collection map** — the query vector is the key of a map whose key equality is `rf=` (e.g. an Immutable.js `Map` keyed by an Immutable.js `List`, or the host PDS library's equivalent). This is the reference-aligned mechanism (CLJS uses a persistent map keyed by the persistent query vector directly) and is RECOMMENDED. Note that [Implementor-Checklist F2](Implementor-Checklist.md)'s *first-listed* TS option (Immer) supplies structural sharing but **neither** a value equality **nor** a value-keyed map — a port following that suggestion must add both; the mechanism is not free with every PDS library.
+- **(b) An interned canonical encoding** — the query vector is reduced to a stable canonical key (a string/bytes interning `rf=`-equal vectors to one key), e.g. the [CEDN-1 canonical byte encoding](Conventions.md#canonical-byte-encoding-cedn-1). If a host chooses (b), the query-vector **arguments** MUST lie in a portable canonical domain (so map-key order, vector-vs-list kind, and present-nil are all handled by the encoding, as CEDN-1 already pins), and a dev-mode `:rf.error/*`-family diagnostic SHOULD flag an out-of-domain argument rather than silently mis-keying it.
+
+> **Cache-key domain vs `rf=` domain — an open reconciliation (flagged for review).** `rf=` (above) matches CLJS number equality and therefore **permits finite floats** in a query argument (`NaN !== NaN`, `-0 = 0`), whereas CEDN-1's identity domain **fails closed on all floating-point values** ([Conventions §Canonical EDN identity](Conventions.md#canonical-edn-identity), by design — durable identity must not hash a float). A host on mechanism **(a)** has no tension: a value-keyed map keys directly on `rf=` and admits float-bearing args natively, exactly as the reference does. A host on mechanism **(b)** inherits CEDN-1's float rejection and would either forbid float-bearing query arguments or need a **CEDN-float extension scoped to the cache-key domain only** (not to durable identity). **The minimal choice pinned here is: mechanism (a) is the reference-aligned default and admits finite floats; the CEDN-float extension for mechanism (b) is *not* specified in this pass** — a (b) host today must keep float-bearing values out of query arguments (encode them at the boundary, as CEDN-1 already requires elsewhere) or await that extension. Whether to bless a cache-key-scoped CEDN-float extension is left as an explicit decision for review; it is called out in [§Open questions](#open-questions).
+
+**Conformance.** Two fixtures pin the observable contract for hosts whose native collections are reference-keyed:
+
+- [`sub-cache-dedupes-equal-query-v.edn`](conformance/fixtures/sub-cache-dedupes-equal-query-v.edn) — query vectors that are `rf=`-but-not-identical (distinct allocations, differing map-arg insertion order) resolve to **one** cache key; not-`rf=` vectors resolve to distinct keys. Asserted at the cache-key identity boundary the value-keyed cache relies on.
+- [`sub-cache-key-map-arg-order.edn`](conformance/fixtures/sub-cache-key-map-arg-order.edn) — two query vectors carrying a map argument in different insertion order share **one** cache key, pinned both at the byte level (one canonical token stream) and the identity level.
+
+> **Conformance-observability note (flagged).** Both fixtures assert the cache **key** identity — the pure mechanism a value-keyed cache rests on — which is the JVM-runnable, host-portable surface the corpus already exercises for canonical identity. A deeper *live-runtime* assertion — subscribe the same query through two **distinct host allocations** in one frame and count exactly one cache-slot creation (`:rf.sub/first-run? true` once) — would catch a reference-keyed host directly, but needs a new Mode-A harness primitive (the current sub-DSL has no "subscribe this query twice through distinct instances" op, and CLJS EDN vectors are value-equal so two literals are already one key). That live-observability extension is left as follow-up.
 
 ### Cache shape
 
@@ -543,14 +583,14 @@ Lookup [query-v] in frame F:
 
 Two properties this guarantees:
 
-1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself. v2 has a single disposal algorithm (synchronous ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)).
+1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself, compared by `rf=` (per [§Host value model](#host-value-model--rf-equality-and-value-keyed-caching) — two `rf=`-equal query vectors are one key on every host, however the host realises value-keyed lookup). v2 has a single disposal algorithm (synchronous ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)).
 2. **Layer-1/2/3 chaining.** A layer-2 sub's `:<-` inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over a **partition projection** directly — the **app-db** projection for ordinary app subs, the **runtime-db** projection for framework subs (`[:rf/machine <id>]`, `[:rf.route/*]`). Per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections).
 
 ### Invalidation algorithm
 
 The contract:
 
-> A subscription's cached value is invalidated **only when an input the subscription depends on changes value** (by `=` equality).
+> A subscription's cached value is invalidated **only when an input the subscription depends on changes value** (by `rf=` equality — the value-equality relation pinned in [§Host value model](#host-value-model--rf-equality-and-value-keyed-caching); `=` on the CLJS reference).
 
 The algorithm, host-agnostic. The drain commits the whole **frame-state** in one atomic write; the two partition projections (`app-db`, `runtime-db`) recompute over the new frame-state and propagate only the partition(s) that actually changed — an app-only commit leaves the runtime-db projection value-equal (so framework subs stay cached) and vice versa, **for free** from projection equality (per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections)):
 
@@ -1322,7 +1362,7 @@ Per-host adapters for non-CLJS implementations ship as separate packages, implem
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): both items are **post-v1, untracked notes** — design directions in scope for re-frame2 beyond v1 but with no concrete tracking bead filed yet (so neither qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Cooperative rendering substrate" is deferred to a later cycle's benefits-vs-cost evaluation; "Multi-adapter coexistence" is additive on the v1 single-adapter contract once a concrete use case emerges. A tracking bead is filed for each only when the reconsideration trigger below fires; until then they remain notes, not committed work.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): these items are **post-v1, untracked notes** — design directions in scope for re-frame2 beyond v1 but with no concrete tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Cooperative rendering substrate" is deferred to a later cycle's benefits-vs-cost evaluation; "Multi-adapter coexistence" is additive on the v1 single-adapter contract once a concrete use case emerges; "CEDN-float cache-key extension" is a flagged reconciliation for review (see [§Host value model](#host-value-model--rf-equality-and-value-keyed-caching)). A tracking bead is filed for each only when the reconsideration trigger below fires; until then they remain notes, not committed work.
 
 ### Cooperative rendering substrate (post-v1)
 
@@ -1345,6 +1385,19 @@ The current contract is single-adapter-per-process. If a concrete use case for p
 - **Scope deferred.** The lifting itself: dispatch envelope carrying the in-scope adapter, registrar / tool branching on which adapter a frame uses, error categories for cross-frame view mounts that span adapters.
 - **Reconsideration trigger.** A concrete app use case — e.g., a single process embedding a Reagent host alongside a UIx subtree, both backed by re-frame, where running them as separate processes is infeasible.
 - **Out of scope for this note.** Multi-adapter *within a single frame* (one view tree mixing adapters) — that path is rejected per [§Single adapter per process](#single-adapter-per-process)'s reasoning and is not on the post-v1 ledger.
+
+### CEDN-float cache-key extension (post-v1, flagged for review)
+
+The [host value model](#host-value-model--rf-equality-and-value-keyed-caching) pins mechanism **(a)** (a value-keyed persistent-collection map keyed by `rf=`) as the reference-aligned default, which admits finite-float query arguments natively — matching the CLJS reference, which caches on the persistent query vector directly. Mechanism **(b)** (an interned CEDN-1 canonical key) inherits CEDN-1's fail-closed-on-floats identity domain, so a (b) host today cannot carry a float-bearing query argument without encoding it at the boundary first.
+
+Whether to bless a **CEDN-float extension scoped to the cache-key domain only** (finite floats permitted as cache-key arguments, `NaN`/infinities still rejected, durable-identity CEDN-1 unchanged) is left open. It would let a (b) host admit the same float-bearing query arguments an (a) host and the reference already accept, at the cost of one paragraph reconciling it against CEDN-1's fail-closed stance ([Conventions §Canonical EDN identity](Conventions.md#canonical-edn-identity)).
+
+#### Post-v1 Tracking
+
+- **Foundation in v1.** Mechanism (a) is the default and needs no extension; the reference and every (a) host already admit finite floats. This note is only about widening mechanism (b)'s cache-key input domain.
+- **Scope deferred.** The extension itself: a finite-float encoding for the cache-key domain (not durable identity), its `NaN`/infinity rejection, and the dev-mode out-of-domain diagnostic.
+- **Reconsideration trigger.** A non-CLJS host committing to mechanism (b) (an interned canonical cache key) reports float-bearing query arguments it cannot key — the concrete case that makes the extension worth its reconciliation paragraph.
+- **Out of scope for this note.** Any change to CEDN-1 durable identity's float rejection — that stance is unchanged; the extension, if blessed, is cache-key-scoped only.
 
 ## Resolved decisions
 

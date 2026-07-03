@@ -1,0 +1,56 @@
+;; Conformance fixture: sub-cache/key-map-arg-order
+;;
+;; Host value model — value-keyed cache-key contract, map-argument key-order
+;; invariant ([Spec 006 §Host value model](../../006-ReactiveSubstrate.md#host-value-model--rf-equality-and-value-keyed-caching)).
+;;
+;; THE CONTRACT. Two query vectors whose map-valued arguments carry the same
+;; entries in different insertion order are ONE cache key — insertion order is
+;; not part of the value. A host on mechanism (b) (an interned canonical key)
+;; that keys on `JSON.stringify` or an insertion-order-preserving encoding
+;; would split one logical subscription into two live cache entries; a host on
+;; mechanism (a) (an `rf=`-keyed persistent map) collapses them, matching the
+;; CLJS reference. This fixture pins the order-independence at the byte level:
+;; the two insertion orders encode to the SAME canonical bytes, so the cache
+;; key is identical however the host realises value-keyed lookup.
+;;
+;; This is the sub-cache-facing companion to the general map-key-order case in
+;; `cedn1-path-algebra-golden.edn`; it states the invariant in query-vector
+;; terms (`[sub-id map-arg]`) so a port reads it as a cache-key obligation, not
+;; only a path-identity one.
+;;
+;; Capabilities exercised:
+;;   :identity/cedn1 — the canonical-bytes encoding + identical-identity
+;;                     comparison the value-keyed cache key rests on.
+
+{:fixture/id           :sub-cache/key-map-arg-order
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:identity/cedn1}
+ :fixture/doc          "Value-keyed cache-key map-argument invariant: a query vector [sub-id {map-arg}] keys identically regardless of the map argument's insertion order. Pinned at the byte level (both orders encode to one CEDN-1 token stream) and at the identity level (one cache key)."
+
+ :fixture/calls
+ [;; Byte-exact: a query vector carrying a two-key map argument encodes to the
+  ;; same canonical bytes in either insertion order (keys canonically ordered
+  ;; by their CEDN-1 bytes: :col before :row). This is the frozen cache-key.
+  {:call   :canonical-bytes
+   :value  [:grid/cell {:row 1 :col 2}]
+   :expect "v[k::grid/cell m{k::col i:2 k::row i:1}]"}
+  {:call   :canonical-bytes
+   :value  [:grid/cell {:col 2 :row 1}]
+   :expect "v[k::grid/cell m{k::col i:2 k::row i:1}]"}
+
+  ;; Identity: the two insertion orders are ONE cache key.
+  {:call :canonical-identical
+   :a    [:grid/cell {:row 1 :col 2}]
+   :b    [:grid/cell {:col 2 :row 1}]}
+
+  ;; A HETEROGENEOUS-key map argument (keyword + vector key), likewise
+  ;; order-independent — keys canonically ordered by their key bytes.
+  {:call :canonical-identical
+   :a    [:report/for {:owner :me [:filter :status] :open}]
+   :b    [:report/for {[:filter :status] :open :owner :me}]}
+
+  ;; NEGATIVE control: same sub-id, a DIFFERENT map argument VALUE is a
+  ;; distinct cache key — order-independence must not become value-blindness.
+  {:call :canonical-distinct
+   :a    [:grid/cell {:row 1 :col 2}]
+   :b    [:grid/cell {:row 2 :col 1}]}]}
