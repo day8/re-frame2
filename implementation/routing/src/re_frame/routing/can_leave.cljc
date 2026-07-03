@@ -215,20 +215,31 @@
 ;; (target), for every entry door. rf2-p69yaz Option A.
 ;; ---------------------------------------------------------------------------
 
+(defn- event-opts
+  "Extract the trailing opts map from a nav event vector — the slot the
+  resume-chain carries `:rf.route/enter-attempts` in. `:rf.route/navigate`
+  keeps opts in the 4th slot (`[_ target params opts]`); the URL-driven
+  events + `:rf/url-requested` keep it in the 2nd (`[_ url-or-request
+  opts?]` — for `:rf/url-requested` the request map itself IS the opts
+  carrier). Returns a map (possibly empty)."
+  [event-vec]
+  (let [event-id (first event-vec)]
+    (case event-id
+      :rf.route/navigate          (or (nth event-vec 3 nil) {})
+      :rf/url-requested           (let [a (second event-vec)] (if (map? a) a {}))
+      (:rf.route/transitioned
+       :rf.route/handle-url-change) (or (nth event-vec 2 nil) {})
+      {})))
+
 (defn- loop-count
-  "The number of times THIS resume chain has re-run the enter gate for the
-  same target (rf2-p69yaz point 7 — loop detection). A blocked
-  `:can-enter` whose resume (`:rf.route/continue`) re-runs `:can-enter`
-  and blocks AGAIN on the same target forms a loop; the count rides the
-  pending-nav slot's `:enter-attempts` and the resume increments it, so
-  the gate can fail closed once it crosses `loop-guard-limit`."
-  [rdb requested-url]
-  (let [pending (get-in rdb [:rf.runtime/routing :pending-navigation])]
-    (if (and pending
-             (= :can-enter (:reason pending))
-             (= requested-url (:requested-url pending)))
-      (long (or (:enter-attempts pending) 1))
-      0)))
+  "The number of times THIS resume chain has already re-run the enter gate
+  for the same target (rf2-p69yaz point 7 — loop detection). The count
+  rides the re-issued event's `:rf.route/enter-attempts` opt, threaded
+  forward by `:rf.route/continue` (which clears the pending slot BEFORE
+  re-dispatching, so the count can't live only on the slot). Zero on a
+  first (non-resume) navigation."
+  [event-vec]
+  (long (or (:rf.route/enter-attempts (event-opts event-vec)) 0)))
 
 (def ^:private loop-guard-limit
   "The enter-gate re-run ceiling (rf2-p69yaz point 7). A `:can-enter` that
@@ -286,7 +297,7 @@
         ;; blocked leave never reaches the target). rf2-p69yaz point 7:
         ;; when the enter gate re-runs past the loop ceiling, it is a
         ;; guard loop — fail closed rather than re-issue forever.
-        attempts       (loop-count rdb requested-url)
+        attempts       (loop-count event-vec)
         looping?       (and leave-ok?
                             (not (contains? bypass :enter))
                             (guard-query target-meta :can-enter)
@@ -422,31 +433,36 @@
 
 (defn- inject-bypass-guards
   "Re-issue the original navigation event with a `:bypass-guards?` SET
-  merged in (rf2-p69yaz point 8; rf2-yursn one-shot escape hatch). A
+  merged in (rf2-p69yaz point 8; rf2-yursn one-shot escape hatch) and the
+  running `enter-attempts` loop-guard count threaded forward under
+  `:rf.route/enter-attempts` (point 7 — the count can't live only on the
+  pending slot, which `continue` clears before re-dispatching). A
   `:rf.route/continue` resume passes `#{:leave}` — the user already
   confirmed the leave, but the enter gate RE-RUNS (point 6), so `:enter`
   is deliberately NOT bypassed."
-  [event-vec fallback-url bypass]
+  [event-vec fallback-url bypass enter-attempts]
   (let [event-id (first event-vec)
-        add-bypass (fn [opts] (assoc (or opts {}) :bypass-guards? bypass))]
+        add-opts (fn [opts]
+                   (cond-> (assoc (or opts {}) :bypass-guards? bypass)
+                     enter-attempts (assoc :rf.route/enter-attempts enter-attempts)))]
     (case event-id
       :rf/url-requested
       (let [request (if (map? (second event-vec)) (second event-vec) {})]
-        [:rf/url-requested (assoc request :bypass-guards? bypass)])
+        [:rf/url-requested (add-opts request)])
 
       :rf.route/navigate
       (let [[_ target params opts] event-vec]
-        [:rf.route/navigate target params (add-bypass opts)])
+        [:rf.route/navigate target params (add-opts opts)])
 
       :rf.route/transitioned
       (let [[_ url opts] event-vec]
-        [:rf.route/transitioned url (add-bypass opts)])
+        [:rf.route/transitioned url (add-opts opts)])
 
       :rf.route/handle-url-change
       (let [[_ url opts] event-vec]
-        [:rf.route/handle-url-change url (add-bypass opts)])
+        [:rf.route/handle-url-change url (add-opts opts)])
 
-      [:rf/url-requested {:url fallback-url :bypass-guards? bypass}])))
+      [:rf/url-requested (add-opts {:url fallback-url})])))
 
 (defn url-requested-handler
   "`:rf/url-requested` event handler. Registered by the façade so a
@@ -519,16 +535,24 @@
           pending  (get-in db [:rf.runtime/routing :pending-navigation])
           original (:requested-by-event pending)
           url      (:requested-url pending)
+          ;; rf2-p69yaz point 7: thread the running enter-attempt count
+          ;; forward so the re-run enter gate can detect a resume loop. The
+          ;; slot's `:enter-attempts` was already incremented at block time;
+          ;; carry it into the re-issued event's opts (the slot is cleared
+          ;; below before the re-dispatch runs, so the count must ride the
+          ;; event). Absent on a leave-block resume (no enter attempts).
+          attempts (:enter-attempts pending)
           ;; rf2-8zvajk: a blocked popstate that RESTORED the address bar
           ;; must re-move the browser URL on resume — see the leave-block
           ;; docstring above; identical for an enter block reached through
           ;; popstate.
           restore-fx (when (:url-restored? pending)
                        [:rf.nav/replace-url url])
+          fallback-request (cond-> {:url url :bypass-guards? #{:leave}}
+                             attempts (assoc :rf.route/enter-attempts attempts))
           dispatch-fx [:dispatch (if (vector? original)
-                                   (inject-bypass-guards original url #{:leave})
-                                   [:rf/url-requested {:url url
-                                                       :bypass-guards? #{:leave}}])]]
+                                   (inject-bypass-guards original url #{:leave} attempts)
+                                   [:rf/url-requested fallback-request])]]
       (if (and pending (= pn-id (:id pending)))
         (cond-> {:rf.db/runtime (update-in db [:rf.runtime/routing] dissoc :pending-navigation)}
           (or (vector? original) url)
