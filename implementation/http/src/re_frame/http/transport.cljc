@@ -154,6 +154,29 @@
    :frame        (:frame ctx)
    :completed-at (interop/epoch-now-ms)})
 
+(defn- self-identify
+  "rf2-1u9dja — stamp the four self-identifying fields (`:request
+  {:method :url}`, `:request-id`, `:attempt` / `:max-attempts`, `:work/id`)
+  onto a classified `:rf.http/*` failure map from the request ctx, so the
+  PUBLIC failure reply (and the trace that inherits it) names WHICH request
+  failed, not just what kind of failure it was (debugging-dx finding 3).
+
+  Delegates the field construction to `http-reply/self-identify-failure`;
+  this fn projects the transport `ctx` onto the identity map that helper
+  consumes (`:method` off the `:request` envelope, `:max-attempts` off the
+  `:retry` policy, plus `:url` / `:request-id` / `:origin-event` / `:issuance`
+  / `:attempt`). Applies uniformly to ALL eight failure categories."
+  [failure ctx]
+  (http-reply/self-identify-failure
+    failure
+    {:method       (:method (:request ctx))
+     :url          (:url ctx)
+     :request-id   (:request-id ctx)
+     :origin-event (:origin-event ctx)
+     :issuance     (:issuance ctx)
+     :attempt      (:attempt ctx)
+     :max-attempts (:max-attempts (:retry ctx))}))
+
 ;; rf2-ee38b.7 — the failure-reply and success-reply dispatch shapes were
 ;; spelled out inline at four / two sites across finalise-success!,
 ;; finalise-failure! and the abort path's dispatch-aborted!. These two
@@ -446,10 +469,14 @@
   `:actor-destroyed` abort whose target is an ORDINARY (still-meaningful)
   event keeps the live failure delivery, as do explicit `:user` aborts."
   [ctx reason]
-  (let [failure {:kind       :rf.http/aborted
-                 :request-id (:request-id ctx)
-                 :reason     reason
-                 :actor-id   (:actor-id ctx)}]
+  ;; rf2-1u9dja — the aborted failure is self-identifying too (`:request` /
+  ;; `:request-id` / `:attempt` / `:max-attempts` / `:work/id`), so both the
+  ;; `:rf.http/aborted` trace and the delivered `:status :cancelled` reply name
+  ;; which request was cancelled. `:rf.http/aborted` is the eighth category.
+  (let [failure (self-identify {:kind     :rf.http/aborted
+                                :reason   reason
+                                :actor-id (:actor-id ctx)}
+                               ctx)]
     (when interop/debug-enabled?
       (let [sensitive? (true? (:sensitive? ctx))
             redacted   (privacy/prepare-emit-failure
@@ -544,8 +571,15 @@
 
   Per rf2-lxd3: a supersede (`:rf.http/aborted` with
   `:reason :request-id-superseded`) emits to the trace bus but does NOT
-  dispatch the `:on-failure` reply — the new request replaces the old."
+  dispatch the `:on-failure` reply — the new request replaces the old.
+
+  rf2-1u9dja — the failure map is made SELF-IDENTIFYING (`:request
+  {:method :url}` / `:request-id` / `:attempt` / `:max-attempts` /
+  `:work/id`) here, ONCE, so both the emitted trace AND the dispatched
+  reply carry the identity — the trace inherits it for free and the app
+  reply names which request failed."
   [ctx failure]
+  (let [failure (self-identify failure ctx)]
   (when interop/debug-enabled?
     ;; rf2-bma05 — redact response-side payload slots (body, body-text,
     ;; decoded, detail) and the headers denylist before the trace surface
@@ -593,7 +627,7 @@
   (let [suppress? (and (= :rf.http/aborted (:kind failure))
                        (reply-suppressing-abort-reason? (:reason failure)))]
     (when-not suppress?
-      (dispatch-failure! ctx failure))))
+      (dispatch-failure! ctx failure)))))
 
 (defn- finalise-success! [ctx accepted]
   ;; rf2-wez75 — abort-precedence check. Two sampling points:

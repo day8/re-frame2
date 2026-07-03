@@ -107,6 +107,51 @@
   [:rf.req frame-id wid])
 
 ;; ---------------------------------------------------------------------------
+;; Self-identifying failure maps (rf2-1u9dja; debugging-dx finding 3). Every
+;; public HTTP failure map (the classified `:rf.http/*` shape that rides under
+;; `:error` on the canonical reply) carries WHICH request failed, not just what
+;; KIND of failure it was: `:request {:method :url}`, `:request-id`, `:attempt`
+;; / `:max-attempts`, `:work/id`. The framework has this identity at finalise
+;; time — it was previously stamped only onto the DEV-ONLY trace and dropped at
+;; the public boundary, leaving production triage of ':rf.http/timeout spiking
+;; — which endpoint?' unanswerable. These fields make the one surface that
+;; survives production (the reply the app's error reporting is built from)
+;; self-identifying, exactly like every diagnostic trace already is.
+;;
+;; The `:url` on the in-app reply is on-box data the caller supplied in the
+;; first place, so it rides verbatim there; OFF-BOX egress (the trace surface)
+;; redacts it for a `:sensitive?` request exactly as the trace already does
+;; (the privacy layer walks `:request :url` on egress).
+;; ---------------------------------------------------------------------------
+
+(defn self-identify-failure
+  "Stamp the four self-identifying fields (rf2-1u9dja) onto a classified
+  `:rf.http/*` failure map, from the request's identity `ctx`:
+
+   - `:request {:method :url}` — an echo of the caller's own wire envelope;
+   - `:request-id`             — uniform (was aborted-only before);
+   - `:attempt` / `:max-attempts` — the retry accounting (already on the
+                                    canonical envelope);
+   - `:work/id`                — correlation to the trace stream.
+
+  `ctx` supplies `:request-id` / `:origin-event` / `:issuance` / `:attempt`
+  (for `work-id`), plus `:method` / `:url` (the wire envelope) and
+  `:max-attempts` (the retry ceiling). Fields already present on `failure`
+  (e.g. an `:rf.http/aborted` map's own `:request-id`) are OVERWRITTEN with
+  the ctx value for uniformity; `:max-attempts` is omitted when absent (no
+  retry policy). Applies to ALL eight failure categories — the field set is
+  category-independent identity, distinct from each category's own tags."
+  [failure {:keys [method url request-id max-attempts attempt] :as ctx}]
+  (cond-> (assoc failure
+                 :request    (cond-> {}
+                               (some? method) (assoc :method method)
+                               (some? url)    (assoc :url url))
+                 :request-id request-id
+                 :attempt    (or attempt 1)
+                 :work/id    (work-id ctx))
+    (some? max-attempts) (assoc :max-attempts max-attempts)))
+
+;; ---------------------------------------------------------------------------
 ;; Canonical reply map (Managed-Effects §The reply map / §Status taxonomy).
 ;;
 ;; The transport's success / failure / abort facts → one reply-map-
