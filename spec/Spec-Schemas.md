@@ -61,7 +61,7 @@ This catalogue is a **projection** of shapes that originate in the owning per-Sp
 
 **SA-3 audit pointer.** [AI-Audit.md §SA-3 schema-coverage report](AI-Audit.md) carries the corpus-wide cross-reference table: every shape referenced in the numbered specs (as an example block, a wire payload, a returned-shape) MUST map to either a `:rf/<id>` schema entry in this catalogue OR an explicit host-type exemption (the per-host primitives that don't need cross-host schemas). The report is generated rather than hand-maintained per SA-3's enforcement obligation.
 
-**Migration scope.** This rule applies to five load-bearing schemas (`:rf/dispatch-envelope`, `:rf/effect-map`, `:rf/trace-event`, `:rf/epoch-record`, `:rf/hydration-payload`), with the full sweep across the remaining ~32 schema sections tracked separately.
+**Migration scope.** The Owner + Status sweep is **complete** — every schema-bearing `###` section now carries the required `> **Owner:**` and `> **Status:**` headers (the earlier five-schema demonstration — `:rf/dispatch-envelope`, `:rf/effect-map`, `:rf/trace-event`, `:rf/epoch-record`, `:rf/hydration-payload` — has been extended corpus-wide). The optional `> **Conformance:**` pointer is present where a fixture / per-artefact test asserts the schema directly; see [AI-Audit.md §SA-3 schema-coverage report](AI-Audit.md) for the current per-section counts.
 
 ## Schema layers
 
@@ -289,6 +289,7 @@ A descriptor matching none of the four shapes (a non-map, an `:id`-only map, a `
 
 > **Layer:** Public (input forms)
 > **Owner:** [002-Frames §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)
+> **Status:** v1-required
 
 The argument carried by the one standard framework interceptor reference, `[:rf.interceptor/path <path-vector>]` (the canonical `:factory` consumer, [EP-0022](../docs/EP/EP-0022-registered-interceptors.md), [002 §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)). The single factory arg is an [`:rf/path`](#rfpath-rfpath-template-the-path-algebra-ep-0012) (EP-0012) — the app-db sub-slice the handler is focused onto.
 
@@ -877,6 +878,8 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 ### Per-category `:tags` schemas
 
 > **Layer:** Runtime
+> **Owner:** [009-Instrumentation §Error event catalogue](009-Instrumentation.md#error-event-catalogue)
+> **Status:** v1-required
 
 Each error / warning category enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) has a registered Malli schema describing its `:tags` payload, so consumers can validate without ad-hoc parsing. The schemas below are the canonical CLJS-reference shapes; ports translate them mechanically into the host's schema language (per [§Scope](#scope)).
 
@@ -3497,6 +3500,8 @@ The map is **closed** — production must not silently leak unknown keys. The `:
 ### Standard fx args schemas
 
 > **Layer:** Runtime
+> **Owner:** [002-Frames §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)
+> **Status:** v1-required
 
 The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (the ones the runtime / standard libraries register) has a known args shape; this section registers them so the conformance corpus and AI scaffolding can validate fx-args at the call site. User-registered fx attach their own args schema via the `:schema` metadata on `reg-fx` (per [010 §Where schemas attach](010-Schemas.md#where-schemas-attach)).
 
