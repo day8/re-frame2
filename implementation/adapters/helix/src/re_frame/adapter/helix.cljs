@@ -17,6 +17,7 @@
             [helix.hooks         :as helix-hooks]
             [re-frame.frame             :as frame]
             [re-frame.substrate.spine   :as spine]
+            [re-frame.adapter.resource-lease :as resource-lease]
             [re-frame.views.owned-frame :as owned-frame]))
 
 ;; ---- shared spine wiring --------------------------------------------------
@@ -149,6 +150,25 @@
   `(rf/subscribe ...)` deref shape, asymmetric naming (hooks live in
   hook-named space)."
   (:use-subscribe spine-fns))
+
+(def use-resource-lease
+  "Helix hook that takes a resource liveness LEASE for the calling
+  component's mounted lifetime (rf2-cxozh4, EP-0020 §Open Issue #1). On
+  mount it dispatches `:rf.resource/ensure` with an app-minted `[:lease …]`
+  owner; on unmount it releases that lease via `:rf.resource/release-owner`.
+  Use it so a view declaratively OWNS a polled / cached resource for as long
+  as it is on screen — the mount-lifecycle half of resource ownership that
+  otherwise needs a hand-wired `use-effect`.
+
+      (use-resource-lease {:resource :my/feed :scope :rf.scope/global
+                           :params {:page 0}})
+
+  Pair it with `use-subscribe` on a `[:rf.resource/*]` query to READ the
+  data; this hook manages liveness only (returns nil). Frame resolution +
+  the `:cause` / `:frame` opts mirror `use-subscribe`; the shared
+  substrate-agnostic implementation lives in
+  `re-frame.adapter.resource-lease`."
+  resource-lease/use-resource-lease)
 
 (def flush-views!
   "Flush pending Helix renders synchronously. Wraps React's act() —

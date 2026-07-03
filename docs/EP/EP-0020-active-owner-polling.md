@@ -457,6 +457,20 @@ they are kept verbatim as the record of what was ruled.
    component-observer model legitimately re-enters). This keeps EP-0020's runtime
    contract clean while acknowledging the real ergonomic gap.
 
+   **DELIVERED (rf2-cxozh4).** The mount-lifecycle helper shipped in the adapter
+   layer, exactly as recommended — the runtime contract is untouched. Two
+   substrate-shaped surfaces over the ONE shared implementation
+   (`re-frame.adapter.resource-lease`, core/CLJS): `use-resource-lease`
+   (`re-frame.adapter.uix` / `re-frame.adapter.helix` — a React hook) and
+   `with-resource-lease` (`re-frame.adapter.reagent` — a Form-3 component). Each
+   mints a unique `[:lease …]` owner on mount (dispatching `:rf.resource/ensure`)
+   and releases it on unmount (`:rf.resource/release-owner`), carrying the
+   surrounding `frame-provider`'s frame. It is DATA-only — it `:require`s no
+   resources artefact (the two events are dispatched by keyword id), so it is
+   inert in an app without `day8/re-frame2-resources`; under SSR the lifecycle
+   never fires (a natural no-op); and the per-instance lease token is idempotent
+   under a StrictMode / hot-reload re-mount.
+
 2. **Hidden-tab polling opt-in: ship in v1 or reserve?** TanStack
    (`refetchIntervalInBackground`), SWR (`refreshWhenHidden`), and RTK
    (`skipPollingIfUnfocused`) all expose a hidden-tab toggle. Default-pause-when-hidden

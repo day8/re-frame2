@@ -6,6 +6,9 @@
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.substrate.spine :as spine]
             [re-frame.views :as views]))
 
@@ -78,6 +81,123 @@
   init! Var. Previously stock Reagent surfaced no adapter-level flush-views!
   and tests reached for reagent.core/flush or react/act directly."
   (:flush-views! spine-fns))
+
+;; ---- resource-lease mount-lifecycle helper (rf2-cxozh4, EP-0020 §Open Issue #1) --
+
+(defonce ^:private lease-token-counter
+  ;; Monotone per-runtime counter minting a UNIQUE lease token per mounted
+  ;; `with-resource-lease` instance, so two components leasing the same
+  ;; resource+scope hold INDEPENDENT leases (releasing one never drops the
+  ;; other). The Reagent twin of the React-hook helper's counter.
+  (atom 0))
+
+(defn- lease-args
+  "Normalise `with-resource-lease` call args `[descriptor & args]` into
+  `{:descriptor :cause :frame :body}`. The optional `opts` map may sit
+  between the descriptor and the body thunk; a leading fn is the body."
+  [[descriptor & args]]
+  (let [[opts body] (if (fn? (first args))
+                      [nil (first args)]
+                      [(first args) (second args)])]
+    {:descriptor descriptor
+     :cause      (get opts :cause [:lease :mount])
+     :frame      (get opts :frame)
+     :body       body}))
+
+(defn- lease-frame-from-context
+  "Resolve the frame this instance should lease into: an explicit `:frame`
+  opt wins; else the frame-provider's keyword read off the instance's React
+  context (`:contextType` = the shared frame-context; the no-provider
+  sentinel coerces to nil); else the dynamic-var tier; else a loud
+  `:rf.error/no-frame-context`. Mirrors the React-hook helper's resolution
+  contract, in the Reagent (class-context) idiom."
+  [^js this explicit-frame]
+  (or explicit-frame
+      (let [ctx (.-context this)]
+        (when-not (= ctx adapter-context/no-provider-sentinel)
+          (adapter-context/coerce-context-value ctx)))
+      frame/*current-frame*
+      (frame/require-current-frame!
+        :with-resource-lease
+        {:where 're-frame.adapter.reagent/with-resource-lease})))
+
+(def with-resource-lease
+  "Reagent component that takes a resource liveness LEASE for its mounted
+  lifetime (rf2-cxozh4, EP-0020 §Open Issue #1) — the Reagent (Form-3)
+  counterpart of the UIx / Helix `use-resource-lease` hook. On mount it
+  dispatches `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on
+  unmount it releases that lease via `:rf.resource/release-owner`. Use it so
+  a view declaratively OWNS a polled / cached resource for as long as it is
+  mounted — the mount-lifecycle half of resource ownership that otherwise
+  needs a hand-wired Form-3.
+
+  Call it as a Reagent component with the resource descriptor and a body
+  thunk (a 0-arg fn returning hiccup — the children rendered while the lease
+  is held):
+
+      [reagent/with-resource-lease
+       {:resource :my/feed :scope :rf.scope/global :params {:page 0}}
+       (fn [] [feed-view])]
+
+  Or with opts (a map between the descriptor and the body thunk):
+
+      [reagent/with-resource-lease
+       {:resource :my/feed :scope … :params …}
+       {:cause :dashboard-widget :frame :some-frame}
+       (fn [] [feed-view])]
+
+  `descriptor` is the resource-instance identity `{:resource :scope
+  :params}` (the ensure payload's read keys, Spec 016 §Events). `opts`:
+    :cause  — recorded on the ensure (observability; free-form data value).
+              Defaults to `[:lease :mount]`.
+    :frame  — pin the lease to an explicit frame id, bypassing ambient
+              frame-provider / dynamic-var resolution.
+
+  A single Form-3 `create-class` (NOT a Form-2 returning one — that would
+  mint a fresh component type per render and remount). It declares
+  `:context-type` = the shared frame-context (via
+  `re-frame.adapter.context/frame-context`) so the instance receives the
+  surrounding `frame-provider`'s frame — the same wiring `reg-view` uses —
+  and resolves the lease frame in `:component-did-mount` (explicit `:frame`
+  opt → React-context → dynamic-var → loud `:rf.error/no-frame-context`),
+  stashing it so `:component-will-unmount` releases into the SAME frame even
+  though it runs after the render scope has unwound.
+
+  Idempotency: the lease token is minted ONCE per instance (stashed on the
+  instance in `did-mount`), so a hot-reload re-mount settles to exactly one
+  held lease (ensure re-attaches the same lease; Spec 016 §Active owners).
+  Under SSR (`render-to-string`) lifecycle methods do not run, so the
+  acquire/release is a natural no-op — the lease is a client-lifetime
+  concern."
+  (r/create-class
+    {:display-name "re-frame.adapter.reagent/with-resource-lease"
+     ;; Reagent's create-class copies `:context-type` (camelCased to the
+     ;; React static `contextType`) onto the class, so `(.-context this)`
+     ;; carries the enclosing frame-provider's value — the class-component
+     ;; parity of the reg-view `{:contextType frame-context}` wiring.
+     :context-type adapter-context/frame-context
+     :component-did-mount
+     (fn [^js this]
+       (let [{:keys [descriptor cause frame]} (lease-args (rest (r/argv this)))
+             {:keys [resource scope params]}  descriptor
+             frame-id (lease-frame-from-context this frame)
+             token    (swap! lease-token-counter inc)
+             lease    [:lease token]]
+         ;; Stash the per-instance lease + frame so unmount releases exactly
+         ;; this instance's lease into the same frame.
+         (set! (.-rf2ResourceLease this) #js {:frame frame-id :lease lease})
+         (rf/dispatch* [:rf.resource/ensure
+                        {:resource resource :scope scope :params params
+                         :owner lease :cause cause}]
+                       {:frame frame-id})))
+     :component-will-unmount
+     (fn [^js this]
+       (when-let [held (.-rf2ResourceLease this)]
+         (rf/dispatch* [:rf.resource/release-owner {:owner (.-lease held)}]
+                       {:frame (.-frame held)})))
+     :reagent-render
+     (fn [_descriptor & args]
+       ((:body (lease-args (cons _descriptor args)))))}))
 
 (def adapter
   "The Reagent adapter map. Pass to `(rf/init! ...)` to install:
