@@ -113,20 +113,20 @@
        ;; reads it as causal data, never a fresh clock.
        :completed-at   completed-at})))
 
-;; rf2-zqefg3.2 — the canonical-reply lowering seam (EP-0011 §Managed HTTP
-;; Lowering). Every completion (success / failure / abort) now flows through
-;; ONE canonical reply map built in `re-frame.http.reply` — `:status`,
-;; `:work/id` `[:rf.work/http logical-id issuance attempt]` (rf2-azcmd3),
-;; `:work/kind :http`,
-;; `:work/status`, `:attempt`, `:rf.frame/id`, `:completed-at`, and
-;; `:correlation {:request-id …}` (the `:request-id` is correlation metadata,
-;; NOT a second stale-suppression key). The canonical reply is the single
-;; internal artefact; the PUBLIC Spec 014 `{:kind …}` payload is recovered
-;; from it by `http-reply/reply->public-payload` (the `:rf.http/compat-reply`
-;; reshape), so `:on-success` / `:on-failure` and the co-located
-;; `(:rf/reply msg)` merge keep their documented shapes (Spec 014 §Reply
-;; payload shape). The public API does NOT change — only the internal
-;; continuation is unified.
+;; rf2-zqefg3.2 / rf2-ibksxg — the canonical-reply lowering seam (EP-0011).
+;; Every completion (success / failure / abort) flows through ONE canonical
+;; reply map built in `re-frame.http.reply` — `:status` (`:ok` / `:error` /
+;; `:cancelled`), `:value` on `:ok`, the classified `:rf.http/*` failure map
+;; verbatim under `:error`, `:work/id` `[:rf.work/http logical-id issuance
+;; attempt]` (rf2-azcmd3), `:work/kind :http`, `:work/status`, `:attempt`,
+;; `:rf.frame/id`, `:completed-at`, and `:correlation {:request-id …}` (the
+;; `:request-id` is correlation metadata, NOT a second stale-suppression key).
+;; rf2-ibksxg — that canonical reply is the SINGLE public artefact too: it is
+;; delivered to the app reply target verbatim. `:on-success` / `:on-failure`
+;; are pure ROUTING sugar (both receive the canonical map) and the co-located
+;; `(:rf/reply msg)` merge carries the canonical map under `:rf/reply`. The old
+;; `{:kind :success/:failure}` reshape (`reply->public-payload`) is DELETED —
+;; there is no compat dialect.
 
 (defn- reply-ctx
   "Project the transport ctx onto the data-only correlation/identity facts
@@ -326,15 +326,14 @@
 (defn- dispatch-failure!
   "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot.
 
-  rf2-zqefg3.2 — the failure lowers through the canonical reply envelope:
-  the `:rf.http/*` failure map becomes a `:status :error` (or
-  `:status :cancelled` for an abort, `:work/status :timed-out` for a
+  rf2-zqefg3.2 / rf2-ibksxg — the failure lowers through the canonical
+  reply envelope: the `:rf.http/*` failure map becomes a `:status :error`
+  (or `:status :cancelled` for an abort, `:work/status :timed-out` for a
   timeout) canonical reply (`http-reply/failure-reply`), a completion trace
-  row is emitted from those canonical facts, and the PUBLIC Spec 014
-  `{:kind :failure :failure …}` payload is recovered by
-  `http-reply/reply->public-payload` (the compat-reply reshape) before it
-  threads through the `:after` chain + late-bind dispatch. The public event
-  shape is unchanged.
+  row is emitted from those canonical facts, and the SAME canonical reply is
+  delivered to the app target — it threads through the `:after` chain +
+  late-bind dispatch verbatim (no `{:kind :failure}` reshape; the compat
+  layer was deleted).
 
   rf2-rl5tt — when the reply is silenced by an explicit `:on-failure nil`
   AND the failure is not an abort, surface it once via
@@ -346,24 +345,24 @@
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
                             :kind          :failure
-                            :reply-payload (http-reply/reply->public-payload reply)
+                            :reply-payload reply
                             :completed-at  (:completed-at reply)))))
 
 (defn- dispatch-success!
   "Dispatch a `:success` reply carrying `value` as its `:value` slot.
 
-  rf2-zqefg3.2 — the success lowers through the canonical reply envelope:
-  `value` becomes a `:status :ok` / `:work/status :completed` canonical
-  reply (`http-reply/success-reply`), a completion trace row is emitted
-  from those canonical facts, and the PUBLIC Spec 014 `{:kind :success
-  :value …}` payload is recovered by `http-reply/reply->public-payload`
-  before dispatch. The public event shape is unchanged."
+  rf2-zqefg3.2 / rf2-ibksxg — the success lowers through the canonical
+  reply envelope: `value` becomes a `:status :ok` / `:work/status
+  :completed` canonical reply (`http-reply/success-reply`), a completion
+  trace row is emitted from those canonical facts, and the SAME canonical
+  reply is delivered to the app target verbatim (no `{:kind :success}`
+  reshape; the compat layer was deleted)."
   [ctx value]
   (let [reply (http-reply/success-reply (reply-ctx ctx) value)]
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
                             :kind          :success
-                            :reply-payload (http-reply/reply->public-payload reply)
+                            :reply-payload reply
                             :completed-at  (:completed-at reply)))))
 
 (defn emit-actor-destroy-stale-trace!

@@ -1,19 +1,21 @@
 (ns re-frame.http.reply
   "Spec 014 — lower `:rf.http/managed` onto the uniform reply envelope
-  (EP-0011 §Managed HTTP Lowering / §Public Compatibility Sugar; the
-  canonical contract is `spec/Managed-Effects.md` §The uniform reply
-  envelope).
+  (EP-0011; the canonical contract is `spec/Managed-Effects.md` §The
+  uniform reply envelope).
 
   ## What this namespace is
 
   The internal seam that turns a managed-HTTP completion into the ONE
-  canonical reply map every managed *async* family produces — and then
-  reshapes that canonical reply back into the PUBLIC Spec 014 event
-  payload, so `:on-success` / `:on-failure` and the co-located
-  `(:rf/reply msg)` merge stay valid sugar with the exact shapes Spec 014
-  promises. The public API does NOT change; the lowering is internal.
+  canonical reply map every managed *async* family produces — the SAME
+  map that is delivered to the app reply target. There is no second
+  public dialect: `:on-success` / `:on-failure` are pure ROUTING sugar
+  (both targets receive the canonical map verbatim) and the co-located
+  `(:rf/reply msg)` merge carries the canonical map under `:rf/reply`.
+  The old `{:kind :success/:failure}` reshape (`reply->public-payload` /
+  the `:rf.http/compat-reply` layer) was DELETED per rf2-ibksxg — one
+  canonical async-reply envelope, no compat dialect.
 
-  Three concerns:
+  Two concerns:
 
    1. **Work-id correlation** (`work-id`). One HTTP attempt has one
       `:work/id` head `[:rf.work/http logical-id issuance attempt]`
@@ -30,21 +32,16 @@
    2. **Canonical reply map** (`success-reply` / `failure-reply` /
       `aborted-reply`). The transport's success / failure / abort facts
       become a single `re-frame.reply`-conformant reply map with one
-      closed `:status`, value-or-error, `:work/id`, `:work/kind :http`,
+      closed `:status` (`:ok` / `:error` / `:cancelled`), `:value` on
+      `:ok`, the classified `:rf.http/*` failure map riding verbatim
+      under `:error`, plus `:work/id`, `:work/kind :http`,
       `:work/status`, `:attempt`, `:rf.frame/id`, `:completed-at` (read
       ONCE from the host completion — never re-read in the reply
       handler), and `:correlation {:request-id …}`. Timeout lowers to
       `:status :error` + `:work/status :timed-out` (NOT a top-level
       status); abort lowers to `:status :cancelled` with an
-      `:rf.http/aborted` `:error`.
-
-   3. **Public compatibility reshape** (`reply->public-payload`). The
-      inverse projection: the canonical reply map → the Spec 014
-      `{:kind :success :value v}` / `{:kind :failure :failure f}`
-      payload. This is the `:rf.http/compat-reply` body — it reshapes the
-      uniform reply back into the promised public event shape, so a
-      handler branching on `(:rf/reply msg)` or reading the appended
-      last-arg sees exactly what Spec 014 §Reply payload shape documents.
+      `:rf.http/aborted` `:error`. This map is delivered to the app
+      target as-is — there is no public reshape.
 
   Pure — no atoms, no dispatch, no I/O. `:completed-at` is supplied by the
   caller (the transport reads the host clock once at finalisation and
@@ -315,42 +312,14 @@
                       (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
                       (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
-;; ---------------------------------------------------------------------------
-;; Public compatibility reshape (Managed-Effects §Public Compatibility
-;; Sugar; EP-0011 §Public Compatibility Sugar). The inverse projection:
-;; canonical reply map → the Spec 014 public reply payload. This is the
-;; `:rf.http/compat-reply` body — it preserves the public HTTP contract
-;; (Spec 014 §Reply payload shape) while the runtime / ledger / trace /
-;; cancellation / stale paths all see the same canonical reply map.
-;; ---------------------------------------------------------------------------
-
-(defn reply->public-payload
-  "Reshape a canonical HTTP reply map back into the PUBLIC Spec 014 reply
-  payload (`{:kind :success :value v}` or `{:kind :failure :failure f}`).
-
-  The compat layer that keeps `:on-success` / `:on-failure` and the
-  co-located `(:rf/reply msg)` merge spelling their documented shapes
-  (Spec 014 §Reply payload shape) even though the request lowered through
-  the uniform reply envelope internally:
-
-   - `:status :ok`        → `{:kind :success :value (:value reply)}`;
-   - `:status :error`     → `{:kind :failure :failure (:error reply)}`;
-   - `:status :cancelled` → `{:kind :failure :failure (:error reply)}`
-     (Spec 014 surfaces an abort as a `:rf.http/aborted` FAILURE reply);
-   - `:status :stale`     → nil (a suppressed reply is never delivered to
-     the app target — the caller MUST NOT dispatch it).
-
-  Pure projection over the canonical reply; the inverse of `success-reply`
-  / `failure-reply` / `aborted-reply` at the public boundary."
-  [reply]
-  (case (:status reply)
-    :ok        {:kind :success :value (:value reply)}
-    :error     {:kind :failure :failure (:error reply)}
-    :cancelled {:kind :failure :failure (:error reply)}
-    :stale     nil
-    ;; :partial is not emitted by plain managed HTTP (Managed-Effects
-    ;; §Status taxonomy) — defensive nil if it ever appears.
-    nil))
+;; rf2-ibksxg — the `reply->public-payload` reshape (the `:rf.http/compat-reply`
+;; body that projected the canonical reply back onto the retired
+;; `{:kind :success/:failure}` dialect) was DELETED. Every reply family now
+;; delivers the canonical envelope verbatim; there is no second public dialect.
+;; A SUPPRESSED (`:status :stale`) reply is still never delivered to the app
+;; target — the transport's supersede / actor-destroy paths gate that BEFORE
+;; dispatch (`reply-suppressing-abort-reason?` and the stale-trace emitters),
+;; so no public-boundary projection is needed here.
 
 ;; ---------------------------------------------------------------------------
 ;; Trace summary (Managed-Effects §Tracing). A data-only summary of the

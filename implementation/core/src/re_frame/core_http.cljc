@@ -71,9 +71,9 @@
   response is built and BEFORE `:on-success` / `:on-failure` fire. Each
   `:after` receives `(ctx, response)` — `ctx` is the SAME ctx the
   `:before` chain ended with (enables request-correlated handling) and
-  `response` is `{:kind :success :value v}` or
-  `{:kind :failure :failure f}`. Returns the (possibly-transformed)
-  response.
+  `response` is the canonical reply envelope: `{:status :ok :value v …}`
+  or `{:status :error :error f …}` (rf2-ibksxg). Returns the
+  (possibly-transformed) response.
 
   Late-bound via `:http/reg-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."

@@ -91,6 +91,7 @@
             [re-frame.http.handlers        :as handlers]
             [re-frame.http.middleware      :as middleware]
             [re-frame.http.privacy         :as privacy]
+            [re-frame.http.reply           :as http-reply]
             [re-frame.late-bind            :as late-bind]
             [re-frame.registrar            :as registrar]
             [re-frame.router               :as router]))
@@ -224,15 +225,26 @@
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
         ;; envelope stamp; a nil stamp is an invariant failure, never a
         ;; synthesised `:rf/default`.
-        frame-id (frame/require-frame-stamp!
-                   (:frame frame-ctx) :rf.http/managed-canned-success
-                   {:where 'rf.http/emit-canned-success!})
-        value    (get args-map :value {:stubbed true})]
+        frame-id     (frame/require-frame-stamp!
+                       (:frame frame-ctx) :rf.http/managed-canned-success
+                       {:where 'rf.http/emit-canned-success!})
+        value        (get args-map :value {:stubbed true})
+        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        ;; rf2-ibksxg — the canned stub delivers the SAME canonical reply
+        ;; envelope the real transport does, so a test handler's reply branch
+        ;; sees the identical shape. `:issuance` / `:attempt` default to 1
+        ;; (a canned reply is a single first attempt); `:completed-at` is
+        ;; omitted (the stub reads no host clock).
+        reply        (http-reply/success-reply
+                       {:request-id   (:request-id args-map)
+                        :origin-event origin-event
+                        :frame        frame-id}
+                       value)]
     (dispatch-canned-reply!
-      {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
+      {:origin-event   origin-event
        :explicit-on    {:supplied? (contains? args-map :on-success)
                         :value     (:on-success args-map)}
-       :reply-payload  {:kind :success :value value}
+       :reply-payload  reply
        :kind           :success
        :frame          frame-id
        :middleware-ctx middleware-ctx})
@@ -245,17 +257,28 @@
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
         ;; envelope stamp; a nil stamp is an invariant failure, never a
         ;; synthesised `:rf/default`.
-        frame-id (frame/require-frame-stamp!
-                   (:frame frame-ctx) :rf.http/managed-canned-failure
-                   {:where 'rf.http/emit-canned-failure!})
-        kind     (or (:kind args-map) :rf.http/transport)
-        tags     (or (:tags args-map) {})
-        failure  (assoc tags :kind kind)]
+        frame-id     (frame/require-frame-stamp!
+                       (:frame frame-ctx) :rf.http/managed-canned-failure
+                       {:where 'rf.http/emit-canned-failure!})
+        kind         (or (:kind args-map) :rf.http/transport)
+        tags         (or (:tags args-map) {})
+        failure      (assoc tags :kind kind)
+        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        ;; rf2-ibksxg — deliver the canonical envelope. The classified
+        ;; `:rf.http/*` failure map rides verbatim under `:error`;
+        ;; `http-reply/failure-reply` maps `:rf.http/aborted` → `:status
+        ;; :cancelled`, `:rf.http/timeout` → `:work/status :timed-out`, and
+        ;; everything else → `:status :error` / `:work/status :failed`.
+        reply        (http-reply/failure-reply
+                       {:request-id   (:request-id args-map)
+                        :origin-event origin-event
+                        :frame        frame-id}
+                       failure)]
     (dispatch-canned-reply!
-      {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
+      {:origin-event   origin-event
        :explicit-on    {:supplied? (contains? args-map :on-failure)
                         :value     (:on-failure args-map)}
-       :reply-payload  {:kind :failure :failure failure}
+       :reply-payload  reply
        :kind           :failure
        :frame          frame-id
        :middleware-ctx middleware-ctx})

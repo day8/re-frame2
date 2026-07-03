@@ -139,7 +139,10 @@
     (fn [{data :data}]
       (let [parent-id (:rf/parent-id data)
             result    (:rf/result data)
-            failure   (:failure result)]
+            ;; rf2-ibksxg — the reply payload is the canonical envelope; the
+            ;; classified `:rf.http/*` failure map rides under `:error`
+            ;; (`:status :error` / `:cancelled`), not the retired `:failure`.
+            failure   (:error result)]
         (when parent-id
           {:fx [[:dispatch [parent-id [:failed failure]]]]})))}})
 
