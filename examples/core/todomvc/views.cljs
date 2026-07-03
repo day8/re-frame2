@@ -13,11 +13,14 @@
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-(defn- hash-for-filter [filter-kw]
-  (case filter-kw
-    :active "#/active"
-    :completed "#/completed"
-    "#/"))
+;; Each filter is a ROUTE, so its link is a `route-link` naming the route id —
+;; never a hand-built `#/active` string. The router's hash strategy (declared on
+;; the frame in core.cljs) encodes the href to `#/active`; a plain left-click
+;; dispatches `:rf/url-requested` and the URL updates through the ordinary
+;; navigation cascade, while cmd/ctrl-click and open-in-new-tab keep working
+;; because it renders a real `<a href>`. See docs/routing/concepts.md.
+(def ^:private filter->route
+  {:all :todo/all, :active :todo/active, :completed :todo/completed})
 
 ;; A CONTROLLED text input — the workhorse behind both the header box and the
 ;; edit-in-place box. `:value` comes from a draft sub, and every keystroke
@@ -109,8 +112,11 @@
       [todo-item dispatch subscribe todo])]])
 
 (defn- filter-link [showing filter-kw label]
-  [:a {:href (hash-for-filter filter-kw)
-       :class (when (= showing filter-kw) "selected")}
+  ;; `route-link` renders the `<a>` and owns the click: the href is the route's
+  ;; URL (encoded to `#/active` by the frame's hash strategy), and a plain click
+  ;; navigates through `:rf/url-requested`. The `:class` marks the active filter.
+  [rf/route-link {:to    (filter->route filter-kw)
+                  :class (when (= showing filter-kw) "selected")}
    label])
 
 (defn footer-controls [dispatch subscribe]
