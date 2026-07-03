@@ -96,19 +96,34 @@ checkout (and, pre-split, cloning a repo that doesn't exist yet).
 `:rf.error/template-include-story-reagent-only`. UIx + Helix Story
 variants follow once those adapters' Story coverage matches Reagent's.
 
-### Deferred flags
+### `:css :tailwind`
 
-`:css` (e.g. `:tailwind`) and `:include-ssr?` are reserved in the v1
-flag set but **not yet implemented** — they are gated on rf2-gthro
-(Tailwind v4 verification) and rf2-0m5ea (SSR validation)
-respectively. Passing one today **fails closed** with
-`:rf.error/template-unsupported-flag` (naming the flag and its gating
-bead) rather than silently scaffolding a vanilla app that lacks the
-feature. Any other unrecognised template flag — including a typo such
-as `:include-story` (missing the `?`) — fails closed with
+`:css :tailwind` swaps the default plain-CSS scaffold for Tailwind v4:
+`resources/public/css/app.css` becomes a CSS-first
+`@import "tailwindcss";` entry (Tailwind v4 has no
+`tailwind.config.js` — design tokens go in `@theme { … }`), and
+`index.html` loads the `@tailwindcss/browser@4` dev CDN compiler so
+utilities work with zero build step. Omit `:css` (or pass nothing) for
+the plain-CSS default. The flag is substrate-invariant. A bogus value
+(e.g. `:css :tailwnd`) **fails closed** with
+`:rf.error/template-bad-css-flag`. Before shipping, swap the dev CDN
+for the compiled `@tailwindcss/cli` build (see the generated README's
+"Production hardening").
+
+```bash
+# Reagent, with Tailwind v4
+clojure -Sdeps '{:deps {day8/re-frame2-template
+                        {:local/root "tools/template"}}}' \
+        -Tnew create :template day8/re-frame2-template \
+        :name acme/my-app \
+        :css :tailwind
+```
+
+Any unrecognised template flag — including a typo such as
+`:include-story` (missing the `?`) — fails closed with
 `:rf.error/template-unknown-flag`. See
-[`spec/API.md`](./spec/API.md#args-reference) for the flag-set status
-and the error table.
+[`spec/API.md`](./spec/API.md#args-reference) for the full flag-set
+status and the error table.
 
 ### Post-split (future)
 

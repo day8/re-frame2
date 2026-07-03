@@ -21,9 +21,13 @@
        `:rf.error/ssr-and-story-mutually-exclusive` (the file-naming
        convention would blow up combinatorially on `_with_X_and_Y`
        sources; see 004-SSR-Validation-Report §2.1).
-     - Pending flags (reserved, gated to later stages): `:css`. Passing it
-       today fails closed with `:rf.error/template-unsupported-flag` (it is
-       NOT silently dropped) — see `gate-arg-keys!`.
+     - `:css` — `:tailwind` swaps the plain-CSS scaffold for a Tailwind
+       v4 one (Q6 lock / rf2-gthro verification; wiring rf2-nxqcov).
+       Omitted / nil ⇒ the plain-CSS default. Substrate-invariant.
+     - No pending (reserved-but-unimplemented) flags today.
+       `reserved-flag-gates` (empty) stays as the fail-closed home for any
+       future one — passing a reserved flag throws
+       `:rf.error/template-unsupported-flag` (see `gate-arg-keys!`).
 
    ## Substitution engine note
 
@@ -46,8 +50,9 @@
    second `package_with_story.json` source exists.
 
    The steady-state shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md
-   §1) is the same matrix; additional flags (`:css`, `:include-ssr?`)
-   slot in here once their upstream gates clear."
+   §1) is the same matrix; the v1 flag set (`:include-story?`,
+   `:include-ssr?`, `:css`) is fully wired — further flags slot in here
+   once justified in DESIGN-RATIONALE."
   (:require [clojure.set :as set]
             [clojure.string :as string]))
 
@@ -115,15 +120,15 @@
 ;;
 ;; deps-new hands `data-fn` a single map that merges its own harness keys
 ;; (the project-name derivations + run metadata) with whatever top-level
-;; k/v args the caller passed. We accept exactly three template-specific
-;; flags today (`:substrate`, `:include-story?`, `:include-ssr?`); the
-;; `:css` flag is reserved-but-unimplemented (gated on its upstream
-;; verification).
+;; k/v args the caller passed. We accept exactly four template-specific
+;; flags today (`:substrate`, `:include-story?`, `:include-ssr?`, `:css`).
+;; `reserved-flag-gates` is the fail-closed home for any future
+;; reserved-but-unimplemented flag (empty today — `:css` shipped under
+;; rf2-nxqcov once its rf2-gthro gate closed).
 ;;
 ;; The substrate posture already fails closed on bad values; this gate
 ;; extends that strictness to the *key set* so a flag typo
-;; (`:include-story`) or a documented-future flag (`:css :tailwind`) can't
-;; fail open into a misleading vanilla scaffold.
+;; (`:include-story`) can't fail open into a misleading vanilla scaffold.
 ;;
 ;; HOW WE DISTINGUISH HARNESS KEYS FROM TEMPLATE KEYS: deps-new's
 ;; `preprocess-options` (org.corfield.new.impl) populates a fixed, known
@@ -149,18 +154,23 @@
 
 (def ^:private template-flag-keys
   "The template-specific flags we accept today."
-  #{:substrate :include-story? :include-ssr?})
+  #{:substrate :include-story? :include-ssr? :css})
 
 (def ^:private reserved-flag-gates
   "Reserved-but-unimplemented flags → the gating bead that must clear
    before they go live. Passing one today fails closed rather than
-   scaffolding a vanilla app that silently lacks the feature."
-  {:css "rf2-gthro (Tailwind v4 verification)"})
+   scaffolding a vanilla app that silently lacks the feature.
+
+   Empty today: the last reserved flag (`:css`, gated on rf2-gthro)
+   shipped once the Tailwind-major verification closed (rf2-nxqcov).
+   Kept as the fail-closed home for any future reserved-but-unimplemented
+   flag."
+  {})
 
 (defn- gate-arg-keys!
   "Fail closed on reserved or unknown template arguments.
 
-   - A reserved flag (`:css`) throws
+   - A reserved flag (see `reserved-flag-gates`; empty today) throws
      `:rf.error/template-unsupported-flag`, naming the flag and its
      gating bead — it is not silently dropped.
    - Any key that is neither a deps-new harness key nor a live
@@ -231,6 +241,37 @@
                      :reason    (str ":include-ssr? must be true or false (got "
                                      (pr-str raw) ")")
                      :include-ssr? raw}))))
+
+;; -- :css coercion ---------------------------------------------------------
+
+(def ^:private valid-css
+  "Accepted `:css` values. `nil` ⇒ the plain-CSS default; `:tailwind`
+   swaps in the Tailwind v4 scaffold (Q6 lock / rf2-gthro; wiring
+   rf2-nxqcov). Additional CSS opt-ins would grow this set."
+  #{:tailwind})
+
+(defn- coerce-css
+  "Coerce the `:css` arg to a keyword or nil. `nil` selects the default
+   plain-CSS scaffold; `:tailwind` selects the Tailwind v4 variant.
+   Anything else (a string, a bogus keyword like `:tailwnid`) fails
+   closed with a clear message naming the valid set — matching the
+   fail-closed posture the substrate + flag coercions already carry."
+  [raw]
+  (cond
+    (nil? raw)          nil
+    (valid-css raw)     raw
+    :else
+    (throw (ex-info ":rf.error/template-bad-css-flag"
+                    {:rf.error/id :rf.error/template-bad-css-flag
+                     :where    'template/coerce-css
+                     :recovery :fix-registration
+                     :reason   (str ":css must be one of "
+                                    (pr-str valid-css)
+                                    " (or omitted for the plain-CSS "
+                                    "default). Got "
+                                    (pr-str raw) ".")
+                     :css      raw
+                     :valid    valid-css}))))
 
 ;; -- name derivations ------------------------------------------------------
 ;;
@@ -304,7 +345,9 @@
 
    Substrate + include-story? are also stored under `:substrate-kw` and
    `:include-story?` for `template-fn`'s switch (`->subst-map` would
-   otherwise coerce the keyword to a string)."
+   otherwise coerce the keyword to a string). `:css-kw` (nil or
+   `:tailwind`) is likewise stored for `template-fn`'s CSS overlay
+   branch (rf2-nxqcov)."
   [data]
   ;; Fail closed on reserved + unknown arguments BEFORE any coercion, so a
   ;; flag typo or a documented-future flag never produces a misleading
@@ -312,7 +355,8 @@
   (gate-arg-keys! data)
   (let [substrate       (coerce-substrate (:substrate data))
         include-story?  (coerce-include-story? (:include-story? data))
-        include-ssr?    (coerce-include-ssr? (:include-ssr? data))]
+        include-ssr?    (coerce-include-ssr? (:include-ssr? data))
+        css             (coerce-css (:css data))]
     ;; Guards — all hoisted above the name-derivation `let` so the data
     ;; map build below has no side-effecting binding.
 
@@ -377,6 +421,10 @@
        :substrate-label     label
        :include-story?      include-story?
        :include-ssr?        include-ssr?
+       ;; nil (plain-CSS default) or :tailwind (Tailwind v4 scaffold).
+       ;; `template-fn` reads this to overlay the Tailwind app.css +
+       ;; index.html over the plain defaults emitted from `root/`.
+       :css-kw              css
        ;; package.json `description` suffix — the single per-flag delta
        ;; between the default and with-Story descriptions. Emitting it as
        ;; a subst var lets one `_shared/package.json` source serve both
@@ -451,7 +499,7 @@
 (defn template-fn
   "Build the `:transform` vector and merge it into the template EDN.
 
-   Three transform groups:
+   Transform groups:
 
      - Shared (from `_shared/`): dotfile rename (e.g. `gitignore` →
        `.gitignore`) + namespace-path rename for src/test source files
@@ -476,6 +524,13 @@
        (`events.cljs` / `subs.cljs` / `schema.cljs` / `events_test.cljs` /
        `views.cljs`) are NOT emitted; the shared file-map instead emits a
        headless JVM `ssr_test.clj`. See 004-SSR-Validation-Report §3.
+     - CSS overlay (substrate-invariant, under `:css :tailwind`; Q6 lock /
+       rf2-gthro, wiring rf2-nxqcov): overwrites the plain-CSS `app.css` +
+       `index.html` (emitted by the `root/` bulk-copy) with the Tailwind v4
+       variants from `_css_tailwind/` — an `@import \"tailwindcss\";`
+       stylesheet (v4 is CSS-first; no `tailwind.config.js`) and an
+       `index.html` that loads the `@tailwindcss/browser@4` dev CDN
+       compiler. Runs last so it lands on top of the root copy.
 
    All groups use `:only` so only files explicitly listed in the
    file-map emit (the implicit bulk-copy of `<src-dir>/*` is skipped).
@@ -491,6 +546,7 @@
         substrate      (:substrate data)
         include-story? (:include-story? data)
         include-ssr?   (:include-ssr? data)
+        css            (:css-kw data)
         ;; The build configs are substrate-invariant — the React
         ;; substrate is chosen in deps.edn + core.cljs, never here — so
         ;; they live in `_shared/` and emit once. package.json's only
@@ -585,8 +641,28 @@
             {"deps.edn"        "deps.edn"
              "core.cljs"       (str "src/" nested "/core.cljs")
              "views.cljs"      (str "src/" nested "/views.cljs")}
+            :only]])
+
+        ;; CSS overlay (Q6 lock / rf2-gthro; wiring rf2-nxqcov). The
+        ;; default plain-CSS `app.css` + `index.html` are emitted by the
+        ;; `root/` bulk-copy above. When `:css :tailwind` is passed, this
+        ;; transform runs AFTER the root copy and overwrites those two
+        ;; files with the Tailwind v4 variants from `_css_tailwind/`: an
+        ;; `app.css` whose entry is `@import "tailwindcss";` (v4 is
+        ;; CSS-first — no `tailwind.config.js`) and an `index.html` that
+        ;; loads the `@tailwindcss/browser@4` dev CDN compiler (zero build
+        ;; step) with a CSP tuned to admit it. deps-new runs the `:root`
+        ;; copy first, then each `:transform` entry in order (see
+        ;; org.corfield.new/create), and tools.build's `copy-dir`
+        ;; overwrites, so the overlay is deterministic. Substrate-invariant
+        ;; — the CSS scaffold is the same across Reagent / UIx / Helix.
+        css-overlay
+        (when (= css :tailwind)
+          [["_css_tailwind" "."
+            {"app.css"    "resources/public/css/app.css"
+             "index.html" "resources/public/index.html"}
             :only]])]
-    (assoc edn :transform (into [] (concat shared per-substrate)))))
+    (assoc edn :transform (into [] (concat shared per-substrate css-overlay)))))
 
 ;; -- post-process-fn --------------------------------------------------------
 
@@ -597,12 +673,14 @@
   (let [substrate      (:substrate data)
         include-story? (:include-story? data)
         include-ssr?   (:include-ssr? data)
+        css            (:css-kw data)
         feature-tag    (cond
                          include-story? " (with Story playground)"
                          include-ssr?   " (with SSR)"
-                         :else          "")]
+                         :else          "")
+        css-tag        (if (= css :tailwind) " (Tailwind CSS)" "")]
     (println (str "Generated a re-frame2 application " (:name data)
-                  " (" substrate " substrate" feature-tag ")."))
+                  " (" substrate " substrate" feature-tag css-tag ")."))
     (println "Next steps:")
     ;; `:target-dir` is preprocess-options' computed output dir
     ;; (defaults to `(:main data)` when no `:target-dir` arg is given).

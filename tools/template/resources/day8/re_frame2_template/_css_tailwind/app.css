@@ -1,0 +1,42 @@
+/* {{name}} — Tailwind v4 stylesheet (:css :tailwind).
+ *
+ * Tailwind v4 is CSS-first: there is NO `tailwind.config.js`. The single
+ * `@import "tailwindcss";` below pulls in Tailwind's preflight + utilities,
+ * and design tokens are declared inline via `@theme { … }`. In dev, the
+ * `@tailwindcss/browser` CDN script in index.html compiles the utilities
+ * at runtime — zero build step. For production, swap the CDN for the
+ * `@tailwindcss/cli` build (see README "Production hardening") and emit a
+ * compiled stylesheet.
+ *
+ * The layout / Xray-host rules below are plain CSS on purpose: they size
+ * the app shell + the devtools column and must survive whether or not
+ * Tailwind's utilities are in play. */
+@import "tailwindcss";
+
+body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
+.rf2-app-shell { display: flex; min-height: 100vh; }
+/* The Xray host reserves a RIGHT-side column (the aside follows
+ * `<main id="app">` in the DOM, so flex flow lays it to the right).
+ * It only takes up space once Xray has populated it. In dev, the
+ * `day8.re-frame2-xray.preload` mounts Xray into the
+ * `[data-rf-xray-host]` aside, making it non-empty and sizing it here.
+ * Release builds drop the preload, so the aside stays empty and
+ * `:empty` collapses it — `#app` then spans the full viewport instead
+ * of shipping a blank gutter.
+ *
+ * `flex-basis` reads `--rf-xray-inline-width` (Xray's host-owned resize
+ * knob, default 560px) so a persisted drag-resize width and
+ * cascade-level overrides (`:root`, per-route) take effect — a literal
+ * width ignores them. `box-sizing: border-box` keeps the 1px
+ * `border-left` inside the documented width. See the Xray §Layout host
+ * contract (tools/xray/spec/011-Launch-Modes.md). */
+.rf2-xray-host {
+  flex: 0 0 var(--rf-xray-inline-width, 560px);
+  min-width: 320px;
+  box-sizing: border-box;
+  border-left: 1px solid #2a2a2a;
+}
+.rf2-xray-host:empty { display: none; }
+#app { flex: 1; min-width: 0; padding: 2em; }
+button { padding: 0.4em 0.8em; }
+h1 { margin: 0 0 1em; }

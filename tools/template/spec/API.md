@@ -106,15 +106,19 @@ throws. The branching exception is justified in
 are permitted when they enable optional shared scaffolding whose
 absence would force the user into hand-wiring known idioms.
 
-Future toggles (`:css`, `:include-ssr?`) slot in here. The v1 set
-is locked at three flags total (`:include-story?`, `:css`,
-`:include-ssr?`); the latter two are gated on rf2-gthro (Tailwind
-v4 verification) and rf2-0m5ea (SSR validation) respectively. Until
-those gates clear, passing `:css` or `:include-ssr?` **fails closed**
-with `:rf.error/template-unsupported-flag` (the flag and its gating
-bead are named in the message) — it is not silently dropped. Any
-other unrecognised template key, including a typo of a live flag
-(e.g. `:include-story` for `:include-story?`), fails closed with
+The v1 set is locked at three flags total (`:include-story?`,
+`:css`, `:include-ssr?`) — all now live. `:css` (rf2-gthro
+verification; wiring rf2-nxqcov) accepts `:tailwind` (Tailwind v4
+scaffold) or nil (plain-CSS default); a bogus value fails closed
+with `:rf.error/template-bad-css-flag`. `:include-ssr?` (rf2-0m5ea
+validation; wiring rf2-675qdb) accepts `true` / `false` / `nil`.
+There are no reserved-but-unimplemented flags today; the fail-closed
+`reserved-flag-gates` list (empty) stays as the home for any future
+one — passing a reserved flag would throw
+`:rf.error/template-unsupported-flag` (the flag and its gating bead
+named in the message). Any other unrecognised template key,
+including a typo of a live flag (e.g. `:include-story` for
+`:include-story?`), fails closed with
 `:rf.error/template-unknown-flag`. The gate distinguishes template
 keys from deps-new's own harness keys via a pinned allowlist (the
 deps-new coord is pinned in the template's `deps.edn`).
@@ -178,7 +182,8 @@ mirror the chosen `:substrate` + `:include-story?` flags.
 | `:substrate` not one of `#{:reagent :uix :helix}` | `:rf.error/template-substrate-must-be-one-of` (keyword arg outside the valid set) / `:rf.error/template-substrate-must-be-keyword` (non-keyword shape — string, symbol, number, …) | `ex-info` thrown; message names the valid set; `ex-data` carries `{:substrate <bad-value> :valid #{...}}`. |
 | `:include-story?` not `true` / `false` / `nil` | `:rf.error/template-bad-include-story-flag` | `ex-info` thrown; message gives the offending value. |
 | `:include-story? true` with non-Reagent substrate | `:rf.error/template-include-story-reagent-only` | `ex-info` thrown; message says "Reagent-only in v1" and names the chosen substrate. |
-| Reserved-but-unimplemented flag passed (`:css`, `:include-ssr?`) | `:rf.error/template-unsupported-flag` | `ex-info` thrown; message names the flag and its gating bead (rf2-gthro / rf2-0m5ea). Fails closed — does **not** silently scaffold a vanilla app. |
+| `:css` not `:tailwind` / `nil` | `:rf.error/template-bad-css-flag` | `ex-info` thrown; message names the valid set (`#{:tailwind}`, or omit for the plain-CSS default) and the offending value. Fails closed. |
+| Reserved-but-unimplemented flag passed (none today) | `:rf.error/template-unsupported-flag` | `ex-info` thrown; message names the flag and its gating bead. Fails closed — does **not** silently scaffold a vanilla app. The v1 flags (`:include-story?` / `:css` / `:include-ssr?`) are all live; `reserved-flag-gates` (empty) is the home for any future reserved flag. |
 | Unknown template flag (incl. typos like `:include-story`, `:include-stories?`) | `:rf.error/template-unknown-flag` | `ex-info` thrown; message lists the unknown key(s) and the accepted flag set. Distinguished from deps-new harness keys via a pinned allowlist. |
 | `:name` missing | n/a (deps-new) | deps-new's harness rejects before template is invoked. |
 | `:name` not group-qualified | n/a (deps-new) | **Not rejected.** deps-new doubles a bare name (`my-app` → the symbol `my-app/my-app`), so the generated namespace is `my-app.my-app` and the source nests under `src/my_app/my_app/`. Always pass a group-qualified `:name` (`acme/my-app`); an unqualified one scaffolds, but with a doubled, almost-certainly-unintended namespace. |
