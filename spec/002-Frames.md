@@ -1730,9 +1730,23 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; Triggered when an event arrives in an empty queue. Schedules itself via the
 ;; interop layer's next-tick so the host event loop interleaves rendering.
 
+;; Queue position by the envelope's ORIGIN mark (per [005 §Level 4]): a
+;; machine-internal continuation (`:rf.machine/internal?`, stamped by the
+;; machine registrar and copied onto the child by `do-fx :dispatch`)
+;; leap-frogs ahead of any already-queued EXTERNAL events; every other
+;; origin is a plain FIFO append at the back. The internal envelope splices
+;; in AFTER any sibling internal envelopes already queued this macrostep, so
+;; source order is preserved among siblings (first emitted is dequeued
+;; first) while the whole internal run still precedes every external event.
+(defn- enqueue [queue envelope]
+  (if (:rf.machine/internal? envelope)
+    (let [[internal external] (split-with :rf.machine/internal? queue)]
+      (into empty-queue (concat internal [envelope] external)))  ;; front-of-queue splice
+    (conj queue envelope)))                                       ;; FIFO append (default)
+
 (defn dispatch [frame envelope]
   (let [router (:router frame)]
-    (swap! (:queue router) conj envelope)              ;; FIFO append
+    (swap! (:queue router) enqueue envelope)
     (when-not (:scheduled? @router)
       (swap! router assoc :scheduled? true)
       (interop/next-tick (fn [] (drain! frame))))))
@@ -1777,7 +1791,14 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       (when-let [envelope (peek-and-pop! (:queue (:router frame)))]
         (process-event! frame envelope)                ;; per-event drain
         (recur (inc depth))))
-    (catch :default _ nil)
+    ;; Catch ONLY the `::halt` control-flow sentinel — the two `(throw ::halt)`
+    ;; sites above (destroyed-frame drop, drain-depth-exceeded) use it to break
+    ;; the loop after they have already emitted their diagnostic. Any OTHER
+    ;; escaping throw is a genuine bug — it must NOT be swallowed here; it
+    ;; propagates so the host surfaces it. (`process-event!` already traps
+    ;; per-event handler / fx / interceptor throws internally per steps 1–3;
+    ;; anything reaching this level is outside that contract.)
+    (catch ::halt _ nil)
     (finally
       (swap! (:router frame) assoc :scheduled? false)
       ;; render-tick: the substrate adapter's reactions fire on next read.
@@ -1968,8 +1989,22 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
 (defmethod do-fx :dispatch [m ev]
   (let [frame           (:frame m)
-        parent-envelope (:envelope m)]
-    (dispatch frame (child-envelope parent-envelope ev)))) ;; back of queue, FIFO
+        parent-envelope (:envelope m)
+        ;; Queue position is the dispatch's ORIGIN, not its target: a
+        ;; child emitted from a MACHINE handler's own processing
+        ;; front-inserts so the machine drives its macrostep's follow-on
+        ;; to quiescence before the next external event; every other
+        ;; origin goes to the back (plain FIFO). The origin is read off
+        ;; the parent envelope's `:rf.machine/internal?` mark — set by the
+        ;; machine registrar when the in-flight handler carries the
+        ;; `:rf/machine?` registration stamp — and copied onto the child
+        ;; here, which `enqueue` (above) reads to choose front vs back.
+        ;; [005 §Level 4] owns the observable ORDERING and where the mark is
+        ;; set; this branch + the `enqueue` splice are the queue mechanism.
+        child           (cond-> (child-envelope parent-envelope ev)
+                          (:rf.machine/internal? parent-envelope)
+                          (assoc :rf.machine/internal? true))]  ;; front iff machine-origin, else back (FIFO)
+    (dispatch frame child)))
 
 (defmethod do-fx :dispatch-later [m {:keys [ms event]}]
   (let [frame           (:frame m)
@@ -1980,62 +2015,9 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ms)))
 ```
 
-For machine events, `process-event!` step 1 lands inside the machine handler, which runs the Level-3 cascade before returning effects. The cascade is Level 3 in [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event):
+For machine events, `process-event!` step 1 lands inside the machine handler. From the outer drain's perspective the machine handler is **just a handler**: it returns an effects-map like any other, and steps 2–3 above process it unchanged. What runs *inside* that one handler call — the raise drain, the `:always` microstep loop, and the single `:rf.db/runtime` snapshot commit at `[:rf.runtime/machines :snapshots <id>]` — is the **Level-3 cascade**, and **[005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event) is its single normative description**. This spec does not restate the loop: the raise-before/-after-`:always` ordering, the FIFO raise-queue, the microstep fixed point, the depth limits, and the atomic post-drain commit all live in 005 (an earlier draft duplicated the loop here in pseudocode that encoded the *retired* raise-before-`:always` order, contradicting 005 and the [`always-settles-before-raise`](conformance/fixtures/always-settles-before-raise.edn) fixture — collapsed to this pointer per the [spec/README drift rule](README.md#ownership-matrix)).
 
-```clojure
-;; ============================================================================
-;; MACHINE EVENT — Level-3 cascade (called from process-event! step 1)
-;; ============================================================================
-;; make-machine-handler returns this as a regular event handler. From the
-;; outer drain's perspective, it returns an effects-map like any other handler.
-
-(defn machine-event-handler [machine-def]
-  (fn [frame envelope]
-    (let [snapshot-path [:rf.runtime/machines :snapshots (:id machine-def)]
-          runtime-db    (substrate/read-runtime-db (:frame-state frame))  ;; runtime-db projection
-          snapshot      (get-in runtime-db snapshot-path)]
-      (loop [in-flight    snapshot
-             accum-fx     []
-             raise-queue  [(:event envelope)]
-             always-depth 0]
-        (when (> always-depth (:always-depth-limit machine-def 16))
-          (raise! :rf.error/machine-always-depth-exceeded ...)
-          (throw ::halt))
-
-        (cond
-          ;; Drain the local raise queue first — FIFO, pre-commit.
-          (seq raise-queue)
-          (let [[ev & rest-q] raise-queue
-                {:keys [data-after fx]} (run-transition machine-def in-flight ev)]
-            (recur (assoc in-flight :data data-after)
-                   (into accum-fx fx)                  ;; non-:raise fx
-                   (into (vec rest-q) (extract-raises fx))
-                   always-depth))
-
-          ;; Microstep loop — check :always; loop back into raise-drain on match.
-          (let [matched (resolve-always machine-def in-flight)]
-            (some? matched))
-          (let [{:keys [data-after fx target]} (apply-always machine-def in-flight)]
-            (recur (-> in-flight
-                       (assoc :state target)
-                       (assoc :data data-after))
-                   (into accum-fx fx)
-                   (extract-raises fx)
-                   (inc always-depth)))
-
-          ;; Fixed point reached. Commit ONE :rf.db/runtime write at
-          ;; [:rf.runtime/machines :snapshots <id>] — machine snapshots are
-          ;; runtime-db, so the snapshot install is a runtime-db partition
-          ;; write. The handler has framework-write authority (the machine
-          ;; registrar's :rf/machine? stamp implies it; see §Minting
-          ;; framework-write authority); per [005] the snapshot effect is
-          ;; `:rf.db/runtime`, not `:db`.
-          :else
-          {:rf.db/runtime (assoc-in runtime-db snapshot-path in-flight)
-           :fx accum-fx})))))
-```
-
-The handler returns its `{:db :fx}`; the outer `process-event!` then runs the `:fx` walk that ships the cascade's accumulated effects to `do-fx`. The whole macrostep — raise drain, microstep loop, snapshot commit — appears as one logical step to external observers. Sub-cache invalidation fires once (in `process-event!` step 2), not on every microstep.
+Only the drain-integration facts 002 owns are stated here: the whole macrostep — raise drain, microstep loop, snapshot commit — appears as **one logical step (one epoch)** to external observers, so sub-cache invalidation fires **once** (in `process-event!` step 2 after the macrostep commits), not on every microstep. Machine snapshots are runtime-db, so the commit is an `:rf.db/runtime` partition write, authorised by the machine registrar's `:rf/machine?` stamp (see [§Minting framework-write authority](#minting-framework-write-authority)); it is never an app-db `:db` write. Continuation events the machine dispatches from *inside* that macrostep — `:fx [[:dispatch …]]` — front-insert on the router queue per the `do-fx :dispatch` origin branch above and [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime).
 
 **`process-event!` is the epoch unit.** One run of `process-event!` — one dequeued event, its full six-domino cascade, and (for machine events) its entire macrostep — is exactly one epoch (per [§Drain versus event](#drain-versus-event--the-epoch-unit) above). The raise drain and microstep loop ride **inside** that single epoch; they are not separate dequeues and do not open new ones. The next iteration of the outer `drain!` loop dequeues the next event and opens the next epoch — even when that next event is an `:fx`-dispatched child of the one that just settled.
 

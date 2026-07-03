@@ -1,0 +1,142 @@
+;; Conformance fixture: machine/dispatch-front-of-queue
+;;
+;; Spec 005 §Level 4 — machine-originated CONTINUATION events (`:fx
+;; [[:dispatch …]]` emitted from a machine's own action processing)
+;; LEAP-FROG to the FRONT of the per-frame router queue, ahead of any
+;; already-queued EXTERNAL event, so the machine drives its macrostep's
+;; follow-on to quiescence before the next external work runs (SCXML's
+;; "internal before external"). The cut is the dispatch's ORIGIN
+;; (machine processing), NOT its target.
+;;
+;; This is the front-of-queue observable NO prior fixture pinned: 002's
+;; retired `do-fx :dispatch` pseudocode appended EVERY child dispatch to
+;; the BACK unconditionally, so a port shipping that (missing the
+;; machine-origin front-insertion) stayed corpus-green. This fixture
+;; turns that gap RED (rf2-ne2wfv).
+;;
+;; THE OBSERVABLE — "d-before-c is the BUG". A plain seed handler queues
+;; TWO events onto the empty runtime FIFO, in this order:
+;;   1. [:m [:go]]   — a MACHINE event (plain-origin dispatch → back)
+;;   2. [:log-d]     — an EXTERNAL marker (plain-origin dispatch → back)
+;; so the queue is [[:m [:go]] [:log-d]]. Dequeuing [:m [:go]] runs the
+;; machine's :go action, which emits `:fx [[:dispatch [:log-c]]]`. That
+;; child is MACHINE-ORIGINATED, so it FRONT-inserts, ahead of the pending
+;; external [:log-d]:
+;;   queue after the machine macrostep: [[:log-c] [:log-d]]
+;; → :log-c runs BEFORE :log-d. Correct final [:log] is [:c :d].
+;; A port without machine-origin front-insertion runs plain FIFO and
+;; lands [:d :c] — the "d-before-c" bug this fixture exists to catch.
+;;
+;; ADVERSARIAL / NEGATIVE ANGLE (the cut is ORIGIN, not target) — a
+;; SECOND dispatch drives the control with the SAME queue topology but a
+;; PLAIN relay in place of the machine. seed-plain queues [:relay] then
+;; external [:log-d2] (queue [[:relay] [:log-d2]]); :relay is a NON-machine
+;; handler that emits the IDENTICAL `:fx [[:dispatch [:log-c2]]]`. Because
+;; :relay's origin is non-machine, :log-c2 does NOT leap-frog — it goes to
+;; the BACK, behind the pending [:log-d2]:
+;;   queue after :relay: [[:log-d2] [:log-c2]]
+;; → :log-d2 runs BEFORE :log-c2, landing [:d2 :c2] — the plain-FIFO
+;; "d-before-c" order, here the CORRECT one precisely because the origin
+;; is non-machine. This pins that a port cannot win the positive case by
+;; front-inserting EVERY :dispatch; front-insertion is gated on the
+;; machine origin alone. (Identical continuation event, identical queue
+;; shape, opposite result — only the ORIGIN differs.)
+;;
+;; Per [005 §Level 4 — across the runtime]
+;; (../../005-StateMachines.md#level-4--across-the-runtime),
+;; [005 §Worked walkthrough](../../005-StateMachines.md#worked-walkthrough),
+;; and [002 §Cascade propagation](../../002-Frames.md#cascade-propagation).
+
+{:fixture/id           :machine/dispatch-front-of-queue
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/fx :core/trace :core/frame}
+ :fixture/doc          "Spec 005 §Level 4: a machine action's `:fx [[:dispatch …]]` continuation leap-frogs an EARLIER-queued external event to the FRONT of the router queue — the machine-continuation :log-c runs BEFORE the external :log-d, so [:log] settles [:c :d] (a plain-FIFO port lands the [:d :c] bug). The negative control uses the SAME queue topology with a PLAIN relay instead of the machine, proving the cut is ORIGIN not target: the IDENTICAL :dispatch emitted from a non-machine handler does NOT leap-frog — it stays plain-FIFO at the back, landing [:d2 :c2]."
+
+ :fixture/registry
+ {:event {:foq/initialise   {:doc "Seed [:log] with []."}
+          :foq/seed-machine {:doc "Plain handler: queues [:m [:go]] then external [:log-d]."}
+          :foq/seed-plain   {:doc "Plain handler: queues [:relay] then external [:log-d2]."}
+          :foq/relay        {:doc "Plain (NON-machine) handler: emits the continuation :log-c2 — its non-machine origin means :log-c2 does NOT leap-frog."}
+          :foq/log-c        {:doc "Machine-continuation marker: appends :c to [:log]."}
+          :foq/log-d        {:doc "External marker: appends :d to [:log]."}
+          :foq/log-c2       {:doc "Non-machine-origin continuation marker: appends :c2 to [:log]."}
+          :foq/log-d2       {:doc "External marker: appends :d2 to [:log]."}}
+  :sub   {:log {:doc "The append-only ordering log."}}
+  ;; The machine spec registers via re-frame.machines/reg-machine; the
+  ;; runner merges the realised :machine-action bodies into the spec's
+  ;; :actions slot (keyword refs in :on transitions resolve there), so
+  ;; :actions is left absent here — the runner populates it.
+  :machine
+  {:foq/m {:initial :idle
+           :data    {}
+           :states  {:idle {:on {:go {:target :done :action :emit-cont}}}
+                     :done {}}}}
+  :fx    {}}
+
+ :fixture/handlers
+ {:event
+  {:foq/initialise [[:set [:log] []]]
+   ;; Both children are queued from THIS plain handler, so both hit the
+   ;; runtime FIFO at the BACK in source order: [[:m [:go]] [:log-d]].
+   ;; The machine's own action is what front-inserts :log-c later.
+   :foq/seed-machine
+   [[:fx :dispatch [:foq/m [:go]]]
+    [:fx :dispatch [:foq/log-d]]]
+   ;; NEGATIVE CONTROL, same topology: [:relay] then external [:log-d2]
+   ;; both to the back → [[:relay] [:log-d2]]. :relay (a PLAIN handler)
+   ;; then emits :log-c2; non-machine origin → back → [[:log-d2] [:log-c2]].
+   :foq/seed-plain
+   [[:fx :dispatch [:foq/relay]]
+    [:fx :dispatch [:foq/log-d2]]]
+   ;; The plain relay: emits the continuation from a NON-machine origin.
+   :foq/relay [[:fx :dispatch [:foq/log-c2]]]
+   :foq/log-c  [[:update [:log] [:fn :conj] :c]]
+   :foq/log-d  [[:update [:log] [:fn :conj] :d]]
+   :foq/log-c2 [[:update [:log] [:fn :conj] :c2]]
+   :foq/log-d2 [[:update [:log] [:fn :conj] :d2]]}
+  :sub {:log [[:get [:log]]]}
+  ;; The machine's :go action. It writes NOTHING to its snapshot data —
+  ;; its whole job is to emit the machine-ORIGINATED continuation dispatch
+  ;; that must front-insert. The runtime routes `[:dispatch [:foq/log-c]]`
+  ;; through do-fx; because the emitting handler carries `:rf/machine?`,
+  ;; the child is tagged machine-internal and inserted at the FRONT.
+  :machine-action
+  {:emit-cont [[:fx :dispatch [:foq/log-c]]]}}
+
+ :fixture/frame-config
+ {:initial-events [[:foq/initialise]]}
+
+ :fixture/dispatches
+ ;; Two independent macrosteps against one frame. Each settles to fixed
+ ;; point before the next (run-to-completion), so [:log] accumulates the
+ ;; positive case first, then the negative control.
+ [[:foq/seed-machine]
+  [:foq/seed-plain]]
+
+ :fixture/expect
+ ;; Positive: :c (machine continuation) precedes :d (earlier-queued
+ ;; external). Negative: :d2 precedes :c2 (non-machine origin → plain
+ ;; FIFO, no leap-frog). A plain-FIFO port lands [:d :c :d2 :c2]; the
+ ;; front-of-queue contract lands [:c :d :d2 :c2].
+ {:final-app-db {:log [:c :d :d2 :c2]}
+
+  :sub-values   {[:log] [:c :d :d2 :c2]}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/initialise}}
+   ;; --- macrostep 1: the machine-continuation leap-frog ---
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/seed-machine}}
+   ;; the machine event is dequeued first (queued first, back-of-FIFO)
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/m}}
+   ;; the machine's continuation FRONT-inserts → :log-c runs BEFORE :log-d
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-c}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-d}}
+   ;; --- macrostep 2: the non-machine-origin control (no leap-frog) ---
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/seed-plain}}
+   ;; :relay is dequeued first (queued first, back-of-FIFO)
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/relay}}
+   ;; :relay's continuation is NON-machine origin → back → :log-d2 first
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-d2}}
+   {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :foq/log-c2}}]
+
+  :effects-routed []}}
