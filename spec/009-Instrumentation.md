@@ -1203,7 +1203,7 @@ The framework exposes **five observation surfaces**:
 2. **Assembled-epoch listener** — `register-epoch-listener!` / `unregister-epoch-listener!` ([§Assembled-epoch listener](#register-epoch-listener--assembled-epoch-listener), [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
 3. **Event-emit listener** — `register-listener!` / `unregister-listener!` (the `:events` stream) ([API.md §Event-emit](API.md#event-emit-always-on-production-survivable)).
 4. **Error-emit listener** — `register-listener!` / `unregister-listener!` (the `:errors` stream) ([API.md §Error-emit](API.md#error-emit-always-on-production-survivable)).
-5. **Performance API channel** — `performance.mark` / `performance.measure` brackets ([§Performance instrumentation](#performance-instrumentation)).
+5. **Performance API channel** — `performance.measure` brackets (options-bag form, cleared after emit) ([§Performance instrumentation](#performance-instrumentation)).
 
 Each surface sits in exactly one of **three production postures**:
 
@@ -1256,7 +1256,8 @@ Each posture row has a small set of runtime knobs (orthogonal to the elision gat
 | dev-only DCE | `(rf/configure! {:epoch-history {:depth N :trace-events-keep N :redact-fn fn}})` | Epoch ring depth, per-record trace-event budget, per-record redaction hook for sensitive payloads | #2 |
 | dev-only DCE | `(rf/configure! {:elision {:rf.size/threshold-bytes N}})` | Per-payload size threshold for `:rf.size/large-elided` marker in trace records | #1, #2 (records ride post-elision) |
 | always-on | none — record shape is fixed by contract | Listeners receive identical record shapes in dev and prod | #3, #4 |
-| opt-in goog-define | `:closure-defines {re-frame.performance/enabled? true}` | Enables the four `performance.mark` / `performance.measure` bracket sites (`:event`, `:sub`, `:fx`, `:render`) | #5 |
+| opt-in goog-define | `:closure-defines {re-frame.performance/enabled? true}` | Enables the four `performance.measure` bracket sites (`:event`, `:sub`, `:fx`, `:render`) | #5 |
+| opt-in goog-define | `:closure-defines {re-frame.performance/retain-entries? true}` | Skips the per-emit `performance.clearMeasures` so entries persist in the retained buffer for one-shot `getEntriesByType('measure')` readers (DevTools / console); default off — entries are delivered to observers then cleared | #5 |
 
 The `goog.DEBUG` flag (CLJS) and the `-Dre-frame.debug` system property / `RE_FRAME_DEBUG` env var (JVM) are not user knobs — they're the build-time/process-start gates that select the **posture**. Apps DO NOT toggle them per-request or per-session; once the bundle is compiled (or the JVM is started), the posture is fixed.
 
@@ -1270,7 +1271,7 @@ Three of the five surfaces are designed to feed off-box (hosted) backends; the c
 | #2 epoch listener | NO — dev-only; epoch records carry full `:db-before` / `:db-after` snapshots and are not sized for hosted ingestion | Assembled `:rf/epoch-record` per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) | The listener delivers the **raw** record (causal replay material). The `:epoch-history` `:redact-fn` is a projection-side override applied only at off-box egress inside `projected-record` — never at ring-append / listener fan-out — so it does not redact what this listener receives. |
 | #3 event-emit listener | YES — tight record shape, post-elision, exception-isolated. Designed for direct hosted-backend forwarding | `{:event :event-id :frame :time :outcome :elapsed-ms}` | `:event` vector passed through `re-frame.elision/elide-wire-value` once before fan-out (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`). |
 | #4 error-emit listener | YES — same posture and shape contract as #3 | `{:error :event :event-id :frame :time :exception :elapsed-ms}` | Same elision pre-fan-out as #3; `:exception` object is the JS / JVM throwable, not a serialised string. |
-| #5 Performance API channel | INDIRECT — User-Timing measure entries are consumed by host APMs through `PerformanceObserver`; the framework does not emit to a hosted backend directly | Browser-native `PerformanceMeasure` entries with `name` / `startTime` / `duration` / `detail` | No payload — measures carry only timing, not user data. |
+| #5 Performance API channel | INDIRECT — User-Timing measure entries are consumed by host APMs through `PerformanceObserver`; the framework does not emit to a hosted backend directly. Entries are delivered to observers then cleared from the retained buffer (observer-first; see [§Consumer access](#consumer-access)) | Browser-native `PerformanceMeasure` entries with `name` / `startTime` / `duration` (no `detail` is set — the options-bag `measure` call carries only `start` / `end` timestamps) | No payload — measures carry only timing, not user data. |
 
 The off-box egress contract above is the **only documented production wire**. Apps that need richer production observability than #3 / #4 / #5 provide must either (a) keep the dev-only trace surface in production via `:closure-defines {goog.DEBUG true}` (with the bundle-size cost — see [§Production-elision verification](#production-elision-verification)) or (b) implement custom emission from their own handlers / interceptors / fx handlers.
 
@@ -1319,7 +1320,7 @@ Dev iteration matters; you don't want trace machinery to slow ordinary feedback 
 
 The trace stream above is dev-only — too noisy for prod, gated on `re-frame.interop/debug-enabled?` (an alias of `goog.DEBUG`). Many apps still want a *separate*, default-off, prod-friendly timing channel: one that surfaces in Chrome DevTools' Performance panel alongside React renders, network, and paint, and that consumers (the host's APM, a custom `PerformanceObserver`, an in-app perf overlay) can read via the standard browser [User Timing](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing) surface.
 
-re-frame2 ships that channel through the browser's `performance.mark` / `performance.measure`, gated on a **second** compile-time constant — `re-frame.performance/enabled?` — that is independent of `goog.DEBUG`. The default is off; consumers opt in by flipping the `goog-define` via `:closure-defines`. Closure DCE then either keeps the bracket sites or elides them entirely; production binaries that don't ask for timing carry zero User-Timing instrumentation.
+re-frame2 ships that channel through the browser's `performance.measure` (options-bag form, no marks — see [§What gets bracketed](#what-gets-bracketed)), gated on a **second** compile-time constant — `re-frame.performance/enabled?` — that is independent of `goog.DEBUG`. The default is off; consumers opt in by flipping the `goog-define` via `:closure-defines`. Closure DCE then either keeps the bracket sites or elides them entirely; production binaries that don't ask for timing carry zero User-Timing instrumentation.
 
 This is **distinct from** the trace surface above:
 
@@ -1333,14 +1334,15 @@ This is **distinct from** the trace surface above:
 
 The two flags compose: a build that wants both flips both. A typical prod build has `goog.DEBUG=false` and either `re-frame.performance/enabled?` true (perf timing kept; trace elided) or false (everything elided).
 
-### The compile-time flag
+### The compile-time flags
 
 ```clojure
 ;; src/re_frame/performance.cljc
-(goog-define ^boolean enabled? false)
+(goog-define ^boolean enabled?        false)   ; the channel gate
+(goog-define ^boolean retain-entries? false)   ; keep entries in the retained buffer
 ```
 
-A consumer flips it in their shadow-cljs.edn / compiler-options:
+A consumer flips the channel gate in their shadow-cljs.edn / compiler-options:
 
 ```edn
 {:builds {:app {:target           :browser
@@ -1349,6 +1351,8 @@ A consumer flips it in their shadow-cljs.edn / compiler-options:
 ```
 
 Like `goog.DEBUG`, `:advanced` constant-folds the value, the gated branch DCEs, and the body collapses to its un-bracketed shape — for the perf surface that means each call site becomes a direct invocation of the body it brackets.
+
+`retain-entries?` is a second, independent `goog-define` (default `false`). Leave it off for production (RUM) — entries are delivered to observers then cleared so the buffer does not grow. Flip it on (`:closure-defines {re-frame.performance/retain-entries? true}`) only for one-shot DevTools / console workflows that read the retained buffer via `getEntriesByType('measure')`. See [§Consumer access](#consumer-access).
 
 ### What gets bracketed
 
@@ -1364,14 +1368,21 @@ The reference runtime brackets four hot-path call sites. Each runs inside a `(pe
 The bracket shape (when the flag is on at compile time):
 
 ```
-performance.mark(<name>:start)
+start = performance.now()
 try    <body>
 finally
-  performance.mark(<name>:end)
-  performance.measure(<name>, <name>:start, <name>:end)
+  performance.measure(<name>, { start, end: performance.now() })
+  if (!retain-entries?) performance.clearMeasures(<name>)
 ```
 
-The `try/finally` ensures a partial measure entry still lands when the body throws — observability does not become silent on the unhappy path. The thrown exception still propagates after the `:end` mark fires.
+Two design choices bound the entry buffer (per the observer-first contract, [§Consumer access](#consumer-access)):
+
+- **Options-bag `measure`, no marks.** The bracket uses the options-bag form `performance.measure(name, {start, end})` with numeric `performance.now()` timestamps rather than named marks. No `performance.mark` entries are ever allocated — the two marks per bracket were pure buffer growth with no documented consumer (nothing reads the `:start` / `:end` marks). This removes two-thirds of the per-bracket entry churn.
+- **Clear after emit.** Immediately after emitting the measure the bracket clears it by name (`performance.clearMeasures(name)`), unless the consumer flips the `re-frame.performance/retain-entries?` `goog-define` (default off). A live `PerformanceObserver` still receives the entry — observer callbacks fire at `measure()` time, before the clear — so timing is delivered to any attached observer / host APM; the retained buffer that `getEntriesByType('measure')` reads simply does not grow.
+
+The `try/finally` ensures the measure entry is emitted (and delivered to observers) even when the body throws — observability does not become silent on the unhappy path. The thrown exception still propagates after the `finally` runs.
+
+`retain-entries?` (a second `goog-define`, default `false`) is the escape hatch for one-shot **DevTools / console** workflows that read the retained buffer via `performance.getEntriesByType('measure')`: flip it on and the per-emit clear is skipped so entries persist. Long-running (RUM) sessions leave it off and read via a `PerformanceObserver` — see [§Consumer access](#consumer-access).
 
 ### Naming convention
 
@@ -1389,25 +1400,33 @@ Tools that want a per-bucket view split on the second `:`. The shape is **stable
 
 ### Consumer access
 
-```javascript
-// All re-frame entries from the most recent run.
-performance.getEntriesByType('measure')
-  .filter(e => e.name.startsWith('rf:'));
+The channel is **observer-first**: entries are *delivered, not retained*. Each bracket emits its measure and then clears it from the retained buffer (unless `retain-entries?` is on — see [§What gets bracketed](#what-gets-bracketed)), so the primary read is a `PerformanceObserver`, which receives the entry at emit time regardless of the clear:
 
-// Live: a PerformanceObserver fires per emitted entry.
+```javascript
+// Live: a PerformanceObserver fires per emitted entry — the production
+// (RUM) path. Delivery happens at measure() time, before the framework
+// clears the entry from the retained buffer, so the observer sees
+// every rf: measure even with buffer retention off (the default).
 new PerformanceObserver((list) => {
   for (const e of list.getEntriesByType('measure')) {
     if (e.name.startsWith('rf:')) {
-      // entry: { name, startTime, duration, ... }
+      // entry: { name, startTime, duration }
       sendToAPM(e);
     }
   }
 }).observe({ type: 'measure', buffered: true });
+
+// One-shot DevTools / console snapshot: only populated when the app was
+// built with :closure-defines {re-frame.performance/retain-entries? true}.
+// With retention off (the default) this returns [] — the entries were
+// delivered to observers then cleared.
+performance.getEntriesByType('measure')
+  .filter(e => e.name.startsWith('rf:'));
 ```
 
-Chrome DevTools' Performance panel renders the measures as named tracks alongside React renders, network, and paint — no custom UI required.
+Chrome DevTools' Performance panel renders the measures as named tracks alongside React renders, network, and paint — no custom UI required (the panel captures entries as they are emitted, so it too is unaffected by the post-emit clear).
 
-The `User Timing` entry buffer is bounded by the host (Chrome's default is 10000 entries); long-running pages that want every entry should attach a `PerformanceObserver` and offload to durable storage rather than rely on the buffer.
+**Why clear after emit.** The W3C User-Timing registry defines `maxBufferSize` as **Infinite** for `mark` and `measure` entries — the buffer is *not* bounded by the host. An always-on production channel that never cleared would grow the buffer without limit: a multi-hour RUM session would retain millions of entries and leak memory. re-frame2 therefore clears each measure after emit; the retained buffer is bounded by re-frame2, not the host. Long-running pages read via the `PerformanceObserver` above (which is unaffected by the clear) and offload to durable storage; they do not rely on the retained buffer. Consumers that genuinely want a retained buffer for one-shot inspection opt in via `retain-entries?`.
 
 ### Production-elision verification
 
@@ -1416,12 +1435,12 @@ The bundle-isolation contract is enforced in CI by `npm run test:perf-bundle` (t
 1. `:examples/counter` builds the standard counter example under `:advanced` with the perf flag off (the goog-define default).
 2. `:examples/counter-perf` builds the same source under `:advanced` with `:closure-defines {re-frame.performance/enabled? true}`.
 3. `scripts/check-perf-bundle.cjs` greps both bundles. The contract:
-   - **Off bundle** MUST NOT contain `performance.mark`, `performance.measure`, or any `"rf:` entry-name fragment.
-   - **On bundle** MUST contain all three.
+   - **Off bundle** MUST NOT contain `performance.measure`, `clearMeasures`, or any `"rf:` entry-name fragment (and — since the bracket allocates no marks — MUST NOT contain `performance.mark` either, in *both* bundles).
+   - **On bundle** MUST contain `performance.measure`, `clearMeasures`, and the `"rf:` fragment.
 
 Without the on bundle the off-bundle assertion would be vacuous — a refactor that *moved* the strings out of the gated branch would silently turn the negative grep into a false pass. The same dual-bundle methodology that gives the trace-surface elision contract its teeth (per [§Production-elision verification](#production-elision-verification)) extends to the perf surface here.
 
-The browser smoke at `tools/xray/testbeds/perf_counter/spec.cjs` complements the grep: it serves the perf-on bundle, drives a real dispatch through the +/- buttons, and reads `performance.getEntriesByType('measure')` to confirm at least one entry per bucket lands. A passing grep is necessary but not sufficient; the smoke proves the four call sites actually fire under a real cascade.
+A CLJS unit test (`re-frame.performance-cljs-test`) asserts the observer-first contract directly at the macro level: with the flag on and `retain-entries?` off, the retained buffer stays empty after repeated brackets (the clear-after-emit leak fix), and zero `rf:` mark entries are ever allocated (the options-bag form). The emission call-site coverage lives in the nightly `re-frame.performance-emit-nightly-test` (which flips `retain-entries? true` so it can read the entry names synchronously).
 
 ### JVM scope
 
