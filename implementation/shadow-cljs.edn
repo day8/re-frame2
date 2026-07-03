@@ -583,7 +583,7 @@
   ;;       node out/node-test-perf-nightly.js
   ;;
   ;; The migrated bundle-presence assertion (the `:advanced` bundle
-  ;; carries `performance.mark` / `performance.measure` symbols)
+  ;; carries `performance.measure` / `clearMeasures` symbols)
   ;; remains covered by `scripts/check-perf-bundle.cjs` via
   ;; `npm run test:perf-bundle`.
   :node-test-perf-nightly
@@ -597,8 +597,17 @@
     ;; Flip the perf-bracket gate on so the call-site emissions
     ;; actually land on the User-Timing stream. See
     ;; `implementation/core/src/re_frame/performance.cljc` for the
-    ;; goog-define declaration.
-    :closure-defines {re-frame.performance/enabled? true}}}
+    ;; goog-define declarations.
+    ;;
+    ;; `retain-entries? true` (rf2-2yv859): the bracket clears each
+    ;; measure by name right after emit by default, so the retained
+    ;; buffer stays empty and a synchronous getEntriesByType('measure')
+    ;; read finds nothing. This runner asserts the entry NAMES/BUCKETS,
+    ;; so it flips retention ON to keep the buffer populated for the
+    ;; synchronous read. The clear-after-emit (leak-fix) behaviour is
+    ;; unit-tested separately in re-frame.performance-cljs-test.
+    :closure-defines {re-frame.performance/enabled?        true
+                      re-frame.performance/retain-entries? true}}}
 
   ;; rf2-3cfvt — dedicated adversarial-property SECURITY tier runner.
   ;;
@@ -892,8 +901,8 @@
   ;; `:advanced` compilation, but with the `re-frame.performance/enabled?`
   ;; goog-define flipped to `true`. Its sole consumer is the
   ;; bundle-presence assertion in scripts/check-perf-bundle.cjs (`npm run
-  ;; test:perf-bundle`): with the flag on, the `performance.mark` /
-  ;; `performance.measure` / `"rf:` strings emitted by
+  ;; test:perf-bundle`): with the flag on, the `performance.measure` /
+  ;; `clearMeasures` / `"rf:` strings emitted by
   ;; `re-frame.performance` MUST survive `:advanced` DCE in this bundle —
   ;; the dual of the `:examples/counter` perf-off negative grep. Without
   ;; the perf-on bundle the negative assertion would be vacuous.

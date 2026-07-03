@@ -62,6 +62,18 @@
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter}))
 
+;; Buffer retention for this runner (rf2-2yv859). The bracket now CLEARS
+;; each measure right after emit (`retain-entries?` default off), so a
+;; synchronous `getEntriesByType('measure')` snapshot taken after a drain
+;; finds an empty buffer — that's the leak fix working. This nightly
+;; runner sets `:closure-defines {re-frame.performance/retain-entries?
+;; true}` (alongside `enabled? true`) so the entries PERSIST in the
+;; retained buffer and these emission assertions can read them
+;; synchronously. The clear-after-emit (leak-fix) behaviour itself is
+;; unit-tested in `re-frame.performance-cljs-test` — a synchronous
+;; PerformanceObserver read is unreliable on the node runner (delivery is
+;; a microtask), so retention is the robust way to assert the entry
+;; NAMES / BUCKETS here.
 (defn- clear-measures!
   []
   (when (exists? js/performance.clearMeasures)
@@ -72,7 +84,8 @@
 (defn- rf-measures
   "Return the names of every `performance.getEntriesByType('measure')`
   entry whose name starts with `rf:`. Order preserved (insertion order
-  per the User-Timing API spec)."
+  per the User-Timing API spec). Reads the retained buffer, which this
+  runner keeps populated via `retain-entries? true` (see above)."
   []
   (->> (.getEntriesByType js/performance "measure")
        (map #(.-name %))
@@ -200,11 +213,16 @@
 
 (deftest enabled-flag-is-flipped-under-the-nightly-build
   (testing "The nightly runner (`:node-test-perf-nightly`) sets
-            `:closure-defines {re-frame.performance/enabled? true}` so
-            the call-site brackets actually fire. If this assertion
-            ever fails on the nightly runner, the build's closure-
-            defines map drifted — the integration assertions above
-            would silently no-op (their `when performance/enabled?`
-            guard short-circuits) so this canary catches it."
+            `:closure-defines {re-frame.performance/enabled? true
+                               re-frame.performance/retain-entries? true}`
+            so the call-site brackets actually fire AND the emitted
+            measures persist in the retained buffer for the synchronous
+            getEntriesByType reads above. If either assertion fails on the
+            nightly runner, the build's closure-defines map drifted — the
+            emission assertions would silently no-op (`enabled?` guard) or
+            read an empty buffer (`retain-entries?` off → cleared after
+            emit), so this canary catches both."
     (is (true? performance/enabled?)
-        "re-frame.performance/enabled? MUST be true under this build")))
+        "re-frame.performance/enabled? MUST be true under this build")
+    (is (true? performance/retain-entries?)
+        "re-frame.performance/retain-entries? MUST be true under this build")))
