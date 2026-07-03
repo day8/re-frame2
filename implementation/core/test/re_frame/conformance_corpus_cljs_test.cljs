@@ -270,9 +270,18 @@
   ;; gate the fixture. Listed here so the CLJS runner reports the
   ;; streaming fixture as an intentional out-of-claim skip rather than
   ;; failing the suite.
+  ;;
+  ;; rf2-5lqar2 — :ssr/render-tree-hash (the render-tree canonical-traversal
+  ;; hash pin, Spec 011:386) is gated by the ssr-artefact runner
+  ;; (`re-frame.ssr-conformance-test`, which implements the `:render-tree-hash`
+  ;; call op against `ssr/render-tree-hash`). This host-agnostic corpus runner
+  ;; does not carry that call op, so `ssr-render-tree-hash.edn` is an
+  ;; intentional out-of-claim skip here rather than an unknown-capability
+  ;; failure — matching the JVM core runner's allowlist.
   #{:ssr/suspense-boundary
     :ssr/hydration-payload
-    :ssr/chunked-response})
+    :ssr/chunked-response
+    :ssr/render-tree-hash})
 
 ;; ---- fixture loading (compile-time inlined) -------------------------------
 

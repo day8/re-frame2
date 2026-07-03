@@ -298,9 +298,18 @@
   ;; conformance runner reports the ssr-streaming.edn fixture as an
   ;; intentional out-of-claim skip rather than as an unknown-capability
   ;; failure.
+  ;;
+  ;; rf2-5lqar2 — :ssr/render-tree-hash (the render-tree canonical-traversal
+  ;; hash pin, Spec 011:386) is likewise an SSR-artefact concern: the
+  ;; `:render-tree-hash` call op is implemented by the ssr-artefact runner
+  ;; (`re-frame.ssr-conformance-test`, which requires `re-frame.ssr` and calls
+  ;; `ssr/render-tree-hash`). This core corpus runner does not depend on the
+  ;; ssr artefact, so it reports `ssr-render-tree-hash.edn` as an intentional
+  ;; out-of-claim skip rather than as an unknown-capability failure.
   #{:ssr/suspense-boundary
     :ssr/hydration-payload
-    :ssr/chunked-response})
+    :ssr/chunked-response
+    :ssr/render-tree-hash})
 
 ;; ---- fixture loader -------------------------------------------------------
 
