@@ -21,7 +21,7 @@ Flows differ from subscriptions in *where the value lives*. A sub's value lives 
 Flows are the right tool when **all** of the following apply:
 
 - The derived value is **part of the application's state**, not just a view-render input.
-- Other event handlers, machine actions, or schemas need to read the value as plain `app-db` data.
+- Other event handlers or schemas need to read the value as plain `app-db` data. (A machine callback never reads it ambiently — a machine that needs the value takes it by **payload threading** or a **declared recordable coeffect** on `:rf.cofx`, per [005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017); an in-callback ambient read is unrecorded and breaks replay.)
 - The value should **survive** SSR hydration, time-travel revert, or app-db serialisation.
 - The derivation is **stable enough to be worth registering** — it isn't a one-off computation inside a single handler.
 
