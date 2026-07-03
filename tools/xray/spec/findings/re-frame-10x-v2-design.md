@@ -536,7 +536,7 @@ a curated Xray-MCP — was killed.
 
 ### §10.8 re-frame2-pair delegation in co-pilot
 
-**Open.** With co-pilot back (§10.2), this is on the table again. Recommendation: defer to v2 — the co-pilot has its own chat via direct LLM API; re-frame2-pair delegation is an "if a re-frame2-pair nREPL session is running, route through it" optimisation, not blocking for v1. Awaiting Mike's call.
+**Resolved 2026-05-17 — moot (co-pilot dropped; two-doors architecture).** This question is dissolved rather than answered on its merits: the in-Xray AI co-pilot was removed entirely (Mike, rf2-s3vx5 — see `DESIGN-RATIONALE.md` Lock #2 and [`../000-Vision.md`](../000-Vision.md) §"two doors"). With no co-pilot in Xray there is nothing to delegate *from* — the AI door is the sibling `tools/re-frame2-pair-mcp/` tool directly (raw nREPL over MCP), not an Xray co-pilot that proxies to re-frame2-pair. The false middle was killed. _(Historical draft note; the co-pilot framing this depended on is superseded.)_
 
 ### §10.9 Mobile / phone form factor
 

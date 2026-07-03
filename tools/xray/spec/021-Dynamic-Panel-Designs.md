@@ -1199,9 +1199,16 @@ Layout direction: **top-to-bottom by default** (elk's `elk.direction
 DOWN`, the `MachineChart` default Xray does not override). The original
 sketch called for a left-to-right `rankdir: 'LR'` default; the elkjs
 backend that shipped (`MachineChart`, 2026-05-19 ELK lock) maps `:lr` →
-elk `RIGHT` / `:tb` → elk `DOWN` and defaults to `DOWN`. Operator-facing
-direction flip (Settings → View → Machines layout direction) is deferred
-to a follow-on bead. Default framing: fit-on-mount via xyflow's
+elk `RIGHT` / `:tb` → elk `DOWN` and defaults to `DOWN`. An operator-facing
+direction flip (Settings → View → Machines layout direction) is a
+**post-v1, untracked note** — no bead filed yet; the trigger files one
+when it fires. **Reconsideration trigger (falsifiable).** A corpus or
+consumer machine renders wide enough that the `DOWN` default forces
+horizontal scrolling the operator cannot resolve by resizing the panel,
+and a per-render `:lr` flip would recover legibility — at which point the
+Settings toggle is wired against the `:lr`/`:tb` → elk `RIGHT`/`DOWN`
+mapping the `MachineChart` backend already exposes. Default framing:
+fit-on-mount via xyflow's
 `:fitViewOptions {:padding 0.1}` (a fractional viewport padding, not a
 fixed pixel inset); Xray re-frames on panel-entry by bumping the
 `:fit-signal` nonce (rf2-6tw7t).
@@ -4335,7 +4342,8 @@ as precise when the eye actually wants the ISO date. Both
 directions are symmetric — past (`Nm ago`) and future (`in Nm`) —
 so scheduled-event timestamps read naturally.
 
-**URI heuristic — deliberately deferred.** CLJS has no built-in
+**URI heuristic — rejected (with an extend-type escape hatch).** This is
+a rejection, not a deferral: CLJS has no built-in
 `uri?` predicate, and extending `js/String` so non-URL strings can
 return `nil` from the protocol path would route every string in
 every render through the seam — invasive on a fundamental type
@@ -4848,9 +4856,17 @@ to `:rf.xray.edn-inspector/expansion {<path>}` so the operator's
 disclosure choices survive epoch navigation. **No right-click reset**
 (per §10.5 — right-click context menus are explicitly out). Reset by
 navigating to a new focused epoch (the sticky override is per-epoch +
-path, so a new epoch's tree starts from the default heuristic) or via
-the panel-local "Reset expansion" affordance in the Settings menu
-(deferred follow-on).
+path, so a new epoch's tree starts from the default heuristic). The
+panel-local "Reset expansion" affordance in the Settings menu — a button
+that dispatches the already-shipped `:rf.xray.edn-inspector/reset-expansion`
+event to clear the whole `:rf.xray.edn-inspector/expansion` slice at once
+— is a **post-v1, untracked note** — no bead filed yet; the trigger files
+one when it fires. (The reset *mechanism* ships today; only the operator-
+facing Settings button is deferred.) **Reconsideration trigger
+(falsifiable).** An operator reports that per-epoch reset plus per-node
+collapse is not enough to escape an accumulated expansion state — they
+want a single "collapse everything back to the heuristic" control — at
+which point the Settings button is wired to the existing reset event.
 
 ### §10.5 Interaction model
 
@@ -4962,7 +4978,18 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 | Meta-epoch section ordering | **Fixed order: Event > App-db > Reactive > Trace > Machines > Routing > Issues** | Matches the L3 tab order. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
 | Epoch panel section default-expansion | **All cascade steps expanded by default; collapsible per-step via header click; collapse-all keyboard `[`** | The Epoch panel IS the handling-pipeline view — collapsing by default would hide the punch. |
 | Dispatch-origin display on L2 rows | **Short text label prefix** (`user · :checkout/submit`) | No icon-only or coloured chip — keeps L2 row scannable. Matches the existing L1 ribbon density. |
-| Pattern view (4th lens) | **Defer to follow-up bead** | Per super-prompt. The 3-lens model (handling / reactive / state) is sufficient for MVP. |
+| Pattern view (4th lens) | **Post-v1, untracked note** (see trigger below) | The 3-lens model (handling / reactive / state) is sufficient for MVP. |
+
+A **Pattern view** — a fourth lens over the epoch that groups recurring
+cascade shapes rather than the per-epoch handling / reactive / state
+slices the three shipped lenses show — is a **post-v1, untracked note** —
+no bead filed yet; the trigger files one when it fires.
+**Reconsideration trigger (falsifiable).** An operator working a real
+debugging session finds the 3-lens model (handling / reactive / state)
+cannot surface a repeated cross-epoch pattern they need to see (e.g. "the
+same sub re-runs every third epoch"), and a Pattern lens would answer it
+where the existing three cannot — at which point the fourth lens is
+designed against the shipped epoch projection.
 
 ### §11.5 Views → Reactive → Views label history
 
