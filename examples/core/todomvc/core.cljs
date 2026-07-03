@@ -5,57 +5,24 @@
   Everything else leans on this wiring. `init!` picks the reactive substrate
   (here, Reagent). The render root is a `frame-provider {:id …}`: on first
   mount it creates the app frame, marks it `:url-bound?` so the frame owns the
-  address bar, and seeds it once via `:initial-events`. A small hash listener
-  turns a `#/active` URL change into a `:rf.route/handle-url-change` event —
-  because in re-frame2 the URL is just an input, and navigation is just an
-  event. See docs/core/concepts/frames.md."
-  (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
+  address bar, and declares `:url-strategy rf/hash-url-strategy` so the router
+  speaks hash URLs (`#/active`) — because TodoMVC's URLs are hash-based. The
+  frame is seeded once via `:initial-events`. In re-frame2 the URL is just an
+  input and navigation is just an event; the router's hash strategy handles the
+  `#` on both sides, so this app uses `route-link` / `rf.route/navigate` like
+  every other example. See docs/core/concepts/frames.md."
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.views]
+            [re-frame.routing :as routing]
             [re-frame.adapter.reagent :as reagent-adapter]
             [todomvc.events]
             [todomvc.subs]
             [todomvc.views :as views]))
 
-;; ---- hash -> path adapter -------------------------------------------------
-;;
-;; TodoMVC speaks hash URLs (#/, #/active, #/completed), but the router thinks
-;; in path-strings. So this little adapter is the translator between them: drop
-;; the '#', then dispatch :rf.route/handle-url-change with what's left. The
-;; routes in events.cljs match the result.
-;; See docs/routing/concepts.md#move-2-navigation-is-an-event.
-
-(defn- hash->path
-  "Turn window.location.hash (e.g. \"#/active\", \"#/completed\") into a route
-  path. An empty hash means \"/\"."
-  [hash]
-  (let [stripped (-> hash
-                     (str/replace #"^#" "")
-                     (str/replace #"^/+" "/"))]
-    (if (str/blank? stripped) "/" stripped)))
-
-(defn- current-path []
-  (hash->path (.. js/window -location -hash)))
-
 ;; The id of the app frame. The render root creates it with `:url-bound? true`,
 ;; which is how a frame declares "I own the URL".
 ;; See docs/routing/glossary.md (url-bound?).
 (def app-frame :rf/default)
-
-;; Hand each URL change to the frame that owns the URL. The dispatch names
-;; `app-frame` outright via `{:frame app-frame}` — out here, outside the view
-;; tree, there's no ambient frame for a bare `(rf/dispatch …)` to resolve
-;; against.
-;;
-;; Why a named Var and not a lambda? So the install stays idempotent. `boot!`
-;; removes then re-adds this exact Var, so a repeated `run` or a hot reload
-;; never quietly stacks up duplicate `hashchange` listeners. (A path-based app
-;; would call `rf/install-history-listener!` instead of listening on
-;; `hashchange`, but the URL change still reaches its owner frame the same way.)
-;; See docs/routing/concepts.md#the-browser-is-just-another-event-source.
-(defn- on-hashchange [_]
-  (rf/dispatch [:rf.route/handle-url-change (current-path)] {:frame app-frame}))
 
 ;; ---- Mount -----------------------------------------------------------------
 ;;
@@ -70,6 +37,12 @@
 ;; The render root is a `frame-provider {:id app-frame …}`. First mount creates
 ;; the app frame and runs `:initial-events`; every reload after that reuses the
 ;; same frame and skips the seed, so your todos survive a code change.
+;;
+;; `:url-strategy rf/hash-url-strategy` is the one line that makes this a hash
+;; app. It tells the router to encode `route-url` output as `#/active` at the
+;; egress points (link hrefs, pushState) and decode `window.location.hash` back
+;; to a path on the way in. `route-url` and `match-url` stay path-form; only the
+;; browser address-bar shape changes.
 
 (defonce react-root (atom nil))
 
@@ -78,30 +51,44 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                ;; The seed, in order: `[:todo/initialise]` folds the saved
+                ;; The seed is just `[:todo/initialise]` — it folds the saved
                 ;; todos (via the `:todo.storage/todos` coeffect in db.cljs)
-                ;; into app-db, then `[:rf.route/handle-url-change …]` resolves
-                ;; whatever URL we landed on.
+                ;; into app-db. The initial URL sync is handled by
+                ;; `install-url-listener!` in `boot!`, which reads the current
+                ;; hash and dispatches `:rf.route/handle-url-change` for us.
                 [rf/frame-provider {:id             app-frame
                                     :doc            "TodoMVC demo frame."
                                     :url-bound?     true
-                                    :initial-events [[:todo/initialise]
-                                                     [:rf.route/handle-url-change (current-path)]]}
+                                    :url-strategy   routing/hash-url-strategy
+                                    :initial-events [[:todo/initialise]]}
                  [views/root-view]])))
 
 ;; ---- Boot ------------------------------------------------------------------
 ;;
 ;; `boot!` runs once at shadow's :init-fn, before the first render, and has just
-;; two jobs: install the Reagent adapter, and wire up the `hashchange` listener.
-;; It deliberately does NOT touch the frame — that's the render root's job, over
-;; in `mount!`.
+;; two jobs: install the Reagent adapter, and wire up the URL-change listener.
+;;
+;; `install-url-listener!` is the framework's boot seam. Given the app's
+;; strategy — here the hash strategy — it installs the matching browser
+;; listener (`hashchange` for a hash app; `popstate` for a history app),
+;; decodes each change to a path, and dispatches `:rf.route/handle-url-change`
+;; to the URL-owning frame; the install also syncs the current URL into the
+;; frame's route slice so a deep link or a refresh lands on the right route.
+;; It's idempotent, so a repeated `run` or a hot reload never stacks up
+;; duplicate listeners. No hand-rolled `hashchange` adapter — the strategy
+;; absorbs it.
+;;
+;; We pass the strategy EXPLICITLY (the 1-arity) rather than let the seam read
+;; it off the frame: the URL-owning frame is created by the `frame-provider`
+;; during render, whose React effect may register it just after `mount!`
+;; returns — so pinning the strategy here keeps the listener kind independent
+;; of that timing.
+;; See docs/routing/concepts.md#the-browser-is-just-another-event-source.
 
 (defn- boot! []
   (rf/init! reagent-adapter/adapter)
-  (doto js/window
-    (.removeEventListener "hashchange" on-hashchange)
-    (.addEventListener "hashchange" on-hashchange)))
+  (mount!)
+  (rf/install-url-listener! routing/hash-url-strategy))
 
 (defn run []          ; shadow :init-fn — runs once, at page load
-  (boot!)
-  (mount!))
+  (boot!))

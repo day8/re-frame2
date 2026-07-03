@@ -20,10 +20,10 @@
 
 ;; ---- routes ---------------------------------------------------------------
 ;; A route is just an id paired with a path the router knows how to match.
-;; TodoMVC's URLs are hash-based (#/, #/active, #/completed); the adapter in
-;; core.cljs has already stripped the leading '#' by the time we get here, so
-;; these plain path patterns line up.
-;; See docs/routing/concepts.md#move-2-navigation-is-an-event.
+;; TodoMVC's URLs are hash-based (#/, #/active, #/completed), but the routes are
+;; written in PATH form (/, /active, /completed) — the frame's `:url-strategy`
+;; (hash) handles the `#` at the edges, so `route-url`/`match-url` stay path-form
+;; and these plain patterns line up. See docs/routing/concepts.md.
 
 (rf/reg-route :todo/all       {:doc "Show all todos."} "/")
 (rf/reg-route :todo/active    {:doc "Show active todos."} "/active")
