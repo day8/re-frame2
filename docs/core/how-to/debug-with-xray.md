@@ -6,13 +6,13 @@ It's 11pm and the app is wrong. A value that should be `3` is `7`, or a button i
 
 Read this page straight through and you get a smooth path: get Xray open, walk the ledger backwards to the event that broke your state, then meet the rest of the panels one at a time. The callouts off to the side are optional extras — a JavaScript analogy, a note for re-frame v1 veterans, the deeper mechanics — there when you want them, skippable when you don't.
 
-A word on vocabulary, because three terms shape Xray's whole layout. When you [dispatch](../glossary.md#dispatch) an [**event**](../glossary.md#event), it sets off the [**event cascade**](../glossary.md#event-cascade) — the fixed run of handler → commit → effects → subscriptions → render ([Events & the cascade](../concepts/events-and-the-pipeline.md) owns this) — and that cascade leaves behind one [**epoch**](../glossary.md#epoch), the before/after record on the [trace stream](../glossary.md#trace-stream). So event, cascade, and epoch are three angles on one moment: *what arrived*, *everything that happened in response*, and *the record it left in the timeline*. Everything in Xray hangs off them — the event list is the ledger of epochs, and every tab is a lens on one.
+A word on vocabulary, because three terms shape Xray's whole layout. When you [dispatch](../glossary.md#dispatch) an [**event**](../glossary.md#event), it traverses the [**event pipeline**](../glossary.md#event-pipeline) — the fixed run of handler → commit → effects → subscriptions → render ([Events & the pipeline](../concepts/events-and-the-pipeline.md) owns this) — and that [**run**](../glossary.md#run) leaves behind one [**epoch**](../glossary.md#epoch), the before/after record on the [trace stream](../glossary.md#trace-stream). So event, run, and epoch are three angles on one moment: *what arrived*, *everything that happened in response*, and *the record it left in the timeline*. Everything in Xray hangs off them — the event list is the ledger of epochs, and every tab is a lens on one.
 
 One more term, because multi-frame apps get a picker: a [**frame**](../glossary.md#frame) is one isolated, running instance of your app, with its own app-db. It isolates *state*, not [registrations](../glossary.md#registrar) — so every frame resolves against the same handlers and subs ([Frames](../concepts/frames.md) covers the detail).
 
 ??? info "For JavaScript developers"
 
-    If you know Redux DevTools, Xray is that same idea: an action ledger, a state diff, time travel. What Xray adds is the rest of the cascade — not just "which action, what state", but which effects fired, which subscriptions recomputed, which views re-rendered, and which line of *your* code each one came from.
+    If you know Redux DevTools, Xray is that same idea: an action ledger, a state diff, time travel. What Xray adds is the rest of the run — not just "which action, what state", but which effects fired, which subscriptions recomputed, which views re-rendered, and which line of *your* code each one came from.
 
 ??? info "From re-frame v1"
 
@@ -93,7 +93,7 @@ You're staring at bad state, and you don't yet know which event put it there. He
 1. **Open Xray** (`Ctrl+Shift+C`). It lands on the latest event. Press `Space` to pause the live feed so new dispatches stop shoving the list out from under you.
 2. **Click the app-db tab.** You'll see the diff this one event made — app-db before against app-db after. Each event shows only its own delta, never a cumulative pile, so the change is easy to read.
 3. **Walk backwards in time** with `j` (it steps to the older event; `k` steps back toward the newest — or use the ribbon's `◀` `▶` nav buttons), watching the diff. Ask one small question per step: *did this event write the bad value?*
-4. **Stop at the first event where the bad value appears.** That's your culprit — the epoch that wrote it. Click the **Epoch** tab, which lays out the full [event cascade](../glossary.md#event-cascade) in order: dispatch site, event vector, [coeffects](../glossary.md#coeffect), handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
+4. **Stop at the first event where the bad value appears.** That's your culprit — the epoch that wrote it. Click the **Epoch** tab, which lays out the full [pipeline run](../glossary.md#run) in order: dispatch site, event vector, [coeffects](../glossary.md#coeffect), handler, then the effects that fired (with a wire-boundary diff per managed effect) and the subscriptions and views that followed.
 
 That's it. One pause, one walk, two tabs — `Space`, `j`/`k`, app-db, Epoch — find most bugs.
 
@@ -111,13 +111,13 @@ Press `l` to snap back to live when you're done (`Shift+G` does the same — "go
 
 !!! warning "Gotcha"
 
-    The ledger keeps the most recent 50 cascades per frame by default, and older ones age out. You can raise that depth in *Settings → Buffer* (the `:cascades-retained` knob) if a long session needs more history — at a heap cost. The same tab carries a "Clear buffer now" button if you want to wipe the slate mid-session.
+    The ledger keeps the most recent 50 runs per frame by default, and older ones age out. You can raise that depth in *Settings → Buffer* (the `:events-retained` knob) if a long session needs more history — at a heap cost. The same tab carries a "Clear buffer now" button if you want to wipe the slate mid-session.
 
 ## Step 4: see why a subscription recomputed
 
 The next-most-common bug has a different symptom: a view re-rendered, or it shows a wrong derived value, and you don't know why.
 
-Focus the suspect event and click the **Views** tab. It lists every [subscription](../glossary.md#subscription) that ran during this cascade, one row each. Each row flags two things: whether the sub's **value actually changed**, and whether the recompute was **driven by an upstream sub** — and if so, that upstream sub is named right on the row. Below that, you'll see the views that re-rendered this epoch. Hover a view row and it highlights that view's rendered DOM in the page, so "which view is this row?" never needs guessing.
+Focus the suspect event and click the **Views** tab. It lists every [subscription](../glossary.md#subscription) that ran during this run, one row each. Each row flags two things: whether the sub's **value actually changed**, and whether the recompute was **driven by an upstream sub** — and if so, that upstream sub is named right on the row. Below that, you'll see the views that re-rendered this epoch. Hover a view row and it highlights that view's rendered DOM in the page, so "which view is this row?" never needs guessing.
 
 Read it two ways:
 
@@ -136,10 +136,10 @@ App-db, Epoch and Views cover the everyday bugs, and you'll live in them. But th
 
 | Tab | The question it answers |
 |---|---|
-| **Epoch** | What did this event *do*? — the full event cascade. |
+| **Epoch** | What did this event *do*? — the full pipeline run. |
 | **app-db** | What *changed* because of this event? — the sectioned diff. |
 | **Views** | Why did these views re-render? — the app-db → subs → views chain. |
-| **Trace** | What raw [trace events](../glossary.md#trace-event) fired in this cascade? — the readable-line timeline, colour-banded by op family. |
+| **Trace** | What raw [trace events](../glossary.md#trace-event) fired in this run? — the readable-line timeline, colour-banded by op family. |
 | **Machine** | What did this event do to my state machines? — transitions, guards, actions, `:after` rings, the cancellation cascade. Blank when the focused event touched no machine. |
 | **Routes** | What did this event do to my routes? — current route, this-epoch navigation, the registered route table. |
 | **Resources** | What's the lifecycle state of my resources? — long-lived server-state reads, retained values, teardown. |
@@ -195,7 +195,7 @@ For most setups this Just Works with no configuration. There are two ways the ju
 
 ## Static mode: inspect the registry without an event
 
-Everything above is *dynamic* mode — Xray reading the live event stream. Sometimes you don't have a bug in flight; you just want to ask "what's actually *registered* right now?" — which events, subscriptions, effects, machines, and routes the running app knows about, independent of any cascade.
+Everything above is *dynamic* mode — Xray reading the live event stream. Sometimes you don't have a bug in flight; you just want to ask "what's actually *registered* right now?" — which events, subscriptions, effects, machines, and routes the running app knows about, independent of any run.
 
 That's **Static mode**. Toggle it with `Cmd/Ctrl+Shift+M`, or pick it from the `Dynamic / Static ▾` dropdown in the ribbon. The shell swaps to registry-browse surfaces — the **Flows**, **Interceptors**, **Machines**, **Routes**, and **Schemas** catalogues, including a machine explorer you can step through interactively and the schema timeline. There's no event list here — you're browsing the app's wiring, not its history. (Static mode is always available; the mode choice persists across reloads.)
 
@@ -227,4 +227,4 @@ Everything else — tab switching, rewind, filters — is a click or a palette c
 
 ??? note "Going deeper"
 
-    Xray is a pure consumer of re-frame2's structured [trace stream](../glossary.md#trace-stream) — it holds no privileged hook into the runtime, only the same instrumentation API any tool may read (Spec 009). That is why it compiles away cleanly in production: remove the consumer and the framework is unchanged. The "one event in, full insight out" model is the trace stream's natural shape made visible — each cascade is an immutable, fully-described value (dispatch, coeffects, effects, the reactive recompute graph), so every panel is just a different projection of the *same* data. [Time-travel](../glossary.md#time-travel) rewind follows from the same property: because each epoch's state transition is a value, restoring one is a write, not a replay. The boundary rewind respects — state comes back, escaped effects do not — is exactly the line between the pure reduction (recoverable) and the effects at its edges (already in the world).
+    Xray is a pure consumer of re-frame2's structured [trace stream](../glossary.md#trace-stream) — it holds no privileged hook into the runtime, only the same instrumentation API any tool may read (Spec 009). That is why it compiles away cleanly in production: remove the consumer and the framework is unchanged. The "one event in, full insight out" model is the trace stream's natural shape made visible — each run is an immutable, fully-described value (dispatch, coeffects, effects, the reactive recompute graph), so every panel is just a different projection of the *same* data. [Time-travel](../glossary.md#time-travel) rewind follows from the same property: because each epoch's state transition is a value, restoring one is a write, not a replay. The boundary rewind respects — state comes back, escaped effects do not — is exactly the line between the pure reduction (recoverable) and the effects at its edges (already in the world).

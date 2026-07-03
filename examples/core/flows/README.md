@@ -8,7 +8,7 @@ Those totals aren't worked out in the [view](../../../docs/core/glossary.md#view
 
 A [subscription](../../../docs/core/glossary.md#subscription) derives a value too, but it keeps the result in a view-facing cache — perfect for rendering, invisible to everything else. A flow writes its result to app-db instead. So an [event](../../../docs/core/glossary.md#event) handler can read it as plain data, it comes back under time-travel, and it survives the wire.
 
-You declare three things: the `:inputs` to watch, a pure `:derive`, and the `:output-path` to write. When an input changes, the runtime re-runs `:derive` and writes the result — in step with the event cascade. The cart's subtotal and total are exactly that kind of value.
+You declare three things: the `:inputs` to watch, a pure `:derive`, and the `:output-path` to write. When an input changes, the runtime re-runs `:derive` and writes the result — in step with the event pipeline. The cart's subtotal and total are exactly that kind of value.
 
 This is the runnable companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md), the spec for flows. New to flows? Read the [flows guide](../../../docs/core/concepts/flows.md) first — this example assumes the basics.
 

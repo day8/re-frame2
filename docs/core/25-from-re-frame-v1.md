@@ -6,7 +6,7 @@ We'll build up in three moves. First, the good news and the tool that drives the
 
 ## The good news first
 
-The bones are identical. v1's signature shape — the [**event cascade**](glossary.md#event-cascade), the one-way run a dispatched [event](glossary.md#event) sets off as it falls through the *six dominoes* (dispatch → event handler → effects → derivations → view → DOM) — is the same shape in v2. Walk it piece by piece and nothing has moved:
+The bones are identical. v1's signature shape — the [**event pipeline**](glossary.md#event-pipeline), the one-way run a dispatched [event](glossary.md#event) traverses as it falls through the *six dominoes* (dispatch → event handler → effects → derivations → view → DOM) — is the same shape in v2. Walk it piece by piece and nothing has moved:
 
 - [Events](glossary.md#event) — the data describing what happened — are still data.
 - [Event handlers](glossary.md#event-handler) are still pure functions of state.

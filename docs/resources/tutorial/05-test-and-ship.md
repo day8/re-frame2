@@ -163,7 +163,7 @@ The unhappy path — the one your users will actually hit — is the same shape 
 
 ??? note "Going deeper — edges, not mocks"
 
-    Each of those four moves redirects a *value at a boundary* rather than substituting a *mechanism*. `with-managed-request-stubs` is an `:fx-override` — it swaps where one effect-id resolves, leaving the request data and reply path identical. The same `:fx-overrides` map can ride a single dispatch — `(rf/dispatch-sync event {:fx-overrides {…}})` — when one test needs to redirect a different effect; per-call wins over per-frame. And `{:rf.cofx {…}}` doesn't fake the cofx system, it *is* the production stamping surface. Supplied values always win; the runtime fills only what's missing. Forget a declared provided fact and you get a loud `:rf.error/missing-required-cofx`, never a silent `nil`. [Test a cascade](../../core/testing/cascades.md) walks each of these edges as a focused recipe.
+    Each of those four moves redirects a *value at a boundary* rather than substituting a *mechanism*. `with-managed-request-stubs` is an `:fx-override` — it swaps where one effect-id resolves, leaving the request data and reply path identical. The same `:fx-overrides` map can ride a single dispatch — `(rf/dispatch-sync event {:fx-overrides {…}})` — when one test needs to redirect a different effect; per-call wins over per-frame. And `{:rf.cofx {…}}` doesn't fake the cofx system, it *is* the production stamping surface. Supplied values always win; the runtime fills only what's missing. Forget a declared provided fact and you get a loud `:rf.error/missing-required-cofx`, never a silent `nil`. [Test a pipeline run](../../core/testing/pipeline-runs.md) walks each of these edges as a focused recipe.
 
 !!! warning "Gotcha — client-only effects skip on the server"
 
@@ -247,7 +247,7 @@ Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hi
 
 ??? note "Going deeper — the `test-support` sugar"
 
-    The view-content tests pull `re-frame.test-helpers` (the view-tree axis); the event / sub / cascade tests pull `re-frame.test-support` for its sugar — `dispatch-sequence` to fire a vector of events in order, `assert-path-equals` and `assert-db-equals` for `clojure.test`-aware state assertions, `poll-until` for async settles whose result lands in state after `dispatch-sync` returns. Reach for them when the inline `(is (= …))` form gets repetitive; everything else composes straight from `dispatch-sync` / `app-db-value` / `compute-sub`. [Test an event handler](../../core/testing/event-handlers.md) and [Test a cascade](../../core/testing/cascades.md) are the focused recipes.
+    The view-content tests pull `re-frame.test-helpers` (the view-tree axis); the event / sub / pipeline-run tests pull `re-frame.test-support` for its sugar — `dispatch-sequence` to fire a vector of events in order, `assert-path-equals` and `assert-db-equals` for `clojure.test`-aware state assertions, `poll-until` for async settles whose result lands in state after `dispatch-sync` returns. Reach for them when the inline `(is (= …))` form gets repetitive; everything else composes straight from `dispatch-sync` / `app-db-value` / `compute-sub`. [Test an event handler](../../core/testing/event-handlers.md) and [Test a pipeline run](../../core/testing/pipeline-runs.md) are the focused recipes.
 
 ## 6. Reset between tests
 

@@ -44,7 +44,7 @@ skips anything downstream of an input that didn't change. So editing
 the body re-derives the preview without touching the sidebar — the
 panes stay decoupled, and you wire up no listeners at all.
 
-**One edit, one turn of [the cascade](../../../docs/core/glossary.md#event-cascade).**
+**One edit, one [pipeline run](../../../docs/core/glossary.md#run).**
 Typing in the editor dispatches `[:notebook/edit-body text]`. Clicking
 a document dispatches `[:notebook/select id]`. From there it's the same
 loop re-frame2 runs for everything. The

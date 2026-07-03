@@ -1,6 +1,6 @@
 # Testing
 
-re-frame2's payoff at test time is one structural fact: **the interesting parts of your app are pure functions, so you test them as functions** — no browser, no DOM, no mocking framework standing between you and the assertion. A handler is a function you call with maps; a subscription is a function you call with a db value; a view returns hiccup you walk as data; and a whole cascade replays deterministically because everything it consumed was recorded. These tests run on the JVM in milliseconds.
+re-frame2's payoff at test time is one structural fact: **the interesting parts of your app are pure functions, so you test them as functions** — no browser, no DOM, no mocking framework standing between you and the assertion. A handler is a function you call with maps; a subscription is a function you call with a db value; a view returns hiccup you walk as data; and a whole pipeline run replays deterministically because everything it consumed was recorded. These tests run on the JVM in milliseconds.
 
 > **Test the pure middle as functions; control the impure edges at their seams.**
 
@@ -11,7 +11,7 @@ The pages here climb one rung at a time, and each stands alone — start whereve
 | an **event handler** | pluck it from the registrar, call it with literal coeffects, check the returned map | [Event handlers](event-handlers.md) |
 | a **subscription** | `compute-sub` against a db value — the whole `:<-` chain resolves for you | [Subscriptions](subscriptions.md) |
 | a **view** | call it, walk the returned hiccup with `re-frame.test-helpers` | [Views](views.md) |
-| a **whole cascade** | `dispatch-sync` into a fresh frame with supplied facts and canned replies | [Cascades](cascades.md) |
+| a **whole pipeline run** | `dispatch-sync` into a fresh frame with supplied facts and canned replies | [Pipeline runs](pipeline-runs.md) |
 
 One habit runs through every page: **setup rides the frame's construction; the body dispatches only the action under test.** `make-frame` takes `:initial-events` — the same ordered event script a production [`reg-frame`](../concepts/frames.md#seeding-initial-state) boots with — so the state a test needs *before* its action is declared where the frame is made, not stacked up as `dispatch-sync` calls above the assertion. A setup step that needs pinned facts takes the map form, `{:event [...] :opts {:rf.cofx {...}}}`, and a failing step tears the frame down loudly instead of leaving the test half-seeded. When you see a `dispatch-sync` in a test body on these pages, it's the event being tested.
 
@@ -19,8 +19,8 @@ One habit runs through every page: **setup rides the frame's construction; the b
 
 They don't get pages here, and that's deliberate: they are the app's **designed impure edges** — a `reg-fx` body touches the host, a `reg-cofx` supplier reads it — so "unit-test it as a pure function" doesn't apply. What you test instead is everything *around* them, at the seams the framework gives you:
 
-- **Coeffects are supplied as data** — `{:rf.cofx {:rf/time-ms …}}` on the dispatch pins any world fact a handler declared, no supplier involved. [Cascades](cascades.md) covers it.
-- **Effects are redirected as data** — `:fx-overrides` captures or stubs any app fx-id for one dispatch (or a whole frame) — a handful of state-installing reserved fxs excepted, see [Cascades](cascades.md) — so you assert on the exact args map your handler built without performing anything.
+- **Coeffects are supplied as data** — `{:rf.cofx {:rf/time-ms …}}` on the dispatch pins any world fact a handler declared, no supplier involved. [Pipeline runs](pipeline-runs.md) covers it.
+- **Effects are redirected as data** — `:fx-overrides` captures or stubs any app fx-id for one dispatch (or a whole frame) — a handful of state-installing reserved fxs excepted, see [Pipeline runs](pipeline-runs.md) — so you assert on the exact args map your handler built without performing anything.
 - An edge with **real logic in its body** is still just a two-arg function — call it directly with a stub frame context when it earns a test — but keep those bodies thin on purpose: the thinner the edge, the more of its behaviour the seam tests above already cover.
 
 ## The neighbours

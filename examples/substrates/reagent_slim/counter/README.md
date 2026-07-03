@@ -17,7 +17,7 @@ You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to
 1. **The imports point at `reagent2.*`** instead of stock `reagent.*`, so the views render through the slim substrate.
 2. **`(rf/init!)` gets the slim adapter Var** instead of the stock one.
 
-Everything else is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, the two views, and the lazy mount under a `frame-provider`. The same event cascade runs through a different substrate, and nothing downstream can tell. That's the demonstration.
+Everything else is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, the two views, and the lazy mount under a `frame-provider`. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
 
 Read [`core.cljs`](core.cljs) as the example. It's plain, idiomatic re-frame2.
 

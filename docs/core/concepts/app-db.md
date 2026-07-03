@@ -75,7 +75,7 @@ Here's the "one map" claim, live. Two views below share one value — the input 
 
 ### Where the first value comes from
 
-If a handler only ever *transforms* app-db, what hands it the very first one? Every [frame](../glossary.md#frame) — one isolated, independently-running instance of your app, the thing app-db belongs to — starts with `app-db` equal to the empty map `{}`. There is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same [event cascade](../glossary.md#event-cascade) as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
+If a handler only ever *transforms* app-db, what hands it the very first one? Every [frame](../glossary.md#frame) — one isolated, independently-running instance of your app, the thing app-db belongs to — starts with `app-db` equal to the empty map `{}`. There is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same [event pipeline](../glossary.md#event-pipeline) as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
 
 ```clojure
 (rf/reg-frame :app
@@ -92,7 +92,7 @@ The steps dispatch synchronously, in order, each one run to completion before th
 
 ??? info "From re-frame v1"
 
-    v1 seeded app-db with an `:initial-db` config value (or an `:on-create` hook). Both are retired. The new way is `:initial-events` with a leading `[:rf/set-db {…}]` step — so even your *first* state arrives by dispatch through the event cascade, not a side channel. One mechanism, used everywhere.
+    v1 seeded app-db with an `:initial-db` config value (or an `:on-create` hook). Both are retired. The new way is `:initial-events` with a leading `[:rf/set-db {…}]` step — so even your *first* state arrives by dispatch through the event pipeline, not a side channel. One mechanism, used everywhere.
 
 ## A database, on purpose
 
@@ -225,7 +225,7 @@ There is a second lane, and it is not for app code. The runtime exposes a small 
 (rf/restore-epoch!       frame-id epoch-id)      ;; rewind to a captured past state
 ```
 
-Call these **state surgery**. They don't run a handler, fire no effects, and carry no event through the cascade — they reach past the front door and write the value directly. That makes them exactly the right tool for three jobs, and exactly the wrong tool for everything else:
+Call these **state surgery**. They don't run a handler, fire no effects, and carry no event through the pipeline — they reach past the front door and write the value directly. That makes them exactly the right tool for three jobs, and exactly the wrong tool for everything else:
 
 - **Tests.** A fixture installs a known app-db before assertions, instead of dispatching a dozen setup events to arrive there. `replace-frame-state!` (not app-db-only) is what an epoch-history test needs, because machine actors and the route slice live in runtime-db.
 - **Tooling.** [Xray](observability.md) time-travel and the pair MCP rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
@@ -233,7 +233,7 @@ Call these **state surgery**. They don't run a handler, fire no effects, and car
 
 !!! warning "Gotcha — never reach for state surgery in application code"
 
-    These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the [epoch](../glossary.md#epoch) ledger has no cascade to show, none of the per-event commit machinery runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop. The surgery lane exists so tools and tests can set up or rewind state *around* your app, not so your app can mutate itself behind its own back.
+    These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the [epoch](../glossary.md#epoch) ledger has no run to show, none of the per-event commit machinery runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop. The surgery lane exists so tools and tests can set up or rewind state *around* your app, not so your app can mutate itself behind its own back.
 
 !!! warning "Gotcha"
 
@@ -241,14 +241,14 @@ Call these **state surgery**. They don't run a handler, fire no effects, and car
 
 The contrast is the point. The front door is auditable because every change is an event with a cause; surgery is powerful because it answers to no cause — which is exactly why it belongs to the test harness and the debugger, not the application. Reach for it only when you are *operating on* a frame from outside (a fixture, a tool, the REPL), never when you are *writing* the app that runs inside one.
 
-A note on what each one targets, since the names are deliberately exact. `replace-app-db!` and `reset-app-db!` touch *only* the app partition and leave runtime-db live — so the route and machine snapshots survive. `replace-frame-state!` is the full-frame install: it replaces both partitions atomically from a `{:rf.db/app … :rf.db/runtime …}` value, which is what an epoch-history test or a tool-driven replay needs. `restore-epoch!` is the same full-frame replace, but sourced from a captured past epoch rather than a value you hand it — it revives app-db *and* runtime-db together, so machine actors and the route slice come back exactly as they were, not just the app-db projection. Every one of these mutators returns a boolean — `true` on success, `false` on a refusal — and a refusal is always a clean **no-op**: the frame is left exactly as it was. They refuse, and tell you why through an error trace, for an unknown or destroyed frame, for a call made *mid-drain* (while a run-to-completion cascade is still in flight — you retry once it settles), and — for the partition-replace surfaces — when the value you handed in fails the frame's registered [schema](../glossary.md#schema). So even though surgery skips the *event-time* validation gate, the `replace-*!` surfaces still won't install a value that violates a schema you declared; they decline rather than corrupt.
+A note on what each one targets, since the names are deliberately exact. `replace-app-db!` and `reset-app-db!` touch *only* the app partition and leave runtime-db live — so the route and machine snapshots survive. `replace-frame-state!` is the full-frame install: it replaces both partitions atomically from a `{:rf.db/app … :rf.db/runtime …}` value, which is what an epoch-history test or a tool-driven replay needs. `restore-epoch!` is the same full-frame replace, but sourced from a captured past epoch rather than a value you hand it — it revives app-db *and* runtime-db together, so machine actors and the route slice come back exactly as they were, not just the app-db projection. Every one of these mutators returns a boolean — `true` on success, `false` on a refusal — and a refusal is always a clean **no-op**: the frame is left exactly as it was. They refuse, and tell you why through an error trace, for an unknown or destroyed frame, for a call made *mid-drain* (while a run-to-completion drain is still in flight — you retry once it settles), and — for the partition-replace surfaces — when the value you handed in fails the frame's registered [schema](../glossary.md#schema). So even though surgery skips the *event-time* validation gate, the `replace-*!` surfaces still won't install a value that violates a schema you declared; they decline rather than corrupt.
 
 `restore-epoch!` has a wider set of refusals than the others, because it isn't installing a value you hand it — it's reviving a *recorded* one out of a finite, evolving history, and several things can make a past epoch no longer restorable. On any of them it is a no-op and names the reason in an error trace (under `:rf.epoch/*`, except the unknown-frame case):
 
 - the epoch id isn't in the frame's retained history (`:rf.epoch/restore-unknown-epoch`) — the ring is finite; old epochs roll off
-- the frame is mid-drain (`:rf.epoch/restore-during-drain`) — rejected; retry once the cascade settles
+- the frame is mid-drain (`:rf.epoch/restore-during-drain`) — rejected; retry once the drain settles
 - the recorded state no longer validates against your *current* schemas (`:rf.epoch/restore-schema-mismatch`) — you tightened or changed a schema since that epoch was captured, so rewinding to it would land an app-db your present rules reject
-- the target epoch is the record of a *halted* cascade (`:rf.epoch/restore-non-ok-record`) — a cascade that errored or was cut short carries partial state for devtools to inspect, not a settled value, so it is not a valid rewind target
+- the target epoch is the record of a *halted* run (`:rf.epoch/restore-non-ok-record`) — a run that errored or was cut short carries partial state for devtools to inspect, not a settled value, so it is not a valid rewind target
 
 So a failed rewind never half-restores; it leaves you where you were and tells you why. Two rarer refusals round out the set and behave the same way — a machine snapshot recorded under an older machine definition (version drift), and a recorded state that references a registration which no longer exists. Each is a clean no-op that names its reason.
 
@@ -271,4 +271,4 @@ Your entire application state, printed top to bottom, readable as a map. `app-db
 
 `frame-state-value` is the coherent full-frame projection — the same shape SSR ships and time-travel reverts. All three return `nil` for an unknown or destroyed frame, so a read against a torn-down frame degrades quietly rather than throwing. (Dispatching or subscribing to a destroyed frame is the same story — `dispatch` no-ops, `subscribe` returns `nil`, and the framework emits a production-survivable `:rf.error/frame-destroyed` so the diagnostic reaches your error monitor instead of vanishing.)
 
-Now open Xray and watch it move. Dispatch an event — say `[:cart/add {:id 22 :qty 1}]` — and the App-db tab shows exactly the slices that changed in that cascade, each with its before and after value, marked added, modified, or removed. That diff is the complete story of what the event did to your data. There is nowhere else application state could have changed, so when something is wrong, this is where you look first. [Debug with Xray](../how-to/debug-with-xray.md) makes a workflow of it.
+Now open Xray and watch it move. Dispatch an event — say `[:cart/add {:id 22 :qty 1}]` — and the App-db tab shows exactly the slices that changed in that run, each with its before and after value, marked added, modified, or removed. That diff is the complete story of what the event did to your data. There is nowhere else application state could have changed, so when something is wrong, this is where you look first. [Debug with Xray](../how-to/debug-with-xray.md) makes a workflow of it.

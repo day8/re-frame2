@@ -67,7 +67,7 @@ client picking it up:
   render.** `:rf/server-init` dispatches `:rf.http/managed`. The JVM
   smoke redirects it to a canned-success stub through the
   `:fx-overrides` seam, so the render exercises the full
-  [cascade](../../../../docs/core/glossary.md#event-cascade) without real
+  [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real
   network traffic.
 - **Pure [hiccup](../../../../docs/core/glossary.md#hiccup) → HTML.**
   `rf/render-to-string` is a pure function from the registered views to

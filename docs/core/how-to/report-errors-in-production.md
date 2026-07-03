@@ -78,7 +78,7 @@ Three gates, redundant on purpose, each earning its keep:
 Two more properties fall out of the substrate's design for free:
 
 - **Re-registering the same id replaces it atomically.** Register `::sentry-bridge` twice and the swap happens *between* two emits, never mid-emit — no record re-delivered, none dropped. So the bridge is **hot-reload safe**: dev refreshes won't stack duplicate listeners.
-- **A listener that throws is isolated.** The runtime wraps each invocation in its own try/catch, so a bug in *your* bridge can't block the [cascade](../glossary.md#event-cascade) or take down sibling listeners.
+- **A listener that throws is isolated.** The runtime wraps each invocation in its own try/catch, so a bug in *your* bridge can't block the [pipeline run](../glossary.md#run) or take down sibling listeners.
 
 To take the bridge back down — a feature flag flipping off, say — call `(rf/unregister-listener! :errors ::sentry-bridge)`.
 
@@ -114,7 +114,7 @@ So why can the `:exception` be absent? Most failures carry the raw host throwabl
 - `:rf.error/frame-destroyed` — an operation targeted a frame whose lifecycle already ended (a callback fired after teardown).
 - `:rf.error/write-after-destroy` — a write to app-db was suppressed because the target frame was already gone (the write-path partner of `frame-destroyed`).
 - `:rf.error/override-fallthrough` — an [image](../glossary.md#image) (the sealed set of [registrations](../glossary.md#registration) a frame resolves against) resolved to no provider for an overridden id.
-- `:rf.error/no-frame-context` — a frame-scoped op (a `subscribe` / `dispatch` using the ambient 1-arity `rf/` forms) ran with **no frame in scope** — the classic "a plain Reagent function can't see its frame" footgun, or a native async callback whose continuation fired after the cascade had already unwound. This record is itself **frameless** (`:frame nil`); in a *dev* build it also carries capture-site ancestry through the `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` correlation keys, but those ids are dev-minted, so the production shipper this recipe wires receives the frameless record without ancestry (§5's elision list covers why). ([Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — and a callback that lost its frame is the price of breaking that rule; capture a [capture-frame](../glossary.md#capture-frame) before the async boundary to avoid it.)
+- `:rf.error/no-frame-context` — a frame-scoped op (a `subscribe` / `dispatch` using the ambient 1-arity `rf/` forms) ran with **no frame in scope** — the classic "a plain Reagent function can't see its frame" footgun, or a native async callback whose continuation fired after the run had already unwound. This record is itself **frameless** (`:frame nil`); in a *dev* build it also carries capture-site ancestry through the `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` correlation keys, but those ids are dev-minted, so the production shipper this recipe wires receives the frameless record without ancestry (§5's elision list covers why). ([Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — and a callback that lost its frame is the price of breaking that rule; capture a [capture-frame](../glossary.md#capture-frame) before the async boundary to avoid it.)
 - `:rf.error/bad-frame-provider-arg` — a public [`frame-provider`](../glossary.md#frame-provider) got a non-nil `:frame` that wasn't a keyword (a string, a number). Frame ids are keywords; this fails fast before the bad value reaches React context.
 - `:rf.error/machine-spawn-unregistered-type` — a runtime spawn of an unregistered [machine](../../machines/glossary.md#machine) (`:machine-id` with no inline `:definition`) was refused fail-closed. A structural-only record: `:machine-id`, `:frame`, `:reason`. (Machine *registration*-time rejections are dev-only and never reach this surface.)
 
@@ -239,7 +239,7 @@ That same handler failure also lands on Xray's trace surface as the full dev dos
 
 ## 7. Pair `:errors` with its `:events` sibling {#pair-errors-with-events}
 
-Crash reporting is the `:errors` stream's job. Its sibling, the `:events` stream, answers the *other* production-observability question: how many events am I processing, how fast, and how many aborted? It fires one tight record per processed event after the cascade settles:
+Crash reporting is the `:errors` stream's job. Its sibling, the `:events` stream, answers the *other* production-observability question: how many events am I processing, how fast, and how many aborted? It fires one tight record per processed event after the run settles:
 
 ```clojure
 (when (and config/production? (not ^boolean interop/debug-enabled?))
@@ -250,12 +250,12 @@ Crash reporting is the `:errors` stream's job. Its sibling, the `:events` stream
         {:event-id (str event-id) :frame (str frame) :outcome (name outcome)}))))
 ```
 
-The `:outcome` slot earns its keep, because it reports the dispatch result across **every** way a cascade can fail — so a dispatch that aborted is never mis-reported to your APM as a clean `:ok`. It takes one of four values:
+The `:outcome` slot earns its keep, because it reports the dispatch result across **every** way a run can fail — so a dispatch that aborted is never mis-reported to your APM as a clean `:ok`. It takes one of four values:
 
 - `:ok` — clean settle: `:db` [committed](../glossary.md#commit), flows ran, `:fx` walked.
-- `:error` — the interceptor chain (handler or interceptor) threw; the cascade halted before any `:db` commit.
+- `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
 - `:rolled-back` — post-commit `:db` schema validation rejected the new state, so the container was restored to its pre-handler value; flows and `:fx` were skipped.
-- `:flow-error` — a flow's `:output` threw; the cascade halted before `:fx`.
+- `:flow-error` — a flow's `:output` threw; the run halted before `:fx`.
 
 The two streams pair naturally: `:events` tells you *something is wrong* (a spike of `:error` / `:rolled-back` outcomes on your dashboard); `:errors` tells you *what* (the throwable and its stack, ready for the issue tracker).
 

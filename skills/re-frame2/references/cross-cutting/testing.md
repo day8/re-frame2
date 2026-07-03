@@ -229,7 +229,7 @@ This is the dominant shape for an app-developer e2e view test — it compresses 
 
 `testid` may be a string (`"n"`) or keyword (`:n`). Returns a boolean, but the `is` report has already fired.
 
-`wait-until` is the bounded-deadline poll for async cascades (HTTP, scheduled events, machine `:after` transitions) whose post-condition is observable in the view — the view-test counterpart to `test-support`'s `poll-until`. Two call shapes plus opts:
+`wait-until` is the bounded-deadline poll for async runs (HTTP, scheduled events, machine `:after` transitions) whose post-condition is observable in the view — the view-test counterpart to `test-support`'s `poll-until`. Two call shapes plus opts:
 
 ```clojure
 (h/wait-until #(= "done" (-> (some-tree) (h/find-by-testid "status") h/text-content)))
@@ -237,7 +237,7 @@ This is the dominant shape for an app-developer e2e view test — it compresses 
 (h/wait-until :status "done" {:timeout-ms 5000 :interval-ms 10 :label "status ready"})
 ```
 
-`opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape** (matching `poll-until`): **JVM** synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/wait-until-timeout`) on timeout; **CLJS** returns a `js/Promise` — resolves with the truthy value, rejects on timeout, compose with `cljs.test/async`. For sync cascades, `expect-text` after `dispatch-sync` suffices — reach for `wait-until` only when the cascade is genuinely async. Not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
+`opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape** (matching `poll-until`): **JVM** synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/wait-until-timeout`) on timeout; **CLJS** returns a `js/Promise` — resolves with the truthy value, rejects on timeout, compose with `cljs.test/async`. For sync runs, `expect-text` after `dispatch-sync` suffices — reach for `wait-until` only when the run is genuinely async. Not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
 
 ### Lower-level walk helpers — the hiccup-walk pattern
 
@@ -263,7 +263,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 
 **Why walk the view, not just assert state?** State-only assertions (`(is (= 2 (:n db)))`) catch handler bugs but miss two classes the hiccup-walk catches — *state-correct, view-broken* (handler updated db, view reads the wrong path / forgets a branch) and *wrong-frame dispatch* (`:on-click` dispatches into the wrong frame; host-frame state never changes). Both surface on JVM and Node-CLJS with no browser.
 
-**Single-frame discipline.** Application view tests use ONE frame — the host frame. Views, events, subs, and asserts all reference the same frame. A multi-frame harness — a test where an **observer / tool** frame watches another frame's app-db or trace stream (as a dev tool would) — is the only shape that legitimately spans frames, and it is never a regular application view. Full walkthrough at [`docs/core/testing/cascades.md`](../../../../docs/core/testing/cascades.md).
+**Single-frame discipline.** Application view tests use ONE frame — the host frame. Views, events, subs, and asserts all reference the same frame. A multi-frame harness — a test where an **observer / tool** frame watches another frame's app-db or trace stream (as a dev tool would) — is the only shape that legitimately spans frames, and it is never a regular application view. Full walkthrough at [`docs/core/testing/pipeline-runs.md`](../../../../docs/core/testing/pipeline-runs.md).
 
 ## Machine snapshots and tag queries
 

@@ -251,6 +251,6 @@ creation, and render calls change.
     The old `mount-root` pattern rendered again after a hot
     reload while global app-db survived as a top-level value. In re-frame2, the
     state container is explicit: a frame. The provider ensures or scopes that
-    frame, and `:initial-events` seed it through the normal event cascade.
+    frame, and `:initial-events` seed it through the normal event pipeline.
 
 The full frame lifecycle is covered in [Frames](../concepts/frames.md).

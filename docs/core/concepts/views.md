@@ -60,7 +60,7 @@ This declares "I depend on this derived value. Re-run me when it changes." That'
 [:button {:on-click #(rf/dispatch [:cart/add id])} "Add"]
 ```
 
-A dispatch *announces that something happened* by handing the framework an [event](../glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event cascade](../glossary.md#event-cascade) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole turn of the loop is [Events & the cascade](events-and-the-pipeline.md).)
+A dispatch *announces that something happened* by handing the framework an [event](../glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event pipeline](../glossary.md#event-pipeline) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole traversal is [Events & the pipeline](events-and-the-pipeline.md).)
 
 Notice the shape of the round trip, because it's the whole idea. A click never mutates the number it sits next to. It dispatches an event that produces a *new* `app-db`, which flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with.
 

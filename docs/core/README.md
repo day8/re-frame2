@@ -1,6 +1,6 @@
 # The re-frame2 Guide
 
-re-frame2 is a data-first framework for building React applications in ClojureScript. The whole app reads from one immutable state map — [app-db](glossary.md#app-db) — and changes it one way: you describe what happened as plain data (an [event](glossary.md#event)), that event sets off a fixed, ordered run called the [event cascade](glossary.md#event-cascade), and the [views](glossary.md#view) render last from the state it leaves behind. Data in, data out, UI as a function of the result.
+re-frame2 is a data-first framework for building React applications in ClojureScript. The whole app reads from one immutable state map — [app-db](glossary.md#app-db) — and changes it one way: you describe what happened as plain data (an [event](glossary.md#event)), that event traverses a fixed, ordered run through the [event pipeline](glossary.md#event-pipeline), and the [views](glossary.md#view) render last from the state it leaves behind. Data in, data out, UI as a function of the result.
 
 This page doesn't teach any of that. Its whole job is to be a signpost: find the door that fits you, walk through it, and the rest of the guide unfolds from there. Everything below is one click deeper.
 
@@ -48,11 +48,11 @@ The guide is layered by *how much you have to read before you can do something u
 | Tier | What it's for | Door |
 |---|---|---|
 | **Quickstart** | Pixels in five minutes; nothing explained yet | [Quickstart](quickstart.md) |
-| **The loop** | The mental model — events, app-db, subscriptions, views, effects — taught as six steps that knock into each other like dominoes, one page per step, all on the counter | [The model: six dominoes, one loop](concepts/index.md) |
+| **The loop** | The mental model — events, app-db, subscriptions, views, effects — taught as six steps that knock into each other like dominoes, one page per step, all on the counter | [The model: the event pipeline](concepts/index.md) |
 | **Tutorial** | Build RealWorld end to end — pages, server data, auth, writes, tests — one app, start to finish | [Build RealWorld](../resources/tutorial/index.md) |
 | **More concepts** | Everything built *on* the loop — interceptors, frames, images, flows, machines, HTTP, resources, routing, SSR, errors, observability | [Interceptors](concepts/interceptors.md) |
 | **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |
-| **Testing** | Handlers, subscriptions, views, and whole cascades — each tested as the pure function it is | [Testing](testing/index.md) |
+| **Testing** | Handlers, subscriptions, views, and whole pipeline runs — each tested as the pure function it is | [Testing](testing/index.md) |
 | **Explanation** | The *why* behind the design — for when you're curious, not blocked | [Inside out: why views come last](explanation/inside-out.md) |
 | **Migration** | What changed from re-frame v1, and how to port | [From re-frame v1](25-from-re-frame-v1.md) |
 | **Reference** | The exact surface — every public function, and the vocabulary the guide speaks | [API reference](../api/README.md) and [Glossary](glossary.md) |

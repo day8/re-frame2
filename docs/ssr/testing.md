@@ -1,6 +1,6 @@
 # Testing SSR
 
-Here's the pleasant surprise: **your server tests are just JVM tests.** The whole point of re-frame2's SSR is that the same handlers, subscriptions, and views run on the JVM against a per-request frame — and that is *exactly* what your unit suite already does. Every [handler test](../core/testing/event-handlers.md), [subscription test](../core/testing/subscriptions.md), and [cascade test](../core/testing/cascades.md) you've written is already exercising the code path a server render takes. What's left to test is the thin layer that is genuinely SSR's own: the rendered string, the boot-time guards, the pure projectors, and platform gating.
+Here's the pleasant surprise: **your server tests are just JVM tests.** The whole point of re-frame2's SSR is that the same handlers, subscriptions, and views run on the JVM against a per-request frame — and that is *exactly* what your unit suite already does. Every [handler test](../core/testing/event-handlers.md), [subscription test](../core/testing/subscriptions.md), and [pipeline-run test](../core/testing/pipeline-runs.md) you've written is already exercising the code path a server render takes. What's left to test is the thin layer that is genuinely SSR's own: the rendered string, the boot-time guards, the pure projectors, and platform gating.
 
 > **A JVM test drain *is* a server-side drain — most of SSR was tested before you wrote an SSR test.**
 

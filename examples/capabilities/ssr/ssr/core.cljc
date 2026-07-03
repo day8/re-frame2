@@ -105,7 +105,7 @@
 ;;
 ;; HTTP goes through the framework's `:rf.http/managed` effect. The headless
 ;; test swaps it, via the `:fx-overrides` seam, for a per-frame canned-success
-;; stub — so the JVM render runs the whole event cascade end to end without a
+;; stub — so the JVM render runs the whole event pipeline end to end without a
 ;; single packet leaving the building.
 
 ;; Some effects only make sense in a browser. localStorage is the textbook

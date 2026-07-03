@@ -123,16 +123,16 @@ That means giving the test its own [**frame**](../glossary.md#frame): an isolate
            (get-in (rf/app-db-value f) [:articles :refreshing-since])))))
 ```
 
-[`dispatch-sync`](../glossary.md#dispatch-sync) drains the entire [cascade](../glossary.md#event-cascade) before returning, which is why the assertion on the next line can read fully committed state — there's nothing to flush and nothing to await.
+[`dispatch-sync`](../glossary.md#dispatch-sync) [drains](../glossary.md#drain--run-to-completion) the whole queue to a fixed point before returning, which is why the assertion on the next line can read fully committed state — there's nothing to flush and nothing to await.
 
 !!! warning "Gotcha"
 
-    Call it from your test (or at boot, or the REPL) — never from inside a running handler. A handler that calls `(rf/dispatch-sync [:other] …)` in its body [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/dispatch-sync-in-handler`: a handler must stay pure and *describe* a follow-up dispatch as data, not synchronously drive one. The in-handler shape is the `:fx` effect `[[:dispatch [:other]]]`, which the runtime drains as part of the same cascade. (A bare `(rf/dispatch [:other])` from a handler body is *not* this error — it queues normally and routes to the handler's frame — but the `:fx` form is the idiom you want.)
+    Call it from your test (or at boot, or the REPL) — never from inside a running handler. A handler that calls `(rf/dispatch-sync [:other] …)` in its body [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/dispatch-sync-in-handler`: a handler must stay pure and *describe* a follow-up dispatch as data, not synchronously drive one. The in-handler shape is the `:fx` effect `[[:dispatch [:other]]]`, which the runtime drains as part of the same drain. (A bare `(rf/dispatch [:other])` from a handler body is *not* this error — it queues normally and routes to the handler's frame — but the `:fx` form is the idiom you want.)
 
 Two dispatch options do the work that the literal coeffects map did back in section 2:
 
 - **`:rf.cofx`** supplies coeffects on the dispatch — it plays the role the literal coeffects map played in section 2, except now you hand the values to the dispatch and the runtime threads them into the handler. Supplied values win; the runtime fills in only what's missing. Without it, the clock here would be the real wall clock the runtime stamps on the event, and your assertion would be chasing a moving target.
-- **`:fx-overrides`** redirects an effect for this one dispatch. Here it swallows the HTTP request, because this test only cares about the stamp. Answering the request with a canned reply and asserting the whole chain is the next page's job: [Test a cascade](cascades.md).
+- **`:fx-overrides`** redirects an effect for this one dispatch. Here it swallows the HTTP request, because this test only cares about the stamp. Answering the request with a canned reply and asserting the whole chain is the next page's job: [Test a pipeline run](pipeline-runs.md).
 
 ??? note "Going deeper — naming the frame yourself"
 

@@ -104,7 +104,7 @@ Reference is a **first-class authoring track** with its own best-practice bar, n
 
 A learning track is read top-to-bottom in the left nav, so the nav itself must carry the progression:
 
-- **Number the pages of a sequential track** — `"1. Events and the cascade"`, `"2. app-db: state in one place"`, … — so a reader always knows where they are and what's next. The loop pages and the tutorial parts do this; a future sequential track should too.
+- **Number the pages of a sequential track** — `"1. Events and the pipeline"`, `"2. app-db: state in one place"`, … — so a reader always knows where they are and what's next. The loop pages and the tutorial parts do this; a future sequential track should too.
 - **Give every nav label a descriptive tail** (`"Frames: isolated worlds"`, not `"Frames"`). The reader should be able to pick their page from the nav alone, without opening three wrong ones first.
 - **Order pages so each leans only on what came before it**, and open each page by placing it: one sentence on what the reader just learned and what this page adds. The prev/next buttons carry the navigation; the opening sentence carries the *thread*.
 

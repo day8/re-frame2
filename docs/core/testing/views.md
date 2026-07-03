@@ -1,6 +1,6 @@
 # Test a view
 
-You've tested the [handler](event-handlers.md) and the [cascade](cascades.md), and now you want the same confidence about a view: the right structure comes out, the right text shows for a given state, and the right handler is wired to the right button. Like the rest of the suite, this needs no browser. A [view](../glossary.md#view) is a pure function that returns [hiccup](../glossary.md#hiccup) — plain data — so a view test is a function call and a tree walk, and it runs on the JVM in milliseconds.
+You've tested the [handler](event-handlers.md) and the [pipeline run](pipeline-runs.md), and now you want the same confidence about a view: the right structure comes out, the right text shows for a given state, and the right handler is wired to the right button. Like the rest of the suite, this needs no browser. A [view](../glossary.md#view) is a pure function that returns [hiccup](../glossary.md#hiccup) — plain data — so a view test is a function call and a tree walk, and it runs on the JVM in milliseconds.
 
 > **A view test calls the function and walks the returned data — no DOM, no JSDOM, no `act()`.**
 
@@ -82,7 +82,7 @@ The last thing a view owns is the connection from a node to its dispatch. `th/in
     (th/wait-until :counter-display "1" {:label "counter reached 1"})))
 ```
 
-Two details carry this test. `invoke-handler` **throws** when the node has no handler under that key — a missing handler is almost always the bug you're hunting, so it refuses to pass silently. And the assertion is `th/wait-until`, not `expect-text`: the invoked `:on-click` fires a plain `dispatch`, which queues rather than draining synchronously, so the test polls the rendered view against a bounded deadline (the view-side sibling of `ts/poll-until` — same defaults, same loud timeout carrying `:rf.error/wait-until-timeout`). The same form covers any async settle whose outcome is *visible in the view* — an HTTP reply, a machine `:after` transition, a scheduled event. For a synchronous cascade, `expect-text` after `dispatch-sync` is enough.
+Two details carry this test. `invoke-handler` **throws** when the node has no handler under that key — a missing handler is almost always the bug you're hunting, so it refuses to pass silently. And the assertion is `th/wait-until`, not `expect-text`: the invoked `:on-click` fires a plain `dispatch`, which queues rather than draining synchronously, so the test polls the rendered view against a bounded deadline (the view-side sibling of `ts/poll-until` — same defaults, same loud timeout carrying `:rf.error/wait-until-timeout`). The same form covers any async settle whose outcome is *visible in the view* — an HTTP reply, a machine `:after` transition, a scheduled event. For a synchronous run, `expect-text` after `dispatch-sync` is enough.
 
 ## When you want more than hiccup
 

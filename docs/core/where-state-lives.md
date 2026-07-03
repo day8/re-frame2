@@ -73,7 +73,7 @@ This is the moment the value wants to be *part of the application's state*. That
    :output-path [:cart/total]})                  ;; where the result is written
 ```
 
-The formula is identical. What changed is *where the value lives*. Your checkout handler now reads `(:cart/total db)` like any other state, and because the value is part of the [frame](glossary.md#frame)'s state, it rides time-travel and SSR. Dispatch a cart event with [Xray](glossary.md#xray) open and you'll watch the flow's recompute ride the very [event cascade](glossary.md#event-cascade) that changed its inputs — so the total becomes part of the event's *outcome*, not a render-time afterthought.
+The formula is identical. What changed is *where the value lives*. Your checkout handler now reads `(:cart/total db)` like any other state, and because the value is part of the [frame](glossary.md#frame)'s state, it rides time-travel and SSR. Dispatch a cart event with [Xray](glossary.md#xray) open and you'll watch the flow's recompute ride the very [pipeline run](glossary.md#run) that changed its inputs — so the total becomes part of the event's *outcome*, not a render-time afterthought.
 
 Those four keys are the whole core of a flow: `:id` names it, `:inputs` is the ordered vector of paths to watch (each value arrives positionally to `:derive`), `:derive` is the pure recompute, and `:output-path` is the `app-db` path written for you.
 

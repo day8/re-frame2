@@ -42,7 +42,7 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
 
 ## 2. Navigation through a test frame
 
-The wiring — navigate event in, slice out — is a [cascade test](../core/testing/cascades.md): dispatch into a fresh frame, read the route subs. Inside `with-new-frame` the plain subs resolve against the test frame:
+The wiring — navigate event in, slice out — is a [pipeline-run test](../core/testing/pipeline-runs.md): dispatch into a fresh frame, read the route subs. Inside `with-new-frame` the plain subs resolve against the test frame:
 
 ```clojure
 (deftest navigate-writes-the-slice

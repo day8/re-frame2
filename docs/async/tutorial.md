@@ -207,7 +207,7 @@ The request goes out as data and the reply comes back as data, so a test needs n
       (is (= :error (get-in (rf/app-db-value f) [:article :status]))))))
 ```
 
-The stubbed reply has the exact envelope a live request produces, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a cascade](../core/testing/cascades.md) is the full recipe.
+The stubbed reply has the exact envelope a live request produces, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe.
 
 !!! note "Do, observe"
 

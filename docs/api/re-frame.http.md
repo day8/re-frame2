@@ -249,7 +249,7 @@ The `:before` runs before the request is dispatched to the platform's HTTP clien
 
 ## Testing: stubbed responses
 
-Tests want to drive the cascade without hitting the network. The test-support surface provides canned-reply fx and a stubbing macro that reroutes requests at the routes you name. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install` / `uninstall` pair is reached only through the home namespace `re-frame.http.test-support`.
+Tests want to drive the pipeline without hitting the network. The test-support surface provides canned-reply fx and a stubbing macro that reroutes requests at the routes you name. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install` / `uninstall` pair is reached only through the home namespace `re-frame.http.test-support`.
 
 ### `[:rf.http/managed-canned-success {:value v}]`
 
