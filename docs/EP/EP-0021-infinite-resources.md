@@ -131,9 +131,13 @@ single-page reads; the infinite case is the conspicuous remaining hole.
 - **No bidirectional realtime/streaming feed.** Optional `getPreviousPageParam`
   (prepend) is in scope as a *param-derivation* mirror; live push, websockets,
   and subscription-driven fetching are not.
-- **No optimistic insert/remove inside a feed.** That composes with the deferred
-  optimistic-rollback EP ([EP-0016 issue 9](EP-0016-resource-mutation-completion.md#open-issues)),
-  not this one.
+- **No optimistic insert/remove inside a feed.** That is a **distinct deferred
+  axis** — reaching *into* the page vector of one feed entry to patch a single
+  item — and is **not** the single-entry optimistic surface that since shipped as
+  [EP-0019](EP-0019-optimistic-mutation-rollback.md) (whose unit of cache
+  identity is a whole resource entry, not an item inside a feed's page vector).
+  Its live home + fires-when trigger is
+  [spec/016-Resources.md §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed).
 - **No new transport.** Infinite resources lower through the same Spec 014
   managed HTTP as every other resource; GraphQL/cursor-connection transports
   remain deferred.
@@ -527,9 +531,12 @@ Open Question 4 for the *item-reach* sub-decision).
 - **Item-level invalidation** (a mutation changes one item *inside* the feed) is
   Open Question 4: the recommendation is that a feed `:tags` fn may also be
   evaluated per-item so an item tag (`[:timeline-item id]`) maps to the feeds
-  containing it, but *reaching into* the page vector to patch one item is the
-  optimistic/patch axis deferred to a later EP — for v1, an item mutation
-  **invalidates the feed** (coarse, correct) rather than patching in place.
+  containing it, but *reaching into* the page vector to patch one item is a
+  distinct deferred axis (not the single-entry optimistic surface that shipped as
+  [EP-0019](EP-0019-optimistic-mutation-rollback.md)) — for v1, an item mutation
+  **invalidates the feed** (coarse, correct) rather than patching in place. The
+  deferral's live home + fires-when trigger is
+  [spec/016 §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed).
 - **Scope** invalidation (`clear-scope` on logout) drops the feed entry like any
   scoped entry — the whole accumulation goes, correctly, with the user.
 
@@ -679,11 +686,16 @@ guide-impact assessment.
    loses the framework-owned memoised merge.
 
 4. **What does an item-inside-the-feed mutation do?** Recommendation: **invalidate
-   the whole feed** (coarse, correct, v1) and defer in-place patching to the
-   optimistic/patch EP ([EP-0016 issue 9](EP-0016-resource-mutation-completion.md#open-issues)).
+   the whole feed** (coarse, correct, v1) and defer in-place patching as a distinct
+   axis (**not** the single-entry optimistic surface that shipped as
+   [EP-0019](EP-0019-optimistic-mutation-rollback.md), which resolved
+   [EP-0016 issue 9](EP-0016-resource-mutation-completion.md#open-issues) but keeps
+   the resource **entry** as its unit — it does not reach into a feed's page
+   vector). The deferral's live home + fires-when trigger is
+   [spec/016 §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed).
    Open: should v1 ship a per-item `:tags` evaluation so item tags map to
    containing feeds (enabling targeted feed invalidation), or is feed-tag
-   invalidation enough until the patch EP?
+   invalidation enough until the patch axis lands?
 
 5. **`:data-schema` vs `:page-data-schema` for an infinite resource.**
    Recommendation: `:page-data-schema` validates one page (the decode target);
@@ -716,7 +728,7 @@ reconciled to them.
 | **R1** | Where do accumulated pages live, and in what exact shape? (Open Issue 1) | **ONE scoped resource entry per feed** in `:rf.runtime/resources`; `:data` = the ordered page vector `[page-0 page-1 …]`, plus `:page-params`, `:next-page-param`, `:page-error`, and the page-fetch work evidence. **NOT** N per-page entries and **NOT** an app-db slice. One owner set / freshness clock / GC clock / SSR-restore unit / Xray row for the whole feed. |
 | **R2** | Page-level sub-status, or only the existing `:fetching`? (Open Issue 2) | **No 6th FSM state.** A load-more reuses the existing `:fetching` (refresh-class) transition; a derived **`:fetching-next?`** subscription distinguishes a load-more in flight from a whole-feed `:fetching?` refresh. The five-state FSM is untouched. |
 | **R3** | Merged-list contract: headline read + default flatten? (Open Issue 3) | Framework-owned, memoised subscriptions: **`:rf.resource/items`** (the merged flat list — the headline read), **`:rf.resource/pages`** (raw boundaries), **`:rf.resource/infinite-state`** (combined view-model), plus the page-metadata subs. **`:page->items` is REQUIRED** for any feed whose page is non-vector/enveloped — loud over guessing `:items`/`:data`. A page that is already a vector flattens by identity. |
-| **R4** | What does an item-inside-the-feed mutation do? (Open Issue 4) | A mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct, v1). In-place patching of one item inside the page vector is **deferred** to the optimistic/patch axis. |
+| **R4** | What does an item-inside-the-feed mutation do? (Open Issue 4) | A mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct, v1). In-place patching of one item inside the page vector is a **distinct deferred axis** (not the single-entry [EP-0019](EP-0019-optimistic-mutation-rollback.md) optimistic surface, which keeps the resource entry as its unit); its live home + fires-when trigger is [spec/016 §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed). |
 | **R5** | `:data-schema` vs `:page-data-schema`? (Open Issue 5) | **`:page-data-schema` validates one page** (the decode target) **and is the per-page egress/classification contract**: SSR and tool projection apply it **per page** so sensitive page fields are classified (the accumulated `:data` is a framework-owned vector and must not bypass classification). **`:data-schema` is not used** for the accumulated vector. |
 | **R6** | `refetch` default: discard-tail vs refetch-all-pages? (Open Issue 6) | **Conservative default: preserve the visible window** until the replacement succeeds (so focus/reconnect/invalidation refetch never collapses a loaded feed to page 0). `:refetch` is an explicit per-resource policy; **`:refetch-all-pages?` and `:refetch-window` ship as opt-ins from day one.** *(This supersedes the EP's earlier discard-tail default — adopting the Codex-flagged safer behaviour; the body's Part / Issue 6 text is reconciled to it.)* |
 | **R7** | Bidirectional (`:prev-page-param` / prepend) in v1 or deferred? (Open Issue 7) | **Next-direction `load-more` only for v1.** Define the `:next-page-param` / `:prev-page-param` derivation **mirror now** (free — same machinery), but **DEFER** the `:rf.resource/load-prev` prepend event until a consumer needs it. |
@@ -744,8 +756,10 @@ single terminal, and feed identity is fail-closed scoped separately from params.
 The cut is intentionally narrow: next-direction load-more, coarse feed-level
 invalidation, a window-preserving refetch default (with `:refetch-all-pages?` /
 `:refetch-window` opt-ins from day one), and the page-vector-in-one-entry
-shape — deferring in-place item patching (to the optimistic EP), normalized
-item stores, prepend, and streaming. The seven open issues — above all where the
+shape — deferring in-place item patching (a distinct axis, not the single-entry
+[EP-0019](EP-0019-optimistic-mutation-rollback.md) optimistic surface; re-homed
+at [spec/016 §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed)),
+normalized item stores, prepend, and streaming. The seven open issues — above all where the
 pages live (1) and the merged-list contract (3) — were the genuine rulings; all
 are now resolved in [§Resolved Decisions](#resolved-decisions), and the rest of
 the design follows from them.
