@@ -787,19 +787,21 @@ Temptations rejected:
 
 ## §12 — Open questions for Mike
 
-Decisions that require Mike's call, not a designer's:
+Decisions that required Mike's call, not a designer's. **All six have
+since landed** — this section is a historical record; each item below
+carries its resolution and a pointer into the current numbered spec.
 
-**§12.1 Detail-panel-as-hero (§4).** This design demotes the causality graph from hero to peer. The bet: habit beats demo. The risk: the graph is the screenshot people love; demoting it costs marketing. If you'd rather flip it (graph as default canvas, detail as side popover), the design rearranges cleanly.
+**§12.1 Detail-panel-as-hero (§4). RESOLVED 2026-05-19 — went further than demotion: the causality graph was dropped entirely.** The bet (habit beats demo) was taken and then some. The ELK+SVG causality graph, its popover, and the `c` key binding are all gone (Mike, rf2-y0z5b — `DESIGN-RATIONALE.md` Lock #7). The current hero / default-landing surface is the **Epoch panel** (leftmost tab, mnemonic `e`, `:order -1`; superseded the Event-detail panel per rf2-5gl5r) — see [`../000-Vision.md`](../000-Vision.md) §"What it is" and [`../007-UX-IA.md`](../007-UX-IA.md). (A derivation/process **Graph** tab survives as an ordinary L4 peer tab per EP-0014, not the hero.)
 
-**§12.2 Co-pilot default state.** **Locked 2026-05-11: open by default.** The marquee-pull argument wins — Xray's pitch hinges on the AI co-pilot being immediately visible, not hidden behind a shortcut. User can close the rail (it remembers the choice across the session).
+**§12.2 Co-pilot default state.** ~~Locked 2026-05-11: open by default.~~ **SUPERSEDED 2026-05-17 — moot (co-pilot dropped).** The AI co-pilot rail was removed entirely (Mike, rf2-s3vx5; `DESIGN-RATIONALE.md` Lock #2) — there is no rail to default open or closed. AI integration lives in `tools/re-frame2-pair-mcp/`.
 
-**§12.3 The launch button (§10).** A 48×48px floating button in the bottom-right when Xray is closed. Discoverable secondary to `Ctrl+Shift+X`. Some JS devtools don't ship one (Redux, Vue). Keep, drop, or default-hidden-with-settings-toggle?
+**§12.3 The launch button (§10). RESOLVED — dropped as an Xray default; hosts MAY add their own.** No Xray-owned floating launcher ships. The canonical launch path is the keychord (`Ctrl+Shift+C`); the only Xray-shipped ribbon button is pop-out (`⛶`). Hosts MAY add their own launcher affordance, but that is host chrome, not Xray's launch contract — see [`../011-Launch-Modes.md`](../011-Launch-Modes.md) §"Closed state". (The 48×48 button survives only in this historical draft.)
 
-**§12.4 Source-coord click-through fallback.** Editors with URL handlers (`vscode://`, `idea://`) work out of the box. Editors without (Vim, Emacs, Sublime) fall back to "copy coord to clipboard." Is clipboard enough, or do we ship per-editor preset configurations in Settings?
+**§12.4 Source-coord click-through fallback. RESOLVED — full editor-URI matrix + unconfigured-host DX hint (not the clipboard fallback).** The current spec ships a per-editor URI-template matrix (`:vscode` default, `:cursor`, `:windsurf`, `:zed`, `:idea`, plus a `{:custom <template>}` escape with `{path}/{file}/{line}/{column}` placeholders), configured via `:rf.xray/editor` with resolution order `[end-user-override → host default → :vscode]` — see [`../007-UX-IA.md`](../007-UX-IA.md) §"Editor protocol matrix" and [`../015-Configuration.md`](../015-Configuration.md). The unconfigured-host case surfaces a DX-hint toast rather than a silent `vscode:` no-op (rf2-4s08ov); the clipboard-fallback idea was not carried (source-coords remain copyable `file:line` chips independently).
 
-**§12.5 Conversation persistence default.** Per-session (cleared on reload) in this design — opt-in to localStorage. Privacy bet vs. utility bet. Per-session or persistent-with-opt-out?
+**§12.5 Conversation persistence default. RESOLVED — moot (co-pilot dropped).** With the AI co-pilot rail removed entirely (Mike 2026-05-17, rf2-s3vx5; `DESIGN-RATIONALE.md` Lock #2 + Lock #12) there is no conversation to persist. AI integration lives in `tools/re-frame2-pair-mcp/` instead — see [`../000-Vision.md`](../000-Vision.md) §"What it isn't".
 
-**§12.6 Voice STT at v1.** Fully implementable (browser-local, no service dependency) but niche. Ship at v1 or defer to v1.1 to reduce launch surface?
+**§12.6 Voice STT at v1. RESOLVED — moot (dropped with the co-pilot).** Voice/STT was a co-pilot input affordance; the co-pilot rail is gone (`DESIGN-RATIONALE.md` Lock #13, superseded by the Lock #2 reversal). No voice/STT surface appears anywhere in the current numbered spec.
 
 ---
 
