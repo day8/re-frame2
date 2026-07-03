@@ -544,11 +544,13 @@
     ;; the render root creates, configures, and seeds the app frame all in one
     ;; place. The first mount conjures `:rf/default` and applies its config:
     ;;   - `:url-bound? true` — this frame owns the browser URL.
-    ;;   - `:interceptors [:realworld.routing/auth-guard]` — the guard (defined
-    ;;     in routing.cljs, named here by id) runs on every event in the frame.
-    ;;     It's the bouncer: try to navigate to a `:requires-auth` route while
-    ;;     logged out and it sends you to login instead. This is what gives the
-    ;;     `:requires-auth` tags on settings / new / edit actual teeth.
+    ;;   - The auth gate is NOT a frame interceptor — it's the `:can-enter`
+    ;;     guard on the `:requires-auth` routes themselves (routing.cljs). Try to
+    ;;     navigate to one while logged out and the runtime's ONE navigation gate
+    ;;     refuses and dispatches `:rf.route/entry-blocked`, which redirects to
+    ;;     login. That's what gives the `:requires-auth` tags on settings / new /
+    ;;     edit teeth — declaratively on the route, fail-closed through every
+    ;;     door, not as a hand-rolled interceptor.
     ;;   - `:fx-overrides {:rf.http/managed …}` — point managed HTTP at the
     ;;     demo stub so the whole thing runs without a backend.
     ;; First mount also runs `:initial-events` once. A hot reload reuses the
@@ -569,9 +571,9 @@
     ;;   - `:app/initialise` — fans out to all the per-feature initialisers.
     ;;   - `:rf.route/handle-url-change` — the first URL→slice sync, off the
     ;;     base-path-stripped current URL. Last on purpose: by now the session
-    ;;     is restored, so when the auth-guard considers redirecting a deep
-    ;;     link to a `:requires-auth` route, it's judging a logged-in user
-    ;;     correctly rather than bouncing them by mistake.
+    ;;     is restored, so when a deep link to a `:requires-auth` route runs its
+    ;;     `:can-enter` gate, it's judging a logged-in user correctly rather than
+    ;;     bouncing them by mistake.
     (rdc/render @react-root
                 [rf/frame-provider {:id              :rf/default
                                     :doc             "Realworld demo frame."
@@ -581,6 +583,5 @@
                                                       [:app/initialise]
                                                       [:rf.route/handle-url-change
                                                        (routing/current-url)]]
-                                    :interceptors    [:realworld.routing/auth-guard]
                                     :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}}
                  [root-view]])))
