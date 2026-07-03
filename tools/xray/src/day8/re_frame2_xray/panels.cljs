@@ -40,7 +40,7 @@
       ;; The SAME `shell/event-list` reg-view the full 4-layer shell
       ;; composes at L2; mounted standalone it is the compact,
       ;; clickable recent-events navigator. Clicking a row dispatches
-      ;; `:rf.xray/focus-cascade`, which re-binds the spine sub
+      ;; `:rf.xray/focus-event`, which re-binds the spine sub
       ;; `:rf.xray/focus` — so any panel mounted alongside (App-db,
       ;; Epoch, …) re-renders against the chosen past epoch.
       (mount-event-spine! mount-point opts) → unmount-fn
@@ -109,7 +109,7 @@
   | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area) | `:rf.xray/open-segment-inspector` |
   | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
   | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into a flat list of rows, each with a stage column + colour-coded left edge, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
-  | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |
+  | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-event` |
   | **routing** | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
   | **resources** | `:rf.xray/resources-tab-data` (composite over `:rf.xray/registered-resources` · `:rf.xray/resource-entries` · `:rf.xray/resource-work-ledger` · the route registry · the trace buffer) | (read-only — no dispatch; observing pins no resource) |
   | **segment-inspector** | `:rf.xray/segment-inspector-open?` · `:rf.xray/segment-inspector-value` | `:rf.xray/close-segment-inspector` |
@@ -291,7 +291,7 @@
   parallel spine: it reuses the full-shell component verbatim, so the
   embedded spine inherits the row anatomy, the issue-row wash, the
   relative-time chips, virtualisation, filters, and —
-  critically — the row-click → `:rf.xray/focus-cascade` write that
+  critically — the row-click → `:rf.xray/focus-event` write that
   drives the single-axis spine sub `:rf.xray/focus` (spec/018 §4 + §6).
 
   The contract for a host (Story) is: mount this spine ALONGSIDE a

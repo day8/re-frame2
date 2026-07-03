@@ -178,7 +178,7 @@
 
 (deftest xray-internal-event-id?-keyword-namespace
   (testing "true iff event-id is a keyword in the `rf.xray` ns or a `rf.xray.*` sub-ns"
-    (is (true?  (self-noise/xray-internal-event-id? :rf.xray/focus-cascade)))
+    (is (true?  (self-noise/xray-internal-event-id? :rf.xray/focus-event)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/select-tab)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/open-settings)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/sync-trace-buffer)))
@@ -232,7 +232,7 @@
   (testing "true iff the cascade's :event vector's head is xray-internal"
     (is (true?  (self-noise/xray-internal-cascade?
                   {:dispatch-id 1
-                   :event       [:rf.xray/focus-cascade 99]})))
+                   :event       [:rf.xray/focus-event 99]})))
     (is (true?  (self-noise/xray-internal-cascade?
                   {:dispatch-id 2
                    :event       [:rf.xray/select-tab :event]})))
@@ -275,7 +275,7 @@
 ;; ---- filtered-cascades — the shared group+strip projection (rf2-y2h6y) ---
 ;;
 ;; `filtered-cascades` is the ONE home for the `(into [] (remove
-;; xray-internal-cascade?) (group-cascades buffer))` pairing that was
+;; xray-internal-cascade?) (group-by-event buffer))` pairing that was
 ;; previously triplicated verbatim across spine/db->cascades, the
 ;; reactive :rf.xray/cascades sub (registry), and the first-mount seed
 ;; (mount). rf2-qlvq8 made those three agree; this helper makes the
@@ -285,7 +285,7 @@
 
 (defn- dispatched-event
   "A minimal `:rf.event/dispatched` trace event — the cascade root
-  `group-cascades` keys on. `event-v` is the dispatched event vector;
+  `group-by-event` keys on. `event-v` is the dispatched event vector;
   `frame` the owning frame id."
   [id dispatch-id event-v frame]
   {:id id :op-type :rf.event :operation :rf.event/dispatched
@@ -303,7 +303,7 @@
 
 (deftest filtered-cascades-equals-manual-group-then-remove
   (testing "the helper is EXACTLY `(into [] (remove
-            xray-internal-cascade?) (group-cascades buffer))` — the
+            xray-internal-cascade?) (group-by-event buffer))` — the
             invariant the three call sites depend on for lockstep"
     (let [buffer [(dispatched-event 1 100 [:counter/inc]              :below)
                   (dispatched-event 2 101 [:rf.xray.static/select-tab] :rf/default)

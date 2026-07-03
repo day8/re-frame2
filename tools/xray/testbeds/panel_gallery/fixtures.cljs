@@ -10,7 +10,7 @@
 
   This namespace exposes pure builder functions that synthesize
   trace-event vectors shaped exactly as
-  `re-frame.trace.projection/group-cascades` projects them:
+  `re-frame.trace.projection/group-by-event` projects them:
 
       {:id <int>
        :op-type   :rf.event | :fx | :rf.sub/run | :view | :error | :warning | ...
@@ -42,7 +42,7 @@
   gallery seed template.
 
   Returns a vector of trace-event maps shaped per
-  `re-frame.trace.projection/group-cascades`."
+  `re-frame.trace.projection/group-by-event`."
   ([dispatch-id event-vec id-base]
    (cascade-evs dispatch-id event-vec id-base nil))
   ([dispatch-id event-vec id-base frame-id]

@@ -25,7 +25,7 @@
   user sees `:above` selected while the underlying focus slot is
   unset — the picker lies and the filter no-ops.
 
-  Clicking any L2 row dispatches `:rf.xray/focus-cascade` which
+  Clicking any L2 row dispatches `:rf.xray/focus-event` which
   writes `:focus :frame` (line 446 of `spine.cljs`), aligning the
   filter slot for the first time.
 
@@ -249,7 +249,7 @@
       (is (not= a-id b-id) "test setup: cascades should have distinct dispatch-ids")
       ;; Focus cascade A → assert Issues feed scoped to A's epoch only.
       (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/focus-cascade a-id :rf/default]))
+        (rf/dispatch-sync [:rf.xray/focus-event a-id :rf/default]))
       (let [feed-a (sub-xray [:rf.xray/issues-ribbon])
             msgs   (row-msg-set feed-a)]
         (is (= #{"throw-a"} msgs)
@@ -258,7 +258,7 @@
                  (pr-str msgs))))
       ;; Flip focus to cascade B → assert the feed flips with it.
       (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/focus-cascade b-id :rf/default]))
+        (rf/dispatch-sync [:rf.xray/focus-event b-id :rf/default]))
       (let [feed-b (sub-xray [:rf.xray/issues-ribbon])
             msgs   (row-msg-set feed-b)]
         (is (= #{"throw-b"} msgs)

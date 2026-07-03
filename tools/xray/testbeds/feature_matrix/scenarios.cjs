@@ -628,12 +628,12 @@ async function setXrayTargetFrame(page, frame) {
 /**
  * Find the `:rf.trace/dispatch-id` of the bus trace event matching the given
  * (`frame`, `eventId`) pair (an `:rf.event/dispatched` record) and
- * dispatch `:rf.xray/focus-cascade` to focus that cascade.
+ * dispatch `:rf.xray/focus-event` to focus that cascade.
  *
  * The Trace DOM is cascade-scoped and only renders rows for the currently
  * focused cascade, so scanning trace rows to "find and click" a sibling
  * cascade does not work. The bus buffer is the canonical, unscoped source
- * of (frame, event) → dispatch-id, and `:rf.xray/focus-cascade` is the
+ * of (frame, event) → dispatch-id, and `:rf.xray/focus-event` is the
  * same spine event the L2 event-row click dispatches — picking a cascade
  * through this helper exercises the same focus → projection wiring without
  * depending on the cascade-scoped Trace surface.
@@ -714,7 +714,7 @@ async function focusCascadeByFrameEvent(page, { frame, eventId }) {
       };
     }
     const event = cljs.PersistentVector.fromArray([
-      keyword(':rf.xray/focus-cascade'),
+      keyword(':rf.xray/focus-event'),
       match.dispatchId,
       match.frame,
     ], true);
@@ -1241,7 +1241,7 @@ async function runMultiFrame(page, state) {
   //
   // The test's intent — exercise the cascade-focus → event-detail
   // wiring for a chosen :counter/b cascade — is met by focusing the
-  // cascade explicitly via the spine event `:rf.xray/focus-cascade`
+  // cascade explicitly via the spine event `:rf.xray/focus-event`
   // (the same event the L2 event-row click dispatches) and then asserting
   // the event-detail projection. We look up the dispatch-id by walking
   // the bus buffer for the (frame, event-id) pair, which is independent
@@ -1672,7 +1672,7 @@ async function runTraceBudgetSaturation(page, state) {
   // count via `set-frameless-ring-depth!` so this perf test can assert
   // against a 1000-event budget independent of the production default.
   // Frame-bound events ride the framework's per-frame rings (cascade-
-  // keyed, capped at `:cascades-retained` per frame). The Trace PANEL is
+  // keyed, capped at `:events-retained` per frame). The Trace PANEL is
   // epoch-scoped — it renders the focused epoch record's `:trace-events`,
   // NOT the global bus.
   const expectedDepth = 1000;

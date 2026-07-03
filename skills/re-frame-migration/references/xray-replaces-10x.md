@@ -164,8 +164,8 @@ The global keydown listener in `tools/xray/src/day8/re_frame2_xray/keybinding.cl
 | Pause / resume the LIVE feed | `Space` | `:rf.xray/toggle-live-pause` |
 | Snap to LIVE (follow head) | `L` | `:rf.xray/follow-head` |
 | Fast-forward to head ("Go to head") | `Shift+G` | `:rf.xray/follow-head` |
-| Step backward through events | `j` | `:rf.xray/focus-cascade-prev` |
-| Step forward through events | `k` | `:rf.xray/focus-cascade-next` |
+| Step backward through events | `j` | `:rf.xray/focus-event-prev` |
+| Step forward through events | `k` | `:rf.xray/focus-event-next` |
 | Toggle the Settings popup | `,` or `s` | `:rf.xray/settings-toggle` |
 
 **Cross-OS:** the shell-toggle is `Ctrl+Shift+C` (not `Cmd`) on every host OS. macOS Safari sometimes maps `Cmd+Shift+C` to dev-tools' Inspect; the `Ctrl` modifier avoids that collision. macOS users who prefer `Cmd+Shift+C` can rebind in their browser's keyboard-shortcut UI. The mode-toggle and command-palette chords intentionally accept *either* Cmd or Ctrl, so macOS users get the muscle-memory Cmd form and Windows/Linux users get Ctrl.

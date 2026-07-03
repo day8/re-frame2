@@ -138,7 +138,7 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.xray/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.xray/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.xray/epoch-recorded` dispatch. |
 | `:rf.xray/target-frame-db` | `:rf.xray/target-frame`, `:rf.xray/epoch-history` | The host frame's current `app-db` value (via `rf/app-db-value`). | Every settled epoch on the target frame. |
-| `:rf.xray/cascades` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/focused-cascade-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
+| `:rf.xray/cascades` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-by-event`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/focused-cascade-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
 
 ### Events
 

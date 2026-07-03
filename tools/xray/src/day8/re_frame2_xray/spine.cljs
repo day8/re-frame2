@@ -64,7 +64,7 @@
 
 (defn focusable-cascades
   "Per rf2-fzbrw — the spine's invariant is 'one focused event at a
-  time'. The `:ungrouped` bucket produced by `projection/group-cascades`
+  time'. The `:ungrouped` bucket produced by `projection/group-by-event`
   for registry-time emits / frame lifecycle outside a drain / REPL
   evals carries no event vector and is therefore NOT a valid focus
   target BY DEFAULT: pinning to it leaves every epoch / app-db /
@@ -101,7 +101,7 @@
   "The latest cascade in the projected list — the cascade whose
   `:dispatch-id` is the spine's 'head'. Returns nil when the list is
   empty (cold start; buffer-cleared). Cascades are sorted oldest-first
-  (per `re-frame.trace.projection/group-cascades`), so the last entry
+  (per `re-frame.trace.projection/group-by-event`), so the last entry
   is the head."
   [cascades]
   (last cascades))
@@ -546,7 +546,7 @@
 ;; ---- pure reducers exposed for direct unit testing ----------------------
 
 (defn focus-cascade-reducer
-  "Pure reducer for the `:rf.xray/focus-cascade <id>` event. Writes
+  "Pure reducer for the `:rf.xray/focus-event <id>` event. Writes
   `:dispatch-id` into the `:focus` slot, picks the spine `:mode`, and
   stamps `:epoch-id` (the cascade's settling epoch primary key per
   spec/018 §6 Spine events) — which the App-DB-diff / Views panels
@@ -585,7 +585,7 @@
        frame-id   (assoc-in [:focus :frame] frame-id)))))
 
 (defn focus-step-reducer
-  "Pure reducer for `:rf.xray/focus-cascade-prev` / `-next`. Steps
+  "Pure reducer for `:rf.xray/focus-event-prev` / `-next`. Steps
   the `:dispatch-id` through the cascade vector by `delta` (-1 or
   +1), resolves the cascade's settling `:epoch-id` from
   `epoch-history` (per spec/018 §6 Spine events) into the `:focus`
@@ -785,7 +785,7 @@
   epoch. Sibling of the rf2-ug1r6 / rf2-thodq / rf2-lo28u
   attribution-gap class.
 
-  The COMMITTED focus handlers (`:rf.xray/focus-cascade`,
+  The COMMITTED focus handlers (`:rf.xray/focus-event`,
   `:rf.xray/focus-epoch`) call this BEFORE resolving the clicked
   cascade's epoch-id so the resolution runs against the RIGHT frame's
   ring AND the per-frame composites re-bind to the now-selected frame.
@@ -1010,7 +1010,7 @@
   ;; pre-popup-seed reads fall back to the config atom via the helper
   ;; below (mirrors the `:rf.xray/show-ungrouped?` sub).
 
-  (rf/reg-event :rf.xray/focus-cascade
+  (rf/reg-event :rf.xray/focus-event
     (fn [{:keys [db]} [_ dispatch-id frame-id]]
       ;; rf2-q8hvw — re-key `:epoch-history` onto the clicked cascade's
       ;; frame BEFORE resolving its settling epoch. With the picker
@@ -1025,12 +1025,12 @@
             epoch-id       (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
         (focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))}))
 
-  (rf/reg-event :rf.xray/focus-cascade-prev
+  (rf/reg-event :rf.xray/focus-event-prev
     (fn [{:keys [db]} _event]
       {:db (focus-step-reducer db (db->cascades db) (db->epoch-history db) -1
                           (db->show-ungrouped? db))}))
 
-  (rf/reg-event :rf.xray/focus-cascade-next
+  (rf/reg-event :rf.xray/focus-event-next
     (fn [{:keys [db]} _event]
       {:db (focus-step-reducer db (db->cascades db) (db->epoch-history db) +1
                           (db->show-ungrouped? db))}))
@@ -1117,7 +1117,7 @@
       ;; against THAT frame's ring DIRECTLY (a read, not a write) and
       ;; leaves the committed `:target-frame` / `:epoch-history`
       ;; untouched — the cross-frame hazard rf2-q8hvw fixes for COMMITTED
-      ;; clicks (`:rf.xray/focus-cascade`) does not apply to a transient
+      ;; clicks (`:rf.xray/focus-event`) does not apply to a transient
       ;; preview, which never commits a frame change. nil dispatch-id
       ;; (preview-clear) resolves frame to nil → epoch-id nil; the
       ;; reducer's restore-arm ignores it.

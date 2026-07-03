@@ -938,7 +938,7 @@
 (defn- pre-mount-dispatch-event
   "Build a trace event the projection groups into a cascade for the
   given frame. Matches the shape produced by `event/dispatched` in the
-  framework's emit layer — enough for `projection/group-cascades` to
+  framework's emit layer — enough for `projection/group-by-event` to
   bucket the event into its dispatch-id-keyed cascade with `:frame`."
   [id dispatch-id frame-id event-id]
   {:id        id
@@ -950,7 +950,7 @@
 
 (deftest first-open!-seeds-target-frame-from-head-focusable-cascade-frame
   (testing "rf2-boyc2 — first open! reads the trace-bus buffer, projects
-            it through the same `group-cascades` + Xray-internal filter
+            it through the same `group-by-event` + Xray-internal filter
             the `:rf.xray/cascades` sub uses, and seeds `:target-frame`
             from the head focusable cascade's `:frame`. This closes the
             initial-mount race where the App-DB panel rendered the boot

@@ -279,9 +279,9 @@
 
 ;; ---- cascades-retained (rf2-5u03ig) ------------------------------------
 ;;
-;; The Buffer-tab `:cascades-retained` knob writes through to the
+;; The Buffer-tab `:events-retained` knob writes through to the
 ;; framework trace ring via `(rf/configure! {:trace-buffer
-;; {:cascades-retained N}})`. We spy on `rf/configure!` to assert the
+;; {:events-retained N}})`. We spy on `rf/configure!` to assert the
 ;; effect / event / boot paths all reach the published substrate API
 ;; with the canonical config-map shape — the framework knob itself is
 ;; proven by `re-frame.configure-test` (configure_test.clj:60-66), so
@@ -289,14 +289,14 @@
 
 (deftest apply-cascades-retained-writes-through-to-configure
   (testing "rf2-5u03ig — apply-cascades-retained! routes through
-            `(rf/configure! {:trace-buffer {:cascades-retained N}})`.
+            `(rf/configure! {:trace-buffer {:events-retained N}})`.
             Non-positive / non-numeric input is a no-op at the effect
             boundary (the UI :min 1 keeps the framework's 0-disables
             behaviour out of reach)."
     (let [calls (atom [])]
       (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
         (effects/apply-cascades-retained! 33)
-        (is (= [{:trace-buffer {:cascades-retained 33}}] @calls)
+        (is (= [{:trace-buffer {:events-retained 33}}] @calls)
             "positive value reaches configure! with the canonical config-map shape")
         (effects/apply-cascades-retained! nil)
         (effects/apply-cascades-retained! 0)
@@ -306,17 +306,17 @@
 
 (deftest update-event-applies-cascades-retained-effect
   (testing "rf2-5u03ig — dispatching `:rf.xray/settings-update :buffer
-            :cascades-retained N` writes through to the substrate via
+            :events-retained N` writes through to the substrate via
             the matching effect and persists the value."
     (setup!)
     (let [calls (atom [])]
       (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
         (rf/with-frame :rf/xray
           (rf/dispatch-sync [:rf.xray/settings-update
-                             :buffer :cascades-retained 17]))
-        (is (= 17 (config/get-setting :buffer :cascades-retained))
+                             :buffer :events-retained 17]))
+        (is (= 17 (config/get-setting :buffer :events-retained))
             "config slot carries the new value")
-        (is (= [{:trace-buffer {:cascades-retained 17}}] @calls)
+        (is (= [{:trace-buffer {:events-retained 17}}] @calls)
             "the dispatch reaches configure! with the :trace-buffer key")))))
 
 (deftest apply-all-restores-cascades-retained
@@ -325,9 +325,9 @@
             the user's saved capacity BEFORE first dispatch."
     (let [calls (atom [])]
       (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
-        (config/update-setting! :buffer :cascades-retained 21)
+        (config/update-setting! :buffer :events-retained 21)
         (effects/apply-all!)
-        (is (some #{{:trace-buffer {:cascades-retained 21}}} @calls)
+        (is (some #{{:trace-buffer {:events-retained 21}}} @calls)
             "apply-all! routes the persisted value to the substrate")))))
 
 ;; ---- panel width (rf2-x8h9y) -------------------------------------------

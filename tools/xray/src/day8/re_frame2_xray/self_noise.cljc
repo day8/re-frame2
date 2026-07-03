@@ -29,7 +29,7 @@
   2. **`xray-internal-cascade?` / `xray-internal-event-id?`** —
      cascades whose `:event` vector's head is a keyword in the
      `rf.xray` namespace OR any `rf.xray.*` sub-namespace
-     (`:rf.xray/focus-cascade`, `:rf.xray/select-tab`,
+     (`:rf.xray/focus-event`, `:rf.xray/select-tab`,
      `:rf.xray.static/select-tab`, `:rf.xray.epoch/toggle-row`, etc.).
      These can be dispatched WITHOUT a `{:frame :rf/xray}` option (e.g.
      the palette's quick-actions, whose `:palette/select-panel` /
@@ -98,7 +98,7 @@
   Pure-data + JVM-runnable; nil-safe.
 
   Examples:
-    (xray-internal-event-id? :rf.xray/focus-cascade)      ;; true
+    (xray-internal-event-id? :rf.xray/focus-event)      ;; true
     (xray-internal-event-id? :rf.xray/select-tab)         ;; true
     (xray-internal-event-id? :rf.xray.static/select-tab)  ;; true
     (xray-internal-event-id? :rf.xray.epoch/toggle-row)   ;; true
@@ -131,7 +131,7 @@
 
 (defn filtered-cascades
   "Group `buffer` (a flat trace-event vector) into cascades via
-  `projection/group-cascades`, then strip every Xray-internal cascade
+  `projection/group-by-event`, then strip every Xray-internal cascade
   (`xray-internal-cascade?`). The ONE home for the 'group + drop
   self-noise' pairing.
 
@@ -139,7 +139,7 @@
   (`spine/db->cascades`) match the reactive `:rf.xray/cascades` sub
   (registry.cljs) and the first-mount seed (mount.cljs) — all three must
   produce the SAME user-facing cascade set. Previously the
-  `(into [] (remove xray-internal-cascade?) (group-cascades buffer))`
+  `(into [] (remove xray-internal-cascade?) (group-by-event buffer))`
   expression was copied verbatim at all three sites, so a future change
   to the projection/filter pairing had to be applied in lockstep or the
   divergence re-opened (exactly the bug class rf2-qlvq8 fixed). This

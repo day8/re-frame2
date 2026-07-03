@@ -118,7 +118,7 @@
 
 (defn cascade-trace-events
   "Flatten every trace-event bucket on a cascade into one seq. Per
-  `re-frame.trace.projection/group-cascades` a cascade record carries
+  `re-frame.trace.projection/group-by-event` a cascade record carries
   raw trace maps under `:handler`, `:fx`, `:effects`, `:subs`,
   `:renders`, and `:other`; the `:event` slot is the bare event
   vector (not a trace map) so it's excluded.
@@ -241,7 +241,7 @@
 ;;
 ;; Under epoch-per-event each dequeued event — including `:fx :dispatch`
 ;; children and machine-internal transitions — is its OWN cascade
-;; (`re-frame.trace.projection/group-cascades` keys one record per
+;; (`re-frame.trace.projection/group-by-event` keys one record per
 ;; `:rf.trace/dispatch-id`). A `:machine` / `:http` / `:fx` typed pill
 ;; matching ONLY the cascade carrying its tag therefore loses the link
 ;; to the PARENT event that spawned the transition (the spawning event

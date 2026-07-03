@@ -32,7 +32,7 @@ It is **not a parallel spine**: it reuses the full-shell component
 verbatim, so the embedded spine inherits the row anatomy, the issue-row
 wash (rf2-b8guz), the relative-time chips, virtualisation, the
 ribbon-driven filters, and — load-bearing — the row-click →
-`:rf.xray/focus-cascade` write that drives the single-axis spine sub
+`:rf.xray/focus-event` write that drives the single-axis spine sub
 `:rf.xray/focus` (`018-Event-Spine.md` §4 + §6).
 
 It honours the same shape as every other mount fn — installs handlers,
@@ -59,7 +59,7 @@ in-place navigator, not a second full shell.
 
 The spine carries no host-facing props beyond the shared `:frame` opt
 (see §Frame-provider opt in `panels.cljs`'s ns docstring); focus flows
-through the spine's own `:rf.xray/focus-cascade` write surface, not a
+through the spine's own `:rf.xray/focus-event` write surface, not a
 new prop vocabulary.
 
 ## Full-shell embed contract (Xray-as-Story-RHS)
@@ -242,7 +242,7 @@ Story.
 | `:frame`       | `:rf.xray/select-frame <frame-id>` | [`007-UX-IA.md`](./007-UX-IA.md) §Frame slot contract |
 | `:panel`       | `:rf.xray/select-tab <tab-id>`     | spine tab slot |
 | `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
-| `:dispatch-id` | `:rf.xray/focus-cascade <id> <frame>` | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
+| `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
 | `:path`        | `:rf.xray/focus-slice-path <path>` | App-db panel slice focus |
 
 Dispatch order is **frame-first** so the per-frame epoch ring re-seeds

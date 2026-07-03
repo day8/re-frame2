@@ -212,8 +212,8 @@
   follow-on.
 
   Buffer (rf2-ttnst; rf2-pu9sb consolidation; rf2-5u03ig trim)
-  surfaces the cascades-retained knob (writes through to
-  `(rf/configure! {:trace-buffer {:cascades-retained N}})`) plus a
+  surfaces the events-retained knob (writes through to
+  `(rf/configure! {:trace-buffer {:events-retained N}})`) plus a
   'Clear buffer now' button with a confirmation modal (destructive
   action). The inert `:app-db/inspector-collapse-threshold` input was
   removed (rf2-5u03ig — no runtime consumer; the inspector already
@@ -613,7 +613,7 @@
      ;; ── Show :ungrouped pseudo-cascade events (rf2-r9lyy) ──────
      ;;
      ;; Opt-in surface for the `:ungrouped` bucket produced by
-     ;; `re-frame.trace.projection/group-cascades` (registry-time
+     ;; `re-frame.trace.projection/group-by-event` (registry-time
      ;; emits, frame lifecycle outside a drain, `:rf.ssr/hydration-
      ;; mismatch`, REPL evals). Default OFF preserves Xray's
      ;; silent-by-default posture (rf2-639lc filtered the bucket out
@@ -866,11 +866,11 @@
 ;;   `settings/effects.cljs §apply-epoch-history!`). Slot stays under
 ;;   `:general` for back-compat with the persisted settings shape;
 ;;   only the popup home moved here (rf2-pu9sb).
-;; * Cascades retained (slot `:buffer :cascades-retained`, rf2-5u03ig)
+;; * Events retained (slot `:buffer :events-retained`, rf2-5u03ig)
 ;;   — wired to the framework's per-frame trace ring via
-;;   `(rf/configure! {:trace-buffer {:cascades-retained N}})` (see
+;;   `(rf/configure! {:trace-buffer {:events-retained N}})` (see
 ;;   `settings/effects.cljs §apply-cascades-retained!`). The matching
-;;   `:rf.xray/settings-update :buffer :cascades-retained` event
+;;   `:rf.xray/settings-update :buffer :events-retained` event
 ;;   applies it live; `apply-all!` replays the persisted value on boot.
 ;;
 ;; Two inputs that once sat in this section were removed: the
@@ -988,8 +988,8 @@
       "Clear"]]]])
 
 (defn- buffer-section [dispatch]
-  (let [cascades-retained @(rf/subscribe [:rf.xray/setting :buffer :cascades-retained])
-        confirm-open?     @(rf/subscribe [:rf.xray/settings-clear-confirm-open?])]
+  (let [events-retained @(rf/subscribe [:rf.xray/setting :buffer :events-retained])
+        confirm-open?   @(rf/subscribe [:rf.xray/settings-clear-confirm-open?])]
     [:div {:data-testid "rf-xray-settings-section-buffer"
            :style {:position "relative"}}
      [:h2 {:style (section-heading-style)} "Buffer"]
@@ -1005,15 +1005,15 @@
      ;; the visual home changed.
 
      (numeric-field
-       {:testid    "rf-xray-settings-buffer-cascades-retained"
-        :label     "Cascades retained (:buffer/cascades-retained)"
-        :value     cascades-retained
+       {:testid    "rf-xray-settings-buffer-events-retained"
+        :label     "Events retained (:buffer/events-retained)"
+        :value     events-retained
         :default   50
         :min       1
         :on-commit #(dispatch
                       [:rf.xray/settings-update
-                       :buffer :cascades-retained %])
-        :hint      "Number of cascades retained in each frame's trace ring."})
+                       :buffer :events-retained %])
+        :hint      "Number of events retained in each frame's trace ring."})
 
      ;; Destructive action — opens confirm modal.
      [:div {:style {:margin-top "20px"}}

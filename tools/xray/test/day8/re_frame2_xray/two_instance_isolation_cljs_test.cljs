@@ -127,18 +127,18 @@
 (deftest focused-epoch-is-per-instance
   (testing "rf2-1w07r acceptance — the focused cascade/epoch
             (`:rf.xray/focus`) is per-instance. Clicking an L2 row in one
-            shell (which dispatches `:rf.xray/focus-cascade` via the
+            shell (which dispatches `:rf.xray/focus-event` via the
             captured dispatcher, rf2-r0o63) focuses ONLY that shell."
     (setup-two-shells!)
     ;; Focus distinct cascades in each cell.
-    (dispatch! cell-a [:rf.xray/focus-cascade :cascade-a :rf/default])
-    (dispatch! cell-b [:rf.xray/focus-cascade :cascade-b :rf/default])
+    (dispatch! cell-a [:rf.xray/focus-event :cascade-a :rf/default])
+    (dispatch! cell-b [:rf.xray/focus-event :cascade-b :rf/default])
     (is (= :cascade-a (:dispatch-id (read-sub cell-a :rf.xray/focus)))
         "cell A focused :cascade-a")
     (is (= :cascade-b (:dispatch-id (read-sub cell-b :rf.xray/focus)))
         "cell B focused :cascade-b — independent focus")
     ;; Re-focus cell A; cell B's focus must be untouched.
-    (dispatch! cell-a [:rf.xray/focus-cascade :cascade-a2 :rf/default])
+    (dispatch! cell-a [:rf.xray/focus-event :cascade-a2 :rf/default])
     (is (= :cascade-a2 (:dispatch-id (read-sub cell-a :rf.xray/focus)))
         "cell A re-focused :cascade-a2")
     (is (= :cascade-b (:dispatch-id (read-sub cell-b :rf.xray/focus)))
@@ -155,11 +155,11 @@
     ;; :trace; the Issues tab was removed under Option (c).)
     (dispatch! cell-b [:rf.xray/select-tab :trace])
     (dispatch! cell-b [:rf.xray/set-mode :static])
-    (dispatch! cell-b [:rf.xray/focus-cascade :b-cascade :rf/default])
+    (dispatch! cell-b [:rf.xray/focus-event :b-cascade :rf/default])
     ;; Now drive cell A across all three axes.
     (dispatch! cell-a [:rf.xray/select-tab :app-db])
     (dispatch! cell-a [:rf.xray/set-mode :dynamic])
-    (dispatch! cell-a [:rf.xray/focus-cascade :a-cascade :rf/default])
+    (dispatch! cell-a [:rf.xray/focus-event :a-cascade :rf/default])
     ;; Cell A reflects its own drive.
     (is (= :app-db (read-sub cell-a :rf.xray/selected-tab)))
     (is (= :dynamic (read-sub cell-a :rf.xray/mode)))

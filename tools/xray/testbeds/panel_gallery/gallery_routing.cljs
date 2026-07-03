@@ -21,7 +21,7 @@
   (`:rf.xray/set-registered-routes-override-for-test`,
   `:rf.xray/set-current-route-slice-override-for-test`) and the
   trace-buffer via `:rf.xray/sync-trace-buffer` +
-  `:rf.xray/focus-cascade` (for the FROM/TO variant). Search +
+  `:rf.xray/focus-event` (for the FROM/TO variant). Search +
   Simulate-URL variants set the UI-state events directly."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures-routing :as fixtures]
@@ -81,7 +81,7 @@
                    fixtures/cart-slice]
                   [:rf.xray/sync-trace-buffer
                    (fixtures/no-nav-buffer 1 [:cart/refresh])]
-                  [:rf.xray/focus-cascade 1 nil]]
+                  [:rf.xray/focus-event 1 nil]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -100,7 +100,7 @@
                    fixtures/confirm-slice]
                   [:rf.xray/sync-trace-buffer
                    (fixtures/nav-buffer 1 :route/confirm "nav-1" :route/cart)]
-                  [:rf.xray/focus-cascade 1 nil]]
+                  [:rf.xray/focus-event 1 nil]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -117,7 +117,7 @@
                   [:rf.xray.routing/set-query "api"]
                   [:rf.xray/sync-trace-buffer
                    (fixtures/no-nav-buffer 1 [:docs/refresh])]
-                  [:rf.xray/focus-cascade 1 nil]]
+                  [:rf.xray/focus-event 1 nil]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
@@ -133,7 +133,7 @@
                   [:rf.xray.routing/set-sim-url "/blog/post"]
                   [:rf.xray/sync-trace-buffer
                    (fixtures/no-nav-buffer 1 [:noop])]
-                  [:rf.xray/focus-cascade 1 nil]]
+                  [:rf.xray/focus-event 1 nil]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

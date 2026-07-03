@@ -538,7 +538,7 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
              :long-keyword-threshold 24}         ; chars; long-keyword elision threshold
  :theme     :dark                                ; :dark | :light
  :diff      {:highlight-fn-ref-changes? false}   ; opt-in fn-ref classification
- :buffer    {:cascades-retained 50}}                ; per-frame trace-ring cascade count
+ :buffer    {:events-retained 50}}                ; per-frame trace-ring event count
 ```
 
 The `:general` slot carries three knobs introduced by rf2-ttnst:
@@ -559,17 +559,17 @@ The `:general` slot carries three knobs introduced by rf2-ttnst:
 The `:buffer` slot carries the buffer-depth tunable surfaced in the
 Buffer tab:
 
-- `:cascades-retained` — count of cascades retained in each frame's
-  trace ring. Mirrors
-  `re-frame.trace.tooling/default-cascades-retained` (`50`). Writes
+- `:events-retained` — count of events retained in each frame's
+  trace ring (one slot per event / pipeline run). Mirrors
+  `re-frame.trace.tooling/default-events-retained` (`50`). Writes
   through to the runtime ring via `(rf/configure! {:trace-buffer
-  {:cascades-retained N}})` — `settings/effects.cljs
+  {:events-retained N}})` — `settings/effects.cljs
   §apply-cascades-retained!` resizes the live ring and `apply-all!`
   replays the persisted value on boot (rf2-5u03ig). Renamed from
-  `:trace-buffer/keep` (events) at rf2-43koh — the unit changed from
-  events to cascades when Xray's separate ring was retired in favour
-  of the framework's per-frame cascade-keyed rings (per the rf2-3g9nw
-  D1=a ruling). No back-compat alias — pre-alpha posture.
+  `:trace-buffer/keep` at rf2-43koh when Xray's separate ring was
+  retired in favour of the framework's per-frame event-keyed rings
+  (per the rf2-3g9nw D1=a ruling). No back-compat alias — pre-alpha
+  posture.
 
 The earlier `:buffer/retained-epochs` input was removed (rf2-pu9sb —
 no runtime consumer; the per-frame epoch ring is sized by `:general

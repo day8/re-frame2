@@ -148,13 +148,13 @@
         (and (= section :general) (= key :epoch-history))
         (effects/apply-epoch-history! value)
 
-        ;; rf2-5u03ig — Cascades-retained field. Writes through to the
+        ;; rf2-5u03ig — Events-retained field. Writes through to the
         ;; substrate's per-frame trace ring via
-        ;; `(rf/configure! {:trace-buffer {:cascades-retained N}})`. See
+        ;; `(rf/configure! {:trace-buffer {:events-retained N}})`. See
         ;; `settings/effects.cljs §apply-cascades-retained!` for the
         ;; late-bind contract; non-positive values are dropped at the
         ;; effect boundary.
-        (and (= section :buffer) (= key :cascades-retained))
+        (and (= section :buffer) (= key :events-retained))
         (effects/apply-cascades-retained! value)
 
         ;; Auto-open-on-error toggle — install the sub-watcher on

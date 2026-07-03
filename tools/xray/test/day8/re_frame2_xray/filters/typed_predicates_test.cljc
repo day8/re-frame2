@@ -7,7 +7,7 @@
   legacy back-compat + mixed-bucket composition.
 
   Test cascade shapes use the bucketed projection
-  `re-frame.trace.projection/group-cascades` emits (`:handler`, `:fx`,
+  `re-frame.trace.projection/group-by-event` emits (`:handler`, `:fx`,
   `:effects`, `:subs`, `:renders`, `:other`) so the matcher walks the
   same shape it'll see in production."
   (:require [clojure.test :refer [deftest is testing]]

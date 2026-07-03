@@ -56,7 +56,7 @@
   "Seed the Xray trace buffer with synthetic single-event cascades so
   the spine's by-id / head walks resolve. Mirrors the trace-event shape
   spine-cljs-test/seed-cascades! uses — one `:rf.event/dispatched` per
-  cascade so `group-cascades`' frame-index pairs the right events."
+  cascade so `group-by-event`' frame-index pairs the right events."
   [cascades-vec]
   (let [events (map-indexed
                  (fn [i {:keys [dispatch-id frame]}]
@@ -114,7 +114,7 @@
   (testing "the cascade pin carries the frame (per-frame by-id
             disambiguation) and supersedes a co-supplied :epoch-id"
     (is (= [[:rf.xray/select-frame :checkout]
-            [:rf.xray/focus-cascade 17 :checkout]
+            [:rf.xray/focus-event 17 :checkout]
             [:rf.xray/select-tab :app-db]
             [:rf.xray/focus-slice-path [:checkout :state]]]
            (focus/focus-command->dispatches

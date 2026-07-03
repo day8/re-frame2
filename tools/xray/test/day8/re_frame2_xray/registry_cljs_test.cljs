@@ -581,16 +581,17 @@
    :rf.xray/filter-by-fx
    :rf.xray/filter-by-http-correlation
    :rf.xray/filter-by-machine
-   :rf.xray/focus-cascade
-   :rf.xray/focus-cascade-next
-   :rf.xray/focus-cascade-prev
+   :rf.xray/focus-event
+   :rf.xray/focus-event-next
+   :rf.xray/focus-event-prev
    ;; rf2-5qp4g — DISPATCH source-kind enrichment parent-epoch
    ;; navigation: the Epoch panel's :fx-dispatch / :fx-dispatch-later
    ;; parent-epoch chip dispatches this to pivot the spine by epoch-id.
    :rf.xray/focus-epoch
-   ;; rf2-uyp86 — managed-fx wire-boundary diff cross-link event
-   ;; (HANDLER DISPATCHED row dispatches this to pivot the spine).
-   :rf.xray/focus-event
+   ;; rf2-uyp86 — managed-fx wire-boundary diff cross-link: the HANDLER
+   ;; DISPATCHED row reuses the spine's canonical `:rf.xray/focus-event`
+   ;; (listed above); rf2-fsqlgz collapsed the former panel-local
+   ;; duplicate onto it, so there is one registration.
    :rf.xray/focus-slice-path
    ;; rf2-59e7k — Cancellation-cascade row-click jump (delegates into
    ;; :rf.xray/select-dispatch-id via the spine shim).
@@ -1203,7 +1204,7 @@
 
 (defn- mk-cascade
   "Build a minimal cascade record for the data-layer filter test —
-  matches the shape `re-frame.trace.projection/group-cascades`
+  matches the shape `re-frame.trace.projection/group-by-event`
   returns (`:dispatch-id` + `:event` vector)."
   [dispatch-id event-vec]
   {:dispatch-id dispatch-id
@@ -1212,7 +1213,7 @@
 
 (defn- seed-buffer-with-dispatched-events!
   "Push synthetic `:rf.event/dispatched` trace events into Xray's trace
-  buffer so `group-cascades` produces one cascade per event. Each
+  buffer so `group-by-event` produces one cascade per event. Each
   trace event needs `:operation :rf.event/dispatched`, `:op-type :rf.event`,
   a unique `:dispatch-id` (cascade-grouping key), and the event vector
   under `:tags :event`."
@@ -1240,7 +1241,7 @@
     (rf/with-frame :rf/xray
       (seed-buffer-with-dispatched-events!
         [{:dispatch-id 1 :event-vec [:cart/add-item {:item-id "apple"}]}
-         {:dispatch-id 2 :event-vec [:rf.xray/focus-cascade 99]}
+         {:dispatch-id 2 :event-vec [:rf.xray/focus-event 99]}
          {:dispatch-id 3 :event-vec [:checkout/start]}
          {:dispatch-id 4 :event-vec [:rf.xray/select-tab :event]}
          {:dispatch-id 5 :event-vec [:rf.xray/open-settings]}])

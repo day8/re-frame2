@@ -22,7 +22,7 @@
 
   - `:rf.xray/sync-trace-buffer` — wholesale overwrite of the
     `:trace-buffer` slot (registry.cljs). The `seed-cascades!` helper
-    builds the minimal trace-event shape `group-cascades` needs so
+    builds the minimal trace-event shape `group-by-event` needs so
     the `:rf.xray/cascades` sub re-projects to the requested cascade
     vector.
 
@@ -37,7 +37,7 @@
     the slot write but bypass the schema-frame-tag normalisation that
     `sync-epoch-history` runs.
 
-  - `:rf.xray/focus-cascade` — the canonical focus-mutation event. The
+  - `:rf.xray/focus-event` — the canonical focus-mutation event. The
     spine's `focus-cascade-reducer` writes through to both
     `[:focus :dispatch-id]` and `[:focus :epoch-id]`, so any panel
     pivoting on either axis re-fires.
@@ -53,11 +53,11 @@
              (mock-epoch :e2 :c2 {:counter 1} {:counter 2})])
           ;; First focus: epoch :e1.
           (rf/with-frame :rf/xray
-            (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
+            (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
           (let [sig-1 (read-sub :rf.xray/app-db-current+diff)]
             ;; Mutate focus to :e2.
             (rf/with-frame :rf/xray
-              (rf/dispatch-sync [:rf.xray/focus-cascade :c2 :rf/default]))
+              (rf/dispatch-sync [:rf.xray/focus-event :c2 :rf/default]))
             (let [sig-2 (read-sub :rf.xray/app-db-current+diff)]
               (is (not= sig-1 sig-2)
                   \"App-db sub did not track focused-event flip\")))))
@@ -137,8 +137,8 @@
 ;; ---- cascade + epoch fixtures -------------------------------------------
 
 (defn cascade
-  "Build a minimal cascade shape — enough for `group-cascades`'
-  frame-index pairing. Per `re-frame.trace.projection/group-cascades`
+  "Build a minimal cascade shape — enough for `group-by-event`'
+  frame-index pairing. Per `re-frame.trace.projection/group-by-event`
   the projector needs at least `:dispatch-id` + `:frame` per trace
   event; the cascade record's shape below is what `seed-cascades!`
   re-projects into when it builds the trace buffer.
@@ -164,7 +164,7 @@
   Each entry in `cascades-vec` is a cascade record (typically built via
   `cascade`). The function constructs ONE `:rf.event/dispatched` event per
   cascade with the cascade's `:dispatch-id` and `:frame` tags so
-  `projection/group-cascades` pairs the right events.
+  `projection/group-by-event` pairs the right events.
 
   Mirrors `seed-cascades!` in `spine_cljs_test.cljs`."
   [cascades-vec]
@@ -280,7 +280,7 @@
    (focus-cascade! dispatch-id :rf/default))
   ([dispatch-id frame-id]
    (rf/with-frame :rf/xray
-     (rf/dispatch-sync [:rf.xray/focus-cascade dispatch-id frame-id]))))
+     (rf/dispatch-sync [:rf.xray/focus-event dispatch-id frame-id]))))
 
 (defn follow-head!
   "Drive the canonical `:rf.xray/follow-head` event — flips focus

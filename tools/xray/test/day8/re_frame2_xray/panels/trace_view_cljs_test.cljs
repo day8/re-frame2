@@ -39,7 +39,7 @@
   `:trace-events`. Trace events are seeded by attaching them to a
   `:rf/epoch-record`'s `:trace-events` slot and syncing the per-frame
   ring via `:rf.xray/sync-epoch-history`, then focusing via
-  `:rf.xray/focus-cascade`."
+  `:rf.xray/focus-event`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -101,7 +101,7 @@
 (defn- mk-epoch
   "Build a minimal `:rf/epoch-record` carrying the supplied
   `trace-events`. `dispatch-id` defaults to (10 + epoch-id) so the spine
-  resolver pairs the record with `:rf.xray/focus-cascade <dispatch-id>`."
+  resolver pairs the record with `:rf.xray/focus-event <dispatch-id>`."
   ([epoch-id trace-events]
    (mk-epoch epoch-id (+ 10 epoch-id) trace-events))
   ([epoch-id dispatch-id trace-events]
@@ -134,7 +134,7 @@
 (defn- focus!
   "Pin focus to the cascade with the given `dispatch-id`."
   [dispatch-id]
-  (rf/dispatch-sync [:rf.xray/focus-cascade dispatch-id nil]))
+  (rf/dispatch-sync [:rf.xray/focus-event dispatch-id nil]))
 
 ;; ---- (1) registry wiring ------------------------------------------------
 
@@ -554,7 +554,7 @@
 
 (defn- mk-cascade-trace
   "Seed a synthetic `:rf.event/dispatched` trace event into Xray's
-  trace buffer so `group-cascades` yields one cascade record per
+  trace buffer so `group-by-event` yields one cascade record per
   dispatch-id. Mirrors the seeding pattern in registry_cljs_test.cljs
   so the data-layer pipe matches production."
   [dispatch-id event-vec]

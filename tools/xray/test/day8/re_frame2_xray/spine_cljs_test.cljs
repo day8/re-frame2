@@ -13,7 +13,7 @@
   2. `compose-focus` derives `:head?` + the effective `:dispatch-id`
      correctly across LIVE / RETRO / paused / evicted-cascade states.
   3. Focus is the single source of truth (rf2-uy7nz) —
-     `:rf.xray/select-dispatch-id` and `:rf.xray/focus-cascade` write
+     `:rf.xray/select-dispatch-id` and `:rf.xray/focus-event` write
      the spine `:focus` slot (carrying `:epoch-id`); App-DB-diff / Views
      follow it through `:rf.xray/focus` → `:rf.xray/focus-epoch-id`.
      There is no mirror slot.
@@ -53,7 +53,7 @@
 (defn- cascade
   "Build a minimal cascade shape — enough for the spine helpers'
   by-id lookups + head detection. Per
-  `re-frame.trace.projection/group-cascades` cascades carry at least
+  `re-frame.trace.projection/group-by-event` cascades carry at least
   `:dispatch-id` and `:frame`; tests of the spine module don't need
   the full domino shape, just the identifier slots."
   [dispatch-id frame-id]
@@ -68,7 +68,7 @@
    :other       []})
 
 (def ^:private fixture-cascades
-  "Three-cascade fixture; oldest-first per group-cascades' contract.
+  "Three-cascade fixture; oldest-first per group-by-event' contract.
   c3 is the head."
   [(cascade :c1 :rf/default)
    (cascade :c2 :rf/default)
@@ -619,7 +619,7 @@
 (defn- seed-cascades! [cascades-vec]
   ;; Build a minimal trace-buffer that re-projects to the desired
   ;; cascade vector. Each cascade needs one trace event carrying the
-  ;; cascade's id so group-cascades' frame-index pairs the right
+  ;; cascade's id so group-by-event' frame-index pairs the right
   ;; events. The simplest shape: one :rf.event/dispatched per cascade.
   (let [events (map-indexed
                  (fn [i {:keys [dispatch-id frame]}]
@@ -653,7 +653,7 @@
   (setup-xray-frame!)
   (seed-cascades! fixture-cascades)
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
+    (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
   (let [r (focus-sub)]
     (is (= :c1 (:dispatch-id r)))
     (is (= :retro (:mode r)))
@@ -676,18 +676,18 @@
   (setup-xray-frame!)
   (seed-cascades! fixture-cascades)
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-cascade :c3 :rf/default])
-    (rf/dispatch-sync [:rf.xray/focus-cascade-prev]))
+    (rf/dispatch-sync [:rf.xray/focus-event :c3 :rf/default])
+    (rf/dispatch-sync [:rf.xray/focus-event-prev]))
   (let [r (focus-sub)]
     (is (= :c2 (:dispatch-id r)) "prev steps from c3 to c2")
     (is (= :retro (:mode r))))
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-cascade-prev]))
+    (rf/dispatch-sync [:rf.xray/focus-event-prev]))
   (let [r (focus-sub)]
     (is (= :c1 (:dispatch-id r)) "prev again → c1"))
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-cascade-next])
-    (rf/dispatch-sync [:rf.xray/focus-cascade-next]))
+    (rf/dispatch-sync [:rf.xray/focus-event-next])
+    (rf/dispatch-sync [:rf.xray/focus-event-next]))
   (let [r (focus-sub)]
     (is (= :c3 (:dispatch-id r)) "two nexts → back to head")
     (is (= :live (:mode r))
@@ -697,7 +697,7 @@
   (setup-xray-frame!)
   (seed-cascades! fixture-cascades)
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default])
+    (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default])
     (rf/dispatch-sync [:rf.xray/follow-head]))
   (let [r (focus-sub)]
     (is (= :c3 (:dispatch-id r)) "follow-head snaps back to head c3")
@@ -833,8 +833,8 @@
       (is (= :live (:mode r))))
     ;; User steps prev then next — lands on c3 again, slot-id is now :c3.
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade-prev])
-      (rf/dispatch-sync [:rf.xray/focus-cascade-next]))
+      (rf/dispatch-sync [:rf.xray/focus-event-prev])
+      (rf/dispatch-sync [:rf.xray/focus-event-next]))
     (let [r (focus-sub)]
       (is (= :c3 (:dispatch-id r)))
       (is (= :live (:mode r))
@@ -852,7 +852,7 @@
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
     (let [r (focus-sub)]
       (is (= :c1 (:dispatch-id r)))
       (is (= :retro (:mode r))))
@@ -880,7 +880,7 @@
       (rf/dispatch-sync [:rf.xray/sync-epoch-history
                          [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]])
       ;; User clicks the earliest cascade — pins focus to :c1/:e1.
-      (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
     (let [r (focus-sub)]
       (is (= :c1 (:dispatch-id r)))
       (is (= :e1 (:epoch-id r)))
@@ -921,8 +921,8 @@
     (rf/with-frame :rf/xray
       ;; Get into :live mode with slot-id pinned on c2 (paused inspection
       ;; of a non-head cascade — possible via focus-step then pause).
-      (rf/dispatch-sync [:rf.xray/focus-cascade-prev])
-      (rf/dispatch-sync [:rf.xray/focus-cascade-next]))
+      (rf/dispatch-sync [:rf.xray/focus-event-prev])
+      (rf/dispatch-sync [:rf.xray/focus-event-next]))
     ;; Now slot-id = :c3, mode = :live. Pause.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
@@ -979,7 +979,7 @@
 ;; -------------------------------------------------------------------------
 ;; (10) :epoch-id resolution — rf2-ak3ty
 ;;
-;; Spec/018 §6 Spine events says `:rf.xray/focus-cascade <id>` MUST
+;; Spec/018 §6 Spine events says `:rf.xray/focus-event <id>` MUST
 ;; "compute `:epoch-id` from cascades". The reducer takes a resolved
 ;; epoch-id (the event handler in `install!` resolves it from the
 ;; Xray `:epoch-history` slot via `epoch-id-for-cascade`), then
@@ -1182,7 +1182,7 @@
       (is (not (contains? r :selected-epoch-id))))))
 
 (deftest focus-cascade-event-resolves-epoch-id-from-history
-  (testing "the registered :rf.xray/focus-cascade event resolves
+  (testing "the registered :rf.xray/focus-event event resolves
             :epoch-id from the Xray app-db's :epoch-history slot —
             end-to-end the spine focus now carries both ids in
             lockstep (rf2-ak3ty)"
@@ -1191,7 +1191,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/sync-epoch-history
                          [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]])
-      (rf/dispatch-sync [:rf.xray/focus-cascade :c2 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event :c2 :rf/default]))
     (let [r (focus-sub)]
       (is (= :c2 (:dispatch-id r)))
       (is (= :e2 (:epoch-id r))
@@ -1210,7 +1210,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/sync-epoch-history
                          [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]])
-      (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
     (let [focus-epoch (rf/with-frame :rf/xray
                         @(rf/subscribe [:rf.xray/focus-epoch-id]))]
       (is (= :e1 focus-epoch)
@@ -1535,13 +1535,13 @@
           "3-arg arity defaults to retro"))))
 
 (deftest focus-cascade-event-clicking-head-stays-live
-  (testing "rf2-xzzih end-to-end — dispatching :rf.xray/focus-cascade
+  (testing "rf2-xzzih end-to-end — dispatching :rf.xray/focus-event
             on the head cascade keeps spine in :live so a subsequent
             arrival auto-advances the focus"
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade :c3 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event :c3 :rf/default]))
     (let [r (focus-sub)]
       (is (= :c3 (:dispatch-id r)))
       (is (= :live (:mode r))
@@ -1561,7 +1561,7 @@
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
     (let [r (focus-sub)]
       (is (= :c1 (:dispatch-id r)))
       (is (= :retro (:mode r)) "non-head click → :retro"))
@@ -1603,7 +1603,7 @@
 ;; This section drives the ACTUAL failing path (not a single-frame
 ;; green test): it seeds two frames' framework rings, leaves the picker
 ;; untouched (slot keyed on the boot head frame), then dispatches the
-;; real `:rf.xray/focus-cascade` event for a non-head-frame row and
+;; real `:rf.xray/focus-event` event for a non-head-frame row and
 ;; asserts the clicked cascade's epoch resolves end-to-end — through the
 ;; spine focus sub, the App-DB-diff `:rf.xray/focus-epoch-id` projection,
 ;; and the `find-epoch-record` lookup the App-DB diff panel runs against
@@ -1668,7 +1668,7 @@
     ;; The actual failing path: dispatch the real L2-row-click event for
     ;; the non-head-frame cascade.
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade :cart-c9 :cart-frame]))
+      (rf/dispatch-sync [:rf.xray/focus-event :cart-c9 :cart-frame]))
     ;; GREEN: the spine focus now carries the clicked cascade's epoch.
     (let [r (focus-sub)]
       (is (= :cart-c9 (:dispatch-id r)))
@@ -1699,7 +1699,7 @@
             the head frame's epoch resolves as before"
     (mount-multi-frame-picker-untouched!)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade :c2 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event :c2 :rf/default]))
     (let [r       (focus-sub)
           target  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame]))
           history (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
@@ -1740,7 +1740,7 @@
             machine-inspector / trace / mcp-server entry point) for a
             cascade that settled in a NON-head frame re-seeds
             `:epoch-history` onto that frame BEFORE resolving the
-            settling epoch, exactly as the sibling :rf.xray/focus-cascade
+            settling epoch, exactly as the sibling :rf.xray/focus-event
             handler does (rf2-q8hvw). Drives the ACTUAL failing path —
             picker untouched, slot keyed on the boot head frame — and
             asserts the clicked dispatch's epoch resolves (not nil)."
