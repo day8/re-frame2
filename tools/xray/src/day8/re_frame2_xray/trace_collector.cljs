@@ -77,7 +77,7 @@
 (defonce ^:private frameless-ring-depth
   ;; Mutable so future Settings UX can tune this without re-evaluating
   ;; the constant. Same shape as the framework's per-process depth
-  ;; (`re-frame.trace.tooling/process-cascades-retained`).
+  ;; (`re-frame.trace.tooling/process-events-retained`).
   (atom default-frameless-ring-depth))
 
 (defonce ^:private frameless-ring

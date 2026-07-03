@@ -50,8 +50,8 @@
 
       Space  →  :rf.xray/toggle-live-pause      (pause/resume LIVE feed)
       L      →  :rf.xray/follow-head            (snap-LIVE)
-      j      →  :rf.xray/focus-cascade-prev     (step back through events)
-      k      →  :rf.xray/focus-cascade-next     (step forward through events)
+      j      →  :rf.xray/focus-event-prev       (step back through events)
+      k      →  :rf.xray/focus-event-next       (step forward through events)
       G      →  :rf.xray/follow-head            (fast-forward to head)
 
   These keys collide with normal typing in any text field, so they
@@ -269,11 +269,11 @@
 
         ;; j — step backward (vim convention reused)
         (and (not shift?) (or (= "j" k) (= "KeyJ" code)))
-        :rf.xray/focus-cascade-prev
+        :rf.xray/focus-event-prev
 
         ;; k — step forward
         (and (not shift?) (or (= "k" k) (= "KeyK" code)))
-        :rf.xray/focus-cascade-next
+        :rf.xray/focus-event-next
 
         ;; , or s — toggle Settings popup. Per spec/007-UX-IA.md
         ;; §Global shortcuts both bindings open the modal (the spec

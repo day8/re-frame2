@@ -87,7 +87,7 @@
 
 (defn- focus-cascade! [dispatch-id frame-id]
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-cascade dispatch-id frame-id])))
+    (rf/dispatch-sync [:rf.xray/focus-event dispatch-id frame-id])))
 
 (defn- below-host-cascades []
   (filterv #(= frame-below (:frame %)) (sub-xray [:rf.xray/cascades])))

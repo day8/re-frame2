@@ -26,7 +26,7 @@
   Playwright (modelled on `sync_epoch_focus_e2e_cljs_test` for rf2-mdpfz).
   We seed THREE real host cascades through the trace bus, then dispatch
   the EXACT event the spine row's body-click fires
-  (`:rf.xray/focus-cascade <past-id> <frame>`) for a PAST cascade — and
+  (`:rf.xray/focus-event <past-id> <frame>`) for a PAST cascade — and
   assert the spine sub `:rf.xray/focus` AND the focus-keyed panel subs
   (`:rf.xray/app-db-current+diff`, `:rf.xray/epoch-pipeline`) re-bind to
   the CHOSEN PAST epoch, not the latest. Pre-fix the embed had no
@@ -120,7 +120,7 @@
 ;; ---- 2 · selecting a PAST event focuses it IN-PLACE (contract) ----------
 ;;
 ;; The spine row's body-click handler (reused verbatim from the full
-;; shell's `event-row`) dispatches `[:rf.xray/focus-cascade <id> <frame>]`.
+;; shell's `event-row`) dispatches `[:rf.xray/focus-event <id> <frame>]`.
 ;; Driving that event for a PAST cascade IS clicking a past spine row.
 ;; We assert the spine sub + the focus-keyed panel subs follow it
 ;; in-place to the chosen PAST epoch — the behaviour the inline spine
@@ -162,7 +162,7 @@
               "baseline: the spine focus tracks the latest/head event
                (the only thing the pre-fix embed ever surfaced)")
           ;; Click a PAST spine row == dispatch its body-click event.
-          (xray-e2e/dispatch-xray [:rf.xray/focus-cascade past-id past-frame])
+          (xray-e2e/dispatch-xray [:rf.xray/focus-event past-id past-frame])
           (let [focus (xray-e2e/sub-xray [:rf.xray/focus])]
             (is (= past-id (:dispatch-id focus))
                 "spine focus re-bound to the chosen PAST cascade in-place")

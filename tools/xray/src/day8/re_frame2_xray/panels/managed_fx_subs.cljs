@@ -19,9 +19,10 @@
   ## Cross-link
 
   Records carry `:origin-event-id` so the panel's HANDLER DISPATCHED
-  row can wire `:on-click` to `:rf.xray/focus-event` — clicking pivots
-  the spine to the child cascade the response handler kicks off. The
-  cross-link event lives here so panel views stay thin."
+  row can wire `:on-click` to the spine's canonical `:rf.xray/focus-event`
+  — clicking pivots the spine to the child event the response handler
+  kicks off. The panel reuses the spine event directly, so views stay
+  thin and there is one focus write path."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
             [day8.re-frame2-xray.spine :as spine]))
@@ -29,9 +30,11 @@
 ;; ---- public install -----------------------------------------------------
 
 (defn install!
-  "Idempotent install — register `:rf.xray/managed-fx-for-focused-event`
-  + the `:rf.xray/focus-event` cross-link event. Called from
-  `registry.cljs`'s `register-xray-handlers!` fan-out."
+  "Idempotent install — register `:rf.xray/managed-fx-for-focused-event`.
+  The panel's HANDLER DISPATCHED row cross-links via the spine's
+  canonical `:rf.xray/focus-event`, so no panel-local focus event is
+  registered here. Called from `registry.cljs`'s
+  `register-xray-handlers!` fan-out."
   []
 
   ;; Composite sub — produces the records vector for the focused
@@ -52,14 +55,12 @@
          :frame       (:frame focus)
          :records     (if cascade
                         (h/cascade->managed-fx-records cascade)
-                        [])})))
+                        [])}))))
 
-  ;; Cross-link event — the HANDLER DISPATCHED row dispatches this to
-  ;; pivot the spine to a different cascade. Thin wrapper over the
-  ;; existing `:rf.xray/focus-cascade` event; named to read as the
-  ;; panel-side concept ('focus this event'), since the panel surfaces
-  ;; an event vector and the user thinks 'jump to that event' rather
-  ;; than 'jump to that cascade'. Internally same write.
-  (rf/reg-event :rf.xray/focus-event
-    (fn [{:keys [db]} [_ dispatch-id frame-id]]
-      {:db (spine/focus-cascade-reducer db dispatch-id frame-id)})))
+;; The HANDLER DISPATCHED row's `:on-click` dispatches the spine's
+;; canonical `:rf.xray/focus-event` directly (managed_fx_template.cljs)
+;; — 'focus this event' reads as the panel-side concept and IS the
+;; spine focus write. No panel-local duplicate is registered: one id,
+;; one write path (rf2-fsqlgz collapsed the former thin wrapper onto
+;; the spine event when the pipeline-vocab rename made both ids
+;; `:rf.xray/focus-event`).

@@ -1014,14 +1014,14 @@
 
   Buffer-depth tunables surfaced in the Buffer tab.
 
-  - `:cascades-retained` (default 50) — count of cascades retained
+  - `:events-retained` (default 50) — count of events retained
     in each frame's trace ring. Mirrors
-    `re-frame.trace.tooling/default-cascades-retained`. Writes through
+    `re-frame.trace.tooling/default-events-retained`. Writes through
     to the runtime ring via `(rf/configure! {:trace-buffer
-    {:cascades-retained N}})` — `apply-cascades-retained!` resizes the
+    {:events-retained N}})` — `apply-cascades-retained!` resizes the
     live ring and `apply-all!` replays the persisted value on boot.
-    The unit is cascades (50), retained in the framework's per-frame
-    cascade-keyed rings.
+    The unit is events (50) — one retained slot per event / pipeline
+    run — retained in the framework's per-frame event-keyed rings.
 
   ## `:event-list-col-widths` (resizable event-list columns)
 
@@ -1101,7 +1101,7 @@
                :editor-override         nil}
    :theme     :light                                 ; :light | :dark (light default per the authority reference)
    :diff      {:highlight-fn-ref-changes? false}
-   :buffer    {:cascades-retained 50}})
+   :buffer    {:events-retained 50}})
 
 (defn- merge-known-sections
   "Deep-merge `src` (a persisted / bulk-config settings map) over

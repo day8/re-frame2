@@ -25,7 +25,7 @@
        `:rf.xray/selected-tab` so the L4 detail panel rebinds.
 
     4. The L2 event list reads `:rf.xray/cascades` and clicking a
-       row dispatches `:rf.xray/focus-cascade` so the spine rebinds
+       row dispatches `:rf.xray/focus-event` so the spine rebinds
        atomically per spec/018 §6.
 
     5. The REDACTED indicator (rf2-azls9) preserves its render gate
@@ -668,7 +668,7 @@
                                       :frame :rf/default
                                       :rf.trace/dispatch-id 2}})
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
+      (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (let [dispatches (atom [])]
       (with-redefs [rf/dispatch* (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
@@ -944,7 +944,7 @@
 (defn- dispatch-trace-ev
   "Minimal `:rf.event/dispatched` trace event so the projection produces
   a one-cascade list. The shape matches what
-  `re-frame.trace.projection/group-cascades` consumes — the cascade
+  `re-frame.trace.projection/group-by-event` consumes — the cascade
   key is `[frame dispatch-id]` and both must live under `:tags`."
   [id event-vec]
   {:id           id
@@ -956,7 +956,7 @@
 
 (defn- run-end-trace-ev
   "A `:rf.event/run-end` trace event carrying a handler `:duration-ms`,
-  bucketed into the cascade's `:handler` slot by `group-cascades`. Used
+  bucketed into the cascade's `:handler` slot by `group-by-event`. Used
   to drive the L2 row's trailing `duration` column (rf2-lnod7)."
   [id duration-ms]
   {:id           (+ id 1000)
@@ -1196,7 +1196,7 @@
 
 (defn- error-trace-ev
   "An `:rf.error/*` trace event (`:op-type :error`) carrying the SAME
-  `:rf.trace/dispatch-id` as a cascade so `group-cascades` buckets it into
+  `:rf.trace/dispatch-id` as a cascade so `group-by-event` buckets it into
   that cascade's `:other` slot — the canonical 'this epoch had an issue'
   signal (mirrors button-15's `:rf.error/handler-exception`)."
   [id]
@@ -1239,7 +1239,7 @@
 
 (deftest event-list-suppresses-ungrouped-cascade-placeholder
   (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`
-            cascade produced by group-cascades for registry-time emits /
+            cascade produced by group-by-event for registry-time emits /
             frame lifecycle outside a drain / REPL evals. Without the
             filter the list rendered a leading `<no event>` placeholder
             row that leaked the projection's internal bucket into the
@@ -1287,7 +1287,7 @@
 ;; row". Default OFF preserves silent-by-default. The opt-in:
 ;;   - reveals the :ungrouped bucket as an L2 row carrying
 ;;     `data-rf-xray-ungrouped="true"`;
-;;   - the row's body-click dispatches `:rf.xray/focus-cascade
+;;   - the row's body-click dispatches `:rf.xray/focus-event
 ;;     :ungrouped` so the spine pins to the bucket;
 ;;   - the spine reducer + composer accept the pin under the opt-in
 ;;     (covered directly by spine_cljs_test.cljs).
@@ -1337,7 +1337,7 @@
 
 (deftest event-list-ungrouped-row-click-dispatches-focus-cascade
   (testing "rf2-r9lyy — clicking the revealed :ungrouped row dispatches
-            `:rf.xray/focus-cascade :ungrouped` so the spine pins the
+            `:rf.xray/focus-event :ungrouped` so the spine pins the
             bucket and downstream panels populate"
     (xray-setup!)
     (config/update-setting! :general :show-ungrouped? true)
@@ -1356,14 +1356,14 @@
                   handler (:on-click (second row))]
               (is (some? row) ":ungrouped row is present")
               (when handler (handler nil)))))
-        (is (some #(and (= :rf.xray/focus-cascade (first %))
+        (is (some #(and (= :rf.xray/focus-event (first %))
                         (= :ungrouped (second %))) @dispatches)
-            ":rf.xray/focus-cascade fired with `:ungrouped` as the id"))
+            ":rf.xray/focus-event fired with `:ungrouped` as the id"))
       (finally
         (config/update-setting! :general :show-ungrouped? false)))))
 
 (deftest event-row-click-dispatches-focus-cascade
-  (testing "spec/018 §6 — row click dispatches :rf.xray/focus-cascade,
+  (testing "spec/018 §6 — row click dispatches :rf.xray/focus-event,
             spine flips to :retro, every dependent surface rebinds"
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
@@ -1377,9 +1377,9 @@
                 handler (:on-click (second row))]
             (is (some? row) "row for cascade 1 is present")
             (when handler (handler nil)))))
-      (is (some #(and (= :rf.xray/focus-cascade (first %))
+      (is (some #(and (= :rf.xray/focus-event (first %))
                       (= 1 (second %))) @dispatches)
-          ":rf.xray/focus-cascade fired with the cascade's dispatch-id"))))
+          ":rf.xray/focus-event fired with the cascade's dispatch-id"))))
 
 ;; -------------------------------------------------------------------------
 ;; (4b) L2 event-list polish — slim scrollbar + auto-scroll (rf2-ieg6d)
@@ -1436,7 +1436,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
+      (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (rf/with-frame :rf/xray
       (let [focus @(rf/subscribe [:rf.xray/focus])
             tree  (shell/shell-view)
@@ -1565,7 +1565,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
+      (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
         (is (nav-prev-disabled? tree)
@@ -1581,7 +1581,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:middle/event]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:newer/event]))
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 2]))
+      (rf/dispatch-sync [:rf.xray/focus-event 2]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
         (is (not (nav-prev-disabled? tree))
@@ -1717,10 +1717,10 @@
             (is (nil? handler)
                 "disabled prev button has no on-click slot")
             (when handler (handler nil)))))
-      (is (empty? (filter #(or (= [:rf.xray/focus-cascade-prev] %)
-                               (= :rf.xray/focus-cascade-prev (first %)))
+      (is (empty? (filter #(or (= [:rf.xray/focus-event-prev] %)
+                               (= :rf.xray/focus-event-prev (first %)))
                           @dispatches))
-          "no :rf.xray/focus-cascade-prev dispatched"))))
+          "no :rf.xray/focus-event-prev dispatched"))))
 
 (deftest ribbon-prev-keyboard-equivalent-on-first-event-is-noop
   (testing "rf2-fzbrw layer C — keyboard j (the [<] equivalent) routes
@@ -1734,7 +1734,7 @@
       (let [focus-before @(rf/subscribe [:rf.xray/focus])]
         (is (= 1 (:dispatch-id focus-before)) "focus on the only event")
         ;; Fire the keyboard-equivalent event — must be a no-op.
-        (rf/dispatch-sync [:rf.xray/focus-cascade-prev])
+        (rf/dispatch-sync [:rf.xray/focus-event-prev])
         (let [focus-after @(rf/subscribe [:rf.xray/focus])]
           (is (= 1 (:dispatch-id focus-after))
               "focus unchanged — boundary no-op")
@@ -1839,9 +1839,9 @@
                              :shiftKey false}]
             (is (some? handler))
             (when handler (handler evt)))))
-      (is (some #(and (= :rf.xray/focus-cascade (first %))
+      (is (some #(and (= :rf.xray/focus-event (first %))
                       (= 1 (second %))) @dispatches)
-          "Enter on a row fires the same :rf.xray/focus-cascade
+          "Enter on a row fires the same :rf.xray/focus-event
            dispatch as the mouse click"))))
 
 (deftest event-row-keyboard-context-menu-fallback
@@ -2533,7 +2533,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:mid/event]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:newer/event]))
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 2]))
+      (rf/dispatch-sync [:rf.xray/focus-event 2]))
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)]
         (doseq [tid ["rf-xray-nav-prev" "rf-xray-nav-next" "rf-xray-nav-head"]]
@@ -2588,7 +2588,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 1]))
+      (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view)
             row   (find-by-testid tree "rf-xray-event-row-1")
@@ -2665,7 +2665,7 @@
       ;; Focus the NON-head cascade (id 1) on :rf/default → RETRO mode,
       ;; where the focus honours the resolved epoch-id (LIVE auto-follows
       ;; head, which would mask the pin).
-      (rf/dispatch-sync [:rf.xray/focus-cascade 1 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event 1 :rf/default]))
     (rf/with-frame :rf/xray
       (let [observed @(rf/subscribe [:rf.xray/observed-frame])
             epoch-id @(rf/subscribe [:rf.xray/focus-epoch-id])]
@@ -2799,7 +2799,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:boom/throw]))
     (trace-collector/seed-trace-for-test! (error-trace-ev 2))
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-cascade 2 :rf/default]))
+      (rf/dispatch-sync [:rf.xray/focus-event 2 :rf/default]))
     (rf/with-frame :rf/xray
       (let [tree      (shell/shell-view)
             issue-row (find-by-testid tree "rf-xray-event-row-2")

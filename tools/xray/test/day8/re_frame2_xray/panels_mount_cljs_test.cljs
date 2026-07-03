@@ -273,7 +273,7 @@
 
 (defn- pre-mount-dispatch-event
   "Build a trace event matching the shape `event/dispatched` produces.
-  Enough for `projection/group-cascades` to bucket it into a cascade
+  Enough for `projection/group-by-event` to bucket it into a cascade
   with `:frame` set so `spine/focusable-head-frame-id` resolves."
   [id dispatch-id frame-id event-id]
   {:id        id

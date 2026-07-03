@@ -17,7 +17,7 @@
   eid 8's `:trace-events` began with an orphan `[:frame :frame/created]`
   carrying eid 8's `:dispatch-id`.
 
-  That orphan poisoned Xray's cascade grouping. `group-cascades`
+  That orphan poisoned Xray's cascade grouping. `group-by-event`
   groups by `[frame dispatch-id]`; the orphan `:frame/created` carried
   the SAME `:dispatch-id` as the real `:rf.event/dispatched`, so it folded
   into the same cascade record — fine. The real failure mode the bead
@@ -37,7 +37,7 @@
   Pure-data, no runtime: feed both trace-stream shapes through the
   exact L2-row pipeline Xray uses —
 
-    `projection/group-cascades`
+    `projection/group-by-event`
       → `self-noise/xray-internal-cascade?` (the shared hard-filter)
       → `shell/l2-cascade-visible?` (the L2 visibility predicate)
 
@@ -123,13 +123,13 @@
 ;;
 ;; Pre-avvwm the orphan :frame/created leaked into the epoch's
 ;; :trace-events carrying the SAME :dispatch-id as the real
-;; :rf.event/dispatched. Because group-cascades keys by [frame
+;; :rf.event/dispatched. Because group-by-event keys by [frame
 ;; dispatch-id], the orphan folded into the SAME cascade record — the
 ;; real :rf.event/dispatched still populated :event, so even the corrupted
 ;; stream resolves a visible row (the orphan rides in :other). This
 ;; contrast case documents that grouping is robust even WITH the orphan
 ;; present — confirming the visible-row defect was upstream (the orphan
-;; never reaching the cascade) rather than in group-cascades itself.
+;; never reaching the cascade) rather than in group-by-event itself.
 
 (deftest pre-avvwm-orphan-folds-into-same-cascade-still-visible
   (testing "with the leading orphan :frame/created sharing the epoch's

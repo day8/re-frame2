@@ -10,7 +10,7 @@ off behaviour.
 
 The framework owns the data plane: per-frame cascade-keyed rings with
 B4 dedup, depth knob via `(rf/configure! {:trace-buffer
-{:cascades-retained N}})`, oldest-first cascade vectors via
+{:events-retained N}})`, oldest-first cascade vectors via
 `(rf/trace-buffer frame-id opts)`. Per [Spec 009 §Per-frame trace
 rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only)
 and bead `rf2-g1b2m`.
@@ -35,7 +35,7 @@ contract; both ate the original motivation for a separate Xray ring
   [`trace_collector.cljs`](../src/day8/re_frame2_xray/trace_collector.cljs)
   (CLJS-only side effects; rf2-3g9nw D5=a).
 - The Settings buffer-depth slot renamed
-  `:trace-buffer/keep` → `:cascades-retained` (events → cascades;
+  `:trace-buffer/keep` → `:events-retained` (one slot per event;
   default 1000 → 50; rf2-3g9nw D1=a).
 - Production reactive surface stays microtask-coalesced; tests get a
   synchronous `refresh-trace-rings!` entrypoint (rf2-3g9nw D3=b).
@@ -98,7 +98,7 @@ cover residual classes the frame gate misses:
    past the frame gate.
 2. **`xray-internal-cascade?` / `xray-internal-event-id?`** —
    cascades whose `:event` vector's head is a keyword in the
-   `rf.xray` namespace (`:rf.xray/focus-cascade`,
+   `rf.xray` namespace (`:rf.xray/focus-event`,
    `:rf.xray/select-tab`, etc.). These can be dispatched WITHOUT a
    `{:frame :rf/xray}` option (palette quick-actions, headless
    helpers) — the framework chain-resolves them onto `:rf/default`,
@@ -336,7 +336,7 @@ Panels read the buffer through layer-1 subscriptions:
   oldest-first by `:id`. Reads `(get db :trace-buffer)` off Xray's
   app-db; populated by the coalesced microtask sync.
 - **`:rf.xray/cascades`** — chained off `:rf.xray/trace-buffer`,
-  composes `re-frame.trace.projection/group-cascades` and applies
+  composes `re-frame.trace.projection/group-by-event` and applies
   the `self-noise/xray-internal-cascade?` data-layer filter (per
   `rf2-g1pt8`). Every downstream consumer reads from this projection;
   the L2 event list, the spine, the Event / Issues / Trace / Views
@@ -517,19 +517,19 @@ own filter vocabulary is the single source of truth.
 
 The Settings popup → Buffer tab exposes the framework's per-frame
 ring depth as a numeric input labelled
-"Cascades retained (:buffer/cascades-retained)" (default 50).
+"Events retained (:buffer/events-retained)" (default 50).
 Writes through to `(rf/configure! {:trace-buffer
-{:cascades-retained N}})` via `settings/effects.cljs
+{:events-retained N}})` via `settings/effects.cljs
 §apply-cascades-retained!` — the matching `:rf.xray/settings-update
-:buffer :cascades-retained` event applies it live, and `apply-all!`
+:buffer :events-retained` event applies it live, and `apply-all!`
 replays the persisted value on boot (rf2-5u03ig).
 
-Renamed from `:trace-buffer/keep` (events, default 1000) at
-rf2-43koh: the unit changed from events to cascades when Xray's
-separate ring was retired in favour of the framework's per-frame
-cascade-keyed rings. No back-compat alias — pre-alpha posture.
+Renamed from `:trace-buffer/keep` (default 1000) at
+rf2-43koh when Xray's separate ring was retired in favour of the
+framework's per-frame event-keyed rings — one retained slot per
+event / pipeline run. No back-compat alias — pre-alpha posture.
 
-`:cascades-retained` is the sole Buffer-tab knob. The earlier
+`:events-retained` is the sole Buffer-tab knob. The earlier
 `:buffer/retained-epochs` input was removed (rf2-pu9sb — no runtime
 consumer; the per-frame epoch ring is sized by `:general
 :epoch-history`), and the inert

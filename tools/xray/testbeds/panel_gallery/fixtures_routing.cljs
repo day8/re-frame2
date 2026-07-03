@@ -10,7 +10,7 @@
       runtime-db's `[:rf.runtime/routing :current]` slice; test override
       slot at `:rf.xray/set-current-route-slice-override-for-test`.
     - `:rf.xray/cascades` — drives the FROM/TO detection. Seed via
-      `:rf.xray/sync-trace-buffer` + `:rf.xray/focus-cascade` so
+      `:rf.xray/sync-trace-buffer` + `:rf.xray/focus-event` so
       the spine's focused cascade carries the
       `:rf.route.nav-token/allocated` emit.
     - `:rf.xray.routing/query` + `:rf.xray.routing/sim-url` —

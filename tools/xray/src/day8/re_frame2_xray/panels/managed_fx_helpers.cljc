@@ -262,7 +262,7 @@
 (defn- surface-events-for
   "Filter `cascade-other-events` to the operations a given surface
   emits. The `:other` slot of the cascade record per
-  `re-frame.trace.projection/group-cascades` is where these non-domino
+  `re-frame.trace.projection/group-by-event` is where these non-domino
   traces land. Pure fn."
   [cascade-other-events surface]
   (let [ops (case surface
@@ -580,7 +580,7 @@
 ;; ---- cascade walker ----------------------------------------------------
 
 (defn cascade->managed-fx-records
-  "Walk a cascade record (per `re-frame.trace.projection/group-cascades`)
+  "Walk a cascade record (per `re-frame.trace.projection/group-by-event`)
   and project one managed-fx record per `:rf.fx/handled` (or
   `:rf.fx/override-applied`, etc.) event whose fx-id classifies as a
   managed-fx surface.

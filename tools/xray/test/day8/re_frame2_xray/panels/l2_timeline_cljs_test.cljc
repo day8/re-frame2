@@ -29,7 +29,7 @@
 (defn- cascade-with-source
   "Build a synthetic cascade record whose `:dispatched` carries the
   given `:source` tag. Mirrors the shape produced by
-  `re-frame.trace.projection/group-cascades` post-rf2-1ve9h."
+  `re-frame.trace.projection/group-by-event` post-rf2-1ve9h."
   [source]
   {:dispatch-id 42
    :event       [:cart/add-item {:id 99}]
@@ -193,7 +193,7 @@
 (defn- cascade-with-duration
   "Build a synthetic cascade whose `:handler` (`:rf.event/run-end`) trace
   event carries the given handler `:duration-ms`. Mirrors the shape
-  `re-frame.trace.projection/group-cascades` buckets into `:handler`."
+  `re-frame.trace.projection/group-by-event` buckets into `:handler`."
   [duration-ms]
   {:dispatch-id 7
    :event       [:poll/tick]

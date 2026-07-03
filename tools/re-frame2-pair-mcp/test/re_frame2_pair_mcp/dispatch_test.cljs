@@ -835,14 +835,14 @@
       (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
             (fn []
               (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:rf.xray/focus-cascade 85]"
+                                      #js {:event "[:rf.xray/focus-event 85]"
                                            :frame ":rf/xray"
                                            :sync true})))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)
                          opts   (nth parsed 2)]
                      (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed)))
-                     (is (= [:rf.xray/focus-cascade 85] (second parsed)))
+                     (is (= [:rf.xray/focus-event 85] (second parsed)))
                      (is (= :rf/xray (:frame opts))
                          "frame routes to the well-formed :rf/xray keyword")
                      (is (not= ::malformed (:frame opts)))
@@ -901,13 +901,13 @@
   (async done
     (let [runtime-result {:ok?    false
                           :reason :no-new-epoch
-                          :event  [:rf.xray/focus-cascade 85]
+                          :event  [:rf.xray/focus-event 85]
                           :frame  :rf/xray
                           :hint   "dispatch-sync returned, but epoch-history head did not advance."}]
       (-> (with-captured-eval! (atom nil) runtime-result
             (fn []
               (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:rf.xray/focus-cascade 85]"
+                                      #js {:event "[:rf.xray/focus-event 85]"
                                            :frame ":rf/xray"
                                            :sync true})))
           (.then (fn [r]

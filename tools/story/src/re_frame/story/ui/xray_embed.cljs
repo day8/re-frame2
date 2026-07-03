@@ -550,7 +550,7 @@
   Mike RULED scope = A (2026-06-01): add the inline spine so past
   events/epochs are focusable in-place; keep the Ctrl+Shift+C / `Pop
   out` full-shell escape hatch for deep history. Clicking a past event
-  in the spine dispatches `:rf.xray/focus-cascade` (the row's own
+  in the spine dispatches `:rf.xray/focus-event` (the row's own
   handler — reused verbatim from the full shell), which re-binds the
   spine sub `:rf.xray/focus`; the chip-selected panel below — mounted in
   the SAME `:rf/xray` frame — re-renders against the chosen epoch.

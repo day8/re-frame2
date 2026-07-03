@@ -816,9 +816,9 @@ What landed under rf2-ttnst (and the subsequent retirements) that the earlier as
   layout), not a sub-section of another tab.
 - **Keybindings** v1 ships READ-ONLY; the chord-rebind UI is the v1.1
   follow-on.
-- **Buffer** ships with the `:buffer/cascades-retained` numeric input
+- **Buffer** ships with the `:buffer/events-retained` numeric input
   (writes through to `(rf/configure! {:trace-buffer
-  {:cascades-retained N}})` per rf2-5u03ig) + a "Clear buffer now"
+  {:events-retained N}})` per rf2-5u03ig) + a "Clear buffer now"
   button (confirm modal). Two inputs that once sat here were removed:
   the `:buffer/retained-epochs` input (rf2-pu9sb — no substrate
   consumer; it was duplicate dead chrome for the epoch-history slider,

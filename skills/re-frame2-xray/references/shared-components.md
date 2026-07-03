@@ -44,7 +44,7 @@ MVP: chronological walk through the L2 spine. Hit-target sizing per
 §021 §17.1.5 (28×20px, 4px vertical padding for AA target-size).
 Disabled state at spine ends. Navigation is via the rendered
 `◀ Prev` / `Next ▶` buttons plus the wired focus-gated `j` / `k` spine
-keys (`:rf.xray/focus-cascade-prev` / `-next`, per `keybinding.cljs`) —
+keys (`:rf.xray/focus-event-prev` / `-next`, per `keybinding.cljs`) —
 the component is pure (no global keydown listener), and `keybinding.cljs`
 wires **no** `ArrowLeft` / `ArrowRight` spine handler. Do not document
 arrow-key navigation until `keybinding.cljs` actually implements it.

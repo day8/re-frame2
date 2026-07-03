@@ -641,11 +641,11 @@
    {:fixture/id    :dispatch/frame-targeted-routes
     :fixture/doc   "dispatch frame ':rf/xray' emits {:frame :rf/xray} in the runtime opts — NOT the malformed ::rf/xray (rf2-ldfnx). Routes through dispatch-consequence! (rf2-3bu3d.2)."
     :fixture/tool  "dispatch"
-    :fixture/args  {:event "[:rf.xray/focus-cascade 85]" :frame ":rf/xray" :sync true}
+    :fixture/args  {:event "[:rf.xray/focus-event 85]" :frame ":rf/xray" :sync true}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      ["dispatch-consequence!"     {:ok? true :epoch-id 7 :frame :rf/xray
-                                   :resolved [:rf.xray/focus-cascade 85]}]
+                                   :resolved [:rf.xray/focus-event 85]}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
     ["dispatch-consequence!" ":frame :rf/xray"]
@@ -662,13 +662,13 @@
    {:fixture/id    :dispatch/frame-untargetable-error
     :fixture/doc   "dispatch surfaces the runtime's {:ok? false :reason :no-new-epoch} as an :isError envelope with NO :mode slot (rf2-ldfnx)."
     :fixture/tool  "dispatch"
-    :fixture/args  {:event "[:rf.xray/focus-cascade 85]" :frame ":rf/xray" :sync true}
+    :fixture/args  {:event "[:rf.xray/focus-event 85]" :frame ":rf/xray" :sync true}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      ["dispatch-consequence!"     {:ok? false :reason :no-new-epoch
-                                   :event [:rf.xray/focus-cascade 85]
+                                   :event [:rf.xray/focus-event 85]
                                    :frame :rf/xray
-                                   :resolved [:rf.xray/focus-cascade 85]
+                                   :resolved [:rf.xray/focus-event 85]
                                    :hint "dispatch-sync returned, but epoch-history head did not advance."}]
      [:default                    nil]]
     :fixture/expect

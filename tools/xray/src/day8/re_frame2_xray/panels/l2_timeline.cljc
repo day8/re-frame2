@@ -39,7 +39,7 @@
   ## Cascade record shape consumed
 
   `cascade` is the per-dispatch projection record (per
-  `re-frame.trace.projection/group-cascades`):
+  `re-frame.trace.projection/group-by-event`):
 
       {:dispatch-id <id>
        :event       <event-vector>
@@ -383,7 +383,7 @@
 ;;
 ;; Source of the issue traces on a cascade record: every non-domino trace
 ;; event (errors / warnings / …) lands in the cascade's `:other` bucket
-;; (`re-frame.trace.projection/group-cascades` · `domino-bucket` →
+;; (`re-frame.trace.projection/group-by-event` · `domino-bucket` →
 ;; `:other`); the cascade's existing `:errors` slot is checked too for
 ;; defence in depth (synthetic fixtures / older traces that populated it
 ;; directly).

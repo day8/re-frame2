@@ -769,7 +769,7 @@ mute manager modal). The Buffer tab inherited the
 |---|---|---|---|
 | 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Editor override** (rf2-dudqz — per-machine click-to-source picker; nil / `:vscode` / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <tpl>}`; default nil = use host default) · **Power user:** "Show tool frames in picker" toggle (off by default) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot is `:general :use-system-colors?`) |
 | 2 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
-| 3 | **Buffer** | `b` | `:buffer/cascades-retained` (writes through to `(rf/configure! {:trace-buffer {:cascades-retained N}})` — rf2-5u03ig) · "Clear buffer now" button with confirm modal. (The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig.) |
+| 3 | **Buffer** | `b` | `:buffer/events-retained` (writes through to `(rf/configure! {:trace-buffer {:events-retained N}})` — rf2-5u03ig) · "Clear buffer now" button with confirm modal. (The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig.) |
 | 4 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; the app-db diff engine itself is Editscript A* per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1.5.1 with no user-tuneable knobs — the prior section-grouping engine was retired wholesale per rf2-7is22) |
 
 **Inner-tab mnemonics** (g / k / b / d) — bare-letter
@@ -1220,8 +1220,8 @@ editable or modal target (see the scope guards above). Per spec/018 §3
 | `Space` | Pause / resume the LIVE feed | `:rf.xray/toggle-live-pause` |
 | `l` | Snap to LIVE (follow the head) | `:rf.xray/follow-head` |
 | `Shift+G` | Fast-forward to head ("go to head") | `:rf.xray/follow-head` |
-| `j` | Step back one event (cascade-prev) | `:rf.xray/focus-cascade-prev` |
-| `k` | Step forward one event (cascade-next) | `:rf.xray/focus-cascade-next` |
+| `j` | Step back one event (event-prev) | `:rf.xray/focus-event-prev` |
+| `k` | Step forward one event (event-next) | `:rf.xray/focus-event-next` |
 | `,` or `s` | Toggle the Settings popup | `:rf.xray/settings-toggle` |
 
 Everything else — tab switching, rewind, re-dispatch, filter focus — is
@@ -1918,7 +1918,7 @@ history + spine focus:
 | **app-db-diff**    | `:rf.xray/app-db-state` (← `:rf.xray/app-db-current+diff`; rf2-p53m2 — the `:rf.xray/app-db-diff` composite was pruned) | `:rf.xray/focus-slice-path` · `:rf.xray/open-segment-inspector` |
 | **views**          | `:rf.xray/views-focused-cascade-pair` · `:rf.xray/views-sub-diff` | view-row toggles · sub-diff selection |
 | **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/select-dispatch-id` · `:rf.xray/open-in-editor` |
-| **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |
+| **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-event` |
 | **routing**        | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
 | **segment-inspector** | `:rf.xray/segment-inspector-open?` · `:rf.xray/segment-inspector-value` | `:rf.xray/close-segment-inspector` |
 | **cancellation-cascade** | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |

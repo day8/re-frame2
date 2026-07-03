@@ -470,7 +470,7 @@ The Epoch panel (L4 when active) is the OTHER home for the dropped detail. The t
 
 | Action | Result |
 |---|---|
-| **Click row** | `:rf.xray/focus-cascade <id>` + flip `:mode → :retro`; detail panel updates per active tab |
+| **Click row** | `:rf.xray/focus-event <id>` + flip `:mode → :retro`; detail panel updates per active tab |
 | **Double-click row** | Focus + pivot L3 to Epoch panel (= click row then press `e`) |
 | **`o` while row focused** | Open source coord in editor (per [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol matrix) |
 | **`Ctrl+click` row** | Copy cascade-id to clipboard |
@@ -1085,9 +1085,9 @@ The single-axis selection that every layer reads from.
 
 | Event | When dispatched | Effect on spine |
 |---|---|---|
-| `:rf.xray/focus-cascade <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
-| `:rf.xray/focus-cascade-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one in `:rf.xray/filtered-cascades`; flips `:mode → :retro` |
-| `:rf.xray/focus-cascade-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.xray/filtered-cascades`; flips `:mode → :retro` if not already at head |
+| `:rf.xray/focus-event <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
+| `:rf.xray/focus-event-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one in `:rf.xray/filtered-cascades`; flips `:mode → :retro` |
+| `:rf.xray/focus-event-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.xray/filtered-cascades`; flips `:mode → :retro` if not already at head |
 | `:rf.xray/follow-head` | `⏭` button · `L` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
 | `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
@@ -1460,7 +1460,7 @@ is re-seeded only by the PICKER (`set-frame`) and the
 `:rf.xray/epoch-recorded` listener (which appends only when the
 recording frame IS the current target). So the two COMMITTED focus
 handlers that resolve an epoch-id from the slot —
-`:rf.xray/focus-cascade`, `:rf.xray/focus-epoch` — first call
+`:rf.xray/focus-event`, `:rf.xray/focus-epoch` — first call
 `spine/reseed-epoch-history-for-frame`, which re-keys
 `:rf.xray/target-frame` + `:rf.xray/epoch-history` onto the clicked
 cascade's frame (resolved via `rf/epoch-history`) BEFORE the epoch-id
@@ -1492,7 +1492,7 @@ epoch against the wrong ring.
 Test gates: `spine_cljs_test.cljs` pins the `:target-frame` +
 `:epoch-history` writes on both arities of `set-frame-reducer`, the
 `reseed-epoch-history-for-frame` no-op / re-key cases, and the
-end-to-end cross-frame `:rf.xray/focus-cascade` / `:rf.xray/focus-epoch`
+end-to-end cross-frame `:rf.xray/focus-event` / `:rf.xray/focus-epoch`
 resolution (multi-frame, picker untouched); the
 `app_db_diff_cljs_test.cljs` + `views_subs_cljs_test.cljs` regression
 suites pin the panel render bodies post-reseed. For the preview path
@@ -1603,7 +1603,7 @@ renders. Tabs are equal-weight; **General** is the default-on-open.
 |---|---|
 | **General** (default) | Text-size slider · Panel-width slider · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen`) · Density radio (`:cosy` / `:compact`; the `:comfy` tier was dropped per 015 §Density) · Auto-open-on-error checkbox · Long-keyword treatment threshold · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/xray` etc. in ribbon picker; only useful when debugging Xray itself) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot stays `:general :use-system-colors?`) |
 | **Keybindings** | Read-only chord table (every binding the global keydown listener captures) · `Handle keys?` master toggle. v1 ships READ-ONLY; the per-row chord editor + reset-to-defaults UI is the v1.1 follow-on. |
-| **Buffer** | `:buffer/cascades-retained <int>` (default 50; writes through to `(rf/configure! {:trace-buffer {:cascades-retained N}})` per rf2-5u03ig) · "Clear buffer now" button (confirm modal). The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig. |
+| **Buffer** | `:buffer/events-retained <int>` (default 50; writes through to `(rf/configure! {:trace-buffer {:events-retained N}})` per rf2-5u03ig) · "Clear buffer now" button (confirm modal). The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig. |
 | **Diff** | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; the app-db diff engine itself is Editscript A* per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1.5.1 with no user-tuneable knobs — the prior section-grouping engine was retired wholesale per rf2-7is22) |
 
 ### v1 ships

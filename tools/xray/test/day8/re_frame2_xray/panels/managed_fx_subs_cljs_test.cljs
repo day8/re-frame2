@@ -102,8 +102,15 @@
 (deftest focus-event-writes-spine-slot
   (testing ":rf.xray/focus-event dispatches through to the spine slot —
             this is the cross-link the HANDLER DISPATCHED row uses to
-            pivot the spine to the handler's cascade"
-    (seed-buffer! (cascade-evs-http 400 0))
+            pivot the spine to the handler's event. The row reuses the
+            spine's canonical `:rf.xray/focus-event`, so focusing a PAST
+            (non-head) event pins the spine to RETRO — head-aware, per
+            spine semantics (rf2-fsqlgz collapsed the panel-local
+            wrapper onto the spine event)."
+    ;; Seed 400 then a LATER head event (500) so 400 is genuinely a
+    ;; PAST event — focusing it must flip the spine to :retro.
+    (seed-buffer! (concat (cascade-evs-http 400 0)
+                          (cascade-evs-http 500 100)))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 400 :rf/default])
       (let [focus @(rf/subscribe [:rf.xray/focus])]

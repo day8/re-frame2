@@ -393,13 +393,13 @@
 #?(:cljs
    (defn- apply-focus!
      "Dispatch a focus pre-selection if `:event-pos` is set. We use
-     `:rf.xray/focus-cascade` with the position when Xray exposes it
+     `:rf.xray/focus-event` with the position when Xray exposes it
      via the spine — feature-detect for safety."
      [focus]
      (when (and (map? focus) (:event-pos focus))
-       (safe-call! ":rf.xray/focus-cascade"
+       (safe-call! ":rf.xray/focus-event"
                    rf/dispatch*
-                   [:rf.xray/focus-cascade {:event-pos (:event-pos focus)}]
+                   [:rf.xray/focus-event {:event-pos (:event-pos focus)}]
                    {:frame :rf/xray}))))
 
 #?(:cljs
@@ -412,7 +412,7 @@
        1. `:open?` true → `mount/open!`.
        2. `:panel` set → dispatch `:rf.xray/select-panel` into `:rf/xray`.
        3. `:filters` set → `filters.config/configure!` (or warn-skip).
-       4. `:focus`   set → dispatch `:rf.xray/focus-cascade` with coords.
+       4. `:focus`   set → dispatch `:rf.xray/focus-event` with coords.
 
      Returns the resolved preset (or nil) so the shell can log /
      debug-introspect what fired."

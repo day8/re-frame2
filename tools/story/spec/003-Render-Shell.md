@@ -281,7 +281,7 @@ The RHS stacks four regions vertically:
      inspectable IN-PLACE, not only the final/focused event. The
      spine + the chip-selected panel mount in the SAME `:rf/xray`
      frame; clicking a PAST event in the spine dispatches
-     `:rf.xray/focus-cascade` (the row's own handler, reused
+     `:rf.xray/focus-event` (the row's own handler, reused
      verbatim from the full shell), which re-binds the spine sub
      `:rf.xray/focus` — and the panel below re-renders against the
      chosen epoch (app-db + epoch panels update to that epoch).

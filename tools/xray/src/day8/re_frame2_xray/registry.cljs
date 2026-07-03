@@ -132,7 +132,7 @@
     ;;
     ;; Returns the empty vector pre-mount (the slot is absent until
     ;; the first refresh microtask drains). Panel-side composites that
-    ;; want richer projection (`group-cascades`, the L2 event list)
+    ;; want richer projection (`group-by-event`, the L2 event list)
     ;; chain off `:rf.xray/cascades` rather than reading this slot
     ;; directly.
     (rf/reg-sub :rf.xray/trace-buffer
@@ -386,7 +386,7 @@
            :out (vec (get stored :out []))})))
 
     ;; Shared cascade projection. The event-detail and performance
-    ;; composites all consume `projection/group-cascades` over the same
+    ;; composites all consume `projection/group-by-event` over the same
     ;; trace-buffer; routing them through one intermediate sub collapses
     ;; multiple O(buffer) passes per push to one. Each downstream
     ;; composite declares the dependency via `:<-` so the reactive graph
@@ -465,12 +465,12 @@
     ;; used by machine-inspector / trace / cancellation-cascade
     ;; / mcp-server / the cross-site event-status-colour e2e harness.
     ;; It writes through the spine via the same reducer the spec-018
-    ;; `:rf.xray/focus-cascade` event uses. A multi-panel consumer, so
+    ;; `:rf.xray/focus-event` event uses. A multi-panel consumer, so
     ;; it lives here.
     ;;
     ;; Re-keys `:epoch-history` onto the selected cascade's
     ;; frame BEFORE resolving its settling epoch, exactly as the sibling
-    ;; `:rf.xray/focus-cascade` handler does. With the picker
+    ;; `:rf.xray/focus-event` handler does. With the picker
     ;; untouched the `:epoch-history` slot is keyed on the boot head
     ;; frame, so selecting a dispatch-id in a NON-head frame would
     ;; otherwise resolve its epoch against the wrong frame's ring →

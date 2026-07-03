@@ -31,7 +31,7 @@
   keybindings preserve the toggle access the pill used to surface):
 
   - **Nav** (`◀ ▶ ⏭`) — back / forward / fast-forward through the
-    spine. Dispatches `:rf.xray/focus-cascade-prev` / `-next` /
+    spine. Dispatches `:rf.xray/focus-event-prev` / `-next` /
     `:rf.xray/follow-head`. Pressing `⏭` (or `Space` in paused-LIVE,
     or `L` in RETRO) snaps focus back to head — the operations the
     mode pill used to host.
@@ -53,7 +53,7 @@
   Single-line rows, latest-on-bottom, 8 visible by default. Each row:
   gutter glyph (`● ◉ x ▥`) + event-id + right-aligned badge cluster
   (`⚠ 🌐 🤖`) + trailing redaction marker (`[● REDACTED N]`). Click
-  a row → `:rf.xray/focus-cascade <id>` flips spine to RETRO and
+  a row → `:rf.xray/focus-event <id>` flips spine to RETRO and
   rebinds every dependent surface in one frame.
 
   ## Tab bar (L3)
@@ -304,7 +304,7 @@
 (defn cascade-has-event?
   "True iff `cascade` carries a real `:event` vector (`(first :event)`
   resolves to a non-nil event-id). False for the `:ungrouped` bucket
-  produced by `re-frame.trace.projection/group-cascades` for registry-
+  produced by `re-frame.trace.projection/group-by-event` for registry-
   time emits / frame lifecycle outside a drain / REPL evals — those
   carry no event vector. Per rf2-639lc the L2 event list filters this
   bucket out so the user never sees a `<no event>` placeholder row."
@@ -313,7 +313,7 @@
 
 (defn ungrouped-cascade?
   "True iff `cascade` is the `:ungrouped` bucket produced by
-  `re-frame.trace.projection/group-cascades`. Used to give the
+  `re-frame.trace.projection/group-by-event`. Used to give the
   bucket a distinct muted treatment in L2 when the rf2-r9lyy
   opt-in (`:settings/show-ungrouped?`) is on."
   [cascade]
@@ -797,7 +797,7 @@
   "Nav cluster — thin chevrons `‹ › »` per spec/018 §3 + the Figma
   EventsRibbon (the `events-ribbon` component in
   `design-reference/xray_devtools_reference.cljs`). Buttons
-  dispatch `:rf.xray/focus-cascade-prev` / `-next` /
+  dispatch `:rf.xray/focus-event-prev` / `-next` /
   `:rf.xray/follow-head`.
 
   `at-head?` (focus = most recent event), `at-tail?` (focus = first
@@ -878,7 +878,7 @@
            :style {:display "flex" :align-items "center" :gap "2px"}}
      [:button {:data-testid   "rf-xray-nav-prev"
                :on-click      (when-not at-tail?
-                                #(dispatch-fn [:rf.xray/focus-cascade-prev]))
+                                #(dispatch-fn [:rf.xray/focus-event-prev]))
                :disabled      (boolean at-tail?)
                :aria-disabled (boolean at-tail?)
                :title         "Step to previous event (j)"
@@ -886,7 +886,7 @@
       [:span {:aria-hidden "true"} "‹"]]
      [:button {:data-testid   "rf-xray-nav-next"
                :on-click      (when-not at-head?
-                                #(dispatch-fn [:rf.xray/focus-cascade-next]))
+                                #(dispatch-fn [:rf.xray/focus-event-next]))
                :disabled      (boolean at-head?)
                :aria-disabled (boolean at-head?)
                :title         "Step to next event (k)"
@@ -1506,7 +1506,7 @@
                       ;; instance-frame dispatcher (threaded from the
                       ;; `event-list` reg-view) so the focus-cascade
                       ;; write lands on this shell's frame.
-                      (dispatch-fn [:rf.xray/focus-cascade id (:frame cascade)]))]
+                      (dispatch-fn [:rf.xray/focus-event id (:frame cascade)]))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Xray is
     ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in

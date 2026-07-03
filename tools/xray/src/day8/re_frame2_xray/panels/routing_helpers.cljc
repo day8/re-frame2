@@ -416,7 +416,7 @@
 
 (defn- cascade-trace-events
   "Flatten every trace-event bucket on a cascade into one seq. Per
-  `re-frame.trace.projection/group-cascades` a cascade record carries
+  `re-frame.trace.projection/group-by-event` a cascade record carries
   raw trace maps under `:handler`, `:fx`, `:effects`, `:subs`,
   `:renders`, and `:other`; the `:event` slot is the bare event
   vector (not a trace map) so it's excluded. The

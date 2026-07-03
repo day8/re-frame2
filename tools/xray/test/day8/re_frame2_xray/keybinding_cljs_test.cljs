@@ -516,8 +516,8 @@
 ;;     Space   →  :rf.xray/toggle-live-pause
 ;;     L       →  :rf.xray/follow-head      (snap-LIVE)
 ;;     G       →  :rf.xray/follow-head      (Shift+G; vim 'Go to head')
-;;     j       →  :rf.xray/focus-cascade-prev
-;;     k       →  :rf.xray/focus-cascade-next
+;;     j       →  :rf.xray/focus-event-prev
+;;     k       →  :rf.xray/focus-event-next
 
 (deftest spine-key-id-space-is-toggle-live-pause
   (is (= :rf.xray/toggle-live-pause
@@ -538,15 +538,15 @@
          (spine-key-id (mk-event {:code "KeyG" :shift? true})))))
 
 (deftest spine-key-id-j-is-prev
-  (is (= :rf.xray/focus-cascade-prev
+  (is (= :rf.xray/focus-event-prev
          (spine-key-id (mk-event {:key "j"}))))
-  (is (= :rf.xray/focus-cascade-prev
+  (is (= :rf.xray/focus-event-prev
          (spine-key-id (mk-event {:code "KeyJ"})))))
 
 (deftest spine-key-id-k-is-next
-  (is (= :rf.xray/focus-cascade-next
+  (is (= :rf.xray/focus-event-next
          (spine-key-id (mk-event {:key "k"}))))
-  (is (= :rf.xray/focus-cascade-next
+  (is (= :rf.xray/focus-event-next
          (spine-key-id (mk-event {:code "KeyK"})))))
 
 (deftest spine-key-id-c-is-unbound

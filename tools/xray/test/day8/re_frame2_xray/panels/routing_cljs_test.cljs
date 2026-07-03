@@ -326,7 +326,7 @@
                            (assoc (:tags nav-event) :rf.trace/dispatch-id 99))]]
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer]
                           {:frame :rf/xray})
-        (rf/dispatch-sync [:rf.xray/focus-cascade 99 nil] {:frame :rf/xray}))
+        (rf/dispatch-sync [:rf.xray/focus-event 99 nil] {:frame :rf/xray}))
       (let [tree (routing/Panel)]
         ;; ROUTE TABLE still renders.
         (is (some? (find-by-testid tree "rf-xray-routing-table")))
@@ -373,7 +373,7 @@
                                   :rf.trace/dispatch-id 99))]]
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer]
                           {:frame :rf/xray})
-        (rf/dispatch-sync [:rf.xray/focus-cascade 99 nil] {:frame :rf/xray}))
+        (rf/dispatch-sync [:rf.xray/focus-event 99 nil] {:frame :rf/xray}))
       (let [tree (routing/Panel)]
         (is (some? (find-by-testid tree "rf-xray-routing-table-marker-from"))
             ":from overlay glyph rendered on origin route in the table")

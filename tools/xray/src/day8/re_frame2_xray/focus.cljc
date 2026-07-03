@@ -32,7 +32,7 @@
   | `:frame`       | `:rf.xray/select-frame <frame-id>` | `frame_switcher.cljs` |
   | `:panel`       | `:rf.xray/select-tab <tab-id>`     | `registry.cljs` |
   | `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | `spine.cljs` |
-  | `:dispatch-id` | `:rf.xray/focus-cascade <id> <frame>` | `spine.cljs` |
+  | `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | `spine.cljs` |
   | `:path`        | `:rf.xray/focus-slice-path <path>` | `app_db_diff_events.cljs` |
 
   This namespace is a thin composer over those events — it adds no new
@@ -212,7 +212,7 @@
 
     1. `[:rf.xray/select-frame <frame>]` — re-scope FIRST so the
        per-frame epoch ring is re-seeded before any pin resolves.
-    2. `[:rf.xray/focus-cascade <dispatch-id> <frame>]` — when
+    2. `[:rf.xray/focus-event <dispatch-id> <frame>]` — when
        `:dispatch-id` present. The cascade pin carries the frame so
        `cascade-by-id`'s per-frame disambiguation works.
     3. `[:rf.xray/focus-epoch <epoch-id>]` — when `:epoch-id` present
@@ -238,7 +238,7 @@
   [{:keys [frame panel epoch-id dispatch-id path] :as _command}]
   (cond-> []
     (some? frame)       (conj [:rf.xray/select-frame frame])
-    (some? dispatch-id) (conj [:rf.xray/focus-cascade dispatch-id frame])
+    (some? dispatch-id) (conj [:rf.xray/focus-event dispatch-id frame])
     (and (some? epoch-id)
          (nil? dispatch-id))
     (conj [:rf.xray/focus-epoch epoch-id])
