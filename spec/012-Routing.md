@@ -360,6 +360,10 @@ A **malformed** declaration (a non-vector axis, a non-sequential path entry, a n
                                     [:? :map]      ;; params
                                     [:? :map]]}    ;; opts
   (fn handler-route-navigate [{rt :rf.db/runtime} [_ target params opts]]
+    ;; `resolve-target` is the pure target-resolution step — route-id /
+    ;; `:rf.route/self` / `{:url ...}` form dispatch + the query-shaping
+    ;; layers (`:query-retain`, `:query-merge`). Specified in
+    ;; §`resolve-target` below.
     (let [{:keys [route-id path-params query-params fragment]} (resolve-target target params opts rt)
           route-meta (rf/handler-meta :route route-id)
           url        (rf/route-url route-id path-params query-params fragment)
@@ -390,12 +394,21 @@ Three effect categories flow:
 
 The order is locked: state changes first, URL update second, then `:on-match` dispatches and scroll effect. If the URL update fails (browser denies, user is offline) the state is still consistent.
 
-The trailing `opts` map is open. The pattern recognises:
-- `:replace?` (use `replaceState` rather than `pushState` — for redirects, search-as-you-type filters, login-flow returns where the back button should not return to the intermediate URL).
-- `:scroll` (per-call override of the route's `:scroll` metadata; same enum/map shape, see "Scroll restoration").
-- `:fragment` (target `#fragment` for the new URL; see "Fragments" below). May also be supplied as `:fragment` on the target map.
-- `:bypass-leave-guard?` (skip the active route's `:can-leave` gate for this navigation; see [§Navigation blocking](#navigation-blocking--pending-nav-protocol)).
-- Hosts may add their own keys under a chosen namespace.
+<a id="the-navigate-opts--canonical-list"></a>
+##### The `navigate` opts — canonical list
+
+The trailing `opts` map (the **third** positional slot; see [§Arities](#arities--params-is-2nd-opts-is-3rd)) is open. This table is the **single canonical enumeration** of the keys the runtime recognises — the docs guide references it rather than re-listing, so the two never drift:
+
+| Opt | Effect |
+|---|---|
+| `:replace?` | Use `replaceState` rather than `pushState` — for redirects, search-as-you-type filters, and login-flow returns where the back button should not land on the intermediate URL. |
+| `:query` | The **query-string params** for the new URL — coerced against the target route's `:query` schema and emitted as `?key=value`. This is the query slot for the `[:rf.route/navigate target params opts]` form (path params ride the 2nd slot). |
+| `:query-merge` | Fold the given deltas into the **current** route's `:query` slice, rather than replacing it — the "stay here, change these query params" primitive (search, pagination, tabs). A `nil` value **removes** a key (matching `route-url`'s query nil-elision; see [§Bidirectional URL ↔ params](#bidirectional-url--params)). Its natural pairing is the [`:rf.route/self`](#rfrouteself--navigate-in-place) target. See [§The `:query-merge` opt](#the-query-merge-opt--navigate-in-place). |
+| `:scroll` | Per-call override of the route's `:scroll` metadata; same enum/map shape (see [§Scroll restoration](#scroll-restoration)). |
+| `:fragment` | Target `#fragment` for the new URL (see [§Fragments](#fragments)). May also be supplied as `:fragment` on the target map. |
+| `:bypass-leave-guard?` | Skip the active route's `:can-leave` gate for this navigation (see [§Navigation blocking](#navigation-blocking--pending-nav-protocol)). |
+
+Hosts and apps may add their own keys under a chosen namespace. Only `:replace?`, `:scroll`, `:fragment`, and `:bypass-leave-guard?` are treated as **opts-only** for the params/opts swap check (see [§Arities](#arities--params-is-2nd-opts-is-3rd)); `:query` and `:query-merge` are not, because a route may legitimately capture a path segment of that name.
 
 ##### Arities — params is 2nd, opts is 3rd
 
@@ -409,14 +422,64 @@ The event vector has two trailing **maps** in fixed positions — `params` secon
 
 At a call site `[:rf.route/navigate :route/x {...}]` the `{...}` is **path-params**, not opts. The classic mistake is dropping an opts-shaped map into the params slot — `[:rf.route/navigate :route/cart {:replace? true}]` *reads* like "navigate with these opts" but is parsed as "navigate with path-param `:replace?`". The runtime **rejects this swap**: when an opts-only key (`:replace?`, `:scroll`, `:fragment`, `:bypass-leave-guard?`) appears in the params slot and is **not** a declared path-param of the target route, navigation is rejected (slice unchanged, no URL push) and `:rf.error/navigate-arity-misuse` (`:where :event`) is emitted naming the misplaced key. A route that *legitimately* captures a path segment named `:fragment` (`"/anchor/:fragment"`) is not false-flagged — the key is a declared path-param, not a misplaced opt. To pass opts, use the explicit three-arity form with an empty (or real) params map: `[:rf.route/navigate :route/cart {} {:replace? true}]`.
 
-#### Target form — route-id vs URL-string
+The [`:rf.route/self`](#rfrouteself--navigate-in-place) reserved target uses the same three-arity form — `[:rf.route/navigate :rf.route/self {} {:query-merge {…}}]` — where the 2nd slot is an ignored `{}` placeholder (self-nav never re-threads path params) and the opts carry the query change.
 
-`:rf.route/navigate`'s second arg is one of two forms (per the schema's `[:or :keyword [:map [:url :string]]]`):
+#### Target form — route-id, URL-string, or reserved
+
+`:rf.route/navigate`'s second arg (`target`) is one of three forms (per the schema's `[:or :keyword [:map [:url :string]]]` — the reserved-target form is a distinguished keyword, so it fits the `:keyword` branch):
 
 - **Route-id (canonical):** `(rf/dispatch [:rf.route/navigate :route/cart {:cart-id 42}])`. The runtime resolves the route, builds the URL via `route-url`, and pushes. This is the form Construction-Prompts and well-formed app code use.
 - **URL-string (escape hatch):** `(rf/dispatch [:rf.route/navigate {:url "/some/path"}])`. For dynamic or user-supplied URLs the app didn't build itself — deep-link handlers, server-redirect targets, programmatic redirects from a string. The runtime calls `match-url` on the string; if it resolves to a registered route, navigation proceeds normally. URL-strings that don't match any registered route resolve to `:rf.route/not-found` with the URL in `params`, and the runtime pushes the **requested URL** to the address bar (not the not-found route's own `:path`) — the user keeps the URL they aimed at while the not-found view renders, exactly as the URL-driven not-found path leaves the requested URL in place. A miss with no `:rf.route/not-found` route registered still commits the not-found slice and emits the `:rf.warning/no-not-found-route` trace (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)); it is not rejected.
+- **Reserved `:rf.route/self` (navigate-in-place):** `(rf/dispatch [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])`. Stay on the current route, changing only the query (or fragment). See [§`:rf.route/self` — navigate-in-place](#rfrouteself--navigate-in-place) below.
 
 The route-id form is preferred everywhere it can be used because the route-id is enumerable, refactorable, and queryable through the registrar. URL-strings are stringly-typed escape-hatchy by nature; tooling can flag them as candidates for migration to a registered route-id when the URL pattern is known.
+
+<a id="rfrouteself--navigate-in-place"></a>
+##### `:rf.route/self` — navigate-in-place
+
+`:rf.route/self` is a **reserved navigate target** meaning *stay on the current route; change only these query params (or fragment)*. It is the single most common URL operation — search, pagination, tab switches, filter toggles — where the route (path) is unchanged and only the query string moves. Without it, an app hand-rolls a runtime-db-reading helper: read the current route-id and path-params out of the slice, branch on the id to re-thread the path params, and rebuild the query — all to change `?page=N`. React Router does this in one `setSearchParams` call; `:rf.route/self` is the re-frame2 equivalent, paired with the [`:query-merge` opt](#the-query-merge-opt--navigate-in-place).
+
+It is a **documented, semantically-honest exception** to the "targets are enumerable route-ids" rule: `:rf.route/self` is not a registered route, it is the reserved identity-on-route sentinel. Resolution:
+
+- **`:route-id` and path-`:params`** are read from the **current** route slice (`[:rf.runtime/routing :current]`). The path is held fixed — `:rf.route/self` never re-threads path params, so the **2nd `params` slot is ignored** (pass `{}`, the canonical placeholder). To change path params, navigate to the route-id form instead.
+- **Query** starts from `(:query opts)` (empty by default) exactly like a route-id target; the [`:query-merge` opt](#the-query-merge-opt--navigate-in-place) then folds the caller's deltas into the **current** query.
+- **Fragment** resolves as for any target (`:fragment` opt, else the current fragment is *not* carried — a self-nav that omits `:fragment` clears it, matching a route-id nav; supply `:fragment` to set one).
+- The resolved route-id's `:query` schema still validates the merged query at the call site (per [§Param validation at the call site](#param-validation-at-the-call-site)), and `:query-retain` on the resolved route still applies. Scroll, `:can-leave`, the rule-3 no-op short-circuit, and nav-token allocation all behave exactly as for the equivalent route-id nav.
+- **Before the first navigation** there is no current route: `:route-id` resolves to `nil` and the `route-url` build fails closed to a rejected navigation (`:rf.error/schema-validation-failure` wrapping `:rf.error/no-such-route`; slice unchanged, no push) — the same fail-closed reject as any unresolvable target.
+
+<a id="the-query-merge-opt--navigate-in-place"></a>
+##### The `:query-merge` opt — navigate-in-place
+
+`:query-merge` is a navigate **opt** (third slot) that folds the given deltas into the **current** route's `:query` slice, rather than replacing it. It is the "change these query params, keep the rest" primitive:
+
+```clojure
+;; On /search?q=clojure&page=1&sort=recent  →  /search?q=clojure&page=2&sort=recent
+(rf/dispatch [:rf.route/navigate :rf.route/self {} {:query-merge {:page 2}}])
+
+;; Remove a key: nil value drops it  →  /search?q=clojure&page=2
+(rf/dispatch [:rf.route/navigate :rf.route/self {} {:query-merge {:sort nil}}])
+```
+
+Semantics:
+
+- **Base is the current query.** The merge reads the current `:query` slice from the runtime-db (`[:rf.runtime/routing :current :query]`) — the **same read-and-merge machinery `:query-retain` uses** — and folds the deltas on top. Precedence, low→high: current query → any already-resolved query (`:query` opt + `:query-retain` keys) → the `:query-merge` deltas. An explicit delta wins.
+- **A `nil` value REMOVES a key** from the result — from both the pushed URL and the written slice — matching `route-url`'s query nil-elision (see [§Bidirectional URL ↔ params](#bidirectional-url--params)). Eliding here (rather than writing `{:sort nil}` into the slice and relying on `route-url` to drop it at emission) keeps the slice consistent with the URL: a self-nav to the same query is a genuine rule-3 no-op. A present-but-**falsy** value (`false`, `0`, `""`) is a legitimate value and survives, same as `route-url`.
+- **Target-agnostic.** `:query-merge` works with any target — its natural pairing is `:rf.route/self` (where the current route *is* the target), but `[:rf.route/navigate :route/other {} {:query-merge {…}}]` folds the current query into the *other* route's outgoing query too (subject to that route's `:query` schema). When `:query-merge` is absent the query resolves exactly as before — no current-query base is folded in.
+
+`:query-merge` is **not** treated as an opts-only key for the params/opts swap check (a route may legitimately capture a path segment named `:query-merge`), identical to `:query`.
+
+<a id="resolve-target"></a>
+##### `resolve-target` — the target-resolution contract
+
+The navigate handler resolves its `target`/`params`/`opts` triple into a `{:route-id :path-params :query-params :fragment}` shape through **`resolve-target`** (referenced in the handler sketch above). It is a **pure** function of the target triple plus the current route slice — no side effects, no dispatch. It dispatches on the `target` form:
+
+| `target` form | `:route-id` | `:path-params` | `:query-params` |
+|---|---|---|---|
+| **route-id** `:route/x` | the route-id | the 2nd `params` slot | `(:query opts)` |
+| **reserved** `:rf.route/self` | the **current** slice's `:route-id` | the **current** slice's `:params` (2nd slot ignored) | `(:query opts)` |
+| **URL-string** `{:url s}` | `match-url`'s route-id (or `:rf.route/not-found` on a miss / open-redirect / throw) | `match-url`'s params (or `{:url s}` on a miss) | `match-url`'s query |
+
+After the form dispatch, `resolve-target` applies the query-shaping layers uniformly: `:query-retain` on the resolved route (verbatim carry from the current slice — see [§`:query-retain` cross-route coercion class](#query-retain-cross-route-coercion-class)), then the [`:query-merge`](#the-query-merge-opt--navigate-in-place) fold (current-query base, nil removes a key). Fragment resolves from `:fragment` opt → target-map `:fragment` → URL-embedded fragment (`match-url`), normalised so an empty-string fragment collapses to nil. `resolve-target` performs **no** validation and **no** URL build — those happen downstream (`route-url` at the call site raises the structured caller-bug error, which the handler catches and rejects). This keeps `resolve-target` a pure planning step: given the same triple and slice it always yields the same resolved shape, on JVM and CLJS alike.
 
 ### URL changes are events
 
