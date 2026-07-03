@@ -44,6 +44,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.cofx :as cofx]
             [re-frame.error :as error]
+            [re-frame.reg-meta :as reg-meta]
             [re-frame.classification :as classification]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
@@ -962,6 +963,12 @@
   [reg-fn-name id args]
   (reject-reserved-event-id! reg-fn-name id)
   (let [[raw-meta handler-fn] (normalise-args reg-fn-name args)
+        ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS:
+        ;; a retired bare key (`:spec`) hard-errors, an unknown bare key warns,
+        ;; namespaced/known keys pass. Runs on the raw user meta (which still
+        ;; carries `:interceptors`, a known `:event` key) BEFORE `:interceptors`
+        ;; is stripped by `resolve-interceptors`.
+        _ (reg-meta/validate-registration-metadata! :event 'rf/reg-event id raw-meta)
         [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
         wrapped (wrap-event-handler handler-fn)]
     ;; Per Spec 010 §Production builds: reject the

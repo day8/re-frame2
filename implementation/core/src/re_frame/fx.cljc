@@ -23,6 +23,7 @@
             [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.reg-meta :as reg-meta]
             [re-frame.classification :as classification]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
@@ -49,6 +50,12 @@
   registration-time validator in the same core artefact, already pinned into
   every production bundle; the require is cycle-free."
   [kind id meta handler-fn extra-slots]
+  ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS (shared by
+  ;; `reg-fx` and `reg-cofx`): a retired bare key (`:spec`) hard-errors, an
+  ;; unknown bare key warns, namespaced/known keys pass. The per-kind vocabulary
+  ;; distinguishes `reg-cofx`'s `:recordable?` / `:provided?` grade keys.
+  (reg-meta/validate-registration-metadata!
+    kind (case kind :fx 'rf/reg-fx :cofx 'rf/reg-cofx (symbol "rf" (str "reg-" (name kind)))) id meta)
   (classification/validate-classification! kind meta)
   (registrar/register! kind id (merge (assoc (source-coords/merge-coords meta)
                                              :handler-fn handler-fn)
